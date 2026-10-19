@@ -130,6 +130,8 @@ def classify(line, name, pos, end):
             elif re.match(r"\s*%s\b" % r2, body):
                 k2 = "str"
             return ternary_default(mm.group(1)), k2
+        if re.search(r"!\s*%s\s*\|\|\s*(atoi|atol)\s*\(\s*%s\s*\)\s*(<=|==)\s*0" % (r2, r2), rest):
+            return "0", "bool"        # if (!e || atoi(e) <= 0) return; : off unless the value is > 0
         if re.search(r"!\s*%s\s*\|\|" % r2, rest) or re.search(r"return\s*!\s*%s" % r2, rest):
             return "1", "bool"
         if re.search(r"\b%s\s*&&" % r2, rest) or re.search(r"\bif\s*\(\s*%s\b" % r2, rest):
@@ -334,7 +336,7 @@ def review_block(rows):
     rv = read_review()
     live = {r["name"] for r in rows}
     grp = collections.OrderedDict()
-    order = {"experiment": 0, "fallback": 1, "diagnostic": 2, "test": 3}
+    order = {"experiment": 0, "fallback": 1, "diagnostic": 2, "test": 3, "internal": 4, "launch-line": 5}
     for n, r in sorted(rv.items(), key=lambda x: (order.get(x[1]["cls"], 9), x[1]["review"], x[1]["owner"], x[0])):
         if n in live:
             grp.setdefault((r["cls"], r["owner"], r["review"]), []).append(n)

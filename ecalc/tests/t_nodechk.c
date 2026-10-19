@@ -56,7 +56,7 @@ int main(int argc, char **argv)
             size_t gran = 0; if (hipMemGetAllocationGranularity(&gran, &prop, hipMemAllocationGranularityRecommended) != hipSuccess || !gran) gran = (size_t)2 << 20;
             char *base = 0; hipMemGenericAllocationHandle_t *hs = (hipMemGenericAllocationHandle_t *)calloc(nch, sizeof *hs);
             double tc = 0, tm = 0, ta, tz, tu, T0; int ok = 1;
-            hipSetDevice(d); T0 = now();
+            if (hipSetDevice(d) != hipSuccess) ok = 0; T0 = now();
             if (hipMemAddressReserve((void **)&base, 3 * tot, gran, 0, 0) != hipSuccess) ok = 0;
             for (size_t i = 0; ok && i < nch; i++) {
                 double a = now(); if (hipMemCreate(&hs[i], C, &prop, 0) != hipSuccess) { ok = 0; break; }

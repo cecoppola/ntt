@@ -68,8 +68,8 @@ void comm_ktime_report(void)                                                    
     pthread_mutex_lock(&g_ktmx); int done = g_ktdone; g_ktdone = 1; pthread_mutex_unlock(&g_ktmx); if (done) return;
     const char *sp = getenv("SLURM_PROCID"); long pe = sp ? atol(sp) : (long)getpid();
     for (int d = 0; d < KT_NDEV; d++) if (g_ktd[d]) {                                          /* fold the rest: the process is ending, waiting is fine */
-        hipSetDevice(d);
-        while (g_ktd[d]->n) { struct kt_pend *q = &g_ktd[d]->p[g_ktd[d]->head]; float ms; hipEventSynchronize(q->b);
+        (void)hipSetDevice(d);
+        while (g_ktd[d]->n) { struct kt_pend *q = &g_ktd[d]->p[g_ktd[d]->head]; float ms; (void)hipEventSynchronize(q->b);
             if (hipEventElapsedTime(&ms, q->a, q->b) == hipSuccess) kt_acc(q, ms);
             g_ktd[d]->head = (g_ktd[d]->head + 1) % KT_MAXP; g_ktd[d]->n--; } }
     double tms = 0, tb = 0; long tn = 0;
@@ -120,7 +120,7 @@ void comm_ktime_begin_(struct comm_kt *t, int kern, const void *dst, const void 
     hipEvent_t a;
     if (v->nfree >= 2) { a = v->freev[--v->nfree]; } else if (hipEventCreate(&a) != hipSuccess) { (void)hipGetLastError(); pthread_mutex_unlock(&v->mx); return; }
     t->a = a; t->k = kern; t->sk = kt_kind(src); t->dk = kt_kind(dst); t->bytes = bytes; t->on = 1;
-    hipEventRecord(a, st);
+    (void)hipEventRecord(a, st);   /* diagnostics only: a failed record is not timed */
     pthread_mutex_unlock(&v->mx);
 }
 void comm_ktime_end_(struct comm_kt *t, hipStream_t st)
@@ -129,7 +129,7 @@ void comm_ktime_end_(struct comm_kt *t, hipStream_t st)
     hipEvent_t b;
     pthread_mutex_lock(&v->mx);
     if (v->nfree >= 1) b = v->freev[--v->nfree]; else if (hipEventCreate(&b) != hipSuccess) { (void)hipGetLastError(); pthread_mutex_unlock(&v->mx); return; }
-    hipEventRecord(b, st);
+    (void)hipEventRecord(b, st);
     struct kt_pend *q = &v->p[(v->head + v->n) % KT_MAXP]; q->a = t->a; q->b = b; q->k = t->k; q->sk = t->sk; q->dk = t->dk; q->bytes = t->bytes; v->n++;
     pthread_mutex_unlock(&v->mx);
 }

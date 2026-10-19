@@ -19,8 +19,6 @@ static const char *const cfg_names[] = {
     "COMM_LAYER_STATS",
     "COMM_LAYER_VSLOT_MB",
     "COMM_LAYER_VSLOT_POOL",
-    "COMM_LAYER_VSLOT_RELEASE",
-    "COMM_LAYER_VSLOT_SHARE",
     "COMM_OFI",
     "COMM_OFI_CHUNK_MB",
     "COMM_OFI_DEV",
@@ -31,7 +29,6 @@ static const char *const cfg_names[] = {
     "COMM_OFI_VERBOSE",
     "COMM_OFI_WINDOW",
     "COMM_SHMEM_DEVHEAP",
-    "COMM_SHMEM_MESH_PAR",
     "COMM_SHMEM_NP_HEAP_THP",
     "COMM_SHMEM_ORDER",
     "COMM_SHMEM_PEER_ORDER",
@@ -40,8 +37,6 @@ static const char *const cfg_names[] = {
     "COMM_SHMEM_POOL_NEED_MB",
     "COMM_SHMEM_PROXY",
     "COMM_SHMEM_PX_BLOCK_MB",
-    "COMM_SHMEM_PX_INIT",
-    "COMM_SHMEM_PX_INIT_THREADS",
     "COMM_SHMEM_PX_KCOPY",
     "COMM_SHMEM_PX_NUMA",
     "COMM_SHMEM_PX_SEND",
@@ -101,7 +96,6 @@ static const char *const cfg_names[] = {
     "ECALC_INIT_ONLY",
     "ECALC_INIT_TL",
     "ECALC_LIVE",
-    "ECALC_MEMPREP_ONLY",
     "ECALC_MEM_GUARD_GB",
     "ECALC_MEM_GUARD_PERIOD",
     "ECALC_MEM_SAMPLE",
@@ -129,8 +123,6 @@ static const char *const cfg_names[] = {
     "ECALC_WINDOWS",
     "MDB_SHIFT_CHUNK_MB",
     "MEM_DPOOL_FILL",
-    "MEM_HSTAGE_THP",
-    "MEM_PRECOMPACT_GB",
     "MEM_REPORT_DEVS",
     "MN_COMM_MARK",
     "MN_GROUPS",
@@ -182,4 +174,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 180
+#define CFG_NAMES_N 172

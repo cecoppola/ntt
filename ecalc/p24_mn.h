@@ -1,4 +1,4 @@
-/* p24_mn.h - (results/P2415.md): the P24 kernels of mn_core's exchanges (MN_P24).  Included by rns_dist.c
+/* p24_mn.h - (results/P2415.md): the P24 kernels of mn_core's exchanges.  Included by rns_dist.c
  * after k_scatter_mn (it uses struct acc, struct seg, acc_get / acc_ptr and part0 / partn from there).  The index maps are p24.h's:
  * rank rho's in-runs (ex 1: the operands) and out-runs (ex 0: the result) in place of its rows. */
 #ifndef EC_P24_MN_H

@@ -106,7 +106,7 @@ static int check_alltoallv(comm *c)
     return bad == 0;
 }
 /* three v-exchanges posted back to back (distinct buffers), then three waits -- the pipelined v-exchange
- * (COMM_ALLTOALLV_DEPTH=2: each post runs its intra stage under the previous one's inter stage and completes it) */
+ * (two deep: each post runs its intra stage under the previous one's inter stage and completes it) */
 static int check_alltoallv_pipe(comm *c)
 {
     int n = comm_size(c), me = comm_rank(c), bad = 0; size_t units[] = { 1000 * 8, 1 << 20, 8 };

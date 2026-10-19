@@ -149,9 +149,7 @@ void  comm_layered_scratch(comm *c, void *p, size_t bytes);
 void  comm_layered_set_inter2(comm *c, comm *inter2);   /* X2: COMM_LAYER_INTER2=1 -- a second inter communicator over the same PE set (the v-exchanges alternate) */
 int   comm_layered_vslot_pool_on(void);      /* TASKS 27 (D1e): COMM_LAYER_VSLOT_POOL, default 1 */
 int   comm_layered_inter2_on(void);          /* COMM_LAYER_INTER2, default: COMM_LAYER_VSLOT_POOL's value */
-int   comm_layered_vslot_share_on(void);     /* COMM_LAYER_VSLOT_SHARE, default 1 */
-int   comm_layered_vslot_release_on(void);   /* COMM_LAYER_VSLOT_RELEASE, default: COMM_LAYER_VSLOT_POOL's value */
-void  comm_layered_release_vslots(comm *c);   /* M3: COMM_LAYER_VSLOT_RELEASE=1 -- free the pool v-slots after a product's v-exchanges (no-op otherwise) */
+void  comm_layered_release_vslots(comm *c);   /* M3: free the pool v-slots after a product's v-exchanges (no-op without COMM_LAYER_VSLOT_POOL) */
 size_t comm_layered_vbytes(int dev);   /* B7ACCT: the v-exchange scratch hipMalloc'd now on device dev (all layered communicators) */
 
 /* the shard of an n-limb number held by rank r of size ranks: [lo, hi) */

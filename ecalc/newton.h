@@ -20,7 +20,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-typedef struct { size_t iters, overshoots, repeats, down_corr, up_corr; double t_recip, t_div; size_t dkm_corr; } newton_stats;   /* dkm_corr: NEWTON_DKM's step-1 corrections (not in down/up) */
+typedef struct { size_t iters, overshoots, repeats, down_corr, up_corr; double t_recip, t_div; size_t dkm_corr; } newton_stats;   /* dkm_corr: the DKM division's step-1 corrections (not in down/up) */
 /* DKM (newton_db.c; the only division since SIMP) -- the division in two quotient halves with a half-length reciprocal
  * (GMP mu_div): mu to h = floor(k/2) + 1 limbs; step 1 = the shifted division of A >> s (s = min(floor(k/2), dl); s = 0 at k = 1) by Q, exact (its own
  * corrections, applied to X_hi); step 2 = the shifted division of R1 B^s; X = X_hi B^s + X_lo.  The hook, ECALC_TEST_CORR and the

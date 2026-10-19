@@ -81,11 +81,11 @@ the cluster. Where a number comes from a single run or a small set, the text say
 | DT | the same T settings used as the SHMEM arm in the 2026-10-18 scaling and 3-node campaigns |
 | DTI | DT plus `COMM_LAYER_INTER2=0` (one inter-node exchange in flight) |
 | DTP | DT plus `COMM_SHMEM_PX_PIN=1` (helpers pinned to CPUs) |
-| DTIR | DTI plus `COMM_LAYER_VSLOT_RELEASE=0` (v-slots are not freed and reallocated) |
+| DTIR | DTI plus `COMM_LAYER_VSLOT_RELEASE=0` (v-slots are not freed and reallocated; switch removed 2026-10-19, task 4) |
 | DTIM | DTI plus `FI_MR_CACHE_MONITOR=memhooks` |
-| DTH / DTIH | DT / DTI plus `MEM_HSTAGE_THP=0` (host staging without huge pages) |
+| DTH / DTIH | DT / DTI plus `MEM_HSTAGE_THP=0` (host staging without huge pages; switch removed 2026-10-19, task 4) |
 | suffix X | plus `COMM_SHMEM_NP_HEAP_THP=1` (the fix; default since 2026-10-18) |
-| suffix Q | plus `MNRUN_MEMPREP_GB=100` (memory preparation step before the run) |
+| suffix Q | plus `MNRUN_MEMPREP_GB=100` (memory preparation step before the run; removed 2026-10-19, task 4) |
 | suffix R | plus forced `MEM_FRAG_RESERVE_GB` large-block reserve on NUMA node 0 |
 | F, FX, FL, ... | the same arm run right after a "fragmenter" (a tmpfs program that fragments host memory) |
 
@@ -271,16 +271,16 @@ Items are on aac7; "branch" names are local development branches (the dropped on
 
 | Idea | Items | Result | Verdict |
 |---|---|---|---|
-| Host-memory defragment before the run (memory preparation step, `MNRUN_MEMPREP_GB`, `MEM_PRECOMPACT_GB`) | 72g, 72h, 72i, 72n, 97g/97h | Removes about a third of the loss on a fragmented node; cost moves to the next memory-touching step; 4-158 s per node; 6 of 8 runs with prep still stalled (75a); 97g/97h (Q arms): no effect on the kcompactd stalls | Merged default-off (ead367d), not the fix; start-up itself fragments node 0, so "prepare once before" cannot work |
+| Host-memory defragment before the run (memory preparation step, `MNRUN_MEMPREP_GB`, `MEM_PRECOMPACT_GB`) | 72g, 72h, 72i, 72n, 97g/97h | Removes about a third of the loss on a fragmented node; cost moves to the next memory-touching step; 4-158 s per node; 6 of 8 runs with prep still stalled (75a); 97g/97h (Q arms): no effect on the kcompactd stalls | Merged default-off (ead367d), removed 2026-10-19 (task 4); not the fix; start-up itself fragments node 0, so "prepare once before" cannot work |
 | Per-allocation compaction `MEM_DEV_COMPACT` | 73d, 73e | After the fragmenter: 1220 s and one kill at 1800 s; populate calls of 25-869 s on exhausted nodes | Dropped, branch deleted |
 | Own allocation (`MEM_OWN_GB`: one THP+MPOL_BIND reservation per NUMA node, pools carved from it) | 94a-94c, 95d | Gates ok at 1 n; at 2 n out-of-memory, then 849.7 s against 356.7 (reservation raced the proxy heaps, helpers lost huge pages, compaction storm); a fix (95d) still timed out | Parked after 3 failed rounds |
 | Large-block reserve `MEM_FRAG_RESERVE_GB` / `_NODES` / `_FORCE` (branch fragres, "#1") | 97o, 97p, 97s, 97t | The guard skipped it on every node (start-up needs 113.6 GiB/node, 50 GiB large blocks free on node 0); forced 6 GiB on node 0 lowered the score (60 to 12) but init +4-8 s and, without the heap fix, storms got worse (466k/392k failed, KFD 23-30 s) | Dropped (user adopted only the heap fix, D48) |
 | `MNRUN_MEMPREP_GB=100` as stall fix | 97g, 97h | No effect on the proactive storms | Dropped |
-| `MEM_HSTAGE_THP=0` (4 KiB host staging) | 97b3, 97b4 | Storms still occurred (DTIH r2 55.1 s) | Not the stall; stays default-off |
+| `MEM_HSTAGE_THP=0` (4 KiB host staging) | 97b3, 97b4 | Storms still occurred (DTIH r2 55.1 s) | Not the stall; removed 2026-10-19 (task 4) |
 | `COMM_SHMEM_PX_INIT_THREADS=16` | 97i, 97j | Init 23.0-25.0 against 22.4-25.5 s: no gain | Dropped |
 | `COMM_SHMEM_PX_CONC=1` (concurrent puts, per-command done stamps) | 97c, 97d | Clean runs equal DTI/DTC; stalls hit either arm | Dropped |
-| `COMM_SHMEM_PX_INIT`, `MESH_PAR`, `PX_PIN` | 97e, 97f | Clean SHMEM runs 49.7-52.5 s for all arms | No gain |
-| `COMM_LAYER_VSLOT_RELEASE=0` (DTIR) | 97a/97b | Init +3 s (4096 against 2560 MiB heap), still stalls (r2 170.8 s) | Not the cause (pool is first-fit, no hipMalloc in the release path) |
+| `COMM_SHMEM_PX_INIT`, `MESH_PAR`, `PX_PIN` | 97e, 97f | Clean SHMEM runs 49.7-52.5 s for all arms | No gain; `PX_INIT` and `MESH_PAR` removed 2026-10-19 (task 4), `PX_PIN` 2026-10-18 |
+| `COMM_LAYER_VSLOT_RELEASE=0` (DTIR) | 97a/97b | Init +3 s (4096 against 2560 MiB heap), still stalls (r2 170.8 s) | Not the cause (pool is first-fit, no hipMalloc in the release path); switch removed 2026-10-19 (task 4) |
 | `FI_MR_CACHE_MONITOR=memhooks` (DTIM) | 97b | Erratic (50-98.5 s) | Dropped |
 | `PX_WORKERS`, `PX_CTX` multi-context issuing | 72c, 96-series | Higher proxy rate, same node throughput | Not adopted |
 | `PX_SEND=2` + shift (SS) | 72b, 72d, 72j, 72l, 72p | 12 pairs, no separation | Not adopted; PX3 was built to replace it |
@@ -397,10 +397,10 @@ but cannot show layv, the 5-6 node step, or node-0 compaction of a job's first n
 | `COMM_SHMEM_PEER_ORDER` | rank | `shift` is in the DT/T6 set |
 | `COMM_SHMEM_PX_BLOCK_MB` | 4 | 64 in the DT/T6 set |
 | `COMM_LAYER_INTER2` | 1 | 0 is the candidate for SHMEM (section 4.5) |
-| `COMM_LAYER_VSLOT_RELEASE` | 1 (follows VSLOT_POOL) | 0 tested, not useful |
+| `COMM_LAYER_VSLOT_RELEASE` | removed 2026-10-19 (task 4); was 1 (follows VSLOT_POOL) | 0 tested, not useful |
 | `COMM_SHMEM_PX_PIN` | 0 | not significant |
-| `COMM_SHMEM_PX_INIT`, `_INIT_THREADS`, `MESH_PAR`, `OFFS_WITH_DATA` (removed 2026-10-18, D49) | 0 / 4 / 0 / 0 | no gain; INIT_THREADS also sets the collapse threads of the fix |
-| `MNRUN_MEMPREP_GB`, `ECALC_MEMPREP_ONLY`, `MEM_PRECOMPACT_GB`, `MEM_HSTAGE_THP` | off | merged default-off (ead367d), not the fix |
+| `COMM_SHMEM_PX_INIT` (removed 2026-10-19, task 4), `_INIT_THREADS`, `MESH_PAR` (removed 2026-10-19, task 4), `OFFS_WITH_DATA` (removed 2026-10-18, D49) | 0 / 4 / 0 / 0 | no gain; INIT_THREADS also sets the collapse threads of the fix |
+| `MNRUN_MEMPREP_GB`, `ECALC_MEMPREP_ONLY`, `MEM_PRECOMPACT_GB`, `MEM_HSTAGE_THP` | removed 2026-10-19 (task 4) | merged default-off (ead367d), not the fix |
 | `COMM_PHASE_TS` | removed 2026-10-18 (D49) | diagnostic; COMM_TRACE v2 replaces it |
 | `COMM_SHMEM_LAYV_ANY` | removed | no effect over 8 pairs; gates passed |
 | `COMM_TRACE*`, `COMM_TRACE_HB*`, `MEM_FRAG_RESERVE_*`, `MEM_OWN_GB`, `MEM_NUMA_BIND`, `COMM_SHMEM_PX_CONC`, `PX_WORKERS`, `PX_CTX` | n/a | only on development branches |

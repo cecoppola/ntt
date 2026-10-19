@@ -267,7 +267,7 @@ static void plan_recip_db(size_t nq, size_t k)
         j = jn; }
 }
 
-/* INT3: NEWTON_DKM=1 (results/DKM15.md 1.2) -- the reciprocal to h = floor(k_mu/2) + 1, then two shifted divisions:
+/* INT3: the DKM division (results/DKM15.md 1.2) -- the reciprocal to h = floor(k_mu/2) + 1, then two shifted divisions:
  * s = min(floor(k/2), dl), k1 = k - s; step 1 A_h mu ((k1 + 1)-limb mu, cut below k1 + 1) and X_hi Q mod B^w; step 2 R1's top mu
  * (s + 1 x s + 2, cut below s + 2: R1 < Q, so k2 <= s + 1) and X_lo Q mod B^w.  The lengths are newton_db.c's (mn_divmod_dkm at size > 1,
  * divmod_shifted_dkm at size 1) at the predicted S; X_hi ~ k1 limbs, X_lo ~ s (upper bounds, as the default plan's xn = dl + 1).
@@ -278,7 +278,7 @@ static void plan_div_dkm(size_t nq, size_t dl, size_t k_mu, long double lq, int 
     size_t na = sn + dl, k = na - nq + 1, w = nq + 2, s = k / 2 < dl ? k / 2 : dl, k1 = k - s;
     size_t ahn1 = sn - (nq - 1 - (dl - s)), xh = k1, ahn2 = s + 1, k2 = s + 1, xl = s;
     if (size > 1) plan_recip_mn(nq, h_mu, size); else plan_recip_db(nq, h_mu);
-    if (!g_quiet) printf("plan div    NEWTON_DKM=1: k %zu = %zu + %zu (s), the reciprocal to h %zu of k_mu %zu; step 1 A_h %zu x mu %zu, X_hi %zu x Q %zu; step 2 R1_h %zu x mu %zu, X_lo %zu x Q %zu (mod B^%zu)\n",
+    if (!g_quiet) printf("plan div    two quotient halves: k %zu = %zu + %zu (s), the reciprocal to h %zu of k_mu %zu; step 1 A_h %zu x mu %zu, X_hi %zu x Q %zu; step 2 R1_h %zu x mu %zu, X_lo %zu x Q %zu (mod B^%zu)\n",
                          k, k1, s, h_mu, k_mu, ahn1, k1 + 1, xh, nq, ahn2, k2 + 1, xl, nq, w);
     if (size > 1) {
         int L1 = newton_mn_x1_level(ahn1, k1 + 1, size, size, 2 * (ahn1 + k1 + 1)), L2 = newton_mn_x1_level(xh, nq, size, size, 2 * (xh + nq));
@@ -331,8 +331,8 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
     if (!silent && ec_np_auto) printf("plan primes %.4g digits g %d, ECALC_NP=auto (four over %zu terms%s): pieces at four primes tree %ld of %ld, recip %ld of %ld, div %ld of %ld | leaf dist_db %ld of %ld, recip single-node chain %ld of %ld\n",
            (double)d, size, ec_np_auto_terms, np_by(), g_pieces4[PH_TREE], g_pieces[PH_TREE], g_pieces4[PH_RECIP], g_pieces[PH_RECIP], g_pieces4[PH_DIV], g_pieces[PH_DIV], g_pieces4[PH_LEAF], g_pieces[PH_LEAF], g_pieces4[PH_RCHAIN], g_pieces[PH_RCHAIN]);
     if (!silent)   /* the pieces at 24 digits per point */
-        printf("plan p24   %.4g digits g %d, MN_P24=%d: pieces at 24 digits per point (four primes) tree %ld of %ld, recip %ld of %ld, div %ld of %ld\n",
-               (double)d, size, 2, g_pieces24[PH_TREE], g_pieces[PH_TREE], g_pieces24[PH_RECIP], g_pieces[PH_RECIP], g_pieces24[PH_DIV], g_pieces[PH_DIV]);
+        printf("plan p24   %.4g digits g %d: pieces at 24 digits per point (four primes) tree %ld of %ld, recip %ld of %ld, div %ld of %ld\n",
+               (double)d, size, g_pieces24[PH_TREE], g_pieces[PH_TREE], g_pieces24[PH_RECIP], g_pieces[PH_RECIP], g_pieces24[PH_DIV], g_pieces[PH_DIV]);
     if (size > 1) {                                               /* the mn transform cache against the layout's node (rank 0's range, as BS_LAYOUT_ONLY) */
         unsigned long a0 = bs_a0, b1 = bs_b1; unsigned __int128 nn = N; bs_a0 = 1; bs_b1 = 1 + (unsigned long)(nn / size);
         int cap = pool_log >= 31 ? 1 : 0;

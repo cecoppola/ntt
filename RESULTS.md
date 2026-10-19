@@ -49,12 +49,12 @@ setting it to 0 restores the old path; a setting named "built in" no longer exis
 | `FI_MR_CACHE_MONITOR=userfaultfd` set by `mnrun.sh`; `disabled` refused | 2026-10-11 | reproducer hangs 22/105 → 0/104; 46 four-node runs, 0 segfaults, 0 hangs | m | results/CRASHES_HANGS.md §S46, T12.md |
 | kernels `DBIG_ADDSUB2`, `DBIG_MAXIDX_TOP`, `DBIG_QSEL` (built in) | 2026-10-10 | together -50.0 s at 4 nodes [-71.7, -28.3] | m | results/KERNELS.md §S38, S40.md, S41.md, S43.md |
 | `DIST_CHUNKS=8` (was 4) | 2026-10-07 | device -13.4 GB at 576 nodes for +2.4 s | mod | results/GRID_GROUPS.md §S45 |
-| exchange slots in the node budget (`ECALC_VSLOT_BUDGET=1`; built in) | 2026-10-07 | no measured cost | m | results/GRID_GROUPS.md §B7ACCT, S18M.md |
+| exchange slots in the node budget (built in; the `ECALC_VSLOT_BUDGET` switch is gone) | 2026-10-07 | no measured cost | m | results/GRID_GROUPS.md §B7ACCT, S18M.md |
 | `COMM_OFI=1` where a cxi NIC is present | 2026-10-06 | × 2.1 over SHMEM at 10 nodes | m | results/OFI_FABRIC.md §OFI17, STD17.md |
 | `FI_UNIVERSE_SIZE`, `FI_LOG_LEVEL=warn` set by `mnrun.sh` when unset | 2026-10-06 | fixes multi-process `fi_enable(-28)`; log volume / 1000 | m (target) | results/TARGET.md §TGTBENCH2 |
 | transport opened before the arenas, self-test growth (`COMM_INIT_EARLY=1`, `MN_SELFTEST_GROW=1`; built in) | 2026-10-05 | transport opened before the arenas (init segfault 8/78 before); ≥ 32 processes start | m | results/CRASHES_HANGS.md §S16, P16.md |
-| division in two quotient halves (`NEWTON_DKM=1`; built in) | Phase 15 | division -25.7 s at 10¹¹ | m | results/DIVISION.md §DKM15 |
-| 24 digits per transform point in multi-node products (`MN_P24=2`; built in) | Phase 15 | -38 % at 10¹⁰ on 2 processes | m | results/PRIMES_STRATEGY.md §P2415 |
+| division in two quotient halves (built in; the `NEWTON_DKM` switch is gone) | Phase 15 | division -25.7 s at 10¹¹ | m | results/DIVISION.md §DKM15 |
+| 24 digits per transform point in multi-node products (built in; the `MN_P24` switch is gone) | Phase 15 | -38 % at 10¹⁰ on 2 processes | m | results/PRIMES_STRATEGY.md §P2415 |
 | `ECALC_CORR_PATCH=2`, `MN_OUT_EARLY=1`: write overlapped with the division, corrections patched | Phase 15 | write hidden under the division | m | results/OUTPUT_IO.md §IO15, IO215.md |
 | `ECALC_OUT_PACKED=2`: packed output, 60-bit, 0.4167 B/digit (=1, 0.444 B/digit, until 2026-10-12) | Phase 15; 2 since 2026-10-12 | ASCII made off the clock by `tools/unpack_digits` | m | results/TESTING_VERIF.md §W, results/OUTPUT_IO.md §O4 |
 | `BS_BATCH_PIPE=1`: the batch tier's host side in parallel, tiles back to back (user decision D20; `=0` fallback) | 2026-10-12 | 1 n −0.99 s [−1.18, −0.80], 4 ABBA rounds, digits identical | m | results/KERNELS.md §N3 |
@@ -63,12 +63,12 @@ setting it to 0 restores the old path; a setting named "built in" no longer exis
 | `NEWTON_CHAIN_GUARD=1`: the reciprocal's chain keeps a guard limb per doubling (user decision D25; `=0` fallback; counted by `dm_layout` and `mem_model.py`) | 2026-10-13 | removes a rare fatal (>64 corrections after runs of exact doublings); SIMP Q error -22 -> 0 units; digits identical | m | results/DIVISION.md §RECIP |
 | `DM_MN_WRAP=1`: the division's low product X·Q as a low part + one cyclic plane (user decision D22; `=0` fallback; counted by `dm_layout` and `mem_model.py`) | 2026-10-12 | 6 n (P24) dm −6.25 s [−11.47, −1.03], total −2.86 s n.s.; +5.4 GB per APU | m | results/DIVISION.md §P1, DEF.md |
 | `BS_SEED_FILL=128` | Phase 15 | the batch tier's products fill their lengths | m | results/SINGLE_NODE.md §T215 |
-| transform cache sized and counted (`RNS_DIST_CACHE_FIT=1`; built in) | Phase 15 | required at the target | m | results/CACHE.md §TC15 |
+| transform cache sized and counted (built in; the `RNS_DIST_CACHE_FIT` switch is gone) | Phase 15 | required at the target | m | results/CACHE.md §TC15 |
 | `DB_POOL_VMM=1`: arenas as HIP virtual memory | Phase 14 | no in-phase allocation | m | results/DIVISION.md §R114 |
 | `MN_T_CHUNK_MB=1024` code default | Phase 14 | pool 81.6 → 45.0 GB per node | mod | results/SHMEM_ITEMS.md §P214 |
 | `ECALC_BUDGET_CHECK=1`, `ECALC_MEM_GUARD_GB` | Phase 14 | named stop (rc 8 / rc 9) instead of the OOM killer | m | results/MEMORY.md §L114 |
 | `RNS_STRATEGY=auto`, `ECALC_PLANE_CAP=2^31`, three primes at size 1 | Phase 13 | three primes: -17 % wall, -25.8 GB | m | results/PRIMES_STRATEGY.md §B13b, X13b.md, archive RESULTS §78-80 |
-| two-deep v-exchange (`COMM_ALLTOALLV_DEPTH=2`; built in) | Phase 13 | xGMI stage hidden under the fabric (1.4 → 74 %) | m | results/EXCHANGE.md §X13 |
+| two-deep v-exchange (built in; the `COMM_ALLTOALLV_DEPTH` switch is gone) | Phase 13 | xGMI stage hidden under the fabric (1.4 → 74 %) | m | results/EXCHANGE.md §X13 |
 | T1 moduli: the first eight primes above 2⁶² | Phase 11 | earlier moduli were composite | m | results/TESTING_VERIF.md §V |
 
 ## Launch-line settings in force (not code defaults)
@@ -80,11 +80,11 @@ On both launch lines (`profiles/aac7.conf` (`LAUNCH_LINE_KEYS`) for aac7, `profi
 |---|---|---|---|
 | `ECALC_NP=auto` (4 primes above the three-prime bound) | needed at the target size | mod | results/PRIMES_STRATEGY.md §NP15, P15.md |
 | `MN_OUT_DKM_HI=1`, `RNS_DIST_CACHE_PARTIAL=1` (code default) | write starts after division step 1; cache from free pool bytes, -12.8 s at 5.1 × 10¹³ | mod | results/CACHE.md §TC15, IO215.md |
-| lean division (`DM_MN_LEAN=1`; built in) | same digits, less division memory | m | archive RESULTS §104 |
+| lean division (built in; the `DM_MN_LEAN` switch is gone) | same digits, less division memory | m | archive RESULTS §104 |
 | `MN_T_CHUNK_MB=2048` | aac7: 24 paired rounds, mean -42.3 s, p ≈ 0.04; 4-node recheck inconclusive (+6.98 s [-10.3, +24.3]) | m | results/SESSIONS.md §S22, S47.md |
 | X2: `COMM_LAYER_INTER2=1`, `COMM_LAYER_VSLOT_POOL=1` (code default) | -31.7 s at 10 nodes (CI -55.7 .. -7.8) | m | results/SESSIONS.md §S31 |
-| `COMM_LAYER_VSLOT_SHARE=1` (code default) | -8.4 GB per node at 4 nodes; -5.79 GB at 576 | m / mod | results/GRID_GROUPS.md §S36, S45.md |
-| `COMM_LAYER_VSLOT_RELEASE=1` (code default) | device peak -8.60 GB at 4 nodes; -8.59 GB at 576 | m / mod | results/GRID_GROUPS.md §C06, L1.md |
+| `COMM_LAYER_VSLOT_SHARE=1` (always on; switch removed 2026-10-19, task 4) | -8.4 GB per node at 4 nodes; -5.79 GB at 576 | m / mod | results/GRID_GROUPS.md §S36, S45.md |
+| `COMM_LAYER_VSLOT_RELEASE=1` (always on with the pool; switch removed 2026-10-19, task 4) | device peak -8.60 GB at 4 nodes; -8.59 GB at 576 | m / mod | results/GRID_GROUPS.md §C06, L1.md |
 | `COMM_SHMEM_ROUND_MB=1024` | SHMEM pool 45.0 → 9.8 GB per node | mod | results/SHMEM_ITEMS.md §V114 |
 | `ECALC_SEGV_TRACE=1` | crash-trace handler only | - | results/LAUNCH_DEFAULTS.md §B01 |
 
