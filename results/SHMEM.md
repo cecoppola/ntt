@@ -276,16 +276,25 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
 - **Rule.** `COMM_SHMEM_PX_SEND` unset = 3 (PX3) under `COMM_SHMEM_PE_PER_APU=1` with an OpenSHMEM 1.5 build, else 1; an explicit
   value keeps its checks. `COMM_SHMEM_PX_SEND=1` is the fallback.
 - **4 n** (2.5764e11 digits, item 98v, n 3 each): PX3 162.0 s against `PX_SEND=1` 169.1 s; DT 161.6 s (98r).
-- **6 n** (3.8646e11, item 99b, n 3 each): PX3 205.7 s against `PX_SEND=1` 213.1 s (confirmation pending when written).
+- **6 n** (3.8646e11, build d1a1f277, items 99b + 99g pooled): PX3 against `PX_SEND=1` in 7 pairs, every pair faster, mean
+  -5.9 s (-2.8 %), 95 % CI [-9.4, -2.4]; per item PX3 205.7 / 208.1 s against 213.1 / 212.8 s; libfabric 190.0 / 190.7 s
+  (99g: 181.5-184.1 s after a slow first run). The rule of D53 (CI excluding 0, digits identical) is met.
+- **Tried and not adopted** (4 n 2.5764e11 sweep 99c, n 2 each, and 6 n): chunk size (1, 4, 16, 64 MiB) and
+  `COMM_SHMEM_PEER_ORDER=shift` change PX3 by less than the spread (P3 161.4, 1 MiB 164.3, shift 164.1 s at 4 n; 64 MiB +
+  shift (DT) 215.1 s at 6 n, worse than `PX_SEND=1`). `PX_SEND=4` (put-with-signal on the last put, branch pxsig, archived):
+  6 n 246.6 s (99b); with shift 149.2 s at 4 n (libfabric level) but 221.9 s at 6 n, +9.0 s against `PX_SEND=1`, CI [+5.0,
+  +13.1] (99g): whole puts with one-to-one pairing help at 3 peers and hurt at 5.
+- **Remaining gap** at 6 n: PX3 against libfabric about +9 % (208 against 190 s); see "Six-node confirmation and the gap
+  against the off-node peers" above.
 
 ## Open questions and next experiments
 
 - Stalls (cause and fix recorded above): kernel proactive compaction on a 4 KiB pinned node-process heap evicted the GPU
   queues; `COMM_SHMEM_NP_HEAP_THP=1` (default, D48) removes it. Open:
-  1. 6-node full-size confirmation of SHMEM with the fix against libfabric 184.5 s (TASKS Proposed).
+  1. Done: 6-node confirmation (items 98f, 99b, 99g; no stalls).
   2. Hugetlb backing for the proxy and node-process heaps: switch `COMM_SHMEM_HUGETLB` merged, default off; the 4-node
      paired test is open (the target has hugetlb); it would also remove the residual evictions below.
-  3. The remaining gap: 3-6 % at 3 n, +2.2 % (DT) and +0.7 % (DTIX) at 4 n (section above).
+  3. The remaining gap grows with the off-node peers (sections above); with PX3 about +7 % at 4 n and +9 % at 6 n.
   4. Residual GPU-queue evictions from successful compaction on NUMA node 0 of the job's first node (1.4-12 s summed per
      run, m).
 - Problem B (steady gap): PX3 statistics at 4 n were running (items 75a, 75b, 75d). SS is not confirmed (12 pairs, no
