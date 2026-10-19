@@ -43,17 +43,17 @@ digits up to 10¹¹.
 | scale | measured time | source |
 |---|---|---|
 | 1 node (aac6), 6.441 × 10¹⁰ digits, with the three speed defaults adopted 2026-10-12 (`DBIG_SMALL_BOUNCE`, `DIST_GATHER_RAW=2`, `BS_SEED_PULL`) | 66.59 s against 73.74 s without them (paired -7.16 s [-8.08, -6.23]) (m, 2026-10-12) | `results/CAND.md` |
-| 2 nodes (aac7), 6.441 × 10¹⁰ digits per node, same three defaults | 134.51 s against 140.10 s without them (pooled 12 pairs, -5.58 s [-10.54, -0.63]) (m, 2026-10-12); one gate run after the wave 2 removals: 134.0 s (m) | `results/CAND.md`, `results/W2B.md` |
+| 2 nodes (aac7), 6.441 × 10¹⁰ digits per node, same three defaults | 134.51 s against 140.10 s without them (pooled 12 pairs, -5.58 s [-10.54, -0.63]) (m, 2026-10-12); one gate run after the wave 2 removals: 134.0 s (m) | `results/CAND.md`, `results/CODE_REDUCTION.md §W2B` |
 | 1 node, 6.441 × 10¹⁰ digits, before the 2026-10-12 defaults | 76-78 s (m) | `RESULTS.md`, `results/TIME_MODEL.md §S48` |
-| 1 node, 10¹¹ digits | 129.3 s (m, before the 2026-10-12 defaults) | `results/L2.md` |
+| 1 node, 10¹¹ digits | 129.3 s (m, before the 2026-10-12 defaults) | `results/CODE_REDUCTION.md §L2` |
 | 1 / 2 / 4 / 6 nodes at 6.441 × 10¹⁰ digits per node (scaling, aac7, mean of 2 runs per count, 2026-10-13 overnight, defaults of 4ae95ec1) | 67.6 / 119.4 / 172.2 / 204.6 s; efficiency vs 1 node (T1/Tn) 0.57 / 0.39 / 0.33 (m, 2026-10-13; before tonight's runs: 74.4 / 138.9 / 188.2 / 246.4 s, `results/TIME_MODEL.md §M2a`) | `results/NIGHT_RUNS.md §NIGHT` §4 |
 | 3 / 5 nodes at 6.441 × 10¹⁰ digits per node (aac7, comm_ofi default, 2026-10-14): 147.7 s (3 runs, sd 4.5) and 182.1 s (3 runs, sd 9.7); with the 1/2/4/6 points the curve reads 67.6 / 119.4 / 147.7 / 172.2 / 182.1 / 204.6 s for 1 to 6 nodes (m, 2026-10-14) | `results/TIME_MODEL.md §SCALE35` |
 | 6 nodes, 3.8646 × 10¹¹ digits (repeat, aac7, defaults, no writes, 2026-10-13) | mean 202.1 s, sd 8.6 s, min 192.0 s, max 230.9 s over 47 runs; 0 hangs (m) | `results/NIGHT_RUNS.md §NIGHT` §5 |
 | 6 nodes, 3.8646 × 10¹¹ digits (repeat, test cluster, defaults of 209712f, no writes, 2026-10-13 day plan) | mean 197.1 s, sd 12.0 s, min 181.1 s, max 224.8 s over 34 runs; 0 hangs (m) | `results/NIGHT_RUNS.md §DAY` §4 |
 | 6 nodes, 3.8646 × 10¹¹ digits (repeat on main 1aa2b80, after the CKPT, N7 and N7b merges, aac7, 2026-10-14, no writes) | mean 190.70 s, sd 12.03 s, min 175.38 s, max 217.78 s over 31 runs; 0 hangs; gates at 1/2/4/6 nodes PASS (digits identical); SHMEM-path sweep 24/24 digits identical at 1 to 6 nodes (m; not a paired speed claim) | 2026-10-14 repeat; results/NIGHT_RUNS.md §NIGHT2 |
 
-The 60-bit packed output (`ECALC_OUT_PACKED=2`) is the default since 2026-10-12 (batch D5, `results/W2A.md`).
-The wave 2 settings removals changed no timing at the defaults (`results/W2A.md`, `results/W2B.md`).
+The 60-bit packed output (`ECALC_OUT_PACKED=2`) is the default since 2026-10-12 (batch D5, `results/CODE_REDUCTION.md §W2A`).
+The wave 2 settings removals changed no timing at the defaults (`results/CODE_REDUCTION.md §W2A`, `results/CODE_REDUCTION.md §W2B`).
 
 **Not yet done.** ecalc has not run on the target machine. The 576-node layout fits with 12.9 GB of device margin
 (mod); the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`, `results/TARGET.md §TGT`; at the
@@ -76,7 +76,7 @@ D18, 2026-10-12: the code default at every size > 1, as the target always had fr
 at 2 nodes, +8.6 GB per APU, m; `results/LAUNCH_DEFAULTS.md §DEF`). The three-prime multi-node path stays selectable for A/B runs with
 `ECALC_NP_MN3=1` (`tools/gate.sh --mn-primes 3` gates it). The batch tier's host overlap `BS_BATCH_PIPE` (D20, `results/N3.md`: −0.99 s at 1 node, m) and the carry-lookahead in `k_crt_batch` `RNS_CRT_SCAN` (D21, `results/K4b.md`: −2.52 s at 1 node, m) and the division's low product as one cyclic plane `DM_MN_WRAP` (D22, `results/DIVISION.md §P1`, `results/LAUNCH_DEFAULTS.md §DEF`: 6 nodes dm −6.25 s, +5.4 GB per APU, counted by the memory model, m) are code defaults since 2026-10-12, each with a `=0` fallback (`DM_MN_WRAP` automatic since 2026-10-13, D26, `results/LAUNCH_DEFAULTS.md §FIT`: on only where the device with it fits the device limit less a 5 GB margin -- on at aac7's 1 to 6 nodes, off at 3.82 × 10¹³ on 576 nodes); so are the P24 CRT carry-lookahead `P24_CRT_SCAN` (D24, `results/K4c.md`) and the reciprocal chain guard `NEWTON_CHAIN_GUARD` (D25, `results/DIVISION.md §RECIP`, counted by the memory model) since 2026-10-13. The transform-cache fit and partial cache, the early write after
 division step 1, the lean division and the X2 exchange with slot sharing and release are code defaults (TASKS 27,
-`results/W2B.md`; each has a `=0` fallback). The two lines are kept in:
+`results/CODE_REDUCTION.md §W2B`; each has a `=0` fallback). The two lines are kept in:
 
 | system | line | source |
 |---|---|---|
