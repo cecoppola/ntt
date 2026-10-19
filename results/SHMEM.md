@@ -292,6 +292,18 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
 - **Remaining gap** at 6 n: PX3 against libfabric about +9 % (208 against 190 s); see "Six-node confirmation and the gap
   against the off-node peers" above.
 
+## Round size and send schedule (items 9aa, 9ad, 9ae, 2026-10-19; m unless marked)
+
+- **Round size** (`COMM_SHMEM_ROUND_MB`, 1024 on the launch line): no division-multiply exchange is split into rounds at 4 n
+  2.5764e11 (each is about 134 MB per peer pair against a 341 MiB round share; 660 of 16000 exchanges are rounded, none in
+  dm). 2048 adds 10.7 GB per node and failed the runtime budget check in 2 of 3 runs; 4096 tripped the host memory guard;
+  the one 2048 run that fitted took 175.2 s against 175.0 s for 1024. Not a lever.
+- **Send schedule:** whole puts to one peer at a time with put-with-signal (archived `PX_SEND=4` + shift order, P4S, build
+  d1a1f277) is steady at 4 n: 150.9 s (n 4, sd 0.8; dm 54.5-55.5 s) against PX3 162.5 s (n 3; dm 63.1-64.4 s) and libfabric
+  147.4 s (n 3, all fast launches; dm 52.0-52.3 s) (item 9ae). PX3's dm sits at libfabric's slow-launch level in about 45
+  runs at 4 n and never at the fast one, so it is not the per-launch draw; likely cause: incast from PX3's round-robin
+  chunks to all peers at once (derived). At 6 n P4S lost 9 s (item 99g); a schedule that keeps the 4 n gain is in design.
+
 ## Open questions and next experiments
 
 - Stalls (cause and fix recorded above): kernel proactive compaction on a 4 KiB pinned node-process heap evicted the GPU
