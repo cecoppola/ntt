@@ -9,7 +9,6 @@ BS_CKPT_BG_MBS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or faul
 BS_SEED_PULL	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback, also the aac6 CPX workaround (profiles/aac6.conf); default since 2026-10-12 (CAND)
 COMM_LAYER_INTER2	fallback	coordinator (TASKS S)	2026-11-11	=0 restores the pre-X2 exchange; default since 2026-10-12 (TASKS 27, W2B D1e)
 COMM_LAYER_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-COMM_LAYER_VSLOT_POOL	fallback	coordinator (TASKS S)	2026-11-11	=0 restores the old v-slot form (INTER2 and RELEASE follow it); default since 2026-10-12 (W2B D1e)
 COMM_OFI_DEV	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_OFI_VERBOSE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_SHMEM_POOL_NEED_MB	internal	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	internal channel from the planner to the library; do not set by hand

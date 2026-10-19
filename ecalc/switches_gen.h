@@ -18,7 +18,6 @@ static const char *const cfg_names[] = {
     "COMM_LAYER_INTER2",
     "COMM_LAYER_STATS",
     "COMM_LAYER_VSLOT_MB",
-    "COMM_LAYER_VSLOT_POOL",
     "COMM_OFI",
     "COMM_OFI_CHUNK_MB",
     "COMM_OFI_DEV",
@@ -175,4 +174,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 173
+#define CFG_NAMES_N 172

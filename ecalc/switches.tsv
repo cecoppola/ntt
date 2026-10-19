@@ -15,10 +15,9 @@ BS_SEED_PULL	int	1	1	0|1	built-in default	-	-	Y	ecalc	dbig.c	2	coordinator (TASK
 BS_SEED_TERMS	int	derived	derived		built-in default	-	T215.md+WP7.md	Y	ecalc	binsplit.c	5	-	-	
 BS_SEED_THREADS	int	all	all		built-in default	-	I.md+S22.md	Y	ecalc	binsplit.c	6	-	-	
 COMM_KTIME	int	0	0		unclassified	-	-	Y	ecalc	comm_copy.c,comm_shmem.c	2	diagnostics (TESTING.md)	2027-04-12	
-COMM_LAYER_INTER2	bool	derived	derived	0|1	built-in default	-	XEFF.md+S47.md	Y	ecalc	comm_layered.c	1	coordinator (TASKS S)	2026-11-11	comm_layered.c; default since 2026-10-12 (TASKS 27): follows COMM_LAYER_VSLOT_POOL (1)
+COMM_LAYER_INTER2	bool	1	1	0|1	built-in default	-	XEFF.md+S47.md	Y	ecalc	comm_layered.c	1	coordinator (TASKS S)	2026-11-11	comm_layered.c; default since 2026-10-12 (TASKS 27): 1
 COMM_LAYER_STATS	int	0	0		test-only	-	X13.md+C16.md	Y	ecalc	comm_layered.c	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_LAYER_VSLOT_MB	bool	derived	derived	0|1	built-in default	-	-	prose	ecalc	comm_layered.c	1	-	-	
-COMM_LAYER_VSLOT_POOL	bool	1	1	0|1	built-in default	-	XEFF.md	Y	ecalc	comm_layered.c,comm_ofi.c,comm_shmem.c	3	coordinator (TASKS S)	2026-11-11	comm_layered.c; default 1 since 2026-10-12 (TASKS 27)
 COMM_OFI	bool	auto	derived	0|1	launch-line	aac7	OFI17.md	Y	ecalc	comm_ofi.c	3	-	-	comm_ofi.c:98 default = a cxi NIC is present (cxi_present())
 COMM_OFI_CHUNK_MB	float	unset	unset		built-in default	-	TUNE17.md+OFI17.md	Y	ecalc	comm_ofi.c	2	-	-	
 COMM_OFI_DEV	int	derived	derived		test-only	-	-	Y	ecalc	comm_shmem.c	4	diagnostics (TESTING.md)	2027-04-12	

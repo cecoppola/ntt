@@ -326,7 +326,7 @@ static void budget_check(unsigned long N, int verbose)
     int cap = rns_pool_log() >= 31 ? 1 : 0;
     size_t pb = 0, ab = 0, hb = 0; binsplit_node_bytes(N, sz, cap, ec_np_init(), &pb, &ab, &hb);
     size_t dev = mem_report_dev_total(), rss = mem_vmrss();
-    size_t dpk = (dev > pb + ab ? dev : pb + ab) + binsplit_vslot_budget_node(N, sz), hpk = rss > hb ? rss : hb, peak = dpk + hpk, now = dev + rss;   /* B7ACCT: + the v-slots (hipMalloc'd later) (always counted) */
+    size_t dpk = (dev > pb + ab ? dev : pb + ab), hpk = rss > hb ? rss : hb, peak = dpk + hpk, now = dev + rss;
     struct meminfo mi; memset(&mi, 0, sizeof mi); mem_meminfo(&mi);
     const int K = 7;
     uint64_t v[7] = { host_hash(), peak, dpk, hpk, peak > now ? peak - now : 0, mi.avail, (uint64_t)-1 };
@@ -494,7 +494,7 @@ int main(int argc, char **argv)
     printf("      VmRSS %.1f GB after init (staging %.1f GB pinned + device regions %.0f GB); init %.1f s\n", mem_vmrss() / 1e9, rns_staging_bytes() * 4 / 1e9, mem_dev_pool_bytes() / 1e9, t_init);
     if (getenv("MEM_REPORT_DEVS") && mn_size_ > 1) {   /* B7ACCT: the layout's terms outside "in use" on the per-APU lines (a report only) */
         const char *eo = getenv("COMM_OFI_POOL_MB"); size_t ofi = eo && comm_ofi_planned() ? (size_t)atol(eo) << 20 : 0;
-        mem_report_outside(comm_layered_vslot_pool_on() ? 0 : binsplit_vslot_bytes(N, mn_size_, 0, 0, 0), ofi, comm_layered_vbytes);   /* X2: under COMM_LAYER_VSLOT_POOL=1 the slots are in the comm pool (ofi) */ }
+        mem_report_outside(0, ofi, comm_layered_vbytes);   /* X2: the v-slots are in the comm pool (ofi) */ }
     mem_report("init");                           /* device and host bytes by category at each phase boundary */
     budget_check(N, verbose);                     /* ECALC_BUDGET_CHECK=1 -- every rank stops here when any node is over */
     bs_verbose = verbose >= 2;

@@ -13,7 +13,7 @@
 #include <sys/stat.h>
 #include "binsplit.h"
 size_t comm_shmem_heap_env(const char **name); int comm_shmem_pool_in_heap(void); int comm_shmem_pe_per_apu(void);   /* the pool rule's heap check -- declared here, comm.h needs HIP's headers and this file is plain C */
-int comm_layered_vslot_pool_on(void); int comm_layered_inter2_on(void);   /* TASKS 27 (comm.h; comm_layered.c): the X2 default */
+int comm_layered_inter2_on(void);   /* TASKS 27 (comm.h; comm_layered.c): the X2 default */
 #include "rns_mul.h"
 #include "mem.h"
 #include "dbig.h"
@@ -377,14 +377,13 @@ size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *b
     if (tree_top) *tree_top = tt;
     return all;
 }
-/* X2 (results/OFI_FABRIC.md §XEFF item 2): COMM_LAYER_VSLOT_POOL=1 -- the v-slots come from the comm pool (comm_sym_alloc), so the pool rule counts them and the hipMalloc'd budget does not */
-static int vslot_pool_on(void) { return comm_layered_vslot_pool_on(); }   /* (default 1) */
-/* S31 (COMM_LAYER_VSLOT_POOL): each v-slot is allocated once at the model's per-slot maximum of its group size g (env COMM_LAYER_VSLOT_MB_<g>, MiB; comm_layered.c need_vslot),
+/* X2 (results/OFI_FABRIC.md §XEFF item 2): the v-slots come from the comm pool (comm_sym_alloc), so the pool rule counts them and the hipMalloc'd budget does not */
+/* S31: each v-slot is allocated once at the model's per-slot maximum of its group size g (env COMM_LAYER_VSLOT_MB_<g>, MiB; comm_layered.c need_vslot),
  * not regrown with every larger product -- a slot regrown in the comm pool (free, then allocate) strands holes between the short-lived staging blocks (S28: 10 nodes,
  * COMM_OFI_POOL_MB 4096 "too small" with 1432 MiB free but no 1023 MiB hole).  A hand-set COMM_LAYER_VSLOT_MB or COMM_LAYER_VSLOT_MB_<g> wins.  Called by the pool rule on every rank. */
 static void vslot_prealloc_env(unsigned long N, int size)
 {
-    if (!vslot_pool_on() || size < 2) return;
+    if (size < 2) return;
     const int slots = 2;                                    /* the v-exchange two deep (two deep, built in) */
     size_t nq = dm_nq_of(N), nq_leaf = (nq + size - 1) / size; int gs[32]; int L = mn_groups_parse(size, gs, 31);
     size_t mx[40]; int gg[40], n = 0;
@@ -403,7 +402,6 @@ static void vslot_prealloc_env(unsigned long N, int size)
 }
 static int inter2_on(void) { return comm_layered_inter2_on(); }
 int binsplit_vslot_budget_on(void) { return 1; }   /* always 1; kept for the `vslot:` line's budget field */
-size_t binsplit_vslot_budget_node(unsigned long N, int size) { return binsplit_vslot_budget_on() && !vslot_pool_on() && size > 1 ? NR * binsplit_vslot_bytes(N, size, 0, 0, 0) : 0; }
 /* BS_ARENA_ROOM=<f> (0 = off, the default; f > 0 with the VMM pool) -- the division's room.  With
  * BS_SEED_FILL=128 the dm phase's large blocks (the division's t and xq, 2 n_Q quarters) missed a contiguous extent of the arenas at
  * the dm need and the VMM pool remapped them (15 remaps, 9.5 s at 1e11 on B1, measured): (1) every VMM arena is laid out in whole
@@ -487,7 +485,7 @@ static int as_room_fits(unsigned long N, int size, size_t room)
     size_t planes = NR * rns_plane_pool_bytes(pl, np, 0, 0) + ((size_t)610000000);   /* BS_TABLES_BYTES */
     size_t ofi = 0; g_room_probe = 1; size_t ar = layout_arena(N, size, 0), pool = as_shmem_pool(N, size, &ofi); g_room_probe = 0;
     size_t sb, host = as_host_bytes(N, size, pool, ofi, &sb);
-    size_t node = planes + ar + AS_VMM_BS_GROW + host + binsplit_vslot_budget_node(N, size);   /* B7ACCT: + the v-slots (always counted) */
+    size_t node = planes + ar + AS_VMM_BS_GROW + host;
     double budget = (getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0) * 1e9;
     g_room_cN = N; cs = size; cpl = pl; cw = w; ca0 = bs_a0; cb1 = bs_b1; g_room_cfit = (double)node <= budget;
     g_room_planes = planes; g_room_arena = ar; g_room_host = host; g_room_pool = pool; g_room_seedbuf = sb; g_room_ofi = ofi; g_room_fit = g_room_cfit;
@@ -630,7 +628,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
         size_t extra = 0; for (int l = 0; l < nl; l++) { int S = gs[l] < size ? gs[l] : size; if (S > 1 && (S & (S - 1))) extra += (size_t)S; }
         control += 4 * extra * (ring + 64);
     }
-    size_t vsp = vslot_pool_on() ? binsplit_vslot_bytes(N, size, 0, 0, 0) : 0;   /* X2 COMM_LAYER_VSLOT_POOL: the v-slots per APU thread, resident to the run's end */
+    size_t vsp = binsplit_vslot_bytes(N, size, 0, 0, 0);   /* X2: the v-slots per APU thread, resident to the run's end */
     size_t sym = 0;
     g_ofi_dev_mb = 0; g_px_dev_mb = 0;
     if (ofi || px) {   /* a comm_ofi pool per device: one APU's staging (at least the self-tests' 128 MiB) + its slabs + a 256 MiB margin, in whole 256 MiB */
@@ -744,7 +742,7 @@ size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *plan
     if (planes_) *planes_ = planes;
     if (arena_) *arena_ = arena;
     if (host_) *host_ = host;
-    return planes + arena + host + binsplit_vslot_budget_node(N, g);   /* B7ACCT: + the v-slots (always counted) */
+    return planes + arena + host;
 }
 /* MS: BS_LAYOUT_ONLY / its plan check at a point of g node-processes set COMM_SIZE to g while the point is laid out, and
  * restore the environment's value after (g = 0).  rns_pool0_np() reads COMM_SIZE, and P24's decision (rns_dist.c mn_p24_of)
@@ -904,9 +902,9 @@ static void binsplit_layout_only(const char *spec)
            * device = planes + arena_with_room + ofi_pool (the room's terms; without the room line: this cap's plane pools + arena), node = the
            * room's node (else binsplit_node_bytes at this cap), each + 4 x per_apu (bytes; mem_model.py --check-c compares them) */
           if (g > 1) {
-              char by[512]; size_t tt = 0, v = binsplit_vslot_bytes(N, g, &tt, by, sizeof by), vb = binsplit_vslot_budget_node(N, g), dev0, node0;
+              char by[512]; size_t tt = 0, v = binsplit_vslot_bytes(N, g, &tt, by, sizeof by), dev0, node0;
               if (vroom) { dev0 = vdev0; node0 = vnode0; }
-              else { size_t pb, ab, hb, tot = binsplit_node_bytes(N, g, cur, np, &pb, &ab, &hb); dev0 = pb + ab; node0 = tot - vb; }
+              else { size_t pb, ab, hb, tot = binsplit_node_bytes(N, g, cur, np, &pb, &ab, &hb); dev0 = pb + ab; node0 = tot; }
               printf("vslot: D %.4g g %d | per_apu %zu tree_top %zu node_vslot %zu | device %zu device_with %zu node %zu node_with %zu | budget %d | %s\n",
                      D, g, v, tt, NR * v, dev0, dev0 + NR * v, node0, node0 + NR * v, binsplit_vslot_budget_on(), by);
           } }

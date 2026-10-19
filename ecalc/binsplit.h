@@ -64,10 +64,9 @@ void binsplit_seeds_begin(unsigned long N);
 void binsplit_free_pools(void);
 /* B7ACCT (results/GRID_GROUPS.md §B7ACCT): the general map's v-exchange slots resident per APU thread (bytes; hipMalloc'd by comm_layered.c beside the
  * layout, alive to the run's end): the dm phase's sum (the run's largest), *tree_top = during the tree's top level, by = the terms per level.
- * binsplit_vslot_budget_node: 4 x it (always counted in the budget) */
+ * (the slots are in the comm pool, not in the node budget) */
 size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *by, size_t bylen);
 int binsplit_vslot_budget_on(void);
-size_t binsplit_vslot_budget_node(unsigned long N, int size);
 size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t bylen);   /* the SHMEM pool this run needs (bytes per node-process) */
 size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan);                   /* COMM_SHMEM_POOL_AUTO / the warning / MN_PLAN_ONLY's line */   /* t1's quarter in bytes -- the arena's reserved tail (the block pool's largest block) */
 void binsplit_release_arenas(void);                      /* the region arenas (hooked into rns_shutdown when the block pool borrowed them) */
