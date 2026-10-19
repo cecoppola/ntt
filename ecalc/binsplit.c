@@ -305,7 +305,7 @@ static void region_need(unsigned long N, size_t need[NR])
  * at 4 / 7 / 8e10, exactly the in-phase hipMalloc) -- reserved as the arena's tail; thresh is what the pool treats as "large"
  * (5/8 of the hole: r, r2 at ~ half of it stay out of the tail, t1 takes it).  At size > 1 the shares are 1/size of it
  * (the sharded division, A-div) and the tree's products add their slabs (tree_need_dev). */
-struct dm_layout { size_t nq, k, tcap, hole, thresh, need_dev, tree_dev; size_t jl, v2, v3, div; int tight, tail_dead; size_t room; int dkm, lean; size_t wrap; };   /* DL: dkm = the layout follows NEWTON_DKM; lean = DM_MN_LEAN's division set */   /* room = BS_ARENA_ROOM's term (in need_dev) */   /* jl = the last doubling's start, v2 / v3 / div = the terms per device, the switches */
+struct dm_layout { size_t nq, k, tcap, hole, thresh, need_dev, tree_dev; size_t jl, v2, v3, div; int tight, tail_dead; size_t room; int dkm, lean; size_t wrap; };   /* DL: dkm = the layout follows the DKM division; lean = the lean division set */   /* room = BS_ARENA_ROOM's term (in need_dev) */   /* jl = the last doubling's start, v2 / v3 / div = the terms per device, the switches */
 static size_t quarter_bytes(size_t limbs) { return ((limbs + 3) / 4 + 4095) / 4096 * 4096 * 8; }
 /* DM_TIGHT=1 -- the reciprocal reserves r2 only when d is first written (2j + 4 limbs, freed whenever
  * its content is dead) and t1 per doubling at Q_t (take) + r (j + 1) + 8, and the device tier's top levels free each input pair as it is
@@ -385,7 +385,7 @@ static int vslot_pool_on(void) { return comm_layered_vslot_pool_on(); }   /* (de
 static void vslot_prealloc_env(unsigned long N, int size)
 {
     if (!vslot_pool_on() || size < 2) return;
-    const int slots = 2;                                    /* the v-exchange two deep (COMM_ALLTOALLV_DEPTH=2) */
+    const int slots = 2;                                    /* the v-exchange two deep (two deep, built in) */
     size_t nq = dm_nq_of(N), nq_leaf = (nq + size - 1) / size; int gs[32]; int L = mn_groups_parse(size, gs, 31);
     size_t mx[40]; int gg[40], n = 0;
 #define VS_NOTE(g_, v_) do { size_t v2_ = (v_) / slots; int k_ = 0; while (k_ < n && gg[k_] != (g_)) k_++; if (k_ == n && n < 40) { gg[n] = (g_); mx[n++] = 0; } if (k_ < 40 && v2_ > mx[k_]) mx[k_] = v2_; } while (0)
@@ -487,7 +487,7 @@ static int as_room_fits(unsigned long N, int size, size_t room)
     size_t planes = NR * rns_plane_pool_bytes(pl, np, 0, 0) + ((size_t)610000000);   /* BS_TABLES_BYTES */
     size_t ofi = 0; g_room_probe = 1; size_t ar = layout_arena(N, size, 0), pool = as_shmem_pool(N, size, &ofi); g_room_probe = 0;
     size_t sb, host = as_host_bytes(N, size, pool, ofi, &sb);
-    size_t node = planes + ar + AS_VMM_BS_GROW + host + binsplit_vslot_budget_node(N, size);   /* B7ACCT: + the v-slots under ECALC_VSLOT_BUDGET (1 by default) */
+    size_t node = planes + ar + AS_VMM_BS_GROW + host + binsplit_vslot_budget_node(N, size);   /* B7ACCT: + the v-slots (always counted) */
     double budget = (getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0) * 1e9;
     g_room_cN = N; cs = size; cpl = pl; cw = w; ca0 = bs_a0; cb1 = bs_b1; g_room_cfit = (double)node <= budget;
     g_room_planes = planes; g_room_arena = ar; g_room_host = host; g_room_pool = pool; g_room_seedbuf = sb; g_room_ofi = ofi; g_room_fit = g_room_cfit;
@@ -522,7 +522,7 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     dm_switches(); int tight = dm_tight > 0, tdead = dm_tail_dead > 0 ? dm_tail_dead : 0;
     /* the last doubling starts at jl = ceil(k/2) (newton_chain_next's anchored targets k, ceil(k/2), ...).  Its first product Q_t r is take + (jl + 1)
      * limbs (r has j + 1 limbs), reserved + 8 by the grid: the largest block of the tight schedule, i.e. the hole */
-    /* NEWTON_DKM=1 (the default since Batch 3) -- the reciprocal runs to h = floor(k/2) + 1
+    /* the DKM division (built in since Batch 3) -- the reciprocal runs to h = floor(k/2) + 1
      * (its last doubling at ceil(h/2)) and the division forms two quotient halves (newton_db.c divmod_shifted_dkm / mn_divmod_dkm): the
      * high products t = A_h mu_1 of ~k limbs instead of 2k + 8, the low products X_hi Q / X_lo Q over w.  So the hole is DKM's largest block
      * (below) and the division's set is DKM's.  The division takes DKM at every size; the layout counts DKM's set at size > 1 and, at
@@ -531,7 +531,7 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     int logl = getenv("BS_MDEV_LOGL") ? atoi(getenv("BS_MDEV_LOGL")) : bs_mdev_logl;
     int dkm = k >= 5 && (size > 1 || (logl < 62 && nq >= ((size_t)1 << logl) + ((size_t)1 << logl) / 8));
     size_t kr = dkm ? newton_dkm_h(k) : k, k1 = k - k / 2;                    /* (k1: step 1's quotient limbs, s = floor(k/2) <= dl) */
-    int lean = dkm && size > 1;                                               /* (DM_MN_LEAN): the lean mn division set (size > 1 only) */
+    int lean = dkm && size > 1;                                               /* the lean mn division set (size > 1 only) */
     size_t jl = (kr + 1) / 2 + (size_t)newton_chain_guard();                 /* NEWTON_CHAIN_GUARD (RECIP): the last doubling starts at ceil(kr/2) + 1 */
     size_t take = 2 * jl + 2 < nq ? 2 * jl + 2 : nq, t1a = take + (jl + 2) + 8;   /* r has j + 2 limbs (measured at 4e10, job 21131: r 555555559 at j 555555557) */
     size_t nq_s = (nq + size - 1) / size, k_s = (k + size - 1) / size, jl_s = (jl + size - 1) / size;
@@ -567,7 +567,7 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
                  h2 = qp + quarter_bytes(h_s) + quarter_bytes(nq_s + 2) + quarter_bytes(h_s + 1) + quarter_bytes(k_s + 8);
           hi = h1 > h2 ? h1 : h2;
           lo = qp + quarter_bytes(k_s) + quarter_bytes(nq_s + 2) + quarter_bytes(nq_s + h_s + 8) + quarter_bytes(h_s);
-          if (lean) lo = 3 * quarter_bytes(nq_s + 2) + quarter_bytes(k_s + 1) + quarter_bytes(h_s + 1); }   /* (DM_MN_LEAN): step 2's low product with Qw in place of Q and
+          if (lean) lo = 3 * quarter_bytes(nq_s + 2) + quarter_bytes(k_s + 1) + quarter_bytes(h_s + 1); }   /* lean: step 2's low product with Qw in place of Q and
                                                                                                              * the low product in basis w -- Qw + Aw + xql (w each) + X (k, the X0 form; X_hi under MN_OUT_DKM_HI) + X_lo (h) */
       L->wrap = lean ? dm_wrap_bytes(nq, k, size) : 0; lo += L->wrap;   /* D19: DM_MN_WRAP's Qpp + T1 (mn division only) */
       L->div += hi > lo ? hi : lo; }
@@ -744,12 +744,12 @@ size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *plan
     if (planes_) *planes_ = planes;
     if (arena_) *arena_ = arena;
     if (host_) *host_ = host;
-    return planes + arena + host + binsplit_vslot_budget_node(N, g);   /* B7ACCT: + the v-slots under ECALC_VSLOT_BUDGET (1 by default) */
+    return planes + arena + host + binsplit_vslot_budget_node(N, g);   /* B7ACCT: + the v-slots (always counted) */
 }
 /* MS: BS_LAYOUT_ONLY / its plan check at a point of g node-processes set COMM_SIZE to g while the point is laid out, and
- * restore the environment's value after (g = 0).  rns_pool0_np() reads COMM_SIZE, and MN_P24=2's decision (rns_dist.c mn_p24_of)
- * reads rns_pool0_np(): without this the layout and its check did not see MN_P24=2 (P24's open issue 3).  Nothing else in the
- * layout reads COMM_SIZE (the output is byte-identical without MN_P24=2). */
+ * restore the environment's value after (g = 0).  rns_pool0_np() reads COMM_SIZE, and P24's decision (rns_dist.c mn_p24_of)
+ * reads rns_pool0_np(): without this the layout and its check did not see P24 (P24's open issue 3).  Nothing else in the
+ * layout reads COMM_SIZE (the output is byte-identical without P24). */
 void binsplit_layout_comm_size(int g)
 {
     static int saved; static char *old;
@@ -882,7 +882,7 @@ static void binsplit_layout_only(const char *spec)
         printf("layout: D %.4g g %d d %lu N %lu nq %zu k %zu tcap %zu | hole %zu dm_need %zu (top scratch %zu) tree_need %zu want %zu | bs regions %zu arena %zu (node, bytes) | tight %d tail_dead %d jl %zu v2 %zu v3 %zu div %zu early_free %d room %zu chunk %zu room_planes %zu%s%s\n",
                D, g, d, N, L.nq, L.k, L.tcap, L.hole, L.need_dev, top, L.tree_dev, want, bs2, arena, L.tight, L.tail_dead, L.jl, L.v2, L.v3, L.div, 1,
                L.room, bs_arena_room() > 0 && db_pool_vmm_on() ? db_pool_vmm_chunk() : (size_t)0, bs_arena_room() > 0 && db_pool_vmm_on() ? g_room_planes : (size_t)0,
-               L.dkm ? (L.lean ? " dkm 1 lean 1" : " dkm 1") : "", wrapb);   /* D19: " wrap <bytes>" with DM_MN_WRAP's term (absent: off) */   /* BS_ARENA_ROOM's term (in dm_need) and the chunk the arenas are rounded to (0: not rounded) */   /* lean 1 = DM_MN_LEAN's division set */   /* early_free 1 (always) */   /* the variant and its terms (per device) */   /* DL: dkm 1 = the layout follows NEWTON_DKM (absent: today's; the line is then unchanged) */
+               L.dkm ? (L.lean ? " dkm 1 lean 1" : " dkm 1") : "", wrapb);   /* D19: " wrap <bytes>" with DM_MN_WRAP's term (absent: off) */   /* BS_ARENA_ROOM's term (in dm_need) and the chunk the arenas are rounded to (0: not rounded) */   /* lean 1 = the lean division set */   /* early_free 1 (always) */   /* the variant and its terms (per device) */   /* DL: dkm 1 = the layout follows NEWTON_DKM (absent: today's; the line is then unchanged) */
         if (bs_arena_room() > 0 && db_pool_vmm_on() && g_room_fit >= 0)       /* DL: the room's decision, term by term (bytes; mem_model.py --check-c compares them) */
             printf("room: D %.4g g %d | planes %zu arena_with_room %zu bs_grow %zu host %zu (seedbuf %zu shmem_pool %zu ofi_pool %zu) | node %zu budget %.0f fits %d\n",
                    D, g, g_room_planes, g_room_arena, AS_VMM_BS_GROW, g_room_host, g_room_seedbuf, g_room_pool, g_room_ofi, g_room_planes + g_room_arena + AS_VMM_BS_GROW + g_room_host,

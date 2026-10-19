@@ -467,7 +467,7 @@ static void complete_v(comm *c)
     if (lst_mode) { struct lst_rec *r = LREC(p, v->rec); r->f1 = f1; r->c1 = lst_now(); }
     free(v->cnt2); v->pend = 0;
 }
-/* ---- the v-exchange pipelined two deep (COMM_ALLTOALLV_DEPTH=2)
+/* ---- the v-exchange pipelined two deep (two deep, built in)
  * like the equal-slab one: the intra stage and the transpose of exchange k run while exchange k-1's inter stage is on the
  * wire; then k-1 is completed (its inter wait and scatter: "posting k completes k-1" still holds, which gen_inv_pw relies on)
  * and k's inter stage is posted (the inter transport takes one at a time).  The x0 area (the send slabs reordered, only when
@@ -559,7 +559,7 @@ static void y_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_
     lay_priv *p = PRIV(c);
     double a0 = lst_mode ? lst_now() : 0;
     while (p->npend) complete_oldest(c);                 /* one kind at a time */
-    y_alltoallv2(c, sb, scnt, sdsp, rb, rcnt, rdsp, s, a0);   /* two deep (COMM_ALLTOALLV_DEPTH=2) */
+    y_alltoallv2(c, sb, scnt, sdsp, rb, rcnt, rdsp, s, a0);   /* two deep (two deep, built in) */
 }
 static void y_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)
 {

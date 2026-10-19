@@ -64,7 +64,7 @@ void binsplit_seeds_begin(unsigned long N);
 void binsplit_free_pools(void);
 /* B7ACCT (results/B7ACCT.md): the general map's v-exchange slots resident per APU thread (bytes; hipMalloc'd by comm_layered.c beside the
  * layout, alive to the run's end): the dm phase's sum (the run's largest), *tree_top = during the tree's top level, by = the terms per level.
- * binsplit_vslot_budget_node: 4 x it when ECALC_VSLOT_BUDGET=1 (default 0: not in the budget, reported only) */
+ * binsplit_vslot_budget_node: 4 x it (always counted in the budget) */
 size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *by, size_t bylen);
 int binsplit_vslot_budget_on(void);
 size_t binsplit_vslot_budget_node(unsigned long N, int size);

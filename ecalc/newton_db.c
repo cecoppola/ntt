@@ -219,7 +219,7 @@ long newton_test_corr(void)                          /* Phase 15 K: ECALC_TEST_C
 }
 /* Phase 15 DKM (newton.h): the reciprocal's length (DKM is the only division since SIMP, results/SIMP.md) */
 size_t newton_dkm_h(size_t k) { return k / 2 + 1; }         /* max(k - s, s + 1) at s = floor(k/2) */
-/* Phase 15 int15k (DM_MN_LEAN, results/M615.md 1.2's target part; built in since 2026-10-12): the multi-node reciprocal and DKM division without
+/* Phase 15 int15k (the lean division set, results/M615.md 1.2's target part; built in since 2026-10-12): the multi-node reciprocal and DKM division without
  * their dead copies -- recip_mn frees t once u (then corr) is formed; mn_divmod_dkm takes A_h and mu's top as VIEWS of S / R1 and mu
  * (mdb_view) instead of mdb_shift copies, and Q in basis w (Qw) replaces Q once the window is formed.  Value-identical (the same
  * products on the same limbs); the layout (binsplit.c dm_layout, mem_model.dm_layout) counts the lean division set at size > 1 */
@@ -799,7 +799,7 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
             mfree(&u); mfree(&pw);
             mid_ok = d.n <= j + 1;                                     /* R4: as in recip_db2 */
             size_t NB = (r.n + j > t.n ? r.n + j : t.n) + 2;          /* the basis of r' (>= r << j and corr) */
-            mfree(&t);                                                 /* int15k (DM_MN_LEAN): t = Q_t r is dead once u is formed (NB is computed) */
+            mfree(&t);                                                 /* int15k (lean): t = Q_t r is dead once u is formed (NB is computed) */
             if (d.n) { mn_prod_cut(&t, &r, &d, Gs, newton_recip_cut(j), (size_t)-1); mdb_shift(&corr, &t, (long)j, NB, Gs); mfree(&t); }   /* |corr| = r |d| >> j (E7: the pieces below j - guard skipped); lean: t dead once corr is formed */
             else { mfree(&t); mdb_shift(&corr, &r, (long)r.n + 1, NB, Gs); }              /* d = 0: corr = 0 */
             mfree(&d);
@@ -858,7 +858,7 @@ static void mn_dkm_est(mdb *Xo, const mdb *Sx, size_t dl, size_t nq, size_t k, c
 }
 /* mu's top m limbs (a copy in basis m; mu itself when it has exactly m) */
 static void mn_dkm_top(mdb *Y, const mdb *mu, size_t m, mn_group *G) { mdb_shift(Y, mu, (long)(mu->n - m), m, G); }
-/* int15k (DM_MN_LEAN): mn_dkm_est with A_h = Sx >> sh and mu's top m limbs as views (no copies): the same product on the same limbs.
+/* int15k (lean): mn_dkm_est with A_h = Sx >> sh and mu's top m limbs as views (no copies): the same product on the same limbs.
  * The X1 rule (mn_prod_cut_x1: a subgroup for small products on many nodes) needs operands it can re-shard, so where it would take a
  * subgroup the copy path runs as before (never at the target's sizes) */
 static void mn_dkm_est_lean(mdb *Xo, const mdb *Sx, size_t dl, size_t nq, size_t k, const mdb *mu, size_t m, mn_group *G)
@@ -1028,7 +1028,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     mdb Xh, Aw, Qw, xql, R1, Xl, Xs, Xl2, Xn, Rd;
     memset(&Xh, 0, sizeof Xh); memset(&Aw, 0, sizeof Aw); memset(&Qw, 0, sizeof Qw); memset(&xql, 0, sizeof xql); memset(&R1, 0, sizeof R1);
     memset(&Xl, 0, sizeof Xl); memset(&Xs, 0, sizeof Xs); memset(&Xl2, 0, sizeof Xl2); memset(&Xn, 0, sizeof Xn); memset(&Rd, 0, sizeof Rd);
-    mn_dkm_est_lean(&Xh, &S, dl - s, nq, k1, &mu, k1 + 1, G);          /* int15k (DM_MN_LEAN): views instead of copies, Qw in place of Q */
+    mn_dkm_est_lean(&Xh, &S, dl - s, nq, k1, &mu, k1 + 1, G);          /* int15k (lean): views instead of copies, Qw in place of Q */
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 1 A mu");   /* int15k: the division's moments (ECALC_LIVE) */
     { long th = dkm_test_hi(); if (th) mn_dkm_add(&Xh, -th, G); }     /* NEWTON_DKM_TEST_HI (a borrow out of X_hi is fatal in mdb_add_val) */
     const size_t Pw = Xh.n ? mn_wrap_plane(nq, w, Xh.n, G) : 0;      /* P1 (DM_MN_WRAP): the low products as L + one cyclic plane */

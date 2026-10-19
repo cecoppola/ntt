@@ -4,7 +4,7 @@
 # date, on an experiment / test-only row without a review row, and on a review row whose switch is gone.
 # Seed rule: experiments and fallbacks 30 days (2026-11-11); diagnostics and test harness 6 months (2027-04-12).
 # At review: remove the switch (or its fallback value), or move the date with a reason in the note.
-# columns (tab separated): name, class (experiment|fallback|diagnostic|test), owner, review (YYYY-MM-DD), note
+# columns (tab separated): name, class (experiment|fallback|diagnostic|test|internal|launch-line), owner, review (YYYY-MM-DD), note
 BS_CKPT_BG_MBS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 BS_SEED_PULL	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback, also the aac6 CPX workaround (profiles/aac6.conf); default since 2026-10-12 (CAND)
 COMM_LAYER_INTER2	fallback	coordinator (TASKS S)	2026-11-11	=0 restores the pre-X2 exchange; default since 2026-10-12 (TASKS 27, W2B D1e)
@@ -12,8 +12,8 @@ COMM_LAYER_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fa
 COMM_LAYER_VSLOT_POOL	fallback	coordinator (TASKS S)	2026-11-11	=0 restores the old v-slot form (INTER2 and RELEASE follow it); default since 2026-10-12 (W2B D1e)
 COMM_OFI_DEV	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_OFI_VERBOSE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-COMM_SHMEM_POOL_NEED_MB	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-COMM_SHMEM_STAGE_SLOT_MB	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+COMM_SHMEM_POOL_NEED_MB	internal	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	internal channel from the planner to the library; do not set by hand
+COMM_SHMEM_STAGE_SLOT_MB	internal	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	internal channel from the planner to the library; do not set by hand
 COMM_SHMEM_VERBOSE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_KTIME	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_XGMI_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
@@ -37,7 +37,7 @@ ECALC_NP_AUTO_MIN	experiment	coordinator (TASKS S)	2026-11-11	off by default; re
 ECALC_NP_AUTO_TERMS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_OUT_PACKED	fallback	coordinator (TASKS S)	2026-11-11	=1 / =0 fallbacks of the 60-bit packed output (TASKS 40, default 2 with lane A batch D5)
 ECALC_PLANE_CAP	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
-ECALC_PLANE_CAP_IDX	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+ECALC_PLANE_CAP_IDX	internal	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	internal channel from the planner to the library; do not set by hand
 ECALC_SEGV_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_TEST_CORR	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_WINDOWS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
@@ -56,13 +56,13 @@ NEWTON_VERBOSE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or faul
 NTT_SIZE_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 RNS_CRT_SCAN	fallback	coordinator (D21, results/K4b.md)	2026-11-11	on by default since D21; =0 keeps the serial carry chain; remove the serial path at review
 P24_CRT_SCAN	fallback	coordinator (D24, results/K4c.md)	2026-11-11	on by default since D24; =0 keeps the serial carry chain; 2 n total -1.89 s n.s., digits identical (K4c)
-RNS_DIST_CACHE_MN	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
+RNS_DIST_CACHE_MN	fallback	coordinator (TASKS S)	2026-11-11	default 2 since 2026-10-12 (TC15); 0 / 1 keep the older slot forms
 RNS_DIST_CACHE_PARTIAL	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback; default since 2026-10-12 (W2B D1e)
 RNS_DIST_CACHE_PARTIAL_FORCE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 RNS_DIST_CACHE_TRACE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-RNS_INIT_POOL_LOG	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+RNS_INIT_POOL_LOG	launch-line	profiles/aac6.conf (CPX launch note, T11.md)	2027-04-12	pool size of rns_init for the CPX nodes (29) and the unit tests; changes no digit
 RNS_POOL_GROW	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-RNS_R3	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
+RNS_R3	fallback	coordinator (TASKS S)	2026-11-11	on by default when the prime set has the radix-3 roots (ec_has_radix3); =0 keeps the power-of-two lengths only
 RNS_STRATEGY_CHECK	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DIST_BIG	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_BIG_K	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting

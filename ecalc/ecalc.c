@@ -326,7 +326,7 @@ static void budget_check(unsigned long N, int verbose)
     int cap = rns_pool_log() >= 31 ? 1 : 0;
     size_t pb = 0, ab = 0, hb = 0; binsplit_node_bytes(N, sz, cap, ec_np_init(), &pb, &ab, &hb);
     size_t dev = mem_report_dev_total(), rss = mem_vmrss();
-    size_t dpk = (dev > pb + ab ? dev : pb + ab) + binsplit_vslot_budget_node(N, sz), hpk = rss > hb ? rss : hb, peak = dpk + hpk, now = dev + rss;   /* B7ACCT: + the v-slots (hipMalloc'd later) under ECALC_VSLOT_BUDGET=1, else 0 */
+    size_t dpk = (dev > pb + ab ? dev : pb + ab) + binsplit_vslot_budget_node(N, sz), hpk = rss > hb ? rss : hb, peak = dpk + hpk, now = dev + rss;   /* B7ACCT: + the v-slots (hipMalloc'd later) (always counted) */
     struct meminfo mi; memset(&mi, 0, sizeof mi); mem_meminfo(&mi);
     const int K = 7;
     uint64_t v[7] = { host_hash(), peak, dpk, hpk, peak > now ? peak - now : 0, mi.avail, (uint64_t)-1 };
@@ -341,7 +341,7 @@ static void budget_check(unsigned long N, int verbose)
         double share = a[6] != (uint64_t)-1 ? (double)a[6] : node_gb * 1e9 / nr;
         int why = (double)sum > node_gb * 1e9 ? 1 : (avail && come > avail) ? 2 : (double)a[1] > share ? 3 : 0;
         over[r] = (char)why; if (why) { nover++; if (first < 0) first = r; }
-        if (r == me) rns_dist_cache_budget(share - (double)a[1], nr);   /* this rank's room and its node's ranks for RNS_DIST_CACHE_FIT (rns_dist.c cache_avail) */
+        if (r == me) rns_dist_cache_budget(share - (double)a[1], nr);   /* this rank's room and its node's ranks for the transform-cache fit rule (rns_dist.c cache_avail) */
         if (why || (verbose >= 2 && me == 0))
             if (me == 0 || r == me)
                 printf("budget: rank %d%s: peak %.1f GB (device %.1f, host %.1f), still to take %.1f GB | node of %d rank%s: peaks %.1f of %.0f GB, to take %.1f of MemAvailable %.1f GB | rank share %.1f GB%s\n",
@@ -403,7 +403,7 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
         for (char *t = strtok(dup, ","); t; t = strtok(NULL, ",")) {
             char *c = strchr(t, ':'); int g = c ? atoi(c + 1) : 1; double D = atof(t);
             if (g > 1 && D > 0) { unsigned long dt = (unsigned long)llround(D * g); dt = (dt + 17) / 18 * 18;
-                                  binsplit_layout_comm_size(g);   /* MS: the point's g as COMM_SIZE, so rns_pool0_np (MN_P24=2's decision) sees it */
+                                  binsplit_layout_comm_size(g);   /* MS: the point's g as COMM_SIZE, so rns_pool0_np (P24's decision) sees it */
                                   if (mn_plan_check(dt, e_terms(dt), g, pool_log)) g_layout_refused = 1;
                                   binsplit_layout_comm_size(0); }
         }

@@ -17,7 +17,6 @@ COMM_SHMEM_SERIAL	auto	bool	0|1		comm_shmem.c:284 per-build default (OSHMEM 1)
 COMM_SIZE	1	int	>=1		set per run by the launcher; code defaults are 1 (4096 only in a self-test)
 COMM_TRANSPORT	unset	enum	shmem		mn.c: shmem is needed for COMM_SIZE > 1 (mnrun.sh sets it); tcp removed 2026-10-12
 DB_POOL_VERBOSE	0	int	0|1|2		dbig.c:123: defaults to 1 when RNS_VERBOSE is set, else 0
-DM_MN_LEAN	0	bool	0|1		newton_db.c
 ECALC_CHECKPOINT	0	bool	0|1		ecalc.c:580; 1 = budgeted top set (ECALC_CKPT_TOP=2)
 ECALC_CKPT_TOP	auto	int	0|1|2		ecalc.c:579: ECALC_CHECKPOINT ? 2 : 0
 ECALC_INIT_TL	0	bool	0|1		dbig.c
@@ -52,3 +51,8 @@ ECALC_DEVICE_MARGIN_GB	5	float	GB per node	built-in default	binsplit.c binsplit_
 COMM_SHMEM_PEER_ORDER	rank	str	rank|shift	experiment	comm_shmem.c; N7 peer order of the puts
 COMM_SHMEM_PE_PER_APU	0	int	0|1|2	experiment	comm_shmem.c, mnrun.sh, binsplit.c; N7b one SHMEM proxy PE per APU under COMM_OFI=0; N7E 2 = two helper PEs per APU (one per NIC)
 COMM_SHMEM_PROXY	unset	bool	0|1	experiment	comm_shmem.c; set by mnrun.sh on the proxy PEs (N7b), checked at init
+COMM_TRACE_HB_GAP_MS	20	int	ms		comm_trace.h:422
+COMM_TRACE_MAX_MB	256	int	MiB		comm_trace.h:98; a proxy gets a quarter, at least 16
+COMM_TRACE_SAMPLE	1	int	N		comm_trace.h:96; 1 traces every exchange
+COMM_TRACE_CLOCK_N	50	int	N		comm_trace.h:97
+COMM_TRACE_WD_MS	0	int	ms		comm_trace.h:106; 0 = no watchdog

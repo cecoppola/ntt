@@ -76,7 +76,7 @@ rns_mul.o: rns_mul.c rns_mul.h rns_int.h ntt.h mem.h crt.h bigint.h modarith.h
 
 rns_dist.o: rns_dist.c rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h dbig.h mdb.h mn_plan.h p24.h p24_mn.h
 	$(HIPC) -c -o $@ $<
-# Phase 15 Batch 3 P24 (results/P2415.md): the 24-digit CRT of the mn tier (MN_P24)
+# Phase 15 Batch 3 P24 (results/P2415.md): the 24-digit CRT of the mn tier
 p24_crt.o: p24_crt.c p24.h rns_int.h modarith.h
 	$(HIPC) -c -o $@ $<
 tests/t_p24: tests/t_p24.c $(OBJS) p24.h

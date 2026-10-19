@@ -26,7 +26,7 @@
 #include "mdb.h"
 #include "mem.h"
 #include "mn_plan.h"                                        /* Phase 13d L: the plan printer asks this file's decisions */
-#include "p24.h"                                            /* Phase 15 Batch 3 P24 (results/P2415.md): 24 digits per point in the mn tier (MN_P24) */
+#include "p24.h"                                            /* Phase 15 Batch 3 P24 (results/P2415.md): 24 digits per point in the mn tier (P24) */
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define NR 4
@@ -162,9 +162,9 @@ struct dist_slot { const void *key; size_t lo, n, q; uint64_t *pl[NR]; int mn, n
                   int k, p24; uint64_t *pp[NR][EC_NP]; };     /* mn: a sharded operand (key = its mdb); np: the primes of its planes (Phase 15 NP: ECALC_NP=auto);
                                                                * Phase 15 PC: k = the primes the slot holds (0: all -- a held slot), p24 = the key's 24-digit form, pp = the planes per prime (pool slots) */
 static struct { int n, nmn, navail, tried, init; struct dist_slot s[DIST_CACHE_MAX]; size_t hits, misses, bytes; double t_alloc;
-                size_t slot_bytes, slot_q; int pc; } g_cache;     /* Phase 15 TC: one slot's bytes per APU, and the q (limbs per prime per rank) it holds under RNS_DIST_CACHE_FIT (0: unbounded);
+                size_t slot_bytes, slot_q; int pc; } g_cache;     /* Phase 15 TC: one slot's bytes per APU, and the q (limbs per prime per rank) it holds under the cache fit (0: unbounded);
                                                                * Phase 15 PC: pc = the slots now are RNS_DIST_CACHE_PARTIAL's (planes from the block pool for one grid product) */
-/* ---- Phase 15 TC (internal target task list T7, results/TC15.md): the slots sized to the cap and bounded by the budget (RNS_DIST_CACHE_FIT=1,
+/* ---- Phase 15 TC (internal target task list T7, results/TC15.md): the slots sized to the cap and bounded by the budget (the cache fit,
  * on every launch line since 2026-09-28, built in 2026-10-12; the unsized form -- 16 GiB slots counted by the free memory alone, +37.5 %
  * or OOM at the target -- was removed):
  *   size   a slot is rns_pool0_np() x 2^(c - 2) limbs per APU, c = min(dist_logn_max, POOL_LOG): the largest rank plane of either tier
@@ -298,11 +298,11 @@ static void cache_plan(int *sa, int *sb, int ha, int hb, const void *ka, size_t 
  *           room (tests only: the pool may then grow by hipMalloc, reported);
  *   hits    a hit on a k-prime slot skips primes < k's gathers and forward transforms (A: copied from the slot; B: read in place); the
  *           operand's redistribution is skipped only when k >= the product's primes (a full hit);
- *   P24     the P24 products (MN_P24) are cached too: the key carries the form (s->p24), the planes are the same q per prime;
+ *   P24     the P24 products (P24) are cached too: the key carries the form (s->p24), the planes are the same q per prime;
  *   loop    mn_grid loops along the grid's longer axis (kb > ka: A's pieces outer, the slots held by A's pieces; CX's proposal);
  *   memory  nothing outside the pool: the slots add no byte to the node (the pool's free bytes at the product are the room); the memory
  *           report's pool figures hold them; ECALC_VERBOSE prints the slots each grid product takes and the run's summary.
- * Held slots (RNS_DIST_CACHE_FIT / the default) are not allocated by the mn tier under the switch. */
+ * Held slots (the cache fit) are not allocated by the mn tier under the switch. */
 static size_t grp_max(mn_group *G, size_t v);
 static int g_node_of(mn_group *G);
 static int pc_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("RNS_DIST_CACHE_PARTIAL"); v = e ? atoi(e) != 0 : 1; } return v; }   /* default 1 since 2026-10-12 (TASKS 27; on both launch lines since 2026-09-29) */
@@ -1540,7 +1540,7 @@ void mdb_norm(mdb *C, mn_group *G, size_t below)
 static size_t mn_logmin(int g) { int nr = 4 * g, lg = 0; while ((1 << lg) < nr) lg++; int logmin = 2 * (5 + lg); return logmin < 20 ? 20 : logmin; }
 /* ---- Phase 15 Batch 3 P24 (results/P2415.md): four primes at 24 digits per transform point in the mn tier ------------------------
  * Every mn product runs P24 when pool 0 holds four planes (ECALC_NP=4, or auto where the run's largest group can form a four-prime
- * piece); else the 18-digit form.  (MN_P24=2, the user's decision of 2026-09-29, built in 2026-10-12; its forms 0 = off and 1 = only the
+ * piece); else the 18-digit form.  (P24 as the 2-mode, the user's decision of 2026-09-29, built in 2026-10-12; its forms 0 = off and 1 = only the
  * products whose 18-digit grid's largest piece would run four primes were removed.) */
 static int mn_p24_of(size_t na, size_t nb, int g)
 {
@@ -1602,7 +1602,7 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     int ka = 1, kb = 1, formed = 0, skipped = 0;
     int NS = 0, fs[DIST_CACHE_MAX], nf = 0;
     g_cache_mn = 1;
-    const int p24 = mn_p24_of(na, nb, g);                     /* Phase 15 Batch 3 P24 (MN_P24): the same on every node of the group */
+    const int p24 = mn_p24_of(na, nb, g);                     /* Phase 15 Batch 3 P24: the same on every node of the group */
     const int pc = pc_on(); int pck = 0;                      /* Phase 15 PC (RNS_DIST_CACHE_PARTIAL=1): the slots from the block pool per grid product (cache_pc_take, below) */
     if (cache_slots() && nc > cap && !p24 && !pc) {         /* the slots: every node must hold the same count -- the group's minimum of what each could allocate (P24: no cache) */
         int mine = cache_avail(); int agreed = DIST_CACHE_MAX - (int)grp_max(G, (size_t)(DIST_CACHE_MAX - mine)); if (agreed < g_cache.navail) g_cache.navail = agreed;   /* (a collective: the condition is group-wide) */
@@ -1652,7 +1652,7 @@ void rns_mul_dist_mn_cut(mdb *Cm, const mdb *A, const mdb *B, mn_group *G, size_
     if (!a.len || !b.len) { mdb_empty(Cm, G); return; }
     mn_grid(Cm, &a, &b, 0, G, lowcut, highcut, highcut, 0);
 }
-void rns_mul_dist_mn_cut_v(mdb *Cm, const mdbv *A, const mdbv *B, mn_group *G, size_t lowcut, size_t highcut)   /* int15k (DM_MN_LEAN): the cuts on views */
+void rns_mul_dist_mn_cut_v(mdb *Cm, const mdbv *A, const mdbv *B, mn_group *G, size_t lowcut, size_t highcut)   /* int15k (the lean division set): the cuts on views */
 {
     if (!highcut || !A->len || !B->len) { mdb_empty(Cm, G); return; }
     mdbv a = mdb_view(A->m, A->off, A->len < highcut ? A->len : highcut, G), b = mdb_view(B->m, B->off, B->len < highcut ? B->len : highcut, G);
@@ -1703,7 +1703,7 @@ void rns_dist_plan_pools(size_t pool0_bytes, size_t pool1_bytes) { g_plan_pool[0
 void rns_dist_plan_cap_test(int logn) { g_cap_test = logn; }
 /* Phase 15 TC (results/TC15.md): the plan's line for the mn transform cache -- where it is first wanted (the first mn grid product;
  * ), the slots the default takes if hipMemGetInfo lets it (outside
- * every budget) and what RNS_DIST_CACHE_FIT would take against node_bytes (the layout's node: plane pools + arena + tables + the init
+ * every budget) and what the cache fit would take against node_bytes (the layout's node: plane pools + arena + tables + the init
  * host, binsplit_node_bytes -- the run's own check uses its measured init peak where that is larger) */
 void rns_dist_cache_plan(int size, int pool_log, int np0, long grids_tree, long grids_recip, long grids_div, double node_bytes)
 {
@@ -1765,7 +1765,7 @@ void rns_dist_mn_plan(size_t na, size_t nb, int g, int has_x, size_t lowcut, siz
 {
     memset(p, 0, sizeof *p);
     size_t nc = na + nb;
-    if ((p->p24 = mn_p24_of(na, nb, g))) {                                            /* P24 (MN_P24): mn_grid's P24 decision -- the grid on the points, four primes */
+    if ((p->p24 = mn_p24_of(na, nb, g))) {                                            /* P24: mn_grid's P24 decision -- the grid on the points, four primes */
         p->cap = p24_cap(g); p->logcap = 0; while (((size_t)1 << p->logcap) < p->cap) p->logcap++;
         p->one = mn_grid_shape(na, nb, g, 1, &p->ka, &p->kb);
         if (p->one) { p->pa = na; p->pb = nb; if (nc > lowcut) p->formed = 1; else p->skipped = 1; }
@@ -1796,7 +1796,7 @@ void rns_dist_mn_plan(size_t na, size_t nb, int g, int has_x, size_t lowcut, siz
 size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces)
 {
     if (!na || !nb || g < 2) { if (pieces) *pieces = 0; return 0; }
-    if (mn_p24_of(na, nb, g)) {                               /* P24 (MN_P24): the grid on the points; the sequences are runs of limbs (rl per column at most); A's
+    if (mn_p24_of(na, nb, g)) {                               /* P24: the grid on the points; the sequences are runs of limbs (rl per column at most); A's
                                                                * received sequence is freed before B's redistribution; X is added afterwards (not in the CRT) */
         int ka = 1, kb = 1; mn_grid_shape(na, nb, g, 1, &ka, &kb);
         size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, nc = pa + pb; if (pieces) *pieces = ka * kb;
@@ -1869,7 +1869,7 @@ size_t rns_mul_dist_mn_vslot(size_t na, size_t nb, int g)
 {
     if (!na || !nb || g < 2 || (is_pow2(g) && !dist_gen_forced())) return 0;
     int logn, logR, logC; size_t q;
-    if (mn_p24_of(na, nb, g)) {                               /* P24 (MN_P24): the grid on the points (rns_mul_dist_mn_scratch's P24 branch) */
+    if (mn_p24_of(na, nb, g)) {                               /* P24: the grid on the points (rns_mul_dist_mn_scratch's P24 branch) */
         int ka = 1, kb = 1; mn_grid_shape(na, nb, g, 1, &ka, &kb);
         size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb; mn_shape(p24_pts(pa) + p24_pts(pb), g, &logn, &logR, &logC, &q);
     } else {
@@ -1889,7 +1889,7 @@ size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t
     if (qmax) *qmax = 0;
     if (!na || !nb || g < 2) return 0;
     const char *er0 = getenv("COMM_SHMEM_ROUND_MB"); size_t Rl0 = er0 && atof(er0) > 0 ? (size_t)(atof(er0) * 1048576.0) / 8 : 0;
-    if (mn_p24_of(na, nb, g) && p24_pts(na / 32 + 1) + p24_pts(nb / 32 + 1) <= p24_cap(g)) {   /* P24 (MN_P24): the same exchanges over runs of limbs (as rns_mul_dist_mn_scratch's P24 branch) */
+    if (mn_p24_of(na, nb, g) && p24_pts(na / 32 + 1) + p24_pts(nb / 32 + 1) <= p24_cap(g)) {   /* P24: the same exchanges over runs of limbs (as rns_mul_dist_mn_scratch's P24 branch) */
         int ka = 1, kb = 1; mn_grid_shape(na, nb, g, 1, &ka, &kb);
         size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, nc = pa + pb;
         int logn, logR, logC; size_t q; mn_shape(p24_pts(pa) + p24_pts(pb), g, &logn, &logR, &logC, &q); if (qmax) *qmax = q;

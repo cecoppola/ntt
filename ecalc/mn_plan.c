@@ -267,7 +267,7 @@ static void plan_recip_db(size_t nq, size_t k)
         j = jn; }
 }
 
-/* INT3: NEWTON_DKM=1 (results/DKM15.md 1.2) -- the reciprocal to h = floor(k_mu/2) + 1, then two shifted divisions:
+/* INT3: the DKM division (results/DKM15.md 1.2) -- the reciprocal to h = floor(k_mu/2) + 1, then two shifted divisions:
  * s = min(floor(k/2), dl), k1 = k - s; step 1 A_h mu ((k1 + 1)-limb mu, cut below k1 + 1) and X_hi Q mod B^w; step 2 R1's top mu
  * (s + 1 x s + 2, cut below s + 2: R1 < Q, so k2 <= s + 1) and X_lo Q mod B^w.  The lengths are newton_db.c's (mn_divmod_dkm at size > 1,
  * divmod_shifted_dkm at size 1) at the predicted S; X_hi ~ k1 limbs, X_lo ~ s (upper bounds, as the default plan's xn = dl + 1).

@@ -69,7 +69,7 @@ void rns_mul_high_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig
 void rns_mul_band_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t lowcut, size_t w);   /* both cuts -- A B mod B^w, the pieces at or above w and those ending at or below lowcut skipped */
 void rns_dist_cache_stats(size_t *hits, size_t *misses);
 void rns_dist_cache_release(void);                     /* the cache's planes freed (the end of the dm phase) */
-void rns_dist_cache_budget(double room_bytes, int ranks_on_node);   /* ECALC_BUDGET_CHECK's room for this rank and its node's rank count (RNS_DIST_CACHE_FIT) */
+void rns_dist_cache_budget(double room_bytes, int ranks_on_node);   /* ECALC_BUDGET_CHECK's room for this rank and its node's rank count (the transform-cache fit rule) */
 void *rns_dpool(int dev, int which, size_t bytes);
 extern int rns_pool_grow;   /* RNS_POOL_GROW=1 lets a plane pool grow inside a phase (else abort) */
 size_t rns_dpool_donate_tail(int dev, int which, size_t used);   /* I3: the pool's unused tail to the dbig block pool */
