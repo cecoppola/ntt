@@ -654,20 +654,21 @@ static void mn_prod_cut(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t 
  * the tree's groups, created by mn_tree on every node) whose modelled cost is least; the operands are re-sharded onto it
  * by mdb_shift_g.  The cost per candidate group g' (the model of mn_model.py in three constants): the pieces at the group's
  * plane cap, each T_PIECE x (points per APU / 2^29) of local work times the APU sharing, plus 15 exchanges of
- * 8 q (g' - 1) / g' bytes at NEWTON_MN_BW GB/s per APU with K (g' - 1) messages of NEWTON_MN_LAT seconds and NEWTON_MN_FIXED
- * per exchange (defaults: the target fabric, 100 GB/s, 2 us, 0).
+ * 8 q (g' - 1) / g' bytes at X1_BW GB/s per APU with K (g' - 1) messages of X1_LAT seconds per exchange
+ * (constants: the target fabric, 100 GB/s, 2 us; no fixed cost per exchange, no APU sharing factor).
  * NEWTON_MN_GROUPS=0 keeps every product on the full group.  The digits do not depend on the choice (every operation
  * is exact); size 1 never comes here. */
-static double x1_cost(size_t na, size_t nb, int gp, size_t reshard_limbs, double bw, double lat, double fixed, double share)
+static const double X1_BW = 100.0, X1_LAT = 2e-6;
+static double x1_cost(size_t na, size_t nb, int gp, size_t reshard_limbs)
 {
     int lgt = 0; while ((1 << lgt) < gp) lgt++;
     size_t nc = na + nb, cap = (size_t)1 << (31 + lgt), logmin = 2 * (7 + lgt) < 20 ? 20 : 2 * (7 + lgt);
     double pieces = 1; size_t pts;
     if (nc > cap) { double ka = ceil((double)na / (cap / 2)), kb = ceil((double)nb / (cap / 2)); pieces = ka * kb; pts = cap; }
     else { pts = (size_t)1 << 20; while (pts < nc) pts <<= 1; if (pts < ((size_t)1 << logmin)) pts = (size_t)1 << logmin; }
-    double q = (double)pts / (4.0 * gp), t_loc = 1.11 * q / (double)(1 << 29) * share + 0.005;
-    double t_x = gp > 1 ? 15 * (8 * q * (gp - 1) / gp / (bw * 1e9) + 4 * (gp - 1) * lat + 4 * fixed) : 0;
-    double t_re = gp > 1 && reshard_limbs ? 3 * (8.0 * reshard_limbs / (4.0 * gp) / (bw * 1e9) + (gp - 1) * lat + fixed) : 0;
+    double q = (double)pts / (4.0 * gp), t_loc = 1.11 * q / (double)(1 << 29) + 0.005;
+    double t_x = gp > 1 ? 15 * (8 * q * (gp - 1) / gp / (X1_BW * 1e9) + 4 * (gp - 1) * X1_LAT) : 0;
+    double t_re = gp > 1 && reshard_limbs ? 3 * (8.0 * reshard_limbs / (4.0 * gp) / (X1_BW * 1e9) + (gp - 1) * X1_LAT) : 0;
     return pieces * (t_loc + t_x) + t_re;
 }
 /* the level whose group [0, 2^L) the product should run on (0: the full group G); every node computes the same answer */
@@ -675,18 +676,14 @@ static double x1_cost(size_t na, size_t nb, int gp, size_t reshard_limbs, double
  * x1_level below is the run's call, for node groups that start at node 0 */
 int newton_mn_x1_level(size_t na, size_t nb, int g, int size, size_t reshard_limbs)
 {
-    static int on = -1; static double bw, lat, fixed, share;
+    static int on = -1;
     if (on < 0) {
         on = getenv("NEWTON_MN_GROUPS") ? atoi(getenv("NEWTON_MN_GROUPS")) : 1;
-        bw = 100.0; lat = 2e-6; fixed = 0; share = 1.0; (void)size;
-        if (getenv("NEWTON_MN_BW")) bw = atof(getenv("NEWTON_MN_BW"));
-        if (getenv("NEWTON_MN_LAT")) lat = atof(getenv("NEWTON_MN_LAT"));
-        if (getenv("NEWTON_MN_FIXED")) fixed = atof(getenv("NEWTON_MN_FIXED"));
-        if (getenv("NEWTON_MN_SHARE")) share = atof(getenv("NEWTON_MN_SHARE"));
+        (void)size;
     }
     if (!on || g <= 2) return 0;
-    int best = 0; double bc = x1_cost(na, nb, g, reshard_limbs, bw, lat, fixed, share);
-    for (int L = 1; (1 << L) < g; L++) { double c = x1_cost(na, nb, 1 << L, reshard_limbs, bw, lat, fixed, share); if (c < bc) { bc = c; best = L; } }
+    int best = 0; double bc = x1_cost(na, nb, g, reshard_limbs);
+    for (int L = 1; (1 << L) < g; L++) { double c = x1_cost(na, nb, 1 << L, reshard_limbs); if (c < bc) { bc = c; best = L; } }
     return best;
 }
 static int x1_level(size_t na, size_t nb, mn_group *G, size_t reshard_limbs) { return G->g0 != 0 ? 0 : newton_mn_x1_level(na, nb, G->g, mn_size(), reshard_limbs); }

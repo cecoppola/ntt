@@ -226,10 +226,10 @@ ofi_dev *comm_ofi_dev(int d)
 char *comm_ofi_pool(ofi_dev *od) { return od ? od->pool : 0; }
 int comm_ofi_in_pool(ofi_dev *od, const void *p) { return od && (const char *)p >= od->pool && (const char *)p < od->pool + od->bytes; }
 ofi_dev *comm_ofi_owner(const void *p) { for (int d = 0; d < MAXDEV; d++) { ofi_dev *o = (&G)->dev[d]; if (comm_ofi_in_pool(o, p)) return o; } return 0; }
-/* S31: symmetric buffers allocated top-down with COMM_LAYER_VSLOT_POOL=1 (the default; its v-slots regrow in the pool); else first fit.
+/* S31: symmetric buffers allocated top-down (the v-slots regrow in the pool); g_sym_top=0 is first fit (test only).
  * (tests/t_ofi_alloc.c, which includes this file, sets g_sym_top directly: 1 top-down, 0 first fit) */
-static int g_sym_top = -1;
-static int sym_top(void) { if (g_sym_top < 0) { const char *vp = getenv("COMM_LAYER_VSLOT_POOL"); g_sym_top = vp ? atoi(vp) != 0 : 1; } return g_sym_top; }
+static int g_sym_top = 1;
+static int sym_top(void) { return g_sym_top; }
 size_t comm_ofi_alloc(ofi_dev *od, size_t len, int sym)
 {
     len = (len + ALIGN - 1) & ~(size_t)(ALIGN - 1); if (!len) len = ALIGN;

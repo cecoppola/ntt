@@ -506,25 +506,9 @@ def _env_on(env, key, dflt):
     v = env.get(key)
     return dflt if v is None else v not in ('', '0')
 
-def vslot_pool_on(env=None):
-    """X2 (results/OFI_FABRIC.md §XEFF item 2) COMM_LAYER_VSLOT_POOL=1: the v-slots come from the comm pool (comm_sym_alloc): counted in the pool need (shmem_pool vslot=),
-    not as hipMalloc'd v-slots (binsplit.c vslot_pool_on)"""
-    env = os.environ if env is None else env
-    return _env_on(env, 'COMM_LAYER_VSLOT_POOL', True)
-
-def vslot_release_on(env=None):
-    """M3 (results/GRID_GROUPS.md §C06; always on with VSLOT_POOL): the pool v-slots are freed after each product's v-exchanges, so the staged exchanges and the slots
-    share the comm pool in time (binsplit.c): the pool need takes their maximum, not their sum"""
-    return vslot_pool_on(env)
-
 def inter2_on(env=None):
     env = os.environ if env is None else env
-    return _env_on(env, 'COMM_LAYER_INTER2', vslot_pool_on(env))
-
-def vslot_budget_on(env=None):
-    """binsplit.c binsplit_vslot_budget_on (always 1 since 2026-10-07; ECALC_VSLOT_BUDGET removed 2026-10-12): the v-slots counted in the node budget (room, cache fit, budget check)"""
-    env = os.environ if env is None else env
-    return not vslot_pool_on(env)   # X2: under VSLOT_POOL the pool counts them
+    return _env_on(env, 'COMM_LAYER_INTER2', True)
 
 # ---------------------------------------------------------------- the other pools (measured constants where the code has them)
 def planes_3q30(pool_log=31, digits=0):
@@ -869,7 +853,7 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
     px = 0 if ofi else int(px)
     if ofi or px:
         stg = max(best * 8, SHMEM_SELFTEST)
-        dv = (max(stg, vslot) if vslot_release_on() else stg + vslot) + sym // 4 + SHMEM_MARGIN   # M3: release -> the larger, not the sum
+        dv = max(stg, vslot) + sym // 4 + SHMEM_MARGIN   # M3: release -> the larger, not the sum
         if px > 1: dv = (dv - SHMEM_MARGIN) // px + SHMEM_MARGIN   # N7E (value 2): an APU's area is split over its px helper heaps (interleaved 4 MiB blocks)
         ofi_dev_mb = round256_mb(dv); staging = 0; sym = 0
     stg0 = max(staging, SHMEM_SELFTEST)
@@ -929,7 +913,7 @@ def pool_check():
 
 # ---------------------------------------------------------------- Phase 15 TC: the mn transform cache (rns_dist.c cache_avail)
 CACHE_MN_SLOTS_CODE = 2                  # RNS_DIST_CACHE_MN's default
-CACHE_FIT_RESERVE = 32e9                 # RNS_DIST_CACHE_FIT_RESERVE_GB's default (32 GB per node)
+CACHE_FIT_RESERVE = 32e9                 # rns_dist.c cache_fit_reserve (32 GB per node)
 DIST_LOGN_MAX = 31                       # rns_dist.c: the single-node tier's cap, which sizes the default's slots
 def cache_mn_bytes(g, pool_log=31, np=4, slots=CACHE_MN_SLOTS_CODE, fit=False):
     """bytes per node of the mn transform cache: slots x 4 APUs x np x 2^(c - 2) limbs x 8, c = 31 (the default: whatever POOL_LOG) or
@@ -993,7 +977,7 @@ def _mem_per_node(D, g=1, opts=None):
     sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta'], o['form'], o['pool_log'], o['groups'], o['t_chunk_mb'], o['early_free'], p24) if g > 1 else 0
     if g > 1: L['need_dev'] += sc[0]                                       # the sharded division's products: the same slabs and spills
     vs = vslot_resident(L['nq'], g, o['groups'], o['pool_log'], p24, o['depth'])   # B7ACCT: the general map's v-slots per APU (hipMalloc'd beside the arena)
-    vb = NR * vs['per_apu'] if vslot_budget_on() else 0                    # ECALC_VSLOT_BUDGET=1: also in the code's node budget (room, cache fit)
+    vb = 0                                                                 # the v-slots are in the comm pool (X2), not in the code's node budget (room, cache fit)
     want = max(L['need_dev'], tree)
     if o['tail']:
         arena = [arena_of(b + (L['hole'] if o['tail'] == 'v1' else 0), want, VMM_CHUNK if aroom > 0 else 0) for b in bs]   # binsplit_pregrow (v2): the bs halves or the dm / tree need per device; the tail is a policy over the last bytes (tail='v1': the hole added to the halves, the batch-1/2 runs of M11.md)
@@ -1019,7 +1003,7 @@ def _mem_per_node(D, g=1, opts=None):
     pdet = {}                                                             # (Phase 15 DL: the host terms before the room's decision, which counts them)
     if g > 1 and o['transport'] == 'shmem' and o['staging'] in ('code', 'sym'):   # Phase 14 P2: the measured law (the code as it is; 'sym': DIST_MN_SYM_SLABS=1)
         ofi = ofi_planned() if o.get('ofi') is None else o['ofi']           # Phase 17 OFIMEM: COMM_OFI (None: as the code decides on this host)
-        need = shmem_pool(L['nq'], g, o['groups'], o['pool_log'], o['t_chunk_mb'], o['shift_chunk_mb'], o['staging'] == 'sym', detail=pdet, round_mb=o.get('round_mb', 0), ofi=ofi, vslot=vs['per_apu'] if vslot_pool_on() else 0)   # X2: VSLOT_POOL counts the v-slots here
+        need = shmem_pool(L['nq'], g, o['groups'], o['pool_log'], o['t_chunk_mb'], o['shift_chunk_mb'], o['staging'] == 'sym', detail=pdet, round_mb=o.get('round_mb', 0), ofi=ofi, vslot=vs['per_apu'])   # X2: the pool counts the v-slots here
         stg = pdet['staging']; pool = pool_mb_of(need, 'plan' if ofi and o['pool'] == 'auto' else o['pool'], o['pool_mb'])   # Phase 15: the pool rule (POOLS; 'max' = the model before); OFIMEM: under OFI an unset pool = the need
         pdet['shmem_only'] = pool; pool += NR * (pdet['ofi_dev_mb'] << 20)   # OFIMEM: + the four comm_ofi pools (the transport's pools in all)
     else:                                                                 # the hypotheses before Phase 14 (resident: 0 staging, the pool flat at 8 GiB)
@@ -1197,7 +1181,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
             pd_ = {}; ofi = ofi_planned(env)                                       # Phase 17 OFIMEM: the comm_ofi pools beside the SHMEM pool
             px = 0 if ofi else int(env.get('COMM_SHMEM_PE_PER_APU') or ('1' if env.get('COMM_OFI') == '0' else '0'))   # N7b: 4 x value proxy pools, each the size of the pool (D31: default under COMM_OFI=0, as mnrun.sh)
             nd = shmem_pool(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, None, pool_log, t_chunk_mb, int(env.get('MDB_SHIFT_CHUNK_MB', '1024')), False, round_mb=int(float(env.get('COMM_SHMEM_ROUND_MB', '0') or 0)), detail=pd_, ofi=ofi, px=px,
-                            vslot=(vslot_resident(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, os.environ.get('MN_GROUPS') or None, pool_log, ((int(os.environ.get('MN_P24', '2') or 0), np_mode if np_mode is not None else EC_NP, g, os.environ.get('ECALC_NP_AUTO_MIN', '0') == '1') if int(os.environ.get('MN_P24', '2') or 0) else None))['per_apu'] if vslot_pool_on(env) else 0))
+                            vslot=(vslot_resident(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, os.environ.get('MN_GROUPS') or None, pool_log, ((int(os.environ.get('MN_P24', '2') or 0), np_mode if np_mode is not None else EC_NP, g, os.environ.get('ECALC_NP_AUTO_MIN', '0') == '1') if int(os.environ.get('MN_P24', '2') or 0) else None))['per_apu']))
             mb = -(-nd // (1 << 20)); mb = -(-mb // 256) * 256; have = int(env.get('COMM_SHMEM_POOL_MB', str(mb) if ofi else '8192'))
             pool_b = (mb if mb > have else have) << 20   # (the pool rule always raises the pool: COMM_SHMEM_POOL_AUTO removed 2026-10-12)
             if ofi: ofi_b = NR * (int(env.get('COMM_OFI_POOL_MB', str(pd_['ofi_dev_mb']))) << 20)
@@ -1208,7 +1192,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         p24m_ = int(os.environ.get('MN_P24', '2') or 0)                           # B7ACCT: the v-slots (binsplit_vslot_bytes), the tree's P24 decision
         p24_ = (p24m_, np_mode if np_mode is not None else EC_NP, g, os.environ.get('ECALC_NP_AUTO_MIN', '0') == '1') if p24m_ else None
         vs = vslot_resident(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, os.environ.get('MN_GROUPS') or None, pool_log, p24_) if g > 1 else dict(per_apu=0, tree_top=0)
-        vb = NR * vs['per_apu'] if vslot_budget_on() else 0                       # ECALC_VSLOT_BUDGET=1: in as_room_fits' node
+        vb = 0                                                                    # the v-slots are in the comm pool, not in as_room_fits' node
         bs = arena_bs_bytes(N, (N + g - 1) // g, S=seed_span(N, g, seed_fill))
         def arm(w):                                                           # FIT (D26): one wrap arm, the room decided as below (binsplit.c fit_arm)
             ar_room = None

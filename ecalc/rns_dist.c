@@ -172,16 +172,16 @@ static struct { int n, nmn, navail, tried, init; struct dist_slot s[DIST_CACHE_M
  *          is not cached (a guard in cache_plan);
  *   count  min(the configured slots, (free - margin) / (slot x the node-processes on this node), (room - reserve / ranks) / (4 x slot)),
  *          where the room = this rank's share of ECALC_NODE_GB less its peak as ECALC_BUDGET_CHECK models it (rns_dist_cache_budget,
- *          called by the check; without the check: no budget bound) and the reserve = RNS_DIST_CACHE_FIT_RESERVE_GB (32) per node.  At
+ *          called by the check; without the check: no budget bound) and the reserve = 32 GB per node.  At
  *          the 5.1e13 target (and 4.74e13) the room less the reserve is below one slot's 68.7 GB per node, so the cache stays
  *          unallocated (0 slots) and the node stays at its modelled peak.
  * The slots' bytes are in the memory report ("other"). */
 static double g_cache_room; static int g_cache_room_set, g_cache_ranks = 1;   /* this rank's budget room (bytes), whether the check gave one, the node-processes on its node */
 void rns_dist_cache_budget(double room_bytes, int ranks_on_node) { g_cache_room = room_bytes; g_cache_room_set = 1; g_cache_ranks = ranks_on_node > 0 ? ranks_on_node : 1; }
-/* FIT's reserve per node (RNS_DIST_CACHE_FIT_RESERVE_GB, 32): what the budget check's init peak does not hold and the run still takes
+/* FIT's reserve per node (32 GB): what the budget check's init peak does not hold and the run still takes
  * -- at the target mem_model.py's node (455.4 GB: the SHMEM pool, the VMM seed buffers, the bs growth, the writer) is 28.8 GB above
  * the layout's (426.6); shared by the node's ranks */
-static double cache_fit_reserve(void) { const char *e = getenv("RNS_DIST_CACHE_FIT_RESERVE_GB"); return (e ? atof(e) : 32.0) * 1e9; }
+static double cache_fit_reserve(void) { return 32.0 * 1e9; }
 static void cache_acct(int ndev, size_t b[][MEM_DEV_NCAT])   /* the memory report: the slots' planes as "other" */
 {
     for (int d = 0; d < ndev && d < NR; d++) for (int i = 0; i < DIST_CACHE_MAX; i++) if (g_cache.s[i].pl[d]) b[d][MEM_DEV_OTHER] += g_cache.slot_bytes;
@@ -291,10 +291,10 @@ static void cache_plan(int *sa, int *sb, int ha, int hb, const void *ka, size_t 
  * laid for the default division) -- so under the switch the mn tier's slots are not the held hipMalloc'd planes but, for each grid
  * product (mn_grid, pieces > 1), planes of the product's own q taken from the pool at its start and returned at its end:
  *   planes  P = min over the four APUs of (free bytes - the product's own peak need (rns_mul_dist_mn_scratch) - the margin
- *           RNS_DIST_CACHE_PARTIAL_MARGIN_GB per APU (0.5)) / (q x 8), and at most what the free extents hold as they are
+ *           0.5 GB per APU) / (q x 8), and at most what the free extents hold as they are
  *           (db_pool_fit_count: no remap, no growth); the group's minimum (every node must hold the same slots);
  *   slots   P >= np: min(RNS_DIST_CACHE_MN, P / np) full slots; else 1 slot of P primes (primes 0 .. P - 1 of the operand);
- *           RNS_DIST_CACHE_PARTIAL_K = k caps a slot at k primes (then one slot); RNS_DIST_CACHE_PARTIAL_FORCE = P sets P whatever the
+ *           RNS_DIST_CACHE_PARTIAL_FORCE = P sets P whatever the
  *           room (tests only: the pool may then grow by hipMalloc, reported);
  *   hits    a hit on a k-prime slot skips primes < k's gathers and forward transforms (A: copied from the slot; B: read in place); the
  *           operand's redistribution is skipped only when k >= the product's primes (a full hit);
@@ -321,7 +321,7 @@ static int cache_pc_take(mn_group *G, size_t na, size_t nb, const mdbv *A, const
     size_t sha = OVL(sa0, sa1, A->off, A->len), shb = OVL(sb0, sb1, B->off, B->len);
 #undef OVL
     size_t need = rns_mul_dist_mn_scratch(na, nb, 0, g, sha, shb, sc1 - sc0, 0);
-    double mg = (getenv("RNS_DIST_CACHE_PARTIAL_MARGIN_GB") ? atof(getenv("RNS_DIST_CACHE_PARTIAL_MARGIN_GB")) : 0.5) * 1e9;
+    double mg = 0.5 * 1e9;
     const size_t PM = (size_t)DIST_CACHE_MAX * EC_NP; size_t P = PM, fmin = (size_t)-1;
     for (int d = 0; d < NR; d++) {
         size_t fr = db_pool_free_bytes(d), fc = db_pool_fit_count(d, plane); if (fr < fmin) fmin = fr;
@@ -332,9 +332,9 @@ static int cache_pc_take(mn_group *G, size_t na, size_t nb, const mdbv *A, const
     if (held) P = 0;
     P = PM - grp_max(G, PM - P);                              /* the group's minimum (a collective: every node of the group is here) */
     if (held) return 0;
-    int kmax = getenv("RNS_DIST_CACHE_PARTIAL_K") ? atoi(getenv("RNS_DIST_CACHE_PARTIAL_K")) : np; if (kmax < 1) kmax = 1; if (kmax > np) kmax = np;
+    int kmax = np < 1 ? 1 : np;
     int ns, k;
-    if ((int)P >= kmax) { k = kmax; ns = (int)(P / (size_t)kmax); if (ns > cache_slots()) ns = cache_slots(); if (k < np && ns > 1) ns = 1; }   /* k < np: one slot (CX: one slot of more primes beats more slots of fewer) */
+    if ((int)P >= kmax) { k = kmax; ns = (int)(P / (size_t)kmax); if (ns > cache_slots()) ns = cache_slots(); }
     else { ns = P > 0 ? 1 : 0; k = (int)P; }
     if (ns > DIST_CACHE_MAX) ns = DIST_CACHE_MAX;
     g_pcst.products++;
@@ -1719,7 +1719,7 @@ void rns_dist_cache_plan(int size, int pool_log, int np0, long grids_tree, long 
                " (the arena, inside the node's %.2f GB: nothing added): P = (the pool's free bytes - the product's need - %.2f GB margin per APU) / (q x 8), at most what the free extents hold;"
                " one prime at the cap 2^%d limbs = %.2f GiB per APU (%.2f GB per node); P >= %d primes: full slots, else 1 slot of P primes; P24 products cached too; the grid's loop along its longer axis"
                " (mn_model.py --cache-partial models the primes per phase)\n",
-               w, first, grids_tree, grids_recip, grids_div, node_bytes / 1e9, getenv("RNS_DIST_CACHE_PARTIAL_MARGIN_GB") ? atof(getenv("RNS_DIST_CACHE_PARTIAL_MARGIN_GB")) : 0.5,
+               w, first, grids_tree, grids_recip, grids_div, node_bytes / 1e9, 0.5,
                lf - 2, ((size_t)1 << (lf - 2)) * 8 / 1073741824.0, NR * ((size_t)1 << (lf - 2)) * 8 / 1e9, np0);
         return;
     }

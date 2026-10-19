@@ -106,7 +106,7 @@ the planner `MN_PLAN_ONLY`), the library heap (pool + 512 MiB), `FI_UNIVERSE_SIZ
 `MN_GROUPS` (the code's default). `tools/plan_values.py [--profile P] [--line FILE] [--exports] <digits> <nodes>` prints
 them without launching, checks a hand-typed line against them, and prints `export` lines for a launch without `mnrun.sh`.
 At 3.82 × 10¹³ digits on 576 nodes the plan asks for a pool of 2304 MiB and a heap of 2816 MiB with the current defaults
-(m, planner on the aac7 login node); a typed 1536 / 2048 MiB is right only with `COMM_LAYER_VSLOT_POOL=0`. User decision D9 (a), 2026-10-12: the target launch block does not type pool or heap; it takes them from `tools/plan_values.py --profile target --exports <digits> <nodes>`.
+(m, planner on the aac7 login node); a typed 1536 / 2048 MiB was right only for the removed hipMalloc v-slot form. User decision D9 (a), 2026-10-12: the target launch block does not type pool or heap; it takes them from `tools/plan_values.py --profile target --exports <digits> <nodes>`.
 
 **Memory fit before every launch (FIT, user decision D26, `results/LAUNCH_DEFAULTS.md §FIT`).** Only runs whose memory fits are launched. The
 planner (`MN_PLAN_ONLY`, C, the source of truth) reports for (digits, nodes, profile) the device peak per node and per APU

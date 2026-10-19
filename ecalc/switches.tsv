@@ -15,10 +15,9 @@ BS_SEED_PULL	int	1	1	0|1	built-in default	-	-	Y	ecalc	dbig.c	2	coordinator (TASK
 BS_SEED_TERMS	int	derived	derived		built-in default	-	T215.md+WP7.md	Y	ecalc	binsplit.c	5	-	-	
 BS_SEED_THREADS	int	all	all		built-in default	-	I.md+S22.md	Y	ecalc	binsplit.c	6	-	-	
 COMM_KTIME	int	0	0		unclassified	-	-	Y	ecalc	comm_copy.c,comm_shmem.c	2	diagnostics (TESTING.md)	2027-04-12	
-COMM_LAYER_INTER2	bool	derived	derived	0|1	built-in default	-	XEFF.md+S47.md	Y	ecalc	comm_layered.c	1	coordinator (TASKS S)	2026-11-11	comm_layered.c; default since 2026-10-12 (TASKS 27): follows COMM_LAYER_VSLOT_POOL (1)
+COMM_LAYER_INTER2	bool	1	1	0|1	built-in default	-	XEFF.md+S47.md	Y	ecalc	comm_layered.c	1	coordinator (TASKS S)	2026-11-11	comm_layered.c; default since 2026-10-12 (TASKS 27): 1
 COMM_LAYER_STATS	int	0	0		test-only	-	X13.md+C16.md	Y	ecalc	comm_layered.c	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_LAYER_VSLOT_MB	bool	derived	derived	0|1	built-in default	-	-	prose	ecalc	comm_layered.c	1	-	-	
-COMM_LAYER_VSLOT_POOL	bool	1	1	0|1	built-in default	-	XEFF.md	Y	ecalc	comm_layered.c,comm_ofi.c,comm_shmem.c	3	coordinator (TASKS S)	2026-11-11	comm_layered.c; default 1 since 2026-10-12 (TASKS 27)
 COMM_OFI	bool	auto	derived	0|1	launch-line	aac7	OFI17.md	Y	ecalc	comm_ofi.c	3	-	-	comm_ofi.c:98 default = a cxi NIC is present (cxi_present())
 COMM_OFI_CHUNK_MB	float	unset	unset		built-in default	-	TUNE17.md+OFI17.md	Y	ecalc	comm_ofi.c	2	-	-	
 COMM_OFI_DEV	int	derived	derived		test-only	-	-	Y	ecalc	comm_shmem.c	4	diagnostics (TESTING.md)	2027-04-12	
@@ -48,7 +47,6 @@ COMM_SHMEM_ROUND_MB	float	0	0	>=0 MiB	launch-line	aac7	V114.md	Y	ecalc	binsplit.
 COMM_SHMEM_SERIAL	bool	auto	derived	0|1	launch-line	aac6,aac7	S.md+S16.md	Y	ecalc	comm_shmem.c	1	-	-	comm_shmem.c:284 per-build default (OSHMEM 1)
 COMM_SHMEM_SPIN_US	int	2000	2000		built-in default	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	1	-	-	
 COMM_SHMEM_STAGE_SLOT_MB	bool	0	0	0|1	test-only	-	V114.md+STD17.md	prose	ecalc	comm_shmem.c	1	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	
-COMM_SHMEM_VERBOSE	int	0	0		test-only	-	P214.md+V114.md	Y	ecalc	comm_shmem.c	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_SIZE	int	1	conflict:0|1|4096	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,comm_shmem.c,ecalc.c,fatal.c,mem.c,mn.c,rns_mul.c,segv_trace.c	19	-	-	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
 COMM_TRACE	bool	0	0	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_TRACE_CLOCK_N	int	50	unset	N	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	comm_trace.h:97
@@ -108,9 +106,6 @@ ECALC_NP_AUTO_MIN	bool	derived	derived	0|1	experiment	-	MPB15.md	Y	ecalc	crt.c	1
 ECALC_NP_AUTO_TERMS	bool	derived	derived	0|1	test-only	-	NP15.md	Y	ecalc	crt.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_NP_MN3	bool	0	derived	0|1	built-in default	-	-	Y	ecalc	crt.c	1	coordinator (D18, results/LAUNCH_DEFAULTS.md §DEF)	2026-11-11	crt.c ec_np_init; =1 the three-prime multi-node path, kept fallback after D18 (results/LAUNCH_DEFAULTS.md §DEF)
 ECALC_ODIRECT	int	1	1		built-in default	-	S114.md+KP15.md	Y	ecalc	spill.c	3	-	-	
-ECALC_ODIRECT_LUSTRE	int	1	1		built-in default	-	IO15.md	prose	ecalc	spill.c	1	-	-	
-ECALC_ODIRECT_NFS	int	1	1		built-in default	-	IO15.md	prose	ecalc	spill.c	1	-	-	
-ECALC_ODIRECT_OTHER	int	1	1		built-in default	-	IO15.md	Y	ecalc	spill.c	1	-	-	
 ECALC_OUT_MODE	bool	derived	derived	0|1	built-in default	-	IO15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_ODIRECT	int	derived	derived		built-in default	-	S114.md+KP15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_PACKED	int	2	2		built-in default	-	KP15.md+IO15.md	Y	ecalc	mn_out.c	1	coordinator (TASKS S)	2026-11-11	
@@ -145,12 +140,8 @@ MN_WAIT_STATS	bool	0	unset	0|1	launch-line	-	S27.md+S22.md	Y	ecalc	comm_util.c	1
 NEWTON_CHAIN_GUARD	int	1	1	0|1	built-in default	-	-	Y	ecalc	newton_db.c	1	coordinator (D25, results/DIVISION.md §RECIP)	2026-11-11	newton_db.c newton_chain_guard; default 1 since D25, =0 kept fallback (RECIP, results/DIVISION.md §RECIP); dm_layout and mem_model.py follow it
 NEWTON_DKM_TEST_HI	int	0	0		test-only	-	DKM15.md+EW15.md	prose	ecalc	newton_db.c	1	diagnostics (TESTING.md)	2027-04-12	
 NEWTON_DOUBLING_TS	int	0	0		test-only	-	S22.md+S21.md	Y	ecalc	newton_db.c	2	diagnostics (TESTING.md)	2027-04-12	
-NEWTON_MN_BW	float	unset	unset		built-in default	-	X.md+Q.md	Y	ecalc	newton_db.c	2	-	-	
-NEWTON_MN_FIXED	float	unset	unset		built-in default	-	X.md	Y	ecalc	newton_db.c	2	-	-	
 NEWTON_MN_GROUPS	int	1	1		built-in default	-	X.md+G13d.md	Y	ecalc	newton_db.c	2	-	-	
-NEWTON_MN_LAT	float	unset	unset		built-in default	-	X.md	Y	ecalc	newton_db.c	2	-	-	
 NEWTON_MN_RECIP_TS	int	0	0		test-only	-	S30.md	Y	ecalc	newton_db.c	2	diagnostics (TESTING.md)	2027-04-12	
-NEWTON_MN_SHARE	float	unset	unset		built-in default	-	-	Y	ecalc	newton_db.c	2	-	-	
 NEWTON_MN_SPLIT	int	derived	derived		built-in default	-	A37CMP.md+A-div.md	Y	ecalc	newton_db.c	2	-	-	
 NEWTON_RECIP_GUARD	bool	unset	unset	0|1	built-in default	-	R114.md	Y	ecalc	newton_db.c	1	-	-	
 NEWTON_VERBOSE	int	0	0		test-only	-	L114.md+L13d.md	Y	ecalc	newton_db.c	6	diagnostics (TESTING.md)	2027-04-12	
@@ -160,13 +151,10 @@ POOL_LOG	int	31	31	29..31	launch-line	-	A-mem.md+M13.md	Y	ecalc	ecalc.c	3	-	-	ec
 RNS_BATCH_LOCAL_MIN	int	unset	unset		built-in default	-	P3.md+R.md	Y	ecalc	rns_mul.c	2	-	-	
 RNS_BATCH_TILE_GB	float	unset	unset		built-in default	-	P.md	Y	ecalc	rns_mul.c	2	-	-	
 RNS_CRT_SCAN	bool	1	1	0|1	built-in default	-	-	Y	ecalc	rns_mul.c	1	coordinator (D21, results/KERNELS.md §K4b)	2026-11-11	K4b: k_crt_batch parallel carry (rns_mul.c rns_gconst); default 1 since D21, =0 kept fallback
-RNS_DIST_CACHE_FIT_RESERVE_GB	float	32	32		built-in default	-	TC15.md+DOC215.md	Y	ecalc	rns_dist.c	1	-	-	
 RNS_DIST_CACHE_MARGIN_GB	float	24	24		built-in default	-	TC15.md+M13.md	Y	ecalc	rns_dist.c	2	-	-	
 RNS_DIST_CACHE_MN	int	2	2		experiment	-	TC15.md	Y	ecalc	rns_dist.c	1	coordinator (TASKS S)	2026-11-11	
 RNS_DIST_CACHE_PARTIAL	bool	1	1	0|1	built-in default	-	PC15.md+R§93	Y	ecalc	rns_dist.c	1	coordinator (TASKS S)	2026-11-11	rns_dist.c; default 1 since 2026-10-12 (TASKS 27)
 RNS_DIST_CACHE_PARTIAL_FORCE	bool	unset	unset	0|1	test-only	-	PC15.md	prose	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
-RNS_DIST_CACHE_PARTIAL_K	int	derived	derived		built-in default	-	PC15.md	prose	ecalc	rns_dist.c	2	-	-	
-RNS_DIST_CACHE_PARTIAL_MARGIN_GB	float	0.5	0.5		built-in default	-	PC15.md	prose	ecalc	rns_dist.c	4	-	-	
 RNS_DIST_CACHE_TRACE	bool	0	0	0|1	test-only	-	CX15.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
 RNS_INIT_POOL_LOG	int	unset	unset		test-only	-	T11.md+S51.md	Y	ecalc	rns_mul.c	2	profiles/aac6.conf (CPX launch note, T11.md)	2027-04-12	
 RNS_POOL1_GB	float	unset	unset		built-in default	-	R.md+T.md	Y	ecalc	mn_plan.c,rns_mul.c	4	-	-	
