@@ -16,6 +16,7 @@
 #   PROBE_SRUN_EXTRA="--gpus-per-node=4" adds options to every srun step (if the site hides the APUs from a step without them).
 #   Modules: PROBE_MODULES="m1 m2 ..." forces the module line; otherwise the probe picks the candidates matching --want-rocm / --want-sma and
 #   the highest dsmml.  Stdout is bounded (about 150 lines); the full facts are in DIR/facts.txt, the proposal in DIR/target.conf.proposed.
+# Also collects the kernel memory facts of the SHMEM transport (THP, compaction_proactiveness, hugetlb pool, buddyinfo score, MADV_COLLAPSE).
 # Docs: profiles/README.md "Target bring-up runbook".  Exit 0 = probe finished (the facts may say UNKNOWN/NONE), 2 = usage.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); ROOT=$(cd "$HERE/.." && pwd)
 OUT=./target_probe_out HOLD= TPL=$ROOT/profiles/target.conf.template DO_SHMEM=1 PHASE=all
@@ -23,7 +24,7 @@ W_ROCM=7.14.0 W_SMA=12.1 W_FI=2.3.1 W_NICS=8 TMO=90
 while [ $# -gt 0 ]; do case $1 in
   --out) OUT=$2; shift;; --hold) HOLD=$2; shift;; --template) TPL=$2; shift;; --no-shmem) DO_SHMEM=0;; --phase) PHASE=$2; shift;;
   --want-rocm) W_ROCM=$2; shift;; --want-sma) W_SMA=$2; shift;; --want-fi) W_FI=$2; shift;; --want-nics) W_NICS=$2; shift;; --tmo) TMO=$2; shift;;
-  -h|--help) sed -n 2,21p "$0"; exit 0;; *) echo "target_probe: unknown option $1" >&2; exit 2;; esac; shift; done
+  -h|--help) sed -n 2,22p "$0"; exit 0;; *) echo "target_probe: unknown option $1" >&2; exit 2;; esac; shift; done
 mkdir -p "$OUT" || exit 2; OUT=$(cd "$OUT" && pwd); F=$OUT/facts.txt
 [ "$PHASE" = all ] && : > "$F"
 UN=$(id -un); HN=$(hostname -s 2>/dev/null)
@@ -72,6 +73,25 @@ kv SHM_MOUNT "$(findmnt -n -o TARGET,FSTYPE,OPTIONS /dev/shm 2>/dev/null)"
 kv SHM_SIZE "$(df -h /dev/shm 2>/dev/null | awk 'NR==2{print $2" used "$3}')"
 kv TMP_FSTYPE "$(findmnt -n -o FSTYPE -T /tmp 2>/dev/null)"
 kv HUGETLB_2M_FREE "$(cat /sys/kernel/mm/hugepages/hugepages-2048kB/free_hugepages 2>/dev/null)"; kv HUGETLB_1G_FREE "$(cat /sys/kernel/mm/hugepages/hugepages-1048576kB/free_hugepages 2>/dev/null)"
+# kernel memory settings the SHMEM transport depends on (profiles/README.md "First SHMEM run on the target"); read-only
+kv KERNEL_MM_COMPACTION_PROACTIVENESS "$(cat /proc/sys/vm/compaction_proactiveness 2>/dev/null)"
+kv KERNEL_MM_COMPACT_UNEVICTABLE_ALLOWED "$(cat /proc/sys/vm/compact_unevictable_allowed 2>/dev/null)"
+kv HUGETLB_2M_NR "$(cat /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages 2>/dev/null)"; kv HUGETLB_2M_RESV "$(cat /sys/kernel/mm/hugepages/hugepages-2048kB/resv_hugepages 2>/dev/null)"
+kv HUGETLB_2M_OVERCOMMIT "$(cat /sys/kernel/mm/hugepages/hugepages-2048kB/nr_overcommit_hugepages 2>/dev/null)"
+kv HUGETLB_2M_PER_NUMA "$(for n in /sys/devices/system/node/node[0-9]*; do f=$n/hugepages/hugepages-2048kB; [ -r $f/free_hugepages ] && printf '%s:%s/%s ' $(basename $n) $(cat $f/free_hugepages) $(cat $f/nr_hugepages); done)"
+kv THP_khugepaged_defrag "$(cat /sys/kernel/mm/transparent_hugepage/khugepaged/defrag 2>/dev/null)"
+# fragmentation score per NUMA node and zone: 100 * free pages in blocks below order 9 / all free pages (the score of COMM_TRACE_HB_MEM; above 90 starts a proactive pass)
+kv BUDDY_FRAG_SCORE "$(awk '{lo=0;hi=0;for(i=5;i<=NF;i++){p=$i*2^(i-5); if(i-5<9)lo+=p; else hi+=p}; if(lo+hi>0)printf "%s%s:%d ",$2,$4,100*lo/(lo+hi)}' /proc/buddyinfo 2>/dev/null)"
+kv BUDDY_FREE_GE2M_MB "$(awk '{h=0;for(i=14;i<=NF;i++)h+=$i*2^(i-5)*4/1024; printf "%s%s:%d ",$2,$4,h}' /proc/buddyinfo 2>/dev/null)"
+kv KFD_PRESENT "$([ -d /sys/class/kfd/kfd/proc ] && echo "yes (per-process evicted_ms under /sys/class/kfd/kfd/proc/<pid>/stats_<gpu>/ while a job runs)" || echo no)"
+# MADV_COLLAPSE (25) on a 2 MiB aligned anonymous mapping: EINVAL = kernel without it (needs >= 6.1 or a backport); COMM_SHMEM_NP_HEAP_THP / PX_THP print a failure line then
+kv MADV_COLLAPSE "$(python3 -I -c 'import mmap,sys
+try:
+    m=mmap.mmap(-1,8<<20)
+    for i in range(0,8<<20,4096): m[i]=1
+    m.madvise(25); print("works")
+except OSError as e: print("errno=%d %s (22 = unsupported)"%(e.errno,e.strerror))
+except Exception as e: print("untested: %s"%e)' 2>&1 | head -1)"
 kv ULIMIT_MEMLOCK "$(ulimit -l)"; kv ULIMIT_NOFILE "$(ulimit -n)"
 # userfaultfd (libfabric's uffd MR cache monitor): the syscall must work for an unprivileged process
 kv UFFD_UNPRIV_SYSCTL "$(cat /proc/sys/vm/unprivileged_userfaultfd 2>/dev/null)"
@@ -203,9 +223,18 @@ propose() {
     echo "# NICs: cxi devices $(fact CXI_DEV_COUNT), fi_info cxi domains $(fact FI_CXI_DOMAINS), numa map: $(fact CXI_NUMA_MAP); APU numa map: $(fact APU_NUMA_MAP)"
     echo "# uffd syscall: $(fact UFFD_SYSCALL); FI_MR_CACHE_MONITOR=userfaultfd is $(fact FI_MONITOR_userfaultfd) here"
     echo "# on-node path: /dev/xpmem=$(fact XPMEM_DEV); 2-PE shmem_ptr/put/get: $(fact SHMEM_TWOPE_PROBE)"
+    echo "# kernel $(fact KERNEL): THP $(fact THP_enabled) | defrag $(fact THP_defrag) | shmem $(fact THP_shmem_enabled); proactiveness=$(fact KERNEL_MM_COMPACTION_PROACTIVENESS) unevictable=$(fact KERNEL_MM_COMPACT_UNEVICTABLE_ALLOWED); hugetlb 2M free $(fact HUGETLB_2M_FREE) of $(fact HUGETLB_2M_NR); MADV_COLLAPSE: $(fact MADV_COLLAPSE)"
+    echo "# SHMEM memory advice: $(memadvice)"
     echo "# COMM_SHMEM_PE_PER_APU advice: $(advice)"
     echo "# ECALC_OUT_DIR / MNACCEPT_TMP: pick a shared, non-RAM directory from the FS_CANDIDATE lines of facts.txt; the single-file write rate comes from the runbook step 'output FS'"
   } >> "$P"
+}
+memadvice() {  # runbook "First SHMEM run on the target": how the kernel memory facts map to switches
+  local fh mc nr; fh=$(fact HUGETLB_2M_FREE); mc=$(fact MADV_COLLAPSE); nr=$(fact HUGETLB_2M_NR)
+  case "$mc" in works*) ;; "") echo -n "MADV_COLLAPSE untested (run the node phase with --hold); ";; *) echo -n "MADV_COLLAPSE unsupported or refused -> COMM_SHMEM_NP_HEAP_THP / PX_THP print a failure line and keep 4 KiB pages (see runbook); ";; esac
+  if [ -n "$fh" ] && [ "$fh" -gt 0 ] 2>/dev/null; then echo -n "hugetlb pool present ($fh free 2 MiB pages): size it to the heap and try COMM_SHMEM_HUGETLB=1 (heap-size/2 MiB per node-process); "
+  else echo -n "no hugetlb pool (nr_hugepages=${nr:-?}): COMM_SHMEM_HUGETLB falls back to NP_HEAP_THP; "; fi
+  echo "proactiveness $(fact KERNEL_MM_COMPACTION_PROACTIVENESS): keep it, A/B 0 only if the first run shows kcompactd stalls or KFD evicted_ms"
 }
 advice() {  # the SHMEM facts that decide COMM_SHMEM_PE_PER_APU (see profiles/README.md runbook step 9)
   local nics n2 n4 two
