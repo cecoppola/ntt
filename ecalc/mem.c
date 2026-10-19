@@ -180,21 +180,13 @@ void mem_dev_copy(void *dst, const void *src, size_t bytes)   /* DMA copy betwee
 int mem_device_count(void) { int n = 0; if (hipGetDeviceCount(&n) != hipSuccess) n = 0; return n; }
 size_t mem_dev_pool_bytes(void) { size_t s = 0; for (int i = 0; i < nreg; i++) if (reg[i].dev >= 0) s += reg[i].bytes; return s; }
 
-/* FRAGFIX (Phase B, 2026-10-17): MEM_HSTAGE_THP=0 drops the MADV_HUGEPAGE advice on the pinned host blocks (hstage, hreg).
- * Under the nodes' THP policy (enabled=always, defrag=madvise) a huge-page fault in an advised range enters direct reclaim and
- * synchronous compaction when no free 2 MiB block is at hand, and on a fragmented node every one of the ~4096 faults of the
- * 8 GiB of staging (1 GiB per APU + the seeds' two 2 GiB buffers) stalled and fell back anyway (item 76_frag2: thp_fault_fallback
- * 4083, allocstall_movable 4229, compact_stall 8707 on the slow node; rns_init 15 -> 36 s).  Without the advice the fault takes a
- * huge page when one is free and a 4 KiB page at once otherwise (no reclaim, no compaction).  Default 1 = unchanged. */
-static int hstage_thp(void) { static int v = -1; if (v < 0) { const char *e = getenv("MEM_HSTAGE_THP"); v = e ? atoi(e) != 0 : 1; } return v; }
-
 void *mem_hreg_alloc(size_t bytes)
 {
     const size_t huge = 2u << 20;
     bytes = (bytes + huge - 1) & ~(huge - 1);
     void *p = 0;
     if (posix_memalign(&p, huge, bytes)) { ec_fatal(EC_RC_OOM, "hreg: posix_memalign %zu failed\n", bytes); }
-    if (hstage_thp()) madvise(p, bytes, MADV_HUGEPAGE);
+    madvise(p, bytes, MADV_HUGEPAGE);
     unsigned char *b = (unsigned char *)p;
 #pragma omp parallel for schedule(static)
     for (size_t off = 0; off < bytes; off += 4096) b[off] = 0;
@@ -216,7 +208,7 @@ void *mem_hstage_alloc(int dev, size_t bytes, double *touch_s, double *reg_s)
     bytes = (bytes + huge - 1) & ~(huge - 1);
     void *p = 0;
     if (posix_memalign(&p, huge, bytes)) { ec_fatal(EC_RC_OOM, "hstage: posix_memalign %zu failed\n", bytes); }
-    if (hstage_thp()) madvise(p, bytes, MADV_HUGEPAGE);
+    madvise(p, bytes, MADV_HUGEPAGE);
     int node = mem_numa_node_of_device(dev);
     double t0 = mem_now();
     /* first touch from threads on the node: one page per stride, in parallel */
@@ -244,117 +236,6 @@ void mem_hstage_free(void *p)
     HIP_CHECK(hipHostUnregister(p));
     reg_del(p);
     free(p);
-}
-
-/* FRAGFIX (Phase B, 2026-10-17): MEM_PRECOMPACT_GB=<GiB per NUMA node> (default 0 = off): before the transport and the pools, one
- * anonymous mapping per NUMA node (an APU's node; at most that node's own MemFree - 16 GiB, none below it) is advised MADV_HUGEPAGE and populated by
- * 4 threads pinned to the node (MADV_POPULATE_WRITE, a page touch only when the kernel lacks it, EINVAL/ENOSYS; any other error stops that thread and is reported), then unmapped.  Run as a SEPARATE step (ECALC_MEMPREP_ONLY=1, ecalc exits right after, before any HIP / comm call; mnrun.sh MNRUN_MEMPREP_GB runs it as one srun task per node before the real launch), so nothing else of the run allocates meanwhile.  Why: on the APU the
- * device pools (hipMalloc, ~97 GB per NUMA node) are kernel pages taken by the driver in the largest free blocks it finds, with no
- * retry; on a fragmented node (few free 2 MiB blocks) they land in small pages, the arenas took 3.5 x longer to allocate and the
- * GPU steps ran slower for the whole run, and the state outlived the run (item 76_frag2).  Writing /proc/sys/vm/compact_memory
- * needs root; a huge-page fault in an advised range is the one compaction a user process can ask for (defrag=madvise), so this
- * step compacts in bulk, on every node at once, while the free memory is still movable (page cache, tmpfs) -- and the freed
- * 2 MiB blocks are what the device pools take next.  Reports the THP policy, per node the bytes that came as huge pages, the
- * time and the free >= 2 MiB blocks before / after.  Digits unaffected (nothing of the run touches the mapping). */
-#ifndef MADV_POPULATE_WRITE
-#define MADV_POPULATE_WRITE 23
-#endif
-static long node_free_kb(int node)                  /* MemFree of a NUMA node, kB (-1 unknown) */
-{
-    char path[96], buf[256]; long kb = -1;
-    snprintf(path, sizeof path, "/sys/devices/system/node/node%d/meminfo", node);
-    FILE *f = fopen(path, "r"); if (!f) return -1;
-    while (fgets(buf, sizeof buf, f)) { int n; long v; if (sscanf(buf, "Node %d MemFree: %ld kB", &n, &v) == 2) { kb = v; break; } }
-    fclose(f); return kb;
-}
-static long node_big_blocks(int node)               /* free blocks of order >= 9 (2 MiB) on a NUMA node, all zones (-1 unknown) */
-{
-    FILE *f = fopen("/proc/buddyinfo", "r"); if (!f) return -1;
-    char buf[512]; long n = 0;
-    while (fgets(buf, sizeof buf, f)) {
-        int nd; char zone[32]; const char *s = buf;
-        if (sscanf(buf, "Node %d, zone %31s", &nd, zone) != 2 || nd != node) continue;
-        s = strstr(buf, zone); if (!s) continue; s += strlen(zone);
-        long o[16]; int k = 0; char *e;
-        for (; k < 16; k++) { o[k] = strtol(s, &e, 10); if (e == s) break; s = e; }
-        for (int i = 9; i < k; i++) n += o[i];
-    }
-    fclose(f); return n;
-}
-static size_t map_huge_bytes(const void *p)         /* AnonHugePages of the mapping that starts at p (0 unknown) */
-{
-    FILE *f = fopen("/proc/self/smaps", "r"); if (!f) return 0;
-    char buf[512]; int in = 0; size_t kb = 0;
-    while (fgets(buf, sizeof buf, f)) {
-        unsigned long a, b;
-        if (sscanf(buf, "%lx-%lx ", &a, &b) == 2) { if (in) break; in = a == (unsigned long)p; continue; }
-        if (in && sscanf(buf, "AnonHugePages: %zu kB", &kb) == 1) break;
-    }
-    fclose(f); return kb << 10;
-}
-void mem_precompact(void)
-{
-    const char *e = getenv("MEM_PRECOMPACT_GB"); long gb = e ? atol(e) : 0;
-    if (gb <= 0) { printf("mem: precompact off (MEM_PRECOMPACT_GB unset)\n"); return; }
-    const size_t GiB = (size_t)1 << 30, margin = 16 * GiB, T = 4, HP = (size_t)2 << 20;
-    int nd = 0; for (; nd < MEM_MAX_DEV; nd++) { char q[80]; snprintf(q, sizeof q, "/sys/devices/system/node/node%d/meminfo", mem_numa_node_of_device(nd)); if (access(q, R_OK)) break; }   /* no HIP here: the NUMA nodes present (an APU's node = its device index) */
-    if (nd < 1) nd = 1;
-    char pol[160] = "?"; { FILE *f = fopen("/sys/kernel/mm/transparent_hugepage/enabled", "r"); char a[64] = "?", b[64] = "?";
-        if (f) { if (fgets(a, sizeof a, f)) a[strcspn(a, "\n")] = 0; fclose(f); }
-        f = fopen("/sys/kernel/mm/transparent_hugepage/defrag", "r"); if (f) { if (fgets(b, sizeof b, f)) b[strcspn(b, "\n")] = 0; fclose(f); }
-        snprintf(pol, sizeof pol, "enabled %s, defrag %s", a, b); }
-    char *map[MEM_MAX_DEV], *raw[MEM_MAX_DEV]; size_t len[MEM_MAX_DEV], hp[MEM_MAX_DEV], done[MEM_MAX_DEV]; long big0[MEM_MAX_DEV], big1[MEM_MAX_DEV]; double t0[MEM_MAX_DEV], t1[MEM_MAX_DEV];
-    int err[MEM_MAX_DEV], perr[MEM_MAX_DEV], pinerr[MEM_MAX_DEV], covered[MEM_MAX_DEV];
-    for (int n = 0; n < nd; n++) {
-        int node = mem_numa_node_of_device(n); long fr = node_free_kb(node);
-        size_t want = (size_t)gb * GiB, cap = fr > 0 ? (size_t)fr * 1024 : 0;   /* the node's own MemFree; unknown = skip the node */
-        len[n] = cap > margin ? (cap - margin < want ? cap - margin : want) : 0; len[n] &= ~(HP - 1);
-        map[n] = raw[n] = 0; hp[n] = done[n] = 0; err[n] = perr[n] = pinerr[n] = 0; covered[n] = 0; big0[n] = node_big_blocks(node); big1[n] = -1; t0[n] = t1[n] = 0;
-        if (!len[n]) { err[n] = -1; continue; }   /* -1: skipped, less than 16 GiB free (or unknown) */
-        void *p = mmap(0, len[n] + HP, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
-        if (p == MAP_FAILED) { err[n] = errno; len[n] = 0; continue; }
-        raw[n] = (char *)p; map[n] = (char *)(((uintptr_t)p + HP - 1) & ~(uintptr_t)(HP - 1));   /* 2 MiB aligned: every page of it may be huge */
-        if (madvise(map[n], len[n], MADV_HUGEPAGE)) err[n] = errno;
-    }
-    double tw = mem_now(); int team = 0;
-#pragma omp parallel num_threads((int)(nd * T))
-    {
-#pragma omp single
-        team = omp_get_num_threads();
-        int t = omp_get_thread_num(), n = t / (int)T, k = t % (int)T;
-        if (n < nd && map[n]) {
-            if (k == 0) t0[n] = mem_now();
-            covered[n] |= 1 << k;
-            cpu_set_t old, ns; int pinned = 0; sched_getaffinity(0, sizeof old, &old);
-            if (node_cpuset(mem_numa_node_of_device(n), &ns) > 0) { if (sched_setaffinity(0, sizeof ns, &ns)) pinerr[n] = errno; else pinned = 1; } else pinerr[n] = ENOENT;
-            size_t per = (len[n] / T + HP - 1) & ~(HP - 1), o = per * k, end = o + per < len[n] ? o + per : len[n];
-            const size_t C = 64u << 20; int pop = 1;
-            for (size_t x = o; x < end; x += C) { size_t l = end - x < C ? end - x : C;
-                if (pop && madvise(map[n] + x, l, MADV_POPULATE_WRITE)) {
-                    int er = errno;
-                    if (er == EINVAL || er == ENOSYS) pop = 0;                         /* an old kernel: touch instead */
-                    else { perr[n] = er; break; }                                      /* ENOMEM, EINTR, ...: stop; never fault the refused pages in */
-                }
-                if (!pop) for (size_t y = x; y < x + l; y += 4096) map[n][y] = 1;
-                __atomic_fetch_add(&done[n], l, __ATOMIC_RELAXED); }
-            if (pinned) sched_setaffinity(0, sizeof old, &old);   /* back to the mask the launcher gave */
-        }
-#pragma omp barrier
-        if (n < nd && map[n] && k == 0) { t1[n] = mem_now(); hp[n] = map_huge_bytes(map[n]); }
-    }
-    for (int n = 0; n < nd; n++) if (raw[n]) { munmap(raw[n], len[n] + HP); big1[n] = node_big_blocks(mem_numa_node_of_device(n)); }
-    /* stderr: a helper that is the first local process has its stdout sent to /dev/null by mnrun.sh */
-    printf("mem: precompact MEM_PRECOMPACT_GB=%ld: THP %s; %.2f s over %d nodes (team %d of %d threads):", gb, pol, mem_now() - tw, nd, team, (int)(nd * T));
-    for (int n = 0; n < nd; n++) {
-        printf("%s node %d %.1f GiB populated of %.1f (huge %.1f GiB) %.2f s, free >= 2 MiB blocks %ld -> %ld", n ? ";" : "", mem_numa_node_of_device(n),
-               done[n] / (double)GiB, len[n] / (double)GiB, hp[n] / (double)GiB, t1[n] - t0[n], big0[n], big1[n]);
-        if (err[n] == -1) printf(" skipped (< %zu GiB free)", margin / GiB);
-        else if (err[n]) printf(" err %s", strerror(err[n]));
-        if (perr[n]) printf(" populate stopped: %s", strerror(perr[n]));
-        if (map[n] && covered[n] != (1 << T) - 1) printf(" NOT COVERED (threads mask %x of %x)", covered[n], (1 << (int)T) - 1);
-        if (pinerr[n]) printf(" pin to node failed: %s", strerror(pinerr[n]));
-    }
-    printf("\n"); fflush(stdout);
 }
 
 int mem_pool_guard = 0;                               /* see mem.h */
