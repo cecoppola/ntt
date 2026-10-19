@@ -1,6 +1,6 @@
 #!/bin/bash
 # aac7env.sh - the aac7 (HPE Cray EX, 4 x MI300A + 4 x Slingshot-11 per node, Cray OpenSHMEMX 11.8.0, ROCm 7.0.3) environment
-# of ecalc (Phase 16 A, results/A16.md).  Two uses:
+# of ecalc (Phase 16 A, results/AAC7_PORT.md §A16).  Two uses:
 #   source ecalc/aac7env.sh         the modules (cray-dsmml cray-openshmemx rocm) and the variables the scripts read on aac7:
 #                                   MNRUN_MODULES, MNRUN_CPUS_PER_TASK=auto (srun confines a task to 2 CPUs otherwise), MNACCEPT_TMP
 #                                   under $HOME (the nodes' /tmp is RAM), AAC7_PART; plus the helper aac7_log.
@@ -47,7 +47,7 @@ aac7_log() {
 if [ "${1:-}" = --log ]; then aac7_log; exit 0; fi
 
 # ---- sourced: modules and variables ---------------------------------------------------------------------------------------
-# Phase 16 V (results/V16.md): the fastest stack measured on aac7 becomes the default — rocm/7.2.4 (identical digits to
+# Phase 16 V (results/AAC7_PORT.md §V16): the fastest stack measured on aac7 becomes the default — rocm/7.2.4 (identical digits to
 # 7.0.3, 168.5 vs 205.9 s at 1e11, C16 §2.7) instead of the system default rocm/7.0.3.  AAC7_ROCM overrides it
 # (AAC7_ROCM=rocm/7.0.3 reverts to the old stack, e.g. to match the target's TARGET_HW_REVIEW ROCm version).
 case "${AAC7_ROCM:-}" in ""|*/*) ;; *) AAC7_ROCM=rocm/$AAC7_ROCM;; esac   # merge V+D: a bare version (D: 7.2.4) means rocm/<version>
@@ -57,14 +57,14 @@ if [ -d /opt/cray/pe/sma ]; then
     # the login/compute default shell profile already has rocm/7.0.3 loaded; "rocm" is a conflict-marked family
     # (module-whatis "conflict rocm" on every rocm/* and rocm-new/* modulefile) so a later "module load rocm/X" is a
     # silent no-op (prints ERROR:150 to stderr, swallowed by 2>&1, and leaves 7.0.3 active) unless 7.0.3 is unloaded
-    # first by its exact name.  Measured on aac7 2026-10-04 (results/V16.md step 1).
+    # first by its exact name.  Measured on aac7 2026-10-04 (results/AAC7_PORT.md §V16 step 1).
     module unload rocm/7.0.3 > /dev/null 2>&1 || true
     module load $MNRUN_MODULES > /dev/null 2>&1 || true
 fi
 export MNRUN_CPUS_PER_TASK=${MNRUN_CPUS_PER_TASK:-auto}
-export MNACCEPT_TMP=${MNACCEPT_TMP:-$HOME/p16/mnaccept_tmp${SLURM_JOB_ID:+_$SLURM_JOB_ID}}   # one directory per job: concurrent queue items deleted each other's digits (results/W2A.md)
+export MNACCEPT_TMP=${MNACCEPT_TMP:-$HOME/p16/mnaccept_tmp${SLURM_JOB_ID:+_$SLURM_JOB_ID}}   # one directory per job: concurrent queue items deleted each other's digits (results/CODE_REDUCTION.md §W2A)
 export AAC7_PART=${AAC7_PART:-192C4G1H_MI300A_RHEL9_A1}
-# AAC7_FI_TUNE was an empty opt-in (results/V16.md §3c: no tunable passed the bar); removed 2026-10-12.
-[ "${AAC7_FI_TUNE:-0}" = 0 ] || echo "aac7env.sh: AAC7_FI_TUNE was removed (it set nothing; results/V16.md §3c)" >&2
+# AAC7_FI_TUNE was an empty opt-in (results/AAC7_PORT.md §V16 §3c: no tunable passed the bar); removed 2026-10-12.
+[ "${AAC7_FI_TUNE:-0}" = 0 ] || echo "aac7env.sh: AAC7_FI_TUNE was removed (it set nothing; results/AAC7_PORT.md §V16 §3c)" >&2
 [ -d "$HOME/gmp/lib" ] && export GMP_HOME=${GMP_HOME:-$HOME/gmp}
 :   # (a sourced file ends with status 0)

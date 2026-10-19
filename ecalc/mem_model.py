@@ -5,7 +5,7 @@ Device and host bytes of one node-process as functions of the digits per node D 
 (the number of node-processes the run is spread over), built from the same formulas the code sizes its
 allocations with (binsplit.c: e_terms, seed_limbs, region_need, dm_layout, tree_need_dev; rns_mul.c: the
 plane pools; rns_dist.c: the sharded exchange's scratch), calibrated against the mem_report tables of
-results/M.md, results/M11.md (4, 7, 8 x 10^10 at size 1; 10^10 at size 4).
+results/MEMORY.md §M, results/MEMORY.md §M11 (4, 7, 8 x 10^10 at size 1; 10^10 at size 4).
 
     mem_per_node(D, g, opts) -> dict      (bytes; opts: pool_log, tail, alltoallv, margin, form, groups, transport ...)
     python3 mem_model.py                  prints the calibration table, the ceilings per node and the 576-node digits
@@ -29,9 +29,9 @@ over one slot per node): 0 at the target, as the `plan cache` line prints.  --ch
 from the file's `plan` lines.
 
 Agent X's mn_model.py and Q's estimate.py import mem_per_node for their memory rows.  Every number is "modelled"
-unless the calibration table says "measured"; the tables' sources are named in results/M11.md.  Phase 12 (agent Q):
+unless the calibration table says "measured"; the tables' sources are named in results/MEMORY.md §M11.  Phase 12 (agent Q):
 the tree's g-terms in both forms -- 'flat' (the code at 7aded87) and 'grid' (agent G's gridded top product, archive:PLAN §27) --
-and L's level schedule (mn_groups, MN_GROUPS); see results/Q.md.
+and L's level schedule (mn_groups, MN_GROUPS); see results/TIME_MODEL.md §Q.
 """
 import math, sys, functools, os
 
@@ -155,13 +155,13 @@ def arena_of(base, want, chunk=0):
     return (a + chunk - 1) // chunk * chunk if chunk else a
 
 def dm_mn_wrap(env=None):
-    """P1 / D19 (results/DEF.md): DM_MN_WRAP's value (newton_db.c dm_wrap: 0 off, the fallback; 1 the cap's plane, the default since D22; k >= 20 a plane of 2^k)"""
+    """P1 / D19 (results/LAUNCH_DEFAULTS.md §DEF): DM_MN_WRAP's value (newton_db.c dm_wrap: 0 off, the fallback; 1 the cap's plane, the default since D22; k >= 20 a plane of 2^k)"""
     v = (env if env is not None else os.environ).get('DM_MN_WRAP', '1') or '1'
     try: return max(0, int(v))
     except ValueError: return 0
 
 def wrap_bytes(nq, k, g, pool_log=31, wrap=None):
-    """D19 (results/DEF.md; binsplit.c dm_wrap_bytes): DM_MN_WRAP's extra bytes per device in the mn division's low-product moment
+    """D19 (results/LAUNCH_DEFAULTS.md §DEF; binsplit.c dm_wrap_bytes): DM_MN_WRAP's extra bytes per device in the mn division's low-product moment
     (newton_db.c mn_wrap_step): Q B^-h folded (Qpp, basis P + 4, held over both steps) and the folded A' (T1, basis P + 4) beside the
     assembly's Rc + Tt (basis w each, the moment Aw + xql was) -- 2 quarters of P + 4 limbs; 0 when the wrap is off or not used
     (mn_wrap_plane: P = 2^cap or 2^k in [2^logmin, 2^cap]; w = n_Q + 2 >= P + 2; at 1, X_hi Q (k1 + 1 + n_Q limbs) over one plane)"""
@@ -189,7 +189,7 @@ def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=
     k = nq + 1 + dl - nq + 2 + 1; tcap = max(nq + k, 2 * k) + 8
     dkm = bool(dkm) and k >= 5 and (g > 1 or nq >= (1 << mdev_logl) + (1 << mdev_logl) // 8)   # DL: where the code's division takes DKM
     lean = bool(lean) and dkm and g > 1                                        # int15k: DM_MN_LEAN counts at size > 1 only (binsplit.c dm_layout)
-    kr = k // 2 + 1 if dkm else k                                              # Phase 15 DKM (results/DKM15.md 1.4): the reciprocal to h = floor(k/2) + 1
+    kr = k // 2 + 1 if dkm else k                                              # Phase 15 DKM (results/DIVISION.md §DKM15 1.4): the reciprocal to h = floor(k/2) + 1
     k1 = k - k // 2                                                            # DL: step 1's quotient limbs
     jl = (kr + 1) // 2 + CHAIN_GUARD_CODE if anchor else kr - 1               # NEWTON_CHAIN_GUARD (D25, built in): the last doubling starts at ceil(kr/2) + 1 (binsplit.c dm_layout)
     take = min(2 * jl + 2, nq); t1a = take + (jl + 2) + 8                      # r has j + 2 limbs (measured, job 21131)
@@ -291,7 +291,7 @@ def tree_need_dev_flat(nq_leaf, g, scratch_out=None, logr_delta=0):
     g, ONE transform of the level's whole product (logn from 2 N_A, no cap: q = n / (4 g) grows with the operands),
     two spill buffers of g x C x 4 limbs per APU.  This is the arena the code REQUESTS at init (binsplit_pregrow), so it
     is what the node maps whether or not rns_dist.c's grid (mn_logn_cap) would have formed smaller pieces -- at 576
-    nodes it exceeds the node by itself above ~2e10 digits per node (results/M11.md)."""
+    nodes it exceeds the node by itself above ~2e10 digits per node (results/MEMORY.md §M11)."""
     best = 0; L = 0; top_scratch = 0; top_q = 0
     while (1 << L) < g: L += 1
     for l in range(1, L + 1):
@@ -324,7 +324,7 @@ def split_grid_cap(na, nb, cap, minpts):
             if best is None or cost < best[0] or (cost == best[0] and i * j < best[1] * best[2]): best = (cost, i, j)
     return best[1], best[2]
 
-# MS (Phase 15): P24's branch of rns_mul_dist_mn_scratch (MN_P24, results/P2415.md; rns_dist.c mn_p24_of / p24_grid_shape / p24_split).
+# MS (Phase 15): P24's branch of rns_mul_dist_mn_scratch (MN_P24, results/PRIMES_STRATEGY.md §P2415; rns_dist.c mn_p24_of / p24_grid_shape / p24_split).
 # p24 = (mode, np, g_run, auto_min): mode 2 = every mn product when pool 0 holds four planes (rns_pool0_np: np_planes(np, g_run) >= 4);
 # 1 = the products whose 18-digit grid's largest piece runs four primes (ECALC_NP=4: all; auto: pa + pb, or min(pa, pb) under
 # ECALC_NP_AUTO_MIN=1, over the three-prime bound).  +34 MB of dm need per device at 5.1e13 on 576, measured by the layout.
@@ -430,7 +430,7 @@ def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0, form='grid', pool_
     if scratch_out is not None: scratch_out.append(top_scratch); scratch_out.append(top_q)
     return best + best // 16
 
-# ---------------------------------------------------------------- B7ACCT (results/B7ACCT.md): the general map's v-exchange slots
+# ---------------------------------------------------------------- B7ACCT (results/GRID_GROUPS.md §B7ACCT): the general map's v-exchange slots
 def _partn(R, nr, rho): return R * (rho + 1) // nr - R * rho // nr
 
 @functools.lru_cache(maxsize=None)
@@ -507,13 +507,13 @@ def _env_on(env, key, dflt):
     return dflt if v is None else v not in ('', '0')
 
 def vslot_pool_on(env=None):
-    """X2 (results/XEFF.md item 2) COMM_LAYER_VSLOT_POOL=1: the v-slots come from the comm pool (comm_sym_alloc): counted in the pool need (shmem_pool vslot=),
+    """X2 (results/OFI_FABRIC.md §XEFF item 2) COMM_LAYER_VSLOT_POOL=1: the v-slots come from the comm pool (comm_sym_alloc): counted in the pool need (shmem_pool vslot=),
     not as hipMalloc'd v-slots (binsplit.c vslot_pool_on)"""
     env = os.environ if env is None else env
     return _env_on(env, 'COMM_LAYER_VSLOT_POOL', True)
 
 def vslot_release_on(env=None):
-    """M3 (results/C06.md; always on with VSLOT_POOL): the pool v-slots are freed after each product's v-exchanges, so the staged exchanges and the slots
+    """M3 (results/GRID_GROUPS.md §C06; always on with VSLOT_POOL): the pool v-slots are freed after each product's v-exchanges, so the staged exchanges and the slots
     share the comm pool in time (binsplit.c): the pool need takes their maximum, not their sum"""
     return vslot_pool_on(env)
 
@@ -528,7 +528,7 @@ def vslot_budget_on(env=None):
 
 # ---------------------------------------------------------------- the other pools (measured constants where the code has them)
 def planes_3q30(pool_log=31, digits=0):
-    """the 3 2^k plane pools (RNS_PLANES_3Q30 and its size rule) were removed from the code (SIMP, results/SIMP.md): never on.
+    """the 3 2^k plane pools (RNS_PLANES_3Q30 and its size rule) were removed from the code (SIMP, results/CODE_REDUCTION.md §SIMP): never on.
     The p3q30 / cap arguments below keep modelling the old runs measured with them"""
     return False
 
@@ -536,7 +536,7 @@ EC_NP = 3                                # Phase 13b step 0: three primes are th
 NP3_MAX_TERMS = 58424467928              # crt.c ec_np3_max_terms: floor((p0 p1 p2 - 1) / (10^18 - 1)^2), the largest nc = pa + pb three primes hold
 
 def np_mn3(env=None):
-    """D18 (results/DEF.md): ECALC_NP_MN3=1 -- the three-prime multi-node path (crt.c ec_np_mn3; read from the environment as the C does)"""
+    """D18 (results/LAUNCH_DEFAULTS.md §DEF): ECALC_NP_MN3=1 -- the three-prime multi-node path (crt.c ec_np_mn3; read from the environment as the C does)"""
     v = (env if env is not None else os.environ).get('ECALC_NP_MN3', '0') or '0'
     try: return int(v) != 0
     except ValueError: return False
@@ -616,7 +616,7 @@ def planes_bytes(pool_log=31, digits=0, p3q30=None, np=None, strategy='C', cap=N
     else:
         q = (1 << pool_log) // 4
     p0 = np * q * 8
-    p1 = (3 * q + 16) * 8 if pool_log > 30 else max((3 * q + 16) * 8, 8 << min(pool_log, 30))   # pool 1 is the full pool at POOL_LOG <= 30 (results/A-mem.md, open issue 1)
+    p1 = (3 * q + 16) * 8 if pool_log > 30 else max((3 * q + 16) * 8, 8 << min(pool_log, 30))   # pool 1 is the full pool at POOL_LOG <= 30 (results/MEMORY.md §A-mem, open issue 1)
     if (np if pool1_np is None else pool1_np) >= 4: p1 = max(p1, 4 * q * 8)   # Phase 15 PS (rns_plane_pool_bytes): four one-node primes -- the batch-local tier's
                                                                       # np Mmax L B limbs reach its plane cap 4 q (L = q, Mmax = 1); 3 q + 16 grew inside the bs phase (rc 6)
     p1 = (p1 + al - 1) // al * al
@@ -661,17 +661,17 @@ DEFAULTS15C = dict(DEFAULTS15B, arena_room=ARENA_ROOM)
 # Phase 15 DL (the user's Batch 3 decisions of 2026-09-29): DEFAULTS15D = the code's defaults now -- DEFAULTS15C + NEWTON_DKM=1 with dm_layout following it
 # (binsplit.c; NEWTON_DKM=0 in the environment gives C's layout).  MN_P24=2 is the tree's scratch (opts p24; mn_model passes it).  mem_per_node's base.
 DKM_CODE = True                                                    # NEWTON_DKM: built in (switch removed 2026-10-12)
-CHAIN_GUARD_CODE = int(int(os.environ.get("NEWTON_CHAIN_GUARD", "1")) > 0)                                             # NEWTON_CHAIN_GUARD: default 1 since D25 (results/RECIP.md); 0 = the fallback
+CHAIN_GUARD_CODE = int(int(os.environ.get("NEWTON_CHAIN_GUARD", "1")) > 0)                                             # NEWTON_CHAIN_GUARD: default 1 since D25 (results/DIVISION.md §RECIP); 0 = the fallback
 LEAN_CODE = True                                                   # int15k: DM_MN_LEAN, built in since 2026-10-12 -- the lean mn division set at size > 1 (opts lean)
 DEFAULTS15D = dict(DEFAULTS15C, dkm=DKM_CODE, lean=LEAN_CODE)
-TARGET_LAUNCH = dict(round_mb=1024)                     # D2 (results/V114.md): the target's launch line
+TARGET_LAUNCH = dict(round_mb=1024)                     # D2 (results/SHMEM_ITEMS.md §V114): the target's launch line
 TARGET_NP = 'auto'                                      # the user's decision 1 of 2026-09-28: ECALC_NP=auto on the target's launch line (four primes only for the
                                                         # products over the three-prime bound; pool 0 at four planes at 576, pool 1 at three); history: 4 (the decision
-                                                        # of 2026-09-27: three primes cannot hold the target's mn pieces, MN_PLAN_ONLY refuses them, results/P15.md;
+                                                        # of 2026-09-27: three primes cannot hold the target's mn pieces, MN_PLAN_ONLY refuses them, results/PRIMES_STRATEGY.md §P15;
                                                         # ECALC_NP=4 is +17.2 GB per node over auto with RNS_POOL1_4Q); the code's default stays 3 (decimal)
-TARGET_DIGITS = 3.82e13                                 # CURRENT: the user decision of 2026-10-12 (3.82e13 digits on 576 nodes, results/TGT.md). Before it (3.71e13):
+TARGET_DIGITS = 3.82e13                                 # CURRENT: the user decision of 2026-10-12 (3.82e13 digits on 576 nodes, results/TARGET.md §TGT). Before it (3.71e13):
                                                         # (2026-10-06, s18-target, the user's decision 2026-10-06 ~19:30 EDT: "3.71e13 is fine", the size
-                                                        # is not important while the implementation is built) -- from results/TGTBENCH2.md section 4's lower
+                                                        # is not important while the implementation is built) -- from results/TARGET.md §TGTBENCH2 section 4's lower
                                                         # candidate (the device edge's margin over the proposed 3.76e13): login-node MN_PLAN_ONLY / BS_LAYOUT_ONLY
                                                         # at 576 (verified here 2026-10-06, b7-vslot aa86cac): device_with 363.526 GB vs the 373.44 GB measured
                                                         # edge (9.91 GB under), node 378.785 / 405.612 GB with the general-map v-slots (480 budget: +74.4 GB),
@@ -696,7 +696,7 @@ VMM_DM_GROW_FILL = 16.3 * GB                            # MEASURED (RESULTS 86's
                                                         # the device at the dm peak 393.6 GB against 377.3 at init -- the division grows the block pool by 12.9 GB
                                                         # (277.0 -> 289.9) where the fixed span grew 2.1; applied at size 1 with the fill (the arena is the bs
                                                         # regions' there); at size > 1 the arena is the dm need's and the fill leaves it unchanged (ASSUMED: no growth)
-HOST_EARLY = int(0.9 * GB)                              # MN_OUT_EARLY (results/IO15.md 6): 2 chunks + the pinned limbs + the O_DIRECT staging at 256 MB, held
+HOST_EARLY = int(0.9 * GB)                              # MN_OUT_EARLY (results/OUTPUT_IO.md §IO15 6): 2 chunks + the pinned limbs + the O_DIRECT staging at 256 MB, held
                                                         # during the division's low product at size > 1 (modelled from the code's buffers)
 POOLS = ('plan', 'auto', 'off', 'max')                  # plan: = the need (256 MiB steps; mnrun.sh / TARGET.md 4); auto: max(COMM_SHMEM_POOL_MB 8192, the need);
                                                         # off: COMM_SHMEM_POOL_AUTO=0, 8192 flat; max: the pre-Phase-15 model (max(8192, the need unrounded))
@@ -773,7 +773,7 @@ SHMEM_SELFTEST = 128 << 20                                # mn_selftest_layered'
 SHMEM_MARGIN = 256 << 20                                  # first-fit slack and the small exchanges (spills, counts, reductions): assumed
 
 def mn_stage(na, nb, g, share_a, share_b, share_c, pool_log=31, logr_delta=0, t_chunk_mb=0, parts=None, round_mb=0):
-    """Phase 14 P2 (results/P214.md): the SHMEM transport's staging for one mn_core product C = A B over g nodes, per APU thread
+    """Phase 14 P2 (results/SHMEM_ITEMS.md §P214): the SHMEM transport's staging for one mn_core product C = A B over g nodes, per APU thread
     (limbs; send + receive of its largest staged exchange -- the staging is allocated per exchange and released after it, and
     the four APU threads run the same exchange at once, so the pool holds NR of these).  The code's buffers (mn_scratch's
     terms): the result exchange (rns_dist.c: xb in plane pool 1 -> rbO from the block pool, neither in the symmetric pool)
@@ -889,7 +889,7 @@ MEASURED_POOL = [  # (total digits, g, the cap's log (POOL_LOG, or DIST_LOGN_TES
     (1e9, 2, 25, 0, 635.8, 'P214 b4 (job 21276), 2 real nodes, DIST_LOGN_TEST=25: the division in 2 x 2 pieces (PE 1; PE 0 529.8)'),
     (1e9, 2, 29, 64, 635.8, 'P214 b4 (job 21276), 2 real nodes, MN_T_CHUNK_MB=64: the mdb_shift sets it (PE 1; PE 0 529.8)'),
     (1e10, 2, 31, 0, 8477.1, 'P214 b5 (job 21279), 2 real nodes, SOS, the pool set by COMM_SHMEM_POOL_AUTO=1 (8960 MiB); the shift 1059.6 + 529.8'),
-    # Phase 14 V1 (results/V114.md): the Phase 14 defaults (MN_T_CHUNK_MB=1024), the pool from mnrun.sh's plan; 7th field COMM_SHMEM_ROUND_MB
+    # Phase 14 V1 (results/SHMEM_ITEMS.md §V114): the Phase 14 defaults (MN_T_CHUNK_MB=1024), the pool from mnrun.sh's plan; 7th field COMM_SHMEM_ROUND_MB
     (1e9, 2, 31, 1024, 847.7, 'V114 b1 (job 21435), 2 real nodes, SOS host heap, pool 1280 from the plan'),
     (1e10, 2, 31, 1024, 8192.0, 'V114 b2 (job 21439), 2 real nodes, SOS host heap, pool 8704 from the plan'),
     (1e9, 2, 31, 1024, 423.9, 'V114 b3 (job 21442), 2 real nodes, COMM_SHMEM_ROUND_MB=64 (the self slab left out)', 64),
@@ -939,7 +939,7 @@ def cache_mn_bytes(g, pool_log=31, np=4, slots=CACHE_MN_SLOTS_CODE, fit=False):
     return slots * NR * np * (1 << (c - 2)) * 8 if g > 1 else 0
 
 def cache_report():
-    """the cache at the target and one step below (TARGET_LAUNCH), and at the single-node test points of results/TC15.md"""
+    """the cache at the target and one step below (TARGET_LAUNCH), and at the single-node test points of results/CACHE.md §TC15"""
     groups = '2,4,8,16,32,64,192,576'
     print('== Phase 15 TC: the mn transform cache (RNS_DIST_CACHE_MN=%d; GB per node, modelled)' % CACHE_MN_SLOTS_CODE)
     for T in (TARGET_DIGITS, TARGET_BELOW):
@@ -954,7 +954,7 @@ def cache_report():
 
 # ---------------------------------------------------------------- the model
 def mem_per_node(D, g=1, opts=None):
-    """FIT (D26, results/FIT.md): DM_MN_WRAP automatic as the C decides it (binsplit.c binsplit_fit) -- when opts has no 'wrap' and the
+    """FIT (D26, results/LAUNCH_DEFAULTS.md §FIT): DM_MN_WRAP automatic as the C decides it (binsplit.c binsplit_fit) -- when opts has no 'wrap' and the
     environment no DM_MN_WRAP, at g > 1: the wrap's arm if its device peak (dev_max) is within ECALC_DEVICE_GB (373.44) less
     ECALC_DEVICE_MARGIN_GB (5.0), else the arm without it; r['wrap'] says which.  (This model's dev_max is not the C's device: the C
     also counts the comm_ofi pools as device memory; the C's `plan fit` lines are the source of truth.)"""
@@ -1051,7 +1051,7 @@ def _mem_per_node(D, g=1, opts=None):
     if g == 1 and o['vmm'] and o['seed_fill'] and o['decimal'] and not aroom > 0:   # Phase 15 (2026-09-27): the fill's division grows the pool at size 1 (measured at 1e11); AS: none with BS_ARENA_ROOM (replayed)
         dev_dm = max(dev_dm, dev_init + VMM_DM_GROW_FILL)
     peak = max(dev_init + host_init, dev_bs + max(host_init, host_dm), dev_dm + host_dm) * (1 + o['margin'])   # (the measured node = device max + host HWM)
-    # Phase 15 TC (results/TC15.md): the mn transform cache -- not in node_peak (the numbers the docs cite); the default code's slots
+    # Phase 15 TC (results/CACHE.md §TC15): the mn transform cache -- not in node_peak (the numbers the docs cite); the default code's slots
     # (RNS_DIST_CACHE_MN=2 x 16 GiB per APU at four primes) live from the first mn grid product (the tree at the target) to the division's end,
     # so they add to the bs and dm peaks: node_peak_cache.  cache_fit_slots: what RNS_DIST_CACHE_FIT would take against this model's peak.
     cmn = cache_mn_bytes(g, o['pool_log'], npp, CACHE_MN_SLOTS_CODE) if g > 1 else 0
@@ -1086,7 +1086,7 @@ def max_digits_per_node(node_bytes, g=1, opts=None, lo=1e9, hi=4e11):
     return lo // 10**8 * 10**8
 
 # ---------------------------------------------------------------- calibration and the report
-MEASURED = [  # (D, g, phase peaks GB: planes, regions at init, pool total at the dm peak, device at the dm peak, host HWM) from results/M.md, H.md, M11.md
+MEASURED = [  # (D, g, phase peaks GB: planes, regions at init, pool total at the dm peak, device at the dm peak, host HWM) from results/MEMORY.md §M, H.md, M11.md
     (4e10, 1, dict(planes=120.3, regions=95.7, pool=141.0, dev_dm=261.9, host=11.7, tail=False, src='M.md/H.md (Phase 10)')),
     (7e10, 1, dict(planes=120.3, regions=169.6, pool=231.8, dev_dm=352.7, host=76.4, tail=False, src='M.md (seed-sized staging)')),
     (8e10, 1, dict(planes=120.3, regions=176.8, pool=265.7, dev_dm=386.6, host=90.0, tail=False, src='M.md (seed-sized staging)')),

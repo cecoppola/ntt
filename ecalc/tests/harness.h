@@ -96,7 +96,7 @@ static size_t mpz_to_limbs_str(uint64_t *a, size_t cap, const mpz_t z)
     }
     free(s); return n;
 }
-/* GMP <-> decimal limbs by a product tree (TREF, results/TREF.md): value = lo + hi B^h with h = 2^k, the powers B^(2^k) kept;
+/* GMP <-> decimal limbs by a product tree (TREF, results/CODE_REDUCTION.md §TREF): value = lo + hi B^h with h = 2^k, the powers B^(2^k) kept;
  * O(M(n) log n) both ways like GMP's own string conversion (mpz_set_str / mpz_get_str, as fast single-threaded), but the halves
  * run as OpenMP tasks.  The 18-digit string forms (mpz_from_limbs_str / mpz_to_limbs_str) stay as their check (t_mul section 0). */
 #define HV_TREE_LEAF 16

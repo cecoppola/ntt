@@ -76,15 +76,15 @@ rns_mul.o: rns_mul.c rns_mul.h rns_int.h ntt.h mem.h crt.h bigint.h modarith.h
 
 rns_dist.o: rns_dist.c rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h dbig.h mdb.h mn_plan.h p24.h p24_mn.h
 	$(HIPC) -c -o $@ $<
-# Phase 15 Batch 3 P24 (results/P2415.md): the 24-digit CRT of the mn tier
+# Phase 15 Batch 3 P24 (results/PRIMES_STRATEGY.md §P2415): the 24-digit CRT of the mn tier
 p24_crt.o: p24_crt.c p24.h rns_int.h modarith.h
 	$(HIPC) -c -o $@ $<
 tests/t_p24: tests/t_p24.c $(OBJS) p24.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
-# K4b (results/K4b.md): k_crt_batch's parallel carry (RNS_CRT_SCAN) against the serial chain, and the C-form timing
+# K4b (results/KERNELS.md §K4b): k_crt_batch's parallel carry (RNS_CRT_SCAN) against the serial chain, and the C-form timing
 tests/t_crtk: tests/t_crtk.c $(OBJS) rns_int.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
-# K4c (results/K4c.md): k_crt24's parallel carry (P24_CRT_SCAN) against the serial chain, and its timing
+# K4c (results/KERNELS.md §K4c): k_crt24's parallel carry (P24_CRT_SCAN) against the serial chain, and its timing
 tests/t_crt24k: tests/t_crt24k.c $(OBJS) rns_int.h p24.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
 # Phase 13d L: the plan printer (MN_PLAN_ONLY; ecalc.c calls it before rns_init)
@@ -213,7 +213,7 @@ tests/t_ntt: tests/t_ntt.c ntt.o ntt3.o bigint.o fatal.o ntt.h modarith.h tests/
 tests/t_alloc: tests/t_alloc.c ntt.o ntt3.o bigint.o mem.o fatal.o ntt.h mem.h tests/harness.h
 	$(HIPC) $< -x none ntt.o ntt3.o bigint.o mem.o fatal.o -o $@ $(GMP_LIBS) -lpthread
 
-tests/t_edge: tests/t_edge.c     # Phase 16 C: the memory-edge probe (results/C16.md); built on demand, not in TESTS
+tests/t_edge: tests/t_edge.c     # Phase 16 C: the memory-edge probe (results/TIME_MODEL.md §C16); built on demand, not in TESTS
 	$(HIPC) $< -o $@
 
 tests/t_nodechk: tests/t_nodechk.c     # target_kit.sh stage nodechk: per-node meminfo + 1 GB host->device upload per APU; built on demand, not in TESTS

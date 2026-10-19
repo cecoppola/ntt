@@ -44,7 +44,7 @@
 #                           3.71e13 target on 576 nodes).  KIT_S2CHK_LINE overrides the launch-line env words.
 #   --nodechk-gb GB         upload size per APU for the opt-in stage nodechk (default 1).
 #   --nodechk-cold-gb GB    T10 cold-path probe in stage nodechk (default 0 = off): per APU map GB of VMM arena + first-touch + one cold upload of it
-#                           (the ecalc init path); extra NODECHK_COLD line per node (results/T10.md).
+#                           (the ecalc init path); extra NODECHK_COLD line per node (results/NODE_SLOWMODE.md §T10).
 #   --initchk-log FILE      log for stage initchk (default: the log of the smallest a4 node count in --out).
 #   --timeout-STAGE SECS    per-stage timeout (env 90, build 900, uffd 300, plan 120 PER point, edge 600, a3 600, a4 1800 PER node count,
 #                           s2chk 1800 PER node count, nodechk 300).
@@ -59,7 +59,7 @@
 #            of time on the target, so this tries candidates in order and keeps the first that links: just
 #            $TARGET_ROCM if set, else rocm/7.2.4, rocm/7.2.3, rocm/7.0.3 (whichever are available), then any
 #            other rocm/<version> module newest first (picking blindly-newest once chose rocm/7.14.0 on aac7,
-#            which fails to link -- results/V16.md).  SMA/DSMML modules auto-detect as before; override any of
+#            which fails to link -- results/AAC7_PORT.md §V16).  SMA/DSMML modules auto-detect as before; override any of
 #            the three with TARGET_ROCM / TARGET_SMA_MODULE / TARGET_DSMML_MODULE / GMP_HOME.  The chosen set is
 #            written to $OUT/kit_modules.env; every later stage sources it and loads the same modules inside its
 #            own srun (not whatever the caller's shell happened to have), and records the ROCm actually seen on
@@ -70,7 +70,7 @@
 #            per APU and per node); then one e 1e10 run for the single-node wall.  t_edge runs to
 #            completion and exits before anything else touches these GPUs.
 #   uffd   (< 2 min, 2 nodes; default on): is libfabric's memory-cache monitor usable?  Launch default FI_MR_CACHE_MONITOR=userfaultfd
-#            (the crash/hang fix, results/S46.md; override by exporting it; `disabled` is refused).  The stage runs a tiny 2-node ecalc
+#            (the crash/hang fix, results/CRASHES_HANGS.md §S46; override by exporting it; `disabled` is refused).  The stage runs a tiny 2-node ecalc
 #            with FI_LOG_LEVEL=info and looks for "memory monitor is: uffd"; it also tries the userfaultfd syscall on a compute node.
 #            PASS = the log line is seen.  FAIL names the monitor libfabric chose instead; then set FI_MR_CACHE_MONITOR=memhooks.
 #   plan   (< 1 min per point, no device; default on): MN_PLAN_ONLY=<digits>:<procs> for every a4 node count (and --plan-digits/--plan-procs).
@@ -96,7 +96,7 @@
 #             S-2 (division overlap): MN_WAIT_STATS "dm" (= reciprocal + division) wait, per APU thread (node sum / 4),
 #               max node; reciprocal and division split; spread max-min (the skew bound).  Rule: build only if the
 #               exposed wait is above about 30 s.  CAVEAT printed with it: the literal wait includes the transfer itself
-#               (results/S22.md 2.3), and the 576-node value is modelled at 34 s; judge the 8-node figure against
+#               (results/SESSIONS.md §S22 2.3), and the 576-node value is modelled at 34 s; judge the 8-node figure against
 #               S22's aac7 table (n=2: recip 10 + division 32; n=8: 22 + 73 s per thread).
 #            Needs an ecalc built WITH MN_WAIT_STATS (in main since D3, comm_util.c; the stage says so if no
 #            wait-stats line appears).  The command for the target team:
@@ -300,7 +300,7 @@ module_preamble() {   # the module unload/load lines to prepend inside a `bash -
 
 fi_defaults_for() {   # fi_defaults_for <ntasks> -- exports FI_UNIVERSE_SIZE / FI_LOG_LEVEL if unset, per TGTBENCH2
     local ntasks="$1"
-    # the crash/hang fix (results/S46.md section 4.6, adopted as the launch default): libfabric's MR cache monitor = userfaultfd.
+    # the crash/hang fix (results/CRASHES_HANGS.md §S46 section 4.6, adopted as the launch default): libfabric's MR cache monitor = userfaultfd.
     # Overridable (export FI_MR_CACHE_MONITOR=memhooks to get the old behaviour); `disabled` is refused at the top of this script.
     export FI_MR_CACHE_MONITOR=${FI_MR_CACHE_MONITOR:-userfaultfd}
     [ "${MNRUN_FI_DEFAULTS:-1}" = 0 ] && return 0   # the same opt-out as mnrun.sh: leave both unset
@@ -402,7 +402,7 @@ stage_build() {
         TARGET_DSMML_MODULE=${TARGET_DSMML_MODULE:-cray-dsmml}
 
         # ROCm choice (Phase S18 fix): picking the newest rocm/x.y.z (sort -V | tail -1) used to pick rocm/7.14.0 on
-        # aac7, which FAILS to link ecalc (results/V16.md: 7.12/7.13/7.14 and rocm-new/10.0.0 all fail the same
+        # aac7, which FAILS to link ecalc (results/AAC7_PORT.md §V16: 7.12/7.13/7.14 and rocm-new/10.0.0 all fail the same
         # -fPIC device-link error; 7.2.4 is the newest that links).  The target's ROCm is unknown ahead of time, so
         # try candidates in order and keep the first that actually builds: $TARGET_ROCM alone if the caller set it;
         # else the validated list (rocm/7.2.4, rocm/7.2.3, rocm/7.0.3) in that order, filtered to what's available,
@@ -489,7 +489,7 @@ stage_build() {
 }
 
 # =============================================================================================================
-# Stage: uffd -- is libfabric's userfaultfd memory monitor usable here?  (FI_MR_CACHE_MONITOR launch default, results/S46.md)
+# Stage: uffd -- is libfabric's userfaultfd memory monitor usable here?  (FI_MR_CACHE_MONITOR launch default, results/CRASHES_HANGS.md §S46)
 # =============================================================================================================
 stage_uffd() {
     local lf="$LOGDIR/01b_uffd.log"; : > "$lf"
@@ -549,7 +549,7 @@ stage_plan() {
     for c in "${pts[@]}"; do
         if plan_check "$lf" "${c%%:*}" "${c##*:}"; then summary "  ${c%%:*} digits on ${c##*:}: plan check OK"
         else summary "  ${c%%:*} digits on ${c##*:}: NOT OK -- $(grep -aE '^plan (check|REFUSED)' "$LOGDIR/plan_${c%%:*}_${c##*:}.log" 2>/dev/null | tail -1 | cut -c1-160)"; bad=1; fi
-        # FIT (D26, results/FIT.md): the planner's memory fit (device vs ECALC_DEVICE_GB, node vs ECALC_NODE_GB, DM_MN_WRAP's decision);
+        # FIT (D26, results/LAUNCH_DEFAULTS.md §FIT): the planner's memory fit (device vs ECALC_DEVICE_GB, node vs ECALC_NODE_GB, DM_MN_WRAP's decision);
         # a run that does not fit ends its plan in `plan REFUSED` (plan_check above fails it)
         grep -aE '^plan fit +(FITS|REFUSED|DM_MN_WRAP)' "$LOGDIR/plan_${c%%:*}_${c##*:}.log" 2>/dev/null | cut -c1-220 | sed 's/^/    /' >> "$SUMMARY"
     done
@@ -607,7 +607,7 @@ stage_edge() {
         bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         "$SELF_DIR/tests/t_edge" vmm "$EDGE_STEP_GB" "$EDGE_CAP_GB" || rc=1
 
-    # Phase S18 kit fix (results/S18KITFIX.md, bug 3): dbig.c's "VMM arena ... s/GB" line (the only place a map
+    # Phase S18 kit fix (results/TOOLS_PROFILES.md §S18KITFIX, bug 3): dbig.c's "VMM arena ... s/GB" line (the only place a map
     # rate is printed) is gated by vmm_vb(), which is off unless DB_POOL_VERBOSE (or RNS_VERBOSE) is set -- so
     # this run used to print the "report both forms" text with no number behind it.  DB_POOL_VERBOSE=1 turns
     # on just that line (narrower than RNS_VERBOSE, which adds a lot of unrelated chatter).
@@ -677,11 +677,11 @@ stage_a3() {
     fi
 
     fi_defaults_for 2
-    # Phase S18 kit fix (results/S18KITFIX.md, bug 1): bare srun left the SHMEM heap at its library default,
+    # Phase S18 kit fix (results/TOOLS_PROFILES.md §S18KITFIX, bug 1): bare srun left the SHMEM heap at its library default,
     # far below t_comm --bw's own symmetric-buffer request at A3_MAXMB -- every launch failed with
     # "comm_shmem: pe N: shmem_malloc of 8192 MiB failed: the SHMEM heap ... must be >= 8704 MiB (the pool +
-    # 512)".  t_comm fits mnrun.sh's <procs> <command...> interface exactly (as results/OFI17.md ยง3's and
-    # results/TUNE17.md's own bw() driver functions launch it), so launch through mnrun.sh instead and give it
+    # 512)".  t_comm fits mnrun.sh's <procs> <command...> interface exactly (as results/OFI_FABRIC.md §OFI17 ยง3's and
+    # results/OFI_FABRIC.md §TUNE17's own bw() driver functions launch it), so launch through mnrun.sh instead and give it
     # the pool t_comm's --bw actually needs, from the same formula those drivers used: t_comm allocates 2
     # symmetric buffers (sb, rb) per thread, each A3_MAXMB MiB x the node count (the all-to-all peer count);
     # with A3_THREADS threads that is 2 x A3_THREADS x A3_MAXMB x nodes MiB (OFI17.md/TUNE17.md's
@@ -743,7 +743,7 @@ stage_a4() {
         any_ran=1
         local digits=$((n * E10))
         local out="$TMPDIR/a4_n${n}.out"
-        # Phase S18 kit fix (results/S18KITFIX.md, bug 2): the ecalc run's own output used to go straight into the
+        # Phase S18 kit fix (results/TOOLS_PROFILES.md §S18KITFIX, bug 2): the ecalc run's own output used to go straight into the
         # shared, appended "$lf" -- by the time a later n's block was parsed, grep/tail over that same accumulated
         # file picked up every earlier n's "comm-mark"/"total"/VERIFY lines too (the n=8 block repeated n=2's
         # lines ahead of its own).  Give each n its own log file and parse only that file for this n's summary
@@ -781,7 +781,7 @@ stage_a4() {
 # =============================================================================================================
 # Stage: s2chk (OPT-IN) -- the target's S-2 (division overlap) and A37-R1 (GPU seed) gates, one run per node count
 # =============================================================================================================
-# The gates (results/S22.md sections 2 and 3; TASKS.md S-2 / A37-R1, both SHELVED by the user 2026-10-08, kept as options):
+# The gates (results/SESSIONS.md §S22 sections 2 and 3; TASKS.md S-2 / A37-R1, both SHELVED by the user 2026-10-08, kept as options):
 #   A37-R1: build the GPU seed only if the seed thread ends later than ~18 s AND > 2 s after the last background mapping.
 #   S-2:    build the division overlap only if the exposed division/reciprocal wait is above ~30 s per APU thread.
 # The greps are the ones the S22/S23 drivers used: `tl` lines from ECALC_INIT_TL=1 ("seed thread ends (..)", "APU<d>

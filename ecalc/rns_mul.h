@@ -1,6 +1,6 @@
 /* rns_mul.h - the batch product tiers of binary splitting, the GPU CRT and the plane pools (ALGORITHM.md §4.4); the
  * distributed tier (rns_dist.c) is declared here too.  The host product tier (rns_mul: mdev, Karatsuba split, schoolbook) was
- * removed by TREF (results/TREF.md): no production caller; the tests' reference product is tests/tref.h.
+ * removed by TREF (results/CODE_REDUCTION.md §TREF): no production caller; the tests' reference product is tests/tref.h.
  */
 #ifndef EC_RNS_MUL_H
 #define EC_RNS_MUL_H

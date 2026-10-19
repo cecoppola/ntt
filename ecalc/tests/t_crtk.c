@@ -7,7 +7,7 @@
  *     shapes: the C form (one product, C stripes of `rows` coefficients), ragged stripes (nc not a multiple of 256,
  *     nc < S), and a B-form batch (M products, S stripes each, products with an added operand, the top carry limb).
  *  2. timing (part 2, argument log2 q > 0): the C form of the 1-node 6.441e10 run, q = 2^logq coefficients in
- *     C = q / 8192 stripes (2^29 -> 65536 x 8192, results/S39.md), scan 0 vs 1, three and four primes, best and median of 7.
+ *     C = q / 8192 stripes (2^29 -> 65536 x 8192, results/KERNELS.md §S39), scan 0 vs 1, three and four primes, best and median of 7.
  *
  * Usage: t_crtk [log2 q for part 2 (29); 0 skips part 2]
  */

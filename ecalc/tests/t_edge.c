@@ -5,7 +5,7 @@
  * round-robin over the four APUs), vmm (hipMemCreate pinned device memory round-robin over the four APUs, mapped with
  * hipMemAddressReserve + hipMemMap + hipMemSetAccess -- dbig.c's VMM arena form, ~L236/L308), malloc (plain malloc + touch:
  * the kernel's overcommit edge).  Run alone on an exclusive node: nothing else may be mapping memory at the same time
- * (results/A16.md's rule).
+ * (results/AAC7_PORT.md §A16's rule).
  * Usage: t_edge [host|dev|vmm|malloc] [step GB] [cap GB] */
 #include <stdio.h>
 #include <stdlib.h>

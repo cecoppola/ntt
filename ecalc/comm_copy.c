@@ -1,4 +1,4 @@
-/* comm_copy.c - N7D (F2b): a plain GPU copy kernel for copies that touch the SHMEM proxies' host-registered pool (results/N7C.md).
+/* comm_copy.c - N7D (F2b): a plain GPU copy kernel for copies that touch the SHMEM proxies' host-registered pool (results/SHMEM_ITEMS.md §N7C).
  * hipMemcpyAsync to or from host-registered memory runs on the SDMA engine (about 21 GB/s on MI300A); a kernel runs at the memory's
  * speed.  Used by comm_shmem.c's COPY under COMM_SHMEM_PX_KCOPY=1; HSA_ENABLE_SDMA=0 had the same effect for every copy of the process. */
 #include "comm.h"

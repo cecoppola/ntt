@@ -9,7 +9,7 @@
 # transport's symmetric pool (unset: the run's modelled need from MN_PLAN_ONLY for ecalc, else 8192; Phase 14 V1); the host heap is set
 # 512 MiB above it.  Only Cray OpenSHMEMX is launched (D14, 2026-10-12: the SOS and OpenMPI OSHMEM launch forms were removed;
 # the archived forms are in the local archive removed_2026-10-12/).  A COMM_SHMEM_POOL_MB word of the command wins over the plan (the heap follows it).
-# Phase 16 A (results/A16.md): `cray` (Cray OpenSHMEMX on aac7 / the target: libsma under /opt/cray/pe/sma,
+# Phase 16 A (results/AAC7_PORT.md §A16): `cray` (Cray OpenSHMEMX on aac7 / the target: libsma under /opt/cray/pe/sma,
 # COMM_SHMEM_IMPL=cray): plain srun (Cray's PMI), the heap SHMEM_SYMMETRIC_SIZE = XT_SYMMETRIC_HEAP_SIZE = pool + 512 MiB (its heap is
 # host hugepages; COMM_SHMEM_DEVHEAP=1 falls back to the registered host pool there).  MNRUN_MODULES is the module line of every
 # wrapper (default `rocm`; `cray-dsmml cray-openshmemx rocm` where /opt/cray/pe/sma exists); MNRUN_CPUS_PER_TASK adds srun -c
@@ -17,13 +17,13 @@
 # ECALC_LOG_CLOCKS=1 runs aac7env.sh --log (rocm-smi clocks, the APU / NIC NUMA map) on every node before the command.
 # Phase 16 D: MNRUN_UNLOAD=<modules> (unset by default) is unloaded before MNRUN_MODULES in every wrapper and the plan call -- a versioned
 # rocm module (rocm/7.2.4) conflicts with the default rocm/7.0.3 of the login shell (aac7env.sh sets both from AAC7_ROCM).
-# Phase 16 P (results/P16.md): MNRUN_NODES=<n> (unset by default) uses at most the first n nodes of the allocation -- 4 PEs on one node
+# Phase 16 P (results/OFI_FABRIC.md §P16): MNRUN_NODES=<n> (unset by default) uses at most the first n nodes of the allocation -- 4 PEs on one node
 # (`MNRUN_NODES=1 mnrun.sh 4`) or a 2-node A/B inside a 4-node job.
-# T27 (results/T27.md): MNRUN_PRINT_ENV=1 (default 0) computes everything as for a launch -- the plan's pool, the heap, the libfabric
+# T27 (results/TOOLS_PROFILES.md §T27): MNRUN_PRINT_ENV=1 (default 0) computes everything as for a launch -- the plan's pool, the heap, the libfabric
 # defaults, the SHMEM implementation -- but prints the computed variables as `export K=V` lines on stdout and exits 0 instead of
 # calling srun (no allocation needed; mnrun's own messages go to stderr).  tools/plan_values.py uses it, so the size-dependent
 # launch values have one source.  Unset, nothing changes.
-# FIT (D26, results/FIT.md): before srun, the planner's memory fit of the command's ecalc run is printed and a run that does not fit
+# FIT (D26, results/LAUNCH_DEFAULTS.md §FIT): before srun, the planner's memory fit of the command's ecalc run is printed and a run that does not fit
 # (device over ECALC_DEVICE_GB, node over ECALC_NODE_GB) is refused with exit 4; MNRUN_FIT=0 skips it (see the FIT block below).
 # N7b (value 2: N7E, 1 + 8 PEs per node, local PEs 2d and 2d + 1 are APU d's helpers, NICs round robin over 8): COMM_SHMEM_PE_PER_APU=1 (exported or a VAR=value word of the command; default 1 under an explicit COMM_OFI=0 (D31), else 0) launches 1 + 4 PEs per node under
 # COMM_TRANSPORT=shmem: local PEs 0..3 are comm_shmem's proxies (one per APU and NIC: SHMEM_OFI_NIC_POLICY=ROUND-ROBIN and
@@ -48,7 +48,7 @@ print_env_exit() {   # T27: the variables mnrun.sh sets or computes for the laun
 __fmc=${FI_MR_CACHE_MONITOR-}; __fmc=${__fmc,,}
 if [ "$__fmc" = disabled ]; then echo "mnrun.sh: refusing FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR: it corrupts exchanges silently (S46 section 4.6). Unset it (memhooks, the default) or use userfaultfd." >&2; exit 1; fi
 export MNRUN_DIR=$(cd "$(dirname "$0")" && pwd)
-# Phase 16 V: the Cray default module picks up AAC7_ROCM (default rocm/7.2.4, results/V16.md) instead of the bare "rocm" alias;
+# Phase 16 V: the Cray default module picks up AAC7_ROCM (default rocm/7.2.4, results/AAC7_PORT.md §V16) instead of the bare "rocm" alias;
 # rocm/7.0.3 (the login default) must be unloaded first (module conflict).
 case "${AAC7_ROCM:-}" in ""|*/*) ;; *) AAC7_ROCM=rocm/$AAC7_ROCM;; esac   # merge V+D: a bare version (D: 7.2.4) means rocm/<version>
 if [ -z "${MNRUN_MODULES+x}" ]; then if [ -d /opt/cray/pe/sma ]; then MNRUN_MODULES="cray-dsmml cray-openshmemx ${AAC7_ROCM:-rocm/7.2.4}"; else MNRUN_MODULES=rocm; fi; fi
@@ -59,7 +59,7 @@ if [ "$PRINT_ENV" != 0 ]; then nodes=$(seq -f "print-env-node%g" 1 "$P"); else  
 nodes=$(scontrol show hostnames "$(squeue -j "$SLURM_JOB_ID" -h -o %N)")
 fi
 [ -n "${MNRUN_NODELIST:-}" ] && nodes=$(echo "$MNRUN_NODELIST" | tr , "\n")   # s29: run on exactly these nodes of the allocation (unset: all, in squeue order)
-# S35 wrap-up: MNRUN_EXCLUDE_HOSTS="h1,h2" (default empty = off) names slow hosts (aac7: aac7-n01, a ~20 s host->device upload stall, results/S31.md).
+# S35 wrap-up: MNRUN_EXCLUDE_HOSTS="h1,h2" (default empty = off) names slow hosts (aac7: aac7-n01, a ~20 s host->device upload stall, results/SESSIONS.md §S31).
 # If one is in the node list: default MNRUN_EXCLUDE_MODE=warn warns on stderr and changes nothing; MNRUN_EXCLUDE_MODE=drop removes it (the run then uses the remaining nodes;
 # ranks shift, so it needs >= the nodes asked for, else fewer nodes are used as with MNRUN_NODES).
 if [ -n "${MNRUN_EXCLUDE_HOSTS:-}" ]; then
@@ -134,7 +134,7 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
         export FI_LOG_LEVEL=${FI_LOG_LEVEL:-warn}
     fi
     # S46 (adopted 2026-10-11): FI_MR_CACHE_MONITOR=userfaultfd by default (memhooks deadlocks ROCr <-> libfabric: base 22/105 hangs vs uffd 0/104,
-    # results/S46.md). An explicit value (e.g. memhooks) is respected; `disabled` was refused above. Independent of MNRUN_FI_DEFAULTS.
+    # results/CRASHES_HANGS.md §S46). An explicit value (e.g. memhooks) is respected; `disabled` was refused above. Independent of MNRUN_FI_DEFAULTS.
     export FI_MR_CACHE_MONITOR=${FI_MR_CACHE_MONITOR:-userfaultfd}
     echo "mnrun.sh: FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR"
     echo "mnrun.sh: FI_UNIVERSE_SIZE=${FI_UNIVERSE_SIZE:-<unset>} FI_LOG_LEVEL=${FI_LOG_LEVEL:-<unset>} (MNRUN_FI_DEFAULTS=${MNRUN_FI_DEFAULTS:-1})"
@@ -199,7 +199,7 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
     echo "mnrun.sh: SHMEM_SYMMETRIC_SIZE=$SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE=$XT_SYMMETRIC_HEAP_SIZE (pool $POOL MiB + 512)"
 fi
 [ "$PRINT_ENV" = 0 ] || print_env_exit
-# ---- FIT (user decision D26, results/FIT.md): the pre-launch memory fit.  A block of its own (the pool block above belongs to the
+# ---- FIT (user decision D26, results/LAUNCH_DEFAULTS.md §FIT): the pre-launch memory fit.  A block of its own (the pool block above belongs to the
 # SHMEM pool sizing; nothing here changes the pool).  The command's ecalc (the first executable whose name starts with `ecalc`, followed by
 # a digit count) is planned on this host with the command's VAR=value words and MN_PLAN_ONLY=<digits>:<procs> (no device touched); its
 # `plan fit` lines (device per node and per APU vs ECALC_DEVICE_GB, node vs ECALC_NODE_GB, the margins, the largest consumers, the

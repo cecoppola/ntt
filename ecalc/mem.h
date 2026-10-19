@@ -35,7 +35,7 @@ void  mem_hreg_free(void *p);
 int   mem_is_registered(const void *p, size_t bytes);
 /* WP3: device pools the CPU also uses (hipMalloc on dev; CPU read/write at the local rate with
  * XNACK off, RESULTS.md 55); mem_dev_of says which device holds a pointer (-1: not a device pool) */
-/* every large device allocation (planes, regions, the block pool's chunks) is a hipMalloc (results/I.md).  mem_dev_malloc / mem_dev_release are the raw pair (no registry, no memset). */
+/* every large device allocation (planes, regions, the block pool's chunks) is a hipMalloc (results/MEMORY.md §I).  mem_dev_malloc / mem_dev_release are the raw pair (no registry, no memset). */
 void *mem_dev_malloc(int dev, size_t bytes);           /* NULL when the allocation fails */
 void  mem_dev_release(int dev, void *p);
 void *mem_dev_alloc(int dev, size_t bytes);
@@ -57,7 +57,7 @@ int  mem_region_threads(int *rank);                 /* count of threads on this 
 
 /* 1 while a phase is running (set by binsplit_e over its level loop and left set for the reciprocal and the
  * division that follow it; cleared around the level-0 sizing, where a fresh run legitimately lays its pools out again).
- * A pool that would grow while it is set aborts with the accounting unless RNS_POOL_GROW=1 (results/R.md). */
+ * A pool that would grow while it is set aborts with the accounting unless RNS_POOL_GROW=1 (results/CRASHES_HANGS.md §R). */
 extern int mem_pool_guard;
 typedef struct { void *p; size_t cap; int dev; } dpool;
 void *dpool_get(dpool *d, int dev, size_t bytes);   /* grows to pow2 >= bytes on device dev */

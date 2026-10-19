@@ -5,7 +5,7 @@
  *
  * Memory.  One symmetric pool (COMM_SHMEM_POOL_MB) holds everything remote PEs write: a fixed mailbox table at its start,
  * then a per-PE first-fit allocator for the communicators' control blocks, their staging, and -- comm_sym_alloc -- the
- * callers' slab buffers.  Two forms of the pool (results/S12.md):
+ * callers' slab buffers.  Two forms of the pool (results/SHMEM_ITEMS.md §S12):
  *   - shmem_malloc'd host memory registered with hipHostRegister (the default; Cray OpenSHMEMX's heap is host memory) --
  *     on the APU the same HBM;
  *   - COMM_SHMEM_DEVHEAP=1 with an implementation whose shmem_malloc returns device memory (rocSHMEM): no
@@ -20,7 +20,7 @@
  * puts its slab there, then the signal word sig[sender] = seq | byte count into the receiver's block, ordered after the
  * data by (COMM_SHMEM_ORDER) `putsig`: shmem_putmem_signal_nbi (1.5; one call, nothing blocks: the default where the
  * headers are 1.5), `fence`: shmem_fence + shmem_long_p (1.4, the spec's form), `quiet`: shmem_quiet + long_p (the default on
- * 1.4 headers; some 1.4 libraries' fence does not order an nbi put before a later put -- results/S.md).  The
+ * 1.4 headers; some 1.4 libraries' fence does not order an nbi put before a later put -- results/SHMEM_ITEMS.md §S).  The
  * receiver's wait() polls the signals, checks the counts, and quiets its own context (its send buffer is free again).
  * Buffers in the pool (comm_sym_alloc: ntt_dist's slabs, the layered communicator's scratch) are put from and into
  * directly; others are staged through the pool (D2H / H2D on the caller's stream, a copy per direction).
@@ -40,7 +40,7 @@
  * nowhere except init/finalize: they are process-level and would need all four threads to agree; the strided PE set
  * is the shim for shmem_team_split_strided.
  * Build: -DCOMM_SHMEM with the SHMEM headers (Makefile: SHMEM_CRAY=1); without it the
- * entry points abort.  The exact call list is in results/S12.md (the portability contract).
+ * entry points abort.  The exact call list is in results/SHMEM_ITEMS.md §S12 (the portability contract).
  *
  * N7b (COMM_SHMEM_PE_PER_APU=1, default 0 = off; needs COMM_OFI=0; docs: ecalc/README.md): a node runs 1 + 4 PEs (mnrun.sh launches
  * them): local PEs 0..3 are proxies, one per APU (SHMEM_OFI_NIC_POLICY=ROUND-ROBIN puts proxy d on NIC d), the last local PE is the ecalc
@@ -1035,7 +1035,7 @@ static void tr_begin(shm_priv *p, int path, uint64_t bytes)
     p->tr_act = 1;
     TR(p, E_BEGIN, 0, -1, p->tr_xs, bytes, 0);
 }
-/* ---- X1: COMM_XSTATS=1 (results/XEFF.md M1): per (phase, kind) sums over the completed exchanges of this PE (all APU threads) ---- */
+/* ---- X1: COMM_XSTATS=1 (results/OFI_FABRIC.md §XEFF M1): per (phase, kind) sums over the completed exchanges of this PE (all APU threads) ---- */
 static struct xs_row { long n, rounds; double bytes, tpost, tcall, twait, roff, sig; } g_xs[WST_NP][XK_NK];
 static struct xs_apu { long n; double bytes, tpost; } g_xa[8][XK_NK];
 static const char *const xs_ph[WST_NP] = { "other", "bs", "dm", "recip" };
@@ -1302,9 +1302,9 @@ static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     s_alltoall_i(c, sb, rb, bytes, s);
     p->hcall0 = now_s(); p->hs[H_POST] = p->hcall0 - t0; ec_ph(ph_);
 }
-/* ---- the all-to-alls in rounds (COMM_SHMEM_ROUND_MB; results/V114.md; the equal one as an unequal one) ----
+/* ---- the all-to-alls in rounds (COMM_SHMEM_ROUND_MB; results/SHMEM_ITEMS.md §V114; the equal one as an unequal one) ----
  * The staging of an ordinary exchange is its whole send and receive, so the pool's high-water is 4 APU threads x the largest
- * exchange's pair -- a second copy of buffers the callers already hold (results/P214.md 2).  With COMM_SHMEM_ROUND_MB = m, a
+ * exchange's pair -- a second copy of buffers the callers already hold (results/SHMEM_ITEMS.md §P214 2).  With COMM_SHMEM_ROUND_MB = m, a
  * pair (s -> r) of b bytes goes in K = ceil(b / c) rounds of c = m / (n - 1) bytes (K = 1 when b <= c: then exactly the
  * ordinary exchange's words), so one round stages at most m each way whatever the exchange.  Both ends know b (scnt / rcnt,
  * checked by the signal), so both derive K and the pair's sequence advances by K on both -- no collective.  Round j: every

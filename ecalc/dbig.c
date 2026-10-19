@@ -55,7 +55,7 @@ void db_copy_h2d_async(int dev, void *dst, const void *src, size_t bytes)
     HIP_CHECK(hipSetDevice(cur));
 }
 void db_copy_h2d_wait(int dev) { if (g_h2d_init[dev]) HIP_CHECK(hipStreamSynchronize(g_h2d_s[dev])); }
-/* K8b (results/K8b.md): BS_SEED_PULL=1 -- the seeds' host -> device copies without a HIP runtime call inside init's mapping window.
+/* K8b (results/MEMORY.md §K8b): BS_SEED_PULL=1 -- the seeds' host -> device copies without a HIP runtime call inside init's mapping window.
  * K8 measured the seed thread blocked 3.1 s at 6.441e10 inside db_copy_h2d_async (its launch and hipSetDevice queue behind the
  * background mappers' hipMemCreate / hipMemMap / hipMemSetAccess, 0.24 s with no mapper).  Here one persistent kernel per APU
  * (k_pull, 456 blocks, launched by db_pull_start_all from binsplit_seeds_begin once the region pools exist and before the
@@ -63,7 +63,7 @@ void db_copy_h2d_wait(int dev) { if (g_h2d_init[dev]) HIP_CHECK(hipStreamSynchro
  * store of `seq` (db_pull_copy_async), its completion a host spin on the kernel's `done` counter (db_pull_wait), and the kernels
  * leave on `quit` (db_pull_stop_all, at the end of seeds_stream, before the buffers are unregistered).  The source's device
  * pointer is resolved once per buffer (db_pull_resolve, from the seed thread right after the buffers are registered).  Same bytes
- * to the same addresses as db_copy_h2d_async: digits identical.  Default 1 (results/CAND.md); on a CPX
+ * to the same addresses as db_copy_h2d_async: digits identical.  Default 1 (results/SINGLE_NODE.md §CAND); on a CPX
  * XCD the 456 blocks need not all be resident and the first copy never completes (CPX runs set BS_SEED_PULL=0. */
 struct db_pullctl { unsigned long long seq, done, exited, quit; unsigned long long dst, src, n; };
 #define DB_PULL_BLOCKS 456
@@ -123,7 +123,7 @@ void db_pull_copy_async(int dev, void *dst, const void *src, size_t bytes)
     if (!g_pull_on[dev]) db_pull_start_all();
     db_pull_wait(dev);   /* K8c: one descriptor per APU -- the previous copy must be finished before it is overwritten (seeds_stream issues both
                           * buffered chunks of one region to the same APU back to back; without this the blocks saw seq jump 0 -> 2, skipped copy 1
-                          * and `done` never reached 2 x DB_PULL_BLOCKS: the seed thread hung, results/K8b.md section 6) */
+                          * and `done` never reached 2 x DB_PULL_BLOCKS: the seed thread hung, results/MEMORY.md §K8b section 6) */
     const void *dsrc = 0; for (int i = 0; i < g_pull_nsrc; i++) if (g_pull_src[i].h == src) dsrc = g_pull_src[i].d;
     if (!dsrc) { db_pull_resolve(src); for (int i = 0; i < g_pull_nsrc; i++) if (g_pull_src[i].h == src) dsrc = g_pull_src[i].d; }
     if (!dsrc) dsrc = src;
@@ -551,7 +551,7 @@ static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT])
 }
 size_t db_pool_free_bytes(int d) { size_t s = 0; for (int i = 0; i < g_ext[d].n; i++) s += g_ext[d].e[i].bytes; return s; }
 int db_pool_extents(int d) { return g_ext[d].n; }
-/* (results/PC15.md; RNS_DIST_CACHE_PARTIAL, rns_dist.c cache_pc_take): how many blocks of `bytes` the free extents hold as
+/* (results/CACHE.md §PC15; RNS_DIST_CACHE_PARTIAL, rns_dist.c cache_pc_take): how many blocks of `bytes` the free extents hold as
  * they are -- no remap, no growth (each block within one extent) */
 size_t db_pool_fit_count(int d, size_t bytes) { size_t al = (size_t)DB_ALIGN * 8, b = (bytes + al - 1) / al * al, c = 0; if (!b) return 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ext[d].n; i++) c += g_ext[d].e[i].bytes / b; pthread_mutex_unlock(&g_pool_mx); return c; }
 size_t db_pool_hipmalloc_bytes(int d) { size_t s = 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ndonated; i++) if (g_donated[i].dev == d && g_donated[i].kind == 2) s += g_donated[i].bytes; pthread_mutex_unlock(&g_pool_mx); return s; }
@@ -610,11 +610,11 @@ static void bounce_init(int d)
 }
 /* DBIG_SMALL_BOUNCE=1 (default on; 0 = the two big buffers) -- a quarter of at most SBOUNCE limbs (8 MiB) goes through one small pinned buffer
  * per device instead of the two 1 GiB ones.  The first host copy of a run allocated 4 x 2 GiB of pinned host memory (≈2.2 s on
- * every aac7 node, longer on one, in the reciprocal's gather of 0.2 MB, results/O2.md); the small buffer costs milliseconds.
+ * every aac7 node, longer on one, in the reciprocal's gather of 0.2 MB, results/DIVISION.md §O2); the small buffer costs milliseconds.
  * The bytes copied are the same, so digits are identical; the big buffers are still allocated on the first large copy. */
 #define SBOUNCE ((size_t)1 << 20)
 static uint64_t *g_sbounce[DB_NQ];
-static int small_bounce_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_SMALL_BOUNCE") ? atoi(getenv("DBIG_SMALL_BOUNCE")) : 1; return v; }   /* default 1 since 2026-10-12 (user-adopted, results/CAND.md) */
+static int small_bounce_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_SMALL_BOUNCE") ? atoi(getenv("DBIG_SMALL_BOUNCE")) : 1; return v; }   /* default 1 since 2026-10-12 (user-adopted, results/SINGLE_NODE.md §CAND) */
 static uint64_t *sbounce_get(int d)
 {
     if (!g_sbounce[d]) {
@@ -795,7 +795,7 @@ __global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a,
  * The b operand is either a dbig or a sparse set of 4-limb spills (sp != 0): spill j sits at limb
  * R j + row0 + rows for row0 in {0, rows, 2 rows, 3 rows} (four ranks' spill arrays). */
 struct sparse { const uint64_t *sp[4]; size_t R, rows, C; int single; size_t pos; uint64_t val;
-                size_t lo; int gt; const size_t *tab[4]; int p24; };   /* p24 (results/P2415.md): the blocks at L(R j + a') of p24.h */   /* tab[d] (the exact spill exchange): sp[d] holds only the blocks that meet this share, per source node r the columns [tab[3r], tab[3r+1]) at block offset tab[3r+2]; 0 = the full [r][j][4] layout */   /* single: one limb val at pos.  gt > 0 (M3): the node's share [lo, ..) of a number whose product ran on 4 gt ranks,
+                size_t lo; int gt; const size_t *tab[4]; int p24; };   /* p24 (results/PRIMES_STRATEGY.md §P2415): the blocks at L(R j + a') of p24.h */   /* tab[d] (the exact spill exchange): sp[d] holds only the blocks that meet this share, per source node r the columns [tab[3r], tab[3r+1]) at block offset tab[3r+2]; 0 = the full [r][j][4] layout */   /* single: one limb val at pos.  gt > 0 (M3): the node's share [lo, ..) of a number whose product ran on 4 gt ranks,
                                          * rank rho = gt d + r: sp[d] holds [r][j][4], spill (rho, j) at global limb R j + (rho + 1) rows -- or, when rows nr != R
                                          * (gt = g nodes of any count, rows = floor(R / nr)), at R j + R (rho + 1) / nr */
 __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
@@ -1104,7 +1104,7 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
             blocks = nblk(whi - wlo);
 #pragma omp critical
             k_maxidx<<<blocks, 256>>>(va, vb, b != 0, wlo, whi, g_red[d]);
-        /* (results/A114.md) the per-block results come to this thread's own
+        /* (results/CRASHES_HANGS.md §A114) the per-block results come to this thread's own
          * buffer.  They went to a process-wide malloc'd g_hred whose first-use allocation (`if (!g_hred) g_hred = malloc()`)
          * ran unguarded inside this four-thread region: two threads could allocate, and a thread whose hipMemcpy landed in
          * one buffer read the other, uninitialised one.  The first db_norm of a process is the leaf hand-over's db_copy at

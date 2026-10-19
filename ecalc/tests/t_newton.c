@@ -9,7 +9,7 @@
  *     counted; a perturbed seed forces the overshoot path; a longer prewarm mu.  3b: quotients of 1 .. 8 limbs
  *  4. time at 2^LOGMAX limbs (A = 2 nq limbs) with the split tiers
  *  5. the reciprocal's middle product; 6. the division in two quotient halves (DKM, the one division)
- *  8. the reciprocal's chain guard (NEWTON_CHAIN_GUARD, results/RECIP.md): exact doublings off and on, the DKM estimate
+ *  8. the reciprocal's chain guard (NEWTON_CHAIN_GUARD, results/DIVISION.md §RECIP): exact doublings off and on, the DKM estimate
  *
  * Usage: t_newton [LOGMAX (26)]
  * Decimal limbs only since archive:PLAN §28.5.
@@ -31,7 +31,7 @@ static void mpz_recip(mpz_t mu, const mpz_t Q, size_t nq, size_t k)
     mpz_ui_pow_ui(mu, BI_B10, nq + k);
     mpz_fdiv_q(mu, mu, Q);
 }
-/* the reciprocal's error bound (results/RECIP.md), err = floor(B^(nq+k)/Q) - mu.  mu's units scale with M = B^nq / Q (1 .. B: decimal
+/* the reciprocal's error bound (results/DIVISION.md §RECIP), err = floor(B^(nq+k)/Q) - mu.  mu's units scale with M = B^nq / Q (1 .. B: decimal
  * limbs are not normalised).  A doubling j -> 2j with no limb cut after it keeps its own error: mu - B^(nq+k)/Q < 2 M + 3, so
  * err >= -(2 ceil(M) + 6) when the chain's LAST doubling is exact (ceil(M) <= B / top limb + 1); a doubling j -> jn < 2j cuts it by
  * >= 1 limb (+-8 as before; the upper side is the model's +2 plus margin).  Two exact doublings in a row square the error (no bound
@@ -179,13 +179,13 @@ int main(int argc, char **argv)
     }
 
     {
-        /* (the reciprocal's middle product, results/R415.md): (a) the band product rns_mul_band_db against the whole product -- mod B^w
+        /* (the reciprocal's middle product, results/DIVISION.md §R415): (a) the band product rns_mul_band_db against the whole product -- mod B^w
          * identical with no low cut, the band [v, w) within one unit (mod B^(w - v)) with the cut at v - 1; (b) the reciprocal (always the cut
-         * and middle-product form) against GMP directly -- mu vs floor(B^(nq+k)/Q), within recip_bound (results/RECIP.md; 8 units before), as the
+         * and middle-product form) against GMP directly -- mu vs floor(B^(nq+k)/Q), within recip_bound (results/DIVISION.md §RECIP; 8 units before), as the
          * whole-product reference it replaced was -- at several sizes, k and generators (a grid at the top doublings under
          * DIST_LOGN_TEST=20..22), and the path taken */
         printf("-- 5. the reciprocal's middle product\n");
-        rng_t rng5 = {0x5E37ULL};                       /* its own operands, whatever the sections before draw (SIMP: one Q there missed the old 8-unit bound, results/SIMP.md; the bound is derived now and that Q is section 8 (a), results/RECIP.md) */
+        rng_t rng5 = {0x5E37ULL};                       /* its own operands, whatever the sections before draw (SIMP: one Q there missed the old 8-unit bound, results/CODE_REDUCTION.md §SIMP; the bound is derived now and that Q is section 8 (a), results/DIVISION.md §RECIP) */
         bigint B1, C0, C1; bi_init(&B1); bi_init(&C0); bi_init(&C1);
         static const size_t band_sz[][2] = { {3000, 1000}, {(1u << 20) + 5, (1u << 19) + 3}, {(3u << 20) + 1, (3u << 19) - 5}, {(1u << 22) + 3, (1u << 21) + 1} };   /* the last two: grids split on both operands at cap 2^20..2^22, so the high cut skips pieces */
         for (int si = 0; si < 4; si++) for (int ki = 0; ki < 2; ki++) {
@@ -222,7 +222,7 @@ int main(int argc, char **argv)
                     size_t nm = newton_mid_st.mid - m0.mid, sk = rns_dist_st.n_skipped - s0;
                     if (nq > (1u << 21) && getenv("DIST_LOGN_TEST")) VERIFY(sk > 0, "recip mid nq %zu k %zu: the cuts skipped nothing", nq, k);   /* grids need the lowered plane cap */
                     VERIFY(nm > 0, "recip mid nq %zu k %zu: the middle product was never taken", nq, k);
-                    long err = recip_err(m, x, q, &Q, &t, k), lo, hi;   /* GMP's floor against the iterate; the bound as derived (results/RECIP.md) */
+                    long err = recip_err(m, x, q, &Q, &t, k), lo, hi;   /* GMP's floor against the iterate; the bound as derived (results/DIVISION.md §RECIP) */
                     if (recip_bound(&Q, k, &lo, &hi)) VERIFY(err >= lo && err <= hi, "recip mid nq %zu k %zu %s: error %ld units, bound [%ld, %ld]", nq, k, gen_name[kinds[gi]], err, lo, hi);
                     if (gi == 0) printf("   nq %-8zu k %-8zu: error vs GMP %+ld, %zu rounds on the middle product, %zu pieces skipped\n", nq, k, err, nm, sk);
                 }
@@ -350,7 +350,7 @@ int main(int argc, char **argv)
         }
     }
 
-    /* 8. the chain guard (results/RECIP.md).  (a) SIMP's operand: Q of 131075 limbs, top limb 2.35e16 (M = B^nq / Q = 42.6), k 65538:
+    /* 8. the chain guard (results/DIVISION.md §RECIP).  (a) SIMP's operand: Q of 131075 limbs, top limb 2.35e16 (M = B^nq / Q = 42.6), k 65538:
      * the last doubling 32769 -> 65538 is exact -- error -22 units off (within -(2 ceil(M) + 6)), +-8 on.  (b) k = 1024, 2048 at nq
      * 1027 (every doubling exact), 100 uniform Q: off, the error squares from doubling to doubling (printed: the count beyond +-8 and the
      * largest); on, +-8 for every Q.  (c) DKM's step-1 estimate X0 = ((A1 >> (nq - 1)) mu_top) >> (k1 + 1) for a quotient of kq = 4095
@@ -362,7 +362,7 @@ int main(int argc, char **argv)
     {
         int guard_env = newton_chain_guard();
         long lo, hi;
-        {   rng_t r8 = {0x9A4EA83C95610E7BULL};                 /* the rng state of SIMP's section-5 draw (t_newton 20 at SIMP 4003968, results/SIMP.md) */
+        {   rng_t r8 = {0x9A4EA83C95610E7BULL};                 /* the rng state of SIMP's section-5 draw (t_newton 20 at SIMP 4003968, results/CODE_REDUCTION.md §SIMP) */
             bi_random(&Q, 131075, GEN_UNIFORM, &r8);
             for (int on = 0; on < 2; on++) {
                 newton_chain_guard_set(on); newton_db_recip(&mu, &Q, 65538);

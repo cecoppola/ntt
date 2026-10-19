@@ -56,7 +56,7 @@ mdbv mdb_view(const mdb *m, size_t off, size_t len, mn_group *G);
  * skipped and the result is truncated to w limbs ((size_t)-1: the full product).  Phase 10 A5: a truncated result is
  * delivered in basis w (C->N = w), the carry out of the top dropped (mod B^w) */
 void rns_mul_dist_mn_v(mdb *C, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t w);
-/* Phase 10 A5 (results/A-div.md, the division's cuts): C = A B with the grid's pieces skipped by two cuts -- pieces whose
+/* Phase 10 A5 (results/DIVISION.md §A-div, the division's cuts): C = A B with the grid's pieces skipped by two cuts -- pieces whose
  * limbs end at or below lowcut (oa + ob + len_a + len_b <= lowcut; 0: none -- the A_h mu product, of which only t >> cut is
  * used: X is low by at most the number of skipped pieces + 1, absorbed by the up-corrections) and pieces starting at or
  * above highcut (oa + ob >= highcut; (size_t)-1: none -- the low product X Q mod B^w, delivered in basis highcut) */
@@ -66,7 +66,7 @@ void rns_mul_dist_mn_cut_v(mdb *C, const mdbv *A, const mdbv *B, mn_group *G, si
 void rns_mul_low_mn(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t w);
 void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb);   /* the grid the product forms (tests: the cut references) */
 int  rns_mul_dist_mn_logcap(mn_group *G);                     /* log2 of the plane cap over G (one plane per node pool; tests) */
-/* P1 (DM_MN_WRAP, results/P1.md): the division's low product in two parts -- the pieces at or above wskip skipped, C in a given basis;
+/* P1 (DM_MN_WRAP, results/DIVISION.md §P1): the division's low product in two parts -- the pieces at or above wskip skipped, C in a given basis;
  * and one cyclic plane of P points (C == A B mod (B^P - 1), C < B^(P + 4), basis >= P + 4); the group's smallest plane (log2) */
 void rns_mul_dist_mn_low_basis_v(mdb *C, const mdbv *A, const mdbv *B, mn_group *G, size_t wskip, size_t basis);
 void rns_mul_dist_mn_cyc_v(mdb *C, const mdbv *A, const mdbv *B, mn_group *G, size_t P, size_t basis);

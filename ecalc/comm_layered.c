@@ -363,7 +363,7 @@ static void y_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     inter_post(c, e);
 }
 /* ---- B7: the unequal exchange ---- */
-/* B7ACCT (results/B7ACCT.md): the v-exchange scratch hipMalloc'd now per device, over every layered communicator (need_vtmp, need_vslot,
+/* B7ACCT (results/GRID_GROUPS.md §B7ACCT): the v-exchange scratch hipMalloc'd now per device, over every layered communicator (need_vtmp, need_vslot,
  * freed by y_destroy) -- MEM_REPORT_DEVS prints it beside the layout's term (binsplit_vslot_bytes); a counter only, nothing else reads it */
 static size_t g_vlive[16];
 static void vlive_add(int dev, size_t add, size_t sub) { if (dev >= 0 && dev < 16) { __atomic_add_fetch(&g_vlive[dev], add, __ATOMIC_RELAXED); __atomic_sub_fetch(&g_vlive[dev], sub, __ATOMIC_RELAXED); } }
@@ -475,7 +475,7 @@ static void complete_v(comm *c)
  * A + max(A, B) bytes, two slots alternating, each the communicator's own and grown only while not pending.  The intra receive
  * x1 (A) lives in the slot's x3 area: it is dead once reordered into x2, before the inter stage receives into x3.  Scratch:
  * x0 + 2 (A + max(A, B)) against depth 1's x0 + 2 A + B -- with A ~ B one exchange's A more (4 S against 3 S). */
-/* S36 (results/S36.md): the v-slots are one pair per device, shared by every layered communicator of the APU thread.  The tree's levels run one
+/* S36 (results/GRID_GROUPS.md §S36): the v-slots are one pair per device, shared by every layered communicator of the APU thread.  The tree's levels run one
  * after the other and a node is in one group per level, so a level's slots are dead when the next level's exchange begins: instead of each communicator holding its own
  * pair to the run's end (the sum over the levels), the pair is handed on (the previous owner's pending exchange is completed first) and held at the largest level's size.
  * Only where the buffers live and when they are reused: the exchanges, their order and the data are the same.  The pair is freed with the last communicator. */
@@ -507,7 +507,7 @@ static void need_vslot_shared(comm *c, int k, size_t bytes)
     p->vx[k ^ 1] = S->vx[k ^ 1]; p->vxcap[k ^ 1] = S->cap[k ^ 1];
 }
 static void need_vslot(comm *c, int k, size_t bytes) { int ph_ = ec_ph(EC_PH_VSLOT_ALLOC); need_vslot_shared(c, k, bytes); ec_ph(ph_); }
-/* M3 (on with COMM_LAYER_VSLOT_POOL, the default; results/C06.md): rns_dist.c calls this when a product's last v-exchange has been waited for, before the CRT and the
+/* M3 (on with COMM_LAYER_VSLOT_POOL, the default; results/GRID_GROUPS.md §C06): rns_dist.c calls this when a product's last v-exchange has been waited for, before the CRT and the
  * result exchanges.  The comm pool holds the slots only while a product's v-exchanges run; the staged exchanges around them (the redistribution, the result, the shifted add) use the
  * same pool, so the pool rule sizes it for the larger of the two, not their sum.  The slots are scratch (every exchange writes its x2 / x3 before reading them): nothing carries over;
  * the next product's first v-exchange allocates them again (need_vslot*: at the pool rule's size, so the same size; the receivers publish where a slab lands, so the offset need not match).
@@ -636,7 +636,7 @@ int comm_layered_vslot_pool_on(void) { const char *e = getenv("COMM_LAYER_VSLOT_
 int comm_layered_inter2_on(void) { const char *e = getenv("COMM_LAYER_INTER2"); return e ? atoi(e) != 0 : comm_layered_vslot_pool_on(); }
 static void lay_opts(lay_priv *p) {
     p->vpool = comm_layered_vslot_pool_on(); p->i2 = comm_layered_inter2_on(); vslot_attach(p);   /* S36: the shared pair */
-    p->vrel = p->vpool;   /* M3 (results/C06.md): the pool slots are released after each product's v-phase (hipMalloc'd slots would be allocated again for every product) */
+    p->vrel = p->vpool;   /* M3 (results/GRID_GROUPS.md §C06): the pool slots are released after each product's v-phase (hipMalloc'd slots would be allocated again for every product) */
     if (p->i2 && !p->vpool) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_INTER2=1 needs COMM_LAYER_VSLOT_POOL=1 (two staged inter exchanges would double the staging)\n");
 }
 static comm *layered_create_i(comm *intra, comm *inter, int d);

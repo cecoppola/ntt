@@ -63,7 +63,7 @@ int ec_np_prod(size_t nterms, const char *where);   /* ec_np_for + the check of 
  * = min(na, nb) with the switch, nc (= na + nb, the old conservative form) without; the result is passed to ec_np_for / ec_np_prod. */
 extern int ec_np_auto_min;                  /* 1: ECALC_NP_AUTO_MIN=1 with ECALC_NP=auto (decimal limbs) */
 size_t ec_np_terms(size_t nc, size_t na, size_t nb);
-extern int ec_np_mn3;                       /* 1: ECALC_NP_MN3=1 with ECALC_NP=auto -- the three-prime multi-node path (D18, results/DEF.md) */
+extern int ec_np_mn3;                       /* 1: ECALC_NP_MN3=1 with ECALC_NP=auto -- the three-prime multi-node path (D18, results/LAUNCH_DEFAULTS.md §DEF) */
 int ec_np_planes(int pool_log, int g);      /* pool 0's planes: ec_np; auto: 4 at g > 1 (D18: every multi-node product in P24); with ECALC_NP_MN3=1 4 only when the largest plane of g nodes (2^(min(31, pool_log) + floor(log2 g)) points) exceeds ec_np_auto_terms */
 #ifdef __cplusplus
 }

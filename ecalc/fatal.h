@@ -4,7 +4,7 @@
  * threads (OpenMP) often find the same condition together (the in-phase pool guards, an allocation that fails on every APU);
  * several exit() calls at once run the atexit handlers and the C++ destructors of the HIP runtime concurrently with each other
  * and with the threads still computing, and the process died with SIGSEGV (rc 139) instead of the message (G13d §(c),
- * results/L114.md batch 6).
+ * results/MEMORY.md §L114 batch 6).
  *
  * Every such site calls ec_fatal() (or ec_fatal_begin() ... ec_fatal_end() when it prints more, e.g. the memory report):
  *   - the FIRST caller in the process prints one line "ecalc: FATAL [rank r/n host h, APU d, thread t, after <phase>, rc c]:

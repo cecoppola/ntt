@@ -14,7 +14,7 @@
  *
  * Usage: t_mul [POOL (20; 0 skips sections 0-2)] [batch | dist]   (dist: only the distributed tier, 6e5 .. 2^27 limbs; DIST_BIG=1
  *        2^29, 2^30, time only).  The host product tier (rns_mul, Karatsuba split, mdev) and its sections were removed by TREF
- *        (results/TREF.md); decimal limbs only since archive:PLAN §28.5.
+ *        (results/CODE_REDUCTION.md §TREF); decimal limbs only since archive:PLAN §28.5.
  */
 #include "harness.h"
 #include "tref.h"
@@ -55,7 +55,7 @@ static void check_dev(const char *what, const bigint *A, const bigint *B, bigint
 }
 
 /* batch groups (sections 4, 4b): the GMP string bridge of decimal limbs costs about as much per product as a 2^17-limb
- * multiply, so a group of thousands of products took > 700 s (results/H4.md 7).  Groups up to BATCH_EXACT_LIMBS operand and
+ * multiply, so a group of thousands of products took > 700 s (results/CODE_REDUCTION.md §H4 7).  Groups up to BATCH_EXACT_LIMBS operand and
  * product limbs are still checked exactly for every product; larger groups check four products exactly (the first two, the
  * middle, the last) and every product by residues: c == a b (+ x) mod 2^61-1, 10^18+3 and 4611686018427387847 (a modulus of
  * about 2^184), with every limb of c < B (so c < B^nc and the residues pin c up to that modulus) */

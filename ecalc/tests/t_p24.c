@@ -1,4 +1,4 @@
-/* t_p24 - (results/P2415.md): the P24 maps, the regroup (limbs -> 24-digit points -> residues) and the
+/* t_p24 - (results/PRIMES_STRATEGY.md §P2415): the P24 maps, the regroup (limbs -> 24-digit points -> residues) and the
  * ungroup (the 24-digit CRT's shifted digits, the stripes' carries and 4-limb spills) against slow references (GMP, brute force).
  *   host part (gcc on a login node, or the hipcc build):  gcc -O2 -I. tests/t_p24.c -o /tmp/t_p24 -lgmp -lm
  *   device part (the hipcc build, `make tests/t_p24`, on a node): k_crt24 (p24_crt.c) against the host model of the same stripe,

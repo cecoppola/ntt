@@ -106,7 +106,7 @@ int mn_selftest(int logR, int logC, int verbose)
                                                       * Neither is reachable on the available hardware (aac7: 13 nodes, <= 4 node-processes/node by default), so the real bug cannot be reproduced end to
                                                       * end here; the growth formula was instead checked by direct arithmetic (matches mn_selftest_layered's identical, already-shipped pattern) and this
                                                       * clamp keeps the debug knob itself from crashing on an invalid override instead of silently exercising the wrong thing. */
-    /* (results/P16.md's growth pattern) the fixed 2^11 rows give R/ranks < 32 from 128
+    /* (results/OFI_FABRIC.md §P16's growth pattern) the fixed 2^11 rows give R/ranks < 32 from 128
      * ranks on (k_twpack_r's grid is rk/32 blocks, 0 at R/ranks = 16: a silent no-op, not a HIP error).  Grow logR until
      * R/ranks >= 32, as the layered test does; below 128 ranks R/ranks is already >= 32 (2048/64
      * = 32) so the loop never fires and behavior is unchanged. */
@@ -210,7 +210,7 @@ mn_group *mn_group_span(int l, int g0, int g)
     g_sched[l] = G;
     return G;
 }
-/* X2 (COMM_LAYER_INTER2, results/XEFF.md item 2): the second mesh of the group for APU thread d, over the same PE set as all[d] (sub = 0) or as the
+/* X2 (COMM_LAYER_INTER2, results/OFI_FABRIC.md §XEFF item 2): the second mesh of the group for APU thread d, over the same PE set as all[d] (sub = 0) or as the
  * first gt nodes' tr[d] (sub = 1), under an id of its own: NA + NA (3 MN_MAXL + idx) + d, idx = 2 MN_MAXL sched + MN_MAXL sub + level (below MAXID 1024).
  * Created on first use, collectively by the members (SHMEM only); destroyed by groups_finalize */
 comm *mn_mesh2(mn_group *G, int d, int sub)

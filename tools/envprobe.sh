@@ -1,5 +1,5 @@
 #!/bin/bash
-# envprobe.sh (C04, results/C04.md): a ~30-45 s environment probe of the fabric, independent of the arm under test.
+# envprobe.sh (C04, results/TOOLS_PROFILES.md §C04): a ~30-45 s environment probe of the fabric, independent of the arm under test.
 # Stand-alone 4-thread all-to-all (tests/t_comm --bw) over all nodes of the hold at FIXED settings (the caller's COMM_/MN_/RNS_/ECALC_/DM_/
 # FI_ variables are removed, then COMM_TRANSPORT=shmem FI_MR_CACHE_MONITOR=userfaultfd and the pool are set), 64 MiB and 256 MiB slabs;
 # the NIC MCU counter group (oxe_mcu_meas_18..25 = A, 28..33 = B, the one that carries the bytes) and the flow-control stall counter
@@ -8,7 +8,7 @@
 #   ENVPROBE r64=<GB/s per thread> r256=<GB/s per thread> group=A|B|NA fgfc=<delta, millions> nn=<nodes> t=<epoch> wall=<s>
 # (rate fields NA when unreadable).  Run it between runs, never concurrent with one (one network program per node).
 #   usage: SLURM_JOB_ID=<hold> [NN=n] [WT=<worktree>] [OUT=dir] [REPS=100] [PMAX=256] [STUB=1] tools/envprobe.sh
-# NOTE (A13, results/A13.md): the group is drawn per launch, so the probe's group/rate describe the probe's own launch, not the next
+# NOTE (A13, results/NODE_SLOWMODE.md §A13): the group is drawn per launch, so the probe's group/rate describe the probe's own launch, not the next
 # run's; use it as a covariate of the fabric state (and of the run itself only through the run's own group, read the same way).
 HD=$(cd "$(dirname "$0")" && pwd); WT=${WT:-$(dirname "$HD")}; STUB=${STUB:-0}
 HOLD=${HOLD:-${SLURM_JOB_ID:-}}; REPS=${REPS:-100}; PMAX=${PMAX:-256}

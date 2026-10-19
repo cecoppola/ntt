@@ -1,10 +1,10 @@
-/* p24_crt.c - (results/P2415.md): the CRT of a P24 plane (four primes, 24 digits per point) into
+/* p24_crt.c - (results/PRIMES_STRATEGY.md §P2415): the CRT of a P24 plane (four primes, 24 digits per point) into
  * base-10^18 limbs.  One block per column j of the rank's plane: its points [x0, x0 + rows), x0 = R j + a, in chunks of 256 --
  * thread k does Garner for point x0 + k0 + k (dgarner4: a copy of rns_mul.c's, static there), its four base-10^18 digits and their
  * shift by s(x) = 6 (x mod 3) digits into E[x] = e[0..3] at limbs L(x) .. L(x) + 3 (p24.h); then the chunk's limbs
  * [L(x0 + k0), L(x0 + k0 + n)) sum the E of the (at most three) points that meet them -- the last three points of the previous chunk
  * kept as the tails -- the carry chain runs on thread 0 over the LDS (as k_crt_batch; P24_CRT_SCAN=1, K4c: a carry-lookahead over
- * wave ballot masks, results/K4c.md), and the limbs go to the column's out-run.  The
+ * wave ballot masks, results/KERNELS.md §K4c), and the limbs go to the column's out-run.  The
  * contributions past the column's last own limb L(x0 + rows) - 1 form its 4-limb spill at L(x0 + rows) (the next out-run's first
  * limbs), added by the caller like k_crt_batch's.  Bound (P2415.md 1.1): min(Pa, Pb) <= 10^12 points gives c < 10^60, so c 10^s < 10^72
  * (four limbs, e4 = 0) and the spill's top limb holds the final carry; the device flag says otherwise (1: e4 != 0, 2: a spill carry). */
@@ -82,7 +82,7 @@ void k_crt24(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const u
             uint64_t q = sm / BB; V[li] = sm - q * BB; CY[li] = q;
         }
         __syncthreads();
-        if (scan) {   /* K4c (P24_CRT_SCAN): the chain as a carry-lookahead over ballot masks (as K4b's k_crt_batch, results/K4c.md).
+        if (scan) {   /* K4c (P24_CRT_SCAN): the chain as a carry-lookahead over ballot masks (as K4b's k_crt_batch, results/KERNELS.md §K4c).
                        * Serial form: sm_i = V_i + CY_{i-1} + o_{i-1} (CY_{-1} = the chunk's carry-in, o_{-1} = 0), o_i = sm_i >= B.  A limb
                        * sums at most three points' digits (< 3B), so CY <= 2, the carry-in <= 3 and w_i = V_i + CY_{i-1} <= B + 2:
                        * o_i = gen_i | (prop_i & o_{i-1}), gen = w >= B, prop = w == B - 1.  nl <= 342: thread t owns limbs t and t + 256 */

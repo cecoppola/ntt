@@ -1,4 +1,4 @@
-/* tref.h - the tests' reference product (TREF, results/TREF.md; it replaced the host product tier rns_mul as the reference).
+/* tref.h - the tests' reference product (TREF, results/CODE_REDUCTION.md §TREF; it replaced the host product tier rns_mul as the reference).
  *
  * tref_ok(a, na, b, nb, c, nc, mode, why)   is c == a b?  (decimal limbs, any lengths; why gets the first failed item)
  *    TREF_AUTO: exact by GMP (the product-tree conversions of harness.h) when na + nb <= TREF_EXACT_LIMBS, else the residue form;

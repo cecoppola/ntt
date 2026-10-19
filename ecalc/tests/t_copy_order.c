@@ -11,7 +11,7 @@
  *       null stream and a kernel on ANOTHER device's stream overwrites the source right after the call returns.
  * A blocking stream is ordered after its own device's null stream only, so (2)-(4) are unordered by the HIP model
  * whenever hipMemcpy returns before the copy is done; the test measures what happens on this ROCm (found: the
- * peer-to-peer copy is host-synchronous, the same-device copy is NOT -- results/R.md).  With the fix (mem_dev_copy_on
+ * peer-to-peer copy is host-synchronous, the same-device copy is NOT -- results/CRASHES_HANGS.md §R).  With the fix (mem_dev_copy_on
  * waits for the copy) every count must be 0 -- run it as `tests/t_copy_order [fix]`: with "fix" the copy is followed by
  * hipStreamSynchronize(0).  Prints the timings and the number of corrupted words; VERIFY OK when the fixed variant sees
  * no corruption.

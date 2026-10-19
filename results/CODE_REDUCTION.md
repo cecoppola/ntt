@@ -125,7 +125,7 @@ Registry rows (m): **186 before, 170 after** (16 removed: 8 checkpoint, 3 residu
 
 **Verdict.** Merged: all gates and mnaccept steps PASS with digits identical; 1531 lines and 16 settings fewer.
 
-**Open (left for later).** Host product tier (done in §TREF); `rns_dist.c` items (done in §SH3); `mn_powmod`/`powmod_h`; `newton_dkm_set` stays (tests' override); duplicate device Garner (`dmod128/192`) and `k_store`/`k_copy_h2d` need their own codegen check; `make_mdb`; kept as test oracles: `ntt_host_fwd/inv`, `crt_garner3/4`, `db_pool_extents`, `db_mod_q`, `db_set_base_pow`, `vf_digits_mod`, `tier1/tier2`, `dist_inv_t`, `ec_shoup_lazy`. `t_ntt bench` is cited by `results/KERNELS.md §K13`, `§K13b`, `results/NTT3P.md` (history; code in the archive).
+**Open (left for later).** Host product tier (done in §TREF); `rns_dist.c` items (done in §SH3); `mn_powmod`/`powmod_h`; `newton_dkm_set` stays (tests' override); duplicate device Garner (`dmod128/192`) and `k_store`/`k_copy_h2d` need their own codegen check; `make_mdb`; kept as test oracles: `ntt_host_fwd/inv`, `crt_garner3/4`, `db_pool_extents`, `db_mod_q`, `db_set_base_pow`, `vf_digits_mod`, `tier1/tier2`, `dist_inv_t`, `ec_shoup_lazy`. `t_ntt bench` is cited by `results/KERNELS.md §K13`, `§K13b`, `results/KERNELS.md §NTT3P` (history; code in the archive).
 
 ## §W2A — wave 2, lane A of the user-approved settings removal (2026-10-12)
 
@@ -223,7 +223,7 @@ Result (m): every run passes in both bases at 2, 3, 4, 5, 6 processes (including
 
 ## §H4 — PLAN 28.5 on branch `h4`: the binary limb pipeline archived, decimal limbs only
 
-Branch `h4` off main 0298fe2 (the user decides the merge after measured results). Readiness plan `results/H3.md`.
+Branch `h4` off main 0298fe2 (the user decides the merge after measured results). Readiness plan `archive:results/H3.md`.
 
 **Change (m, `git diff --numstat`).**
 - Core `ecalc/*.c|h` -418 / +158 (17 files, net -260); `todec.c/.h` moved out (-345); core total about **-605 net** (H3 estimated -520..-650). Tests -191 / +117 (net -74), `t_dec.c` moved out (-86): about -160 net. `newton.c` -40 (binary Knuth D tail only; not removed otherwise: `NEWTON_DEVICE=0` and the seeds used it, H3 §1).

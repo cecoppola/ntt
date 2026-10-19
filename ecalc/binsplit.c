@@ -301,7 +301,7 @@ static void region_need(unsigned long N, size_t need[NR])
  * size it (ecalc.c: n_Q = Q's limbs, Q = N! in the chosen base; dl = the limbs of 10^d; k_mu = P.n + 1 + dl - n_Q + 1;
  * newton_db_recip: r, r2 of k + 4 limbs, t1 of max(n_Q + k, 2k) + 8; rns_dist's piece temporary of at most 2^pool_log + 8
  * limbs; Q and S = P + Q live from the top of bs with their bound's margin).  Every device holds a quarter of each.  The
- * hole is t1's quarter -- the one block that no arena laid out for bs holds contiguously (results/M.md: 8.9 / 15.6 / 17.8 GB
+ * hole is t1's quarter -- the one block that no arena laid out for bs holds contiguously (results/MEMORY.md §M: 8.9 / 15.6 / 17.8 GB
  * at 4 / 7 / 8e10, exactly the in-phase hipMalloc) -- reserved as the arena's tail; thresh is what the pool treats as "large"
  * (5/8 of the hole: r, r2 at ~ half of it stay out of the tail, t1 takes it).  At size > 1 the shares are 1/size of it
  * (the sharded division, A-div) and the tree's products add their slabs (tree_need_dev). */
@@ -338,7 +338,7 @@ static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_
     (void)pool_log;
     return best + best / 16;
 }
-/* B7ACCT (results/B7ACCT.md; STD17 4): the general map's v-exchange slots, resident per APU thread (bytes).  Every group whose transform
+/* B7ACCT (results/GRID_GROUPS.md §B7ACCT; STD17 4): the general map's v-exchange slots, resident per APU thread (bytes).  Every group whose transform
  * is the general map (g not a power of two, or DIST_GEN) owns a layered communicator per APU thread (rns_dist.c lay_get) whose v-slots
  * grow to its largest product's exchange (rns_mul_dist_mn_vslot) and stay until groups_finalize at the run's end -- outside the arena,
  * the plane pools and the comm pools.  So the slots of every general-map level of the tree add up, and the whole machine's group (the
@@ -377,7 +377,7 @@ size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *b
     if (tree_top) *tree_top = tt;
     return all;
 }
-/* X2 (results/XEFF.md item 2): COMM_LAYER_VSLOT_POOL=1 -- the v-slots come from the comm pool (comm_sym_alloc), so the pool rule counts them and the hipMalloc'd budget does not */
+/* X2 (results/OFI_FABRIC.md §XEFF item 2): COMM_LAYER_VSLOT_POOL=1 -- the v-slots come from the comm pool (comm_sym_alloc), so the pool rule counts them and the hipMalloc'd budget does not */
 static int vslot_pool_on(void) { return comm_layered_vslot_pool_on(); }   /* (default 1) */
 /* S31 (COMM_LAYER_VSLOT_POOL): each v-slot is allocated once at the model's per-slot maximum of its group size g (env COMM_LAYER_VSLOT_MB_<g>, MiB; comm_layered.c need_vslot),
  * not regrown with every larger product -- a slot regrown in the comm pool (free, then allocate) strands holes between the short-lived staging blocks (S28: 10 nodes,
@@ -497,7 +497,7 @@ static int as_room_fits(unsigned long N, int size, size_t room)
                room * 1e-9, node * 1e-9, planes * 1e-9, ar * 1e-9, AS_VMM_BS_GROW * 1e-9, host * 1e-9, budget * 1e-9);
     return g_room_cfit;
 }
-/* D19 (results/DEF.md; mem_model.py wrap_bytes): DM_MN_WRAP's extra bytes per device in the mn division's low-product moment
+/* D19 (results/LAUNCH_DEFAULTS.md §DEF; mem_model.py wrap_bytes): DM_MN_WRAP's extra bytes per device in the mn division's low-product moment
  * (newton_db.c mn_wrap_step) -- Q B^-h folded (Qpp, basis P + 4, held over both steps) and the folded A' (T1, basis P + 4) beside
  * the assembly's Rc + Tt (basis w each, where Aw + xql were): 2 quarters of P + 4 limbs; 0 when the wrap is off or not used
  * (mn_wrap_plane's rule: P = 2^cap or 2^k in [2^logmin, 2^cap]; w = n_Q + 2 >= P + 2; at 1 not when X_hi Q fits one plane) */
@@ -635,7 +635,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     g_ofi_dev_mb = 0; g_px_dev_mb = 0;
     if (ofi || px) {   /* a comm_ofi pool per device: one APU's staging (at least the self-tests' 128 MiB) + its slabs + a 256 MiB margin, in whole 256 MiB */
         size_t stg = best * 8 > ((size_t)128 << 20) ? best * 8 : ((size_t)128 << 20);
-        size_t dv = (stg > vsp ? stg : vsp) + ((size_t)256 << 20);   /* M3 (results/C06.md): the pool's v-slots are freed after each product's v-exchanges; staged exchanges and the slots are not live together: the larger, not the sum */
+        size_t dv = (stg > vsp ? stg : vsp) + ((size_t)256 << 20);   /* M3 (results/GRID_GROUPS.md §C06): the pool's v-slots are freed after each product's v-exchanges; staged exchanges and the slots are not live together: the larger, not the sum */
         g_ofi_dev_mb = ((dv + ((size_t)1 << 20) - 1) >> 20); g_ofi_dev_mb = (g_ofi_dev_mb + 255) / 256 * 256;
         if (px && comm_shmem_pe_per_apu() > 1) { size_t m = (size_t)256 << 20, k = (size_t)comm_shmem_pe_per_apu(); dv = (dv - m) / k + m;   /* N7E: the APU's area split over its helper heaps */
             g_ofi_dev_mb = ((dv + ((size_t)1 << 20) - 1) >> 20); g_ofi_dev_mb = (g_ofi_dev_mb + 255) / 256 * 256; }
@@ -645,7 +645,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     else if (by && px) snprintf(by, bylen, "COMM_SHMEM_PE_PER_APU: per PE (1 + 4 x value per node, all alike): the node-process's control %.1f MiB + 128 MiB host staging; a proxy's %zu MiB = one APU's staging %.1f MiB by %s, v-slots %.1f MiB, margin", control / 1048576.0, g_px_dev_mb, best * 8 / 1048576.0, who, vsp / 1048576.0);
     else if (by) snprintf(by, bylen, "staging %.0f MiB = 4 x %.1f MiB by %s, control %.1f MiB, v-slots %.0f MiB = 4 x %.1f MiB", staging / 1048576.0, best * 8 / 1048576.0, who, control / 1048576.0, 4 * vsp / 1048576.0, vsp / 1048576.0);   /* SHM: the slots named */
     size_t stg0 = staging > ((size_t)128 << 20) ? staging : ((size_t)128 << 20);
-    if (!ofi && !px) sym += 4 * vsp;   /* (no comm_ofi: the slots are in the SHMEM pool, 4 APU threads).  SHM (results/SHM.md): always the sum, also under M3's release --
+    if (!ofi && !px) sym += 4 * vsp;   /* (no comm_ofi: the slots are in the SHMEM pool, 4 APU threads).  SHM (results/SHMEM_ITEMS.md §SHM): always the sum, also under M3's release --
                                   * comm_shmem carves the staging into one region per APU at the pool's end (COMM_SHMEM_STAGE_SLOT_MB) and the slots (K_SYM) come only
                                   * from the general area, so the two never share space; M3's max(staging, slots) left the general area at control + margin
                                   * (6 nodes, 1e10, COMM_OFI=0: 452 MiB for 8 slots of 87 MiB, rc 3 after init) */
@@ -759,9 +759,9 @@ void binsplit_layout_comm_size(int g)
     if (old) { setenv("COMM_SIZE", old, 1); free(old); old = 0; } else unsetenv("COMM_SIZE");
     saved = 0;
 }
-/* ---- FIT (user decision D26, results/FIT.md): the pre-launch memory fit, and DM_MN_WRAP automatic --------------------------------
+/* ---- FIT (user decision D26, results/LAUNCH_DEFAULTS.md §FIT): the pre-launch memory fit, and DM_MN_WRAP automatic --------------------------------
  * The device memory of a node against the machine's device edge (ECALC_DEVICE_GB, the profile's measured figure; code default
- * 373.44 = the target's, 93.36 GB per APU, results/TGTBENCH2.md) and the node against the node budget (ECALC_NODE_GB, 480), from the
+ * 373.44 = the target's, 93.36 GB per APU, results/TARGET.md §TGTBENCH2) and the node against the node budget (ECALC_NODE_GB, 480), from the
  * layout's own terms at rank 0's range (the BS_LAYOUT_ONLY convention, so every rank decides alike):
  *   device = max(the dm phase: planes + arena + comm_ofi pools + 4 v-slots,  the bs phase: planes + arena + comm_ofi pools + the VMM
  *            pool's bs growth (AS_VMM_BS_GROW, 6.0 GB measured) + 4 v-slots of the tree's top level)   (mem_model.py dev_max's form)
@@ -1367,7 +1367,7 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
     int nt = getenv("BS_SEED_THREADS") ? atoi(getenv("BS_SEED_THREADS")) : omp_get_max_threads();   /* I2: fewer than all leaves cores to init's allocations */
     ss->nchunks = ss->nbuf = ss->npend = 0; ss->t_span = ss->t_wait_pool = ss->t_wait_dma = ss->t_issue = ss->t_free = 0;
     int direct = !db_pool_vmm_on();                              /* the host cannot store into a VMM range */
-    int pull = !direct && db_seed_pull_on();                     /* K8b (results/K8b.md): BS_SEED_PULL=1 -- the copies by the persistent pull kernels (no runtime call in the mapping window) */
+    int pull = !direct && db_seed_pull_on();                     /* K8b (results/MEMORY.md §K8b): BS_SEED_PULL=1 -- the copies by the persistent pull kernels (no runtime call in the mapping window) */
     void (*cpy)(int, void *, const void *, size_t) = direct ? mem_dev_copy_async : pull ? db_pull_copy_async : db_copy_h2d_async;   /* into a VMM range: by a kernel (hipMemcpyAsync ran at 6 GB/s, synchronously) */
     void (*cwait)(int) = direct ? mem_dev_copy_wait : pull ? db_pull_wait : db_copy_h2d_wait;
     if (pull) for (int b = 0; b < 2; b++) db_pull_resolve(ss->buf[b]);   /* K8b: the buffers' device pointers once, here (the copies make no runtime call) */

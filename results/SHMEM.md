@@ -1,7 +1,7 @@
 # SHMEM — the SHMEM proxy mode against libfabric at 6 nodes: one summary (2026-10-17)
 
-Owner of the SHMEM-vs-libfabric story. Per-item records: results/N7B.md to N7E.md (proxy mode, NUMA, copy kernel,
-send and init variants), results/N7G.md (huge pages, items 37-51), results/SHMEM_STALLS.md (the full account of the compaction-stall work, 2026-10-14 to 10-18, for whoever returns to it), this file (items 52-89 and 72j-75d, to 2026-10-18 11:45 ET). Labels: (m) measured,
+Owner of the SHMEM-vs-libfabric story. Per-item records: results/SHMEM_ITEMS.md §N7B to N7E.md (proxy mode, NUMA, copy kernel,
+send and init variants), results/SHMEM_ITEMS.md §N7G (huge pages, items 37-51), results/SHMEM_STALLS.md (the full account of the compaction-stall work, 2026-10-14 to 10-18, for whoever returns to it), this file (items 52-89 and 72j-75d, to 2026-10-18 11:45 ET). Labels: (m) measured,
 (mod) modelled, (a) assumed. Unless a section says otherwise: aac7, 6 nodes, 3.8646e11 digits, the aac7 launch line, SHMEM arm `COMM_OFI=0`
 with the defaults (huge-page proxy pools, D36), libfabric arm `COMM_OFI` unset. Raw data stay on aac7 in the day
 directories named per item (`summary.txt`, `digest/`).
@@ -62,7 +62,7 @@ runs wait on peers, they do not compute more.
 | `MEM_DEV_COMPACT` (per-allocation compaction of device arenas; branch fragfix2, 2a6e867, unmerged) | item 73d (fix2g2, 2 n): after the fragmenter FY 1220 s and one run killed at the 1800 s limit, against F 244 / 306 s; on a node with 0-90 free 2 MiB blocks each populate takes 25-869 s with no huge pages. Item 73e (fix2c2, clean nodes): DY − D −3.0 s (m) | dropped (the compaction cannot create blocks on an exhausted node); branch deleted | — |
 | `ECALC_MEMPREP_ONLY=1` + `MNRUN_MEMPREP_GB` (memory preparation as a separate step per node before the launch; branch fragfix, merged ead367d) | items 72i, 72h, 72n: see "Phase B results" | partial; design confirmed by the allocation bench (item 73c); removed 2026-10-19 (task 4) | 0 |
 | `COMM_PHASE_TS` (per-PE timestamps) | diagnostics only; items 51, 52, 54 vs 53: no measurable cost (m, 12 vs 4 runs) | merged c3a469d; removed 2026-10-18 (D49), `COMM_TRACE` v2 replaces it | 0 |
-| earlier: `PX_NUMA`, `PX_KCOPY`, `PX_INIT`, `PX_SEND`, `PEER_ORDER` | results/N7C.md to N7E.md: N7E 28 pairs +129.3 s [+92.9, +165.7] against comm_ofi; none adopted | off; `PX_INIT` and `PX_SEND=2` removed 2026-10-19 (task 4) | 0 |
+| earlier: `PX_NUMA`, `PX_KCOPY`, `PX_INIT`, `PX_SEND`, `PEER_ORDER` | results/SHMEM_ITEMS.md §N7C to N7E.md: N7E 28 pairs +129.3 s [+92.9, +165.7] against comm_ofi; none adopted | off; `PX_INIT` and `PX_SEND=2` removed 2026-10-19 (task 4) | 0 |
 
 Item 55 (commit 3ff1c22): gates PASS at 1 and 2 nodes with the switches off and on, comm_ofi 2 nodes PASS, 6-node 1e10
 compare identical with `COMM_SHMEM_LAYV_ANY` off and on (m). The switch was removed (eight pooled pairs showed no effect, nothing depends on it; gates PASS 1 and 2 n, item 93g).
@@ -240,5 +240,5 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
   separation). If PX3 + shift + 64 MiB chunks separates from the default at 4 n (at least 8 pairs, CI excluding 0), a
   6-n confirmation against the item 45 and 57 baselines follows; if it does not, probe the hand-off between the node
   process and the proxy.
-- Item 51's wall times in results/N7G.md (223, 264, 186, 235 s, from the timestamp lines) differ from the
+- Item 51's wall times in results/SHMEM_ITEMS.md §N7G (223, 264, 186, 235 s, from the timestamp lines) differ from the
   `summary.txt` totals used here (259.8, 291.2, 212.3, 275.2 s); the totals are the comparable figure.

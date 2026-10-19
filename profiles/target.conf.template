@@ -64,7 +64,7 @@ FI_LOG_LEVEL=warn                     # TGTBENCH2 L2 (the user's tested value)
 # COMM_SHMEM_POOL_MB, SHMEM_SYMMETRIC_SIZE, XT_SYMMETRIC_HEAP_SIZE, COMM_OFI_POOL_MB: COMPUTED from MN_PLAN_ONLY=<digits>:<nodes> (pool + 512 MiB for the heap). Not typed.
 ECALC_NODE_GB=__FILL__                # usable host RAM per node for the budget check: `free -g` on a compute node, less the OS/service reserve. README ECALC_PLANE_CAP row (code default 480)
 ECALC_MEM_GUARD_GB=6                  # named stop (rc 9) when MemAvailable < 6 GB instead of the OOM killer: user decision 2026-09-27
-ECALC_DEVICE_GB=373.44                # FIT (D26): the device edge per node, 93.36 GB per APU (m, target, A6, n = 5, results/TGTBENCH2.md); also the code default
+ECALC_DEVICE_GB=373.44                # FIT (D26): the device edge per node, 93.36 GB per APU (m, target, A6, n = 5, results/TARGET.md §TGTBENCH2); also the code default
 
 # ---- [adopted switches, pending move to built-in defaults] ------------------------------------------------------------
 ECALC_NP=auto                         # user decision 1, 2026-09-28

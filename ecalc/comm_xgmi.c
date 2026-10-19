@@ -25,7 +25,7 @@ static struct { void *rb[NR]; size_t bytes; hipStream_t s[NR]; pthread_barrier_t
                 const size_t *scnt[NR], *rcnt[NR], *rdsp[NR]; const void *hsb[NR]; } G;   /* B7: the v-exchange's tables */
 static pthread_once_t g_once = PTHREAD_ONCE_INIT;
 #define PUSH_BLOCKS 76   /* blocks per peer of the push kernel (fewer blocks leave the CUs to the row pass that runs under the exchange); 64-bit stores
-                         * (measured in results/C.md: the 2^31 convolution -8..-10 % against 16-byte vectors at 228 blocks; RESULTS.md 11 had 909 vs 699 GB/s) */
+                         * (measured in results/EXCHANGE.md §C: the 2^31 convolution -8..-10 % against 16-byte vectors at 228 blocks; RESULTS.md 11 had 909 vs 699 GB/s) */
 static void g_init(void)
 {
     pthread_barrier_init(&G.bar, NULL, NR);

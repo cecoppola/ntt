@@ -1,5 +1,5 @@
 #!/bin/bash
-# tools/nodescreen.sh - FAST screen of every node of an allocation for very badly performing nodes, before a long run (B04, results/B04.md).
+# tools/nodescreen.sh - FAST screen of every node of an allocation for very badly performing nodes, before a long run (B04, results/NODE_SLOWMODE.md §B04).
 # Two stages, each in parallel on ALL nodes, one process per node, never two network programs per node:
 #   local  (no network; srun, one task per node): t_nodechk (meminfo + 1 GB host->device upload per APU, median of 3, + the T10 cold path
 #          of --cold-gb per APU: VMM map, first touch, one cold upload) then ONE single-node ecalc of --local-digits digits with
@@ -19,8 +19,8 @@
 #   --flagged-file FILE  append the EXCLUDE hosts to FILE (target_kit.sh's $OUT/flagged_hosts.txt: later kit stages then drop them)
 #   --exclude-hosts LIST hosts of the allocation never used by the screen (srun -x), reported as such
 #   --want-nics N        flag a node whose runtime sees fewer than N cxi NICs (fi_info -p cxi domains; a node with 1 NIC aborts a SHMEM launch with
-#                        SHMEM_OFI_NUM_NICS=4, results/NIC.md); default $SHMEM_OFI_NUM_NICS, 0 = report only
-#   --min-avail-gb G     also flag MemAvailable < G GB (default 0 = off: a low MemAvailable alone was not a stall, results/S49.md)
+#                        SHMEM_OFI_NUM_NICS=4, results/NODE_SLOWMODE.md §NIC); default $SHMEM_OFI_NUM_NICS, 0 = report only
+#   --min-avail-gb G     also flag MemAvailable < G GB (default 0 = off: a low MemAvailable alone was not a stall, results/NODE_SLOWMODE.md §S49)
 # Runs inside an existing hold (srun --overlap, no -w, --mem=0 -c1 as the session rules say); kills only its own srun PIDs; never cancels a job.
 # No credentials or target values in this file.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); ROOT=$(cd "$HERE/.." && pwd); E=${NS_ECALC_DIR:-$ROOT/ecalc}

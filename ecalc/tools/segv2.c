@@ -1,6 +1,6 @@
 /* segv2.c - LD_PRELOAD for the aac7 nodes (no gdb, root-only cores): a SIGSEGV/SIGBUS/SIGABRT handler that prints a backtrace
  * to stderr and KEEPS it -- sigaction()/signal() are interposed, so a library (libsma, PMI, libfabric) that installs its own
- * handler at init gets ours in front: theirs is recorded and chained after the backtrace.  Phase 16 S (results/S16.md).
+ * handler at init gets ours in front: theirs is recorded and chained after the backtrace.  Phase 16 S (results/CRASHES_HANGS.md §S16).
  *   gcc -O1 -g -shared -fPIC -o segv2.so segv2.c -ldl
  * Prints: host, task, thread name, rip (with dladdr: the library and symbol), the maps lines of rip / the fault address / rsp --
  * without unwinding, which faulted on a foreign stack the first time (b1 ctrl_6: 64 recursive frames) -- then the backtrace.

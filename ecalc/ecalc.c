@@ -434,7 +434,7 @@ int main(int argc, char **argv)
     int verbose = getenv("ECALC_VERBOSE") ? atoi(getenv("ECALC_VERBOSE")) : 1;
     int pool_log = getenv("POOL_LOG") ? atoi(getenv("POOL_LOG")) : 31;
     setvbuf(stdout, NULL, _IOLBF, 0);
-    if (!getenv("ECALC_NP")) { const char *cs = getenv("COMM_SIZE"); setenv("ECALC_NP", cs && atoi(cs) > 1 ? "auto" : "3", 1); }   /* three primes for decimal limbs (RESULTS 78: -17 % wall, -25.8 GB); D18 (results/DEF.md): auto at size > 1, so every multi-node product runs P24 (crt.c ec_np_planes) */
+    if (!getenv("ECALC_NP")) { const char *cs = getenv("COMM_SIZE"); setenv("ECALC_NP", cs && atoi(cs) > 1 ? "auto" : "3", 1); }   /* three primes for decimal limbs (RESULTS 78: -17 % wall, -25.8 GB); D18 (results/LAUNCH_DEFAULTS.md §DEF): auto at size > 1, so every multi-node product runs P24 (crt.c ec_np_planes) */
     d = ((d_out + 17) / 18) * 18;
     printf("== ecalc: e to %lu digits (decimal limbs, base 10^18)%s ==\n", d_out, d != d_out ? " [computed to the next multiple of 18]" : "");
     meta_line("ecalc");
@@ -471,7 +471,7 @@ int main(int argc, char **argv)
     /* the transport is opened (the pool rule, mn_init: shmem_init_thread, the symmetric
      * pool, the four meshes) BEFORE rns_init -- i.e. before the VMM arenas and plane pools are mapped and before the seed thread
      * runs its kernels and DMAs (binsplit_seeds_begin inside rns_init).  Cray OpenSHMEMX's shmem_init_thread segfaulted in task 1
-     * in 3 of 23 launches of 10^10 at 2 nodes with 45 GB of VMM arenas and the seeds already live (results/A16.md step 7).  The
+     * in 3 of 23 launches of 10^10 at 2 nodes with 45 GB of VMM arenas and the seeds already live (results/AAC7_PORT.md §A16 step 7).  The
      * pool rule needs only N and the size (MN_PLAN_ONLY runs it with no device); mn_init needs the pool's size from it and HIP
      * (streams, hipHostRegister), nothing of rns_init.  The self-tests stay after rns_init. */
     int mn_size_ = 1;

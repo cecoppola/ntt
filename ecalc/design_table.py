@@ -295,7 +295,7 @@ def write_md(res, args):
         'Per-node inputs measured by the M-run where marked' if res['by_sk'] else 'All cells modelled: no M-run log was given',
         (', **`ECALC_NP=auto` in the 576-node columns** (four primes only for the pieces over the three-prime bound): the target\'s launch line, the user\'s decision 1 of 2026-09-28 (it was `ECALC_NP=4`; three primes are refused by the plan check at the target), '
          'with **`RNS_DIST_CACHE_FIT=1`** (the mn transform cache at the slots the budget allows: **0 at the target**; decision 2), and main B2\'s defaults `BS_ARENA_ROOM=0.16`, `DIST_TWREC_G=1`, `RNS_POOL1_4Q=1` (decisions 3-5)' if P15C else
-         ', **four primes (`ECALC_NP=4`) in the 576-node columns**: the target\'s launch line, the user\'s decision of 2026-09-27 -- the plan check refuses three primes at the target on 576 (results/P15.md at 4.25 × 10¹³)') if (P15 and P15B) else '',
+         ', **four primes (`ECALC_NP=4`) in the 576-node columns**: the target\'s launch line, the user\'s decision of 2026-09-27 -- the plan check refuses three primes at the target on 576 (results/PRIMES_STRATEGY.md §P15 at 4.25 × 10¹³)') if (P15 and P15B) else '',
         (' and the Phase 15 defaults (the code since Phase 14: `DM_TIGHT` with `DB_POOL_VMM`, `MN_TREE_EARLY_FREE`, `NEWTON_RECIP_CUT`, `RNS_PLANES_FIRST`, '
          'the SHMEM pool from `MN_PLAN_ONLY`\'s plan; `COMM_SHMEM_ROUND_MB=%g` on the launch line, the user\'s D2; the one-node compute refitted on the Phase 14 runs, '
          'the seed wait its own term: `mn_model.py --calib15`)' % ROUND_MB) if P15 else ' (the Phase 13/14 model: --p13)',
@@ -399,9 +399,9 @@ LOOPBACK_EXCLUDED = [   # measured, not modelled: why
     ('1e10 / 2, M13 b2 e10x2_base 205.76 s and _both 207.98 s', 'MN_TREE_LOGN_TEST=26 forces 2^26-point tree pieces (a test setting); the model forms the default grid'),
     ('1e9 / 2, M13 b2 e9x2 37.55 / 36.67 s', 'MN_TREE_LOGN_TEST=23 DIST_LOGN_TEST=24 (forced grids, a test setting)'),
 ]
-EDGE_CEIL = [   # (cap, the largest D that ran, the smallest that failed) -- agent P, results/P13b.md (three primes, one node)
+EDGE_CEIL = [   # (cap, the largest D that ran, the smallest that failed) -- agent P, results/MEMORY.md §P13b (three primes, one node)
     (1 << 30, 1.44e11, 1.46e11), (3 << 29, 1.40e11, 1.42e11), (1 << 31, 1.30e11, 1.34e11), (3 << 30, 1.14e11, 1.16e11)]
-STRATEGY_RUNS = [   # (RNS_STRATEGY, phases s, device peak GB, the same node's C phases, source) -- results/B13b.md, 4e10 size 1
+STRATEGY_RUNS = [   # (RNS_STRATEGY, phases s, device peak GB, the same node's C phases, source) -- results/PRIMES_STRATEGY.md §B13b, 4e10 size 1
     ('auto', 43.6, 287.5, 48.1, 'job 21062, s24-30, 744df439 (auto grid on): 89 B products'),
     ('B4', 46.7, 377.7, 48.4, 'job 21054, s24-30, 05a7730f: 82 B4 products, 24 GiB/APU extra'),
     ('B', 51.9, 442.1, 48.4, 'job 21054, s24-30, 05a7730f: 82 B products, 48 GiB/APU extra'),
@@ -497,7 +497,7 @@ def calibrate(args):
         ok = ran - 0.021e11 <= Dm <= failed
         if not ok: fails.append('ceiling %s: model %.2e outside [%.2e runs, %.2e fails]' % (MM.cap_name(cap), Dm, ran, failed))
         print('  %-7s model at %.0f GB %.2e (at 502 GB %.2e); measured: %.2e ran, %.2e failed -- %s' % (MM.cap_name(cap), EDGE_GB, Dm, D5, ran, failed, 'inside' if ok else 'OUTSIDE'))
-    print('\n== the strategy rows (agent B, results/B13b.md: 4e10 at size 1, three primes, NTT_MODMUL=1, the cap rule = 3 2^30; one run each).')
+    print('\n== the strategy rows (agent B, results/PRIMES_STRATEGY.md §B13b: 4e10 at size 1, three primes, NTT_MODMUL=1, the cap rule = 3 2^30; one run each).')
     print('   The node spreads the C phases by +-3 % between sessions (48.1-48.4 s here against 47.0 in the three-prime series on s24-26), so the gate')
     print('   is on each form\'s phases relative to the same node\'s C run (within 3 % of C\'s phases); the absolute error and the device are printed too.')
     base = {}

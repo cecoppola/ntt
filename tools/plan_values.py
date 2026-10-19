@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/plan_values.py -- the size-dependent launch values of a run, computed in one place (TASKS 27 part A, results/T27.md).
+"""tools/plan_values.py -- the size-dependent launch values of a run, computed in one place (TASKS 27 part A, results/TOOLS_PROFILES.md §T27).
 
   tools/plan_values.py [--profile NAME|PATH] [--line FILE] [--ecalc PATH] [--exports | --fit] DIGITS NODES
 
@@ -15,7 +15,7 @@ Nothing is launched: the planner touches no device (a login node is enough; the 
                 settings are applied over the profile (they shape the plan), its size-dependent values are removed, computed
                 again and compared: MATCH / DIFF per key, NO-CONSUMER for a key nothing reads.  Exit 1 on any DIFF.
   --ecalc PATH  the binary (default ecalc/ecalc of this tree)
-  --fit         FIT (user decision D26, results/FIT.md): the pre-launch memory-fit report only -- the planner's `plan fit` lines
+  --fit         FIT (user decision D26, results/LAUNCH_DEFAULTS.md §FIT): the pre-launch memory-fit report only -- the planner's `plan fit` lines
                 (device GB per node and per APU against the device limit ECALC_DEVICE_GB, the node against ECALC_NODE_GB, the margins,
                 the largest consumers, the DM_MN_WRAP decision and why).  Exit 0 = fits, 1 = does not fit (or a plan REFUSED): a
                 launch is refused.  ecalc/mnrun.sh and tools/gate.sh print the same lines before every launch.

@@ -222,7 +222,7 @@ def main():
     ap.add_argument('--table', nargs='*', default=[], help='nodes:total[:init] measured seconds (mean of the runs)')
     ap.add_argument('--fix-lat', action='store_true', help='keep the profile latency (8.5 us), fit bw only')
     ap.add_argument('--write-profile', action='store_true', help='write ecalc/aac7_s48_fit.json (the profile `estimate.py --fabric aac7_s48` reads)')
-    ap.add_argument('--l4', action='store_true', help='L4 (results/L4.md): refit to all of 2026-10-11\'s multi-node classes with the corrected structure; --write-profile writes ecalc/aac7_l4_fit.json')
+    ap.add_argument('--l4', action='store_true', help='L4 (results/TIME_MODEL.md §L4): refit to all of 2026-10-11\'s multi-node classes with the corrected structure; --write-profile writes ecalc/aac7_l4_fit.json')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
     M.apply_profile('aac7_c16')

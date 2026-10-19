@@ -36,7 +36,7 @@ static int env_int(const char *nm, int dflt) { const char *e = getenv(nm); retur
  * two give canonical (mm_canon, for twiddles).  Same operand rule as ec_mm: a < 2p, b < p. */
 __device__ static inline double mm_raw(double a, double b, double p, double pinv, double pinvl)
 {
-#ifdef NTT_NOP_MODMUL   /* S21 (A37-Q4, results/A37CMP.md): the bench-only build (make tests/t_ntt_nop; never ecalc) -- the modmul is one FMA that keeps the twiddle load alive and returns a: the NTT's data movement without its arithmetic.  Wrong results by design */
+#ifdef NTT_NOP_MODMUL   /* S21 (A37-Q4, results/APUMULT.md §A37CMP): the bench-only build (make tests/t_ntt_nop; never ecalc) -- the modmul is one FMA that keeps the twiddle load alive and returns a: the NTT's data movement without its arithmetic.  Wrong results by design */
     return fma(b, 0.0, a);
 #else
     double hi = a * b, lo = fma(a, b, -hi);
@@ -410,10 +410,10 @@ struct plan { int npass, lb, key, s_lo[NTT_MAXPASS], s_hi[NTT_MAXPASS]; };
 /* the pass boundaries.  Plan 0: b1 on stages lb-1..0 with lb = 10, b16 passes of stg stages from the top down,
  * the partial pass (if any) at the bottom.  10 lb + d (lb = 10, 11, 12; d = 0 top-down as plan 0, d = 1 bottom-up: the full
  * passes from lb upward, the partial one at the top), so the row strides 2^s_lo of the passes can be moved off the slow ones
- * (s_lo 17 and 24, results/K13.md).  Per logn the plan listed in plan_auto (measured, results/K13b.md).  Every plan computes the same canonical outputs. */
+ * (s_lo 17 and 24, results/KERNELS.md §K13).  Per logn the plan listed in plan_auto (measured, results/KERNELS.md §K13b).  Every plan computes the same canonical outputs. */
 static int plan_auto(int logn)
 {
-    /* measured (results/K13b.md, t_ntt bench whole/pass, NTT_B1R 3/4): a b1 of 2^11 or 2^12 points saves a whole pass
+    /* measured (results/KERNELS.md §K13b, t_ntt bench whole/pass, NTT_B1R 3/4): a b1 of 2^11 or 2^12 points saves a whole pass
      * where the default plan ends in a b16 pass of 1 or 2 stages ((logn - 10) mod 7 = 1, 2: 1.25-1.40x at 2^25, 2^26);
      * at 2^31 the bottom-up plan with a 2^12 b1 moves the passes off s_lo 24 and 17 (s_lo 26, 19, 12: 1.06x fwd, 1.12x
      * inv); at 2^24 (s_lo 17) no plan beats the default */

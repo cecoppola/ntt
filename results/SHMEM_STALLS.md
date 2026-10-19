@@ -2,7 +2,7 @@
 
 Purpose: a self-contained account of what was learned while making the SHMEM transport of ecalc stable and fast on the
 aac7 test cluster, so that an engineer or agent who returns to this problem does not have to re-derive anything.
-Companion files in the repository: results/SHMEM.md (the measured record per item), results/N7G.md and the other
+Companion files in the repository: results/SHMEM.md (the measured record per item), results/SHMEM_ITEMS.md §N7G and the other
 results/N7*.md files (the early proxy-mode steps), ecalc/README.md (every switch), TESTING.md (the gates).
 
 Labels: (m) measured, (mod) modelled, (a) assumed. Times are Eastern. "Item NNx" is a queue item number; raw data stay on

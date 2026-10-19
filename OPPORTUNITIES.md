@@ -70,7 +70,7 @@ per node at 400 Gb/s (2 per APU: 100 GB/s injection peak per APU); Rocky Linux 9
 | P24 | 24 digits per transform point in multi-node products | −38 % at 10¹⁰ on 2 processes (m) | `results/PRIMES_STRATEGY.md §P2415` |
 | IO | Write overlapped with the division, corrections patched (`ECALC_CORR_PATCH=2`, `MN_OUT_EARLY`, `MN_OUT_DKM_HI`) | write hidden under the division (m) | `results/OUTPUT_IO.md §IO215` |
 | NP | Three primes at size 1, four above the bound (`ECALC_NP=auto`) | three primes −17 % wall, −25.8 GB (m) | `results/PRIMES_STRATEGY.md §B13b` |
-| K5 | Scratch removal in `k_gather_shift` / `k_addsub2` | already scratch-free since S41 (closed as done) | `archive:results/A08.md` |
+| K5 | Scratch removal in `k_gather_shift` / `k_addsub2` | already scratch-free since S41 (closed as done) | item A08 (no report file kept) |
 | G3 | Slow-host policy: post-run check of the first device upload, exclusion only | slow host stalls 21–25× median at first upload (m) | `archive:results/A03.md`, `results/TOOLS_PROFILES.md §A06` |
 
 ## Tried — not adopted / rejected

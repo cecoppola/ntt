@@ -6,7 +6,7 @@ odd part's prime factors) is very slow at awkward N; an explicit MN_GROUPS whose
 This script searches those schedules with the standing model (ecalc/estimate.py -> mn_model.py; pure Python, CPU only) on the target line:
     profile `target` (layv factor 0.655), MN_T_CHUNK_MB=2048 (MDB_SHIFT_CHUNK_MB stays 1024), shared v-slot pair (X2, always on), RNS_DIST_CACHE_FIT=1,
     ECALC_NP=auto, BS_ARENA_ROOM=0.16, ECALC_PLANE_CAP=2^31, COMM_SHMEM_ROUND_MB=1024, the same total digits whatever N.
-Memory rule (results/B01.md, S52): device peak (model) + 0.5 GB (X2, the user's figure) + 2.1 GB (rank 0) must stay <= 373.44 - 10 GB.
+Memory rule (results/LAUNCH_DEFAULTS.md §B01, S52): device peak (model) + 0.5 GB (X2, the user's figure) + 2.1 GB (rank 0) must stay <= 373.44 - 10 GB.
 
 Steps (all reproducible; times modelled):
   1. tools/groups_table.py search  [--digits 3.71e13 3.79e13] [--nmin 544 --nmax 576] --out DIR   -> DIR/cand_<digits>.csv (every feasible schedule,
@@ -24,7 +24,7 @@ import mn_model as M, mem_model, estimate as E
 EDGE = M.TARGET_DEVICE_EDGE_GB                                       # 373.44 GB (measured on the target)
 X2_GB, RANK0_GB, RULE_GB = 0.5, 2.1, 10.0
 # L4 (2026-10-11): GT_PROFILE selects the fabric profile (target = T06's layv factor 0.655, as c09; target_l4 = the L4 refit's factor); GT_RELEASE_GB is the
-# device memory the always-on v-slot release returns per node (the user adopted it 2026-10-11: 8.59 GB, results/C06.md) -- subtracted from the device peak; 0 = off (c09's table)
+# device memory the always-on v-slot release returns per node (the user adopted it 2026-10-11: 8.59 GB, results/GRID_GROUPS.md §C06) -- subtracted from the device peak; 0 = off (c09's table)
 PROFILE = os.environ.get('GT_PROFILE', 'target')
 RELEASE_GB = float(os.environ.get('GT_RELEASE_GB', '0'))
 LAYV = os.environ.get('GT_LAYV')                                       # L4: override the profile's layv factor (sensitivity)

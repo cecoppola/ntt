@@ -7,7 +7,7 @@ Checks:
   registry  tools/switch_registry.py --check passes (called, not duplicated); its review-date WARN lines are printed as
             `[review]` warnings and never count as failures
   scope     central docs have a "Scope:" line in their first 8 lines
-  path      relative paths / links / results/X.md / tools/x / ecalc/x cited in the central docs exist (results/*.md are dated records, not checked)
+  path      relative paths / links / results/TIME_MODEL.md §X / tools/x / ecalc/x cited in the central docs exist (results/*.md are dated records, not checked)
   plan      "PLAN §N" / "PLAN.md §N" outside results/ names a section PLAN.md has
   paper     no "the paper" / "epaper" in tracked files outside results/
   archive   no `archive/` path references (use `archive:`)
