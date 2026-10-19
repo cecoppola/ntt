@@ -256,8 +256,8 @@ CPU affinity and HBM contention from the bounce copies, modelled about 0.5 s). A
 
 ### 6.3 At 6 nodes after the fix
 
-Not re-measured. Before the fix, best SHMEM settings gave 221.4 s best against libfabric 207.5 s mean (95o, m); 5- and 6-node stall events had matching signatures (node-wide, all
-APU threads, 0.5-4.2 s) but the traces predate the kernel counters. A 6-node run with the fix as default, on the same sizes, is the first thing to do (section 10).
+Re-measured 2026-10-19 (items 98f, 99b, 99g, 3.8646e11, m): no stalls; SHMEM 211.7-213.1 s (sd 2.4-8.6) and PX3 205.7-208.1 s against libfabric 183.2-190.7 s (section 12). Before the fix, best SHMEM settings gave 221.4 s best against libfabric 207.5 s mean (95o, m); 5- and 6-node stall events had matching signatures (node-wide, all
+APU threads, 0.5-4.2 s) but the traces predate the kernel counters. 
 
 ### 6.4 Scale-out model (mod)
 
@@ -388,9 +388,9 @@ check the printed line, and compare stall counts and the heap's `Shared_Hugetlb`
 
 ## 10. Open questions and next steps
 
-1. **Re-run 6 nodes** at 9.6e10 and 3.8646e11 with the fix as default, SHMEM against libfabric, mirrored, A/A, with HB and HB_MEM on. Expected: stalls gone, residual gap a few percent. If 5-6 node stalls persist, the same method (counters, smaps) applies.
-2. **INTER2=0 as the default under PE_PER_APU=1 and PX_SEND>=2.** Two-line change, layv rate 14.4 against 3.95 GB/s per APU (m); needs gates (digits cannot change, scheduling only) and a clean statistical test now that stalls are gone.
-3. **PX3 + shift + 64 MiB** as defaults (DT in the arms). The D45 rule needs at least 8 ABBA pairs at 4 nodes with a CI excluding 0 and a 6-node confirmation; stalls blocked that. Re-run at 4 nodes with the fix in.
+1. **Re-run 6 nodes**: done 2026-10-19 (items 98f, 99b, 99g): no stalls (sd ≤ 5.8 s, m); see section 12.
+2. **INTER2=0 as the default under PE_PER_APU=1 and PX_SEND>=2.** Two-line change, layv rate 14.4 against 3.95 GB/s per APU (m); needs gates (digits cannot change, scheduling only) and a clean statistical test now that stalls are gone. Measured 2026-10-19 (item 98n, 4 n, n 8 each): no gain (DT 53.8 = DTIX 53.8 s, m).
+3. **PX3 + shift + 64 MiB**: resolved 2026-10-19: plain PX3 (4 MiB, rank order) is the default (D53); shift and larger chunks gave no gain and 64 MiB + shift was slower at 6 n (m); see section 12.
 4. **Why start-up exhausts the 2 MiB blocks of node 0 of the first node** and whether a small change (allocation order, `madvise`, per-NUMA reservation after the heap) keeps node 0 below the compaction trigger without a net cost (the reserve experiment cost init and the guard skipped it).
 5. **Residual KFD evictions** from successful passes (1.4-12 s per run): quantify the wall-time cost at 4-6 nodes; test `compaction_proactiveness=0` where available.
 6. **Steady gap at 3 and 6 nodes** (+3.46 s, 7.5 % at 3 nodes before the fix): cause open. Candidates: host hand-offs between node-process and helper (about +3 ms per exchange on D, +0.7 ms on DT, 4 nodes), proxy-pool copies (about 0.57 s per APU), imbalance, SHMEM start-up (transport open +4.5 s of which 2.9 s helper heap populate+collapse).
