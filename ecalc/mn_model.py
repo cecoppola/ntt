@@ -881,7 +881,7 @@ if 'MN_MODEL_LOCAL_F' in os.environ:   # Phase 16 F: one factor on the local (no
     if 'MN_MODEL_NODE_SCALE' not in os.environ: NODE_SCALE = float(os.environ['MN_MODEL_LOCAL_F'])
     if 'MN_MODEL_INIT_SCALE' not in os.environ: INIT_SCALE = float(os.environ['MN_MODEL_LOCAL_F'])
 # Phase 16 C (results/TIME_MODEL.md §C16 2.3-2.5, 2.7): the aac7 values of the constants above, applied by apply_profile('aac7_c16') (and the base of aac7_s48) -- MEASURED on 2 nodes
-# (HIDE_POW2, GEN_HIDE at depth 1 / 2 from COMM_LAYER_STATS; T_ROUND from the MN_T_CHUNK_MB 512 / 1024 / 2048 series) and on one node
+# (HIDE_POW2, GEN_HIDE at depth 1 / 2 from COMM_LAYER_STATS, removed 2026-10-19 (D56); T_ROUND from the MN_T_CHUNK_MB 512 / 1024 / 2048 series) and on one node
 # (MAP_RATE from t_alloc at ROCm 7.0.3; NODE_SCALE / INIT_SCALE FITTED on the one-node 1e10 / 1e11 runs against this model's aac6 calibration)
 AAC7_CONSTS = dict(HIDE_POW2=0.72, GEN_HIDE1=0.011, GEN_HIDE2=0.74, T_ROUND=0.015, MAP_RATE=0.070, NODE_SCALE=1.12, INIT_SCALE=1.20)
 # HIDE_POW2 0.72 MEASURED (C16 2.3: 71-72 % at depth 2, 76 % at depth 1); GEN_HIDE aac6's, ASSUMED (no 3-node run); T_ROUND 0.015 = the MEASURED upper
