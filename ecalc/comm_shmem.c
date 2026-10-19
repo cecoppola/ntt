@@ -245,8 +245,11 @@ static void pool_populate(char *p, size_t n, int nt); static int pool_collapse(c
 /* NPHEAP COMM_SHMEM_NP_HEAP_THP=1 (default 1 since D48, user 2026-10-18; 0 = off, nothing below runs): the node-process's own symmetric heap (the library's one shared anonymous /dev/zero mapping) is
  * pre-faulted and collapsed to 2 MiB pages inside the wrapper, before the library registers it (kcompactd isolates pinned 4 KiB shmem pages, fails to migrate them and retries
  * through unmap = KFD queue evictions; compound pages are skipped).  The mapping itself is the library's own call (address, flags, fd kept; only an unhinted one is 2 MiB aligned). */
-static int g_np_mode, g_np_err; static void *g_np_addr; static size_t g_np_len; static double g_np_t;
+static int g_np_mode, g_np_err, g_hp_mode, g_hp_err, g_hp_used; static size_t g_hp_need; static void *g_np_addr; static size_t g_np_len; static double g_np_t;
 #define THP_SZ ((size_t)2 << 20)
+#ifndef MAP_HUGE_2MB
+#define MAP_HUGE_2MB (21 << 26)
+#endif
 #ifndef MADV_COLLAPSE
 #define MADV_COLLAPSE 25
 #endif
@@ -268,7 +271,14 @@ static void *heap_mmap(void *a, size_t l, int prot, int fl, int fd, off_t o)
         int zero = (fl & MAP_ANONYMOUS) != 0;
         if (!zero && fd >= 0) { struct stat st; zero = fstat(fd, &st) == 0 && S_ISCHR(st.st_mode) && major(st.st_rdev) == 1 && minor(st.st_rdev) == 5; }
         if (zero) {
-            void *r = !a && !(fl & MAP_FIXED) ? thp_mmap(l, prot, fl, fd, o) : (void *)syscall(SYS_mmap, a, l, prot, fl, fd, o);
+            void *r = MAP_FAILED;
+            if (g_hp_mode) {                              /* L5 COMM_SHMEM_HUGETLB=1: the same shared mapping from the 2 MiB hugetlb pool (never compacted); ENOMEM (no pool): the THP path below */
+                size_t lh = (l + THP_SZ - 1) & ~(THP_SZ - 1); g_hp_need = lh / THP_SZ;
+                r = (void *)syscall(SYS_mmap, a, lh, prot, (fl & ~MAP_NORESERVE) | MAP_ANONYMOUS | MAP_HUGETLB | MAP_HUGE_2MB, -1, (off_t)0);
+                if (r == MAP_FAILED) g_hp_err = errno; else { g_hp_used = 1; l = lh; }
+            }
+            if (g_hp_used) { g_np_addr = r; g_np_len = l; double tc = now_s(); pool_populate((char *)r, l, g_thp_thr); g_np_t = now_s() - tc; return r; }
+            r = !a && !(fl & MAP_FIXED) ? thp_mmap(l, prot, fl, fd, o) : (void *)syscall(SYS_mmap, a, l, prot, fl, fd, o);
             if (r != MAP_FAILED) { double tc = now_s(); g_np_addr = r; g_np_len = l; pool_populate((char *)r, l, g_thp_thr); g_np_err = pool_collapse((char *)r, l, g_thp_thr); g_np_t = now_s() - tc; }
             return r;
         }
@@ -803,10 +813,17 @@ static int comm_shmem_init_i(void)
     if (g_np_mode < 0 || g_np_mode > 1) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_NP_HEAP_THP=%d: 0 (off) or 1 (the node-process heap in 2 MiB pages)\n", g_np_mode);
     if (g_np_mode && g_heap_arm) g_np_mode = 0;   /* a helper (its heap file is the proxy path's) */
     if (g_np_mode) {
+        g_hp_mode = env_int("COMM_SHMEM_HUGETLB", 0);
+        if (g_hp_mode < 0 || g_hp_mode > 1) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_HUGETLB=%d: 0 (off) or 1 (the node-process heap from the 2 MiB hugetlb pool)\n", g_hp_mode);
         { g_heap_min = comm_shmem_heap_env(0); if (!g_heap_min) { g_np_mode = 0; fprintf(stderr, "comm_shmem: COMM_SHMEM_NP_HEAP_THP=1 skipped: SHMEM_SYMMETRIC_SIZE is not set\n"); } else g_heap_arm = 1; } }
     shmem_init_thread(SHMEM_THREAD_MULTIPLE, &prov);
     g_heap_arm = 0; g_t_shinit = now_s() - g_t0;
-    if (g_np_mode) { long pmd = g_np_addr ? smaps_kb(g_np_addr, "ShmemPmdMapped") : -1;
+    if (g_np_mode && g_hp_mode && (!getenv("SLURM_NODEID") || !atoi(getenv("SLURM_NODEID")))) {   /* L5: one line per process of the first node */
+        long fr = -1; FILE *hf = fopen("/sys/kernel/mm/hugepages/hugepages-2048kB/free_hugepages", "r"); if (hf) { if (fscanf(hf, "%ld", &fr) != 1) fr = -1; fclose(hf); }
+        fprintf(stderr, "comm_shmem: COMM_SHMEM_HUGETLB=1: heap needs %zu 2 MiB pages, free_hugepages %ld; %s\n", g_hp_need, fr,
+            g_hp_used ? "heap is in hugetlb pages" : g_hp_err ? "mmap failed, falling back to the NP_HEAP_THP path" : "no shared anonymous mapping seen");
+        if (g_hp_err) fprintf(stderr, "comm_shmem: COMM_SHMEM_HUGETLB=1: pe %d: hugetlb mmap failed: %s (no pool?)\n", shmem_my_pe(), strerror(g_hp_err)); }
+    if (g_np_mode) { long pmd = g_np_addr ? smaps_kb(g_np_addr, g_hp_used ? "Shared_Hugetlb" : "ShmemPmdMapped") : -1;
         fprintf(stderr, "comm_shmem: pe %d: COMM_SHMEM_NP_HEAP_THP=1: heap %p, %zu MiB (%s), %ld MiB PMD-mapped after, collapse %.2f s incl. pre-fault, %s\n", shmem_my_pe(), g_np_addr, g_np_len >> 20,
             g_np_addr ? "mapped" : "no shared anonymous mapping >= SHMEM_SYMMETRIC_SIZE seen", pmd >> 10, g_np_t, g_np_err ? strerror(g_np_err > 0 ? g_np_err : EINVAL) : "no error"); }
     S.prov = prov;
