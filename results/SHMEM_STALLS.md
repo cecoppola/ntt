@@ -408,7 +408,7 @@ check the printed line, and compare stall counts and the heap's `Shared_Hugetlb`
 | `COMM_SHMEM_PX_THP` | 1 | helper heaps in 2 MiB pages, D36 |
 | `COMM_SHMEM_PE_PER_APU` | 1 for multi-node `COMM_OFI=0` | one proxy PE per APU (D29, D31); 2 tested, worse on aac7 |
 | `COMM_SHMEM_PX_NUMA`, `COMM_SHMEM_PX_KCOPY` | 1 | N7C/N7D proxy-mode defaults (D31) |
-| `COMM_SHMEM_PX_SEND` | 1 | 2 (SS) and 3 (PX3) merged/available; 3 is the candidate default |
+| `COMM_SHMEM_PX_SEND` | 3 under `PE_PER_APU=1` (else 1) | PX3 is the default since D53 (user 2026-10-19), `=1` the fallback; 2 (SS) was removed |
 | `COMM_SHMEM_PEER_ORDER` | rank | `shift` is in the DT/T6 set |
 | `COMM_SHMEM_PX_BLOCK_MB` | 4 | 64 in the DT/T6 set |
 | `COMM_LAYER_INTER2` | 1 | 0 is the candidate for SHMEM (section 4.5) |

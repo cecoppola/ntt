@@ -57,7 +57,7 @@ runs wait on peers, they do not compute more.
 | `COMM_SHMEM_POOL_MB=6144` (symmetric pool 6144 MiB vs the default) | item 78 (pool2, 2 n, 2 pairs): +18.6 s [-93, +130] (pairs +9.8, +27.4); init 46-61 vs 37-39 s (m) | not adopted | default |
 | `COMM_SHMEM_PX_WORKERS=<n>` (n worker threads per proxy, each on a private SHMEM context; branch pxpeer, unmerged) | gates PASS on adb1343 (item 87: 1 and 2 n with 8, 2 n off). t_comm 4 n (item 72c): per-proxy busy rate 22.6 vs 18.5 GB/s/NIC, node throughput W/D 1.00-1.05, W/L 0.71-0.78 (m) | not adopted: raises the proxy rate, not the node throughput | 0 |
 | `COMM_SHMEM_PX_SEND=2` + `COMM_SHMEM_PEER_ORDER=shift` (SS) | t_comm 4 n: SS/L 1.00-1.05 (item 72b). ecalc 4 n (item 72d, 4 pairs): SS − D −52.8 s [-158, +52], faster 4/4, nodes stall-heavy (D up to 280 s) (m) | candidate; mpss4 (72j, 4 n, memprep both arms): SM − DM +11.5 s [−50, +73]; mpss4b (72l) −56.3 and mpss4c (72p) −15.6 s per 4-pair set (12 pairs in all); SM saves 4-7 s of dm only (m) | not adopted: no separation from the noise | 0 / 0 |
-| `COMM_SHMEM_PX_SEND=3` (PX3: plain `shmem_ctx_putmem_nbi` chunks on a context per peer node, one fence + signal word per command; branch pxgap, merged ead367d) | gates PASS at 1 and 2 n (72q pxgate3, 75c). t_comm 4 n, 64 MiB exchange (72o tcomm4fix, T64 = PX3 + shift + BLOCK_MB=64): T64 17.46 ms vs libfabric 18.38 vs D 19.85 (m). ecalc 4 n (72r pxgap4, TM = PX3 + memprep): TM − DM −21.5 s [−94, +51]. ecalc 2 n (75c, T6 = PX3 + shift + BLOCK_MB=64 + memprep, 4 pairs): T6 − DM +24.1 s [−34.3, +82.5], clean pairs (2) +0.1 s; the two slow-mode pairs hit either arm (m) | candidate; 4 n statistics running (75a, 75b, 75d) | 0 |
+| `COMM_SHMEM_PX_SEND=3` (PX3: plain `shmem_ctx_putmem_nbi` chunks on a context per peer node, one fence + signal word per command; branch pxgap, merged ead367d) | gates PASS at 1 and 2 n (72q pxgate3, 75c). t_comm 4 n, 64 MiB exchange (72o tcomm4fix, T64 = PX3 + shift + BLOCK_MB=64): T64 17.46 ms vs libfabric 18.38 vs D 19.85 (m). ecalc 4 n (72r pxgap4, TM = PX3 + memprep): TM − DM −21.5 s [−94, +51]. ecalc 2 n (75c, T6 = PX3 + shift + BLOCK_MB=64 + memprep, 4 pairs): T6 − DM +24.1 s [−34.3, +82.5], clean pairs (2) +0.1 s; the two slow-mode pairs hit either arm (m) | default since D53 (user 2026-10-19), see "PX3 as the default" below | 0 |
 | `MEM_HSTAGE_THP=0` + `MEM_PRECOMPACT_GB` (host staging without huge pages; in-process precompaction; branch fragfix, merged ead367d) | item 72g (2 n, a99feb5): gates PASS; after the fragmenter F 504 vs FX 308 s, init still about 165 s (m) | partial; see "Phase B results"; removed 2026-10-19 (task 4) | 0 |
 | `MEM_DEV_COMPACT` (per-allocation compaction of device arenas; branch fragfix2, 2a6e867, unmerged) | item 73d (fix2g2, 2 n): after the fragmenter FY 1220 s and one run killed at the 1800 s limit, against F 244 / 306 s; on a node with 0-90 free 2 MiB blocks each populate takes 25-869 s with no huge pages. Item 73e (fix2c2, clean nodes): DY − D −3.0 s (m) | dropped (the compaction cannot create blocks on an exhausted node); branch deleted | — |
 | `ECALC_MEMPREP_ONLY=1` + `MNRUN_MEMPREP_GB` (memory preparation as a separate step per node before the launch; branch fragfix, merged ead367d) | items 72i, 72h, 72n: see "Phase B results" | partial; design confirmed by the allocation bench (item 73c); removed 2026-10-19 (task 4) | 0 |
@@ -270,6 +270,13 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
 - **Early offset publish** (candidate) is not possible as built: the receiver publishes right after its intra stage and
   transpose, and the intra receive buffer shares the inter receive region until the transpose; publishing earlier needs a
   separate buffer (+A per slot per APU thread of device memory).
+
+## PX3 as the default (D53, user 2026-10-19; items 98v, 99b, 98r; m)
+
+- **Rule.** `COMM_SHMEM_PX_SEND` unset = 3 (PX3) under `COMM_SHMEM_PE_PER_APU=1` with an OpenSHMEM 1.5 build, else 1; an explicit
+  value keeps its checks. `COMM_SHMEM_PX_SEND=1` is the fallback.
+- **4 n** (2.5764e11 digits, item 98v, n 3 each): PX3 162.0 s against `PX_SEND=1` 169.1 s; DT 161.6 s (98r).
+- **6 n** (3.8646e11, item 99b, n 3 each): PX3 205.7 s against `PX_SEND=1` 213.1 s (confirmation pending when written).
 
 ## Open questions and next experiments
 
