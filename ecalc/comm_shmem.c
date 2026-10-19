@@ -137,8 +137,8 @@ static struct {
     double tv; long nv;                    /* all-to-all time (alltoall, alltoallv), post to completion, summed over the APU threads; the count */
     double bv;                             /* the bytes this PE received from the other PEs in those exchanges (the off-process traffic), summed */
     int ppa, ppn, pme, pnpes, proxy;       /* N7b COMM_SHMEM_PE_PER_APU: proxies per APU (0 off), PEs per node (1 + 4 ppa), my physical PE and the count, 1 = this PE is a proxy */
-    size_t pxch;                           /* COMM_SHMEM_PX_BLOCK_MB: the chunk of a PX_SEND=2 put (default PXCH = 4 MiB; the same on every PE) */
-    int pxsend;                            /* N7D COMM_SHMEM_PX_SEND: 1 (default) the proxy's batch-then-quiet, 2 chunked put-with-signal into the receiving proxy (px_serve2), 3 (PX3) plain chunks + one fence and signal word per command (px_serve2 too) */
+    size_t pxch;                           /* COMM_SHMEM_PX_BLOCK_MB: the chunk of a PX_SEND=3 put (default PXCH = 4 MiB; the same on every PE) */
+    int pxsend;                            /* N7D COMM_SHMEM_PX_SEND: 1 (default) the proxy's batch-then-quiet, 3 (PX3) plain chunks + one fence and signal word per command (px_serve2); 2 (chunked put-with-signal) was removed 2026-10-19 */
 } S;
 enum { K_CTRL, K_STAGE, K_SYM };
 static void site_print(void);                           /* (below) */
@@ -319,10 +319,10 @@ static void heap_path(char *buf, size_t n, int pe) { snprintf(buf, n, "/dev/shm/
 #define PXCTL ((size_t)1 << 20)
 #define PXRING 16384
 struct px_hdr { long head, done, quit, pid, ppid, pad[27]; };
-struct px_ent { long pe; size_t roff, soff, n; long sigidx, sig; };   /* sigidx, sig: COMM_SHMEM_PX_SEND=2 only (the receiver's signal words, the final value) */
-/* N7D COMM_SHMEM_PX_SEND=2: after the ring, a done stamp per command (k + 1 once command k's puts completed: retired out of order).
+struct px_ent { long pe; size_t roff, soff, n; long sigidx, sig; };   /* sigidx, sig: COMM_SHMEM_PX_SEND=3 only (the receiver's signal word, the final value) */
+/* N7D COMM_SHMEM_PX_SEND=3: after the ring, a done stamp per command (k + 1 once command k's puts completed: retired out of order).
  * The signal words of an exchange live in the receiving proxy's pool, in its mailbox place (unused by proxies; doubled under the
- * switch): word (0, id, r) sums the bytes of sender r's chunks before its last, word (1, id, r) = PACK(seq, n) put by the last chunk. */
+ * switch): word (1, id, r) = PACK(seq, n) put after the command's last chunk (word (0, id, r) is unused since PX_SEND=2 was removed; the layout is kept). */
 #define PXCH ((size_t)4 << 20)                 /* the chunk of a put (comm_ofi's 4 MiB) */
 #define PXNCTX 8                               /* the proxy's contexts: a peer node to each (round robin beyond 8) */
 _Static_assert(sizeof(struct px_hdr) + PXRING * sizeof(struct px_ent) + PXRING * sizeof(long) + PXRING * sizeof(uint32_t) <= PXCTL, "proxy control");
@@ -341,7 +341,7 @@ static void hx_print(void)
 }
 /* ---- COMM_TRACE (comm_trace.h): the proxy's buffer (one thread), the flag the node-process hands a command (bit 0 of its post stamp), the clock-offset estimate and the file ---- */
 static tr_buf g_trpx; static __thread int g_tr_px_act;
-#define TRP(ev, rd, k, e, nb) tr_put(&g_trpx, (ev), 0, S.pxsend >= 2 ? (uint32_t)((e)->sigidx / S.npes) : 0, S.pxsend >= 2 ? (uint32_t)((e)->sig >> 40) : 0, 0, (uint32_t)(k), (uint32_t)(rd), S.me, (int)((e)->pe / S.ppn), (uint64_t)(nb))
+#define TRP(ev, rd, k, e, nb) tr_put(&g_trpx, (ev), 0, S.pxsend == 3 ? (uint32_t)((e)->sigidx / S.npes) : 0, S.pxsend == 3 ? (uint32_t)((e)->sig >> 40) : 0, 0, (uint32_t)(k), (uint32_t)(rd), S.me, (int)((e)->pe / S.ppn), (uint64_t)(nb))
 static void tr_jstr(FILE *f, const char *v) { fputc('"', f); for (; *v; v++) { if (*v == '"' || *v == '\\') fputc('\\', f); if ((unsigned char)*v >= 32) fputc(*v, f); } fputc('"', f); }
 /* node 0 against every node, over SHMEM: node 0 pings (a counter into the node's row MAXID - 2), the node answers with its CLOCK_MONOTONIC (row MAXID - 3) or, in a second series,
  * its CLOCK_REALTIME (row MAXID - 4) as one word each, so the two directions are symmetric; node 0 stamps the send and the observation of the answer.  offset = answer - (t0 + t1) / 2 of the
@@ -402,7 +402,6 @@ static void tr_flush(int proxy)
     if (S.verbose || !proxy) fprintf(stderr, "comm_trace: pe %d (%s): %ld records (%.1f MiB), %llu dropped, sample 1/%u, %s\n", S.pme, proxy ? "proxy" : "node-process", w, w * sizeof(struct tr_rec) / 1048576.0, (unsigned long long)g_tr.dropped, g_tr.sample, path);
 }
 static long *px_sigw(char *base, int w, long idx) { return (long *)base + (size_t)w * MAXID * S.npes + (size_t)idx; }
-static size_t px_last_len(size_t n) { return S.pxsend == 3 ? n : n ? n - ((n - 1) / S.pxch) * S.pxch : 0; }   /* (PX_SEND=3: the one signal word announces it all; PX_SEND=2: S.pxch, COMM_SHMEM_PX_BLOCK_MB, is PXCH by default) */
 /* N7E COMM_SHMEM_PE_PER_APU=2: an APU's two helper PEs h = 0, 1 (local PEs 2d, 2d + 1, on their own NICs).  The APU's staging/slab area is ONE virtual
  * range `base` (span bytes) mapped by the node-process: [0, PXDATA) is helper 0's control, then 4 MiB blocks (PXCH) alternate between the
  * helpers' heaps (block b of the data area = helper b & 1, local offset PXDATA + (b >> 1) PXCH + ...).  Every offset in the protocol is a
@@ -458,7 +457,7 @@ static void px_progress_hl(px_dev *x, px_hl *l)
     struct px_hdr *h = px_hdr_of(l->base);
     pthread_mutex_lock(&l->lock);
     int any = 0; long hd = __atomic_load_n(&h->head, __ATOMIC_ACQUIRE);
-    if (S.pxsend >= 2) {                                  /* N7D: each command as soon as its own stamp says done (out of order) */
+    if (S.pxsend == 3) {                                  /* N7D: each command as soon as its own stamp says done (out of order) */
         long *dn = px_dn_of(l->base);
         for (long k = l->retired; k < hd; k++) { long **c = &l->cnt[k % PXRING];
             if (*c && __atomic_load_n(&dn[k % PXRING], __ATOMIC_ACQUIRE) == k + 1) { __atomic_sub_fetch(*c, 1, __ATOMIC_RELEASE); *c = 0; any = 1; } }
@@ -477,7 +476,7 @@ static void px_progress_hl(px_dev *x, px_hl *l)
 }
 static void px_progress(px_dev *x) { for (int h = 0; h < x->nh; h++) px_progress_hl(x, &x->hl[h]); }
 /* post n bytes from src (inside proxy x's pool) to the pool offset roff of PE dst_pe (another node's proxy of the same APU);
- * under COMM_SHMEM_PX_SEND=2 also the receiver's signal words (sigidx = id * npes + my rank) and the final value sig (n may be 0) */
+ * under COMM_SHMEM_PX_SEND=3 also the receiver's signal word (sigidx = id * npes + my rank) and the final value sig (n may be 0) */
 static size_t px_d0(void) { return (S.mb_bytes + PXCTL + 4095) & ~(size_t)4095; }   /* the data area of the interleaved range starts on a page */
 static long px_post(px_dev *x, int hh, int dst_pe, size_t roff, size_t soff, size_t n, long *cnt, long sigidx, long sig)   /* one command to helper hh's ring (offsets local to the heaps) */
 {
@@ -510,15 +509,13 @@ static long px_write(px_dev *x, int dst_pe, size_t roff, const void *src, size_t
     }
     return -1;
 }
-/* N7D COMM_SHMEM_PX_SEND=2: a proxy's life without batch-then-quiet.  Every command is cut into PXCH chunks, posted round robin over the
+/* N7D COMM_SHMEM_PX_SEND=3 (PX3): a proxy's life without batch-then-quiet.  Every command is cut into S.pxch chunks, posted round robin over the
  * commands in the ring (so the peers' transfers interleave) on the context of its destination node (up to PXNCTX contexts: a slow peer's
- * completion does not hold the others').  Each chunk is a put-with-signal into the receiving proxy's pool: the chunks before the last add
- * their bytes to word 0, the last sets word 1 to PACK(seq, n) -- the receiver needs no second hop through the sending node-process.  A
- * command is reported done (its stamp) after the quiet of its own context; between two contexts' quiets new commands are taken and posted.
- * PX3 (COMM_SHMEM_PX_SEND=3, Phase C step 3): the same loop with plain shmem_ctx_putmem_nbi chunks and, after a command's last chunk, one
- * shmem_ctx_fence on the peer's context + the signal word (set to PACK(seq, n)): the receiver waits for that word alone (px_last_len = n, no
- * chunk-byte word).  Measured 2026-10-18 (ecalc mpss4, t_comm 72b): the 4 MiB put-with-signal chunks of PX_SEND=2 post at 14.8-14.9 GB/s per NIC
- * against 19-20 for whole puts; PX3 keeps 2's structure (no batch coupling, every peer in flight) with the plain put's rate. */
+ * completion does not hold the others').  Each chunk is a plain shmem_ctx_putmem_nbi; after a command's last chunk, one shmem_ctx_fence on the
+ * peer's context + the signal word (set to PACK(seq, n)): the receiver waits for that word alone, through the receiving proxy's pool -- it needs
+ * no second hop through the sending node-process.  A command is reported done (its stamp) after the quiet of its own context; between two
+ * contexts' quiets new commands are taken and posted.  (The former PX_SEND=2, 4 MiB put-with-signal chunks, posted at 14.8-14.9 GB/s per NIC
+ * against 19-20 for whole puts: ecalc mpss4, t_comm 72b; removed 2026-10-19.) */
 static void px_serve2(void)
 {
     struct px_hdr *h = px_hdr_of(S.pool); struct px_ent *ring = px_ring_of(S.pool); long *dn = px_dn_of(S.pool);
@@ -539,14 +536,9 @@ static void px_serve2(void)
                     struct px_ent *e = &ring[s]; shmem_ctx_t c = cx[co[s]];
                     if (!e->n) { shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); fp[s] = 1; if (tra[s]) TRP(P_SIGNAL, 0, k, e, 0); continue; }
                     size_t o = posted[s], len = e->n - o < S.pxch ? e->n - o : S.pxch; int last = o + len == e->n;
-                    if (S.pxsend == 3) {                  /* PX3: a plain chunk; the command's last chunk is followed by a fence and its signal word */
-                        shmem_ctx_putmem_nbi(c, S.pool + e->roff + o, S.pool + e->soff + o, len, (int)e->pe);
-                        if (tra[s]) TRP(P_CHUNK, o / S.pxch, k, e, len);
-                        if (last) { shmem_ctx_fence(c); shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); nsig++; if (tra[s]) TRP(P_SIGNAL, 0, k, e, e->n); }
-                    } else {
-                    shmem_ctx_putmem_signal_nbi(c, S.pool + e->roff + o, S.pool + e->soff + o, len, (uint64_t *)px_sigw(S.pool, last, e->sigidx),
-                                                last ? (uint64_t)e->sig : (uint64_t)len, last ? SHMEM_SIGNAL_SET : SHMEM_SIGNAL_ADD, (int)e->pe);
-                    if (tra[s]) { TRP(P_CHUNK, o / S.pxch, k, e, len); if (last) TRP(P_SIGNAL, 0, k, e, e->n); } }
+                    shmem_ctx_putmem_nbi(c, S.pool + e->roff + o, S.pool + e->soff + o, len, (int)e->pe);   /* a plain chunk; the command's last chunk is followed by a fence and its signal word */
+                    if (tra[s]) TRP(P_CHUNK, o / S.pxch, k, e, len);
+                    if (last) { shmem_ctx_fence(c); shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); nsig++; if (tra[s]) TRP(P_SIGNAL, 0, k, e, e->n); }
                     posted[s] = o + len; nput++; bytes += (double)len;
                     if (last) fp[s] = 1; else more = 1;
                 }
@@ -577,12 +569,11 @@ static void px_serve2(void)
     if (S.verbose || S.pme < S.ppn) fprintf(stderr, "comm_shmem: proxy pe %d (node %d, APU %d): COMM_SHMEM_PX_SEND=%d, %d contexts: %ld chunks, %.2f GB, %ld context quiets, %ld fence+signal, %.2f s posting + quiet = %.2f GB/s while busy\n",
                                            S.pme, S.pme / S.ppn, S.pme % S.ppn, S.pxsend, own, nput, bytes / 1e9, nq, nsig, tbusy, tbusy > 0 ? bytes / 1e9 / tbusy : 0);
 }
-/* the receiver's half under COMM_SHMEM_PX_SEND=2: sender r's message of sequence seq (want bytes) has arrived in my proxy's pool */
 static void px_spin_ge(long *w, long v) { for (unsigned spins = 0; __atomic_load_n(w, __ATOMIC_ACQUIRE) < v; spins++) if (spins > 64) sched_yield(); }
 /* a proxy's life: post every command in its ring, quiet, report them done; leave on quit (or when the node-process is gone) */
 static void px_serve(void)
 {
-    if (S.pxsend >= 2) { px_serve2(); return; }
+    if (S.pxsend == 3) { px_serve2(); return; }
     struct px_hdr *h = px_hdr_of(S.pool); struct px_ent *ring = px_ring_of(S.pool);
     __atomic_store_n(&h->ppid, (long)getpid(), __ATOMIC_RELEASE);
     long t = 0, nput = 0, nq = 0; double bytes = 0, tchk = now_s(), tbusy = 0; unsigned idle = 0; static unsigned char tra[PXRING];
@@ -612,32 +603,27 @@ static void px_serve(void)
     if (S.verbose || S.pme < S.ppn) fprintf(stderr, "comm_shmem: proxy pe %d (node %d, APU %d): %ld puts, %.2f GB in %ld batches, %.2f s posting + quiet = %.2f GB/s while busy\n",
                                            S.pme, S.pme / S.ppn, S.pme % S.ppn, nput, bytes / 1e9, nq, tbusy, tbusy > 0 ? bytes / 1e9 / tbusy : 0);
 }
-/* ---- N7D: faster proxy-mode init (COMM_SHMEM_PX_INIT=1, default 0) ----
- * The registration of a pool faults its 4 KiB pages one by one (0.53 s/GB, I.md) and the node-process registers five pools in turn.
- * With the switch: every PE pre-faults its own pool with MADV_POPULATE_WRITE in COMM_SHMEM_PX_INIT_THREADS (4) threads, a proxy before the
- * barrier in its own process (its pages follow the heap file's NUMA policy, and its faults overlap those of the other proxies and of the
- * node-process), and the node-process registers the four proxy pools and its own in five threads after the barrier.  No byte changes.
- * COMM_SHMEM_VERBOSE=1 prints the init timeline of every PE (g_t0 = entry of comm_shmem_init) with or without the switch. */
+/* ---- pool pre-fault and collapse (the heap THP paths: COMM_SHMEM_NP_HEAP_THP, COMM_SHMEM_PX_THP) ----
+ * pool_populate faults a range with MADV_POPULATE_WRITE in nt threads, pool_collapse then collapses its whole 2 MiB pages (MADV_COLLAPSE).
+ * COMM_SHMEM_VERBOSE=1 prints the init timeline of every PE (g_t0 = entry of comm_shmem_init). */
 #ifndef MADV_POPULATE_WRITE
 #define MADV_POPULATE_WRITE 23
 #endif
-static double g_t0, g_t_own, g_t_pop, g_t_shinit;   /* entry of comm_shmem_init; own pool's registration (PX_INIT=1); pre-fault; shmem_init */
+static double g_t0, g_t_own, g_t_pop, g_t_shinit;   /* entry of comm_shmem_init; own pool's registration; pre-fault (always 0: the PX_INIT pre-fault was removed); shmem_init */
 struct pop_job { char *p; size_t n; int err; };   /* err: errno of the first failed madvise (0 = none) */
-static int g_pop_err;                                /* errno of MADV_POPULATE_WRITE in the last pool_populate (0 = it worked) */
 static void *pop_thread(void *a) { struct pop_job *j = (struct pop_job *)a; const size_t C = (size_t)256 << 20; size_t o = 0; j->err = 0;
     for (; o < j->n; o += C) { size_t l = j->n - o < C ? j->n - o : C; if (madvise(j->p + o, l, MADV_POPULATE_WRITE)) { j->err = errno ? errno : -1; break; } }
     /* fallback (madvise unsupported or refused): fault the rest by an atomic no-op write per 4 KiB page (no byte changes, safe under concurrent puts) */
     for (; o < j->n; o += 4096) __atomic_fetch_or((volatile unsigned long *)(j->p + o), 0UL, __ATOMIC_RELAXED);
     return 0; }
-static void pool_populate(char *p, size_t n, int nt)    /* nt threads over page-aligned slices; COMM_SHMEM_VERBOSE prints a madvise error (then the pages were touched) */
+static void pool_populate(char *p, size_t n, int nt)    /* nt threads over page-aligned slices (a refused madvise: the pages are touched instead) */
 {
     if (nt < 1) nt = 1; if (nt > 16) nt = 16;
     pthread_t th[16]; struct pop_job jb[16]; size_t sl = ((n / nt) + 4095) & ~(size_t)4095; int k = 0;
     uintptr_t b = (uintptr_t)p & ~(uintptr_t)4095; n = (n + ((uintptr_t)p - b) + 4095) & ~(size_t)4095;
     for (int i = 0; i < nt && (size_t)i * sl < n; i++) { jb[i].p = (char *)b + (size_t)i * sl; jb[i].n = n - (size_t)i * sl < sl ? n - (size_t)i * sl : sl; jb[i].err = 0;
         if (pthread_create(&th[i], 0, pop_thread, &jb[i])) { pop_thread(&jb[i]); th[i] = 0; } k++; }
-    g_pop_err = 0;
-    for (int i = 0; i < k; i++) { if (th[i]) pthread_join(th[i], 0); if (jb[i].err && !g_pop_err) g_pop_err = jb[i].err; }
+    for (int i = 0; i < k; i++) if (th[i]) pthread_join(th[i], 0);
 }
 /* N7G COMM_SHMEM_PX_THP=1: the pool's whole 2 MiB pages collapsed to huge pages (MADV_COLLAPSE) in nt threads after pool_populate; returns the
  * first errno (0 = all collapsed).  The new huge pages stay on the node of the small pages they replace (COMM_SHMEM_PX_NUMA's policy). */
@@ -672,8 +658,7 @@ static void *reg_thread(void *a) { struct reg_job *j = (struct reg_job *)a; doub
     else { j->dpok = hipHostGetDevicePointer(&dp, j->p, 0) == hipSuccess && dp == (void *)j->p; if (!j->dpok) (void)hipGetLastError(); }
     j->t = now_s() - t; return 0; }
 #endif
-static int g_meshpar;                                  /* N7F-C: COMM_SHMEM_MESH_PAR */
-static int g_pxinit, g_pxthr = 4;                       /* COMM_SHMEM_PX_INIT, COMM_SHMEM_PX_INIT_THREADS */
+static int g_pxthr = 4;                                 /* COMM_SHMEM_PX_INIT_THREADS */
 /* the node-process: attach the proxies' pools (shmem_ptr: Cray's on-node XPMEM), register them with HIP, start the allocators */
 /* N7E (COMM_SHMEM_PE_PER_APU=2): map APU x->d's two helper heaps (named files) as the interleaved virtual range of px_dev */
 static void px_map2(px_dev *x)
@@ -732,27 +717,10 @@ static void px_attach(void)
     }
 #ifndef COMM_HOST_ONLY
     double t_reg = now_s();
-    if (g_pxinit) {                                       /* N7D: the four proxy pools and the node-process's own pool (registered later than in the serial path) at once */
-        pthread_t th[5]; struct reg_job jb[5];
-        for (int i = 0; i < 5; i++) { jb[i].p = i < 4 ? g_px[i]->base : S.pool; jb[i].n = i < 4 ? g_px[i]->span : S.pool_bytes;
-            if (pthread_create(&th[i], 0, reg_thread, &jb[i])) { reg_thread(&jb[i]); th[i] = 0; } }
-        for (int i = 0; i < 5; i++) if (th[i]) pthread_join(th[i], 0);
-        for (int i = 0; i < 4; i++) { g_px[i]->he = (int)jb[i].he; g_px[i]->reg = jb[i].he == hipSuccess && jb[i].dpok; g_px[i]->treg = jb[i].t;
-            if (jb[i].he == hipSuccess && !jb[i].dpok) { (void)hipHostUnregister(g_px[i]->base); (void)hipGetLastError(); } }
-        S.registered = jb[4].he == hipSuccess ? (jb[4].dpok ? 1 : 2) : 0; g_t_own = jb[4].t;
-        if (!S.registered) { if (S.me == 0) fprintf(stderr, "comm_shmem: hipHostRegister of the pool failed (%s): pageable copies, no symmetric slabs\n", hipGetErrorString(jb[4].he)); }
-        else if (S.registered == 2 && S.me == 0) fprintf(stderr, "comm_shmem: the pool's device pointer differs from its host pointer: no symmetric slabs\n");
-    } else if (g_meshpar) {                               /* N7F-C: COMM_SHMEM_MESH_PAR=1: the four proxy pools registered at once (the own pool stays where it is) */
-        pthread_t th[4]; struct reg_job jb[4];
-        for (int i = 0; i < 4; i++) { jb[i].p = g_px[i]->base; jb[i].n = g_px[i]->span; jb[i].he = hipSuccess; jb[i].dpok = 0; jb[i].t = 0;
-            if (pthread_create(&th[i], 0, reg_thread, &jb[i])) { reg_thread(&jb[i]); th[i] = 0; } }
-        for (int i = 0; i < 4; i++) if (th[i]) pthread_join(th[i], 0);
-        for (int i = 0; i < 4; i++) { px_dev *x = g_px[i]; x->he = (int)jb[i].he; x->reg = jb[i].he == hipSuccess && jb[i].dpok; x->treg = jb[i].t;
-            if (jb[i].he == hipSuccess && !jb[i].dpok) { (void)hipHostUnregister(x->base); (void)hipGetLastError(); } }
-    } else for (int d = 0; d < 4; d++) { px_dev *x = g_px[d]; struct reg_job j = { x->base, x->span, hipSuccess, 0, 0 }; reg_thread(&j);
+    for (int d = 0; d < 4; d++) { px_dev *x = g_px[d]; struct reg_job j = { x->base, x->span, hipSuccess, 0, 0 }; reg_thread(&j);
         x->he = (int)j.he; x->reg = j.he == hipSuccess && j.dpok; x->treg = j.t; if (j.he == hipSuccess && !j.dpok) { (void)hipHostUnregister(x->base); (void)hipGetLastError(); } }
-    if (S.verbose) printf("comm_shmem: pe %d: init timeline (s since entry): shmem_init %.2f, own pool pre-fault %.2f, proxy pools registered %s in %.2f s (pools %.2f %.2f %.2f %.2f; own pool %.2f %s), px_attach done at %.2f\n", S.me, g_t_shinit, g_t_pop, g_pxinit || g_meshpar ? "in parallel" : "one by one", now_s() - t_reg,
-                          g_px[0]->treg, g_px[1]->treg, g_px[2]->treg, g_px[3]->treg, g_t_own, g_pxinit ? "in the same threads" : "before the barrier", now_s() - g_t0);
+    if (S.verbose) printf("comm_shmem: pe %d: init timeline (s since entry): shmem_init %.2f, own pool pre-fault %.2f, proxy pools registered %s in %.2f s (pools %.2f %.2f %.2f %.2f; own pool %.2f %s), px_attach done at %.2f\n", S.me, g_t_shinit, g_t_pop, "one by one", now_s() - t_reg,
+                          g_px[0]->treg, g_px[1]->treg, g_px[2]->treg, g_px[3]->treg, g_t_own, "before the barrier", now_s() - g_t0);
     for (int d = 0; d < 4; d++) { px_dev *x = g_px[d]; hipError_t he = (hipError_t)x->he;
         if (S.me == 0 && d == 0) printf("comm_shmem: COMM_SHMEM_PE_PER_APU=%d: the proxy pools %s (%s)\n", S.ppa, x->reg ? "are HIP-registered: symmetric slabs in them" : "could not be HIP-registered: every device exchange is staged (pageable copies)", x->reg ? "zero-copy" : hipGetErrorString(he));
         if (S.me == 0 || S.verbose) {                     /* N7C: where the pool's pages are (64 sampled pages, after the registration faulted them) vs APU d's node */
@@ -808,7 +776,7 @@ static int comm_shmem_init_i(void)
 #else
     S.devheap = env_int("COMM_SHMEM_DEVHEAP", 0);
 #endif
-    S.ppa = comm_shmem_pe_per_apu(); g_pxinit = S.ppa && env_int("COMM_SHMEM_PX_INIT", 0) > 0; g_pxthr = env_int("COMM_SHMEM_PX_INIT_THREADS", 4); g_meshpar = S.ppa && env_int("COMM_SHMEM_MESH_PAR", 0) > 0;
+    S.ppa = comm_shmem_pe_per_apu(); g_pxthr = env_int("COMM_SHMEM_PX_INIT_THREADS", 4);
     S.ppn = S.ppa ? 1 + 4 * S.ppa : 1;   /* N7b: 1 + 4 ppa PEs per node */
     if (S.ppa && comm_ofi_enabled()) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PE_PER_APU=%d needs COMM_OFI=0 (the proxies carry the data instead of comm_ofi)\n", S.ppa);
     g_thp = S.ppa && env_int("COMM_SHMEM_PX_THP", 1) > 0; g_thp_thr = g_pxthr;   /* N7G: THP default 1 (D36) */
@@ -816,14 +784,14 @@ static int comm_shmem_init_i(void)
     int npes_hint = getenv("SLURM_NTASKS") ? atoi(getenv("SLURM_NTASKS")) / S.ppn : getenv("PMI_SIZE") ? atoi(getenv("PMI_SIZE")) / S.ppn : getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 4096;
     if (npes_hint < 1) npes_hint = 4096;
     S.pxsend = env_int("COMM_SHMEM_PX_SEND", 1);
-    if (S.pxsend < 1 || S.pxsend > 3) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d: 1 (default, batch then quiet), 2 (chunked put-with-signal) or 3 (chunked puts, one fence + signal per command)\n", S.pxsend);
-    if (S.pxsend >= 2 && S.ppa == 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d is not built for COMM_SHMEM_PE_PER_APU=2\n", S.pxsend);
-    if (S.pxsend >= 2 && (!S.ppa || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d needs COMM_SHMEM_PE_PER_APU=1 and an OpenSHMEM 1.5 build (the proxy's context code is compiled only with 1.5 headers; PX_SEND=3 itself uses plain puts, not put-with-signal)\n", S.pxsend);
-    { const char *e = getenv("COMM_SHMEM_PX_BLOCK_MB"); double mb = e ? atof(e) : 4;   /* the PX_SEND=2 chunk (fewer chunks and signal adds per peer); value 2's 4 MiB heap alternation keeps PXCH */
+    if (S.pxsend != 1 && S.pxsend != 3) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d: 1 (default, batch then quiet) or 3 (chunked puts, one fence + signal per command); 2 (chunked put-with-signal) was removed 2026-10-19\n", S.pxsend);
+    if (S.pxsend == 3 && S.ppa == 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d is not built for COMM_SHMEM_PE_PER_APU=2\n", S.pxsend);
+    if (S.pxsend == 3 && (!S.ppa || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d needs COMM_SHMEM_PE_PER_APU=1 and an OpenSHMEM 1.5 build (the proxy's context code is compiled only with 1.5 headers; PX_SEND=3 itself uses plain puts, not put-with-signal)\n", S.pxsend);
+    { const char *e = getenv("COMM_SHMEM_PX_BLOCK_MB"); double mb = e ? atof(e) : 4;   /* the PX_SEND=3 chunk (fewer chunks per peer); PE_PER_APU=2's 4 MiB heap alternation keeps PXCH */
       if (!(mb >= 1 && mb <= 1024)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_BLOCK_MB=%s: 1..1024 (MiB; default 4)\n", e ? e : "");
       S.pxch = (size_t)(mb * 1048576.0);
-      if (S.pxch != PXCH && S.pxsend < 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_BLOCK_MB needs COMM_SHMEM_PX_SEND=2 or 3 (COMM_SHMEM_PE_PER_APU=1); value 2 keeps the 4 MiB heap blocks\n"); }
-    S.mb_bytes = ((size_t)MAXID * npes_hint * 8 * (S.pxsend >= 2 ? 2 : 1) + ALIGN - 1) & ~(size_t)(ALIGN - 1);   /* (N7D: a proxy's signal words in its second half) */
+      if (S.pxch != PXCH && S.pxsend != 3) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_BLOCK_MB needs COMM_SHMEM_PX_SEND=3 (COMM_SHMEM_PE_PER_APU=1); PE_PER_APU=2 keeps the 4 MiB heap blocks\n"); }
+    S.mb_bytes = ((size_t)MAXID * npes_hint * 8 * (S.pxsend == 3 ? 2 : 1) + ALIGN - 1) & ~(size_t)(ALIGN - 1);   /* (N7D: a proxy's signal words in its second half) */
     S.pool_bytes = (mb << 20) + S.mb_bytes;
     { const char *ex = getenv("COMM_SHMEM_PROXY"); if (S.ppa && ex && atoi(ex)) {   /* N7b: a proxy's heap as a named file (heap_mmap) */
         g_heap_min = comm_shmem_heap_env(0); if (!g_heap_min) { fprintf(stderr, "comm_shmem: a proxy needs SHMEM_SYMMETRIC_SIZE (mnrun.sh sets it)\n"); exit(1); }
@@ -883,8 +851,6 @@ static int comm_shmem_init_i(void)
         memset(S.pool + S.mb_bytes, 0, PXCTL); px_hdr_of(S.pool)->pad[0] = 0x4e374250;   /* the mark the node-process checks after mapping */
         *mailbox(MAXID - 1, 1) = (long)(S.pool - (char *)g_heap_addr);              /* the pool's offset in the heap file */
         if (g_heap_numa >= 0 && (S.verbose || S.pme < S.ppn)) fprintf(stderr, "comm_shmem: proxy pe %d: COMM_SHMEM_PX_NUMA=1: heap prefers NUMA node %d (mbind %s)\n", S.pme, g_heap_numa, g_heap_mbind ? strerror(g_heap_mbind) : "ok");
-        if (g_pxinit) { double tp = now_s(); pool_populate(S.pool, S.pool_bytes, g_pxthr); g_t_pop = now_s() - tp;   /* N7D: its pages faulted here, by the NUMA policy of the heap file */
-            if (g_pop_err && S.verbose) fprintf(stderr, "comm_shmem: proxy pe %d: madvise(MADV_POPULATE_WRITE) failed (%s): pages touched instead\n", S.pme, strerror(g_pop_err > 0 ? g_pop_err : EINVAL)); }
         if (g_thp) { long pmd = smaps_kb(S.pool, "ShmemPmdMapped"); int ce = g_thp_err; double tc = g_thp_t;   /* N7G: done in heap_mmap */
             if (S.verbose || S.pme < S.ppn) fprintf(stderr, "comm_shmem: proxy pe %d: COMM_SHMEM_PX_THP=1: heap at %s2 MiB + %zu kB (library hint %p, flags 0x%x), pool %zu MiB; %ld MiB of the heap mapping in 2 MiB pages (heap collapse %s, %.2f s incl. pre-fault)\n",
                 S.pme, ((uintptr_t)g_heap_addr & (THP_SZ - 1)) ? "" : "a multiple of ", (size_t)((uintptr_t)g_heap_addr & (THP_SZ - 1)) >> 10, g_heap_hint, (unsigned)g_heap_fl, S.pool_bytes >> 20, pmd >> 10, ce ? strerror(ce > 0 ? ce : EINVAL) : "ok", tc); }
@@ -906,9 +872,7 @@ static int comm_shmem_init_i(void)
         if (!dev) { if (S.me == 0) fprintf(stderr, "comm_shmem: COMM_SHMEM_DEVHEAP=%d but the library's shmem_malloc returned host memory (%s): the pool is HIP-registered host memory instead\n", S.devheap, pe == hipSuccess ? "known to HIP, not device" : hipGetErrorString(pe)); S.devheap = 0; }
     }
     int phpool_ = ec_ph(EC_PH_POOL_REG);
-    if (g_pxinit && !S.devheap) { double tp = now_s(); pool_populate(S.pool, S.pool_bytes, g_pxthr); g_t_pop = now_s() - tp;   /* N7D: pre-faulted here; registered after the barrier with the proxy pools */
-        if (g_pop_err && S.verbose) fprintf(stderr, "comm_shmem: pe %d: madvise(MADV_POPULATE_WRITE) failed (%s): pages touched instead\n", S.me, strerror(g_pop_err > 0 ? g_pop_err : EINVAL)); }
-    else if (!S.devheap) {
+    if (!S.devheap) {
         double tr = now_s(); int ph_ = ec_ph(EC_PH_HIP_HOSTREG); hipError_t he = hipHostRegister(S.pool, S.pool_bytes, hipHostRegisterPortable); ec_ph(ph_);
         S.registered = he == hipSuccess;
         if (!S.registered) { (void)hipGetLastError(); if (S.me == 0) fprintf(stderr, "comm_shmem: hipHostRegister of the pool failed (%s): pageable copies, no symmetric slabs\n", hipGetErrorString(he)); }
@@ -934,7 +898,7 @@ static int comm_shmem_init_i(void)
     if (S.ppa) { int ph_ = ec_ph(EC_PH_PX_ATTACH); px_attach(); ec_ph(ph_); }                               /* N7b: (after the barrier: the proxies' control is zeroed) */
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);
-    if (S.me == 0) printf("comm_shmem: %s, %d PEs%s, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us, peer order %s\n", comm_shmem_impl(), S.npes, S.ppa ? (S.pxsend == 2 ? " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1; proxy send COMM_SHMEM_PX_SEND=2: 4 MiB put-with-signal chunks, a context per peer node)" : S.pxsend == 3 ? " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1; proxy send COMM_SHMEM_PX_SEND=3: plain chunks, one fence + signal per command, a context per peer node)" : " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1)") : "", prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
+    if (S.me == 0) printf("comm_shmem: %s, %d PEs%s, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us, peer order %s\n", comm_shmem_impl(), S.npes, S.ppa ? (S.pxsend == 3 ? " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1; proxy send COMM_SHMEM_PX_SEND=3: plain chunks, one fence + signal per command, a context per peer node)" : " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1)") : "", prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
                           S.devheap ? " (device heap)" : "", S.registered == 1 ? ", HIP-registered" : "",
                           S.order == ORDER_PUTSIG ? "putsig" : S.order == ORDER_FENCE ? "fence" : "quiet", S.order == ORDER_QUIET ? " (helper thread)" : " (inline)", S.spin_us, S.shift ? "shift" : "rank");
     tr_clock_sync(0);                                     /* COMM_TRACE: node 0's clock against every node (every node-process is here after the barrier) */
@@ -1109,7 +1073,7 @@ static void putmem(shm_priv *p, int r, size_t off, const void *src, size_t n) { 
 static long put_signalled_(shm_priv *p, int r, size_t off, const void *src, size_t n, long sig)
 {
     long *sw = W(p, p->rbase[r], W_SIG, p->me);
-    if (p->xo && p->px && S.pxsend >= 2) { if (g_tr.on && p->tr_act) p->osig[r] = sig; return px_write(p->px, p->pxpe[r], off, src, n, &p->ocnt[r], (long)p->id * S.npes + p->me, sig); }   /* N7D: the signal travels with the data (osig: COMM_TRACE only, for ofi_flush's stamps) */
+    if (p->xo && p->px && S.pxsend == 3) { if (g_tr.on && p->tr_act) p->osig[r] = sig; return px_write(p->px, p->pxpe[r], off, src, n, &p->ocnt[r], (long)p->id * S.npes + p->me, sig); }   /* N7D: the signal travels with the data (osig: COMM_TRACE only, for ofi_flush's stamps) */
     if (p->xo) { long k = -1; if (p->px) { if (n) k = px_write(p->px, p->pxpe[r], off, src, n, &p->ocnt[r], 0, 0); } else comm_ofi_write(p->op, r, off, src, n, &p->ocnt[r]); p->osig[r] = sig; return k; }   /* the signal after delivery (ofi_flush) */
 #if HAVE_PUT_SIGNAL
     if (S.order == ORDER_PUTSIG) {
@@ -1135,7 +1099,7 @@ static void put_signalled(shm_priv *p, int r, size_t off, const void *src, size_
  * Returns when every recorded signal is sent (the data of this exchange is in the receivers' memory) */
 static void ofi_flush_(shm_priv *p)
 {
-    if (p->px && S.pxsend >= 2) {                         /* N7D: the signals went with the data; wait until the proxy is done with my sources */
+    if (p->px && S.pxsend == 3) {                         /* N7D: the signals went with the data; wait until the proxy is done with my sources */
         for (unsigned spins = 0;; spins++) {
             if (g_tr.on && p->tr_act) for (int r = 0; r < p->n; r++) if (p->osig[r] && !__atomic_load_n(&p->ocnt[r], __ATOMIC_ACQUIRE)) { long sg = p->osig[r]; p->osig[r] = 0; TR(p, M_PUT_DONE, TRRD(p, r, sg), r, UNSEQ(sg), UNOFF(sg), 0); }   /* (COMM_TRACE: each peer's command done) */
             int left = 0; for (int r = 0; r < p->n && !left; r++) left = __atomic_load_n(&p->ocnt[r], __ATOMIC_ACQUIRE) != 0;
@@ -1162,22 +1126,17 @@ static void ofi_flush(shm_priv *p)
     if (!g_tr.on || !p->tr_act) { ofi_flush_(p); return; }
     TR(p, M_FLUSH_BEG, 0, -1, p->tr_xs, 0, 0); ofi_flush_(p); TR(p, M_FLUSH_END, 0, -1, p->tr_xs, 0, 0);
 }
-/* N7D COMM_SHMEM_PX_SEND=2: the receiver's half -- sender r's message `seq` (want bytes) is in my proxy's pool: its last chunk set word 1,
- * its other chunks added their bytes to word 0 (zeroed here for the next message, which r sends only after my next publish) */
+/* N7D COMM_SHMEM_PX_SEND=3: the receiver's half -- sender r's message `seq` (want bytes) is in my proxy's pool: the signal word 1 is set after its last chunk */
 static void px_arrive(shm_priv *p, int r, long seq, size_t want, long round)
 {
-    long idx = (long)p->id * S.npes + r, *b = px_sigw(p->px->base, 1, idx), *a = px_sigw(p->px->base, 0, idx);
+    long idx = (long)p->id * S.npes + r, *b = px_sigw(p->px->base, 1, idx);
     double t0 = comm_wst_t0(), xt = S.xstats ? now_s() : 0;
     TR(p, M_SIG_WAIT, round, r, seq, want, 0);
     px_spin_ge(b, PACK(seq, 0));
     TR(p, M_SIG_SEEN, round, r, seq, want, 0);
     long x = __atomic_load_n(b, __ATOMIC_ACQUIRE);
-    if (UNSEQ(x) != seq) die("signal sequence mismatch (COMM_SHMEM_PX_SEND=2)");
+    if (UNSEQ(x) != seq) die("signal sequence mismatch (COMM_SHMEM_PX_SEND=3)");
     if (UNOFF(x) != want) ec_fatal(EC_RC_FATAL, "comm_shmem: alltoallv count mismatch (round %ld): rank %d sends %zu bytes to rank %d, which expects %zu\n", round, r, UNOFF(x), p->me, want);
-    long rest = (long)(want - px_last_len(want));
-    if (rest) { px_spin_ge(a, rest); long v = __atomic_load_n(a, __ATOMIC_ACQUIRE);
-        if (v != rest) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PX_SEND=2: %ld chunk bytes from rank %d, expected %ld\n", S.me, v, r, rest);
-        __atomic_store_n(a, 0, __ATOMIC_SEQ_CST); }
     comm_wst_ready_end(t0); if (S.xstats) p->xsig += now_s() - xt;
 }
 static void order_ctx(shm_priv *p) { if (S.order == ORDER_FENCE) shmem_ctx_fence(p->ctx); else shmem_ctx_quiet(p->ctx); }   /* under SHM_LOCK: the words before their sequence (tiny exchange, rings) */
@@ -1274,7 +1233,7 @@ static void publish(shm_priv *p, size_t base, size_t bytes, const size_t *dsp)
 static void arrive(shm_priv *p, size_t bytes, const size_t *rcnt)
 {
     PEERS(p, k, r, 0, -1) {
-        if (p->xo && p->px && S.pxsend >= 2) { px_arrive(p, r, p->iseq[r], rcnt ? rcnt[r] : bytes, 0); continue; }
+        if (p->xo && p->px && S.pxsend == 3) { px_arrive(p, r, p->iseq[r], rcnt ? rcnt[r] : bytes, 0); continue; }
         long *sw = W(p, p->base, W_SIG, r); TR(p, M_SIG_WAIT, 0, r, p->iseq[r], rcnt ? rcnt[r] : bytes, 0); XWAIT(p, xsig, sw, PACK(p->iseq[r], 0)); TR(p, M_SIG_SEEN, 0, r, p->iseq[r], rcnt ? rcnt[r] : bytes, 0);
         long x = *(volatile long *)sw, want = (long)(rcnt ? rcnt[r] : bytes);
         if (UNSEQ(x) != p->iseq[r]) die("signal sequence mismatch");
@@ -1387,7 +1346,7 @@ static void *rounder(void *a)
         TR(p, R_SENDS_DONE, j, -1, p->tr_xs, 0, 0);
         HA(p, H_RDS, h0); h0 = HT();
         PEERS(p, k, r, 0, -1) if (j < round_count(rcnt[r], c)) {   /* the signals of round j */
-            if (p->xo && p->px && S.pxsend >= 2) { px_arrive(p, r, p->iseq[r] + 1 + j, rcnt[r] > o ? (rcnt[r] - o < c ? rcnt[r] - o : c) : 0, j); continue; }
+            if (p->xo && p->px && S.pxsend == 3) { px_arrive(p, r, p->iseq[r] + 1 + j, rcnt[r] > o ? (rcnt[r] - o < c ? rcnt[r] - o : c) : 0, j); continue; }
             long seq = p->iseq[r] + 1 + j, *sw = W(p, p->base, W_SIG, r); TR(p, M_SIG_WAIT, j, r, seq, 0, 0); XWAIT(p, xsig, sw, PACK(seq, 0)); TR(p, M_SIG_SEEN, j, r, seq, 0, 0);
             long x = *(volatile long *)sw; size_t want = rcnt[r] > o ? (rcnt[r] - o < c ? rcnt[r] - o : c) : 0;
             if (UNSEQ(x) != seq) die("round signal sequence mismatch");

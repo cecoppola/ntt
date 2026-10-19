@@ -279,7 +279,7 @@ Items are on aac7; "branch" names are local development branches (the dropped on
 | `MEM_HSTAGE_THP=0` (4 KiB host staging) | 97b3, 97b4 | Storms still occurred (DTIH r2 55.1 s) | Not the stall; removed 2026-10-19 (task 4) |
 | `COMM_SHMEM_PX_INIT_THREADS=16` | 97i, 97j | Init 23.0-25.0 against 22.4-25.5 s: no gain | Dropped |
 | `COMM_SHMEM_PX_CONC=1` (concurrent puts, per-command done stamps) | 97c, 97d | Clean runs equal DTI/DTC; stalls hit either arm | Dropped |
-| `COMM_SHMEM_PX_INIT`, `MESH_PAR`, `PX_PIN` | 97e, 97f | Clean SHMEM runs 49.7-52.5 s for all arms | No gain |
+| `COMM_SHMEM_PX_INIT`, `MESH_PAR`, `PX_PIN` | 97e, 97f | Clean SHMEM runs 49.7-52.5 s for all arms | No gain; `PX_INIT` and `MESH_PAR` removed 2026-10-19 (task 4), `PX_PIN` 2026-10-18 |
 | `COMM_LAYER_VSLOT_RELEASE=0` (DTIR) | 97a/97b | Init +3 s (4096 against 2560 MiB heap), still stalls (r2 170.8 s) | Not the cause (pool is first-fit, no hipMalloc in the release path); switch removed 2026-10-19 (task 4) |
 | `FI_MR_CACHE_MONITOR=memhooks` (DTIM) | 97b | Erratic (50-98.5 s) | Dropped |
 | `PX_WORKERS`, `PX_CTX` multi-context issuing | 72c, 96-series | Higher proxy rate, same node throughput | Not adopted |
@@ -399,7 +399,7 @@ but cannot show layv, the 5-6 node step, or node-0 compaction of a job's first n
 | `COMM_LAYER_INTER2` | 1 | 0 is the candidate for SHMEM (section 4.5) |
 | `COMM_LAYER_VSLOT_RELEASE` | removed 2026-10-19 (task 4); was 1 (follows VSLOT_POOL) | 0 tested, not useful |
 | `COMM_SHMEM_PX_PIN` | 0 | not significant |
-| `COMM_SHMEM_PX_INIT`, `_INIT_THREADS`, `MESH_PAR`, `OFFS_WITH_DATA` (removed 2026-10-18, D49) | 0 / 4 / 0 / 0 | no gain; INIT_THREADS also sets the collapse threads of the fix |
+| `COMM_SHMEM_PX_INIT` (removed 2026-10-19, task 4), `_INIT_THREADS`, `MESH_PAR` (removed 2026-10-19, task 4), `OFFS_WITH_DATA` (removed 2026-10-18, D49) | 0 / 4 / 0 / 0 | no gain; INIT_THREADS also sets the collapse threads of the fix |
 | `MNRUN_MEMPREP_GB`, `ECALC_MEMPREP_ONLY`, `MEM_PRECOMPACT_GB`, `MEM_HSTAGE_THP` | removed 2026-10-19 (task 4) | merged default-off (ead367d), not the fix |
 | `COMM_PHASE_TS` | removed 2026-10-18 (D49) | diagnostic; COMM_TRACE v2 replaces it |
 | `COMM_SHMEM_LAYV_ANY` | removed | no effect over 8 pairs; gates passed |
