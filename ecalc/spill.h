@@ -39,8 +39,8 @@ typedef struct sp_file {
 
 int  sp_odirect(void);                 /* ECALC_ODIRECT=1 (also 1 for ECALC_ODIRECT=auto: the cache-hygiene paths on, O_DIRECT per file below) */
 /* ECALC_ODIRECT=auto -- O_DIRECT chosen per file by the file system under it (statfs f_type): local disks
- * (ext4, xfs, ...) O_DIRECT; NFS O_DIRECT (measured faster, results/OUTPUT_IO.md §IO15; ECALC_ODIRECT_NFS=0: buffered + fsync + DONTNEED); Lustre O_DIRECT (an ASSUMPTION
- * to be measured on the target; ECALC_ODIRECT_LUSTRE=0: buffered); tmpfs buffered (it refuses O_DIRECT; the file is memory).
+ * (ext4, xfs, ...) O_DIRECT; NFS O_DIRECT (measured faster, results/OUTPUT_IO.md §IO15); Lustre O_DIRECT (an ASSUMPTION
+ * to be measured on the target); tmpfs buffered (it refuses O_DIRECT; the file is memory).
  * Without auto, sp_direct_for() is sp_odirect(). */
 enum { SP_FS_LOCAL = 0, SP_FS_NFS, SP_FS_LUSTRE, SP_FS_TMPFS, SP_FS_OTHER };
 int  sp_odirect_auto(void);            /* ECALC_ODIRECT=auto */

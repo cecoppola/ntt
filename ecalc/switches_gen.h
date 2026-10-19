@@ -105,9 +105,6 @@ static const char *const cfg_names[] = {
     "ECALC_NP_AUTO_TERMS",
     "ECALC_NP_MN3",
     "ECALC_ODIRECT",
-    "ECALC_ODIRECT_LUSTRE",
-    "ECALC_ODIRECT_NFS",
-    "ECALC_ODIRECT_OTHER",
     "ECALC_OUT_MODE",
     "ECALC_OUT_ODIRECT",
     "ECALC_OUT_PACKED",
@@ -173,4 +170,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 171
+#define CFG_NAMES_N 168

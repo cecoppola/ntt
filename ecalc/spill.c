@@ -52,13 +52,11 @@ const char *sp_fs_name(int k) { static const char *n[] = { "local", "NFS", "Lust
 int sp_direct_for(const char *path) { return sp_odirect_auto() ? sp_direct_by_fs(path) : sp_odirect(); }
 int sp_direct_by_fs(const char *path)
 {
-    const char *e;
     switch (sp_fs_kind(path)) {
-    case SP_FS_NFS:    e = getenv("ECALC_ODIRECT_NFS");    return e ? atoi(e) : 1;   /* W1 (results/OUTPUT_IO.md §IO15 §3): on aac6's NFS O_DIRECT 0.64-0.96 GB/s vs buffered + fsync 0.36-0.48 (10 GbE), 0.113-0.116 vs 0.098-0.104 (1 GbE) */
-    case SP_FS_LUSTRE: e = getenv("ECALC_ODIRECT_LUSTRE"); return e ? atoi(e) : 1;   /* ASSUMED: large aligned direct writes are Lustre's fast path; measure on the target (TARGET_TASKS T1) */
+    case SP_FS_NFS:    return 1;   /* W1 (results/OUTPUT_IO.md §IO15 §3): on aac6's NFS O_DIRECT 0.64-0.96 GB/s vs buffered + fsync 0.36-0.48 (10 GbE), 0.113-0.116 vs 0.098-0.104 (1 GbE) */
+    case SP_FS_LUSTRE: return 1;   /* ASSUMED: large aligned direct writes are Lustre's fast path; measure on the target (TARGET_TASKS T1) */
     case SP_FS_TMPFS:  return 0;
-    case SP_FS_OTHER:  e = getenv("ECALC_ODIRECT_OTHER");  return e ? atoi(e) : 1;
-    default:           return 1;
+    default:           return 1;   /* local disks and unknown file systems: O_DIRECT (ECALC_ODIRECT=0 turns all of it off) */
     }
 }
 void sp_drop_cache(int fd)

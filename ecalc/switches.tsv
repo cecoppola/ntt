@@ -106,9 +106,6 @@ ECALC_NP_AUTO_MIN	bool	derived	derived	0|1	experiment	-	MPB15.md	Y	ecalc	crt.c	1
 ECALC_NP_AUTO_TERMS	bool	derived	derived	0|1	test-only	-	NP15.md	Y	ecalc	crt.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_NP_MN3	bool	0	derived	0|1	built-in default	-	-	Y	ecalc	crt.c	1	coordinator (D18, results/LAUNCH_DEFAULTS.md §DEF)	2026-11-11	crt.c ec_np_init; =1 the three-prime multi-node path, kept fallback after D18 (results/LAUNCH_DEFAULTS.md §DEF)
 ECALC_ODIRECT	int	1	1		built-in default	-	S114.md+KP15.md	Y	ecalc	spill.c	3	-	-	
-ECALC_ODIRECT_LUSTRE	int	1	1		built-in default	-	IO15.md	prose	ecalc	spill.c	1	-	-	
-ECALC_ODIRECT_NFS	int	1	1		built-in default	-	IO15.md	prose	ecalc	spill.c	1	-	-	
-ECALC_ODIRECT_OTHER	int	1	1		built-in default	-	IO15.md	Y	ecalc	spill.c	1	-	-	
 ECALC_OUT_MODE	bool	derived	derived	0|1	built-in default	-	IO15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_ODIRECT	int	derived	derived		built-in default	-	S114.md+KP15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_PACKED	int	2	2		built-in default	-	KP15.md+IO15.md	Y	ecalc	mn_out.c	1	coordinator (TASKS S)	2026-11-11	
