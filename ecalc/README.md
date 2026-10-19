@@ -167,7 +167,6 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 | `NEWTON_MN_SPLIT` | at size > 1 the reciprocal starts single-node on the top limbs of Q up to this many limbs (65536) |
 | `NEWTON_MN_RECIP_TS` | S30, print only (off): one line per node, `recip ts node N: ...`, with the stages of recip_mn's single-node part (shift, gather, chain, broadcast) and the wall clock (s mod 1000) |
 | `NEWTON_MN_GROUPS` | at size > 1 the reciprocal's early doublings on the smallest subgroup the model prefers (X1); 0 = the full group (1) |
-| `NEWTON_MN_BW`, `NEWTON_MN_LAT`, `NEWTON_MN_FIXED`, `NEWTON_MN_SHARE` | that model's constants: GB/s per APU, seconds per message, seconds per exchange, the APU sharing (100, 2 µs, 0, auto) |
 | `NEWTON_VERBOSE` | *debug*: the per-iteration trace with RSS (0) |
 
 **Node-processes (`COMM_`, `MN_`)**

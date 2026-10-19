@@ -140,12 +140,8 @@ MN_WAIT_STATS	bool	0	unset	0|1	launch-line	-	S27.md+S22.md	Y	ecalc	comm_util.c	1
 NEWTON_CHAIN_GUARD	int	1	1	0|1	built-in default	-	-	Y	ecalc	newton_db.c	1	coordinator (D25, results/DIVISION.md §RECIP)	2026-11-11	newton_db.c newton_chain_guard; default 1 since D25, =0 kept fallback (RECIP, results/DIVISION.md §RECIP); dm_layout and mem_model.py follow it
 NEWTON_DKM_TEST_HI	int	0	0		test-only	-	DKM15.md+EW15.md	prose	ecalc	newton_db.c	1	diagnostics (TESTING.md)	2027-04-12	
 NEWTON_DOUBLING_TS	int	0	0		test-only	-	S22.md+S21.md	Y	ecalc	newton_db.c	2	diagnostics (TESTING.md)	2027-04-12	
-NEWTON_MN_BW	float	unset	unset		built-in default	-	X.md+Q.md	Y	ecalc	newton_db.c	2	-	-	
-NEWTON_MN_FIXED	float	unset	unset		built-in default	-	X.md	Y	ecalc	newton_db.c	2	-	-	
 NEWTON_MN_GROUPS	int	1	1		built-in default	-	X.md+G13d.md	Y	ecalc	newton_db.c	2	-	-	
-NEWTON_MN_LAT	float	unset	unset		built-in default	-	X.md	Y	ecalc	newton_db.c	2	-	-	
 NEWTON_MN_RECIP_TS	int	0	0		test-only	-	S30.md	Y	ecalc	newton_db.c	2	diagnostics (TESTING.md)	2027-04-12	
-NEWTON_MN_SHARE	float	unset	unset		built-in default	-	-	Y	ecalc	newton_db.c	2	-	-	
 NEWTON_MN_SPLIT	int	derived	derived		built-in default	-	A37CMP.md+A-div.md	Y	ecalc	newton_db.c	2	-	-	
 NEWTON_RECIP_GUARD	bool	unset	unset	0|1	built-in default	-	R114.md	Y	ecalc	newton_db.c	1	-	-	
 NEWTON_VERBOSE	int	0	0		test-only	-	L114.md+L13d.md	Y	ecalc	newton_db.c	6	diagnostics (TESTING.md)	2027-04-12	

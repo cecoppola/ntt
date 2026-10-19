@@ -139,12 +139,8 @@ static const char *const cfg_names[] = {
     "NEWTON_CHAIN_GUARD",
     "NEWTON_DKM_TEST_HI",
     "NEWTON_DOUBLING_TS",
-    "NEWTON_MN_BW",
-    "NEWTON_MN_FIXED",
     "NEWTON_MN_GROUPS",
-    "NEWTON_MN_LAT",
     "NEWTON_MN_RECIP_TS",
-    "NEWTON_MN_SHARE",
     "NEWTON_MN_SPLIT",
     "NEWTON_RECIP_GUARD",
     "NEWTON_VERBOSE",
@@ -170,4 +166,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 168
+#define CFG_NAMES_N 164
