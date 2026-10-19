@@ -162,7 +162,7 @@ inventory, read by tools), `DESIGN_TABLE.md` (generated), `SHMEM.md` and `SHMEM_
 | S13d | SHMEM across real nodes (TASKS 1.5), Phase 13d agent S (2026-09-23) | TARGET.md |
 | S16 | the intermittent startup segfault of ecalc under Cray OpenSHMEMX on aac7 (Phase 16 S) | CRASHES_HANGS.md |
 | S18KIT | `ecalc/target_kit.sh`: one script for the next target session (branch `s18-kit`) | TOOLS_PROFILES.md |
-| S18KITFIX | three bugs in `ecalc/target_kit.sh`, found in the aac7 rehearsal (`~/s18ab3`), fixed and verified for real | TOOLS_PROFILES.md |
+| S18KITFIX | three bugs in `ecalc/target_kit.sh`, found in the aac7 rehearsal (`<cluster work dir>/s18ab3`), fixed and verified for real | TOOLS_PROFILES.md |
 | S18M | AAC7 profile calibration against the 2026-10-06/07 10-node comm_ofi runs (branch `s18-m`) | TOOLS_PROFILES.md |
 | S18W | `tools/rundriver.sh` and `ECALC_SEGV_TRACE` (branch `s18-w` off `main` ef22f22) | CRASHES_HANGS.md |
 | S19B | profile analysis of S19A (2 → 10 nodes) and the S19C switch A/B, with a 576-node projection | TIME_MODEL.md |

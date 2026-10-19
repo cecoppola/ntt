@@ -96,7 +96,7 @@ Stage times in s, mean of 2 (m); weak-scaling efficiency T1/Tn, same definition 
 - A: `COMM_OFI=0` at 6 nodes (above). B: large run timeout, slow file system (resolved by DAY §1). C: target memory edge, decision D26.
 - Verdict: 132 of 134 runs passed (sweep 60/60, fallback 17/18, scaling 8/8, repeat 47/47, large 0/1); the two non-passing are A and B. 6 nodes at 3.8646 × 10¹¹: 202.1 s mean, 8.6 s sd over 47 runs (m).
 - Open: bug A; recheck of the written large run; sweep never reached 10¹¹ digits (largest 6.87 × 10¹⁰); `memsample.c` findings (triaged in STAT).
-- Items on aac7: `~/night/night{1_sweep,2_fallback,3_large,4_scaling,5_repeat}/` (summary.txt, DONE markers).
+- Items on aac7: `<cluster work dir>/night/night{1_sweep,2_fallback,3_large,4_scaling,5_repeat}/` (summary.txt, DONE markers).
 
 ## NIGHT2 — overnight regression on main 1aa2b80 (2026-10-14)
 

@@ -144,7 +144,7 @@ Totals (m): 42 switches + 1 value removed, 1 default changed; about 1800 lines r
 
 **Notes.**
 - **Push leak guard false positive (A2).** The push hook rejects diffs whose lines contain a C token it reads as a domain name; `out_stage` has such lines, so the stand-in scatter branch stayed until SHR2 D16 removed it.
-- **Shared mnaccept directory.** `aac7env.sh` defaulted `MNACCEPT_TMP` to one shared directory; concurrent items deleted each other's digit files ("Stale file handle", "cannot open part"; items 46, 47). Passed with a private directory (`MNACCEPT_TMP=~/<item>/mnaccept_tmp`, items 50, 52). Every item running mnaccept sets its own.
+- **Shared mnaccept directory.** `aac7env.sh` defaulted `MNACCEPT_TMP` to one shared directory; concurrent items deleted each other's digit files ("Stale file handle", "cannot open part"; items 46, 47). Passed with a private directory (`MNACCEPT_TMP=<cluster work dir>/<item>/mnaccept_tmp`, items 50, 52). Every item running mnaccept sets its own.
 - **t_patch under the 60-bit default (D5).** `packed_part_check` read 8 bytes per limb: 2399 false failures under `=2`; fixed in d12ac2c, the writer and patch were correct (`corr`, `recheck` passed).
 - **Not changed.** `mn_model.py PACKED_BPD` still prices the 64-bit form (the 60-bit form is 6.25 % fewer bytes). A5: plain `t_newton` now runs the device sections (1098 checks instead of 620).
 

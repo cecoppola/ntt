@@ -1,4 +1,4 @@
-# agent B's t_strategy output (Phase 13b, ~/b13b/b1.out on aac6: job 21047, aac6-spx-b, p13b-B @ d5615ad5, decimal limbs, P = 3, NTT_MODMUL=1 (step 0)); strat=4 is B4, strat=L<form> the library's RNS_STRATEGY forms; read by mn_model.e0_table after results/S13_e0.txt (later lines win; the library's forms win over the test's)
+# agent B's t_strategy output (Phase 13b, <cluster work dir>/b13b/b1.out on aac6: job 21047, aac6-spx-b, p13b-B @ d5615ad5, decimal limbs, P = 3, NTT_MODMUL=1 (step 0)); strat=4 is B4, strat=L<form> the library's RNS_STRATEGY forms; read by mn_model.e0_table after results/S13_e0.txt (later lines win; the library's forms win over the test's)
 [08:20:32] job 21047
 [08:20:42] running on aac6-spx-b commit d5615ad5
 STRAT logn=22 P=3 strat=LC wall_med=0.0132 min=0.0120 max=0.0135 reps=3 | load 0.0003 ntt 0.0115 crt 0.0002 merge 0.0005 | extra_dev_GiB/APU=0.00 (pools 0.02 + 0.03)

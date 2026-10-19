@@ -43,7 +43,7 @@ One node (any ROCm system with GMP):
 Multi-node (Cray OpenSHMEMX, GMP built from source); the build log must show `-DCOMM_SHMEM`:
 
     cd ecalc && source aac7env.sh && module load cray-dsmml cray-openshmemx
-    make -B SHMEM_CRAY=1 GMP_HOME=~/gmp
+    make -B SHMEM_CRAY=1 GMP_HOME=<path to GMP>
 
 ## Run
 
