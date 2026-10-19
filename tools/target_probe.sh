@@ -85,13 +85,16 @@ kv BUDDY_FRAG_SCORE "$(awk '{lo=0;hi=0;for(i=5;i<=NF;i++){p=$i*2^(i-5); if(i-5<9
 kv BUDDY_FREE_GE2M_MB "$(awk '{h=0;for(i=14;i<=NF;i++)h+=$i*2^(i-5)*4/1024; printf "%s%s:%d ",$2,$4,h}' /proc/buddyinfo 2>/dev/null)"
 kv KFD_PRESENT "$([ -d /sys/class/kfd/kfd/proc ] && echo "yes (per-process evicted_ms under /sys/class/kfd/kfd/proc/<pid>/stats_<gpu>/ while a job runs)" || echo no)"
 # MADV_COLLAPSE (25) on a 2 MiB aligned anonymous mapping: EINVAL = kernel without it (needs >= 6.1 or a backport); COMM_SHMEM_NP_HEAP_THP / PX_THP print a failure line then
-kv MADV_COLLAPSE "$(python3 -I -c 'import mmap,sys
-try:
-    m=mmap.mmap(-1,8<<20)
-    for i in range(0,8<<20,4096): m[i]=1
-    m.madvise(25); print("works")
-except OSError as e: print("errno=%d %s (22 = unsupported)"%(e.errno,e.strerror))
-except Exception as e: print("untested: %s"%e)' 2>&1 | head -1)"
+kv MADV_COLLAPSE "$(python3 -I -c 'import mmap
+e=None
+for k in range(3):
+    try:
+        m=mmap.mmap(-1,16<<20)
+        for i in range(0,16<<20,4096): m[i]=1
+        m.madvise(25); print("works"); break
+    except OSError as x: e=x
+    except Exception as x: print("untested: %s"%x); break
+else: print("errno=%d %s x3 (22 = unsupported)"%(e.errno,e.strerror))' 2>&1 | head -1)"
 kv ULIMIT_MEMLOCK "$(ulimit -l)"; kv ULIMIT_NOFILE "$(ulimit -n)"
 # userfaultfd (libfabric's uffd MR cache monitor): the syscall must work for an unprivileged process
 kv UFFD_UNPRIV_SYSCTL "$(cat /proc/sys/vm/unprivileged_userfaultfd 2>/dev/null)"
