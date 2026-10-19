@@ -448,3 +448,11 @@ check the printed line, and compare stall counts and the heap's `Shared_Hugetlb`
 | 97k-97n | HB_MEM and smaps capture: root cause |
 | 97o-97p, 97s-97t | fragres gates and A/B, forced reserve with and without the fix |
 | 97q-97r, 97v, 97w | NP_HEAP_THP gates, A/B (3 nodes, 2 nodes), merge gates |
+
+## 12. Final conclusion (2026-10-19)
+
+- **Stalls: solved.** The stalls came from compaction retrying the 4 KiB pinned node-process heap; `COMM_SHMEM_NP_HEAP_THP=1` (default) removed them. At 6 nodes after the fix there are no stalls: the run-to-run standard deviation is at most 5.8 s (m), against 50 s before. This closes the open question of section 6.3 and item 1 of section 10.
+- **Residual GPU-queue evictions: low priority.** Real eviction time is about 1 s per node-process per run (0.86 s SHMEM, 1.21 s libfabric, mostly in the first 30 s) with no measurable wall-clock cost; `MEM_HSTAGE_COLLAPSE` did not change it. Look at them again only if a target trace shows seconds of eviction time.
+- **What is left is not a stall.** The remaining distance to libfabric is the exchange gap that grows with the off-node peers (about +7 % at 4 nodes, +9 % at 6 nodes with the PX3 default; results/SHMEM.md); it is waiting on the per-peer chain, not memory behaviour.
+- **Defaults after this work** (table 11.1): `NP_HEAP_THP=1`, `PX_THP=1`, `PE_PER_APU=1` for multi-node `COMM_OFI=0`, `PX_SEND` unset = 3 under `PE_PER_APU=1` (D53, `=1` fallback). PX_SEND=4, shift and other chunk sizes were tested and not adopted.
+- **Target:** hugetlb and cray-shmem 12.1 are the open items (TASKS 29-32).

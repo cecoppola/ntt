@@ -170,3 +170,12 @@ Checklist for the first SHMEM run (after steps 0-9; 2 nodes, `1e10` digits or la
 4. Stalls present: follow 8.4 there (per-second `/proc/vmstat` deltas on the late node, kcompactd ticks, score above 90, KFD `evicted_ms`), then try in this order: hugetlb heap if a pool exists; `compaction_proactiveness=0` per job (A/B with an A/A control, at least 4 ABBA pairs); a prolog that compacts and drops caches.
 5. Measure the stall rate per node-hour on a short run before assuming it is zero: at 576 nodes one frozen node costs everyone (section 6.4 there).
 6. Compare SHMEM against libfabric (`COMM_TRANSPORT`), same digits and nodes, A/A first; the first launch keeps the long timeout of step 8.
+
+### SHMEM settings to use on the target
+
+All SHMEM defaults are on in the code; start with none of them on the launch line:
+
+- `COMM_SHMEM_NP_HEAP_THP=1` and `COMM_SHMEM_PX_THP=1` (2 MiB heaps, the stall fix), `COMM_SHMEM_PE_PER_APU=1` (multi-node `COMM_OFI=0`), and `COMM_SHMEM_PX_SEND` unset, which means 3 (PX3, chunked puts, one fence and one signal word per command) when the library is OpenSHMEM 1.5 and `PE_PER_APU=1` (D53).
+- Fallback: `COMM_SHMEM_PX_SEND=1` if the cray-shmem 12.1 build rejects the chunked puts or the signal word, or is slower in a paired test.
+- Do not set `PX_SEND=4`, a peer order of shift or other chunk sizes: they gave no gain on aac7 (4 n 149.2 s with `PX_SEND=4` and shift, but +9.0 s at 6 n).
+- Measure first, in this order: (1) the collapse lines and the stall checklist above (hugetlb pool present: `COMM_SHMEM_HUGETLB=1` against off, 4 nodes); (2) SHMEM against libfabric at 2, 4 and 8 nodes with the same digits per node, to see whether the aac7 gap (parity at 1 peer, about +7 % at 3, about +9 % at 5) grows with the peers on the target fabric; (3) the same with `PX_SEND=1` as a control.
