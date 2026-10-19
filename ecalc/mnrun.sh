@@ -61,7 +61,7 @@ fi
 [ -n "${MNRUN_NODELIST:-}" ] && nodes=$(echo "$MNRUN_NODELIST" | tr , "\n")   # s29: run on exactly these nodes of the allocation (unset: all, in squeue order)
 # S35 wrap-up: MNRUN_EXCLUDE_HOSTS="h1,h2" (default empty = off) names slow hosts (aac7: aac7-n01, a ~20 s host->device upload stall, results/S31.md).
 # If one is in the node list: default MNRUN_EXCLUDE_MODE=warn warns on stderr and changes nothing; MNRUN_EXCLUDE_MODE=drop removes it (the run then uses the remaining nodes;
-# ranks shift, so it needs >= the nodes asked for, else fewer nodes are used as with MNRUN_NODES).  Shared with tools/rundriver.sh rd_exclude_hosts.
+# ranks shift, so it needs >= the nodes asked for, else fewer nodes are used as with MNRUN_NODES).
 if [ -n "${MNRUN_EXCLUDE_HOSTS:-}" ]; then
     __hit=$(echo "$nodes" | grep -Fxf <(echo "$MNRUN_EXCLUDE_HOSTS" | tr , "\n") || true)
     if [ -n "$__hit" ]; then

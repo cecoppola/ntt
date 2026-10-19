@@ -578,14 +578,6 @@ def code_cap(digits, pool_log=31):
     """the plane cap the code picks by itself: RNS_PLANES_3Q30's size rule (3 2^30 below 5e10 digits of the run at POOL_LOG 31)"""
     return (3 << (pool_log - 1)) if planes_3q30(pool_log, digits) else (1 << pool_log)
 
-def plane_bytes_apu(strategy, n, np=EC_NP):
-    """the plane bytes per APU a product of n points needs (results/S13.md, t_strategy measured at P = 4 and 3):
-    C four-step (np + 3) n/4 x 8 (14 n at P = 4, 12 n at P = 3); B prime-per-APU 2 n x 8 = 16 n on each busy APU; B4 (B's
-    3 P planes spread over the four APUs) 1.5 n x 8 = 12 n"""
-    if strategy == 'B': return 16 * n
-    if strategy == 'B4': return 12 * n
-    return (np + 3) * n * 2
-
 def pool_limbs(pool_log=31, p3q30=False, np=EC_NP, pool1_np=None):
     """(pool 0, pool 1) per APU in limbs: rns_plane_pool_bytes (agent P's one formula), 2 MiB-aligned.  Phase 15 PS: pool1_np = the
     one-node tiers' prime count (default np; 3 under ECALC_NP=auto): at four, pool 1 >= 4 q (the batch-local tier's B planes)"""
