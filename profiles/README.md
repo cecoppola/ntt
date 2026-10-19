@@ -144,4 +144,29 @@ Key table (every `__FILL__` of the template):
 | `MNRUN_EXCLUDE_HOSTS` | step 6 | empty at the start; the screen's `EXCLUDE` later |
 
 Slurm limits (probe `QOS=`, `ASSOC=`, `CFG_*`): read the per-user node limit (`node=` in `MaxTRESPU`) against the 576-node job before any large submission; a pending job above the limit never starts (aac7: 6 nodes).
-Huge pages (probe `THP_*`, `SHM_MOUNT` = `/dev/shm` options): `huge=` on `/dev/shm` or `THP_shmem_enabled` other than never changes how the proxy heap file is backed; record it, test the 2-node gate with it, do not change the site setting.
+Huge pages and kernel memory: see "First SHMEM run on the target" below (it replaces the former one-line note; `/dev/shm` `huge=` still changes how the proxy heap file is backed, so keep the probe's `SHM_MOUNT` line).
+
+## First SHMEM run on the target
+
+Background and evidence: `results/SHMEM_STALLS.md` (cause of the aac7 stalls: sections 4-5; target implications: section 9; hugetlb switch: 9.1 on branch `hugetlb`;
+healthy values 8.3; stall checklist 8.4). The SHMEM transport depends on three things outside ecalc: kernel memory settings, the GPU driver's queue eviction
+when the kernel moves pages, and the NIC count per node. The probe (node phase, `--hold`) reads them; none is changed by it.
+
+| probe fact | meaning | switch choice |
+|---|---|---|
+| `KERNEL`, `KERNEL_GE_6_1`, `MADV_COLLAPSE` | `works` needs kernel >= 6.1 or a backport (the probe tests it on an anonymous mapping) | `works`: `COMM_SHMEM_NP_HEAP_THP=1` and `COMM_SHMEM_PX_THP=1` (code defaults) collapse the heaps to 2 MiB pages, the fix of the aac7 stalls. `errno=22` on an idle node (with `KERNEL_GE_6_1=no`, or the same on a repeat): unsupported; on a busy host it can also mean no free 2 MiB block. The run prints a collapse failure line and keeps 4 KiB heap pages, which are the pages compaction migrates (the stall cause): then use the hugetlb heap if a pool exists, else expect stalls and ask the site for a backport or `compaction_proactiveness=0` |
+| `HUGETLB_2M_FREE`, `_NR`, `_PER_NUMA`, `_OVERCOMMIT` | the 2 MiB pool; per NUMA node `free/total` | pool present: reserve about heap size / 2 MiB per node-process (plus the library's own needs) and A/B `COMM_SHMEM_HUGETLB=1` (node-process heap only; the proxy helper heaps stay `/dev/shm` files + `PX_THP`). No pool (aac7: 0, overcommit 0): the switch prints needed and free pages and falls back to `NP_HEAP_THP`; reserve at boot or in a job prolog, before memory fragments |
+| `THP_enabled`, `THP_defrag`, `THP_shmem_enabled`, `THP_khugepaged_defrag` | aac7: `always`/`madvise`/`never`; AMD's MI300A guidance wants THP `always` for unified memory | `enabled=never` makes MADV_COLLAPSE fail: stop and ask the site. `shmem_enabled` other than `never` or a `huge=` on `/dev/shm` changes how the proxy heap file is backed: record it, re-run the 2-node gate |
+| `KERNEL_MM_COMPACTION_PROACTIVENESS`, `_COMPACT_UNEVICTABLE_ALLOWED` | aac7 and AMD's guide: 20 and 1 | keep both for the first run. `0` is an A/B per job (stalls, KFD `evicted_ms`, GPU allocation time at start-up), not a default; only if stalls show up in the checklist below |
+| `BUDDY_FRAG_SCORE`, `BUDDY_FREE_GE2M_MB` | per NUMA node and zone: share of free memory in blocks below 2 MiB (above 90 starts a proactive kcompactd pass); free MiB in blocks of 2 MiB or more | an idle node should be low (aac7 clean runs 1-17; start-up itself pushes node 0 of the first node to 91-99). A high score before the job: compact or drop caches in a prolog |
+| `CXI_DEV_COUNT`, `FI_CXI_DOMAINS` | NICs per node (8 on the target, 4 on aac7) | `SHMEM_OFI_NUM_NICS` defaults to 1: set it to the NIC count with a NUMA or user mapping (the launcher caps it; the library aborts when asked for more NICs than exist). Steps 3, 6, 9 |
+| `KFD_PRESENT` | the GPU driver's per-process statistics exist | needed for the `evicted_ms` column below |
+
+Checklist for the first SHMEM run (after steps 0-9; 2 nodes, `1e10` digits or larger, then 4 nodes), adding to the launch line:
+
+1. `COMM_TRACE_HB=1 COMM_TRACE_HB_MEM=1` (heartbeat of 1 ms; per-zone buddyinfo and fragmentation score, kcompactd and khugepaged CPU ticks, KFD `evicted_ms`). Optional: `COMM_TRACE_HB_GAP_MS=20` (default), `COMM_TRACE=1` for the message trace (about 1 GB per 6 nodes at the full size unsampled; `COMM_TRACE_SAMPLE`), `COMM_TRACE_HB_PX=1` for the proxies.
+2. Read the log: the node-process heap line (`heap ... MiB PMD-mapped after`): PMD-mapped equal to the heap size (or `Shared_Hugetlb` with the hugetlb switch), collapse about 2 s; no collapse failure line from either heap. A shortfall means 4 KiB pages are left: see the `MADV_COLLAPSE` row.
+3. `tools/trace_report.py` on the trace dir (section 8a: storm seconds with the fragmentation and KFD columns; 8b: threads and watchdog). Healthy: no storm seconds, kcompactd ticks near 0, KFD `evicted_ms` small and not rising by seconds across a pass, fragmentation score of node 0 of the first node high only after start-up. Reference values: `results/SHMEM_STALLS.md` 8.3.
+4. Stalls present: follow 8.4 there (per-second `/proc/vmstat` deltas on the late node, kcompactd ticks, score above 90, KFD `evicted_ms`), then try in this order: hugetlb heap if a pool exists; `compaction_proactiveness=0` per job (A/B with an A/A control, at least 4 ABBA pairs); a prolog that compacts and drops caches.
+5. Measure the stall rate per node-hour on a short run before assuming it is zero: at 576 nodes one frozen node costs everyone (section 6.4 there).
+6. Compare SHMEM against libfabric (`COMM_TRANSPORT`), same digits and nodes, A/A first; the first launch keeps the long timeout of step 8.

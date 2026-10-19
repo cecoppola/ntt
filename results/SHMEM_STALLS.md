@@ -371,6 +371,15 @@ but cannot show layv, the 5-6 node step, or node-0 compaction of a job's first n
   the two-stage wins 8 times when message-rate-bound, ties when the global links are at most half loaded, and loses 1.9 times if bandwidth-bound with full taper (mod; design notes only).
 - **Stall exposure.** Section 6.4: at 576 nodes a single-node freeze of seconds costs everyone. After the fix the first step on the target is to measure the stall rate per node-hour with the heartbeat and HB_MEM on a short run, before assuming it is zero.
 
+### 9.1 hugetlb option for the target
+
+`COMM_SHMEM_HUGETLB=1` (off by default, owner L5, review at the target session 2027-03-31) maps the node-process's symmetric heap from the 2 MiB hugetlb pool
+instead of shared `/dev/zero` pages, so compaction cannot touch it at all (THP pages can still be split or migrated in principle). Scope: the node-process heap only.
+The proxy helper heaps stay `/dev/shm` files with `COMM_SHMEM_PX_THP`: the helpers and the node-process share them by path, and a hugetlb version would need
+hugetlbfs files or fd passing (not done). Without a pool (aac7) the mapping fails with ENOMEM, the run prints the needed and free page counts and falls back to the
+`COMM_SHMEM_NP_HEAP_THP` path. Not measured: aac7 cannot run it. On the target: reserve about heap size / 2 MiB pages per node-process (plus the library's own needs),
+check the printed line, and compare stall counts and the heap's `Shared_Hugetlb` in the `heap ... MiB PMD-mapped after` line (it reports hugetlb MiB then).
+
 ## 10. Open questions and next steps
 
 1. **Re-run 6 nodes** at 9.6e10 and 3.8646e11 with the fix as default, SHMEM against libfabric, mirrored, A/A, with HB and HB_MEM on. Expected: stalls gone, residual gap a few percent. If 5-6 node stalls persist, the same method (counters, smaps) applies.
