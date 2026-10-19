@@ -55,3 +55,4 @@ COMM_TRACE_MAX_MB	256	int	MiB		comm_trace.h:98; a proxy gets a quarter, at least
 COMM_TRACE_SAMPLE	1	int	N		comm_trace.h:96; 1 traces every exchange
 COMM_TRACE_CLOCK_N	50	int	N		comm_trace.h:97
 COMM_TRACE_WD_MS	0	int	ms		comm_trace.h:106; 0 = no watchdog
+COMM_SHMEM_PX_SEND	auto: 3	int	1|3	built-in default	comm_shmem.c; D53 (user 2026-10-19): unset = 3 (PX3) under PE_PER_APU=1 with an OpenSHMEM 1.5 build, else 1; an explicit value keeps its checks

@@ -57,7 +57,7 @@ runs wait on peers, they do not compute more.
 | `COMM_SHMEM_POOL_MB=6144` (symmetric pool 6144 MiB vs the default) | item 78 (pool2, 2 n, 2 pairs): +18.6 s [-93, +130] (pairs +9.8, +27.4); init 46-61 vs 37-39 s (m) | not adopted | default |
 | `COMM_SHMEM_PX_WORKERS=<n>` (n worker threads per proxy, each on a private SHMEM context; branch pxpeer, unmerged) | gates PASS on adb1343 (item 87: 1 and 2 n with 8, 2 n off). t_comm 4 n (item 72c): per-proxy busy rate 22.6 vs 18.5 GB/s/NIC, node throughput W/D 1.00-1.05, W/L 0.71-0.78 (m) | not adopted: raises the proxy rate, not the node throughput | 0 |
 | `COMM_SHMEM_PX_SEND=2` + `COMM_SHMEM_PEER_ORDER=shift` (SS) | t_comm 4 n: SS/L 1.00-1.05 (item 72b). ecalc 4 n (item 72d, 4 pairs): SS − D −52.8 s [-158, +52], faster 4/4, nodes stall-heavy (D up to 280 s) (m) | candidate; mpss4 (72j, 4 n, memprep both arms): SM − DM +11.5 s [−50, +73]; mpss4b (72l) −56.3 and mpss4c (72p) −15.6 s per 4-pair set (12 pairs in all); SM saves 4-7 s of dm only (m) | not adopted: no separation from the noise | 0 / 0 |
-| `COMM_SHMEM_PX_SEND=3` (PX3: plain `shmem_ctx_putmem_nbi` chunks on a context per peer node, one fence + signal word per command; branch pxgap, merged ead367d) | gates PASS at 1 and 2 n (72q pxgate3, 75c). t_comm 4 n, 64 MiB exchange (72o tcomm4fix, T64 = PX3 + shift + BLOCK_MB=64): T64 17.46 ms vs libfabric 18.38 vs D 19.85 (m). ecalc 4 n (72r pxgap4, TM = PX3 + memprep): TM − DM −21.5 s [−94, +51]. ecalc 2 n (75c, T6 = PX3 + shift + BLOCK_MB=64 + memprep, 4 pairs): T6 − DM +24.1 s [−34.3, +82.5], clean pairs (2) +0.1 s; the two slow-mode pairs hit either arm (m) | candidate; 4 n statistics running (75a, 75b, 75d) | 0 |
+| `COMM_SHMEM_PX_SEND=3` (PX3: plain `shmem_ctx_putmem_nbi` chunks on a context per peer node, one fence + signal word per command; branch pxgap, merged ead367d) | gates PASS at 1 and 2 n (72q pxgate3, 75c). t_comm 4 n, 64 MiB exchange (72o tcomm4fix, T64 = PX3 + shift + BLOCK_MB=64): T64 17.46 ms vs libfabric 18.38 vs D 19.85 (m). ecalc 4 n (72r pxgap4, TM = PX3 + memprep): TM − DM −21.5 s [−94, +51]. ecalc 2 n (75c, T6 = PX3 + shift + BLOCK_MB=64 + memprep, 4 pairs): T6 − DM +24.1 s [−34.3, +82.5], clean pairs (2) +0.1 s; the two slow-mode pairs hit either arm (m) | default since D53 (user 2026-10-19), see "PX3 as the default" below | 0 |
 | `MEM_HSTAGE_THP=0` + `MEM_PRECOMPACT_GB` (host staging without huge pages; in-process precompaction; branch fragfix, merged ead367d) | item 72g (2 n, a99feb5): gates PASS; after the fragmenter F 504 vs FX 308 s, init still about 165 s (m) | partial; see "Phase B results"; removed 2026-10-19 (task 4) | 0 |
 | `MEM_DEV_COMPACT` (per-allocation compaction of device arenas; branch fragfix2, 2a6e867, unmerged) | item 73d (fix2g2, 2 n): after the fragmenter FY 1220 s and one run killed at the 1800 s limit, against F 244 / 306 s; on a node with 0-90 free 2 MiB blocks each populate takes 25-869 s with no huge pages. Item 73e (fix2c2, clean nodes): DY − D −3.0 s (m) | dropped (the compaction cannot create blocks on an exhausted node); branch deleted | — |
 | `ECALC_MEMPREP_ONLY=1` + `MNRUN_MEMPREP_GB` (memory preparation as a separate step per node before the launch; branch fragfix, merged ead367d) | items 72i, 72h, 72n: see "Phase B results" | partial; design confirmed by the allocation bench (item 73c); removed 2026-10-19 (task 4) | 0 |
@@ -271,14 +271,30 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
   transpose, and the intra receive buffer shares the inter receive region until the transpose; publishing earlier needs a
   separate buffer (+A per slot per APU thread of device memory).
 
+## PX3 as the default (D53, user 2026-10-19; items 98v, 99b, 98r; m)
+
+- **Rule.** `COMM_SHMEM_PX_SEND` unset = 3 (PX3) under `COMM_SHMEM_PE_PER_APU=1` with an OpenSHMEM 1.5 build, else 1; an explicit
+  value keeps its checks. `COMM_SHMEM_PX_SEND=1` is the fallback.
+- **4 n** (2.5764e11 digits, item 98v, n 3 each): PX3 162.0 s against `PX_SEND=1` 169.1 s; DT 161.6 s (98r).
+- **6 n** (3.8646e11, build d1a1f277, items 99b + 99g pooled): PX3 against `PX_SEND=1` in 7 pairs, every pair faster, mean
+  -5.9 s (-2.8 %), 95 % CI [-9.4, -2.4]; per item PX3 205.7 / 208.1 s against 213.1 / 212.8 s; libfabric 190.0 / 190.7 s
+  (99g: 181.5-184.1 s after a slow first run). The rule of D53 (CI excluding 0, digits identical) is met.
+- **Tried and not adopted** (4 n 2.5764e11 sweep 99c, n 2 each, and 6 n): chunk size (1, 4, 16, 64 MiB) and
+  `COMM_SHMEM_PEER_ORDER=shift` change PX3 by less than the spread (P3 161.4, 1 MiB 164.3, shift 164.1 s at 4 n; 64 MiB +
+  shift (DT) 215.1 s at 6 n, worse than `PX_SEND=1`). `PX_SEND=4` (put-with-signal on the last put, branch pxsig, archived):
+  6 n 246.6 s (99b); with shift 149.2 s at 4 n (libfabric level) but 221.9 s at 6 n, +9.0 s against `PX_SEND=1`, CI [+5.0,
+  +13.1] (99g): whole puts with one-to-one pairing help at 3 peers and hurt at 5.
+- **Remaining gap** at 6 n: PX3 against libfabric about +9 % (208 against 190 s); see "Six-node confirmation and the gap
+  against the off-node peers" above.
+
 ## Open questions and next experiments
 
 - Stalls (cause and fix recorded above): kernel proactive compaction on a 4 KiB pinned node-process heap evicted the GPU
   queues; `COMM_SHMEM_NP_HEAP_THP=1` (default, D48) removes it. Open:
-  1. 6-node full-size confirmation of SHMEM with the fix against libfabric 184.5 s (TASKS Proposed).
+  1. Done: 6-node confirmation (items 98f, 99b, 99g; no stalls).
   2. Hugetlb backing for the proxy and node-process heaps: switch `COMM_SHMEM_HUGETLB` merged, default off; the 4-node
      paired test is open (the target has hugetlb); it would also remove the residual evictions below.
-  3. The remaining gap: 3-6 % at 3 n, +2.2 % (DT) and +0.7 % (DTIX) at 4 n (section above).
+  3. The remaining gap grows with the off-node peers (sections above); with PX3 about +7 % at 4 n and +9 % at 6 n.
   4. Residual GPU-queue evictions from successful compaction on NUMA node 0 of the job's first node (1.4-12 s summed per
      run, m).
 - Problem B (steady gap): PX3 statistics at 4 n were running (items 75a, 75b, 75d). SS is not confirmed (12 pairs, no
