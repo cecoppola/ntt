@@ -60,6 +60,7 @@ static const char *const cfg_names[] = {
     "COMM_TRACE_DIR",
     "COMM_TRACE_HB",
     "COMM_TRACE_HB_GAP_MS",
+    "COMM_TRACE_HB_MEM",
     "COMM_TRACE_HB_PX",
     "COMM_TRACE_MAX_MB",
     "COMM_TRACE_PH",
@@ -183,4 +184,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 181
+#define CFG_NAMES_N 182

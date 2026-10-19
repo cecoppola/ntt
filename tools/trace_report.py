@@ -20,6 +20,7 @@ plus compact per-message tables (capped at --max-msgs, uniformly thinned beyond)
   7 time       whether slow exchanges / messages cluster in time (a node stalling) or are spread: per-bin counts, Fano factor, persistence, worst bins
   8 stalls     (COMM_TRACE_HB) the heartbeat gaps of every node (node-process and proxy threads), the OS counters that moved at each gap (vmstat compaction / THP / faults / swap,
                pressure, the thread's context switches) and the late exchanges of that node at that time; the skew-ranked exchanges against the heartbeat of their late node
+  8a           (COMM_TRACE_HB_MEM) per node, the seconds with pgmigrate_fail > 20000/s with fragmentation score, MemFree, Dirty+Writeback, kcompactd ticks and KFD evicted_ms around them
   8b           (COMM_TRACE_PH, _THR, _WD_MS) the progress-watchdog firings and the slowest exchanges' late nodes: the phase tag of every thread of the node-process at the onset (ecalc/comm_phase.h),
                the thread snapshot (state, wchan, run_delay, CPU) and the heartbeat state (alive / gaps)
 A communicator is identified by (id, the node of each rank): ids repeat across disjoint node groups (layeq pairs), shown as id@nodes.
@@ -742,6 +743,44 @@ def section_stall_phases(run, acc, L, hbs):
             L.append("         snapshot of the first firing: %s" % fmt_thr(h, wd[0][2]))
 
 
+def section_storms(run, L, hbs, thresh=20000, maxn=40):
+    """8a (COMM_TRACE_HB_MEM=1): per node, the seconds where pgmigrate_fail exceeds `thresh` per second (a compaction storm), with the second before and after:
+    fragmentation score per NUMA node (Normal zone: 100 * free pages in blocks < 2 MiB / free pages), MemFree, Dirty+Writeback, kcompactd / khugepaged CPU ticks and KFD evicted_ms moved in the interval"""
+    L.append("8a compaction storms (pgmigrate_fail > %d/s per node, periodic snapshots; COMM_TRACE_HB_MEM=1 adds frag, MemFree, Dirty+Writeback, kcompactd ticks, KFD evicted_ms):" % thresh)
+    t0 = run.t_first; shown = 0; found = 0; mem = False
+    for h in sorted(hbs, key=lambda x: x["node"]):
+        if h["proc"] != "np":
+            continue
+        sn = sorted([v for v in h["snaps"].values() if v[1] == 1], key=lambda v: v[0])
+        mem = mem or any("kfd_present" in v[2] or any(k.startswith("mi_") for k in v[2]) for v in sn[:1])
+        hot = [i for i in range(1, len(sn)) if "pgmigrate_fail" in sn[i][2] and "pgmigrate_fail" in sn[i - 1][2]
+               and (sn[i][2]["pgmigrate_fail"] - sn[i - 1][2]["pgmigrate_fail"]) / max((sn[i][0] - sn[i - 1][0]) / 1e9, 1e-3) > thresh]
+        if not hot:
+            continue
+        found += len(hot); L.append("   node %d: %d storm second(s)" % (h["node"], len(hot)))
+        rows = sorted(set(j for i in hot for j in (i - 1, i, i + 1) if 1 <= j < len(sn)))
+        for j in rows:
+            if shown >= maxn:
+                break
+            a, b = sn[j - 1][2], sn[j][2]; dt = max((sn[j][0] - sn[j - 1][0]) / 1e9, 1e-3)
+            d = lambda k: (b[k] - a[k]) if k in a and k in b else None
+            pf = d("pgmigrate_fail"); fr = sorted((k, v) for k, v in b.items() if k.startswith("bud_n") and k.endswith("_Normal_frag"))
+            frs = " ".join("%s:%d" % (k[5:k.index("_Normal")], v) for k, v in fr) or "-"
+            sm = lambda ks: (sum(x for x in ks if x is not None) if any(x is not None for x in ks) else None)
+            kc = sm([d(k) for k in b if k.startswith("kcompactd") and k.endswith("_ticks")]); kh = d("khugepaged_ticks")
+            ev = sm([d(k) for k in b if k.startswith("kfd_") and k.endswith("evicted_ms")])
+            wb = sm([b.get("mi_Dirty_kb"), b.get("mi_Writeback_kb")])
+            L.append("     %9.3f s %s| pgmigrate_fail %8s/s | frag %s | MemFree %s | Dirty+WB %s | kcompactd %s ticks khugepaged %s | KFD evicted_ms %s" % (
+                (sn[j][0] - t0) / 1e9, "*" if j in hot else " ", "%d" % (pf / dt) if pf is not None else "-", frs,
+                "%.1f GB" % (b["mi_MemFree_kb"] / 1048576) if "mi_MemFree_kb" in b else "-", "%.1f MB" % (wb / 1024) if wb is not None else "-",
+                kc if kc is not None else "-", kh if kh is not None else "-", ("+%d" % ev) if ev is not None else ("absent" if b.get("kfd_present") == 0 else "-")))
+            shown += 1
+    if not found:
+        L.append("   no storm second found")
+    elif not mem:
+        L.append("   (no memory counters in this trace: COMM_TRACE_HB_MEM was off)")
+
+
 def section_stalls(run, acc, L, hbs):
     L.append("8 stalls: heartbeat wake-up gaps (COMM_TRACE_HB) joined with OS counters and the late node of the exchanges (times s on node 0's clock):")
     if not hbs:
@@ -810,7 +849,7 @@ def run_report(run, args, L):
         section_slowest(run, acc, L, P, args.top, args.timeline)
         section_skew(run, acc, L)
         section_time(run, acc, L, args.bin_s, args.slow_ratio)
-        hbs = load_hb(run); section_stalls(run, acc, L, hbs); section_stall_phases(run, acc, L, hbs)
+        hbs = load_hb(run); section_stalls(run, acc, L, hbs); section_storms(run, L, hbs); section_stall_phases(run, acc, L, hbs)
         L.append("")
         return S
     finally:
@@ -841,7 +880,7 @@ def synth(d, nodes=3, nex=60, seed=3):
                                            "M_ROFF_ISSUE", "M_ROFF_WAIT", "M_ROFF_SEEN", "M_PUT_ISSUE", "M_PUT_POSTED", "M_PUT_DONE", "M_SIG_ISSUE", "M_SIG_WAIT", "M_SIG_SEEN", "M_FLUSH_BEG", "M_FLUSH_END",
                                            "P_PICKUP", "P_BATCH", "P_CHUNK", "P_SIGNAL", "P_QUIET_BEG", "P_QUIET_END", "P_DONE", "H_GAP", "H_CNT", "H_PHASE", "H_THR", "H_WD"]
     PHN = ["NONE", "HIP_MALLOC", "VSLOT_RELEASE", "RD_FWD"]; STR = ["ecalc", "futex_wait_queue", "hrtimer_nanosleep"]
-    HBN = ["compact_stall", "thr_nivcsw", "pgmajfault"]
+    HBN = ["compact_stall", "thr_nivcsw", "pgmajfault", "pgmigrate_fail", "bud_n0_Normal_frag", "mi_MemFree_kb", "mi_Dirty_kb", "mi_Writeback_kb", "kcompactd0_ticks", "kfd_present"]
     EV = {n: i + 1 for i, n in enumerate(EVN)}
     base = 5_000_000_000_000; off = lambda j, t: int(j * 1_500_000 + j * 40e-6 * (t - base))        # node j's clock minus true, ns
     recs = collections.defaultdict(list); prec = collections.defaultdict(list); kcount = collections.defaultdict(int)
@@ -889,7 +928,8 @@ def synth(d, nodes=3, nex=60, seed=3):
         for i, v in enumerate(vals):
             put(node, "H_CNT", tt, 0, -1, -1, kind, 0, rnd=i, nb=v, aux=sid, kp=0)
     for j in range(nodes):                       # the heartbeat: periodic snapshots at the start and the end, and on node 2 a 40 ms gap that ends when its rank 2 begins exchange 20 late
-        hbsnap(j, base, 0, 1, [100, 5, 0]); hbsnap(j, t + 1_000_000, 3, 1, [100 + (30 if j == 2 else 0), 5 + (4 if j == 2 else 0), 0])
+        hbsnap(j, base, 0, 1, [100, 5, 0, 0, 40, 8_000_000, 100, 50, 10, 0]); hbsnap(j, base + 1_000_000_000, 4, 1, [100, 5, 0, 50_000 if j == 2 else 10, 93, 1_000_000, 4096, 2048, 25, 0])
+        hbsnap(j, t + 1_000_000, 3, 1, [100 + (30 if j == 2 else 0), 5 + (4 if j == 2 else 0), 0, 50_000 if j == 2 else 10, 93, 1_000_000, 4096, 2048, 25, 0])
     put(2, "H_GAP", tstall - 1_000_000, 0, -1, -1, 0, 0, nb=40_000_000, aux=1, kp=0); hbsnap(2, tstall - 1_000_000, 1, 0, [130, 9, 0])
     put(2, "H_PHASE", tstall - 60_000_000, 101, 0, -1, 0, 0, nb=0, aux=3, kp=0); put(2, "H_PHASE", tstall - 50_000_000, 101, 0, -1, 0, 0, nb=3, aux=2, kp=0); put(2, "H_PHASE", tstall - 55_000_000, 102, 1, -1, 0, 0, nb=0, aux=3, kp=0)
     put(2, "H_WD", tstall - 500_000, 0, -1, -1, 0, 0, nb=30_000_000, aux=7, kp=0)
@@ -936,6 +976,9 @@ def selftest():
         st = txt.split("8 stalls")[1] if "8 stalls" in txt else ""
         if "n2  np" not in st or "compact_stall+30" not in st or not re.search(r"late exchanges.*", st) or not re.search(r"\|\s+n2\s+np\s+\|\s+40\.0 .*\|\s+[1-9]\d*, [0-9.]+\s*$", st, re.M):
             bad.append("the heartbeat stall of node 2 was not joined with its late exchange")
+        s8a = txt.split("8a compaction storms")[1].split("8b stall")[0] if "8a compaction storms" in txt else ""
+        if "node 2: 1 storm" not in s8a or "frag 0:93" not in s8a or "kcompactd 15 ticks" not in s8a or "MemFree 1.0 GB" not in s8a or "Dirty+WB 6.0 MB" not in s8a or "absent" not in s8a or "node 1:" in s8a:
+            bad.append("the compaction storm of node 2 was not reported (8a)")
         s8 = txt.split("8b stall classification")[1] if "8b stall classification" in txt else ""
         if "t101:VSLOT_RELEASE" not in s8 or "t102:RD_FWD" not in s8 or "futex_wait_queue" not in s8 or "dly 2.5ms" not in s8 or "n2 1/3/1" not in s8:
             bad.append("the phase tags / watchdog snapshot of node 2 were not reported (8b)")

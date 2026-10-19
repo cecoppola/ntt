@@ -61,6 +61,7 @@ COMM_TRACE_CLOCK_N	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	
 COMM_TRACE_DIR	bool	derived	derived	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_TRACE_HB	int	0	0		unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_TRACE_HB_GAP_MS	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
+COMM_TRACE_HB_MEM	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_TRACE_HB_PX	bool	1	1	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_TRACE_MAX_MB	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_TRACE_PH	int	0	0		unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	

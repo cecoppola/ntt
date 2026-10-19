@@ -114,6 +114,7 @@ COMM_TRACE_DIR	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or faul
 COMM_TRACE_CLOCK_N	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_TRACE_HB	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_TRACE_HB_GAP_MS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+COMM_TRACE_HB_MEM	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_TRACE_HB_PX	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_TRACE_PH	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_TRACE_THR	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit

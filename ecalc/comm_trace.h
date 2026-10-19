@@ -17,7 +17,7 @@
  * correlated even when the heartbeat thread itself stalled).  COMM_TRACE_HB_PX=1 also starts it in the proxy processes.  Nothing is pinned; the cost is one wake-up per <ms> (see ecalc/README.md).
  *
  * Off: g_tr.on is 0 and every site is one predictable branch on it.  Switches: COMM_TRACE, COMM_TRACE_SAMPLE, COMM_TRACE_MAX_MB (node-process arena,
- * default 256; a proxy gets a quarter, at least 16), COMM_TRACE_DIR, COMM_TRACE_HB, COMM_TRACE_HB_GAP_MS, COMM_TRACE_HB_PX, COMM_TRACE_CLOCK_N (ping-pong iterations of the clock estimate, default 50). */
+ * default 256; a proxy gets a quarter, at least 16), COMM_TRACE_DIR, COMM_TRACE_HB, COMM_TRACE_HB_GAP_MS, COMM_TRACE_HB_PX, COMM_TRACE_HB_MEM, COMM_TRACE_CLOCK_N (ping-pong iterations of the clock estimate, default 50). */
 #ifndef EC_COMM_TRACE_H
 #define EC_COMM_TRACE_H
 #include <stdint.h>
@@ -199,10 +199,12 @@ static long tr_write_file(const char *path, const char *json, size_t jlen)
 }
 
 /* ---- the node heartbeat (COMM_TRACE_HB) ---- */
-#define TR_HB_MAXC 384
+#define TR_HB_MAXC 640
 static struct {
-    pthread_t th; int run, started; uint32_t ms, gap_ms, snap; int thr; tr_buf b;
+    pthread_t th; int run, started; uint32_t ms, gap_ms, snap; int thr, mem; tr_buf b;
     char names[TR_HB_MAXC][40]; int nn; int pfd[3]; char buf[65536];
+    int kt_n; int kt_pid[16]; char kt_nm[16][24];                          /* COMM_TRACE_HB_MEM: kcompactd<N> / khugepaged pids */
+    int kfd_n, kfd_tried; char kfd_path[24][192], kfd_nm[24][48];          /* its KFD eviction counters (found at the first snapshot that sees them) */
 } g_hb;
 static int tr_hb_idx(const char *nm)                      /* the index of a counter name (assigned at first sight; the JSON "hbnames" lists them) */
 {
@@ -219,6 +221,83 @@ static int tr_hb_slurp(const char *path, char *buf, size_t cap)
 {
     int fd = open(path, O_RDONLY); if (fd < 0) return 0;
     ssize_t n = read(fd, buf, cap - 1); close(fd); if (n < 0) n = 0; buf[n] = 0; return (int)n;
+}
+/* COMM_TRACE_HB_MEM=1 (needs COMM_TRACE_HB): memory-side counters of a compaction storm -- buddyinfo per NUMA node and zone (orders 0-10 of Normal, free pages below / from order 9 and the
+ * fragmentation score 100*lo/(lo+hi) of every zone), selected meminfo keys (kB), the CPU ticks of the kcompactd / khugepaged kernel threads, the amdgpu KFD eviction counters of this
+ * process (kfd_present = 0 / 1; the files are only read when /sys/class/kfd/kfd/proc/<pid>/stats_<gpuid>/ exists) and the process context switches. */
+static void tr_hb_mem_start(void)
+{
+    DIR *d = opendir("/proc"); if (!d) return;
+    struct dirent *de;
+    while ((de = readdir(d)) && g_hb.kt_n < 16) {
+        if (de->d_name[0] < '1' || de->d_name[0] > '9') continue;
+        char path[64], buf[64]; snprintf(path, sizeof path, "/proc/%s/comm", de->d_name);
+        int n = tr_hb_slurp(path, buf, sizeof buf); if (n <= 0) continue;
+        if (buf[n - 1] == '\n') buf[n - 1] = 0;
+        if (!strncmp(buf, "kcompactd", 9) || !strcmp(buf, "khugepaged")) { g_hb.kt_pid[g_hb.kt_n] = atoi(de->d_name); snprintf(g_hb.kt_nm[g_hb.kt_n], sizeof g_hb.kt_nm[0], "%s", buf); g_hb.kt_n++; }
+    }
+    closedir(d);
+}
+static void tr_hb_kfd_find(void)                                   /* the stats_<gpuid> directories of this process; once found they stay */
+{
+    char dir[96]; snprintf(dir, sizeof dir, "/sys/class/kfd/kfd/proc/%d", (int)getpid());
+    DIR *d = opendir(dir); if (!d) return;
+    struct dirent *de;
+    while ((de = readdir(d))) {
+        if (strncmp(de->d_name, "stats_", 6)) continue;
+        char sd[160]; if (snprintf(sd, sizeof sd, "%s/%s", dir, de->d_name) >= (int)sizeof sd) continue;
+        DIR *d2 = opendir(sd); if (!d2) continue;
+        struct dirent *e2;
+        while ((e2 = readdir(d2)) && g_hb.kfd_n < 24) {
+            if (e2->d_name[0] == '.') continue;
+            if (snprintf(g_hb.kfd_path[g_hb.kfd_n], sizeof g_hb.kfd_path[0], "%s/%s", sd, e2->d_name) >= (int)sizeof g_hb.kfd_path[0]) continue;
+            snprintf(g_hb.kfd_nm[g_hb.kfd_n], 40, "kfd_%.14s_%.20s", de->d_name + 6, e2->d_name); g_hb.kfd_n++;
+        }
+        closedir(d2);
+    }
+    closedir(d);
+}
+static void tr_hb_mem_snap(uint32_t snap, int kind)
+{
+    char nm[48];
+    if (tr_hb_slurp("/proc/buddyinfo", g_hb.buf, sizeof g_hb.buf)) {         /* "Node 0, zone   Normal  n0 n1 ... n10" */
+        for (char *l = g_hb.buf; l && *l; ) {
+            char *e = strchr(l, '\n'); if (e) *e = 0;
+            int node = -1, off = 0; char zone[16] = "";
+            if (sscanf(l, "Node %d, zone %15s%n", &node, zone, &off) >= 2 && node >= 0) {
+                unsigned long long c[11] = { 0 }, lo = 0, hi = 0; int k = 0; char *q = l + off;
+                while (k < 11) { char *en; unsigned long long v = strtoull(q, &en, 10); if (en == q) break; c[k++] = v; q = en; }
+                for (int o = 0; o < k; o++) { unsigned long long pg = c[o] << o; if (o < 9) lo += pg; else hi += pg; }
+                if (!strcmp(zone, "Normal")) for (int o = 0; o < k; o++) { snprintf(nm, sizeof nm, "bud_n%d_o%d", node, o); tr_hb_val(snap, kind, nm, c[o]); }
+                snprintf(nm, sizeof nm, "bud_n%d_%.6s_lo", node, zone); tr_hb_val(snap, kind, nm, lo);
+                snprintf(nm, sizeof nm, "bud_n%d_%.6s_hi", node, zone); tr_hb_val(snap, kind, nm, hi);
+                snprintf(nm, sizeof nm, "bud_n%d_%.6s_frag", node, zone); tr_hb_val(snap, kind, nm, lo + hi ? 100 * lo / (lo + hi) : 0);
+            }
+            l = e ? e + 1 : 0;
+        }
+    }
+    static const char *const mk[] = { "MemFree:", "Dirty:", "Writeback:", "Mapped:", "Shmem:", "AnonPages:", "AnonHugePages:", "ShmemHugePages:", "Unevictable:", "Mlocked:", "KReclaimable:" };
+    if (tr_hb_slurp("/proc/meminfo", g_hb.buf, sizeof g_hb.buf)) {
+        for (char *l = g_hb.buf; l && *l; ) {
+            char *e = strchr(l, '\n'); if (e) *e = 0;
+            for (unsigned i = 0; i < sizeof mk / sizeof *mk; i++) if (!strncmp(l, mk[i], strlen(mk[i]))) {
+                snprintf(nm, sizeof nm, "mi_%.*s_kb", (int)strlen(mk[i]) - 1, mk[i]); tr_hb_val(snap, kind, nm, strtoull(l + strlen(mk[i]), 0, 10)); break; }
+            l = e ? e + 1 : 0;
+        }
+    }
+    for (int i = 0; i < g_hb.kt_n; i++) {                              /* utime + stime: fields 14 and 15 of stat */
+        char path[48]; snprintf(path, sizeof path, "/proc/%d/stat", g_hb.kt_pid[i]);
+        if (!tr_hb_slurp(path, g_hb.buf, 4096)) continue;
+        char *q = strrchr(g_hb.buf, ')'); if (!q) continue;
+        unsigned long long ut = 0, st = 0; if (sscanf(q + 2, "%*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %llu %llu", &ut, &st) != 2) continue;
+        snprintf(nm, sizeof nm, "%.20s_ticks", g_hb.kt_nm[i]); tr_hb_val(snap, kind, nm, ut + st);
+    }
+    if (!g_hb.kfd_n && g_hb.kfd_tried < 3600) { g_hb.kfd_tried++; tr_hb_kfd_find(); }
+    tr_hb_val(snap, kind, "kfd_present", g_hb.kfd_n > 0);
+    for (int i = 0; i < g_hb.kfd_n; i++) if (tr_hb_slurp(g_hb.kfd_path[i], g_hb.buf, 256)) tr_hb_val(snap, kind, g_hb.kfd_nm[i], strtoull(g_hb.buf, 0, 10));
+    if (!tr_hb_slurp("/proc/self/status", g_hb.buf, sizeof g_hb.buf)) return;   /* "voluntary_ctxt_switches:\tN" */
+    char *v = strstr(g_hb.buf, "\nvoluntary_ctxt_switches:"); if (v) tr_hb_val(snap, kind, "proc_nvcsw", strtoull(v + 25, 0, 10));
+    v = strstr(g_hb.buf, "\nnonvoluntary_ctxt_switches:"); if (v) tr_hb_val(snap, kind, "proc_nivcsw_st", strtoull(v + 28, 0, 10));
 }
 /* one snapshot of the counters, as H_CNT records of snapshot id snap */
 static void tr_hb_snap(uint32_t snap, int kind)
@@ -248,6 +327,7 @@ static void tr_hb_snap(uint32_t snap, int kind)
     if (getrusage(RUSAGE_SELF, &ru) == 0) {
         tr_hb_val(snap, kind, "proc_nivcsw", (uint64_t)ru.ru_nivcsw); tr_hb_val(snap, kind, "proc_majflt", (uint64_t)ru.ru_majflt); tr_hb_val(snap, kind, "proc_minflt", (uint64_t)ru.ru_minflt);
     }
+    if (g_hb.mem) tr_hb_mem_snap(snap, kind);
 }
 /* per-thread snapshot (heartbeat v2, COMM_TRACE_THR=1; every watchdog firing): for every thread of the process the state, wchan, run_delay (schedstat), last CPU and phase tag as an H_THR
  * record, then the irq / softirq / steal ticks of /proc/stat for the CPUs those threads last ran on (H_CNT "cpuN_irq" ...) */
@@ -337,9 +417,10 @@ static void tr_hb_start(int proxy)
     const char *e = getenv("COMM_TRACE_HB"), *th = getenv("COMM_TRACE_THR"); int ms = e ? atoi(e) : 0;
     if (ms <= 0 && g_tr.wd_ms) ms = 2;                                                       /* the watchdog needs the thread */
     if (ms <= 0) return;
-    g_hb.thr = th && atoi(th) > 0;
+    g_hb.thr = th && atoi(th) > 0; { const char *me = getenv("COMM_TRACE_HB_MEM"); g_hb.mem = me && atoi(me) > 0; }
     if (proxy) { const char *px = getenv("COMM_TRACE_HB_PX"); if (!px || atoi(px) <= 0) return; }
     const char *g = getenv("COMM_TRACE_HB_GAP_MS"); g_hb.ms = (uint32_t)ms; g_hb.gap_ms = g && atoi(g) > 0 ? (uint32_t)atoi(g) : 20;
+    if (g_hb.mem) tr_hb_mem_start();
     g_hb.run = 1;
     if (pthread_create(&g_hb.th, 0, tr_hb_main, 0)) { g_hb.run = 0; return; }
     g_hb.started = 1;
@@ -348,6 +429,7 @@ static void tr_hb_stop(void)
 {
     if (!g_hb.started) return;
     __atomic_store_n(&g_hb.run, 0, __ATOMIC_RELEASE); pthread_join(g_hb.th, 0); g_hb.started = 0;
+    if (g_hb.mem && !g_hb.kfd_n) fprintf(stderr, "COMM_TRACE_HB_MEM: KFD eviction stats absent (kfd_present = 0)\n");
 }
 /* the counter names as a JSON array (after tr_hb_stop) */
 static void tr_json_hbnames(FILE *f)
