@@ -50,7 +50,7 @@
  * the node-process sends each peer's signal once the proxy reports the puts complete (ofi_flush).  Proxies serve in comm_shmem_init and
  * never return.  The pool per PE is the rule's (binsplit_shmem_pool_rule); every PE's heap is the same size. */
 #ifndef _GNU_SOURCE
-#define _GNU_SOURCE                                       /* dladdr (COMM_SHMEM_VERBOSE=2) */
+#define _GNU_SOURCE                                       /* dladdr (ECALC_VERBOSE>=3) */
 #endif
 #include <stdio.h>
 #include "fatal.h"
@@ -130,7 +130,7 @@ static struct {
     struct blk *slot[4]; size_t slot_bytes; int nslot;   /* the staging regions, one per APU (COMM_SHMEM_STAGE_SLOT_MB, set by the pool rule) */
     size_t cur[3], peak[3], cur_all, peak_all;   /* pool accounting by kind: 0 control blocks, 1 staging, 2 the callers' symmetric buffers */
     size_t at_peak[3], nstage, nstage_at_peak, stage_blk_max, stage_rep;   /* the kinds at the moment of peak_all, live staging blocks, the largest one, the last staging peak reported */
-    int verbose;                           /* COMM_SHMEM_VERBOSE=1 or ECALC_VERBOSE >= 2 -- a line per new staging peak (+5 %), every PE's summary */
+    int verbose;                           /* ECALC_VERBOSE >= 2 (verbose 2: ECALC_VERBOSE >= 3, the call-site table) -- a line per new staging peak (+5 %), every PE's summary */
     int xstats, hst;                               /* X1: COMM_XSTATS=1 (per-kind exchange stats, printed at finalize) */
     size_t round_bytes;                    /* COMM_SHMEM_ROUND_MB -- the staging of one alltoallv round, each way (0: off, one round) */
     long nrpath, nround_ex, nrounds; size_t round_stage_max;   /* exchanges through the rounds' path, those in more than one round, their rounds, the largest per-round staging (send + recv) */
@@ -615,7 +615,7 @@ static void px_serve(void)
 }
 /* ---- pool pre-fault and collapse (the heap THP paths: COMM_SHMEM_NP_HEAP_THP, COMM_SHMEM_PX_THP) ----
  * pool_populate faults a range with MADV_POPULATE_WRITE in nt threads, pool_collapse then collapses its whole 2 MiB pages (MADV_COLLAPSE).
- * COMM_SHMEM_VERBOSE=1 prints the init timeline of every PE (g_t0 = entry of comm_shmem_init). */
+ * ECALC_VERBOSE>=2 prints the init timeline of every PE (g_t0 = entry of comm_shmem_init). */
 #ifndef MADV_POPULATE_WRITE
 #define MADV_POPULATE_WRITE 23
 #endif
@@ -778,7 +778,7 @@ static int comm_shmem_init_i(void)
 {
     if (S.inited) return S.npes;
     int prov = -1; g_t0 = now_s();
-    S.verbose = env_int("COMM_SHMEM_VERBOSE", 0); if (!S.verbose && env_int("ECALC_VERBOSE", 1) >= 2) S.verbose = 1;
+    { int ev = env_int("ECALC_VERBOSE", 1); S.verbose = ev >= 3 ? 2 : ev >= 2 ? 1 : 0; }
     size_t mb = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : 8192;
 #ifdef COMM_SHMEM_DEVICE_HEAP
     S.devheap = 1;
@@ -1158,7 +1158,7 @@ static void order_ctx(shm_priv *p) { if (S.order == ORDER_FENCE) shmem_ctx_fence
 /* the staging of one exchange (send, receive): allocated per exchange, released when it completes (staging_release) --
  * a level's meshes live to the end of the run, and staging held per communicator would add up over the levels;
  * pool-resident buffers (comm_sym_alloc) need none */
-/* COMM_SHMEM_VERBOSE=2 -- every staged exchange by its call site (the return addresses of the frames above the
+/* ECALC_VERBOSE>=3 -- every staged exchange by its call site (the return addresses of the frames above the
  * transport, as object offsets for addr2line -f -e <object> <offset>): count, largest send and receive, printed at finalize */
 #define NSITE 64
 static struct site { void *key[5]; int n; long count; size_t smax, rmax; } g_site[NSITE]; static int g_nsite;
