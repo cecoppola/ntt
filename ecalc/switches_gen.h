@@ -14,6 +14,7 @@ static const char *const cfg_names[] = {
     "BS_SEED_PULL",
     "BS_SEED_TERMS",
     "BS_SEED_THREADS",
+    "COMM_KTIME",
     "COMM_LAYER_INTER2",
     "COMM_LAYER_STATS",
     "COMM_LAYER_VSLOT_MB",
@@ -55,6 +56,18 @@ static const char *const cfg_names[] = {
     "COMM_SHMEM_STAGE_SLOT_MB",
     "COMM_SHMEM_VERBOSE",
     "COMM_SIZE",
+    "COMM_TRACE",
+    "COMM_TRACE_CLOCK_N",
+    "COMM_TRACE_DIR",
+    "COMM_TRACE_HB",
+    "COMM_TRACE_HB_GAP_MS",
+    "COMM_TRACE_HB_MEM",
+    "COMM_TRACE_HB_PX",
+    "COMM_TRACE_MAX_MB",
+    "COMM_TRACE_PH",
+    "COMM_TRACE_SAMPLE",
+    "COMM_TRACE_THR",
+    "COMM_TRACE_WD_MS",
     "COMM_TRANSPORT",
     "COMM_XGMI_STATS",
     "COMM_XSTATS",
@@ -172,4 +185,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 170
+#define CFG_NAMES_N 183

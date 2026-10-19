@@ -98,6 +98,7 @@ const char *comm_shmem_impl(void) { return "none"; }
 int   comm_shmem_pe_per_apu(void) { return 0; }
 #else
 #include <shmem.h>
+#include "comm_trace.h"                       /* COMM_TRACE=1: the per-message trace (default off) */
 #if SHMEM_MAJOR_VERSION > 1 || (SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 5)
 #define HAVE_PUT_SIGNAL 1                  /* shmem_ctx_putmem_signal_nbi (OpenSHMEM 1.5) */
 #else
@@ -111,7 +112,7 @@ int   comm_shmem_pe_per_apu(void) { return 0; }
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 static hipError_t pcopy(void *d, const void *s, size_t n, hipStream_t st);   /* N7D: COMM_SHMEM_PX_KCOPY (below) */
 #define COPY(d, s, n, st) HIP_CHECK(pcopy(d, s, n, st))
-#define SYNC(st) HIP_CHECK(hipStreamSynchronize(st))
+#define SYNC(st) do { int ph_ = ec_ph(EC_PH_HIP_SYNC); HIP_CHECK(hipStreamSynchronize(st)); ec_ph(ph_); } while (0)
 #endif
 #define MAXID 1024                         /* communicator ids (mailbox rows) */
 #define ALIGN 256
@@ -130,7 +131,7 @@ static struct {
     size_t cur[3], peak[3], cur_all, peak_all;   /* pool accounting by kind: 0 control blocks, 1 staging, 2 the callers' symmetric buffers */
     size_t at_peak[3], nstage, nstage_at_peak, stage_blk_max, stage_rep;   /* the kinds at the moment of peak_all, live staging blocks, the largest one, the last staging peak reported */
     int verbose;                           /* COMM_SHMEM_VERBOSE=1 or ECALC_VERBOSE >= 2 -- a line per new staging peak (+5 %), every PE's summary */
-    int xstats, xsany, pts, vslot_pool;                               /* X1: COMM_XSTATS=1 (per-kind exchange stats, printed at finalize) */
+    int xstats, xsany, pts, vslot_pool, hst;                               /* X1: COMM_XSTATS=1 (per-kind exchange stats, printed at finalize) */
     size_t round_bytes;                    /* COMM_SHMEM_ROUND_MB -- the staging of one alltoallv round, each way (0: off, one round) */
     long nrpath, nround_ex, nrounds; size_t round_stage_max;   /* exchanges through the rounds' path, those in more than one round, their rounds, the largest per-round staging (send + recv) */
     double tv; long nv;                    /* all-to-all time (alltoall, alltoallv), post to completion, summed over the APU threads; the count */
@@ -324,8 +325,82 @@ struct px_ent { long pe; size_t roff, soff, n; long sigidx, sig; };   /* sigidx,
  * switch): word (0, id, r) sums the bytes of sender r's chunks before its last, word (1, id, r) = PACK(seq, n) put by the last chunk. */
 #define PXCH ((size_t)4 << 20)                 /* the chunk of a put (comm_ofi's 4 MiB) */
 #define PXNCTX 8                               /* the proxy's contexts: a peer node to each (round robin beyond 8) */
-_Static_assert(sizeof(struct px_hdr) + PXRING * sizeof(struct px_ent) + PXRING * sizeof(long) <= PXCTL, "proxy control");
+_Static_assert(sizeof(struct px_hdr) + PXRING * sizeof(struct px_ent) + PXRING * sizeof(long) + PXRING * sizeof(uint32_t) <= PXCTL, "proxy control");
 static long *px_dn_of(char *base) { return (long *)(base + S.mb_bytes + sizeof(struct px_hdr) + PXRING * sizeof(struct px_ent)); }
+/* HS (COMM_KTIME=1): the post time of every command (microseconds, 32 bit, CLOCK_MONOTONIC: deltas only), after the done stamps; the proxy turns them into
+ * its pickup latency and its post-to-done time (printed at its exit as `hstep proxy` lines) */
+static uint32_t *px_ts_of(char *base) { return (uint32_t *)(px_dn_of(base) + PXRING); }
+static uint32_t hs_us(void) { return (uint32_t)(uint64_t)(now_s() * 1e6); }
+static double g_hxs[2], g_hxmax[2]; static long g_hxn[2];            /* proxy side: [0 pickup, 1 post-to-done]: sum ms, max ms, commands */
+static void hx_add(int k, uint32_t ts) { double ms = (double)(uint32_t)(hs_us() - ts) * 1e-3; g_hxs[k] += ms; g_hxn[k]++; if (ms > g_hxmax[k]) g_hxmax[k] = ms; }
+static void hs_print(void);                           /* (below: the node-process's per-APU table) */
+static void hx_print(void)
+{
+    static const char *const nm[2] = { "pickup", "post_to_done" };
+    for (int k = 0; k < 2; k++) if (g_hxn[k]) printf("hstep proxy pe %d apu %d step %s n %ld ms_cmd %.4f max_ms %.3f\n", S.pme, S.pme % S.ppn, nm[k], g_hxn[k], g_hxs[k] / g_hxn[k], g_hxmax[k]);
+}
+/* ---- COMM_TRACE (comm_trace.h): the proxy's buffer (one thread), the flag the node-process hands a command (bit 0 of its post stamp), the clock-offset estimate and the file ---- */
+static tr_buf g_trpx; static __thread int g_tr_px_act;
+#define TRP(ev, rd, k, e, nb) tr_put(&g_trpx, (ev), 0, S.pxsend >= 2 ? (uint32_t)((e)->sigidx / S.npes) : 0, S.pxsend >= 2 ? (uint32_t)((e)->sig >> 40) : 0, 0, (uint32_t)(k), (uint32_t)(rd), S.me, (int)((e)->pe / S.ppn), (uint64_t)(nb))
+static void tr_jstr(FILE *f, const char *v) { fputc('"', f); for (; *v; v++) { if (*v == '"' || *v == '\\') fputc('\\', f); if ((unsigned char)*v >= 32) fputc(*v, f); } fputc('"', f); }
+/* node 0 against every node, over SHMEM: node 0 pings (a counter into the node's row MAXID - 2), the node answers with its CLOCK_MONOTONIC (row MAXID - 3) or, in a second series,
+ * its CLOCK_REALTIME (row MAXID - 4) as one word each, so the two directions are symmetric; node 0 stamps the send and the observation of the answer.  offset = answer - (t0 + t1) / 2 of the
+ * iteration with the smallest round trip (error <= rtt / 2 under symmetric paths).  Pass 0 at init, pass 1 at finalize (the drift over the run).  Node-processes only; all must call it. */
+static void tr_clock_sync(int pass)
+{
+    if (!g_tr.on || S.proxy || S.npes < 2 || S.npes > TR_MAXNODE) return;
+    int itm = (int)g_tr.clock_n > 1000 ? 1000 : (int)g_tr.clock_n, itr = itm / 5 < 10 ? 10 : itm / 5; long k = (long)pass * 100000;
+    long *ping = mailbox(MAXID - 2, S.me);
+    if (S.me == 0) {
+        int64_t rt[1000]; g_tr.nclk = S.npes;
+        for (int j = 1; j < S.npes; j++) {
+            long *pj = mailbox(MAXID - 2, j), *cm = mailbox(MAXID - 3, j), *cr = mailbox(MAXID - 4, j); struct tr_clk *o = &g_tr.clk[pass][j]; int64_t best = -1, rbest = -1; k = (long)pass * 100000;
+            for (int real = 0; real < 2; real++) for (int i = 0; i < (real ? itr : itm); i++) {
+                long *c = real ? cr : cm; long prev = *(volatile long *)c; k++;
+                uint64_t t0 = tr_now(), r0 = tr_now_real(); SHM_LOCK(); shmem_long_p(pj, k, phys_pe(j)); SHM_UNLOCK();
+                wait_ge_(c, prev + 1);
+                uint64_t t1 = tr_now(), r1 = tr_now_real(); long v = *(volatile long *)c;
+                if (!real) { int64_t rtt = (int64_t)(t1 - t0); rt[i] = rtt; if (best < 0 || rtt < best) { best = rtt; o->rtt = rtt; o->off_m = (int64_t)v - (int64_t)((t0 + t1) / 2); o->t0 = (int64_t)t0; } }
+                else { int64_t rtt = (int64_t)(r1 - r0); if (rbest < 0 || rtt < rbest) { rbest = rtt; o->off_r = (int64_t)v - (int64_t)((r0 + r1) / 2); } }
+            }
+            int64_t cp[1000]; memcpy(cp, rt, (size_t)itm * sizeof(int64_t)); qsort(cp, (size_t)itm, sizeof(int64_t), tr_cmp_i64); o->rtt_med = cp[itm / 2]; o->ok = 1;
+        }
+    } else {
+        long *c0m = mailbox(MAXID - 3, S.me), *c0r = mailbox(MAXID - 4, S.me);
+        for (int real = 0; real < 2; real++) for (int i = 0; i < (real ? itr : itm); i++) {
+            k++; wait_ge_(ping, k); long t = (long)(real ? tr_now_real() : tr_now());
+            SHM_LOCK(); shmem_long_p(real ? c0r : c0m, t, phys_pe(0)); SHM_UNLOCK();
+        }
+    }
+}
+/* the file: 64-byte header, JSON, records (see comm_trace.h); proxy = 1 from a proxy process */
+static void tr_flush(int proxy)
+{
+    extern char **environ;
+    if (!g_tr.on || g_tr.flushed) return;
+    g_tr.flushed = 1; tr_hb_stop();
+    char path[400]; mkdir(g_tr.dir, 0777); snprintf(path, sizeof path, "%s/trace_pe%d.bin", g_tr.dir, S.pme);
+    char *jb = 0; size_t jn = 0; FILE *f = open_memstream(&jb, &jn); if (!f) return;   /* the JSON text */
+    uint64_t nrec = tr_count();
+    fprintf(f, "{\"version\":1,\"rec_bytes\":%zu,\"pe\":%d,\"node\":%d,\"nodes\":%d,\"ppn\":%d,\"ppa\":%d,\"proxy\":%d,\"apu\":%d,\"pxsend\":%d,\"order\":%d,\"shift\":%d,\"round_mb\":%.6g,\"sample\":%u,\"arena_mb\":%zu,\"nrec\":%llu,\"dropped\":%llu,\"m0\":%llu,\"r0\":%llu,\"events\":",
+            sizeof(struct tr_rec), S.pme, S.me, S.npes, S.ppn, S.ppa, proxy, proxy ? S.pme % S.ppn : -1, S.pxsend, S.order, S.shift, S.round_bytes / 1048576.0, g_tr.sample, g_tr.mb,
+            (unsigned long long)nrec, (unsigned long long)g_tr.dropped, (unsigned long long)g_tr.m0, (unsigned long long)g_tr.r0);
+    tr_json_events(f); fprintf(f, ",\"hbnames\":"); tr_json_hbnames(f); fprintf(f, ",\"hb_ms\":%u,\"hb_gap_ms\":%u,\"wd_ms\":%u,\"thr\":%d,\"ph\":%d,\"hbstrs\":", g_hb.ms, g_hb.gap_ms, g_tr.wd_ms, g_hb.thr, ec_ph_on + g_ph.ev); tr_json_hbstrs(f); fprintf(f, ",\"phases\":"); tr_json_phases(f); fprintf(f, ",\"comms\":[");
+    for (int i = 0; i < g_tr.ncomm; i++) { struct tr_comm *c = &g_tr.comm[i]; fprintf(f, "%s{\"id\":%d,\"n\":%d,\"rank\":%d,\"apu\":%d,\"node\":[", i ? "," : "", c->id, c->n, c->rank, c->apu); for (int r = 0; r < c->n; r++) fprintf(f, "%s%d", r ? "," : "", c->node[r]); fprintf(f, "]}"); }
+    fprintf(f, "],\"clock\":[");
+    for (int pass = 0, first = 1; pass < 2 && g_tr.nclk; pass++) { fprintf(f, "%s[", pass ? "," : ""); first = 1;
+        for (int j = 1; j < g_tr.nclk; j++) { struct tr_clk *o = &g_tr.clk[pass][j]; if (!o->ok) continue;
+            fprintf(f, "%s{\"node\":%d,\"off_m\":%lld,\"off_r\":%lld,\"rtt\":%lld,\"rtt_med\":%lld,\"t0\":%lld}", first ? "" : ",", j, (long long)o->off_m, (long long)o->off_r, (long long)o->rtt, (long long)o->rtt_med, (long long)o->t0); first = 0; }
+        fprintf(f, "]"); }
+    fprintf(f, "],\"env\":{"); int first = 1;
+    for (char **e = environ; *e; e++) { const char *v = strchr(*e, '='); if (!v) continue; size_t kl = (size_t)(v - *e);
+        if (strncmp(*e, "COMM_", 5) && strncmp(*e, "SHMEM_", 6) && strncmp(*e, "FI_", 3) && strncmp(*e, "MN_", 3) && strncmp(*e, "ECALC_", 6) && strncmp(*e, "SLURM_JOB_ID", 12) && strncmp(*e, "SLURM_NNODES", 12)) continue;
+        char key[96]; snprintf(key, sizeof key, "%.*s", (int)(kl < 95 ? kl : 95), *e); fprintf(f, "%s", first ? "" : ","); tr_jstr(f, key); fputc(':', f); tr_jstr(f, v + 1); first = 0; }
+    fprintf(f, "}}"); fclose(f);
+    long w = tr_write_file(path, jb, jn); free(jb);
+    if (w < 0) { fprintf(stderr, "comm_trace: pe %d: cannot write %s: %s\n", S.pme, path, strerror(errno)); return; }
+    if (S.verbose || !proxy) fprintf(stderr, "comm_trace: pe %d (%s): %ld records (%.1f MiB), %llu dropped, sample 1/%u, %s\n", S.pme, proxy ? "proxy" : "node-process", w, w * sizeof(struct tr_rec) / 1048576.0, (unsigned long long)g_tr.dropped, g_tr.sample, path);
+}
 static long *px_sigw(char *base, int w, long idx) { return (long *)base + (size_t)w * MAXID * S.npes + (size_t)idx; }
 static size_t px_last_len(size_t n) { return S.pxsend == 3 ? n : n ? n - ((n - 1) / S.pxch) * S.pxch : 0; }   /* (PX_SEND=3: the one signal word announces it all; PX_SEND=2: S.pxch, COMM_SHMEM_PX_BLOCK_MB, is PXCH by default) */
 /* N7E COMM_SHMEM_PE_PER_APU=2: an APU's two helper PEs h = 0, 1 (local PEs 2d, 2d + 1, on their own NICs).  The APU's staging/slab area is ONE virtual
@@ -415,7 +490,7 @@ static void px_progress(px_dev *x) { for (int h = 0; h < x->nh; h++) px_progress
 /* post n bytes from src (inside proxy x's pool) to the pool offset roff of PE dst_pe (another node's proxy of the same APU);
  * under COMM_SHMEM_PX_SEND=2 also the receiver's signal words (sigidx = id * npes + my rank) and the final value sig (n may be 0) */
 static size_t px_d0(void) { return (S.mb_bytes + PXCTL + 4095) & ~(size_t)4095; }   /* the data area of the interleaved range starts on a page */
-static void px_post(px_dev *x, int hh, int dst_pe, size_t roff, size_t soff, size_t n, long *cnt, long sigidx, long sig)   /* one command to helper hh's ring (offsets local to the heaps) */
+static long px_post(px_dev *x, int hh, int dst_pe, size_t roff, size_t soff, size_t n, long *cnt, long sigidx, long sig)   /* one command to helper hh's ring (offsets local to the heaps) */
 {
     px_hl *l = &x->hl[hh]; struct px_hdr *h = px_hdr_of(l->base); struct px_ent *ring = px_ring_of(l->base);
     pthread_mutex_lock(&l->lock);
@@ -423,14 +498,16 @@ static void px_post(px_dev *x, int hh, int dst_pe, size_t roff, size_t soff, siz
     long k = h->head; struct px_ent *e = &ring[k % PXRING];
     e->pe = dst_pe; e->roff = roff; e->soff = soff; e->n = n; e->sigidx = sigidx; e->sig = sig;
     l->cnt[k % PXRING] = cnt; __atomic_add_fetch(cnt, 1, __ATOMIC_RELAXED);
+    if (S.hst || g_tr.on) px_ts_of(l->base)[k % PXRING] = (hs_us() & ~1u) | (g_tr.on && g_tr_px_act ? 1u : 0u);   /* (COMM_TRACE: bit 0 = this command is traced) */
     __atomic_store_n(&h->head, k + 1, __ATOMIC_RELEASE);
     pthread_mutex_unlock(&l->lock);
+    return k;
 }
 /* dst_pe: the receiving node's helper 0 (helper hd is dst_pe + hd) */
-static void px_write(px_dev *x, int dst_pe, size_t roff, const void *src, size_t n, long *cnt, long sigidx, long sig)
+static long px_write(px_dev *x, int dst_pe, size_t roff, const void *src, size_t n, long *cnt, long sigidx, long sig)
 {
     if (n && (!px_in(x, src) || !px_in(x, (const char *)src + n - 1))) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: a proxy put's source is outside the proxy pool\n", S.me);
-    if (x->nh == 1) { px_post(x, 0, dst_pe, roff, n ? (size_t)((const char *)src - x->base) : 0, n, cnt, sigidx, sig); return; }
+    if (x->nh == 1) return px_post(x, 0, dst_pe, roff, n ? (size_t)((const char *)src - x->base) : 0, n, cnt, sigidx, sig);
     const size_t d0 = px_d0(); size_t sv = n ? (size_t)((const char *)src - x->base) : 0;
     if (sig || sigidx) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PE_PER_APU=2 does not carry signals with the data\n");
     while (n) {
@@ -442,6 +519,7 @@ static void px_write(px_dev *x, int dst_pe, size_t roff, const void *src, size_t
         px_post(x, hs, dst_pe + hd, d0 + (ud / PXCH / 2) * PXCH + ud % PXCH, d0 + (us / PXCH / 2) * PXCH + us % PXCH, len, cnt, 0, 0);
         sv += len; roff += len; n -= len;
     }
+    return -1;
 }
 /* N7D COMM_SHMEM_PX_SEND=2: a proxy's life without batch-then-quiet.  Every command is cut into PXCH chunks, posted round robin over the
  * commands in the ring (so the peers' transfers interleave) on the context of its destination node (up to PXNCTX contexts: a slow peer's
@@ -459,24 +537,27 @@ static void px_serve2(void)
     shmem_ctx_t cx[PXNCTX]; int nc = 0, peers = S.npes - 1 < PXNCTX ? S.npes - 1 : PXNCTX;
     while (nc < peers && shmem_ctx_create(SHMEM_CTX_PRIVATE, &cx[nc]) == 0) nc++;
     int own = nc; if (!nc) { cx[0] = SHMEM_CTX_DEFAULT; nc = 1; }
-    static size_t posted[PXRING]; static unsigned char fp[PXRING], fd[PXRING], co[PXRING];   /* bytes posted, fully posted, done, context */
+    static size_t posted[PXRING]; static unsigned char fp[PXRING], fd[PXRING], co[PXRING], tra[PXRING];   /* bytes posted, fully posted, done, context */
     long t = 0, tp = 0, tl = 0, nput = 0, nq = 0, nsig = 0; double bytes = 0, tchk = now_s(), tbusy = 0; unsigned idle = 0;
     for (;;) {
         long hd = __atomic_load_n(&h->head, __ATOMIC_ACQUIRE);
-        for (; t < hd; t++) { int s = (int)(t % PXRING); int node = (int)ring[s].pe / S.ppn; posted[s] = 0; fp[s] = fd[s] = 0; co[s] = (unsigned char)(((node - S.me - 1 + S.npes) % S.npes) % nc); }
+        for (; t < hd; t++) { int s = (int)(t % PXRING); if (S.hst) hx_add(0, px_ts_of(S.pool)[s]); int node = (int)ring[s].pe / S.ppn; posted[s] = 0; fp[s] = fd[s] = 0; co[s] = (unsigned char)(((node - S.me - 1 + S.npes) % S.npes) % nc);
+            tra[s] = g_tr.on && (px_ts_of(S.pool)[s] & 1); if (tra[s]) TRP(P_PICKUP, 0, t, &ring[s], ring[s].n); }
         if (tp < t) {                                     /* post: a chunk of every command not yet posted, round by round */
             double t0 = now_s();
             for (int more = 1; more;) { more = 0;
                 for (long k = tp; k < t; k++) { int s = (int)(k % PXRING); if (fp[s]) continue;
                     struct px_ent *e = &ring[s]; shmem_ctx_t c = cx[co[s]];
-                    if (!e->n) { shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); fp[s] = 1; continue; }
+                    if (!e->n) { shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); fp[s] = 1; if (tra[s]) TRP(P_SIGNAL, 0, k, e, 0); continue; }
                     size_t o = posted[s], len = e->n - o < S.pxch ? e->n - o : S.pxch; int last = o + len == e->n;
                     if (S.pxsend == 3) {                  /* PX3: a plain chunk; the command's last chunk is followed by a fence and its signal word */
                         shmem_ctx_putmem_nbi(c, S.pool + e->roff + o, S.pool + e->soff + o, len, (int)e->pe);
-                        if (last) { shmem_ctx_fence(c); shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); nsig++; }
-                    } else
+                        if (tra[s]) TRP(P_CHUNK, o / S.pxch, k, e, len);
+                        if (last) { shmem_ctx_fence(c); shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); nsig++; if (tra[s]) TRP(P_SIGNAL, 0, k, e, e->n); }
+                    } else {
                     shmem_ctx_putmem_signal_nbi(c, S.pool + e->roff + o, S.pool + e->soff + o, len, (uint64_t *)px_sigw(S.pool, last, e->sigidx),
                                                 last ? (uint64_t)e->sig : (uint64_t)len, last ? SHMEM_SIGNAL_SET : SHMEM_SIGNAL_ADD, (int)e->pe);
+                    if (tra[s]) { TRP(P_CHUNK, o / S.pxch, k, e, len); if (last) TRP(P_SIGNAL, 0, k, e, e->n); } }
                     posted[s] = o + len; nput++; bytes += (double)len;
                     if (last) fp[s] = 1; else more = 1;
                 }
@@ -486,8 +567,10 @@ static void px_serve2(void)
         }
         if (tl < t) {                                     /* complete the context of the oldest command not done; then take new commands */
             double t0 = now_s(); int c = co[tl % PXRING];
+            if (tra[tl % PXRING]) TRP(P_QUIET_BEG, c, tl, &ring[tl % PXRING], 0);
             shmem_ctx_quiet(cx[c]); nq++;
-            for (long k = tl; k < t; k++) { int s = (int)(k % PXRING); if (!fd[s] && co[s] == c) { fd[s] = 1; __atomic_store_n(&dn[s], k + 1, __ATOMIC_RELEASE); } }
+            if (tra[tl % PXRING]) TRP(P_QUIET_END, c, tl, &ring[tl % PXRING], 0);
+            for (long k = tl; k < t; k++) { int s = (int)(k % PXRING); if (!fd[s] && co[s] == c) { fd[s] = 1; if (S.hst) hx_add(1, px_ts_of(S.pool)[s]); __atomic_store_n(&dn[s], k + 1, __ATOMIC_RELEASE); if (tra[s]) TRP(P_DONE, c, k, &ring[s], 0); } }
             while (tl < t && fd[tl % PXRING]) tl++;
             __atomic_store_n(&h->done, tl, __ATOMIC_RELEASE);
             tbusy += now_s() - t0; idle = 0; continue;
@@ -501,6 +584,7 @@ static void px_serve2(void)
         }
     }
     for (int i = 0; i < own; i++) shmem_ctx_destroy(cx[i]);
+    hx_print(); tr_flush(1);
     if (S.verbose || S.pme < S.ppn) fprintf(stderr, "comm_shmem: proxy pe %d (node %d, APU %d): COMM_SHMEM_PX_SEND=%d, %d contexts: %ld chunks, %.2f GB, %ld context quiets, %ld fence+signal, %.2f s posting + quiet = %.2f GB/s while busy\n",
                                            S.pme, S.pme / S.ppn, S.pme % S.ppn, S.pxsend, own, nput, bytes / 1e9, nq, nsig, tbusy, tbusy > 0 ? bytes / 1e9 / tbusy : 0);
 }
@@ -512,13 +596,18 @@ static void px_serve(void)
     if (S.pxsend >= 2) { px_serve2(); return; }
     struct px_hdr *h = px_hdr_of(S.pool); struct px_ent *ring = px_ring_of(S.pool);
     __atomic_store_n(&h->ppid, (long)getpid(), __ATOMIC_RELEASE);
-    long t = 0, nput = 0, nq = 0; double bytes = 0, tchk = now_s(), tbusy = 0; unsigned idle = 0;
+    long t = 0, nput = 0, nq = 0; double bytes = 0, tchk = now_s(), tbusy = 0; unsigned idle = 0; static unsigned char tra[PXRING];
     for (;;) {
         long hd = __atomic_load_n(&h->head, __ATOMIC_ACQUIRE);
         if (hd > t) {
-            double t0 = now_s();
-            for (; t < hd; t++) { struct px_ent e = ring[t % PXRING]; if (e.n) { shmem_putmem_nbi(S.pool + e.roff, S.pool + e.soff, e.n, (int)e.pe); nput++; bytes += (double)e.n; } }
+            double t0 = now_s(); long t00 = t;
+            if (g_tr.on) TRP(P_BATCH, 0, t00, &ring[t00 % PXRING], hd - t00);
+            for (; t < hd; t++) { int s = (int)(t % PXRING); struct px_ent e = ring[s]; if (S.hst) hx_add(0, px_ts_of(S.pool)[s]); tra[s] = g_tr.on && (px_ts_of(S.pool)[s] & 1); if (tra[s]) TRP(P_PICKUP, 0, t, &e, e.n);
+                if (e.n) { shmem_putmem_nbi(S.pool + e.roff, S.pool + e.soff, e.n, (int)e.pe); nput++; bytes += (double)e.n; if (tra[s]) TRP(P_CHUNK, 0, t, &e, e.n); } }
+            if (tra[t00 % PXRING]) TRP(P_QUIET_BEG, 0, t00, &ring[t00 % PXRING], 0);
             shmem_quiet(); nq++;
+            if (S.hst) for (long k = t00; k < hd; k++) hx_add(1, px_ts_of(S.pool)[k % PXRING]);
+            for (long k = t00; k < hd; k++) if (tra[k % PXRING]) { if (k == t00) TRP(P_QUIET_END, 0, k, &ring[k % PXRING], 0); TRP(P_DONE, 0, k, &ring[k % PXRING], 0); }
             __atomic_store_n(&h->done, hd, __ATOMIC_RELEASE);
             tbusy += now_s() - t0; idle = 0; continue;
         }
@@ -530,6 +619,7 @@ static void px_serve(void)
                 if (pid > 0 && kill((pid_t)pid, 0) != 0) { fprintf(stderr, "comm_shmem: proxy pe %d: the node-process (pid %ld) is gone: exiting\n", S.pme, pid); unlink(g_heap_path); _exit(3); } }
         }
     }
+    hx_print(); tr_flush(1);
     if (S.verbose || S.pme < S.ppn) fprintf(stderr, "comm_shmem: proxy pe %d (node %d, APU %d): %ld puts, %.2f GB in %ld batches, %.2f s posting + quiet = %.2f GB/s while busy\n",
                                            S.pme, S.pme / S.ppn, S.pme % S.ppn, nput, bytes / 1e9, nq, tbusy, tbusy > 0 ? bytes / 1e9 / tbusy : 0);
 }
@@ -626,7 +716,7 @@ static void pin_start(void)   /* before shmem_init: a helper pins itself, the no
 #ifndef COMM_HOST_ONLY
 struct reg_job { char *p; size_t n; hipError_t he; int dpok; double t; };
 static void *reg_thread(void *a) { struct reg_job *j = (struct reg_job *)a; double t = now_s(); void *dp = 0;
-    j->he = hipHostRegister(j->p, j->n, hipHostRegisterPortable); j->dpok = 0;
+    { int ph_ = ec_ph(EC_PH_HIP_HOSTREG); j->he = hipHostRegister(j->p, j->n, hipHostRegisterPortable); ec_ph(ph_); } j->dpok = 0;
     if (j->he != hipSuccess) (void)hipGetLastError();
     else { j->dpok = hipHostGetDevicePointer(&dp, j->p, 0) == hipSuccess && dp == (void *)j->p; if (!j->dpok) (void)hipGetLastError(); }
     j->t = now_s() - t; return 0; }
@@ -754,7 +844,9 @@ int comm_shmem_pool_in_heap(void) { return 1; }
 int comm_shmem_rank(void) { return S.me; }
 void comm_shmem_counters(double *t, long *n, double *b) { pthread_mutex_lock(&S.alloc_lock); *t = S.tv; *n = S.nv; *b = S.bv; pthread_mutex_unlock(&S.alloc_lock); }
 static int env_int(const char *name, int def) { const char *e = getenv(name); return e ? atoi(e) : def; }
-int comm_shmem_init(void)
+static int comm_shmem_init_i(void);
+int comm_shmem_init(void) { int ph_ = ec_ph(EC_PH_SHMEM_INIT); int r = comm_shmem_init_i(); ec_ph(ph_); return r; }
+static int comm_shmem_init_i(void)
 {
     if (S.inited) return S.npes;
     int prov = -1; g_t0 = now_s();
@@ -823,7 +915,12 @@ int comm_shmem_init(void)
     if (S.order == ORDER_PUTSIG && !HAVE_PUT_SIGNAL) { if (S.me == 0) fprintf(stderr, "comm_shmem: putsig needs OpenSHMEM 1.5 headers: using quiet\n"); S.order = ORDER_QUIET; }
     S.spin_us = env_int("COMM_SHMEM_SPIN_US", 2000);
     { const char *ep = getenv("COMM_SHMEM_PEER_ORDER"); S.shift = ep && !strcmp(ep, "shift"); }   /* N7: peers as a shifted ring, not in rank order */
-    S.xstats = env_int("COMM_XSTATS", 0) > 0;
+    S.xstats = env_int("COMM_XSTATS", 0) > 0; S.hst = env_int("COMM_KTIME", 0) > 0;   /* HS: host-step timers (COMM_KTIME=1) */
+    tr_init(S.proxy ? 4 : 0);                             /* COMM_TRACE=1: the trace arena (a proxy's is a quarter of COMM_TRACE_MAX_MB) */
+    tr_hb_start(S.proxy);                                 /* COMM_TRACE_HB=<ms>: the heartbeat thread (comm_trace.h) */
+#ifndef COMM_HOST_ONLY
+    comm_ktime_set_pool(px_reg_in);                       /* KT (COMM_KTIME=1, comm_copy.c): which pointers are the proxy pool */
+#endif
     S.pts = env_int("COMM_PHASE_TS", 0) > 0; S.xsany = S.xstats || S.pts;   /* N8 ts: per-PE phase enter/exit timestamps */
     S.vslot_pool = env_int("COMM_LAYER_VSLOT_POOL", 1) > 0;   /* X2: no rounds for an exchange from and into the pool (default 1) */
     { const char *er = getenv("COMM_SHMEM_ROUND_MB"); double rm = er ? atof(er) : 0; S.round_bytes = rm > 0 ? (size_t)(rm * 1048576.0) : 0; }
@@ -859,15 +956,17 @@ int comm_shmem_init(void)
         (void)hipGetLastError();
         if (!dev) { if (S.me == 0) fprintf(stderr, "comm_shmem: COMM_SHMEM_DEVHEAP=%d but the library's shmem_malloc returned host memory (%s): the pool is HIP-registered host memory instead\n", S.devheap, pe == hipSuccess ? "known to HIP, not device" : hipGetErrorString(pe)); S.devheap = 0; }
     }
+    int phpool_ = ec_ph(EC_PH_POOL_REG);
     if (g_pxinit && !S.devheap) { double tp = now_s(); pool_populate(S.pool, S.pool_bytes, g_pxthr); g_t_pop = now_s() - tp;   /* N7D: pre-faulted here; registered after the barrier with the proxy pools */
         if (g_pop_err && S.verbose) fprintf(stderr, "comm_shmem: pe %d: madvise(MADV_POPULATE_WRITE) failed (%s): pages touched instead\n", S.me, strerror(g_pop_err > 0 ? g_pop_err : EINVAL)); }
     else if (!S.devheap) {
-        double tr = now_s(); hipError_t he = hipHostRegister(S.pool, S.pool_bytes, hipHostRegisterPortable);
+        double tr = now_s(); int ph_ = ec_ph(EC_PH_HIP_HOSTREG); hipError_t he = hipHostRegister(S.pool, S.pool_bytes, hipHostRegisterPortable); ec_ph(ph_);
         S.registered = he == hipSuccess;
         if (!S.registered) { (void)hipGetLastError(); if (S.me == 0) fprintf(stderr, "comm_shmem: hipHostRegister of the pool failed (%s): pageable copies, no symmetric slabs\n", hipGetErrorString(he)); }
         else { void *dp = 0; if (hipHostGetDevicePointer(&dp, S.pool, 0) != hipSuccess || dp != S.pool) { (void)hipGetLastError(); if (S.me == 0) fprintf(stderr, "comm_shmem: the pool's device pointer differs from its host pointer: no symmetric slabs\n"); S.registered = 2; } }
         g_t_own = now_s() - tr;
     }
+    ec_ph(phpool_);
 #endif
     S.blocks = (struct blk *)malloc(sizeof *S.blocks); S.blocks->off = S.mb_bytes; S.blocks->len = S.pool_bytes - S.mb_bytes; S.blocks->used = 0; S.blocks->next = 0;
 #ifndef COMM_HOST_ONLY
@@ -883,12 +982,13 @@ int comm_shmem_init(void)
     shmem_barrier_all();                                  /* every mailbox is zeroed before anyone posts */
     S.inited = 1;
     if (S.verbose && S.ppa) printf("comm_shmem: pe %d: init timeline: shmem_init %.2f, pool alloc+pre-fault/registration done at %.2f, barrier took %.2f s, passed at %.2f\n", S.me, g_t_shinit, t_bar - g_t0, now_s() - t_bar, now_s() - g_t0);
-    if (S.ppa) px_attach();                               /* N7b: (after the barrier: the proxies' control is zeroed) */
+    if (S.ppa) { int ph_ = ec_ph(EC_PH_PX_ATTACH); px_attach(); ec_ph(ph_); }                               /* N7b: (after the barrier: the proxies' control is zeroed) */
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);
     if (S.me == 0) printf("comm_shmem: %s, %d PEs%s, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us, peer order %s\n", comm_shmem_impl(), S.npes, S.ppa ? (S.pxsend == 2 ? " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1; proxy send COMM_SHMEM_PX_SEND=2: 4 MiB put-with-signal chunks, a context per peer node)" : S.pxsend == 3 ? " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1; proxy send COMM_SHMEM_PX_SEND=3: plain chunks, one fence + signal per command, a context per peer node)" : " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1)") : "", prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
                           S.devheap ? " (device heap)" : "", S.registered == 1 ? ", HIP-registered" : "",
                           S.order == ORDER_PUTSIG ? "putsig" : S.order == ORDER_FENCE ? "fence" : "quiet", S.order == ORDER_QUIET ? " (helper thread)" : " (inline)", S.spin_us, S.shift ? "shift" : "rank");
+    tr_clock_sync(0);                                     /* COMM_TRACE: node 0's clock against every node (every node-process is here after the barrier) */
     return S.npes;
 }
 void comm_shmem_finalize(void)
@@ -896,6 +996,7 @@ void comm_shmem_finalize(void)
     if (!S.inited) return;
     if (S.ppa) px_shutdown();                             /* N7b: the proxies' last puts complete, then they leave for the barrier */
     shmem_barrier_all();
+    tr_clock_sync(1);                                     /* COMM_TRACE: the clocks again (drift over the run) */
     if (S.me == 0 || S.verbose) {
         printf("comm_shmem: pe %d: pool peak %zu MiB of %zu (control %zu, staging %zu, symmetric buffers %zu MiB peaks)\n", S.me, S.peak_all >> 20, S.pool_bytes >> 20, S.peak[K_CTRL] >> 20, S.peak[K_STAGE] >> 20, S.peak[K_SYM] >> 20);
         /* what occupied the pool at its peak (the kinds then, the live staging blocks), the largest staging block, the mailbox */
@@ -911,6 +1012,8 @@ void comm_shmem_finalize(void)
     for (int d = 0; d < 4; d++) if (g_px[d] && g_px[d]->reg) { (void)hipHostUnregister(g_px[d]->base); (void)hipGetLastError(); }
 #endif
     if (S.xstats) xs_print();                             /* X1: every PE prints its own lines */
+    if (S.hst) hs_print();                                /* HS (COMM_KTIME=1) */
+    tr_flush(0);                                          /* COMM_TRACE=1: this node-process's trace file */
     comm_ofi_finalize();                                  /* the per-NIC bytes (COMM_OFI_VERBOSE), then the domains and pools */
     shmem_free(S.pool);
     shmem_finalize(); S.inited = 0;
@@ -919,6 +1022,13 @@ void comm_shmem_finalize(void)
 /* ---- a communicator ---- */
 /* the control block of a member (offsets from its base): the words other members write */
 enum { W_ROFF, W_SIG, W_VAL0, W_VAL1, W_VSEQ0, W_VSEQ1, W_PROD, W_CONS, W_N, W_IBX = W_N };   /* W_IBX: FA's inbox grant, a word past W_N only under COMM_SHMEM_OFFS_WITH_DATA (nw) */
+/* ---- HS: host-step timers (COMM_KTIME=1; off: S.hst is 0, no clock is read).  Per exchange, in the thread that runs the step; s_alltoall / s_alltoallv /
+ * s_wait are wrappers that bracket the exchange and fold the steps into g_hsd[APU][kind][path], printed per APU at finalize as `hstep` lines ---- */
+enum { H_POST, H_STAGE, H_CPY, H_SYNC, H_PUB, H_START, H_CALL, H_WAIT, H_JOIN, H_ARR, H_RCPY, H_RSYNC, H_PUSH, H_ROFF, H_PUT, H_FLUSH, H_RD, H_RDS, H_RDC, H_RDR, H_RDSIG, H_RDQ, HS_N };
+static const char *const hs_nm[HS_N] = { "post", "post_stage", "post_copy_issue", "post_sync", "post_publish", "post_start", "call", "wait", "wait_join", "wait_arrive", "wait_copy_issue", "wait_sync",
+                                         "push_thread", "push_roff_wait", "push_put", "push_flush", "rounds_thread", "rounds_send", "rounds_sendcopy", "rounds_recvcopy", "rounds_sigwait", "rounds_quiet" };
+#define HT() (S.hst ? now_s() : 0.0)
+#define HA(p, i, t0) do { if (S.hst) (p)->hs[i] += now_s() - (t0); } while (0)
 typedef struct {
     int n, me, id, *pe;                    /* pe[r]: the PE of rank r */
     shmem_ctx_t ctx; int own_ctx;
@@ -940,12 +1050,64 @@ typedef struct {
      * db: the base its staging offsets, the published roff offsets and the in-pool test refer to (the SHMEM pool, or the device's
      * comm pool under xo); sdb: the pool the cached staging lives in; ocnt[r]: writes to r in flight; osig[r]: r's signal to send
      * once they completed (0: none) */
+    double hs[HS_N]; double hcall0; int hpath, hxk;   /* HS: the exchange's host-step seconds (COMM_KTIME=1), when its post returned, its path (0 equal, 1 v, 2 rounds) and xtag kind */
     int xk, xph, xapu; long xK; double xroff, xsig;   /* X1 xstats: the pending exchange's kind, phase, APU, rounds, and the seconds blocked on offset words (skew) / signal words (transfer, tail) */
     int ofi, xo, sdb; char *db; ofi_dev *od; ofi_peers *op; long *ocnt, *osig;
+    void *tev[2]; int tev_ok;   /* COMM_TRACE: hipEvents around the staging copies (the GPU time of the copy, E_COPY_DONE / E_RCOPY_DONE bytes) */
+    tr_buf tb; int tr_act, tr_kind, tr_path, tr_reg; uint32_t tr_xs;   /* COMM_TRACE: this communicator's record chunk; whether the pending exchange is traced (the sampling), its xtag kind and path; in the table; its sequence */
     px_dev *px; int *pxpe;                 /* N7b: the proxy data plane (ofi = 1 with px set): my APU's proxy, the members' proxies (physical PEs) */
     int nw, ibon, ibtried; size_t ib, ibcap; unsigned char *ibf;   /* FA: control words per rank (W_N, + 1 under the switch); my inbox (offset in db), bytes per sender, which senders' messages of the pending exchange are in it */
+    int phk;                                          /* phase tag kind of the last post (comm_phase.h) */
 } shm_priv;
 #define PRIV(c) ((shm_priv *)(c)->priv)
+/* COMM_TRACE: TR(p, event, round, peer rank, sequence, bytes, aux) stamps one event of the pending exchange when it is traced (comm_trace.h) */
+#define TR(p, ev, rd, peer, seq, nb, aux) do { if (__builtin_expect(g_tr.on, 0) && (p)->tr_act) tr_put(&(p)->tb, (ev), (uint8_t)((p)->tr_kind | (p)->tr_path << 4), (uint32_t)(p)->id, (uint32_t)(seq), (p)->tr_xs, (uint32_t)(aux), (uint32_t)(rd), (p)->me, (peer), (uint64_t)(nb)); } while (0)
+/* COMM_TRACE: the GPU time of a staging copy: an event before the copies and one after them on the same stream; after the stream sync (which the code already does) the elapsed time between
+ * the two is the copy's own time on the GPU (the wait for the caller's earlier kernels before it is not in it): E_COPY_DONE bytes (ns), against E_COPY_ISS -> E_COPY_DONE = issue + wait + copy */
+#ifndef COMM_HOST_ONLY
+static void tr_cev_beg(shm_priv *p, hipStream_t s)
+{
+    if (!g_tr.on || !p->tr_act) return;
+    if (!p->tev[0]) { hipEvent_t a, b; if (hipEventCreate(&a) != hipSuccess || hipEventCreate(&b) != hipSuccess) { (void)hipGetLastError(); p->tev[0] = (void *)1; return; } p->tev[0] = (void *)a; p->tev[1] = (void *)b; }
+    p->tev_ok = 0; if (p->tev[0] == (void *)1) return;
+    if (hipEventRecord((hipEvent_t)p->tev[0], s) != hipSuccess) (void)hipGetLastError();
+}
+static void tr_cev_end(shm_priv *p, hipStream_t s)
+{
+    if (!g_tr.on || !p->tr_act || !p->tev[1]) return;
+    if (hipEventRecord((hipEvent_t)p->tev[1], s) == hipSuccess) p->tev_ok = 1; else (void)hipGetLastError();
+}
+static uint64_t tr_cev_ns(shm_priv *p)                    /* after the sync */
+{
+    float ms = 0; if (!g_tr.on || !p->tr_act || !p->tev_ok) return 0; p->tev_ok = 0;
+    if (hipEventElapsedTime(&ms, (hipEvent_t)p->tev[0], (hipEvent_t)p->tev[1]) != hipSuccess) { (void)hipGetLastError(); return 0; }
+    return ms > 0 ? (uint64_t)((double)ms * 1e6) + 1 : 1;
+}
+#else
+#define tr_cev_beg(p, s) ((void)0)
+#define tr_cev_end(p, s) ((void)0)
+#define tr_cev_ns(p) ((uint64_t)0)
+#endif
+static void tr_comm_register(shm_priv *p)
+{
+    p->tr_reg = 1; int apu = 0;
+#ifndef COMM_HOST_ONLY
+    if (hipGetDevice(&apu) != hipSuccess) { (void)hipGetLastError(); apu = 0; }
+#endif
+    int *node = (int *)malloc((size_t)p->n * sizeof(int)); for (int r = 0; r < p->n; r++) node[r] = p->pe[r] / S.ppn;
+    tr_comm_add(p->id, p->n, p->me, apu, node); free(node);
+}
+/* the start of an exchange's post: decides whether it is traced (every member decides alike: a hash of the exchange's sequence) and stamps E_BEGIN; path 0 equal, 1 v; bytes = sent to the other ranks */
+static void tr_begin(shm_priv *p, int path, uint64_t bytes)
+{
+    p->tr_act = 0; if (!g_tr.on) return;
+    p->tr_xs = (uint32_t)(p->seq + 1);
+    if (g_tr.sample > 1 && ((p->tr_xs * 2654435761u) >> 8) % g_tr.sample) return;
+    p->tr_kind = comm_xtag < 0 || comm_xtag >= XK_NK ? 0 : comm_xtag; p->tr_path = path;
+    if (!p->tr_reg) tr_comm_register(p);
+    p->tr_act = 1;
+    TR(p, E_BEGIN, 0, -1, p->tr_xs, bytes, 0);
+}
 /* ---- X1: COMM_XSTATS=1 (results/XEFF.md M1): per (phase, kind) sums over the completed exchanges of this PE (all APU threads) ---- */
 static struct xs_row { long n, rounds; double bytes, tpost, tcall, twait, roff, sig; } g_xs[WST_NP][XK_NK];
 static struct xs_apu { long n; double bytes, tpost; } g_xa[8][XK_NK];
@@ -992,6 +1154,7 @@ static char *RING(shm_priv *p, size_t base, int r) { return S.pool + base + (siz
 #define PACK(seq, off) (((long)(seq) << 40) | (long)(off))   /* a byte offset / count below 2^40 tagged with the sequence (< 2^23) */
 #define UNSEQ(x) ((x) >> 40)
 #define UNOFF(x) ((size_t)((x) & (((long)1 << 40) - 1)))
+#define TRRD(p, r, sig) ((p)->rounds ? (uint32_t)(UNSEQ(sig) - (p)->oseq[r] - 1) : 0u)   /* COMM_TRACE: the round of a message the sender's word carries */
 /* the data base of the current exchange -- on: a device op of an OFI communicator (its data over libfabric) */
 static void set_xo(shm_priv *p, int on) { p->xo = on && p->ofi; p->db = p->xo ? (p->px ? p->px->base : comm_ofi_pool(p->od)) : S.pool; }
 static int in_db(shm_priv *p, const void *x) { return p->xo ? (p->px ? px_in(p->px, x) : comm_ofi_in_pool(p->od, x)) : in_pool(x); }
@@ -1032,27 +1195,39 @@ static void put_word(shm_priv *p, int r, int w, int idx, long v)   /* word (w, i
 }
 static void putmem(shm_priv *p, int r, size_t off, const void *src, size_t n) { if (n) shmem_ctx_putmem_nbi(p->ctx, S.pool + off, src, n, p->pe[r]); }
 /* the data of one peer and its signal, ordered: put-with-signal, or put + fence + signal; under `quiet` the signals are sent after one quiet (push_peers) */
-static void put_signalled(shm_priv *p, int r, size_t off, const void *src, size_t n, long sig)
+/* returns the proxy ring index of the command (COMM_TRACE), else -1 */
+static long put_signalled_(shm_priv *p, int r, size_t off, const void *src, size_t n, long sig)
 {
     long *sw = W(p, p->rbase[r], W_SIG, p->me);
-    if (p->xo && p->px && S.pxsend >= 2) { px_write(p->px, p->pxpe[r], off, src, n, &p->ocnt[r], (long)p->id * S.npes + p->me, sig); return; }   /* N7D: the signal travels with the data */
-    if (p->xo) { if (p->px) { if (n) px_write(p->px, p->pxpe[r], off, src, n, &p->ocnt[r], 0, 0); } else comm_ofi_write(p->op, r, off, src, n, &p->ocnt[r]); p->osig[r] = sig; return; }   /* the signal after delivery (ofi_flush) */
+    if (p->xo && p->px && S.pxsend >= 2) { if (g_tr.on && p->tr_act) p->osig[r] = sig; return px_write(p->px, p->pxpe[r], off, src, n, &p->ocnt[r], (long)p->id * S.npes + p->me, sig); }   /* N7D: the signal travels with the data (osig: COMM_TRACE only, for ofi_flush's stamps) */
+    if (p->xo) { long k = -1; if (p->px) { if (n) k = px_write(p->px, p->pxpe[r], off, src, n, &p->ocnt[r], 0, 0); } else comm_ofi_write(p->op, r, off, src, n, &p->ocnt[r]); p->osig[r] = sig; return k; }   /* the signal after delivery (ofi_flush) */
 #if HAVE_PUT_SIGNAL
     if (S.order == ORDER_PUTSIG) {
         if (n) shmem_ctx_putmem_signal_nbi(p->ctx, S.pool + off, src, n, (uint64_t *)sw, (uint64_t)sig, SHMEM_SIGNAL_SET, p->pe[r]);
         else shmem_ctx_long_p(p->ctx, sw, sig, p->pe[r]);
-        return;
+        return -1;
     }
 #endif
     putmem(p, r, off, src, n);
     if (S.order == ORDER_FENCE) { shmem_ctx_fence(p->ctx); shmem_ctx_long_p(p->ctx, sw, sig, p->pe[r]); }
+    return -1;
+}
+static void put_signalled(shm_priv *p, int r, size_t off, const void *src, size_t n, long sig)
+{
+    if (!g_tr.on || !p->tr_act) { (void)put_signalled_(p, r, off, src, n, sig); return; }
+    uint32_t seq = (uint32_t)UNSEQ(sig), rd = TRRD(p, r, sig);
+    TR(p, M_PUT_ISSUE, rd, r, seq, n, 0);
+    g_tr_px_act = 1; long k = put_signalled_(p, r, off, src, n, sig); g_tr_px_act = 0;
+    TR(p, M_PUT_POSTED, rd, r, seq, n, (uint32_t)k);
+    if (!p->xo && S.order != ORDER_QUIET) TR(p, M_SIG_ISSUE, rd, r, seq, n, 0);   /* (the signal word went with the put) */
 }
 /* progress the device's writes; each peer whose writes have all completed (delivered) gets its signal word through SHMEM.
  * Returns when every recorded signal is sent (the data of this exchange is in the receivers' memory) */
-static void ofi_flush(shm_priv *p)
+static void ofi_flush_(shm_priv *p)
 {
     if (p->px && S.pxsend >= 2) {                         /* N7D: the signals went with the data; wait until the proxy is done with my sources */
         for (unsigned spins = 0;; spins++) {
+            if (g_tr.on && p->tr_act) for (int r = 0; r < p->n; r++) if (p->osig[r] && !__atomic_load_n(&p->ocnt[r], __ATOMIC_ACQUIRE)) { long sg = p->osig[r]; p->osig[r] = 0; TR(p, M_PUT_DONE, TRRD(p, r, sg), r, UNSEQ(sg), UNOFF(sg), 0); }   /* (COMM_TRACE: each peer's command done) */
             int left = 0; for (int r = 0; r < p->n && !left; r++) left = __atomic_load_n(&p->ocnt[r], __ATOMIC_ACQUIRE) != 0;
             if (!left) return;
             px_progress(p->px); if (spins > 1024) sched_yield();
@@ -1062,7 +1237,9 @@ static void ofi_flush(shm_priv *p)
         int left = 0;
         for (int r = 0; r < p->n; r++) if (p->osig[r]) {
             if (__atomic_load_n(&p->ocnt[r], __ATOMIC_ACQUIRE)) { left = 1; continue; }
+            long sg = p->osig[r]; TR(p, M_PUT_DONE, TRRD(p, r, sg), r, UNSEQ(sg), UNOFF(sg), 0);
             SHM_LOCK(); shmem_ctx_long_p(p->ctx, W(p, p->rbase[r], W_SIG, p->me), p->osig[r], p->pe[r]); SHM_UNLOCK();
+            TR(p, M_SIG_ISSUE, TRRD(p, r, sg), r, UNSEQ(sg), UNOFF(sg), 0);
             p->osig[r] = 0;
         }
         if (!left) return;
@@ -1070,13 +1247,20 @@ static void ofi_flush(shm_priv *p)
         if (spins > 1024) sched_yield();
     }
 }
+static void ofi_flush(shm_priv *p)
+{
+    if (!g_tr.on || !p->tr_act) { ofi_flush_(p); return; }
+    TR(p, M_FLUSH_BEG, 0, -1, p->tr_xs, 0, 0); ofi_flush_(p); TR(p, M_FLUSH_END, 0, -1, p->tr_xs, 0, 0);
+}
 /* N7D COMM_SHMEM_PX_SEND=2: the receiver's half -- sender r's message `seq` (want bytes) is in my proxy's pool: its last chunk set word 1,
  * its other chunks added their bytes to word 0 (zeroed here for the next message, which r sends only after my next publish) */
 static void px_arrive(shm_priv *p, int r, long seq, size_t want, long round)
 {
     long idx = (long)p->id * S.npes + r, *b = px_sigw(p->px->base, 1, idx), *a = px_sigw(p->px->base, 0, idx);
     double t0 = comm_wst_t0(), xt = S.xstats ? now_s() : 0;
+    TR(p, M_SIG_WAIT, round, r, seq, want, 0);
     px_spin_ge(b, PACK(seq, 0));
+    TR(p, M_SIG_SEEN, round, r, seq, want, 0);
     long x = __atomic_load_n(b, __ATOMIC_ACQUIRE);
     if (UNSEQ(x) != seq) die("signal sequence mismatch (COMM_SHMEM_PX_SEND=2)");
     if (p->ibf) { if ((x & IBF) && (!p->ibon || p->rounds)) die("an inbox message outside an ordinary exchange (COMM_SHMEM_OFFS_WITH_DATA)"); p->ibf[r] = (x & IBF) != 0; x &= ~IBF; }   /* FA */
@@ -1138,16 +1322,18 @@ static int push_peers(shm_priv *p, int from, long spin_us)
 {
     PEERS(p, k, r, from, 1) {
         long seq = p->oseq[r], *w = W(p, p->base, W_ROFF, r);
-        if (spin_us < 0) XWAIT(p, xroff, w, PACK(seq, 0));
+        TR(p, M_ROFF_WAIT, 0, r, seq, 0, 0);
+        if (spin_us < 0) { double h0 = HT(); XWAIT(p, xroff, w, PACK(seq, 0)); HA(p, H_ROFF, h0); }
         else { double t0 = 0; for (unsigned spins = 0; !test_ge(w, PACK(seq, 0)); spins++) { if (spins > 32) { double t = now_s(); if (!t0) t0 = t; else if ((t - t0) * 1e6 > (double)spin_us) return k; sched_yield(); } } }
+        TR(p, M_ROFF_SEEN, 0, r, seq, 0, 0);
         long x = *(volatile long *)w; if (UNSEQ(x) != seq) die("exchange sequence mismatch");
         size_t n = p->scnt ? p->scnt[r] : p->bytes; const char *s = p->scnt ? p->src + p->sdsp[r] : p->src + p->stride * (size_t)r;
-        SHM_LOCK(); put_signalled(p, r, UNOFF(x), s, n, PACK(seq, n)); SHM_UNLOCK();
+        double h1 = HT(); SHM_LOCK(); put_signalled(p, r, UNOFF(x), s, n, PACK(seq, n)); SHM_UNLOCK(); HA(p, H_PUT, h1);
     }
-    if (p->xo) ofi_flush(p);
+    if (p->xo) { double h2 = HT(); ofi_flush(p); HA(p, H_FLUSH, h2); }
     else if (S.order == ORDER_QUIET) {
         SHM_LOCK(); shmem_ctx_quiet(p->ctx);
-        PEERS(p, k, r, from, 1) put_word(p, r, W_SIG, p->me, PACK(p->oseq[r], p->scnt ? p->scnt[r] : p->bytes));
+        PEERS(p, k, r, from, 1) { put_word(p, r, W_SIG, p->me, PACK(p->oseq[r], p->scnt ? p->scnt[r] : p->bytes)); TR(p, M_SIG_ISSUE, 0, r, p->oseq[r], p->scnt ? p->scnt[r] : p->bytes, 0); }
         SHM_UNLOCK();
     }
     return p->n;
@@ -1176,7 +1362,7 @@ static void push_any(shm_priv *p)
     free(dn);
     ofi_flush(p);
 }
-static void *pusher(void *a) { comm *c = (comm *)a; shm_priv *p = PRIV(c); if (p->ibcap && p->xo && p->px) push_any(p); else push_peers(p, p->next, -1); return 0; }
+static void *pusher(void *a) { comm *c = (comm *)a; shm_priv *p = PRIV(c); double h0 = HT(); if (p->ibcap && p->xo && p->px) push_any(p); else push_peers(p, p->next, -1); HA(p, H_PUSH, h0); return 0; }
 /* post the pending exchange's puts: inline for the peers ready within the spin (only where nothing blocks: putsig /
  * fence), a helper thread for the rest */
 static void start_push(comm *c)
@@ -1196,7 +1382,7 @@ static void seq_next(shm_priv *p)
 static void publish(shm_priv *p, size_t base, size_t bytes, const size_t *dsp)
 {
     SHM_LOCK();
-    PEERS(p, k, r, 0, -1) put_word(p, r, W_ROFF, p->me, PACK(p->iseq[r], base + (dsp ? dsp[r] : bytes * (size_t)r)));
+    PEERS(p, k, r, 0, -1) { put_word(p, r, W_ROFF, p->me, PACK(p->iseq[r], base + (dsp ? dsp[r] : bytes * (size_t)r))); TR(p, M_ROFF_ISSUE, 0, r, p->iseq[r], p->v ? p->rcnt[r] : bytes, 0); }
     SHM_UNLOCK();
 }
 /* wait for every sender's signal (and count), then the context's completion (my send buffer is free again) */
@@ -1204,37 +1390,60 @@ static void arrive(shm_priv *p, size_t bytes, const size_t *rcnt)
 {
     PEERS(p, k, r, 0, -1) {
         if (p->xo && p->px && S.pxsend >= 2) { px_arrive(p, r, p->iseq[r], rcnt ? rcnt[r] : bytes, 0); continue; }
-        long *sw = W(p, p->base, W_SIG, r); XWAIT(p, xsig, sw, PACK(p->iseq[r], 0));
+        long *sw = W(p, p->base, W_SIG, r); TR(p, M_SIG_WAIT, 0, r, p->iseq[r], rcnt ? rcnt[r] : bytes, 0); XWAIT(p, xsig, sw, PACK(p->iseq[r], 0)); TR(p, M_SIG_SEEN, 0, r, p->iseq[r], rcnt ? rcnt[r] : bytes, 0);
         long x = *(volatile long *)sw, want = (long)(rcnt ? rcnt[r] : bytes);
         if (UNSEQ(x) != p->iseq[r]) die("signal sequence mismatch");
         if (p->ibf) { if ((x & IBF) && !p->ibon) die("an inbox message without an inbox (COMM_SHMEM_OFFS_WITH_DATA)"); p->ibf[r] = (x & IBF) != 0; x &= ~IBF; }   /* FA */
         if ((long)UNOFF(x) != want) { ec_fatal(EC_RC_FATAL, "comm_shmem: alltoallv count mismatch: rank %d sends %ld bytes to rank %d, which expects %ld\n", r, (long)UNOFF(x), p->me, want); }
     }
+    TR(p, E_SIGS_SEEN, 0, -1, p->tr_xs, 0, 0);
     SHM_LOCK(); shmem_ctx_quiet(p->ctx); SHM_UNLOCK();
+    TR(p, E_QUIET_END, 0, -1, p->tr_xs, 0, 0);
 }
 static int s_rank(comm *c) { return c->rank; }
 static int s_size(comm *c) { return c->size; }
 static int alltoallv_rounds(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s, int sin, int rin);   /* (below) */
-static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
+static void s_alltoall_i(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (p->pending) die("alltoall while one is pending");
     set_xo(p, 1);
     int sin = in_db(p, sb), rin = in_db(p, rb);
     p->t0 = now_s(); if (S.xsany) xs_begin(p);
+    tr_begin(p, 0, (uint64_t)bytes * (uint64_t)(n - 1));
     if (S.round_bytes) {                                  /* the equal exchange as an unequal one, in rounds when a slab exceeds the round's chunk */
         for (int r = 0; r < n; r++) { p->acnt[r] = bytes; p->adsp[r] = (size_t)r * bytes; }
         if (alltoallv_rounds(c, sb, p->acnt, p->adsp, rb, p->acnt, p->adsp, s, sin, rin)) return;
     }
-    staging(p, sin ? 0 : bytes * n, rin ? 0 : bytes * n, "alltoall");
+    double h0 = HT();
+    staging(p, sin ? 0 : bytes * n, rin ? 0 : bytes * n, "alltoall"); HA(p, H_STAGE, h0);
     seq_next(p); p->v = 0; p->bytes = bytes; p->stride = bytes; p->scnt = p->sdsp = 0; p->rb = rb; p->st = s; p->rin = rin; p->pending = 1;
     p->src = sin ? (const char *)sb : p->db + p->sst;
+    h0 = HT(); tr_cev_beg(p, s);
     if (!sin) COPY(p->db + p->sst, sb, bytes * n, s);                                         /* my slabs (all of them: simpler than skipping the self slab) */
     if ((const char *)sb + (size_t)me * bytes != (char *)rb + (size_t)me * bytes) COPY((char *)rb + (size_t)me * bytes, (const char *)sb + (size_t)me * bytes, bytes, s);   /* the self slab */
-    SYNC(s);                                              /* the stream is done with sb and rb (a pool-resident rb may still be read by the caller's earlier kernels: publish only after) */
+    HA(p, H_CPY, h0); h0 = HT(); TR(p, E_COPY_ISS, 0, -1, p->tr_xs, 0, 0); tr_cev_end(p, s);
+    SYNC(s); TR(p, E_COPY_DONE, 0, -1, p->tr_xs, tr_cev_ns(p), 0);   /* the stream is done with sb and rb (a pool-resident rb may still be read by the caller's earlier kernels: publish only after) */
+    HA(p, H_SYNC, h0); h0 = HT();
     ibx_setup(p);                                         /* FA (off: returns) */
     publish(p, rin ? off_db(p, rb) : p->rst, bytes, 0);
+    TR(p, E_PUBLISHED, 0, -1, p->tr_xs, 0, 0);
+    HA(p, H_PUB, h0); h0 = HT();
     start_push(c);
+    TR(p, E_POSTED, 0, -1, p->tr_xs, 0, 0);
+    HA(p, H_START, h0);
+}
+static void hs_post_begin(shm_priv *p, int path)       /* HS wrappers: the exchange's host-step seconds start at zero */
+{
+    memset(p->hs, 0, sizeof p->hs); p->hpath = path; p->hxk = comm_xtag < 0 || comm_xtag >= XK_NK ? 0 : comm_xtag;
+}
+static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
+{
+    shm_priv *p = PRIV(c); p->phk = comm_xtag < 0 || comm_xtag >= XK_NK ? 0 : comm_xtag; int ph_ = ec_ph(EC_PH_POST(p->phk));
+    if (!S.hst) { s_alltoall_i(c, sb, rb, bytes, s); ec_ph(ph_); return; }
+    hs_post_begin(p, 0); double t0 = now_s();
+    s_alltoall_i(c, sb, rb, bytes, s);
+    p->hcall0 = now_s(); p->hs[H_POST] = p->hcall0 - t0; ec_ph(ph_);
 }
 /* ---- the all-to-alls in rounds (COMM_SHMEM_ROUND_MB; results/V114.md; the equal one as an unequal one) ----
  * The staging of an ordinary exchange is its whole send and receive, so the pool's high-water is 4 APU threads x the largest
@@ -1261,21 +1470,26 @@ static void *rounder(void *a)
 #ifndef COMM_HOST_ONLY
     HIP_CHECK(hipSetDevice(p->dev));
 #endif
-    long K = 1;
+    long K = 1; double hr0 = HT(), h0;
     for (int r = 0; r < n; r++) if (r != me) { long ko = round_count(scnt[r], c), ki = round_count(rcnt[r], c); if (ko > K) K = ko; if (ki > K) K = ki; }
     for (long j = 0; j < K; j++) {
         size_t o = (size_t)j * c;
+        TR(p, R_BEGIN, j, -1, p->tr_xs, 0, K);
         SHM_LOCK();                                       /* the receiver's half: where each active sender's chunk j lands */
-        PEERS(p, k, r, 0, -1) if (j < round_count(rcnt[r], c))
+        PEERS(p, k, r, 0, -1) if (j < round_count(rcnt[r], c)) {
             put_word(p, r, W_ROFF, me, PACK(p->iseq[r] + 1 + j, p->rin ? off_db(p, p->vrb) + rdsp[r] + o : p->rst + p->rpre[r]));
+            TR(p, M_ROFF_ISSUE, j, r, p->iseq[r] + 1 + j, rcnt[r] > o ? (rcnt[r] - o < c ? rcnt[r] - o : c) : 0, 0); }
         SHM_UNLOCK();
+        TR(p, R_PUBLISHED, j, -1, p->tr_xs, 0, 0);
+        h0 = HT();
         if (!p->vsin) {                                   /* my chunks j into the send staging (free: round j - 1's quiet) */
             int any = 0;
             for (int r = 0; r < n; r++) if (r != me && j < round_count(scnt[r], c) && scnt[r] > o) { size_t len = scnt[r] - o < c ? scnt[r] - o : c; COPY(p->db + p->sst + p->spre[r], p->vsb + sdsp[r] + o, len, p->rs); any = 1; }
-            if (any) SYNC(p->rs);
+            if (any) { TR(p, R_SCOPY_ISS, j, -1, p->tr_xs, 0, 0); SYNC(p->rs); TR(p, R_SCOPY_DONE, j, -1, p->tr_xs, 0, 0); }
         }
+        HA(p, H_RDC, h0); h0 = HT();
         PEERS(p, k, r, 0, 1) if (j < round_count(scnt[r], c)) {   /* the sender's half */
-            long seq = p->oseq[r] + 1 + j, *w = W(p, p->base, W_ROFF, r); XWAIT(p, xroff, w, PACK(seq, 0));
+            long seq = p->oseq[r] + 1 + j, *w = W(p, p->base, W_ROFF, r); TR(p, M_ROFF_WAIT, j, r, seq, 0, 0); XWAIT(p, xroff, w, PACK(seq, 0)); TR(p, M_ROFF_SEEN, j, r, seq, 0, 0);
             long x = *(volatile long *)w; if (UNSEQ(x) != seq) die("round sequence mismatch");
             size_t len = scnt[r] > o ? (scnt[r] - o < c ? scnt[r] - o : c) : 0;
             const char *src = p->vsin ? p->vsb + sdsp[r] + o : p->db + p->sst + p->spre[r];
@@ -1284,23 +1498,32 @@ static void *rounder(void *a)
         if (p->xo) ofi_flush(p);
         else if (S.order == ORDER_QUIET) {
             SHM_LOCK(); shmem_ctx_quiet(p->ctx);
-            PEERS(p, k, r, 0, 1) if (j < round_count(scnt[r], c)) { size_t len = scnt[r] > o ? (scnt[r] - o < c ? scnt[r] - o : c) : 0; put_word(p, r, W_SIG, me, PACK(p->oseq[r] + 1 + j, len)); }
+            PEERS(p, k, r, 0, 1) if (j < round_count(scnt[r], c)) { size_t len = scnt[r] > o ? (scnt[r] - o < c ? scnt[r] - o : c) : 0; put_word(p, r, W_SIG, me, PACK(p->oseq[r] + 1 + j, len)); TR(p, M_SIG_ISSUE, j, r, p->oseq[r] + 1 + j, len, 0); }
             SHM_UNLOCK();
         }
+        TR(p, R_SENDS_DONE, j, -1, p->tr_xs, 0, 0);
+        HA(p, H_RDS, h0); h0 = HT();
         PEERS(p, k, r, 0, -1) if (j < round_count(rcnt[r], c)) {   /* the signals of round j */
             if (p->xo && p->px && S.pxsend >= 2) { px_arrive(p, r, p->iseq[r] + 1 + j, rcnt[r] > o ? (rcnt[r] - o < c ? rcnt[r] - o : c) : 0, j); continue; }
-            long seq = p->iseq[r] + 1 + j, *sw = W(p, p->base, W_SIG, r); XWAIT(p, xsig, sw, PACK(seq, 0));
+            long seq = p->iseq[r] + 1 + j, *sw = W(p, p->base, W_SIG, r); TR(p, M_SIG_WAIT, j, r, seq, 0, 0); XWAIT(p, xsig, sw, PACK(seq, 0)); TR(p, M_SIG_SEEN, j, r, seq, 0, 0);
             long x = *(volatile long *)sw; size_t want = rcnt[r] > o ? (rcnt[r] - o < c ? rcnt[r] - o : c) : 0;
             if (UNSEQ(x) != seq) die("round signal sequence mismatch");
             if (UNOFF(x) != want) ec_fatal(EC_RC_FATAL, "comm_shmem: alltoallv count mismatch (round %ld): rank %d sends %ld bytes to rank %d, which expects %zu\n", j, r, (long)UNOFF(x), me, want);
         }
+        TR(p, R_SIGS_DONE, j, -1, p->tr_xs, 0, 0);
+        HA(p, H_RDSIG, h0); h0 = HT();
         SHM_LOCK(); shmem_ctx_quiet(p->ctx); SHM_UNLOCK();   /* my puts of round j are complete: the send staging is free */
+        TR(p, R_QUIET_END, j, -1, p->tr_xs, 0, 0);
+        HA(p, H_RDQ, h0); h0 = HT();
         if (!p->rin) {
             int any = 0;
             for (int r = 0; r < n; r++) if (r != me && j < round_count(rcnt[r], c) && rcnt[r] > o) { size_t len = rcnt[r] - o < c ? rcnt[r] - o : c; COPY(p->vrb + rdsp[r] + o, p->db + p->rst + p->rpre[r], len, p->rs); any = 1; }
-            if (any) SYNC(p->rs);                         /* before round j + 1 publishes the same slots */
+            if (any) { TR(p, R_RCOPY_ISS, j, -1, p->tr_xs, 0, 0); SYNC(p->rs); }                         /* before round j + 1 publishes the same slots */
         }
+        HA(p, H_RDR, h0);
+        TR(p, R_END, j, -1, p->tr_xs, 0, 0);
     }
+    HA(p, H_RD, hr0);
     for (int r = 0; r < n; r++) if (r != me) { p->oseq[r] += round_count(scnt[r], c); p->iseq[r] += round_count(rcnt[r], c); }
     pthread_mutex_lock(&S.alloc_lock); S.nrpath++; if (K > 1) { S.nround_ex++; S.nrounds += K; } pthread_mutex_unlock(&S.alloc_lock);
     return 0;
@@ -1319,7 +1542,8 @@ static int alltoallv_rounds(comm *c, const void *sb, const size_t *scnt, const s
     for (int r = 0; r < n; r++) if (r != me && (p->oseq[r] + K >= ((long)1 << 23) || p->iseq[r] + K >= ((long)1 << 23))) die("exchange sequence overflow (2^23 exchanges or rounds on one communicator)");
     size_t ss = 0, rs = 0;                                /* a slot per peer: its chunk (min(c, count)) */
     for (int r = 0; r < n; r++) { size_t a = r == me ? 0 : scnt[r] < ch ? scnt[r] : ch, b = r == me ? 0 : rcnt[r] < ch ? rcnt[r] : ch; p->spre[r] = ss; p->rpre[r] = rs; ss += a; rs += b; }
-    staging(p, sin ? 0 : ss + 8, rin ? 0 : rs + 8, "alltoallv rounds");
+    p->hpath = 2; p->tr_path = 2; double h0 = HT();
+    staging(p, sin ? 0 : ss + 8, rin ? 0 : rs + 8, "alltoallv rounds"); HA(p, H_STAGE, h0);
     { size_t st = (sin ? 0 : ss) + (rin ? 0 : rs); pthread_mutex_lock(&S.alloc_lock); if (st > S.round_stage_max) S.round_stage_max = st; pthread_mutex_unlock(&S.alloc_lock); }
     if (scnt[me] != rcnt[me]) die("alltoallv self count mismatch");
     p->seq++;                                             /* (the pairs' sequences advance in the rounds) */
@@ -1328,31 +1552,53 @@ static int alltoallv_rounds(comm *c, const void *sb, const size_t *scnt, const s
 #ifndef COMM_HOST_ONLY
     if (!p->rs_made) { HIP_CHECK(hipGetDevice(&p->dev)); HIP_CHECK(hipStreamCreateWithFlags(&p->rs, hipStreamNonBlocking)); p->rs_made = 1; }
 #endif
+    h0 = HT(); tr_cev_beg(p, s);
     if (scnt[me] && (const char *)sb + sdsp[me] != (char *)rb + rdsp[me]) COPY((char *)rb + rdsp[me], (const char *)sb + sdsp[me], scnt[me], s);
-    SYNC(s);                                              /* the caller's stream is done with sb and rb */
+    HA(p, H_CPY, h0); h0 = HT(); TR(p, E_COPY_ISS, 0, -1, p->tr_xs, 0, 0); tr_cev_end(p, s);
+    SYNC(s); TR(p, E_COPY_DONE, 0, -1, p->tr_xs, tr_cev_ns(p), 0);   /* the caller's stream is done with sb and rb */
+    HA(p, H_SYNC, h0); h0 = HT();
     if (pthread_create(&p->th, 0, rounder, p)) die("pthread_create");
     p->thread = 1;
+    TR(p, E_POSTED, 0, -1, p->tr_xs, 0, K);
+    HA(p, H_START, h0);
     return 1;
 }
-static void s_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
+static void s_alltoallv_i(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (p->pending) die("alltoallv while an exchange is pending");
     set_xo(p, 1);
     int sin = in_db(p, sb), rin = in_db(p, rb);
     p->t0 = now_s(); if (S.xsany) xs_begin(p);
+    if (g_tr.on) { uint64_t sb_ = 0; for (int r = 0; r < n; r++) if (r != me) sb_ += scnt[r]; tr_begin(p, 1, sb_); }
     if (!(sin && rin && S.vslot_pool) && alltoallv_rounds(c, sb, scnt, sdsp, rb, rcnt, rdsp, s, sin, rin)) return;   /* X2 COMM_LAYER_VSLOT_POOL: rounds only bound staging; an exchange from and into the pool stages nothing */
     size_t ts = comm_prefix(scnt, p->spre, n), tr = comm_prefix(rcnt, p->rpre, n);
-    staging(p, sin ? 0 : ts + 8, rin ? 0 : tr + 8, "alltoallv");
+    double h0 = HT();
+    staging(p, sin ? 0 : ts + 8, rin ? 0 : tr + 8, "alltoallv"); HA(p, H_STAGE, h0);
     if (scnt[me] != rcnt[me]) die("alltoallv self count mismatch");
     seq_next(p); p->v = 1; p->bytes = 0; p->rb = rb; p->st = s; p->rcnt = rcnt; p->rdsp = rdsp; p->scnt = scnt; p->rin = rin; p->pending = 1;
     p->src = sin ? (const char *)sb : p->db + p->sst; p->sdsp = sin ? sdsp : p->spre;
+    h0 = HT(); tr_cev_beg(p, s);
     if (!sin) for (int r = 0; r < n; r++) if (r != me && scnt[r]) COPY(p->db + p->sst + p->spre[r], (const char *)sb + sdsp[r], scnt[r], s);
     if (scnt[me] && (const char *)sb + sdsp[me] != (char *)rb + rdsp[me]) COPY((char *)rb + rdsp[me], (const char *)sb + sdsp[me], scnt[me], s);
-    SYNC(s);
+    HA(p, H_CPY, h0); h0 = HT(); TR(p, E_COPY_ISS, 0, -1, p->tr_xs, 0, 0); tr_cev_end(p, s);
+    SYNC(s); TR(p, E_COPY_DONE, 0, -1, p->tr_xs, tr_cev_ns(p), 0);
+    HA(p, H_SYNC, h0); h0 = HT();
     ibx_setup(p);                                         /* FA (off: returns) */
     publish(p, rin ? off_db(p, rb) : p->rst, 0, rin ? rdsp : p->rpre);
+    TR(p, E_PUBLISHED, 0, -1, p->tr_xs, 0, 0);
+    HA(p, H_PUB, h0); h0 = HT();
     start_push(c);
+    TR(p, E_POSTED, 0, -1, p->tr_xs, 0, 0);
+    HA(p, H_START, h0);
+}
+static void s_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
+{
+    shm_priv *p = PRIV(c); p->phk = comm_xtag < 0 || comm_xtag >= XK_NK ? 0 : comm_xtag; int ph_ = ec_ph(EC_PH_POST(p->phk));
+    if (!S.hst) { s_alltoallv_i(c, sb, scnt, sdsp, rb, rcnt, rdsp, s); ec_ph(ph_); return; }
+    hs_post_begin(p, 1); double t0 = now_s();
+    s_alltoallv_i(c, sb, scnt, sdsp, rb, rcnt, rdsp, s);
+    p->hcall0 = now_s(); p->hs[H_POST] = p->hcall0 - t0; ec_ph(ph_);
 }
 /* the bytes an exchange brought in from the other PEs (alltoall: (n - 1) slabs; alltoallv: the counts) */
 static double recv_bytes(const shm_priv *p)
@@ -1360,19 +1606,24 @@ static double recv_bytes(const shm_priv *p)
     if (!p->v) return (double)(p->n - 1) * (double)p->bytes;
     double b = 0; for (int r = 0; r < p->n; r++) if (r != p->me) b += (double)p->rcnt[r]; return b;
 }
-static void s_wait(comm *c)
+static void s_wait_i(comm *c)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (!p->pending) return;
+    TR(p, E_WAIT, 0, -1, p->tr_xs, 0, 0);
     double xtw0 = S.xsany ? now_s() : 0;                 /* X1 */
-    if (p->thread) { pthread_join(p->th, 0); p->thread = 0; }
+    if (p->thread) { double h0 = HT(); pthread_join(p->th, 0); p->thread = 0; HA(p, H_JOIN, h0); }
+    TR(p, E_JOINED, 0, -1, p->tr_xs, 0, 0);
     if (p->rounds) {                                      /* the rounds completed in the helper thread */
         p->rounds = 0; staging_drop(p); p->pending = 0;
         double t = now_s() - p->t0; pthread_mutex_lock(&S.alloc_lock); S.tv += t; S.nv++; S.bv += recv_bytes(p); pthread_mutex_unlock(&S.alloc_lock);
         if (S.xsany) xs_end(p, xtw0, recv_bytes(p), t);
+        TR(p, E_DONE, 0, -1, p->tr_xs, 0, 0); p->tr_act = 0;
         return;
     }
+    double h1 = HT();
     arrive(p, p->bytes, p->v ? p->rcnt : 0);
+    HA(p, H_ARR, h1); h1 = HT();
     int ibn = 0;                                          /* FA: the messages that came into my inbox, to the caller's buffer */
     if (p->ibon) for (int r = 0; r < n; r++) if (r != me && p->ibf[r]) {
         size_t nb = p->v ? p->rcnt[r] : p->bytes;
@@ -1381,14 +1632,41 @@ static void s_wait(comm *c)
     }
     if (ibn && p->rin) { SYNC(p->st); }
     if (!p->rin) {
+        h1 = HT(); tr_cev_beg(p, p->st);
         if (!p->v) { for (int r = 0; r < n; r++) if (r != me && !(ibn && p->ibf[r])) COPY((char *)p->rb + (size_t)r * p->bytes, p->db + p->rst + (size_t)r * p->bytes, p->bytes, p->st); }
         else for (int r = 0; r < n; r++) if (r != me && p->rcnt[r] && !(ibn && p->ibf[r])) COPY((char *)p->rb + p->rdsp[r], p->db + p->rst + p->rpre[r], p->rcnt[r], p->st);
+        HA(p, H_RCPY, h1); h1 = HT(); TR(p, E_RCOPY_ISS, 0, -1, p->tr_xs, 0, 0); tr_cev_end(p, p->st);
         SYNC(p->st);
+        HA(p, H_RSYNC, h1); TR(p, E_RCOPY_DONE, 0, -1, p->tr_xs, tr_cev_ns(p), 0);
     }
     if (p->ibon) ibx_grant(p, 1);                        /* FA: the inbox is free for the next exchange */
     staging_drop(p);
-    p->pending = 0;
+    p->pending = 0; TR(p, E_DONE, 0, -1, p->tr_xs, 0, 0); p->tr_act = 0;
     { double t = now_s() - p->t0; pthread_mutex_lock(&S.alloc_lock); S.tv += t; S.nv++; S.bv += recv_bytes(p); pthread_mutex_unlock(&S.alloc_lock); if (S.xsany) xs_end(p, xtw0, recv_bytes(p), t); }
+}
+/* HS: the exchange's steps into the per-APU table (one wrapper per post/wait pair; g_hsd[APU][xtag kind][path]) */
+static struct hs_row { long n; double s[HS_N]; } g_hsd[8][XK_NK][3];
+static void s_wait(comm *c)
+{
+    shm_priv *p = PRIV(c); int ph_ = ec_ph(EC_PH_WAIT(p->phk));
+    if (!S.hst || !p->pending) { s_wait_i(c); ec_ph(ph_); return; }
+    double t0 = now_s(); p->hs[H_CALL] = t0 - p->hcall0;
+    s_wait_i(c); ec_ph(ph_);
+    p->hs[H_WAIT] = now_s() - t0;
+    int d = 0;
+#ifndef COMM_HOST_ONLY
+    if (hipGetDevice(&d) != hipSuccess || d < 0 || d >= 8) { (void)hipGetLastError(); d = 0; }
+#endif
+    pthread_mutex_lock(&S.alloc_lock);
+    struct hs_row *r = &g_hsd[d][p->hxk][p->hpath]; r->n++; for (int i = 0; i < HS_N; i++) r->s[i] += p->hs[i];
+    pthread_mutex_unlock(&S.alloc_lock);
+}
+static void hs_print(void)       /* one line per step: milliseconds per exchange, averaged over the exchanges of this APU, kind and path (not summed over the APUs) */
+{
+    static const char *const pn[3] = { "equal", "v", "rounds" };
+    for (int d = 0; d < 8; d++) for (int k = 0; k < XK_NK; k++) for (int q = 0; q < 3; q++) { struct hs_row *r = &g_hsd[d][k][q]; if (!r->n) continue;
+        for (int i = 0; i < HS_N; i++) if (r->s[i] > 0) printf("hstep pe %d apu %d kind %s path %s step %s n %ld ms_ex %.4f\n", S.me, d, xs_kn[k], pn[q], hs_nm[i], r->n, r->s[i] * 1e3 / (double)r->n); }
+    fflush(stdout);
 }
 /* the host variants: complete on return; the source is the caller's buffer (a put may read private memory) */
 static void s_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)
@@ -1501,7 +1779,9 @@ static void s_recv(comm *c, int from, void *b, size_t n)
     }
 }
 /* S12: the callers' symmetric buffers (device-accessible: the registered host pool, or the device heap) */
-static void *s_sym_alloc(comm *c, size_t bytes)
+static void *s_sym_alloc_i(comm *c, size_t bytes);
+static void *s_sym_alloc(comm *c, size_t bytes) { int ph_ = ec_ph(EC_PH_SYM_ALLOC); void *r = s_sym_alloc_i(c, bytes); ec_ph(ph_); return r; }
+static void *s_sym_alloc_i(comm *c, size_t bytes)
 {
     shm_priv *op = PRIV(c);
     if (op->px) return op->px->reg ? op->px->base + px_alloc(op->px, bytes, 1) : 0;   /* N7b: the proxy's pool (when HIP could register it) */
@@ -1514,7 +1794,9 @@ static void *s_sym_alloc(comm *c, size_t bytes)
     size_t off = pool_alloc(bytes, K_SYM);
     return S.pool + off;
 }
-static void s_sym_free(comm *c, void *ptr)
+static void s_sym_free_i(comm *c, void *ptr);
+static void s_sym_free(comm *c, void *ptr) { int ph_ = ec_ph(EC_PH_SYM_FREE); s_sym_free_i(c, ptr); ec_ph(ph_); }
+static void s_sym_free_i(comm *c, void *ptr)
 {
     (void)c;
     for (int d = 0; d < 4; d++) if (px_in(g_px[d], ptr)) { px_free(g_px[d], (size_t)((char *)ptr - g_px[d]->base)); return; }   /* N7b */
@@ -1545,7 +1827,7 @@ static const struct comm_ops shm_ops = { s_rank, s_size, s_alltoall, s_wait, s_b
 comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id)
 {
     if (!S.inited) comm_shmem_init();
-    if (n < 1 || pe_stride < 1 || pe_start < 0 || pe_start + (n - 1) * pe_stride >= S.npes || id < 0 || id >= MAXID - (S.ppa ? 1 : 0)) die("bad PE set");   /* (N7b reserves the last row) */
+    if (n < 1 || pe_stride < 1 || pe_start < 0 || pe_start + (n - 1) * pe_stride >= S.npes || id < 0 || id >= MAXID - (S.ppa ? 1 : 0) - (g_tr.on ? 4 : 0)) die("bad PE set");   /* (N7b reserves the last row; COMM_TRACE the three before it, for the clock estimate) */
     int me = -1; for (int r = 0; r < n; r++) if (pe_start + r * pe_stride == S.me) me = r;   /* (logical PEs = nodes; p->pe[] physical) */
     if (me < 0) die("this PE is not in the set");
     comm *c = (comm *)calloc(1, sizeof *c); shm_priv *p = (shm_priv *)calloc(1, sizeof *p);

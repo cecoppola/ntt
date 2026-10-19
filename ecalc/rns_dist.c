@@ -547,10 +547,10 @@ static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc, c
         if (d < np) {
             ec_mod md = ec_mod_get(d);
             { k_bload<<<nblk(n), 256, 0, v->s>>>(X, A, n, md); } { k_bload<<<nblk(n), 256, 0, v->s>>>(Y, B, n, md); }
-            HIP_CHECK(hipStreamSynchronize(v->s)); x1 = mem_now();
+            HIP_SYNC(v->s); x1 = mem_now();
             if (T == 3) { ntt_fwd3(v->ctx[d], X, logk, 1, v->s); ntt_fwd3(v->ctx[d], Y, logk, 1, v->s); ntt_inv3_pw(v->ctx[d], X, Y, logk, 1, v->s); }
             else { ntt_fwd(v->ctx[d], X, logk, 1, v->s); ntt_fwd(v->ctx[d], Y, logk, 1, v->s); ntt_inv_pw(v->ctx[d], X, Y, logk, 1, v->s); }
-            HIP_CHECK(hipStreamSynchronize(v->s));
+            HIP_SYNC(v->s);
         }
         x2 = mem_now();
 #pragma omp barrier
@@ -575,7 +575,7 @@ static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc, c
                 size_t c0 = c0s[i];
                 k_crt_batch<<<(unsigned)S_[i], CRT_THREADS, 0, v->s>>>(P0 + c0, P1 + c0, P2 + c0, P3 + c0, dd + i, 0, (int)S_[i], 0, gc, spall + (c0 / rows) * 4);
             }
-            HIP_CHECK(hipStreamSynchronize(v->s));
+            HIP_SYNC(v->s);
         }
         tl[d] = x1 - x0; tf[d] = x2 - x1; tc[d] = mem_now() - x3;
     }
@@ -656,7 +656,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
                 else { static int said; if (!said) { said = 1; printf("DIST_GATHER_RAW: APU%d: B's raw plane (%.2f GB) does not fit the pool's free extents with the %.1f GB margin; B gathered per prime\n", r, by * 1e-9, gather_raw_margin()); } }
                 if (sraw) { k_gather_raw<<<nblk(q), 256, 0, v->s>>>(sraw, B, R, rows, (size_t)r * rows, C); pb = 2; }
             }
-            HIP_CHECK(hipStreamSynchronize(v->s)); lg += mem_now() - s0;
+            HIP_SYNC(v->s); lg += mem_now() - s0;
         }
         for (int p = 0; p < np; p++) {
             ec_mod m = ec_mod_get(p);
@@ -667,11 +667,11 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
             else if (ha < 0) { k_gather<<<nblk(q), 256, 0, v->s>>>(xa[p], A, R, rows, (size_t)r * rows, C, m); }
             else HIP_CHECK(hipMemcpyAsync(xa[p], ca + (size_t)p * q, q * 8, hipMemcpyDeviceToDevice, v->s));   /* A hit: the product forms over a copy */
             if (hb < 0 && !pb) { k_gather<<<nblk(q), 256, 0, v->s>>>(yb, B, R, rows, (size_t)r * rows, C, m); }
-            HIP_CHECK(hipStreamSynchronize(v->s)); lg += mem_now() - g0;
+            HIP_SYNC(v->s); lg += mem_now() - g0;
             if (ha < 0) { dist_fwd(&v->plan[p].pl, xa[p], v->s); if (ca) HIP_CHECK(hipMemcpyAsync(ca + (size_t)p * q, xa[p], q * 8, hipMemcpyDeviceToDevice, v->s)); }   /* A miss: fill its slot */
             if (hb < 0) dist_fwd(&v->plan[p].pl, yb, v->s);
             dist_inv_pw(&v->plan[p].pl, xa[p], yb, v->s);   /* A6: the pointwise fused into the column inverse */
-            HIP_CHECK(hipStreamSynchronize(v->s));
+            HIP_SYNC(v->s);
         }
         if (sraw) db_pool_free(r, sraw);
         double s2 = mem_now(); lf = s2 - s0 - lg;
@@ -687,7 +687,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
         if (v->spill_cap < C) { if (v->spill) HIP_CHECK(hipFree(v->spill)); v->spill_cap = C + 16; HIP_CHECK(hipMalloc(&v->spill, v->spill_cap * 4 * 8)); }
         k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, v->s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, q, gc, v->spill);
         { k_scatter_runs<<<nblk(q), 256, 0, v->s>>>(xb, Cw, R, rows, (size_t)r * rows, C); }
-        HIP_CHECK(hipStreamSynchronize(v->s));
+        HIP_SYNC(v->s);
         tl[r] = lg; tf[r] = lf; tc[r] = mem_now() - s2;
     }
     /* the spills: added as a sparse operand of the carry kernel */
@@ -972,7 +972,9 @@ static void seg_tables(const struct mn_ctx *X, const mdbv *op, int d, struct seg
 static void seg_bytes(const struct seg *sg, int g, size_t *cnt, size_t *dsp) { for (int r = 0; r < g; r++) { cnt[r] = (sg[r].t1 - sg[r].t0) * 8; dsp[r] = sg[r].off * 8; } }
 /* one operand: pack my part, exchange over mesh d (an alltoallv of the segments), the received sequence in rb */
 struct rdst { struct seg *hs, *ds; size_t *cnt; uint64_t *sb, *rb; size_t tend; };   /* per operand and APU: the tables, the buffers, the received sequence's end */
-static void redistribute(const struct mn_ctx *X, const mdbv *op, struct rdst *o, int d, hipStream_t s)
+static void redistribute_i(const struct mn_ctx *X, const mdbv *op, struct rdst *o, int d, hipStream_t s);
+static void redistribute(const struct mn_ctx *X, const mdbv *op, struct rdst *o, int d, hipStream_t s) { int ph_ = ec_ph(EC_PH_RD_REDIST); redistribute_i(X, op, o, d, s); ec_ph(ph_); }   /* (comm_phase.h) */
+static void redistribute_i(const struct mn_ctx *X, const mdbv *op, struct rdst *o, int d, hipStream_t s)
 {
     int g = X->g; size_t stot, rtot, S;
     struct seg *ss = o->hs, *rs = o->hs + g;
@@ -989,7 +991,7 @@ static void redistribute(const struct mn_ctx *X, const mdbv *op, struct rdst *o,
         if (X->p24) k_pack_mn24<<<nblk((size_t)g * S), 256, 0, s>>>(o->sb, a, lo, X->R, X->C, X->nr, g, d, S, o->ds);   /* P24: the in-runs */
         else k_pack_mn<<<nblk((size_t)g * S), 256, 0, s>>>(o->sb, a, lo, X->R, X->nr, g, d, S, o->ds);
     }
-    HIP_CHECK(hipStreamSynchronize(s));
+    HIP_SYNC(s);
     { int xk_ = comm_xtag_set(XK_REDIST); comm_alltoallv(X->G->all[d], o->sb, scnt, sdsp, o->rb, rcnt, rdsp, s); comm_xtag_set(xk_); } comm_wait(X->G->all[d]);
     db_pool_free(d, o->sb); o->sb = 0;
 }
@@ -1342,7 +1344,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         for (int p = 0; p < np; p++) {
             if (!v->plan[p].built || v->plan[p].logR != logR || v->plan[p].logC != logC || v->plan[p].cm != cl || v->plan[p].sl != sl) {
                 if (v->plan[p].built) dist_plan_free(&v->plan[p].pl);
-                dist_plan_create_shared(&v->plan[p].pl, cl, v->ctx[p], p, logR, logC, sl, sl + q);
+                { int ph_ = ec_ph(EC_PH_PLAN_CREATE); dist_plan_create_shared(&v->plan[p].pl, cl, v->ctx[p], p, logR, logC, sl, sl + q); ec_ph(ph_); }
                 v->plan[p].logR = logR; v->plan[p].logC = logC; v->plan[p].built = 1; v->plan[p].cm = cl; v->plan[p].sl = sl;
             }
         }
@@ -1353,7 +1355,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             redistribute(&X0, A, &oA, d, s);
             struct p24_c18s cs; for (int p = 0; p < EC_NP; p++) for (int i = 0; i < 3; i++) cs.c[3 * p + i] = c18[p][i];
             k_gather_mn24_np<<<nblk(qs), 256, 0, s>>>(xa[0], xa[1], xa[2], xa[3], np, oA.rb, oA.tend, R, C, a0, rows, ec_mod_get(0), ec_mod_get(1), ec_mod_get(2), ec_mod_get(3), cs);   /* the four planes in one pass */
-            HIP_CHECK(hipStreamSynchronize(s)); db_pool_free(d, oA.rb); oA.rb = 0;
+            HIP_SYNC(s); db_pool_free(d, oA.rb); oA.rb = 0;
         } else if (ha < 0) {
             redistribute(&X0, A, &oA, d, s);
             for (int p = 0; p < np; p++) k_gather_mn<<<nblk(qs), 256, 0, s>>>(xa[p], oA.rb, oA.tend, rows, C, ec_mod_get(p), 1, 1);
@@ -1363,14 +1365,15 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
                 if (p24) k_gather_mn24<<<nblk(qs), 256, 0, s>>>(xa[p], oA.rb, oA.tend, R, C, a0, rows, ec_mod_get(p), c18[p][0], c18[p][1], c18[p][2]);
                 else k_gather_mn<<<nblk(qs), 256, 0, s>>>(xa[p], oA.rb, oA.tend, rows, C, ec_mod_get(p), 1, 1);
             }
-            if (p24) { HIP_CHECK(hipStreamSynchronize(s)); db_pool_free(d, oA.rb); oA.rb = 0; }   /* (as the P24 miss: A's sequence freed before B's) */
+            if (p24) { HIP_SYNC(s); db_pool_free(d, oA.rb); oA.rb = 0; }   /* (as the P24 miss: A's sequence freed before B's) */
             for (int p = 0; p < kA; p++) HIP_CHECK(hipMemcpyAsync(xa[p], cache_pl(slA, d, p, q), q * 8, hipMemcpyDeviceToDevice, s));
         } else for (int p = 0; p < np; p++) HIP_CHECK(hipMemcpyAsync(xa[p], cache_pl(slA, d, p, q), q * 8, hipMemcpyDeviceToDevice, s));   /* A hit: the product forms over a copy */
         if (!bfull) redistribute(&X0, B, &oB, d, s);
         if (X) { redistribute(&X0, &Xv, &oX, d, s); k_gather_mn<<<nblk(qs), 256, 0, s>>>(cx, oX.rb, oX.tend, rows, C, ec_mod_get(0), 0, 0); }
-        HIP_CHECK(hipStreamSynchronize(s));
+        HIP_SYNC(s);
         if (oA.rb) { db_pool_free(d, oA.rb); oA.rb = 0; } if (oX.rb) { db_pool_free(d, oX.rb); oX.rb = 0; }
         double s1 = mem_now(); tr[d] = s1 - s0;
+        int phf_ = ec_ph(EC_PH_RD_FWD);
         for (int p = 0; p < np; p++) {
             const int ah = ha >= 0 && p < kA, bh = hb >= 0 && p < kB, ac = slA >= 0 && p < kA;   /* Phase 15 PC: prime p's hit / A's plane to cache (full slots: every p) */
             uint64_t *yb = slB >= 0 && p < kB ? cache_pl(slB, d, p, q) : xb;
@@ -1385,11 +1388,13 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
                 if (!bh) dist_fwd(&v->plan[p].pl, yb, s);
                 dist_inv_pw(&v->plan[p].pl, xa[p], yb, s);   /* A6 */
             }
-            HIP_CHECK(hipStreamSynchronize(s));
+            HIP_SYNC(s);
         }
+        ec_ph(phf_);
         if (oB.rb) { db_pool_free(d, oB.rb); oB.rb = 0; }
         if (gen) comm_layered_release_vslots(cl);           /* M3 COMM_LAYER_VSLOT_RELEASE=1 (comm_layered.c): the v-exchanges of this product are all waited for; the pool's slots go before the staged result exchange (no-op otherwise) */
         double s2 = mem_now(); tf[d] = s2 - s1;
+        int phc_ = ec_ph(EC_PH_RD_CRT);
         for (int p = 0; p < np; p++) {
             dim3 grid((unsigned)((C + 31) / 32), (unsigned)((rows + 31) / 32)), blk(32, 8);
             k_transpose<<<grid, blk, 0, s>>>(xa[p], xt, rows, C);
@@ -1407,8 +1412,8 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             if (fl) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 CRT flag %u (a coefficient past 10^60: the piece's bound)\n", fl); }
         } else
         k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, qs, gc, v->spill);
-        HIP_CHECK(hipStreamSynchronize(s));
-        tc[d] = mem_now() - s2;
+        HIP_SYNC(s);
+        tc[d] = mem_now() - s2; ec_ph(phc_);
         /* the result's rows -> the nodes' windows: the segments of every node's window in my sequence are sent straight from
          * the CRT output (back to back in node order); the received segments of my window from the ranks (r, d) at prefix offsets.
          * Phase 13a M: in Kt rounds when chunked (each round = every node's chunk rc of its window, then this node's chunk added
@@ -1420,6 +1425,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
           HIP_CHECK(hipSetDevice(d));
         }
         for (int rc = 0; rc < Kt; rc++) {
+        int phq_ = ec_ph(EC_PH_RD_RESULT);
         size_t wlo, whi; mn_win_chunk(Cn, node, shift, Np, rc, Wt, chunked, &wlo, &whi); size_t wn = whi - wlo;
         size_t *scnt = ocnt, *sdsp = ocnt + g, *rcnt = ocnt + 2 * g, *rdsp = ocnt + 3 * g, rtot = 0;
         const size_t nlim = p24 ? p24_L(n) : n;             /* the plane's limbs (P24: its out-runs tile [0, L(n))) */
@@ -1453,12 +1459,12 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
                                           if (p24) p24_spill_cols(wlo, whi, part0(R, nr, g * d + r + 1), R, C, &j0, &j1); else spill_cols(wlo, whi, part0(R, nr, g * d + r + 1), R, C, &j0, &j1);
                                           htab[3 * r] = j0; htab[3 * r + 1] = j1; htab[3 * r + 2] = blocks; rcnt2[r] = (j1 - j0) * 4 * 8; rdsp2[r] = blocks * 4 * 8; blocks += j1 - j0; }
             spill_rb[d] = db_pool_alloc(d, (blocks * 4 + 16) * 8); sptab_d[d] = (size_t *)db_pool_alloc(d, 3 * (size_t)g * 8 + 64);
-            HIP_CHECK(hipMemcpyAsync(sptab_d[d], htab, 3 * (size_t)g * 8, hipMemcpyHostToDevice, s)); HIP_CHECK(hipStreamSynchronize(s));
+            HIP_CHECK(hipMemcpyAsync(sptab_d[d], htab, 3 * (size_t)g * 8, hipMemcpyHostToDevice, s)); HIP_SYNC(s);
             { int xk_ = comm_xtag_set(XK_SPILL); comm_alltoallv(G->all[d], v->spill, scnt2, sdsp2, spill_rb[d], rcnt2, rdsp2, s); comm_xtag_set(xk_); } comm_wait(G->all[d]);
-            HIP_CHECK(hipStreamSynchronize(s));
+            HIP_SYNC(s);
             sp[d] = spill_rb[d]; sptab[d] = sptab_d[d]; }
           to[d] += mem_now() - s3;
-          db_pool_free(d, rbO); }
+          db_pool_free(d, rbO); ec_ph(phq_); }
         if (chunked) {
 #pragma omp barrier
 #pragma omp single
@@ -1474,7 +1480,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     HIP_CHECK(hipSetDevice(0));
     /* the spills into the windows, then the carries across the nodes */
     { size_t b = (T.cap ? T.cap * 8 : 0); for (int d = 0; d < NR; d++) b += rbo_max[d]; if (b > rns_dist_tscratch_max) rns_dist_tscratch_max = b; }   /* Phase 13a M: measured T + rbO */
-    double t4 = mem_now(); int co = 0, pr = 1;                /* an empty window propagates (the windows tile the piece) */
+    double t4 = mem_now(); int phk_ = ec_ph(EC_PH_RD_CARRY); int co = 0, pr = 1;                /* an empty window propagates (the windows tile the piece) */
     if (chunked) {                                            /* Phase 13a M: the rounds added the chunks into C; the two carry scans */
         if (rd.kc > 1) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: %d carries out of a share in one piece (the bound is 1)\n", rd.kc); }
         share_carry_fix(G, &Cn->sh, cn, rd.kc, rd.pr);        /* C's own carries, with the propagate flag of its last add */
@@ -1492,6 +1498,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         share_carry_fix(G, &Cn->sh, cn, co, pr);
         db_free(&T);
     }
+    ec_ph(phk_);
     Cn->sh.n = cn;                                            /* the fixed-length adds set sh.n to their length */
     double mr = 0, mf = 0, mc = 0, mo = 0; for (int d = 0; d < NR; d++) { if (tr[d] > mr) mr = tr[d]; if (tf[d] > mf) mf = tf[d]; if (tc[d] > mc) mc = tc[d]; if (to[d] > mo) mo = to[d]; }
     double tcar = mem_now() - t4, tt = mem_now() - t0;
@@ -2025,11 +2032,11 @@ static void mdb_add_shifted_rounds(mdb *C, const mdb *X, size_t k, mn_group *G, 
             struct rng *dt = (struct rng *)db_pool_alloc(d, g * sizeof *dt + 64);
             HIP_CHECK(hipMemcpyAsync(dt, ht, g * sizeof *ht, hipMemcpyHostToDevice, s));
             if (so) k_pack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(sb, src, dt, g, S);
-            HIP_CHECK(hipStreamSynchronize(s));
+            HIP_SYNC(s);
             { int xk_ = comm_xtag_set(XK_ADDSH); comm_alltoallv(G->all[d], sb, scnt, sdsp, rb, rcnt, rdsp, s); comm_xtag_set(xk_); } comm_wait(G->all[d]);
             HIP_CHECK(hipMemcpyAsync(dt, hu, g * sizeof *hu, hipMemcpyHostToDevice, s));
             if (o) { struct acc dst = acc_db(&T, 0, wn); k_unpack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(dst, rb, dt, g, S); }
-            HIP_CHECK(hipStreamSynchronize(s));
+            HIP_SYNC(s);
             db_pool_free(d, sb); db_pool_free(d, rb); db_pool_free(d, (uint64_t *)dt); free(ht); free(cnt);
         }
         HIP_CHECK(hipSetDevice(0));
@@ -2092,11 +2099,11 @@ void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
             struct rng *ht = hs + (size_t)c * g, *hu = hr + (size_t)c * g; size_t *scnt = cnt + (size_t)4 * c * g, *sdsp = scnt + g, *rcnt = sdsp + g, *rdsp = rcnt + g;
             HIP_CHECK(hipMemcpyAsync(dt, ht, g * sizeof *ht, hipMemcpyHostToDevice, s));
             if (xhi > xlo) k_pack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(sb, src, dt, g, S);
-            HIP_CHECK(hipStreamSynchronize(s));
+            HIP_SYNC(s);
             { int xk_ = comm_xtag_set(XK_ADDSH); comm_alltoallv(G->all[d], sb, scnt, sdsp, rb, rcnt, rdsp, s); comm_xtag_set(xk_); } comm_wait(G->all[d]);
             HIP_CHECK(hipMemcpyAsync(dt, hu, g * sizeof *hu, hipMemcpyHostToDevice, s));
             if (tn) k_unpack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(dst, rb, dt, g, S);
-            HIP_CHECK(hipStreamSynchronize(s));
+            HIP_SYNC(s);
         }
         db_pool_free(d, sb); db_pool_free(d, rb); db_pool_free(d, (uint64_t *)dt); free(hs); free(cnt);
     }

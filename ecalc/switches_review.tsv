@@ -18,6 +18,7 @@ COMM_PHASE_TS	experiment	N8 ts	2026-10-17	per-PE exchange enter/exit timestamps 
 COMM_SHMEM_POOL_NEED_MB	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_SHMEM_STAGE_SLOT_MB	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_SHMEM_VERBOSE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+COMM_KTIME	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_XGMI_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_XSTATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DBIG_SMALL_BOUNCE	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback; default since 2026-10-12 (CAND)
@@ -107,3 +108,15 @@ MEM_PRECOMPACT_GB	experiment	FRAGFIX	2026-11-16	one-shot huge-page populate + un
 ECALC_MEMPREP_ONLY	experiment	FRAGFIX	2026-11-16	standalone memory-preparation step (mnrun.sh MNRUN_MEMPREP_GB): adopt or remove with MEM_PRECOMPACT_GB after the fragfix items
 MEM_HSTAGE_THP	experiment	FRAGFIX	2026-11-16	0 = no MADV_HUGEPAGE on the pinned host staging (no direct reclaim / compaction per fault on a fragmented node); adopt or remove after items 88/89
 COMM_SHMEM_NP_HEAP_THP	fallback	coordinator (D48, results/SHMEM.md)	2026-11-18	=0 restores the 4 KiB node-process heap; default 1 since D48 (2026-10-18, items 97q/97r/97s/97t: no compaction stalls with it)
+COMM_TRACE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+COMM_TRACE_SAMPLE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+COMM_TRACE_MAX_MB	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+COMM_TRACE_DIR	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+COMM_TRACE_CLOCK_N	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+COMM_TRACE_HB	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+COMM_TRACE_HB_GAP_MS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+COMM_TRACE_HB_MEM	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+COMM_TRACE_HB_PX	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+COMM_TRACE_PH	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+COMM_TRACE_THR	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+COMM_TRACE_WD_MS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit

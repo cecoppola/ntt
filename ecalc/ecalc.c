@@ -668,6 +668,7 @@ int main(int argc, char **argv)
     const char *fx = getenv("ECALC_FAST_EXIT"); int fast_exit = fx && atoi(fx) != 0;
     if (!fast_exit) db_release_pools();               /* B1: X's block (device / sharded) was in use until here */
     mem_report_host_item(MEM_HOST_X, 0); mem_report("end"); mem_report_summary();   /* (ECALC_FAST_EXIT: the block pools are still mapped in the end table) */
+    comm_ktime_report();                              /* KT: COMM_KTIME=1 prints its per-kernel lines here (also at exit); off: returns at once */
     mn_barrier(); mn_finalize();
     if (fast_exit) { printf("ECALC_FAST_EXIT: _exit(%d) after the reports (%.2f s since t0)\n", fail, mem_now() - t00); fflush(stdout); fflush(stderr); _exit(fail); }
     rns_shutdown();
