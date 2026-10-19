@@ -913,7 +913,7 @@ def pool_check():
 
 # ---------------------------------------------------------------- Phase 15 TC: the mn transform cache (rns_dist.c cache_avail)
 CACHE_MN_SLOTS_CODE = 2                  # RNS_DIST_CACHE_MN's default
-CACHE_FIT_RESERVE = 32e9                 # RNS_DIST_CACHE_FIT_RESERVE_GB's default (32 GB per node)
+CACHE_FIT_RESERVE = 32e9                 # rns_dist.c cache_fit_reserve (32 GB per node)
 DIST_LOGN_MAX = 31                       # rns_dist.c: the single-node tier's cap, which sizes the default's slots
 def cache_mn_bytes(g, pool_log=31, np=4, slots=CACHE_MN_SLOTS_CODE, fit=False):
     """bytes per node of the mn transform cache: slots x 4 APUs x np x 2^(c - 2) limbs x 8, c = 31 (the default: whatever POOL_LOG) or

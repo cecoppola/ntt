@@ -2158,13 +2158,13 @@ def cache_proposals(T=None, g=None):
 
 # ============================================================================================================
 # Phase 15 Batch 3 PC (results/CACHE.md §PC15): RNS_DIST_CACHE_PARTIAL=1 -- the slots' planes drawn per grid product from the block pool (the arena),
-# as many primes as its free bytes allow after the product's own need and a margin (RNS_DIST_CACHE_PARTIAL_MARGIN_GB per APU, 0.5), the grid's
+# as many primes as its free bytes allow after the product's own need and a margin (0.5 GB per APU), the grid's
 # loop along its longer axis, P24 products cached too.  The pool's free bytes at a phase's peak product (modelled, mem_model): the tree
 # arena - tree_need (the arena's slack); the division arena - dm_need, the arena laid for the default division (binsplit.c dm_layout does not
 # follow NEWTON_DKM) and the need DKM's (mem_model.dm_layout(dkm=True)) when MN_MODEL_DKM=1 -- DKM's unused hole.  keep_room: whether the
 # BS_ARENA_ROOM bytes inside the need are left alone (they are free at the products: the code's rule takes them; True = the conservative figure)
 # ============================================================================================================
-PARTIAL_MARGIN = float(os.environ.get('RNS_DIST_CACHE_PARTIAL_MARGIN_GB', '0.5')) * 1e9
+PARTIAL_MARGIN = 0.5e9                   # the code's margin per APU (rns_dist.c)
 def cache_partial_rooms(T=None, g=None, design=None, keep_room=False):
     """(tree, dm) pool bytes per node free at the phase's peak product (modelled), and the details"""
     T = T or TARGET_DIGITS; g = g or TARGET_NODES; design = (design or DEFAULT15C(cache_fit=False)).at_g(g)

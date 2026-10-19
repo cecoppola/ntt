@@ -150,13 +150,10 @@ static const char *const cfg_names[] = {
     "RNS_BATCH_LOCAL_MIN",
     "RNS_BATCH_TILE_GB",
     "RNS_CRT_SCAN",
-    "RNS_DIST_CACHE_FIT_RESERVE_GB",
     "RNS_DIST_CACHE_MARGIN_GB",
     "RNS_DIST_CACHE_MN",
     "RNS_DIST_CACHE_PARTIAL",
     "RNS_DIST_CACHE_PARTIAL_FORCE",
-    "RNS_DIST_CACHE_PARTIAL_K",
-    "RNS_DIST_CACHE_PARTIAL_MARGIN_GB",
     "RNS_DIST_CACHE_TRACE",
     "RNS_INIT_POOL_LOG",
     "RNS_POOL1_GB",
@@ -166,4 +163,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 164
+#define CFG_NAMES_N 161
