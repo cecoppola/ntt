@@ -318,7 +318,7 @@ Items are on aac7; "branch" names are local development branches (the dropped on
   and the KFD per-GPU `evicted_ms` from the GPU driver's per-process statistics in sysfs. `tools/trace_report.py` section 8a prints the storm seconds with fragmentation and KFD columns; section 8b the threads/watchdog view.
 - **smaps capture** (queue-item hook, a few shell lines): at 12, 25, 40 and 70 s after launch read the process memory map for the node-process and each helper; sum Rss, AnonHugePages, ShmemPmdMapped
   per mapping and by category (anon 4 KiB, anon THP, shmem 4 KiB, shmem THP, file). The 4 KiB shared category identifies the compaction victims.
-- **Timers already in main:** `COMM_PHASE_TS` (per-PE phase timestamps), `COMM_LAYER_STATS` / `COMM_XSTATS` (per-exchange stage timers), `COMM_SHMEM_VERBOSE=1` (pool and heap lines).
+- **Timers already in main:** `COMM_TRACE` v2 (heartbeat, phase tags, per-PE timestamps; `COMM_PHASE_TS` was removed 2026-10-18, D49), `COMM_LAYER_STATS` / `COMM_XSTATS` (per-exchange stage timers), `COMM_SHMEM_VERBOSE=1` (pool and heap lines).
   The `t_comm` benchmark (ecalc/tests/t_comm.c) measures the transport alone and takes `T_COMM_TRACE`.
 - **Queue-item generators** built the packed pairs with mirrored arm orders ("GROUP" items: several items start together on disjoint nodes), one item per node set, trace and
   heartbeat on every run, and a VERIFY step that digit-checks every run. Keep the discipline even if the generators are replaced.
@@ -327,7 +327,7 @@ Items are on aac7; "branch" names are local development branches (the dropped on
 
 ```
 COMM_TRACE=1 COMM_TRACE_HB=1 COMM_TRACE_HB_GAP_MS=20 COMM_TRACE_THR=1 COMM_TRACE_WD_MS=100 COMM_TRACE_PH=1 COMM_TRACE_HB_MEM=1
-COMM_SHMEM_VERBOSE=1 COMM_PHASE_TS=1   # plus the arm's own switches
+COMM_SHMEM_VERBOSE=1   # plus the arm's own switches
 ```
 
 Size and shape: 3 nodes at 4.8e10 digits (about 46-50 s), arms run as packed 3+3 pairs with mirrored orders and an A/A control. Smaller (2 nodes, 1.6e10) answers allocation and start-up questions in under 15 minutes
@@ -399,9 +399,9 @@ but cannot show layv, the 5-6 node step, or node-0 compaction of a job's first n
 | `COMM_LAYER_INTER2` | 1 | 0 is the candidate for SHMEM (section 4.5) |
 | `COMM_LAYER_VSLOT_RELEASE` | 1 (follows VSLOT_POOL) | 0 tested, not useful |
 | `COMM_SHMEM_PX_PIN` | 0 | not significant |
-| `COMM_SHMEM_PX_INIT`, `_INIT_THREADS`, `MESH_PAR`, `OFFS_WITH_DATA` | 0 / 4 / 0 / 0 | no gain; INIT_THREADS also sets the collapse threads of the fix |
+| `COMM_SHMEM_PX_INIT`, `_INIT_THREADS`, `MESH_PAR`, `OFFS_WITH_DATA` (removed 2026-10-18, D49) | 0 / 4 / 0 / 0 | no gain; INIT_THREADS also sets the collapse threads of the fix |
 | `MNRUN_MEMPREP_GB`, `ECALC_MEMPREP_ONLY`, `MEM_PRECOMPACT_GB`, `MEM_HSTAGE_THP` | off | merged default-off (ead367d), not the fix |
-| `COMM_PHASE_TS` | 0 | diagnostic |
+| `COMM_PHASE_TS` | removed 2026-10-18 (D49) | diagnostic; COMM_TRACE v2 replaces it |
 | `COMM_SHMEM_LAYV_ANY` | removed | no effect over 8 pairs; gates passed |
 | `COMM_TRACE*`, `COMM_TRACE_HB*`, `MEM_FRAG_RESERVE_*`, `MEM_OWN_GB`, `MEM_NUMA_BIND`, `COMM_SHMEM_PX_CONC`, `PX_WORKERS`, `PX_CTX` | n/a | only on development branches |
 
