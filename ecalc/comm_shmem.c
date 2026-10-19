@@ -121,7 +121,7 @@ enum { ORDER_QUIET, ORDER_FENCE, ORDER_PUTSIG };
 /* ---- the process state ---- */
 struct blk { size_t off, len; int used, kind; struct blk *next; };
 static struct {
-    int inited, me, npes, serial, devheap, order, registered, prov, shift;
+    int inited, me, npes, serial, devheap, order, registered, prov;
     long spin_us;
     char *pool; size_t pool_bytes, mb_bytes;   /* the symmetric pool; the mailbox at [0, mb_bytes) */
     pthread_mutex_t lock;                  /* SHM_LOCK: the library in serial mode; the allocator always (alloc_lock) */
@@ -392,8 +392,8 @@ static void tr_flush(int proxy)
     char path[400]; mkdir(g_tr.dir, 0777); snprintf(path, sizeof path, "%s/trace_pe%d.bin", g_tr.dir, S.pme);
     char *jb = 0; size_t jn = 0; FILE *f = open_memstream(&jb, &jn); if (!f) return;   /* the JSON text */
     uint64_t nrec = tr_count();
-    fprintf(f, "{\"version\":1,\"rec_bytes\":%zu,\"pe\":%d,\"node\":%d,\"nodes\":%d,\"ppn\":%d,\"ppa\":%d,\"proxy\":%d,\"apu\":%d,\"pxsend\":%d,\"order\":%d,\"shift\":%d,\"round_mb\":%.6g,\"sample\":%u,\"arena_mb\":%zu,\"nrec\":%llu,\"dropped\":%llu,\"m0\":%llu,\"r0\":%llu,\"events\":",
-            sizeof(struct tr_rec), S.pme, S.me, S.npes, S.ppn, S.ppa, proxy, proxy ? S.pme % S.ppn : -1, S.pxsend, S.order, S.shift, S.round_bytes / 1048576.0, g_tr.sample, g_tr.mb,
+    fprintf(f, "{\"version\":1,\"rec_bytes\":%zu,\"pe\":%d,\"node\":%d,\"nodes\":%d,\"ppn\":%d,\"ppa\":%d,\"proxy\":%d,\"apu\":%d,\"pxsend\":%d,\"order\":%d,\"shift\":0,\"round_mb\":%.6g,\"sample\":%u,\"arena_mb\":%zu,\"nrec\":%llu,\"dropped\":%llu,\"m0\":%llu,\"r0\":%llu,\"events\":",
+            sizeof(struct tr_rec), S.pme, S.me, S.npes, S.ppn, S.ppa, proxy, proxy ? S.pme % S.ppn : -1, S.pxsend, S.order, S.round_bytes / 1048576.0, g_tr.sample, g_tr.mb,
             (unsigned long long)nrec, (unsigned long long)g_tr.dropped, (unsigned long long)g_tr.m0, (unsigned long long)g_tr.r0);
     tr_json_events(f); fprintf(f, ",\"hbnames\":"); tr_json_hbnames(f); fprintf(f, ",\"hb_ms\":%u,\"hb_gap_ms\":%u,\"wd_ms\":%u,\"thr\":%d,\"ph\":%d,\"hbstrs\":", g_hb.ms, g_hb.gap_ms, g_tr.wd_ms, g_hb.thr, ec_ph_on + g_ph.ev); tr_json_hbstrs(f); fprintf(f, ",\"phases\":"); tr_json_phases(f); fprintf(f, ",\"comms\":[");
     for (int i = 0; i < g_tr.ncomm; i++) { struct tr_comm *c = &g_tr.comm[i]; fprintf(f, "%s{\"id\":%d,\"n\":%d,\"rank\":%d,\"apu\":%d,\"node\":[", i ? "," : "", c->id, c->n, c->rank, c->apu); for (int r = 0; r < c->n; r++) fprintf(f, "%s%d", r ? "," : "", c->node[r]); fprintf(f, "]}"); }
@@ -848,7 +848,6 @@ static int comm_shmem_init_i(void)
     else S.order = HAVE_PUT_SIGNAL ? ORDER_PUTSIG : ORDER_QUIET;
     if (S.order == ORDER_PUTSIG && !HAVE_PUT_SIGNAL) { if (S.me == 0) fprintf(stderr, "comm_shmem: putsig needs OpenSHMEM 1.5 headers: using quiet\n"); S.order = ORDER_QUIET; }
     S.spin_us = env_int("COMM_SHMEM_SPIN_US", 2000);
-    { const char *ep = getenv("COMM_SHMEM_PEER_ORDER"); S.shift = ep && !strcmp(ep, "shift"); }   /* N7: peers as a shifted ring, not in rank order */
     S.xstats = env_int("COMM_XSTATS", 0) > 0; S.hst = env_int("COMM_KTIME", 0) > 0;   /* HS: host-step timers (COMM_KTIME=1) */
     tr_init(S.proxy ? 4 : 0);                             /* COMM_TRACE=1: the trace arena (a proxy's is a quarter of COMM_TRACE_MAX_MB) */
     tr_hb_start(S.proxy);                                 /* COMM_TRACE_HB=<ms>: the heartbeat thread (comm_trace.h) */
@@ -913,9 +912,9 @@ static int comm_shmem_init_i(void)
     if (S.ppa) { int ph_ = ec_ph(EC_PH_PX_ATTACH); px_attach(); ec_ph(ph_); }                               /* N7b: (after the barrier: the proxies' control is zeroed) */
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);
-    if (S.me == 0) printf("comm_shmem: %s, %d PEs%s, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us, peer order %s\n", comm_shmem_impl(), S.npes, S.ppa ? (S.pxsend == 3 ? " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1; proxy send COMM_SHMEM_PX_SEND=3: plain chunks, one fence + signal per command, a context per peer node)" : " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1)") : "", prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
+    if (S.me == 0) printf("comm_shmem: %s, %d PEs%s, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us, peer order rank\n", comm_shmem_impl(), S.npes, S.ppa ? (S.pxsend == 3 ? " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1; proxy send COMM_SHMEM_PX_SEND=3: plain chunks, one fence + signal per command, a context per peer node)" : " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1)") : "", prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
                           S.devheap ? " (device heap)" : "", S.registered == 1 ? ", HIP-registered" : "",
-                          S.order == ORDER_PUTSIG ? "putsig" : S.order == ORDER_FENCE ? "fence" : "quiet", S.order == ORDER_QUIET ? " (helper thread)" : " (inline)", S.spin_us, S.shift ? "shift" : "rank");
+                          S.order == ORDER_PUTSIG ? "putsig" : S.order == ORDER_FENCE ? "fence" : "quiet", S.order == ORDER_QUIET ? " (helper thread)" : " (inline)", S.spin_us);
     tr_clock_sync(0);                                     /* COMM_TRACE: node 0's clock against every node (every node-process is here after the barrier) */
     return S.npes;
 }
@@ -1195,10 +1194,8 @@ static void staging(shm_priv *p, size_t send, size_t recv, const char *what)
                p->id, p->n, what, send / 1048576.0, recv / 1048576.0);
     }
 }
-/* the order the peers are walked in: step k of a send loop goes to rank k (COMM_SHMEM_PEER_ORDER=rank) or to (me + k) mod n (shift: every
- * step is a one-to-one pairing, so a receiver has one sender at a time); dir -1 is the receive side (the sender at step k).  Step 0 is me. */
-static inline int peer_at(const shm_priv *p, int k, int dir) { return S.shift ? ((p->me + dir * k) % p->n + p->n) % p->n : k; }
-#define PEERS(p, k, r, from, dir) for (int k = (from), r; k < (p)->n && ((r = peer_at(p, k, dir)), 1); k++) if (r != (p)->me)
+/* the order the peers are walked in: step k of a send loop goes to rank k; dir (+1 send, -1 receive side) is unused.  Step 0 is me. */
+#define PEERS(p, k, r, from, dir) for (int k = (from), r; k < (p)->n && ((r = k), 1); k++) if (r != (p)->me)
 /* the sender's half of an exchange for the peers from step `from`: wait for each receiver's offset (at most spin_us when
  * >= 0: returns the first step not ready), put, signal.  Returns n when every peer is done. */
 static int push_peers(shm_priv *p, int from, long spin_us)

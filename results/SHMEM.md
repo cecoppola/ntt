@@ -284,6 +284,7 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
   shift (DT) 215.1 s at 6 n, worse than `PX_SEND=1`). `PX_SEND=4` (put-with-signal on the last put, branch pxsig, archived):
   6 n 246.6 s (99b); with shift 149.2 s at 4 n (libfabric level) but 221.9 s at 6 n, +9.0 s against `PX_SEND=1`, CI [+5.0,
   +13.1] (99g): whole puts with one-to-one pairing help at 3 peers and hurt at 5.
+  `COMM_SHMEM_PEER_ORDER` was removed 2026-10-19 (D54): every peer loop walks in rank order; the trace header keeps `shift` = 0.
 - **Remaining gap** at 6 n: PX3 against libfabric about +9 % (208 against 190 s); see "Six-node confirmation and the gap
   against the off-node peers" above.
 

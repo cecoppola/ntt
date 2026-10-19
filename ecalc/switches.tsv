@@ -32,7 +32,6 @@ COMM_SHMEM_DEVHEAP	bool	0	0	0|1	launch-line	aac7	S12.md+A16.md	Y	ecalc	comm_shme
 COMM_SHMEM_HUGETLB	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	1	L5	2027-03-31	
 COMM_SHMEM_NP_HEAP_THP	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D48, results/SHMEM.md)	2026-11-18	
 COMM_SHMEM_ORDER	bool	derived	derived	0|1	built-in default	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	1	-	-	
-COMM_SHMEM_PEER_ORDER	str	rank	unset	rank|shift	experiment	-	N7.md	Y	ecalc	comm_shmem.c	1	N7	2026-11-12	comm_shmem.c; N7 peer order of the puts
 COMM_SHMEM_PE_PER_APU	int	0	0	0|1|2	experiment	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	comm_shmem.c, mnrun.sh, binsplit.c; N7b one SHMEM proxy PE per APU under COMM_OFI=0; N7E 2 = two helper PEs per APU (one per NIC)
 COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_ofi.c,comm_shmem.c	11	-	-	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
 COMM_SHMEM_POOL_NEED_MB	bool	?	?	0|1	test-only	-	-	Y	ecalc	comm_shmem.c	4	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	

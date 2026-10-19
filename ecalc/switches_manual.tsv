@@ -47,7 +47,6 @@ P24_CRT_SCAN	1	bool	0|1	built-in default	K4c: k_crt24 parallel carry (p24_crt.c 
 NEWTON_CHAIN_GUARD	1	int	0|1	built-in default	newton_db.c newton_chain_guard; default 1 since D25, =0 kept fallback (RECIP, results/DIVISION.md §RECIP); dm_layout and mem_model.py follow it
 ECALC_DEVICE_GB	373.44	float	GB per node	built-in default	binsplit.c binsplit_fit (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): the device edge per node the memory fit checks (the target: 373.44, m, TGTBENCH2; aac7 profile 444.0, m); a run above it is refused before launch
 ECALC_DEVICE_MARGIN_GB	5	float	GB per node	built-in default	binsplit.c binsplit_fit (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): DM_MN_WRAP automatic takes the wrap only when the device with it is at most ECALC_DEVICE_GB less this margin
-COMM_SHMEM_PEER_ORDER	rank	str	rank|shift	experiment	comm_shmem.c; N7 peer order of the puts
 COMM_SHMEM_PE_PER_APU	0	int	0|1|2	experiment	comm_shmem.c, mnrun.sh, binsplit.c; N7b one SHMEM proxy PE per APU under COMM_OFI=0; N7E 2 = two helper PEs per APU (one per NIC)
 COMM_SHMEM_PROXY	unset	bool	0|1	experiment	comm_shmem.c; set by mnrun.sh on the proxy PEs (N7b), checked at init
 COMM_TRACE_HB_GAP_MS	20	int	ms		comm_trace.h:422
