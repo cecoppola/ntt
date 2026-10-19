@@ -84,7 +84,7 @@ is chosen per level from the largest node length `max_nl`:
 | 2·max_nl + 1 ≤ 2³⁰ points (`BS_MDEV_LOGL`) | **batch** | one `rns_mul_batch` of all 2·npairs products of the level (`rns_mul.c`) |
 | otherwise | **device top levels** | each pair as `dbig` numbers through `rns_mul_dist_db` (`rns_dist.c`); inputs freed as consumed |
 
-(The CPU schoolbook tier below `bs_school_nl` is set to 0: the batch tier is faster at every size. With `BS_BATCH_PIPE=1`, the default since D20, the batch tier's host side runs without needless gaps: a level's layout and the products' scans in parallel and each device's tiles issued back to back through pinned descriptor slots, one length read-back per level, `results/N3.md`; `BS_BATCH_PIPE=0` keeps the old host side.)
+(The CPU schoolbook tier below `bs_school_nl` is set to 0: the batch tier is faster at every size. With `BS_BATCH_PIPE=1`, the default since D20, the batch tier's host side runs without needless gaps: a level's layout and the products' scans in parallel and each device's tiles issued back to back through pinned descriptor slots, one length read-back per level, `results/KERNELS.md §N3`; `BS_BATCH_PIPE=0` keeps the old host side.)
 
 **Across nodes.** With size > 1, node r takes the term range [1 + N·r/size, 1 + N·(r+1)/size) and runs the whole leaf tree
 on it, leaving (P_r, Q_r) on its devices. `mn_tree` then combines nodes in groups (§6.5), so after the last level P and Q
@@ -114,7 +114,7 @@ primes give p₀p₁p₂ = 2^155.36 against (B − 1)² = 2^119.59, so three pri
 
 - one-node tiers use three primes (`ECALC_NP` defaults to 3 in `ecalc.c`);
 - multi-node products use `ECALC_NP=auto` (`ecalc.c` sets it when `ECALC_NP` is unset at size > 1): since the user's
-  decision D18 (2026-10-12, `results/DEF.md`) plane pool 0 holds four planes in every run of more than one node-process
+  decision D18 (2026-10-12, `results/LAUNCH_DEFAULTS.md §DEF`) plane pool 0 holds four planes in every run of more than one node-process
   (`ec_np_planes`), so every multi-node product runs four primes in the P24 form (below). `ECALC_NP_MN3=1` keeps the
   three-prime multi-node path: three primes, or four (P24) when a piece of the run's largest group can exceed the
   three-prime bound (from 32 node-processes, which the target size needs at its top levels). `ec_np_check` refuses a
@@ -146,7 +146,7 @@ digits (`ec_words_to_dec`, at most four). Limb k of the product is
 
 where Cj are the j-th base-10¹⁸ digits of the coefficients and x_k the added operand; the carry chain is resolved in LDS
 (per 256-coefficient chunk, as a carry-lookahead over the waves'
-ballot masks, `results/K4b.md`; `RNS_CRT_SCAN=0` keeps the serial chain, D21).
+ballot masks, `results/KERNELS.md §K4b`; `RNS_CRT_SCAN=0` keeps the serial chain, D21).
 On the GPU (`k_crt_batch`) a product's coefficients are cut into S stripes (a block per stripe, coalesced reads, 256
 coefficients per chunk); each stripe emits a 4-limb *spill* past its end, and the spills are merged into the limbs
 (`k_spill_merge`, or chunked-carry adds in the distributed tiers). A CPU Garner is kept for small products and tests.
@@ -155,10 +155,10 @@ coefficients per chunk); each stripe emits a 4-limb *spill* past its end, and th
 to 3 points, so a view of n limbs has ⌈3n/4⌉ points and a piece is 3/4 as long. A coefficient is then at most
 min·(10²⁴ − 1)², which fits four primes while min(Pa, Pb) ≤ 10¹² (`P24_MIN_MAX`); the coefficient of point x, shifted by
 s = 6·(x mod 3) digits, lands on limbs L(x) … L(x)+3 with L(x) = ⌊4x/3⌋. Gain: −38 % at 10¹⁰ digits on 2 processes (m;
-`results/P2415.md`). It applies to every multi-node product whose plane pool holds four primes (built in; since D18 every multi-node product; with `ECALC_NP_MN3=1` the 18-digit form below 32 node-processes).
+`results/PRIMES_STRATEGY.md §P2415`). It applies to every multi-node product whose plane pool holds four primes (built in; since D18 every multi-node product; with `ECALC_NP_MN3=1` the 18-digit form below 32 node-processes).
 Its CRT kernel `k_crt24` (`p24_crt.c`, one block per column, 256 points per chunk) sums the at most three points meeting
 each of a chunk's up to 342 limbs and resolves the chunk's carry chain on one thread; with `P24_CRT_SCAN=1` (the default since D24, `=0` the serial chain;
-`results/K4c.md`) as the same carry-lookahead over wave ballot masks as `RNS_CRT_SCAN` (two limbs per thread, 512-bit masks).
+`results/KERNELS.md §K4c`) as the same carry-lookahead over wave ballot masks as `RNS_CRT_SCAN` (two limbs per thread, 512-bit masks).
 
 ### 4.4 Product tiers
 
@@ -173,7 +173,7 @@ Every product goes to the cheapest tier that can hold it:
 
 `RNS_STRATEGY=auto` (default) picks B where its planes fit the plane pools sized at init, else C, and never allocates.
 The host product tier (`rns_mul`: one product per prime per APU from host operands, a Karatsuba split above the pool, a CPU
-schoolbook below 2¹⁰ points) had no production caller and was removed (TREF, `results/TREF.md`); the tests check products
+schoolbook below 2¹⁰ points) had no production caller and was removed (TREF, `results/CODE_REDUCTION.md §TREF`); the tests check products
 against `ecalc/tests/tref.h` instead.
 With three primes form B transforms on three APUs and the fourth only takes part in the CRT.
 
@@ -189,7 +189,7 @@ piece products:
 - the shape minimises the total transform points under a cost model that prices form B pieces at 0.70 (3·2^k
   form B lengths at 1.05 per point) and adds a per-piece pipeline cost (one search, `grid_search` in `rns_dist.c`, over a form per tier; one piece loop, `grid_loop`);
 - the shape jumps at some sizes (a "grid step", e.g. about +20 s of modelled wall above 3.82 × 10¹³, mod;
-  `results/S52.md`); the target size is chosen just below a step;
+  `results/GRID_GROUPS.md §S52`); the target size is chosen just below a step;
 - **cuts** skip pieces that cannot contribute: `grid_piece_skipped(oa, ob, la, lb, lowcut, w)` skips a piece that starts at
   or above w (low products, the band of the reciprocal) or ends at or below `lowcut` (high products whose low limbs are
   discarded). Entry points: `rns_mul_dist_db`, `rns_mul_low_db` (A·B mod B^w), `rns_mul_high_db` (only C ≫ cut used),
@@ -223,7 +223,7 @@ error (≤ 2M + 3 units at 2j) by ≥ 1 limb; a doubling with jn = 2j (the ancho
 keeps it, and a run of such doublings squares it (k = 2^m: up to two limbs lost, modelled). The division's corrections
 absorb it unless the run is long and μ's top limbs are used uncut (DKM with h = k₁, i.e. an odd quotient length); then the
 step-1 estimate can be off by more than the 64-correction limit (fatal, never wrong digits). `NEWTON_CHAIN_GUARD=1` (the default
-since D25, `=0` the old chain) anchors the chain at k, ⌈k/2⌉ + 1, … so every doubling is cut: |error| ≤ 8 units at any M (results/RECIP.md).
+since D25, `=0` the old chain) anchors the chain at k, ⌈k/2⌉ + 1, … so every doubling is cut: |error| ≤ 8 units at any M (results/DIVISION.md §RECIP).
 
 ### 5.2 Division in two quotient halves ("DKM")
 
@@ -297,7 +297,7 @@ budget).
 | `comm_local.c` | one rank (size 1): no-ops and copies; the single-node pipeline runs through it |
 | `comm_xgmi.c` | the node's four APUs: peer copies over the xGMI mesh, driven by four host threads |
 | `comm_shmem.c` | OpenSHMEM: a communicator is a strided PE set; one symmetric pool holds every remote-writable buffer; the sender puts a slab at an offset the receiver chose, then a signal word; the receiver polls signals. Setup, collectives and the fallback data path. Under `COMM_OFI=0` the data path is the proxy mode: one helper process per APU (`COMM_SHMEM_PE_PER_APU=1`) puts the slabs from huge-page heaps (`COMM_SHMEM_PX_THP`, `COMM_SHMEM_NP_HEAP_THP`, both default 1: a 4 KiB pinned heap let kernel compaction evict the GPU queues, `results/SHMEM_STALLS.md`); the switches are in `ecalc/README.md`, the SHMEM-against-libfabric numbers in `results/SHMEM.md`. `COMM_TRACE` records per-message traces for it |
-| `comm_ofi.c` | libfabric (`cxi`): the device exchanges' data plane over every NIC of the node, one domain per APU thread, chunks striped over the NICs; completion is signalled through SHMEM. On by default wherever a cxi NIC is present; `COMM_OFI=0` forces the SHMEM path. ×2.1 over plain SHMEM at 10 nodes (m; `results/OFI17.md`); the proxy mode is far closer (2 nodes equal, 3 nodes about 6 % behind, m; `results/SHMEM.md`) |
+| `comm_ofi.c` | libfabric (`cxi`): the device exchanges' data plane over every NIC of the node, one domain per APU thread, chunks striped over the NICs; completion is signalled through SHMEM. On by default wherever a cxi NIC is present; `COMM_OFI=0` forces the SHMEM path. ×2.1 over plain SHMEM at 10 nodes (m; `results/OFI_FABRIC.md §OFI17`); the proxy mode is far closer (2 nodes equal, 3 nodes about 6 % behind, m; `results/SHMEM.md`) |
 | `comm_layered.c` | the layered composition of an intra (xGMI) and an inter (SHMEM/OFI) communicator, §6.3 |
 | `comm_sim4.c`, `comm_util.c` | a synthetic four-rank layout in one APU's memory for tests; shared helpers |
 | `comm_copy.c` | N7D: the GPU copy kernel for copies that touch the SHMEM proxies' host-registered pool (`COMM_SHMEM_PX_KCOPY=1`, called from `comm_shmem.c`'s `COPY`) |
@@ -318,7 +318,7 @@ that divide the size, then the odd part's prime factors in ascending order; at 5
   P = P_i·Q + P, Q = Q_i·Q: 2(k−1) products in sequence, each balanced over all g nodes.
 - Each product runs `rns_mul_dist_mn` → `mn_grid` → `mn_core` over the group. Dead shares are freed between a level's two
   products, so a node holds its child's P, Q, the running pair and the new pair.
-- Uneven last groups are correct but not faster (`results/B06.md`); the group structure follows the rack layout.
+- Uneven last groups are correct but not faster (`results/GRID_GROUPS.md §B06`); the group structure follows the rack layout.
 
 The only checkpoint is the top-level set (`ECALC_CKPT_TOP`, `bs_ckpt_tree_*` / `bs_ckpt_bg_*` in `binsplit.c`): each node's P and Q after the last tree level, read by `ECALC_RECHECK`. There is no restart inside a run.
 
@@ -377,7 +377,7 @@ everything is allocated once, up front, and sized by a model that the C layout r
   launch lines 2048); `mdb_shift` slabs are bounded by `MDB_SHIFT_CHUNK_MB`.
 - **Exchange memory.** Staging for SHMEM/OFI and the general map's v-slots are counted in the node budget
   (`binsplit_vslot_bytes`, `binsplit_shmem_pool_need`); `COMM_LAYER_VSLOT_*` share and release them in time.
-- **Memory fit (FIT, `results/FIT.md`).** `binsplit_fit` (`binsplit.c`) puts the node's device peak -- the larger of the dm
+- **Memory fit (FIT, `results/LAUNCH_DEFAULTS.md §FIT`).** `binsplit_fit` (`binsplit.c`) puts the node's device peak -- the larger of the dm
   phase (planes + arena + comm_ofi pools + the v-slots) and the bs phase (the same + the VMM pool's bs growth, 6.0 GB m, + the
   tree top's v-slots) -- against the device edge `ECALC_DEVICE_GB` and the node (planes + arena + bs growth + host + v-slots)
   against `ECALC_NODE_GB`, at rank 0's layout, so every rank computes the same numbers. `MN_PLAN_ONLY` prints it (`plan fit`),
@@ -448,8 +448,8 @@ A run is good only with `VERIFY OK` on every node (`verify.c/h`, `out_stage` in 
 | `MN_PLAN_ONLY`, `BS_LAYOUT_ONLY` | the code's own decisions (grids, pieces, prime counts, layout, the memory fit) without a device |
 | `tools/plan_values.py` | the launch values of a size; `--fit`: the memory-fit report, exit 1 when a run does not fit |
 
-Fabric profiles: `target_l4` (default; the target fabric with the L4 refit, `results/L4.md`) and `aac7` (the S48 refit,
-`results/S48.md`). The model is calibrated on the test system up to 6 nodes; the target's per-NIC rate and its fall-off are
+Fabric profiles: `target_l4` (default; the target fabric with the L4 refit, `results/TIME_MODEL.md §L4`) and `aac7` (the S48 refit,
+`results/TIME_MODEL.md §S48`). The model is calibrated on the test system up to 6 nodes; the target's per-NIC rate and its fall-off are
 assumed (a).
 
 ## Glossary

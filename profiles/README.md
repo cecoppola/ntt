@@ -5,13 +5,13 @@ Maintained: updated in the same merge as any change to a profile, the loader/che
 
 Status (O3, merged 2026-10-12): step 2 done. `tools/profile_load.py` validates and loads a profile (explicit environment > profile > code
 default); `tools/profile_load.py NAME --run -- cmd` runs a command under it and prints a `config-src:` line; `tools/gate.sh --profile NAME` uses it, and
-`gate.sh --build` runs `switch_registry.py --check` and `profile_load.py --validate-all` first. Nothing reads a profile unless asked. Details: results/O3.md.
+`gate.sh --build` runs `switch_registry.py --check` and `profile_load.py --validate-all` first. Nothing reads a profile unless asked. Details: results/TOOLS_PROFILES.md §O3.
 T27 (2026-10-12): the computed values have one source. `ecalc/mnrun.sh` computes them for every launch (the pool from the planner,
 `MN_PLAN_ONLY`; the heap; `FI_UNIVERSE_SIZE`), the code computes `MN_GROUPS` (its default schedule); `tools/plan_values.py
 [--profile P] [--line FILE] [--exports] DIGITS NODES` prints them without launching (`MNRUN_PRINT_ENV=1`), compares a hand line
-with them (MATCH / DIFF / NO-CONSUMER) and gives `export` lines for a launch that does not go through `mnrun.sh`. Details: results/T27.md.
+with them (MATCH / DIFF / NO-CONSUMER) and gives `export` lines for a launch that does not go through `mnrun.sh`. Details: results/TOOLS_PROFILES.md §T27.
 
-FIT (D26, 2026-10-13, `results/FIT.md`): `ECALC_DEVICE_GB` -- the device edge per node, measured per machine -- is a profile key
+FIT (D26, 2026-10-13, `results/LAUNCH_DEFAULTS.md §FIT`): `ECALC_DEVICE_GB` -- the device edge per node, measured per machine -- is a profile key
 (aac7 444.0, target 373.44 = the code default); the planner's memory fit (`tools/plan_values.py --fit`) puts the run's device peak
 against it, and `mnrun.sh` / `tools/gate.sh` refuse a run that does not fit. aac7 carries it on its launch line (`LAUNCH_LINE_KEYS`).
 
@@ -42,7 +42,7 @@ generic values only; the filled copy stays out of git.
   `adopted ... pending move to built-in defaults`, `safety/diagnostics`, `launch line`, `host exclusions`.
 * `__FILL__` is the value of an unknown. The validator must refuse a profile that still has one (the checker lists them as UNFILLED).
 * A key to be **unset** is not expressible yet (the target's record run unsets `ECALC_CHECKPOINT ECALC_CKPT_TOP BS_CKPT_DIR`): the
-  entry point needs an `unset` section; open question in `results/C01.md`.
+  entry point needs an `unset` section; open question in `results/TOOLS_PROFILES.md §C01`.
 * Each key carries its evidence in the trailing comment: the `ecalc/README.md` switch row, `results/<ID>.md`, or the user's decision with its
   date. Numbers are labelled (m) measured, (mod) modelled, (a) assumed. A line without evidence is a bug in the profile.
 
@@ -91,7 +91,7 @@ key without a consumer), SCRIPT-ONLY (aac7env.sh sets it but the profile lacks i
 1. **Modules** (`TARGET_ROCM`, `TARGET_SMA_MODULE`, `TARGET_DSMML_MODULE`, `MNRUN_MODULES`, `MNRUN_UNLOAD`). From `module avail`: the ROCm module whose
    version is the stated one, the OpenSHMEM module (`cray-openshmemx` or `cray-shmem` family) of the stated version, the highest dsmml. Check
    `MODULE_LOAD_RC=rc=0` and `MODULES_AFTER_LOAD` in the facts: a ROCm module loaded by default conflicts and the later `module load` silently
-   fails (results/ROCM.md), so `MNRUN_UNLOAD` = every default-loaded ROCm module (`MOD_LOADED_ROCM`); empty only if none is loaded.
+   fails (results/AAC7_PORT.md §ROCM), so `MNRUN_UNLOAD` = every default-loaded ROCm module (`MOD_LOADED_ROCM`); empty only if none is loaded.
    Expected: three names; the SHMEM library's libfabric (`SMA_LIBFABRIC_RESOLVED`) is the stated libfabric version.
 2. **Build** (`SHMEM_CRAY=1`, `GMP_HOME`). `tools/gate.sh --build` on a login node or in the allocation; the log must show `-DCOMM_SHMEM`. `GMP_HOME`: a
    `gmp.h` on the include path (probe note "a gmp.h is available") means delete the key; otherwise build GMP from source and set it to the
@@ -110,11 +110,11 @@ key without a consumer), SCRIPT-ONLY (aac7env.sh sets it but the profile lacks i
    only proposes it with `--hold`; a login node's figure is wrong), expected 450-500 on a 512 GB node; the planner's fit (`tools/plan_values.py --fit`) must pass at the headline size.
 6. **Node screen.** `tools/nodescreen.sh --hold <job> --want-nics 8` over the nodes of a small allocation, then (at scale, before a record run) over all of them; exit 3 = flagged nodes,
    `EXCLUDE` lists them: copy to `MNRUN_EXCLUDE_HOSTS` (comma list; `MNRUN_EXCLUDE_MODE=drop`; the job must ask for the nodes it will use). Expected: none or a few
-   per hundred nodes; a node with fewer NICs than `SHMEM_OFI_NUM_NICS` aborts a SHMEM launch (results/NIC.md).
+   per hundred nodes; a node with fewer NICs than `SHMEM_OFI_NUM_NICS` aborts a SHMEM launch (results/NODE_SLOWMODE.md §NIC).
 7. **Plan check.** `tools/plan_values.py --profile target 38200000000000 576` (digits and nodes of the headline run) prints the pool, heap, `FI_UNIVERSE_SIZE`, `MN_GROUPS` and the memory fit;
    all must be present and the fit must say it fits with the margin the rules ask for. `MN_PLAN_ONLY` needs no allocation.
 8. **First small run.** 1 node, `1e9` digits with write and compare against a reference, then 2 nodes (gates per TESTING.md §2), then a 1e10 run. **Give the first launch a long timeout (at least
-   600 s, 2 x the cold figure of results/ROCM.md: init 33 s warm-up there, an earlier first run did not finish the reciprocal in 240 s)**: ROCm 7.14 builds its code objects on first use.
+   600 s, 2 x the cold figure of results/AAC7_PORT.md §ROCM: init 33 s warm-up there, an earlier first run did not finish the reciprocal in 240 s)**: ROCm 7.14 builds its code objects on first use.
    Watch `libamdhip64` in the log (the right ROCm), `-DCOMM_SHMEM`, `config-src:`. A second identical run shows the warm time; use that for any comparison.
 9. **SHMEM checks that decide `COMM_SHMEM_PE_PER_APU`** (`SHMEM_*` lines of the facts; the probe prints its reading as "COMM_SHMEM_PE_PER_APU advice"):
    * `SHMEM_TWOPE_PROBE`: `shmem_ptr_peers_nonnull=1/1` means the library has an on-node path (XPMEM present: `XPMEM_DEV=1`) and the proxy mode can map a
@@ -127,7 +127,7 @@ key without a consumer), SCRIPT-ONLY (aac7env.sh sets it but the profile lacks i
      of each APU is used. Note `COMM_SHMEM_PE_PER_APU=2` is designed, not built (mnrun.sh refuses it): the probe result is the input for that decision, which is the user's.
    * `SHMEM_NICS4_5PE_RC` / `SHMEM_NICS2_4PE_RC`: the PE counts of the proxy mode (4 proxies + the node-process) start with the NIC count they ask for (mnrun.sh sets `SHMEM_OFI_NUM_NICS=4` for `=1`).
      Then the real check is the 2-node gate and a 6-node 1e10 with `COMM_OFI=0` (per-NIC traffic: the telemetry counters read by `tools/envprobe.sh`).
-   Decision rule (assumed, to be confirmed by the user): comm_ofi (the default) is used unless a proxy-mode arm measures faster in an ABBA at the target (≤ 4 rounds, results/N7D.md is the aac7 reference: 1.43 x slower there).
+   Decision rule (assumed, to be confirmed by the user): comm_ofi (the default) is used unless a proxy-mode arm measures faster in an ABBA at the target (≤ 4 rounds, results/SHMEM_ITEMS.md §N7D is the aac7 reference: 1.43 x slower there).
 
 Key table (every `__FILL__` of the template):
 

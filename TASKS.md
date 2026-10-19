@@ -30,9 +30,9 @@ rows are in the order to do them.
 
 One line each (what, why, size); nothing here is started without the user's word.
 
-- N7F: source of the run-to-run spread of the proxy arm at 6 n before the NP heap fix (sd 111 s against 15 s for libfabric, m, results/N7E.md); re-check after the 6-node confirmation above; aac7 runs.
-- Node drain after our jobs: the 6 nodes of a job went to `needs_reboot` right after three of our jobs ended (2026-10-13 and 2026-10-14; two killed at their timeout, one normal end), cause unknown, site-side (results/N7.md section 6, results/NIGHT2.md); size unknown.
-- Gather layout: each rank holds its own rows so the 3/4 remote pull in `k_gather` disappears; `k_gather_raw` is 2.0 s per APU at 1 node (m), the floor is the remote read (results/P2.md, OPPORTUNITIES N2); algorithm change, needs a scoping pass.
+- N7F: source of the run-to-run spread of the proxy arm at 6 n before the NP heap fix (sd 111 s against 15 s for libfabric, m, results/SHMEM_ITEMS.md §N7E); re-check after the 6-node confirmation above; aac7 runs.
+- Node drain after our jobs: the 6 nodes of a job went to `needs_reboot` right after three of our jobs ended (2026-10-13 and 2026-10-14; two killed at their timeout, one normal end), cause unknown, site-side (results/SHMEM_ITEMS.md §N7 section 6, results/NIGHT_RUNS.md §NIGHT2); size unknown.
+- Gather layout: each rank holds its own rows so the 3/4 remote pull in `k_gather` disappears; `k_gather_raw` is 2.0 s per APU at 1 node (m), the floor is the remote read (results/EXCHANGE.md §P2, OPPORTUNITIES N2); algorithm change, needs a scoping pass.
 - Distributed division multiply: +94 s at 6 nodes against 1 (m, before the 2026-10-12 defaults; OPPORTUNITIES N1); re-measure the split on current main before choosing a fix.
 
 ## Decisions (user) still acting
@@ -50,6 +50,6 @@ Performance ideas, open or tried, are in `OPPORTUNITIES.md`.
 |---|---|---|---|
 | 6 | Handoff document | later | |
 | 7 | Target-side options (need a target session): `MN_T_CHUNK_MB=2048` A/B (T11b), division overlap gate (T12, S-2), X2 try (T13), kit `nodechk` rehearsal (T14) | open | internal target task list |
-| 26 | **Kit paths not rehearsed** (A06): 2-NIC a3, 8-node a4, s2chk, `--spares` STOP, plan REFUSED | open (target session) | results/A06.md |
-| 28 | **Target bring-up:** populate `profiles/target.conf` as soon as access exists; runbook and probe script written 2026-10-14 (profiles/README.md "Target bring-up runbook", `tools/target_probe.sh`), login dry run OK | needs the target for the rest | results/C01.md |
+| 26 | **Kit paths not rehearsed** (A06): 2-NIC a3, 8-node a4, s2chk, `--spares` STOP, plan REFUSED | open (target session) | results/TOOLS_PROFILES.md §A06 |
+| 28 | **Target bring-up:** populate `profiles/target.conf` as soon as access exists; runbook and probe script written 2026-10-14 (profiles/README.md "Target bring-up runbook", `tools/target_probe.sh`), login dry run OK | needs the target for the rest | results/TOOLS_PROFILES.md §C01 |
 | 29 | **Hugetlb and SHMEM on the target:** the target has hugetlb pages and cray-shmem 12.1.0 (untested): re-run the SHMEM stall checks and the hugetlb switch there | target session | results/SHMEM_STALLS.md |
