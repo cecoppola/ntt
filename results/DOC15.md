@@ -39,7 +39,7 @@ nodes writing at once each at its single-stream rate are **assumed**; 0.6–0.8 
 - Node memory 416.0 GB = max(init 365.6 + host 44.4, bs 371.6 + 44.4, dm 377.9 + 28.8); the SHMEM pool **9472 MiB**
   (`plan pool` with `ECALC_NP=4`, measured on the login node). The fourth prime is +17.2 GB (pool 0); the fill and the early
   writer change nothing that binds at the target.
-- The grid step: the code's plan with `ECALC_NP=4` (results/P15/sweep576_np4.txt; the grids are the same at three and four
+- The grid step: the code's plan with `ECALC_NP=4` (archive:results_raw_2026-10-19/P15/sweep576_np4.txt; the grids are the same at three and four
   primes) and the model agree (tree_max 88 → 100 at 4.30 × 10¹³).
 
 ## 2. What changed
@@ -105,7 +105,7 @@ the host HWM is at init and the device max at dm, so the report's sum is an uppe
 
 ### 2.3 `mem_model.py --check-c` (exact; the protocol's gate)
 
-`BS_LAYOUT_ONLY` on aac6's login node at c2aedc2 (files in `results/DOC15/`), then `python3 mem_model.py --check-c <file>`:
+`BS_LAYOUT_ONLY` on aac6's login node at c2aedc2 (files in `archive:results_raw_2026-10-19/DOC15/`), then `python3 mem_model.py --check-c <file>`:
 
 | run | result |
 |---|---|
@@ -152,7 +152,7 @@ ECALC_NP=4: OK -- 1240 products`; `plan pool … 43008` (9472 with the rounds).
 
 | command | result |
 |---|---|
-| `python3 mem_model.py --check-c results/DOC15/layout_{np4,np3,target_np4}.txt`; `… layout_fill0.txt 31 1024 0` | 0 terms not exact in every file (measured C layouts, modelled port) |
+| `python3 mem_model.py --check-c archive:results_raw_2026-10-19/DOC15/layout_{np4,np3,target_np4}.txt`; `… layout_fill0.txt 31 1024 0` | 0 terms not exact in every file (measured C layouts, modelled port) |
 | `python3 mn_model.py --calib15b` | worst wall error 3.1 % (§2.2) |
 | `python3 mn_model.py --calib15` | unchanged (B0 model) |
 | `python3 mem_model.py --p15` | the target on four primes 416.0 GB; B0's rows unchanged |
@@ -182,5 +182,5 @@ ECALC_NP=4: OK -- 1240 products`; `plan pool … 43008` (9472 with the rounds).
 
 - Done: branch `p15-DOC` at c2aedc2 + 5adb2f9 (models), ee42962 (README), 983e545 (TARGET), a00a58b (TARGET_TASKS), 3173e4c
   (DESIGN_TABLE), 8a17bb2 (APUMULT_STUDY), this report. aac6 `~/ntt-DOC15` at c2aedc2 (built), `~/DOC15/` the login-node
-  outputs (copied to `results/DOC15/`). No job was run or is pending.
+  outputs (copied to `archive:results_raw_2026-10-19/DOC15/`). No job was run or is pending.
 - Nothing left in the task list; the open issues of §4 are for the integrator / the user.

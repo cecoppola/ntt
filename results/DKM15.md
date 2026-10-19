@@ -219,7 +219,7 @@ P24, at about a week. At size 1 it can be measured at 10¹¹: the reciprocal is 
   after today's single low product), then today's corrections and deferral.
 
 **Model** (`mn_model.py`: `division_cost_dkm` under `MN_MODEL_DKM=1`; `ovl_div`, the early writer's overlap, at size > 1). The
-command is `python3 ../tests/dkm15_model.py` in `ecalc/`, and the output is `results/DKM15/model.txt`. All figures are modelled at
+command is `python3 ../tests/dkm15_model.py` in `ecalc/`, and the output is `archive:results_raw_2026-10-19/DKM15/model.txt`. All figures are modelled at
 5.1 × 10¹³ on 576 nodes, with the fabric assumed, the write at 0.6 GB/s, and `ECALC_NP=auto`, on int15g:
 
 | cache slots | today: no write / write | NEWTON_DKM=1 | gain | + an X_hi writer (not built) | gain |

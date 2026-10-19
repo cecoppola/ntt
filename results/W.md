@@ -90,7 +90,7 @@ disk (40 GB + 35.6 GB read; the file was in the page cache in these runs, the se
 
 ## 4. The host-flow stand-ins (`MN_DM=host`, `MN_COMBINE=host`) — **kept**
 
-Checked at the end of the session (`ls ~/apucode/ntt/.claude/worktrees/*/results/R.md`): one `R.md`
+Checked at the end of the session (`ls ~/apucode/ntt/.claude/worktrees/*/results/CRASHES_HANGS.md §R`): one `R.md`
 (agent-a50c987e…, last written 00:30). It names the transition (a stale operand: the odd-node copy at a level boundary
 issued by `mem_dev_copy_on` without a wait on the caller's stream, read by the next level's Q₁₇ operand before it had
 landed — the failing leaves are wrong from limb 2¹⁷ + a few pages, as V measured), has the one-line fix in `mem.c` and the

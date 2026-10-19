@@ -21,7 +21,7 @@ the node count. Test machines: aac7 (MI300A nodes with Slingshot, the main test 
 | what | figure | label | evidence |
 |---|---|---|---|
 | headline timings (1 node at 6.441 × 10¹⁰ and 10¹¹ digits; 2 / 4 / 6 nodes) | kept in `PLAN.md` §2 (Current status), with their evidence files | m | PLAN.md §2 |
-| 4-node run-to-run modes | fast ≈ 181-185 s, slow ≈ 208-214 s: the inter-node all-to-all rate is set per launch | m | results/T05.md, T09.md, A13.md |
+| 4-node run-to-run modes | fast ≈ 181-185 s, slow ≈ 208-214 s: the inter-node all-to-all rate is set per launch | m | results/NODE_SLOWMODE.md §T05, T09.md, A13.md |
 | 4-node calibration | total ≈ 80.8 s + 1388 / r (r = all-to-all GB/s per APU thread), residual sd 1.6 s | m/mod | results/B07.md |
 | target: 576 nodes, 3.82 × 10¹³ digits | ≈ 182 s without the write (profile `target_l4`) | mod (fabric a) | results/L4.md, O8.md |
 | target device memory, rank 0, 3.82 × 10¹³ | margin 12.9 GB under the 373.44 GB/node edge (launch line with `MN_T_CHUNK_MB=2048`, X2, slot release) | mod | results/L1.md, B01.md, S52.md |
@@ -31,8 +31,8 @@ the node count. Test machines: aac7 (MI300A nodes with Slingshot, the main test 
 | `COMM_OFI=0` pool at 6 nodes (NIGHT bug A): the v-slots now count in the SHMEM pool; 1e10 6-node run rc 3 -> VERIFY OK, digits identical; 4 and 2 nodes OK (pool 2816 -> 3328 MiB at 6 nodes) | 40.28 / 39.20 / 47.66 s total (single runs) | m | results/SHM.md |
 | Pre-launch memory fit (D26): the planner reports device/node memory vs the machine limits before every launch and refuses a run that does not fit; `DM_MN_WRAP` automatic (on only with ≥5 GB device margin). Target 3.82e13:576: 358.96 GB device vs 373.44 (wrap off; with wrap 384.73, refused); aac7 6 nodes 374.22 vs 444 (wrap on) | planner values | mod/m | results/FIT.md |
 | day plan 2026-10-13 (commit 209712f): large run 3.8646e11 digits, 6 nodes, VERIFY OK, first 1e11 digits identical (recheck not run, follow-up); sweep 48/48 and SHMEM sweep 21/24 digit-identical (3 node faults); gates 1/2/4/6 nodes PASS; 6-node repeat 197.1 s mean over 34 runs (m, no speed claim); D27 (a) | 1793.37 s large run; 197.06 s repeat mean (m) | m | results/DAY.md |
-| Node screen NIC check: `tools/nodescreen.sh --want-nics N` (default `$SHMEM_OFI_NUM_NICS`) excludes nodes whose runtime sees fewer cxi NICs; 4-node check: 4 seen, ok at want 4, all flagged at want 8 (positive control) | 4 NICs/node seen | m | results/NIC.md |
-| CKPT: the 6-node 3.8646e11 recheck's "short read" on the top set = EIO from the soft-mounted NFS under 6 × 4 reads of 512 MiB (files complete, sizes = headers); reads now ≤ 64 MiB with retries; 2-node write + recheck at 1e10 / 2e10 RECHECK OK, gates 1 / 2 nodes PASS; proof at scale 2026-10-14 (commit 34175cf): 6 nodes 3.8646e11, write 1473.26 s, VERIFY OK, RECHECK OK on all nodes, 0 retries, recheck 7380 s (2 h 3 min, model ≈ 1 h), timeout ≥ 3 h | 12.5 MB/s per node part files, 45 MB/s top set (2 nodes); 6-node recheck 7380 s | m/mod | results/CKPT.md |
+| Node screen NIC check: `tools/nodescreen.sh --want-nics N` (default `$SHMEM_OFI_NUM_NICS`) excludes nodes whose runtime sees fewer cxi NICs; 4-node check: 4 seen, ok at want 4, all flagged at want 8 (positive control) | 4 NICs/node seen | m | results/NODE_SLOWMODE.md §NIC |
+| CKPT: the 6-node 3.8646e11 recheck's "short read" on the top set = EIO from the soft-mounted NFS under 6 × 4 reads of 512 MiB (files complete, sizes = headers); reads now ≤ 64 MiB with retries; 2-node write + recheck at 1e10 / 2e10 RECHECK OK, gates 1 / 2 nodes PASS; proof at scale 2026-10-14 (commit 34175cf): 6 nodes 3.8646e11, write 1473.26 s, VERIFY OK, RECHECK OK on all nodes, 0 retries, recheck 7380 s (2 h 3 min, model ≈ 1 h), timeout ≥ 3 h | 12.5 MB/s per node part files, 45 MB/s top set (2 nodes); 6-node recheck 7380 s | m/mod | results/CHECKPOINT.md §CKPT |
 
 ## Adopted changes in force (code defaults)
 
@@ -46,13 +46,13 @@ setting it to 0 restores the old path; a setting named "built in" no longer exis
 | decimal limbs 10¹⁸ only; binary pipeline removed | 2026-10-12 | binary was 1.9-2.2 × slower at 2 nodes (+32.47 s at 10¹⁰) | m | results/H4.md, H5.md, H1.md, H2.md |
 | `DBIG_SMALL_BOUNCE=1`, `DIST_GATHER_RAW=2`, `BS_SEED_PULL=1` | 2026-10-12 | -7.16 s [-8.08, -6.23] 1 node (aac6); -5.58 s [-10.54, -0.63] 2 nodes (aac7); reciprocal chain 4.57 → 0.06 s | m | results/CAND.md, O2.md, K1b.md, K8b.md |
 | kernels K2, K3 (`DBIG_ADDSUB3`, `DBIG_MODQ_MONT`; built in) | 2026-10-11 | 1 node -2.03 s ± 1.38 (aac7) | m | results/S51.md, T08.md |
-| `FI_MR_CACHE_MONITOR=userfaultfd` set by `mnrun.sh`; `disabled` refused | 2026-10-11 | reproducer hangs 22/105 → 0/104; 46 four-node runs, 0 segfaults, 0 hangs | m | results/S46.md, T12.md |
+| `FI_MR_CACHE_MONITOR=userfaultfd` set by `mnrun.sh`; `disabled` refused | 2026-10-11 | reproducer hangs 22/105 → 0/104; 46 four-node runs, 0 segfaults, 0 hangs | m | results/CRASHES_HANGS.md §S46, T12.md |
 | kernels `DBIG_ADDSUB2`, `DBIG_MAXIDX_TOP`, `DBIG_QSEL` (built in) | 2026-10-10 | together -50.0 s at 4 nodes [-71.7, -28.3] | m | results/S38.md, S40.md, S41.md, S43.md |
 | `DIST_CHUNKS=8` (was 4) | 2026-10-07 | device -13.4 GB at 576 nodes for +2.4 s | mod | results/S45.md |
 | exchange slots in the node budget (`ECALC_VSLOT_BUDGET=1`; built in) | 2026-10-07 | no measured cost | m | results/B7ACCT.md, S18M.md |
 | `COMM_OFI=1` where a cxi NIC is present | 2026-10-06 | × 2.1 over SHMEM at 10 nodes | m | results/OFI17.md, STD17.md |
 | `FI_UNIVERSE_SIZE`, `FI_LOG_LEVEL=warn` set by `mnrun.sh` when unset | 2026-10-06 | fixes multi-process `fi_enable(-28)`; log volume / 1000 | m (target) | results/TGTBENCH2.md |
-| transport opened before the arenas, self-test growth (`COMM_INIT_EARLY=1`, `MN_SELFTEST_GROW=1`; built in) | 2026-10-05 | transport opened before the arenas (init segfault 8/78 before); ≥ 32 processes start | m | results/S16.md, P16.md |
+| transport opened before the arenas, self-test growth (`COMM_INIT_EARLY=1`, `MN_SELFTEST_GROW=1`; built in) | 2026-10-05 | transport opened before the arenas (init segfault 8/78 before); ≥ 32 processes start | m | results/CRASHES_HANGS.md §S16, P16.md |
 | division in two quotient halves (`NEWTON_DKM=1`; built in) | Phase 15 | division -25.7 s at 10¹¹ | m | results/DKM15.md |
 | 24 digits per transform point in multi-node products (`MN_P24=2`; built in) | Phase 15 | -38 % at 10¹⁰ on 2 processes | m | results/P2415.md |
 | `ECALC_CORR_PATCH=2`, `MN_OUT_EARLY=1`: write overlapped with the division, corrections patched | Phase 15 | write hidden under the division | m | results/IO15.md, IO215.md |
@@ -114,7 +114,7 @@ Packed 60-bit output `ECALC_OUT_PACKED=2` is the default since 2026-10-12 (TASKS
 | `DIST_GATHER_TILE` (removed) | -0.08 s ± 0.88 at 1 node | m | results/S50.md |
 | result-exchange rebalancing | about -7 s at 10 nodes, below noise | mod | results/A07.md |
 | message coalescing (`DIST_COALESCE`) | 1.0-4.5 s at 576 nodes; idea saved | mod | results/S52.md |
-| `ECALC_VMM_BG=2` (removed) | 9/9 reproducer runs failed | m | results/S46.md |
+| `ECALC_VMM_BG=2` (removed) | 9/9 reproducer runs failed | m | results/CRASHES_HANGS.md §S46 |
 | 4 processes per node (one per APU) | 3.7 × slower at 8 nodes | m | archive RESULTS §101 |
 | `hipMallocManaged` host spill at the device edge | host memory 21 GB/s vs HBM 3.2-3.8 TB/s | m | results/TGTBENCH2.md |
 
@@ -123,7 +123,7 @@ Packed 60-bit output `ECALC_OUT_PACKED=2` is the default since 2026-10-12 (TASKS
 - Fabric injection rate per NIC on the target and its fall-off at 576 nodes (A3, A4): every target time above uses an
   assumed rate. The target kit `ecalc/target_kit.sh` measures both (results/S18KIT.md, A06.md).
 - `MN_T_CHUNK_MB` 1024 vs 2048 and X2 on the target: not yet measured there.
-- The cause of the 4-node slow mode (per-launch NIC group) is not established (results/A14.md).
+- The cause of the 4-node slow mode (per-launch NIC group) is not established (results/NODE_SLOWMODE.md §A14).
 - SHMEM-only path at 6 nodes: 3.0 × `comm_ofi` (698.5 s against 230.5 s, m) with the best SHMEM settings (4 NICs, 256 MiB
   rounds). One PE per node uses one of four NICs (vendor limit); the one-PE-per-APU design (N7b, D29) reaches 28.8-29.8 GB/s per node in t_comm but its 6-node full run is 2.9 × slower than `comm_ofi` (656.7 vs 224.0 s, m; results/N7B.md).
 

@@ -19,7 +19,7 @@ one step below, 4.74 × 10¹³, is to be tested after the headline run.
 | internal target task list | "Where things stand"; T0, T3, T4, T4b, T11; the new **T4c: the runtime one step below, 4.74 × 10¹³, after the headline**. |
 | `ecalc/README.md` | the header's launch-line sentence names the target; the `ECALC_NP` and `MN_PLAN_ONLY` rows get their 5.1 × 10¹³ plan results. |
 | internal apumult study | a dated note (2026-09-28). |
-| `results/TGT15/` | `sweep576.txt` (the plan at 4.25–5.17 × 10¹³), `plan576_51e13.txt`, `plan576_474e13.txt` (the full plans), `layout.txt` (`BS_LAYOUT_ONLY` at 5.1e13/576, 4.74e13/576 and 9.169e10/1, and the size-1 plan sweep). |
+| `archive:results_raw_2026-10-19/TGT15/` | `sweep576.txt` (the plan at 4.25–5.17 × 10¹³), `plan576_51e13.txt`, `plan576_474e13.txt` (the full plans), `layout.txt` (`BS_LAYOUT_ONLY` at 5.1e13/576, 4.74e13/576 and 9.169e10/1, and the size-1 plan sweep). |
 
 Every dated history line was kept, and the old figures are still recorded. `PLAN.md` and `RESULTS.md` were not touched. No C code changed,
 so the digits are unaffected.
@@ -111,10 +111,10 @@ Environment: `ECALC_NP=4 COMM_SHMEM_ROUND_MB=1024 MN_T_CHUNK_MB=1024 MN_GROUPS=2
 
 | what | command | result |
 |---|---|---|
-| plan sweep | `results/TGT15/sweep576.txt`: the header line has the environment, run at 2026-09-27 23:52 EDT | as in §2 |
+| plan sweep | `archive:results_raw_2026-10-19/TGT15/sweep576.txt`: the header line has the environment, run at 2026-09-27 23:52 EDT | as in §2 |
 | full plans | `… MN_PLAN_ONLY=51000000000000:576 ./ecalc`, `…47400000000000:576` | rc 0, OK |
 | three primes | `ECALC_NP=3 … MN_PLAN_ONLY=51000000000000:576 ./ecalc` | REFUSED, rc 3 |
-| layouts | `results/TGT15/layout.txt` | as in §2 |
+| layouts | `archive:results_raw_2026-10-19/TGT15/layout.txt` | as in §2 |
 | models | `./estimate.py --target` (16 s); `./mem_model.py --p15`; `./mem_model.py --pool`; `./estimate.py --g 576 --D 7.7e10` (smoke) | as in §2; nothing broken |
 | design table | `./design_table.py` (215 s) | 96 rows, written |
 | TARGET §9 variable check | the script in §9 | only the pre-existing non-code names (model constants, library variables), plus `BS_ARENA_ROOM` (AS's branch, labelled pending) |

@@ -36,7 +36,7 @@ was enough for two of the three planned runs. A second 2-node request
 when 20655 ended early at 05:58 s24-26 was still held, so no second
 2-node window appeared before the session's ~6 h budget ran out; 20657
 was cancelled at 06:00 (it was holding s24-16 as "planned"). Snapshots
-in `results/wp6/status-snapshots.txt` and `~/wp6status.log` on aac6.
+in `archive:results_raw_2026-10-19/wp6/status-snapshots.txt` and `~/wp6status.log` on aac6.
 The only piece not demonstrated across nodes is `t_dist 24` with 8
 ranks on two nodes; its two ingredients were: `t_dist 24` with 8 ranks
 on one node over TCP, and 3 MiB-per-peer slab all-to-alls across the

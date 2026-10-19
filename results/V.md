@@ -121,7 +121,7 @@ only path) and the `ECALC_OVERLAP_COPY` remnant (a comment; its code was already
 
 ## E2
 
-`.gitignore`: `results/*` + `!results/*.md` (the write-ups tracked by rule; `results/wp6/` etc. still ignored).
+`.gitignore`: `results/*` + `!results/*.md` (the write-ups tracked by rule; `archive:results_raw_2026-10-19/wp6/` etc. still ignored).
 
 ## Gate runs
 
