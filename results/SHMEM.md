@@ -215,8 +215,8 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
 - Fix: `COMM_SHMEM_NP_HEAP_THP=1` pre-faults and collapses that heap to 2 MiB pages before registration (compaction skips
   compound pages); 3096 MiB fully PMD-mapped, 1.9-2.0 s per process, overlapped (init unchanged). Gates 1 n, 2 n SHMEM and
   libfabric, off and on: PASS, digits identical (97q, 97s; main-based build in 97w).
-- Runs, 3 n (97q/97r/97s/97t): with the switch 0 of 12 runs stalled (SHMEM DT 47.4-50.9 s, libfabric 45.9-47.9 s);
-  without it 7 of 18 stalled (SHMEM up to 70.3 s). Same nodes: SHMEM with the switch about 6 % behind libfabric when
+- Runs, 3 n (97q/97r/97s/97t): with the switch 0 of 16 runs stalled (SHMEM DT 47.4-50.9 s, libfabric 45.9-48.0 s;
+  2 n, 97v: 0 of 6); without it 9 of 24 stalled (SHMEM up to 70.3 s). Same nodes: SHMEM with the switch about 6 % behind libfabric when
   libfabric runs well (49.6 vs 46.6 s, 97q/97r). Default 1 since D48 (user 2026-10-18).
 - Not adopted: `MEM_FRAG_RESERVE_GB` (branch fragres): a 6 GiB reserve on NUMA node 0 lowers the score after start-up but
   costs 4-8 s of init and, without the heap fix, makes the storms worse (97s/97t). `MNRUN_MEMPREP_GB=100` (97g/97h),
