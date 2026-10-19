@@ -121,10 +121,10 @@ static void *run(void *v)
                     dev, kern == 0 ? "bt" : kern == 1 ? "cc" : "wide", kind_n[C.kinds[sk]], kind_n[C.kinds[dk]], C.mib[mi] >> 10, nr, g / t[nr / 2], g / t[nr - 1], g / t[0], g * nr / tsum, C.mib[mi]);
                 free(t);
             }
-            if (C.kinds[sk] >= K_HOST) hipHostUnregister(src);
-            if (C.kinds[dk] >= K_HOST) hipHostUnregister(dst);
-            if (C.kinds[sk] < K_HOST) hipFree(src);
-            if (C.kinds[dk] < K_HOST) hipFree(dst);
+            if (C.kinds[sk] >= K_HOST) (void)hipHostUnregister(src);
+            if (C.kinds[dk] >= K_HOST) (void)hipHostUnregister(dst);
+            if (C.kinds[sk] < K_HOST) (void)hipFree(src);
+            if (C.kinds[dk] < K_HOST) (void)hipFree(dst);
         }
     }
     return 0;
