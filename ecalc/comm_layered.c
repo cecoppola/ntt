@@ -635,9 +635,10 @@ static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_b
 int comm_layered_vslot_pool_on(void) { const char *e = getenv("COMM_LAYER_VSLOT_POOL"); return e ? atoi(e) != 0 : 1; }
 int comm_layered_inter2_on(void) { const char *e = getenv("COMM_LAYER_INTER2"); return e ? atoi(e) != 0 : comm_layered_vslot_pool_on(); }
 static void lay_opts(lay_priv *p) {
-    { p->vpool = comm_layered_vslot_pool_on(); p->i2 = comm_layered_inter2_on(); vslot_attach(p); }   /* S36: the shared pair */
-      p->vrel = p->vpool;   /* M3 (results/C06.md): the pool slots are released after each product's v-phase (hipMalloc'd slots would be allocated again for every product) */
-      if (p->i2 && !p->vpool) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_INTER2=1 needs COMM_LAYER_VSLOT_POOL=1 (two staged inter exchanges would double the staging)\n");} }
+    p->vpool = comm_layered_vslot_pool_on(); p->i2 = comm_layered_inter2_on(); vslot_attach(p);   /* S36: the shared pair */
+    p->vrel = p->vpool;   /* M3 (results/C06.md): the pool slots are released after each product's v-phase (hipMalloc'd slots would be allocated again for every product) */
+    if (p->i2 && !p->vpool) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_INTER2=1 needs COMM_LAYER_VSLOT_POOL=1 (two staged inter exchanges would double the staging)\n");
+}
 static comm *layered_create_i(comm *intra, comm *inter, int d);
 comm *comm_layered_create(comm *intra, comm *inter, int d) { int ph_ = ec_ph(EC_PH_LAYER_CREATE); comm *r = layered_create_i(intra, inter, d); ec_ph(ph_); return r; }
 static comm *layered_create_i(comm *intra, comm *inter, int d)

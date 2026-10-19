@@ -3,7 +3,7 @@
 name	type	default	code_default	range	scope	profile	evidence	readme	source	files	sites	owner	review	note
 BS_ARENA_ROOM	float	0.16	0.16		built-in default	-	AS15.md+DL15.md	Y	ecalc	binsplit.c	1	-	-	
 BS_BALANCE_N	int	unset	unset		built-in default	-	-	Y	ecalc	binsplit.c	2	-	-	
-BS_BATCH_PIPE	bool	1	1	0|1	built-in default	-	-	Y	ecalc	rns_mul.c	1	coordinator (D20, results/N3.md)	2026-11-11	rns_mul.c, binsplit.c; N3 batch-tier host overlap (results/N3.md); default 1 since D20, =0 kept fallback
+BS_BATCH_PIPE	bool	1	1	0|1	built-in default	-	-	Y	ecalc	rns_mul.c	1	coordinator (D20, results/KERNELS.md §N3)	2026-11-11	rns_mul.c, binsplit.c; N3 batch-tier host overlap (results/KERNELS.md §N3); default 1 since D20, =0 kept fallback
 BS_CKPT_BG_CHUNK_MB	int	256	256		built-in default	-	N13.md	Y	ecalc	binsplit.c	1	-	-	
 BS_CKPT_BG_MBS	float	0	0		test-only	-	N13.md	Y	ecalc	binsplit.c	1	diagnostics (TESTING.md)	2027-04-12	
 BS_CKPT_DIR	str	unset	derived	path	launch-line	-	W.md+WP7.md	Y	ecalc	ecalc.c	2	-	-	ecalc.c; the top-level set's directory (ECALC_CKPT_TOP); unset or empty = <outfile>.top
@@ -33,16 +33,16 @@ COMM_SHMEM_DEVHEAP	bool	0	0	0|1	launch-line	aac7	S12.md+A16.md	Y	ecalc	comm_shme
 COMM_SHMEM_NP_HEAP_THP	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D48, results/SHMEM.md)	2026-11-18	
 COMM_SHMEM_ORDER	bool	derived	derived	0|1	built-in default	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	1	-	-	
 COMM_SHMEM_PEER_ORDER	str	rank	unset	rank|shift	experiment	-	N7.md	Y	ecalc	comm_shmem.c	1	N7	2026-11-12	comm_shmem.c; N7 peer order of the puts
-COMM_SHMEM_PE_PER_APU	int	0	0	0|1|2	experiment	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/N7D.md)	2026-11-14	comm_shmem.c, mnrun.sh, binsplit.c; N7b one SHMEM proxy PE per APU under COMM_OFI=0; N7E 2 = two helper PEs per APU (one per NIC)
+COMM_SHMEM_PE_PER_APU	int	0	0	0|1|2	experiment	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	comm_shmem.c, mnrun.sh, binsplit.c; N7b one SHMEM proxy PE per APU under COMM_OFI=0; N7E 2 = two helper PEs per APU (one per NIC)
 COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_ofi.c,comm_shmem.c	11	-	-	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
 COMM_SHMEM_POOL_NEED_MB	bool	?	?	0|1	test-only	-	-	Y	ecalc	comm_shmem.c	4	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	
 COMM_SHMEM_PROXY	bool	unset	unset	0|1	experiment	-	-	Y	ecalc	comm_shmem.c	2	N7b	2026-11-14	comm_shmem.c; set by mnrun.sh on the proxy PEs (N7b), checked at init
 COMM_SHMEM_PX_BLOCK_MB	float	4	4		unclassified	-	-	Y	ecalc	comm_shmem.c	1	N7F	2026-10-25	
 COMM_SHMEM_PX_INIT_THREADS	int	4	4		unclassified	-	-	Y	ecalc	comm_shmem.c	2	N7D	2026-11-14	
-COMM_SHMEM_PX_KCOPY	int	derived	derived		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/N7D.md)	2026-11-14	
-COMM_SHMEM_PX_NUMA	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/N7D.md)	2026-11-14	
+COMM_SHMEM_PX_KCOPY	int	derived	derived		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	
+COMM_SHMEM_PX_NUMA	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	
 COMM_SHMEM_PX_SEND	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	N7D	2026-11-14	
-COMM_SHMEM_PX_THP	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D36, results/N7G.md)	2027-03-31	
+COMM_SHMEM_PX_THP	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D36, results/SHMEM_ITEMS.md §N7G)	2027-03-31	
 COMM_SHMEM_RING_KB	int	256	256		built-in default	-	S12.md+S.md	Y	ecalc	binsplit.c,comm_shmem.c	4	-	-	
 COMM_SHMEM_ROUND_MB	float	0	0	>=0 MiB	launch-line	aac7	V114.md	Y	ecalc	binsplit.c,comm_shmem.c,rns_dist.c	4	-	-	comm_shmem.c:305; 0 = no rounds
 COMM_SHMEM_SERIAL	bool	auto	derived	0|1	launch-line	aac6,aac7	S.md+S16.md	Y	ecalc	comm_shmem.c	1	-	-	comm_shmem.c:284 per-build default (OSHMEM 1)
@@ -77,7 +77,7 @@ DIST_GATHER_RAW_MARGIN_GB	float	2	2	-	built-in default	-	-	prose	ecalc	rns_dist.
 DIST_GEN	bool	0	0	0|1	test-only	-	X13b.md+S36.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
 DIST_LOGN_TEST	int	derived	derived		test-only	-	G12.md+P13b.md	Y	ecalc	ecalc.c,rns_dist.c	2	diagnostics (TESTING.md)	2027-04-12	
 DIST_STATS	bool	derived	derived	0|1	test-only	-	G515.md+CX15.md	Y	ecalc	rns_dist.c	2	diagnostics (TESTING.md)	2027-04-12	
-DM_MN_WRAP	int	auto (fit)	derived	0|1|20..62	built-in default	-	-	Y	ecalc	binsplit.c	1	P1/DEF (D22, results/P1.md, results/DEF.md)	2026-11-11	binsplit.c binsplit_fit / binsplit_dm_wrap (FIT, D26, results/FIT.md): unset = 1 when the device with the wrap fits ECALC_DEVICE_GB less ECALC_DEVICE_MARGIN_GB, else 0; =0/=1 explicit wins (a warning when 1 does not fit); the wrap itself P1/D22 (results/P1.md), dm_layout counts it (D19, results/DEF.md)
+DM_MN_WRAP	int	auto (fit)	derived	0|1|20..62	built-in default	-	-	Y	ecalc	binsplit.c	1	P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF)	2026-11-11	binsplit.c binsplit_fit / binsplit_dm_wrap (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): unset = 1 when the device with the wrap fits ECALC_DEVICE_GB less ECALC_DEVICE_MARGIN_GB, else 0; =0/=1 explicit wins (a warning when 1 does not fit); the wrap itself P1/D22 (results/DIVISION.md §P1), dm_layout counts it (D19, results/LAUNCH_DEFAULTS.md §DEF)
 DM_TAIL_DEAD	int	0	0		experiment	-	L114.md	Y	ecalc	binsplit.c	2	coordinator (TASKS S)	2026-11-11	
 DM_TIGHT	int	derived	derived		built-in default	-	L114.md+T114.md	Y	ecalc	binsplit.c	2	-	-	
 ECALC_ARENA_GB	float	0	0		built-in default	-	M11.md+A-mem.md	Y	ecalc	binsplit.c	2	-	-	
@@ -89,8 +89,8 @@ ECALC_CKPT_TOP	int	auto	derived	0|1|2	launch-line	-	N13.md	Y	ecalc	ecalc.c	2	-	-
 ECALC_CKPT_TOP_SLACK	float	1	1		built-in default	-	N13.md+IO15.md	Y	ecalc	ecalc.c	2	-	-	
 ECALC_CORR_PATCH	int	2	2		built-in default	-	KP15.md	Y	ecalc	ecalc.c	2	-	-	
 ECALC_CORR_PATCH_ZONE	int	4096	4096		built-in default	-	K15.md	Y	ecalc	ecalc.c	2	-	-	
-ECALC_DEVICE_GB	float	373.44	373.44	GB per node	built-in default	aac7	-	Y	ecalc	binsplit.c	2	-	-	binsplit.c binsplit_fit (FIT, D26, results/FIT.md): the device edge per node the memory fit checks (the target: 373.44, m, TGTBENCH2; aac7 profile 444.0, m); a run above it is refused before launch
-ECALC_DEVICE_MARGIN_GB	float	5	5	GB per node	built-in default	-	-	Y	ecalc	binsplit.c	2	-	-	binsplit.c binsplit_fit (FIT, D26, results/FIT.md): DM_MN_WRAP automatic takes the wrap only when the device with it is at most ECALC_DEVICE_GB less this margin
+ECALC_DEVICE_GB	float	373.44	373.44	GB per node	built-in default	aac7	-	Y	ecalc	binsplit.c	2	-	-	binsplit.c binsplit_fit (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): the device edge per node the memory fit checks (the target: 373.44, m, TGTBENCH2; aac7 profile 444.0, m); a run above it is refused before launch
+ECALC_DEVICE_MARGIN_GB	float	5	5	GB per node	built-in default	-	-	Y	ecalc	binsplit.c	2	-	-	binsplit.c binsplit_fit (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): DM_MN_WRAP automatic takes the wrap only when the device with it is at most ECALC_DEVICE_GB less this margin
 ECALC_FAST_EXIT	bool	unset	unset	0|1	experiment	-	R§93	Y	ecalc	ecalc.c	1	coordinator (TASKS S)	2026-11-11	
 ECALC_FATAL_ABORT	bool	derived	derived	0|1	built-in default	-	S18W.md+C314.md	Y	ecalc	fatal.c	1	-	-	
 ECALC_FATAL_TEST	int	unset	unset		test-only	-	C314.md	Y	ecalc	binsplit.c	2	diagnostics (TESTING.md)	2027-04-12	
@@ -106,7 +106,7 @@ ECALC_NODE_GB	float	480	480		built-in default	-	P16.md+C314.md	prose	ecalc	binsp
 ECALC_NP	enum	auto	derived	auto|3|4	launch-line	aac7	P15.md+DOC215.md	Y	ecalc	crt.c,ecalc.c	3	-	-	ecalc.c: unset becomes auto at size > 1 (D18), 3 at size 1; crt.c reads auto
 ECALC_NP_AUTO_MIN	bool	derived	derived	0|1	experiment	-	MPB15.md	Y	ecalc	crt.c	1	coordinator (TASKS S)	2026-11-11	
 ECALC_NP_AUTO_TERMS	bool	derived	derived	0|1	test-only	-	NP15.md	Y	ecalc	crt.c	1	diagnostics (TESTING.md)	2027-04-12	
-ECALC_NP_MN3	bool	0	derived	0|1	built-in default	-	-	Y	ecalc	crt.c	1	coordinator (D18, results/DEF.md)	2026-11-11	crt.c ec_np_init; =1 the three-prime multi-node path, kept fallback after D18 (results/DEF.md)
+ECALC_NP_MN3	bool	0	derived	0|1	built-in default	-	-	Y	ecalc	crt.c	1	coordinator (D18, results/LAUNCH_DEFAULTS.md §DEF)	2026-11-11	crt.c ec_np_init; =1 the three-prime multi-node path, kept fallback after D18 (results/LAUNCH_DEFAULTS.md §DEF)
 ECALC_ODIRECT	int	1	1		built-in default	-	S114.md+KP15.md	Y	ecalc	spill.c	3	-	-	
 ECALC_ODIRECT_LUSTRE	int	1	1		built-in default	-	IO15.md	prose	ecalc	spill.c	1	-	-	
 ECALC_ODIRECT_NFS	int	1	1		built-in default	-	IO15.md	prose	ecalc	spill.c	1	-	-	
@@ -142,7 +142,7 @@ MN_SELFTEST_LOGR	int	unset	unset		test-only	-	FIX117.md	Y	ecalc	mn.c	2	diagnosti
 MN_TREE_LOGN_TEST	int	0	0		test-only	-	G12.md+M13.md	Y	ecalc	mn.c,mn_plan.c	4	diagnostics (TESTING.md)	2027-04-12	
 MN_T_CHUNK_MB	float	1024	1024	MiB	launch-line	aac7	P214.md+S22.md	Y	ecalc	newton_db.c,rns_dist.c	3	-	-	rns_dist.c:1608
 MN_WAIT_STATS	bool	0	unset	0|1	launch-line	-	S27.md+S22.md	Y	ecalc	comm_util.c	1	-	-	comm_util.c:22 (atoi > 0)
-NEWTON_CHAIN_GUARD	int	1	1	0|1	built-in default	-	-	Y	ecalc	newton_db.c	1	coordinator (D25, results/RECIP.md)	2026-11-11	newton_db.c newton_chain_guard; default 1 since D25, =0 kept fallback (RECIP, results/RECIP.md); dm_layout and mem_model.py follow it
+NEWTON_CHAIN_GUARD	int	1	1	0|1	built-in default	-	-	Y	ecalc	newton_db.c	1	coordinator (D25, results/DIVISION.md §RECIP)	2026-11-11	newton_db.c newton_chain_guard; default 1 since D25, =0 kept fallback (RECIP, results/DIVISION.md §RECIP); dm_layout and mem_model.py follow it
 NEWTON_DKM_TEST_HI	int	0	0		test-only	-	DKM15.md+EW15.md	prose	ecalc	newton_db.c	1	diagnostics (TESTING.md)	2027-04-12	
 NEWTON_DOUBLING_TS	int	0	0		test-only	-	S22.md+S21.md	Y	ecalc	newton_db.c	2	diagnostics (TESTING.md)	2027-04-12	
 NEWTON_MN_BW	float	unset	unset		built-in default	-	X.md+Q.md	Y	ecalc	newton_db.c	2	-	-	
@@ -155,11 +155,11 @@ NEWTON_MN_SPLIT	int	derived	derived		built-in default	-	A37CMP.md+A-div.md	Y	eca
 NEWTON_RECIP_GUARD	bool	unset	unset	0|1	built-in default	-	R114.md	Y	ecalc	newton_db.c	1	-	-	
 NEWTON_VERBOSE	int	0	0		test-only	-	L114.md+L13d.md	Y	ecalc	newton_db.c	6	diagnostics (TESTING.md)	2027-04-12	
 NTT_SIZE_STATS	int	0	0		test-only	-	S22.md+NTT3P.md	Y	ecalc	ntt.c	1	diagnostics (TESTING.md)	2027-04-12	
-P24_CRT_SCAN	bool	1	derived	0|1	built-in default	-	-	Y	ecalc	p24_crt.c	1	coordinator (D24, results/K4c.md)	2026-11-11	K4c: k_crt24 parallel carry (p24_crt.c p24_crt_scan_on); default 1 since D24, =0 kept fallback
+P24_CRT_SCAN	bool	1	derived	0|1	built-in default	-	-	Y	ecalc	p24_crt.c	1	coordinator (D24, results/KERNELS.md §K4c)	2026-11-11	K4c: k_crt24 parallel carry (p24_crt.c p24_crt_scan_on); default 1 since D24, =0 kept fallback
 POOL_LOG	int	31	31	29..31	launch-line	-	A-mem.md+M13.md	Y	ecalc	ecalc.c	3	-	-	ecalc.c:rewritten by ECALC_PLANE_CAP; 31 default (2^31 pools)
 RNS_BATCH_LOCAL_MIN	int	unset	unset		built-in default	-	P3.md+R.md	Y	ecalc	rns_mul.c	2	-	-	
 RNS_BATCH_TILE_GB	float	unset	unset		built-in default	-	P.md	Y	ecalc	rns_mul.c	2	-	-	
-RNS_CRT_SCAN	bool	1	1	0|1	built-in default	-	-	Y	ecalc	rns_mul.c	1	coordinator (D21, results/K4b.md)	2026-11-11	K4b: k_crt_batch parallel carry (rns_mul.c rns_gconst); default 1 since D21, =0 kept fallback
+RNS_CRT_SCAN	bool	1	1	0|1	built-in default	-	-	Y	ecalc	rns_mul.c	1	coordinator (D21, results/KERNELS.md §K4b)	2026-11-11	K4b: k_crt_batch parallel carry (rns_mul.c rns_gconst); default 1 since D21, =0 kept fallback
 RNS_DIST_CACHE_FIT_RESERVE_GB	float	32	32		built-in default	-	TC15.md+DOC215.md	Y	ecalc	rns_dist.c	1	-	-	
 RNS_DIST_CACHE_MARGIN_GB	float	24	24		built-in default	-	TC15.md+M13.md	Y	ecalc	rns_dist.c	2	-	-	
 RNS_DIST_CACHE_MN	int	2	2		experiment	-	TC15.md	Y	ecalc	rns_dist.c	1	coordinator (TASKS S)	2026-11-11	
