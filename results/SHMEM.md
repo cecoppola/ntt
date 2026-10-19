@@ -271,11 +271,15 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
   transpose, and the intra receive buffer shares the inter receive region until the transpose; publishing earlier needs a
   separate buffer (+A per slot per APU thread of device memory).
 
-## PX3 as the default (D53, user 2026-10-19; items 98v, 99b, 98r; m)
+## PX3 as the default (D53, user 2026-10-19; items 98v, 99b, 98r, 99n, 99p; m)
 
 - **Rule.** `COMM_SHMEM_PX_SEND` unset = 3 (PX3) under `COMM_SHMEM_PE_PER_APU=1` with an OpenSHMEM 1.5 build, else 1; an explicit
   value keeps its checks. `COMM_SHMEM_PX_SEND=1` is the fallback.
 - **4 n** (2.5764e11 digits, item 98v, n 3 each): PX3 162.0 s against `PX_SEND=1` 169.1 s; DT 161.6 s (98r).
+- **On the default build** (main a6cc1b3 / 66e34d0, 2026-10-19): 4 n 2.5764e11 (item 99n, gates of the default, `PX_SEND=1`
+  and libfabric PASS): default 163.7 s (n 4, sd 1.1) against libfabric 156.7 s (n 5; bimodal 148.5-168.7 s), paired +9.6 s, CI
+  [-4.4, +23.7]. 2 n 1.2882e11 (item 99p, one off-node peer): default 114.6, `PX_SEND=1` 116.3, libfabric 115.4 s (n 3-4
+  each, without the slow first run of the item, 136.3 s, init 48 against 37 s): parity, the default costs nothing at 1 peer.
 - **6 n** (3.8646e11, build d1a1f277, items 99b + 99g pooled): PX3 against `PX_SEND=1` in 7 pairs, every pair faster, mean
   -5.9 s (-2.8 %), 95 % CI [-9.4, -2.4]; per item PX3 205.7 / 208.1 s against 213.1 / 212.8 s; libfabric 190.0 / 190.7 s
   (99g: 181.5-184.1 s after a slow first run). The rule of D53 (CI excluding 0, digits identical) is met.
