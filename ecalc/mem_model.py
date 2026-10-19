@@ -519,19 +519,13 @@ def planes_3q30(pool_log=31, digits=0):
 EC_NP = 3                                # Phase 13b step 0: three primes are the default for decimal limbs (ECALC_NP; binary limbs need 4)
 NP3_MAX_TERMS = 58424467928              # crt.c ec_np3_max_terms: floor((p0 p1 p2 - 1) / (10^18 - 1)^2), the largest nc = pa + pb three primes hold
 
-def np_mn3(env=None):
-    """D18 (results/LAUNCH_DEFAULTS.md §DEF): ECALC_NP_MN3=1 -- the three-prime multi-node path (crt.c ec_np_mn3; read from the environment as the C does)"""
-    v = (env if env is not None else os.environ).get('ECALC_NP_MN3', '0') or '0'
-    try: return int(v) != 0
-    except ValueError: return False
-
-def np_planes(np, g=1, pool_log=31, auto_terms=NP3_MAX_TERMS, mn3=None):
+def np_planes(np, g=1, pool_log=31, auto_terms=NP3_MAX_TERMS):
     """Phase 15 NP (crt.c ec_np_planes, rns_mul.c rns_pool0_np): the planes plane pool 0 is made for under ECALC_NP=np -- np itself, or for
-    'auto' (the prime count per product): D18 (the default since 2026-10-12) 4 at every g > 1 (every multi-node product in P24), 3 at size 1;
-    with ECALC_NP_MN3=1 (mn3; None = the environment) the rule before D18: 4 when the largest plane a run of g node-processes forms,
-    2^(min(31, pool_log) + floor(log2 g)) points, exceeds the switch-over (ECALC_NP_AUTO_TERMS, default the three-prime bound), else 3"""
+    'auto' (the prime count per product): D18 (the default since 2026-10-12) 4 at every g > 1 (every multi-node product in P24); at size 1
+    4 when 2^(min(31, pool_log)) points exceed the switch-over (ECALC_NP_AUTO_TERMS, default the three-prime bound), else 3.
+    The three-prime multi-node rule (ECALC_NP_MN3) was removed 2026-10-19 (D56)"""
     if np != 'auto': return np
-    if g > 1 and not (np_mn3() if mn3 is None else mn3): return 4
+    if g > 1: return 4
     c = pool_log if 0 < pool_log < 31 else 31
     lg = g.bit_length() - 1 if g > 1 else 0
     return 4 if (1 << (c + lg)) > auto_terms else 3

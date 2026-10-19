@@ -324,7 +324,7 @@ Items are on aac7; "branch" names are local development branches (the dropped on
   and the KFD per-GPU `evicted_ms` from the GPU driver's per-process statistics in sysfs. `tools/trace_report.py` section 8a prints the storm seconds with fragmentation and KFD columns; section 8b the threads/watchdog view.
 - **smaps capture** (queue-item hook, a few shell lines): at 12, 25, 40 and 70 s after launch read the process memory map for the node-process and each helper; sum Rss, AnonHugePages, ShmemPmdMapped
   per mapping and by category (anon 4 KiB, anon THP, shmem 4 KiB, shmem THP, file). The 4 KiB shared category identifies the compaction victims.
-- **Timers already in main:** `COMM_TRACE` v2 (heartbeat, phase tags, per-PE timestamps; `COMM_PHASE_TS` was removed 2026-10-18, D49), `COMM_LAYER_STATS` / `COMM_XSTATS` (per-exchange stage timers), `ECALC_VERBOSE=2` (was `COMM_SHMEM_VERBOSE=1`, removed 2026-10-19) (pool and heap lines).
+- **Timers already in main:** `COMM_TRACE` v2 (heartbeat, phase tags, per-PE timestamps; `COMM_PHASE_TS` was removed 2026-10-18, D49), `COMM_XSTATS` (per-exchange stage timers; `COMM_LAYER_STATS` was removed 2026-10-19, D56), `ECALC_VERBOSE=2` (was `COMM_SHMEM_VERBOSE=1`, removed 2026-10-19) (pool and heap lines).
   The `t_comm` benchmark (ecalc/tests/t_comm.c) measures the transport alone and takes `T_COMM_TRACE`.
 - **Queue-item generators** built the packed pairs with mirrored arm orders ("GROUP" items: several items start together on disjoint nodes), one item per node set, trace and
   heartbeat on every run, and a VERIFY step that digit-checks every run. Keep the discipline even if the generators are replaced.

@@ -22,9 +22,8 @@ Times Eastern.
   of 1244 products over the bound, the first at tree level 5, 1.01x over; even a min(pa, pb) test leaves 46). §P15.
 - **Current state (see ecalc/README.md; D18, 2026-10-12, results/LAUNCH_DEFAULTS.md).** At size 1 `ECALC_NP` is 3; unset at size > 1
   it becomes `auto`, plane pool 0 holds four planes in every multi-node run, and **every multi-node product runs four primes in the
-  24-digit P24 form** (`mn_p24_of`; the former `MN_P24=1/2` switch is built in). The pre-D18 three-prime multi-node path is kept as
-  `ECALC_NP_MN3=1`. `ECALC_NP_AUTO_MIN` (min(pa, pb) switch-over, §MPB15) and `ECALC_NP_AUTO_TERMS` (test knob) remain; the
-  `auto` per-product switch-over of §NP15 now matters only on the `ECALC_NP_MN3=1` path and at 32+ node-processes.
+  24-digit P24 form** (`mn_p24_of`; the former `MN_P24=1/2` switch is built in). The pre-D18 three-prime multi-node path (`ECALC_NP_MN3`) was removed 2026-10-19 (D56). `ECALC_NP_AUTO_MIN` (min(pa, pb) switch-over, §MPB15) and `ECALC_NP_AUTO_TERMS` (test knob) remain; the
+  `auto` per-product switch-over of §NP15 now matters only at one node-process (the `ECALC_NP_MN3=1` path is removed, D56).
 - **Digits.** Every variant is exact by construction and was byte-identical in every test (mnaccept, 1e8/1e9, 4e10, 1e11, 2^34
   transforms). Roots above 2^33 were broken (w = 1) and fixed with no switch (§P15).
 - **P24 measured value.** 10^10 at 2 processes 158.1 -> 97.0 s (m, -38 %, §P2415); 2 x 6.441e10 digits on 2 nodes on the aac7 line
@@ -211,7 +210,7 @@ MN_WAIT_STATS=1`; VERIFY OK and rc 0 on all 16 runs (B logs `plane pool 0 for 4 
 GB = **+34.4 (+8.6)**: planes +17.2 (+4.3), block pool +17.2 (+4.3); host RSS unchanged (HWM 28.9 GB); the peak was not extracted.
 
 **Verdict.** P24 is faster at 2 nodes (-6.6 %), at twice the earlier modelled +4 GiB per APU. The target uses P24 from 32 nodes; whether
-the target is memory-bound decides the trade. D18 later made P24 the multi-node default and kept `ECALC_NP_MN3=1` as the fallback; the
+the target is memory-bound decides the trade. D18 later made P24 the multi-node default and kept `ECALC_NP_MN3=1` as the fallback (removed 2026-10-19, D56); the
 gate compares digits at 10^9 (results/CODE_REDUCTION.md §AUD3).
 
 ## §S13 — Phase 13a, agent S: E0 (the A/B/C strategy boundary) and E2 (plane cap against grid cost)

@@ -320,7 +320,6 @@ static int big_xgmi(int prime, int logn, int K)
     return bad[0] == 0 && bad[1] == 0;
 }
 /* ---- the measurement drivers ---- */
-extern "C" void comm_layered_stats_report(const char *tag);
 extern "C" void comm_xgmi_h4(int me, int mode, size_t bytes, int blocks, int reps, double *out);
 /* H4 (DIST_H4=1): the xGMI push's link concurrency, comm_xgmi_h4's modes at DIST_H4_MB per pair (default 256) */
 static void h4_bench(void)
@@ -358,8 +357,8 @@ static void h4_bench(void)
     }
 }
 /* E9 part 1 (DIST_LBENCH=26,28,30 under DIST_LAYERED): timed layered transforms of one plane over the transform nodes -- per size,
- * DIST_LREPS (3) products' worth of transforms (fwd x, fwd y, inverse with the pointwise fused) after one warm-up, then the layered
- * communicator's stage report (COMM_LAYER_STATS=1|2) and the DIST_STATS parts */
+ * DIST_LREPS (3) products' worth of transforms (fwd x, fwd y, inverse with the pointwise fused) after one warm-up, then the
+ * DIST_STATS parts */
 static void layered_bench(int logn, int reps)
 {
     int sz = mn_size(), L = 0; while ((1 << L) < sz) L++;
@@ -379,7 +378,7 @@ static void layered_bench(int logn, int reps)
                 HIP_CHECK(hipStreamSynchronize(s)); comm_barrier(cm);
 #pragma omp barrier
 #pragma omp master
-                { comm_layered_stats_report(0); memset(&dist_st, 0, sizeof dist_st); dist_st.on = getenv("DIST_STATS") && atoi(getenv("DIST_STATS")); }
+                { memset(&dist_st, 0, sizeof dist_st); dist_st.on = getenv("DIST_STATS") && atoi(getenv("DIST_STATS")); }
 #pragma omp barrier
                 tp[d] = tnow();
             }
@@ -391,11 +390,9 @@ static void layered_bench(int logn, int reps)
 #pragma omp barrier
 #pragma omp master
         {
-            char tag[64]; snprintf(tag, sizeof tag, "2^%d x %d ranks", logn, 4 * gt);
             printf("lbench 2^%d over %d x 4 ranks (%d chunks): %.4f s per plane product (3 transforms), %d reps\n", logn, gt, pl.K, tp[0] / reps, reps);
             if (dist_st.on) printf("lbench 2^%d DIST_STATS (sum / 4 per plane product): rows %.4f cols %.4f pack %.4f exchange(device) %.4f total %.4f host-blocked %.4f\n", logn,
                                    dist_st.t_local1 / 4 / reps, dist_st.t_local2 / 4 / reps, dist_st.t_pack / 4 / reps, dist_st.t_xfer / 4 / reps, dist_st.t_total / 4 / reps, dist_st.t_a2a / 4 / reps);
-            comm_layered_stats_report(tag);
         }
 #pragma omp barrier
         dist_plan_free(&pl); comm_destroy(cm); comm_destroy(xg); ntt_ctx_free(ctx); HIP_CHECK(hipStreamDestroy(s)); HIP_CHECK(hipFree(x)); HIP_CHECK(hipFree(y));

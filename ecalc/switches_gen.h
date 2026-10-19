@@ -14,9 +14,7 @@ static const char *const cfg_names[] = {
     "BS_SEED_PULL",
     "BS_SEED_TERMS",
     "BS_SEED_THREADS",
-    "COMM_KTIME",
     "COMM_LAYER_INTER2",
-    "COMM_LAYER_STATS",
     "COMM_LAYER_VSLOT_MB",
     "COMM_OFI",
     "COMM_OFI_CHUNK_MB",
@@ -58,7 +56,6 @@ static const char *const cfg_names[] = {
     "COMM_TRACE_THR",
     "COMM_TRACE_WD_MS",
     "COMM_TRANSPORT",
-    "COMM_XGMI_STATS",
     "COMM_XSTATS",
     "DBIG_SMALL_BOUNCE",
     "DB_POOL_VERBOSE",
@@ -101,7 +98,6 @@ static const char *const cfg_names[] = {
     "ECALC_NP",
     "ECALC_NP_AUTO_MIN",
     "ECALC_NP_AUTO_TERMS",
-    "ECALC_NP_MN3",
     "ECALC_ODIRECT",
     "ECALC_OUT_MODE",
     "ECALC_OUT_ODIRECT",
@@ -161,4 +157,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 159
+#define CFG_NAMES_N 155

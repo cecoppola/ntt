@@ -30,10 +30,10 @@ covers it; its log shows the `I3:` line.
 - `--line` selects the launch line (the test system's is the `LAUNCH_LINE_KEYS` of `profiles/aac7.conf`, printed by
   `tools/profile_load.py aac7 --line`; the target's is supplied as a file); `--profile NAME` loads `profiles/NAME.conf`; `--env "K=V …"` adds settings; `--digits` and
   `--ref` change size and reference (only 10⁹ has a default reference).
-- `--mn-primes p24|3` (default `p24`; checked at `--nodes` > 1). Since the user's decision D18 (2026-10-12, `results/LAUNCH_DEFAULTS.md §DEF`)
+- At `--nodes` > 1 the gate checks the multi-node product form. Since the user's decision D18 (2026-10-12, `results/LAUNCH_DEFAULTS.md §DEF`)
   every multi-node product runs the four-prime 24-digit form P24 (`ec_np_planes` in `crt.c` gives pool 0 four planes at
-  g > 1, so `mn_p24_of()` in `rns_dist.c` is true): `p24` checks that the run log shows `plane pool 0 for 4 primes`.
-  `3` gates the three-prime multi-node path kept for A/B runs (adds `ECALC_NP_MN3=1`) and checks `plane pool 0 for 3 primes`.
+  g > 1, so `mn_p24_of()` in `rns_dist.c` is true): the run log must show `plane pool 0 for 4 primes`.
+  (The `--mn-primes` option and the three-prime path `ECALC_NP_MN3` were removed 2026-10-19, D56.)
   A missing line is a FAIL; the digits must be identical as always. (Replaces `--p24`, which forced P24 through
   `ECALC_NP_AUTO_TERMS` when it switched on only from 32 nodes.)
 - **Memory fit (FIT, user decision D26, `results/LAUNCH_DEFAULTS.md §FIT`).** Before any node time is used (before `--alloc`'s sbatch and before
