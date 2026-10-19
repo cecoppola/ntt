@@ -265,6 +265,12 @@ Fitting a per-node stall probability to the 24 default runs, the stall excess gr
 (results/SHMEM.md). A separate lockstep model says the stall rate per node must fall by a factor of about 300 from the 6-node rate (3.7e-3 per node-second, modelled from four stalls) to keep the loss under 5 %
 at 576 nodes; exchange-level tolerance can hide only 0.01-0.3 s of a multi-second freeze (dependencies: the forward NTT needs every peer). So the target needs the cause removed, not tolerated.
 
+### 6.5 Corrected eviction figures at 4 nodes (m, 2026-10-19)
+
+- 4 n, 6.4e10 digits, traced runs with the heartbeat memory counters: the per-GPU `evicted_ms` values of a process are almost equal, so one process-wide eviction is counted once per GPU (4 times) in the summed figure. Real queue-eviction time per node-process per run is 0.86 s with SHMEM and 1.21 s with libfabric (the earlier 3.2 and 4.9 s summed figures divided by 4).
+- Timing: 93 % of the SHMEM eviction time falls in the first 30 s (start-up; init is 23-26 s), 59 % for libfabric. 98 % of it falls in seconds in which kcompactd migrated pages; the correlation is with kcompactd activity and migrated volume (0.4-7.7 GiB per node-run), not with direct compaction.
+- No wall-clock cost is separable at 4 n. Likely source (not proven): 4 KiB pages in GPU-registered host staging buffers when NUMA node 0 has no free 2 MiB block; node state (three of four nodes held about 76 GiB of foreign shared memory) amplifies. The NP and helper heaps are fully PMD-mapped and are not a source. A default-off switch `MEM_HSTAGE_COLLAPSE=1` for that test exists on an unmerged branch; its 4-node A/B is queued.
+
 ## 7. What did not work, and why
 
 Items are on aac7; "branch" names are local development branches (the dropped ones are archived in the local archive and deleted; msgtrace was merged into main). Every result is paired or interleaved unless marked.

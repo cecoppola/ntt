@@ -14,16 +14,11 @@ rows are in the order to do them.
 
 | class | item | what | where |
 |---|---|---|---|
-| 1 | Full acceptance suite | one run of `ecalc/mnaccept.sh` (all steps) on current main at 1, 2 and 6 nodes, VERIFY OK and digits identical | TESTING.md |
-| 1 | Fallback gates | every `=0` fallback of an adopted default (list in `ecalc/README.md`, fallback rows of `ecalc/switches_review.tsv`) still gives identical digits at 1 and 2 nodes; includes `COMM_SHMEM_NP_HEAP_THP=0` and `COMM_SHMEM_PX_THP=0` | TESTING.md gate |
-| 2 | Switch audit and removals | review every non-default switch against its review date; remove `COMM_SHMEM_OFFS_WITH_DATA` (fix A, no gain) and `COMM_PHASE_TS` (superseded by `COMM_TRACE`) (D49); keep `COMM_SHMEM_PX_THP` as a permanent fallback | ecalc/README.md, `ecalc/switches_review.tsv` |
-| 2 | `results/` consolidation | fewer, longer files: one owner per topic, index in `RESULTS.md`, history to the archive; keep every file a doc cites | RESULTS.md |
-| 2 | Scripts and models consolidation | merge overlapping scripts, makefile targets and model scripts (`tests/` holds two model scripts) | tools/, tests/, ecalc/ |
-| 3 | Python unit tests for the tools | tests for `tools/*.py` (switch registry, profile loader, plan values, doccheck, digit tools), run by the gate | TESTING.md |
-| 4 | SHMEM 6-node confirmation | full size (3.8646e11 digits, 6 nodes, paired runs) of SHMEM with the default `COMM_SHMEM_NP_HEAP_THP=1` against libfabric (184.5 s, m); the fix is validated only at 2 and 3 nodes (0 stalls in 16 runs at 3 n and 0 in 6 at 2 n, against 9 stalls in 24 runs without; m) | results/SHMEM.md, results/SHMEM_STALLS.md |
-| 4 | Remaining 3-6 % SHMEM gap at 3-4 nodes | start-up heap collapse (2.9 s per helper) and the excess in the communication span (m); measure the breakdown, then fix behind a default-off switch | results/SHMEM.md |
-| 4 | Residual GPU-queue evictions | successful compaction on the first node's NUMA node 0 still evicts the queues for 1.4-12 s summed per run (m); no visible time cost at 3 n yet | results/SHMEM.md |
-| 4 | Hugetlb backing switch | the target has hugetlb pages: back the node-process and helper heaps with hugetlb instead of collapsed 4 KiB pages, removing what compaction works on; new switch, off by default, then the 4-node paired test | results/SHMEM_STALLS.md |
+| 1 | 6-node acceptance gate | the 6-node step of the acceptance suite (`ecalc/mnaccept.sh`) on current main; the 1-2 node steps passed 23/23 (2026-10-19); runs inside the pending 6-node confirmation item | TESTING.md |
+| 4 | SHMEM 6-node confirmation | full size (3.8646e11 digits, 6 nodes, paired runs) of SHMEM with the default `COMM_SHMEM_NP_HEAP_THP=1` against libfabric (184.5 s, m); the fix is validated at 2, 3 and 4 nodes (0 stalls in 16 runs at 3 n and 0 in 6 at 2 n, against 9 stalls in 24 runs without; m); the item is queued | results/SHMEM.md, results/SHMEM_STALLS.md |
+| 4 | Remaining 1-2 % SHMEM gap at 4 nodes | 4 n 6.4e10, pooled over runs without the first run of each item: libfabric 53.18 s (n 7), SHMEM DT 54.34 s (n 12, +2.2 %), DTIX 53.54 s (n 4, +0.7 %) (m); trace compare: exchange in flight equal (21.9 vs 22.1 s), DT has +2.5 s in copy-in and +1.0 s in quiet (m); 98n ABBA: DT 53.8 s = DTIX 53.8 s (n 8 each), S 55.8 s (n 2) (m), so INTER2=0 brings nothing; next: paired L against DT at 4 n and 2 n (items queued), then a fix for the copy-in behind a default-off switch | results/SHMEM.md §Four-node breakdown |
+| 4 | Residual GPU-queue evictions | corrected: the summed counter counts each eviction once per GPU (4 times); real eviction time per node-process per run is 0.86 s SHMEM and 1.21 s libfabric, 93 % of it (SHMEM) in the first 30 s, no measurable wall-clock cost at 4 n (m); likely source: 4 KiB pages in GPU-registered host buffers; an A/B of `MEM_HSTAGE_COLLAPSE=1` (default-off switch, not merged) at 4 nodes is queued | results/SHMEM_STALLS.md §6.5 |
+| 4 | Hugetlb paired test | `COMM_SHMEM_HUGETLB` is merged (default off, main b1468ae); the 4-node paired test (on against off) is not done; fold into target item 29 if the target is the only place with hugetlb | results/SHMEM_STALLS.md |
 | 5 | Docs | central docs in line with main (this rewrite); keep them so | the central docs |
 
 ## Proposed (needs the user's priority)
@@ -32,13 +27,22 @@ One line each (what, why, size); nothing here is started without the user's word
 
 - N7F: source of the run-to-run spread of the proxy arm at 6 n before the NP heap fix (sd 111 s against 15 s for libfabric, m, results/SHMEM_ITEMS.md §N7E); re-check after the 6-node confirmation above; aac7 runs.
 - Node drain after our jobs: the 6 nodes of a job went to `needs_reboot` right after three of our jobs ended (2026-10-13 and 2026-10-14; two killed at their timeout, one normal end), cause unknown, site-side (results/SHMEM_ITEMS.md §N7 section 6, results/NIGHT_RUNS.md §NIGHT2); size unknown.
-- Gather layout: each rank holds its own rows so the 3/4 remote pull in `k_gather` disappears; `k_gather_raw` is 2.0 s per APU at 1 node (m), the floor is the remote read (results/EXCHANGE.md §P2, OPPORTUNITIES N2); algorithm change, needs a scoping pass.
+- Gather layout: scoping done 2026-10-19; recommendation drop: best achievable saving 1.7 s of about 73 s at 1 node and at most 0.4 s of 184.5 s at 6 nodes (mod, upper bounds); optional cheap probe: owner-push gather, small; close OPPORTUNITIES N2 layout as not worth it.
 - Distributed division multiply: +94 s at 6 nodes against 1 (m, before the 2026-10-12 defaults; OPPORTUNITIES N1); re-measure the split on current main before choosing a fix.
+- First-run init artifact: the first run of each queue item has init 33-35 s against 23-25 s in later runs (4 items), coinciding with the lowest MemFree before the run (slow device-memory commit) (m); production is always a first run on its allocation; fix: memory preparation or page-cache eviction before the first run; size small, needs a cold-run probe with MemFree before and after.
+- Start-up shortening (init 23.65 s at 2 n warm SHMEM, m): overlapping `mn_init` with the plane-pool allocation was tried and dropped (starves the heap collapse of 2 MiB blocks); next-best: register the four proxy pools from four threads (about 1.0 -> 0.3 s, mod); restructure the two self-tests (6.3 s for work that costs milliseconds, m); size small to medium.
+- 6 n paired ABBA of grid [2,6] against [6], at least 8 runs per arm (earlier data +23 +/- 12 s, unexplained, m); aac7, one item.
+- 2 n `ECALC_LIVE=1` measurement of the multi-node dm peak at 1e10-4e10 per node (never measured above 1 node); about 1 node-hour (a run is queued).
+- NIC launch-group probe in every multi-node run, to separate the layv factor 0.92 from the rate; small.
+- One-node default grid may be far from best above 1e11 digits (code not changed); measurement item, small.
+- Part-file count is 2*size at size > 1: check the target scripts that sort `.part*` files; small.
+- G2 soak results were never recorded and the start-up hang at 7.7e10 (A114 E1) is still open (results/CRASHES_HANGS.md); size unknown.
+- README gaps: confirm whether `RNS_AUTO_PIECE_COST`, `ECALC_VSLOT_BUDGET` and `DIST_R3` still exist (removed or built in); doc-only, small.
+- Switch audit ASK list (9 switches): MN_OUT_WAVES, FAST_EXIT, DM_TAIL_DEAD, NP_AUTO_MIN, COMM_KTIME, COMM_LAYER_STATS, COMM_XGMI_STATS, PE_PER_APU=2, NP_MN3; `COMM_XSTATS` after the parser migration; needs the user's keep-or-remove call per switch; small each.
 
 ## Decisions (user) still acting
 
 - D48 (user 2026-10-18): `COMM_SHMEM_NP_HEAP_THP=1` is the default (main 23c2c1f); `=0` restores 4 KiB pages.
-- D49 (user 2026-10-18): remove `COMM_SHMEM_OFFS_WITH_DATA` and `COMM_PHASE_TS`; keep `COMM_SHMEM_PX_THP` (default 1, D36) as a permanent fallback with its review date moved to the target session. Open until the removal is merged (class 2 row above).
 
 ## Ideas (saved, not scheduled)
 

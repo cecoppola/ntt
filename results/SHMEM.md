@@ -226,14 +226,39 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
   access (`compaction_proactiveness=0` per job, hugetlb heaps) would remove them (private list of settings kept outside the
   repository).
 
+## Four-node breakdown, start-up cost and dropped experiments (items 98a-98o, 2026-10-18/19; m unless marked)
+
+- **4 n pooled** (6.4e10 digits, build with the NP heap fix on, first run of each queue item excluded, 23 runs): libfabric 53.18 s (n 7), SHMEM DT 54.34 s
+  (n 12, +2.2 %), DTIX (DT + `COMM_LAYER_INTER2=0`) 53.54 s (n 4, +0.7 %). SHMEM is within 5 % of libfabric at 4 n; the
+  `LX`/`DTX` arms are A/A controls since the fix is the default.
+- **DT against DTIX** (item 98n, 4 n 6.4e10, ABBA, 8 runs each): DT 53.8 s (sd 1.0), DTIX 53.8 s (sd 0.8), S (SHMEM
+  defaults) 55.8 s (n 2), A/A control 54.4 s (n 1). `COMM_LAYER_INTER2=0` gives no gain on SHMEM. DT is faster than S
+  by 2.0 s, mostly in dm (14.8 against 16.6 s) and bs (12.9 against 13.6 s). No first-run init excess in this item
+  (first run init 23.1 s).
+- **Trace compare** (`trace_report --compare`, libfabric 2 runs against DT 4 runs, per-process medians): exchange window
+  36.6 against 35.0 s; exchange in flight equal (21.9 against 22.1 s); DT has +2.5 s in copy-in and +1.0 s in quiet
+  (m). The compaction-stall counter was 977 (libfabric) against 27 (DT).
+- **Start-up** (2 n, 3.2e10, warm SHMEM, init 23.65 s on node 0): `mn_init` 6.1 s (heap collapse 3.0, library init
+  1.7, proxy pool registration 1.0) + `rns_init` 11.0 s (device memory commit about 17-18 GB/s per node; planes about
+  6.5 s (mod), arena half 3.6 s) + self-tests 3.0 + 3.3 s (m, parts by difference marked mod in the source run).
+  Libfabric init is about 1.5-1.9 s shorter (smaller heap, no proxy pools); 4 n init is 0.5 s above 2 n (m). The first
+  run of an item takes 33-35 s of init against 23-25 s, with the lowest MemFree before the run and the extra time in
+  the device memory commit (m; cause assumed: page-cache reclaim).
+- **Heap-collapse threads**: 4, 8 and 16 threads give about 3 s each (node-process heap 2.7-3.4 s, helper heaps 2.9-3.4
+  s, 2 runs per setting, m): kernel-bound, not thread-bound. `COMM_SHMEM_PX_INIT_THREADS` was removed (constant 4).
+- **Dropped: `ECALC_INIT_OVERLAP`** (plane-pool allocation in threads during `mn_init`, upper bound -5.5 s, mod): 1 n
+  passed, 2 n failed; the proxy heap collapse got ENOMEM for 2 MiB pages while the overlapped allocation ran, so the
+  overlap competes with the stall fix for free 2 MiB blocks. Not merged.
+- Residual eviction figures were corrected: results/SHMEM_STALLS.md §6.5.
+
 ## Open questions and next experiments
 
 - Stalls (cause and fix recorded above): kernel proactive compaction on a 4 KiB pinned node-process heap evicted the GPU
   queues; `COMM_SHMEM_NP_HEAP_THP=1` (default, D48) removes it. Open:
   1. 6-node full-size confirmation of SHMEM with the fix against libfabric 184.5 s (TASKS Proposed).
-  2. Hugetlb backing for the proxy and node-process heaps (the target has hugetlb); would also remove the residual
-     evictions below.
-  3. The remaining 3-6 % gap at 3 n (comm-span excess; init heap collapse 2.9 s per helper).
+  2. Hugetlb backing for the proxy and node-process heaps: switch `COMM_SHMEM_HUGETLB` merged, default off; the 4-node
+     paired test is open (the target has hugetlb); it would also remove the residual evictions below.
+  3. The remaining gap: 3-6 % at 3 n, +2.2 % (DT) and +0.7 % (DTIX) at 4 n (section above).
   4. Residual GPU-queue evictions from successful compaction on NUMA node 0 of the job's first node (1.4-12 s summed per
      run, m).
 - Problem B (steady gap): PX3 statistics at 4 n were running (items 75a, 75b, 75d). SS is not confirmed (12 pairs, no
