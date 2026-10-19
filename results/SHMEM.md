@@ -251,6 +251,26 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
   overlap competes with the stall fix for free 2 MiB blocks. Not merged.
 - Residual eviction figures were corrected: results/SHMEM_STALLS.md §6.5.
 
+## Six-node confirmation and the gap against the off-node peers (items 98f, 98r, 98s, 2026-10-19; m unless marked)
+
+- **6 n confirmation** (98f, 3.8646e11 digits, build 75a9bb8, gates g6/g6l PASS): libfabric 183.2 s (sd 1.5, n 3), SHMEM
+  defaults 211.7 s (sd 2.4, n 3, +15.6 %), DT 215.1 s (sd 0.7, n 4, +17.4 %); paired L - DT -32.2 s, 95 % CI [-37.3,
+  -27.1]. No stalls: the spread is 0.7-2.4 s against sd 111 s before the NP heap fix. S - L by phase: dm +20.8, bs
+  +8.4, recip +5.5, init -1.5 s.
+- **Same digits per node at 2 and 4 n** (6.44e10 per node): 2 n (98s, 1.2882e11) S 119.2 against L 118.2 s (n 4 each,
+  paired +0.9 s, CI [-3.0, +4.8]); 4 n (98r, 2.5764e11) S 168.2 (sd 2.0), DT 161.6 (sd 1.0), L 151.6 s (sd 7.6, bimodal
+  145 / 154-161 s), paired S - L +16.6 s, CI [+3.8, +29.4]. The gap follows the number of off-node peers: +0.8 % with 1,
+  +11 % (DT +6.6 %) with 3, +16 % (DT +17 %) with 5. At 6.4e10 on 4 n the total hid it (libfabric's longer start-up and
+  a small exchange share), though bs + dm were already about 16 % slower.
+- **What the excess is** (traces and exchange counters, 4 and 6 n): per byte, not per message (libfabric gets cheaper
+  per byte with larger messages, SHMEM stays flat: 6 n unequal exchange 0.086 against 0.118 s/GB); about 74 % of the
+  SHMEM excess is waiting on peers (offset word and signal; signal one-way at 4 n mean 629 against 124 µs, p99 7.8
+  against 1.0 ms); no straggler node or slow link. Likely cause (not proven): each peer's chain (offset publish, put,
+  signal) ends at the slowest of the N chains.
+- **Early offset publish** (candidate) is not possible as built: the receiver publishes right after its intra stage and
+  transpose, and the intra receive buffer shares the inter receive region until the transpose; publishing earlier needs a
+  separate buffer (+A per slot per APU thread of device memory).
+
 ## Open questions and next experiments
 
 - Stalls (cause and fix recorded above): kernel proactive compaction on a 4 KiB pinned node-process heap evicted the GPU

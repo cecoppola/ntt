@@ -206,6 +206,11 @@ Branch `p15-M6` (from main f184d51). Phase 1 only (feasibility note, PLAN §36.5
 
 **Conclusion.** At the target the node is 416 of 480 GB and digits are limited by the grid step at 4.29 × 10¹³, not memory; the saving buys margin (64 → 84 GB) and a ceiling usable only past the grid step. On one node it gives +10 % ceiling and makes 1.4 × 10¹¹ fit (495 → 457 GB). Recommendation: **stop E11 as specified** (one-node items 3–4 days, medium risk, only if one-node runs above 1.34 × 10¹¹ are wanted; not worth it for the target); offer (a) the 2-node live measurement and (b) the two mn edits + g > 1 layout branch (≈ 1 day, after AS). Nothing was built; open: the mn dm peak at size > 1 is not measured.
 
+**Multi-node measurement (item 98q, 2026-10-19, 2 nodes, `ECALC_LIVE=1`, m).** The division's window peak per APU is
+9.37 / 18.74 / 39.25 GB at 1e10 / 2e10 / 4e10 digits per node (about 0.98 GB per 10⁹ digits per node), reached at
+step 2 (X_lo Q); peak against the pool 60 / 66 / 79.5 % (pool 23.6 / 43.0 / 49.4 GB per APU). libfabric and SHMEM give
+the same peak. First measurement above one node; it fits with about 20 % headroom at 4e10 per node.
+
 ## O2 - the reciprocal-gather stall: why `db_to_bi` of 0.2 MB takes 2.2 s (2026-10-11/12)
 
 Task O2 (TASKS 35), branch `o2` off main 0298fe2. Switch `DBIG_SMALL_BOUNCE` (since adopted: default 1, RESULTS: −7.16 s [−8.08, −6.23] at 1 node on aac6, −5.58 s [−10.54, −0.63] at 2 nodes on aac7 with `DIST_GATHER_RAW=2`, `BS_SEED_PULL=1`; reciprocal chain 4.57 → 0.06 s; `results/SINGLE_NODE.md §CAND`).
