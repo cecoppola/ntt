@@ -54,7 +54,7 @@ Total s, one run per cell (m):
 | config | 2 nodes | 6 nodes |
 |---|---|---|
 | default | PASS 48.64 | PASS 50.09 |
-| `ECALC_NP_MN3=1` | PASS 43.03 | PASS 34.36 |
+| `ECALC_NP_MN3=1` (removed 2026-10-19, D56) | PASS 43.03 | PASS 34.36 |
 | `DM_MN_WRAP=0` | PASS 46.25 | PASS 35.75 |
 | `P24_CRT_SCAN=0` | PASS 47.61 | PASS 38.90 |
 | `RNS_CRT_SCAN=0` | PASS 48.92 | PASS 33.92 |

@@ -88,8 +88,8 @@ Open: the v-uses in `rns_dist.c` / `newton_db.c` are G's (`mdb_shift` is the one
 Branch `p13-X` from `main` 203733b. Files: `comm_layered.c`, `comm_xgmi.c`, `t_dist.c`. Defaults unchanged: everything is behind `COMM_LAYER_STATS`, `COMM_XGMI_STATS`, `DIST_H4`, `DIST_LBENCH` (off). The 3-node slot was never available (admin CI array, then a node down).
 
 #### 1. What was built
-- `COMM_LAYER_STATS=1|2` (`comm_layered.c`): per exchange host stamps for the xGMI stage, ready-for-fabric, fabric stage, complete. Mode 1 passive (upper bound of fabric completion), mode 2 exact (watcher thread; perturbs slightly: use 1 for timings). Report at exit: span, xGMI-busy, fabric-busy, both-busy, held (ready exchange waiting for the previous inter stage), fabric idle while held, NIC balance, node view. With `COMM_XGMI_STATS=1` also the link-active interval of each push kernel, giving **both-busy at link level**.
-- `COMM_XGMI_STATS=1` (`comm_xgmi.c`): `k_push3_ts` stamps each block; per sender-peer bytes and link-active time. `comm_xgmi_h4()` benchmark with nine modes.
+- `COMM_LAYER_STATS=1|2` (`comm_layered.c`; removed 2026-10-19, D56): per exchange host stamps for the xGMI stage, ready-for-fabric, fabric stage, complete. Mode 1 passive (upper bound of fabric completion), mode 2 exact (watcher thread; perturbs slightly: use 1 for timings). Report at exit: span, xGMI-busy, fabric-busy, both-busy, held (ready exchange waiting for the previous inter stage), fabric idle while held, NIC balance, node view. With `COMM_XGMI_STATS=1` also the link-active interval of each push kernel, giving **both-busy at link level**.
+- `COMM_XGMI_STATS=1` (`comm_xgmi.c`; removed 2026-10-19, D56, the `comm_xgmi_h4()` bench stays): `k_push3_ts` stamps each block; per sender-peer bytes and link-active time. `comm_xgmi_h4()` benchmark with nine modes.
 - Drivers: `DIST_H4=1 [DIST_H4_MB=256] ./tests/t_dist`; `DIST_LAYERED=1 DIST_LBENCH=24,26,28 [DIST_LREPS] mnrun.sh <g> ./tests/t_dist`.
 
 #### 2. H4 — does the push saturate all three K4 links? (m, one node)

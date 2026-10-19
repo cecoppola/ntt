@@ -115,9 +115,8 @@ primes give p₀p₁p₂ = 2^155.36 against (B − 1)² = 2^119.59, so three pri
 - one-node tiers use three primes (`ECALC_NP` defaults to 3 in `ecalc.c`);
 - multi-node products use `ECALC_NP=auto` (`ecalc.c` sets it when `ECALC_NP` is unset at size > 1): since the user's
   decision D18 (2026-10-12, `results/LAUNCH_DEFAULTS.md §DEF`) plane pool 0 holds four planes in every run of more than one node-process
-  (`ec_np_planes`), so every multi-node product runs four primes in the P24 form (below). `ECALC_NP_MN3=1` keeps the
-  three-prime multi-node path: three primes, or four (P24) when a piece of the run's largest group can exceed the
-  three-prime bound (from 32 node-processes, which the target size needs at its top levels). `ec_np_check` refuses a
+  (`ec_np_planes`), so every multi-node product runs four primes in the P24 form (below). The former three-prime multi-node
+  path (`ECALC_NP_MN3`) was removed 2026-10-19 (D56). `ec_np_check` refuses a
   product above the bound for its prime count.
 
 `mn_plan.c` (`MN_PLAN_ONLY`) checks every planned product of a run against these bounds before any device is used.
@@ -155,7 +154,7 @@ coefficients per chunk); each stripe emits a 4-limb *spill* past its end, and th
 to 3 points, so a view of n limbs has ⌈3n/4⌉ points and a piece is 3/4 as long. A coefficient is then at most
 min·(10²⁴ − 1)², which fits four primes while min(Pa, Pb) ≤ 10¹² (`P24_MIN_MAX`); the coefficient of point x, shifted by
 s = 6·(x mod 3) digits, lands on limbs L(x) … L(x)+3 with L(x) = ⌊4x/3⌋. Gain: −38 % at 10¹⁰ digits on 2 processes (m;
-`results/PRIMES_STRATEGY.md §P2415`). It applies to every multi-node product whose plane pool holds four primes (built in; since D18 every multi-node product; with `ECALC_NP_MN3=1` the 18-digit form below 32 node-processes).
+`results/PRIMES_STRATEGY.md §P2415`). It applies to every multi-node product whose plane pool holds four primes (built in; since D18 every multi-node product; the 18-digit form of the removed `ECALC_NP_MN3` path is gone, D56).
 Its CRT kernel `k_crt24` (`p24_crt.c`, one block per column, 256 points per chunk) sums the at most three points meeting
 each of a chunk's up to 342 limbs and resolves the chunk's carry chain on one thread; with `P24_CRT_SCAN=1` (the default since D24, `=0` the serial chain;
 `results/KERNELS.md §K4c`) as the same carry-lookahead over wave ballot masks as `RNS_CRT_SCAN` (two limbs per thread, 512-bit masks).

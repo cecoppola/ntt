@@ -8,13 +8,10 @@
 BS_CKPT_BG_MBS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 BS_SEED_PULL	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback, also the aac6 CPX workaround (profiles/aac6.conf); default since 2026-10-12 (CAND)
 COMM_LAYER_INTER2	fallback	coordinator (TASKS S)	2026-11-11	=0 restores the pre-X2 exchange; default since 2026-10-12 (TASKS 27, W2B D1e)
-COMM_LAYER_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_OFI_DEV	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_OFI_VERBOSE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_SHMEM_POOL_NEED_MB	internal	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	internal channel from the planner to the library; do not set by hand
 COMM_SHMEM_STAGE_SLOT_MB	internal	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	internal channel from the planner to the library; do not set by hand
-COMM_KTIME	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-COMM_XGMI_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_XSTATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DBIG_SMALL_BOUNCE	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback; default since 2026-10-12 (CAND)
 DC_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
@@ -84,7 +81,6 @@ T_PATCH_DIR	test	ecalc/tests/t_patch.c	2027-04-12	test harness setting
 T_PATCH_UNPACK	test	ecalc/tests/t_patch.c	2027-04-12	test harness setting
 DM_MN_WRAP	fallback	P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF)	2026-11-11	on by default since D22; =0 keeps the old low-product form; 6-node (P24) dm -6.25 s, total -2.86 s n.s., +5.4 GB/APU, in the memory model (DEF)
 BS_BATCH_PIPE	fallback	coordinator (D20, results/KERNELS.md §N3)	2026-11-11	on by default since D20; =0 keeps the old batch-tier host side; remove it at review
-ECALC_NP_MN3	fallback	coordinator (D18, results/LAUNCH_DEFAULTS.md §DEF)	2026-11-11	the three-prime multi-node path kept for the A/B on the target after D18 made P24 the multi-node default
 NEWTON_CHAIN_GUARD	fallback	coordinator (D25, results/DIVISION.md §RECIP)	2026-11-11	on by default since D25; =0 keeps the old chain; digits identical (the division is exact either way); removes a rare fatal (chains of exact doublings)
 COMM_SHMEM_PE_PER_APU	fallback	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	=0 with COMM_OFI=0 restores the plain SHMEM data path; 1 is the COMM_OFI=0 default since D31 (2026-10-14); 2 (N7E, two helpers per APU) is for targets with 2 NICs per APU, opt-in
 COMM_SHMEM_PROXY	experiment	N7b	2026-11-14	goes with COMM_SHMEM_PE_PER_APU

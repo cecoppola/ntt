@@ -33,7 +33,7 @@ One line each (what, why, size); nothing here is started without the user's word
 - Part-file count is 2*size at size > 1: check the target scripts that sort `.part*` files; small.
 - G2 soak results were never recorded and the start-up hang at 7.7e10 (A114 E1) is still open (results/CRASHES_HANGS.md); size unknown.
 - README gaps: confirm whether `RNS_AUTO_PIECE_COST`, `ECALC_VSLOT_BUDGET` and `DIST_R3` still exist (removed or built in); doc-only, small.
-- Switch audit ASK list (9 switches): MN_OUT_WAVES, FAST_EXIT, DM_TAIL_DEAD, NP_AUTO_MIN, COMM_KTIME, COMM_LAYER_STATS, COMM_XGMI_STATS, PE_PER_APU=2, NP_MN3; `COMM_XSTATS` after the parser migration; needs the user's keep-or-remove call per switch; small each.
+- Switch audit ASK list (5 switches left; COMM_KTIME, COMM_LAYER_STATS, COMM_XGMI_STATS and NP_MN3 were removed 2026-10-19, D56): MN_OUT_WAVES, FAST_EXIT, DM_TAIL_DEAD, NP_AUTO_MIN, PE_PER_APU=2; `COMM_XSTATS` after the parser migration; needs the user's keep-or-remove call per switch; small each.
 
 ## Decisions (user) still acting
 

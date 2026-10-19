@@ -3,7 +3,7 @@
 #
 # USAGE
 #   tools/gate.sh [--build] [--nodes 1..6] [--digits 1e9] [--hold JOBID | --alloc] [--line aac7|target|none|file:PATH]
-#                 [--profile NAME|PATH] [--mn-primes p24|3] [--env "K=V ..."] [--out DIR] [--ref FILE] [--timeout SEC] [--wait SEC]
+#                 [--profile NAME|PATH] [--env "K=V ..."] [--out DIR] [--ref FILE] [--timeout SEC] [--wait SEC]
 #     --build     first `make -B` in the repo's ecalc/ (aac7 with Cray SHMEM: SHMEM_CRAY=1 GMP_HOME=~/gmp, the log must have
 #                 -DCOMM_SHMEM for --nodes > 1; elsewhere a plain build, and --nodes > 1 is refused)
 #     --hold J    run inside the existing allocation J (srun --overlap through mnrun.sh with SLURM_JOB_ID=J, no -w); never cancelled.
@@ -16,11 +16,9 @@
 #     --profile P load profiles/P.conf (tools/profile_load.py) into the gate's environment: explicit env > profile > code default; writes
 #                 config_src.txt (config-src: line). Unknown/misspelled key or __FILL__ = FAIL. Not given = behaviour unchanged.
 #                 --build also runs `tools/switch_registry.py --check` and `tools/profile_load.py --validate-all` first (either failing = FAIL).
-#     --mn-primes the multi-node product form under test (--nodes > 1; ignored at 1 node). p24 (default) = the default since D18
-#                 (2026-10-12, results/LAUNCH_DEFAULTS.md §DEF): every multi-node product in the four-prime 24-digit form P24 (crt.c ec_np_planes: pool 0
-#                 at four planes at g > 1; rns_dist.c mn_p24_of); the gate CHECKS that the run log shows "plane pool 0 for 4 primes".
-#                 3 = the three-prime multi-node path (adds ECALC_NP_MN3=1: three primes until the bound, 18 digits per point); the
-#                 gate checks "plane pool 0 for 3 primes". Both need ECALC_NP=auto on the line, or no ECALC_NP (unset is auto at size > 1).
+#     (at --nodes > 1 the gate CHECKS the multi-node product form: since D18 (2026-10-12, results/LAUNCH_DEFAULTS.md §DEF) every multi-node product runs the
+#                 four-prime 24-digit form P24 (crt.c ec_np_planes; rns_dist.c mn_p24_of), so the run log must show "plane pool 0 for 4 primes";
+#                 needs ECALC_NP=auto on the line, or no ECALC_NP.  The three-prime path (--mn-primes 3, ECALC_NP_MN3) was removed 2026-10-19, D56.)
 #     --ref FILE  reference digits (default ~/ref/e_1000000000.txt, else ecalc/results/e_1000000000.out, else ~/ntt/ecalc/results/...); only 1e9 has a default
 #     --out DIR   output dir (default ~/gate/<timestamp>): build.log, run.log, gate.txt (one line), digit files are deleted after
 #     --timeout   seconds allowed for the run (default 1500); --wait seconds to wait for an --alloc job to start (default 1800)
@@ -35,17 +33,16 @@
 
 ARGS=("$@")
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); ROOT=$(cd "$HERE/.." && pwd); E=$ROOT/ecalc
-MNP=p24 PROFILE= BUILD=0 NODES=1 DIGITS=1e9 HOLD= ALLOC=0 LINE_SEL= EXTRA= OUT= REF= TMO=1500 WAITS=1800
+PROFILE= BUILD=0 NODES=1 DIGITS=1e9 HOLD= ALLOC=0 LINE_SEL= EXTRA= OUT= REF= TMO=1500 WAITS=1800
 while [ $# -gt 0 ]; do
   case $1 in
     --build) BUILD=1;; --nodes) NODES=$2; shift;; --digits) DIGITS=$2; shift;; --hold) HOLD=$2; shift;; --alloc) ALLOC=1;;
-    --line) LINE_SEL=$2; shift;; --profile) PROFILE=$2; shift;; --mn-primes) MNP=$2; shift;; --env) EXTRA="$EXTRA $2"; shift;; --out) OUT=$2; shift;; --ref) REF=$2; shift;;
+    --line) LINE_SEL=$2; shift;; --profile) PROFILE=$2; shift;; --env) EXTRA="$EXTRA $2"; shift;; --out) OUT=$2; shift;; --ref) REF=$2; shift;;
     --timeout) TMO=$2; shift;; --wait) WAITS=$2; shift;;
     -h|--help) sed -n '2,/^# Never put/p' "$0" | cut -c3-; exit 0;;
     *) echo "gate.sh: unknown option $1" >&2; exit 2;;
   esac; shift
 done
-case $MNP in p24|3) ;; *) echo "gate.sh: --mn-primes must be p24 or 3" >&2; exit 2;; esac
 case $NODES in [1-6]) ;; *) echo "gate.sh: --nodes must be 1..6 (aac7 QOS)" >&2; exit 2;; esac
 [ -z "$HOLD" ] && [ "$ALLOC" = 0 ] && HOLD=${SLURM_JOB_ID:-}
 [ -n "$HOLD" ] && [ "$ALLOC" = 1 ] && { echo "gate.sh: --hold and --alloc are exclusive" >&2; exit 2; }
@@ -135,8 +132,7 @@ case $LINE_SEL in
 esac
 CHECK_NP=0; [ "$NODES" -gt 1 ] && CHECK_NP=1     # D18: the multi-node product form is checked in the log at --nodes > 1
 if [ $CHECK_NP = 1 ]; then
-  case " $LINE $EXTRA " in *" ECALC_NP=auto "*) ;; *" ECALC_NP="*) fail "--nodes > 1 needs ECALC_NP=auto (or unset) on the line: --mn-primes is checked";; esac
-  [ "$MNP" = 3 ] && EXTRA="ECALC_NP_MN3=1$EXTRA"     # first: a later --env word of the same name wins
+  case " $LINE $EXTRA " in *" ECALC_NP=auto "*) ;; *" ECALC_NP="*) fail "--nodes > 1 needs ECALC_NP=auto (or unset) on the line: the P24 form is checked";; esac
 fi
 ENVSHOW="line=${LINE_SEL%%:*}${PROFILE:+ profile=$PROFILE} $EXTRA ECALC_SEGV_TRACE=1"
 ENVSHOW=$(echo $ENVSHOW)
@@ -195,8 +191,8 @@ CMP=skipped
 say "rc $RC | $V | digits $CMP | segv $SEGV | ecalc total $TOT | wall ${RUNS}s"
 WHY="rc $RC, $V, digits $CMP, segv $SEGV, ecalc total $TOT, run ${RUNS}s"
 NPOK=
-if [ $CHECK_NP = 1 ]; then   # D18: the multi-node form must be visible in the log (pool 0's planes: 4 = P24, the default; 3 = the three-prime path)
-  if [ "$MNP" = p24 ]; then want='plane pool 0 for 4 primes' tag="P24 in use (pool 0: 4 primes)"; else want='plane pool 0 for 3 primes' tag="three-prime path (ECALC_NP_MN3=1, pool 0: 3 primes)"; fi
+if [ $CHECK_NP = 1 ]; then   # D18: the multi-node form must be visible in the log (pool 0's planes: 4 = P24)
+  want='plane pool 0 for 4 primes' tag="P24 in use (pool 0: 4 primes)"
   if grep -aq "$want" "$PL"; then NPOK="; $tag"; else NPOK="; mn form NOT as asked (no '$want' in run.log)"; fi
   WHY="$WHY$NPOK"
 fi
