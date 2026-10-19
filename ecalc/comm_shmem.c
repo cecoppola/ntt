@@ -675,44 +675,6 @@ static long smaps_kb(const void *p, const char *key)    /* N7G: a field (kB) of 
     if (f) fclose(f);
     return v;
 }
-/* N7G COMM_SHMEM_PX_PIN=1 (default 0): helper h of APU d runs on one CPU of its own -- the (h+1)-th highest allowed CPU of the NUMA node of cxi d (as
- * COMM_SHMEM_PX_NUMA), set for all its threads before shmem_init (the library's threads inherit it) -- and the node-process removes those CPUs from
- * the masks of all its threads (its OpenMP workers and later threads inherit that).  The launch stays --cpu-bind=none: every PE sees the same mask. */
-static int g_pin;
-static int pin_cpu_of(int d, int h, const cpu_set_t *ok)
-{
-    char p[96], buf[1024]; int nd = d, lo, hi; cpu_set_t s; CPU_ZERO(&s);
-    snprintf(p, sizeof p, "/sys/class/cxi/cxi%d/device/numa_node", d); FILE *f = fopen(p, "r"); if (f) { int n = -1; if (fscanf(f, "%d", &n) == 1 && n >= 0) nd = n; fclose(f); }
-    snprintf(p, sizeof p, "/sys/devices/system/node/node%d/cpulist", nd); f = fopen(p, "r"); if (!f) return -1;
-    if (fgets(buf, sizeof buf, f)) for (char *t = strtok(buf, ",\n"); t; t = strtok(0, ",\n")) {
-        int k = sscanf(t, "%d-%d", &lo, &hi); if (k == 1) hi = lo; if (k >= 1) for (int c = lo; c <= hi && c < CPU_SETSIZE; c++) CPU_SET(c, &s); }
-    fclose(f);
-    for (int c = CPU_SETSIZE - 1, k = 0; c >= 0; c--) if (CPU_ISSET(c, &s) && CPU_ISSET(c, ok) && k++ == h) return c;
-    return -1;
-}
-static int pin_tasks(const cpu_set_t *only, const cpu_set_t *drop)   /* every thread of this process: mask = only, or its mask minus drop; returns threads set */
-{
-    int n = 0; DIR *dd = opendir("/proc/self/task"); struct dirent *de;
-    if (!dd) return -1;
-    while ((de = readdir(dd))) { pid_t t = (pid_t)atoi(de->d_name); cpu_set_t m; if (t <= 0) continue;
-        if (only) m = *only; else { if (sched_getaffinity(t, sizeof m, &m)) continue; for (int c = 0; c < CPU_SETSIZE; c++) if (CPU_ISSET(c, drop)) CPU_CLR(c, &m); if (!CPU_COUNT(&m)) continue; }
-        if (!sched_setaffinity(t, sizeof m, &m)) n++; }
-    closedir(dd);
-    return n;
-}
-static void pin_start(void)   /* before shmem_init: a helper pins itself, the node-process gives the helpers' CPUs up */
-{
-    cpu_set_t ok, drop; char list[256] = ""; int nd = 0;
-    if (sched_getaffinity(0, sizeof ok, &ok)) return;
-    const char *ex = getenv("COMM_SHMEM_PROXY"); int lid = getenv("SLURM_LOCALID") ? atoi(getenv("SLURM_LOCALID")) : 0;
-    if (ex && atoi(ex)) { int c = pin_cpu_of(lid / S.ppa, lid % S.ppa, &ok); if (c < 0) return; CPU_ZERO(&drop); CPU_SET(c, &drop);
-        int n = pin_tasks(&drop, 0); if (S.verbose || !(getenv("SLURM_NODEID") && atoi(getenv("SLURM_NODEID")))) fprintf(stderr, "comm_shmem: helper (local %d, APU %d): COMM_SHMEM_PX_PIN=1: %d threads pinned to cpu %d\n", lid, lid / S.ppa, n, c); return; }
-    CPU_ZERO(&drop);
-    for (int d = 0; d < 4; d++) for (int h = 0; h < S.ppa; h++) { int c = pin_cpu_of(d, h, &ok); if (c >= 0 && !CPU_ISSET(c, &drop)) { CPU_SET(c, &drop); nd++; size_t l = strlen(list); snprintf(list + l, sizeof list - l, "%s%d", l ? "," : "", c); } }
-    if (!nd) return;
-    int n = pin_tasks(0, &drop);
-    if (S.verbose || !(getenv("SLURM_NODEID") && atoi(getenv("SLURM_NODEID")))) fprintf(stderr, "comm_shmem: node-process: COMM_SHMEM_PX_PIN=1: the helpers' cpus %s removed from %d threads (%d cpus left)\n", list, n, CPU_COUNT(&ok) - nd);
-}
 #ifndef COMM_HOST_ONLY
 struct reg_job { char *p; size_t n; hipError_t he; int dpok; double t; };
 static void *reg_thread(void *a) { struct reg_job *j = (struct reg_job *)a; double t = now_s(); void *dp = 0;
@@ -860,8 +822,7 @@ static int comm_shmem_init_i(void)
     S.ppa = comm_shmem_pe_per_apu(); g_pxinit = S.ppa && env_int("COMM_SHMEM_PX_INIT", 0) > 0; g_pxthr = env_int("COMM_SHMEM_PX_INIT_THREADS", 4); g_meshpar = S.ppa && env_int("COMM_SHMEM_MESH_PAR", 0) > 0;
     S.ppn = S.ppa ? 1 + 4 * S.ppa : 1;   /* N7b: 1 + 4 ppa PEs per node */
     if (S.ppa && comm_ofi_enabled()) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PE_PER_APU=%d needs COMM_OFI=0 (the proxies carry the data instead of comm_ofi)\n", S.ppa);
-    g_thp = S.ppa && env_int("COMM_SHMEM_PX_THP", 1) > 0; g_pin = S.ppa && env_int("COMM_SHMEM_PX_PIN", 0) > 0; g_thp_thr = g_pxthr;   /* N7G: THP default 1 (D36), PIN default 0 */
-    if (g_pin) pin_start();
+    g_thp = S.ppa && env_int("COMM_SHMEM_PX_THP", 1) > 0; g_thp_thr = g_pxthr;   /* N7G: THP default 1 (D36) */
     /* the mailbox needs the PE count, known only after init; sized for the launcher's count when it tells us, else for 4096 PEs (N7b: nodes) */
     int npes_hint = getenv("SLURM_NTASKS") ? atoi(getenv("SLURM_NTASKS")) / S.ppn : getenv("PMI_SIZE") ? atoi(getenv("PMI_SIZE")) / S.ppn : getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 4096;
     if (npes_hint < 1) npes_hint = 4096;
