@@ -83,8 +83,8 @@ On both launch lines (`profiles/aac7.conf` (`LAUNCH_LINE_KEYS`) for aac7, `profi
 | lean division (`DM_MN_LEAN=1`; built in) | same digits, less division memory | m | archive RESULTS §104 |
 | `MN_T_CHUNK_MB=2048` | aac7: 24 paired rounds, mean -42.3 s, p ≈ 0.04; 4-node recheck inconclusive (+6.98 s [-10.3, +24.3]) | m | results/S22.md, S47.md |
 | X2: `COMM_LAYER_INTER2=1`, `COMM_LAYER_VSLOT_POOL=1` (code default) | -31.7 s at 10 nodes (CI -55.7 .. -7.8) | m | results/S31.md |
-| `COMM_LAYER_VSLOT_SHARE=1` (code default) | -8.4 GB per node at 4 nodes; -5.79 GB at 576 | m / mod | results/S36.md, S45.md |
-| `COMM_LAYER_VSLOT_RELEASE=1` (code default) | device peak -8.60 GB at 4 nodes; -8.59 GB at 576 | m / mod | results/C06.md, L1.md |
+| `COMM_LAYER_VSLOT_SHARE=1` (always on; switch removed 2026-10-19, task 4) | -8.4 GB per node at 4 nodes; -5.79 GB at 576 | m / mod | results/S36.md, S45.md |
+| `COMM_LAYER_VSLOT_RELEASE=1` (always on with the pool; switch removed 2026-10-19, task 4) | device peak -8.60 GB at 4 nodes; -8.59 GB at 576 | m / mod | results/C06.md, L1.md |
 | `COMM_SHMEM_ROUND_MB=1024` | SHMEM pool 45.0 → 9.8 GB per node | mod | results/V114.md |
 | `ECALC_SEGV_TRACE=1` | crash-trace handler only | - | results/B01.md |
 

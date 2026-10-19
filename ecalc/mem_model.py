@@ -497,20 +497,14 @@ def vslot_resident(nq, g, groups=None, pool_log=31, p24=None, depth=None):
         if v: levels.append((l, gg, v))
         prev = S
     dm = max(mn_vslot(nq, nq, g, pool_log, p24, depth), mn_vslot(nq, nq // 2 + 1, g, pool_log, p24, depth))
-    if vslot_share_on():   # S36 COMM_LAYER_VSLOT_SHARE=1 (binsplit.c): one pair per device handed from level to level -> the largest level, not the sum
-        maxlow = max([v for (_, gg, v) in levels if gg < g] or [0])
-        return dict(per_apu=max(maxlow, top_tree, dm), tree_top=max(maxlow, top_tree), levels=levels, dm=dm, summed=lower + max(top_tree, dm))
-    return dict(per_apu=lower + max(top_tree, dm), tree_top=lower + top_tree, levels=levels, dm=dm)
+    # S36 (binsplit.c): one pair per device handed from level to level -> the largest level, not the sum
+    maxlow = max([v for (_, gg, v) in levels if gg < g] or [0])
+    return dict(per_apu=max(maxlow, top_tree, dm), tree_top=max(maxlow, top_tree), levels=levels, dm=dm, summed=lower + max(top_tree, dm))
 
 def _env_on(env, key, dflt):
     """the C form `e ? atoi(e) != 0 : dflt` (TASKS 27, 2026-10-12: the X2 / S36 / M3 switches default to 1 in the code)"""
     v = env.get(key)
     return dflt if v is None else v not in ('', '0')
-
-def vslot_share_on(env=None):
-    """S36 COMM_LAYER_VSLOT_SHARE=1 (comm_layered.c need_vslot_shared, binsplit.c vslot_share_on): the levels' v-slot pairs are one pair per device"""
-    env = os.environ if env is None else env
-    return _env_on(env, 'COMM_LAYER_VSLOT_SHARE', True)
 
 def vslot_pool_on(env=None):
     """X2 (results/XEFF.md item 2) COMM_LAYER_VSLOT_POOL=1: the v-slots come from the comm pool (comm_sym_alloc): counted in the pool need (shmem_pool vslot=),
@@ -519,10 +513,9 @@ def vslot_pool_on(env=None):
     return _env_on(env, 'COMM_LAYER_VSLOT_POOL', True)
 
 def vslot_release_on(env=None):
-    """M3 (results/C06.md) COMM_LAYER_VSLOT_RELEASE=1 (with VSLOT_POOL): the pool v-slots are freed after each product's v-exchanges, so the staged exchanges and the slots
-    share the comm pool in time (binsplit.c vslot_release_on): the pool need takes their maximum, not their sum"""
-    env = os.environ if env is None else env
-    return _env_on(env, 'COMM_LAYER_VSLOT_RELEASE', vslot_pool_on(env)) and vslot_pool_on(env)
+    """M3 (results/C06.md; always on with VSLOT_POOL): the pool v-slots are freed after each product's v-exchanges, so the staged exchanges and the slots
+    share the comm pool in time (binsplit.c): the pool need takes their maximum, not their sum"""
+    return vslot_pool_on(env)
 
 def inter2_on(env=None):
     env = os.environ if env is None else env

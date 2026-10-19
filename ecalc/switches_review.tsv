@@ -10,8 +10,6 @@ BS_SEED_PULL	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback, also the aac
 COMM_LAYER_INTER2	fallback	coordinator (TASKS S)	2026-11-11	=0 restores the pre-X2 exchange; default since 2026-10-12 (TASKS 27, W2B D1e)
 COMM_LAYER_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_LAYER_VSLOT_POOL	fallback	coordinator (TASKS S)	2026-11-11	=0 restores the old v-slot form (INTER2 and RELEASE follow it); default since 2026-10-12 (W2B D1e)
-COMM_LAYER_VSLOT_RELEASE	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback; default since 2026-10-12 (W2B D1e)
-COMM_LAYER_VSLOT_SHARE	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback; default since 2026-10-12 (W2B D1e)
 COMM_OFI_DEV	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_OFI_VERBOSE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_SHMEM_POOL_NEED_MB	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit

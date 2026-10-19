@@ -81,7 +81,7 @@ the cluster. Where a number comes from a single run or a small set, the text say
 | DT | the same T settings used as the SHMEM arm in the 2026-10-18 scaling and 3-node campaigns |
 | DTI | DT plus `COMM_LAYER_INTER2=0` (one inter-node exchange in flight) |
 | DTP | DT plus `COMM_SHMEM_PX_PIN=1` (helpers pinned to CPUs) |
-| DTIR | DTI plus `COMM_LAYER_VSLOT_RELEASE=0` (v-slots are not freed and reallocated) |
+| DTIR | DTI plus `COMM_LAYER_VSLOT_RELEASE=0` (v-slots are not freed and reallocated; switch removed 2026-10-19, task 4) |
 | DTIM | DTI plus `FI_MR_CACHE_MONITOR=memhooks` |
 | DTH / DTIH | DT / DTI plus `MEM_HSTAGE_THP=0` (host staging without huge pages; switch removed 2026-10-19, task 4) |
 | suffix X | plus `COMM_SHMEM_NP_HEAP_THP=1` (the fix; default since 2026-10-18) |
@@ -280,7 +280,7 @@ Items are on aac7; "branch" names are local development branches (the dropped on
 | `COMM_SHMEM_PX_INIT_THREADS=16` | 97i, 97j | Init 23.0-25.0 against 22.4-25.5 s: no gain | Dropped |
 | `COMM_SHMEM_PX_CONC=1` (concurrent puts, per-command done stamps) | 97c, 97d | Clean runs equal DTI/DTC; stalls hit either arm | Dropped |
 | `COMM_SHMEM_PX_INIT`, `MESH_PAR`, `PX_PIN` | 97e, 97f | Clean SHMEM runs 49.7-52.5 s for all arms | No gain |
-| `COMM_LAYER_VSLOT_RELEASE=0` (DTIR) | 97a/97b | Init +3 s (4096 against 2560 MiB heap), still stalls (r2 170.8 s) | Not the cause (pool is first-fit, no hipMalloc in the release path) |
+| `COMM_LAYER_VSLOT_RELEASE=0` (DTIR) | 97a/97b | Init +3 s (4096 against 2560 MiB heap), still stalls (r2 170.8 s) | Not the cause (pool is first-fit, no hipMalloc in the release path); switch removed 2026-10-19 (task 4) |
 | `FI_MR_CACHE_MONITOR=memhooks` (DTIM) | 97b | Erratic (50-98.5 s) | Dropped |
 | `PX_WORKERS`, `PX_CTX` multi-context issuing | 72c, 96-series | Higher proxy rate, same node throughput | Not adopted |
 | `PX_SEND=2` + shift (SS) | 72b, 72d, 72j, 72l, 72p | 12 pairs, no separation | Not adopted; PX3 was built to replace it |
@@ -397,7 +397,7 @@ but cannot show layv, the 5-6 node step, or node-0 compaction of a job's first n
 | `COMM_SHMEM_PEER_ORDER` | rank | `shift` is in the DT/T6 set |
 | `COMM_SHMEM_PX_BLOCK_MB` | 4 | 64 in the DT/T6 set |
 | `COMM_LAYER_INTER2` | 1 | 0 is the candidate for SHMEM (section 4.5) |
-| `COMM_LAYER_VSLOT_RELEASE` | 1 (follows VSLOT_POOL) | 0 tested, not useful |
+| `COMM_LAYER_VSLOT_RELEASE` | removed 2026-10-19 (task 4); was 1 (follows VSLOT_POOL) | 0 tested, not useful |
 | `COMM_SHMEM_PX_PIN` | 0 | not significant |
 | `COMM_SHMEM_PX_INIT`, `_INIT_THREADS`, `MESH_PAR`, `OFFS_WITH_DATA` (removed 2026-10-18, D49) | 0 / 4 / 0 / 0 | no gain; INIT_THREADS also sets the collapse threads of the fix |
 | `MNRUN_MEMPREP_GB`, `ECALC_MEMPREP_ONLY`, `MEM_PRECOMPACT_GB`, `MEM_HSTAGE_THP` | removed 2026-10-19 (task 4) | merged default-off (ead367d), not the fix |

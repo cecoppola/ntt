@@ -4,7 +4,7 @@
 "Exclude k bad nodes, no spares": the run then has N = 576 - k nodes.  The code's default schedule (the powers of two dividing N, then the
 odd part's prime factors) is very slow at awkward N; an explicit MN_GROUPS whose last group is the (uneven) N is accepted by the planner.
 This script searches those schedules with the standing model (ecalc/estimate.py -> mn_model.py; pure Python, CPU only) on the target line:
-    profile `target` (layv factor 0.655), MN_T_CHUNK_MB=2048 (MDB_SHIFT_CHUNK_MB stays 1024), COMM_LAYER_VSLOT_SHARE=1 (X2), RNS_DIST_CACHE_FIT=1,
+    profile `target` (layv factor 0.655), MN_T_CHUNK_MB=2048 (MDB_SHIFT_CHUNK_MB stays 1024), shared v-slot pair (X2, always on), RNS_DIST_CACHE_FIT=1,
     ECALC_NP=auto, BS_ARENA_ROOM=0.16, ECALC_PLANE_CAP=2^31, COMM_SHMEM_ROUND_MB=1024, the same total digits whatever N.
 Memory rule (results/B01.md, S52): device peak (model) + 0.5 GB (X2, the user's figure) + 2.1 GB (rank 0) must stay <= 373.44 - 10 GB.
 
@@ -19,13 +19,12 @@ import argparse, os, sys, csv, itertools, subprocess, re, functools
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', 'ecalc'))
-os.environ.setdefault('COMM_LAYER_VSLOT_SHARE', '1')                 # X2's v-slot pool: the largest level, not the sum (b01's method)
 import mn_model as M, mem_model, estimate as E
 
 EDGE = M.TARGET_DEVICE_EDGE_GB                                       # 373.44 GB (measured on the target)
 X2_GB, RANK0_GB, RULE_GB = 0.5, 2.1, 10.0
 # L4 (2026-10-11): GT_PROFILE selects the fabric profile (target = T06's layv factor 0.655, as c09; target_l4 = the L4 refit's factor); GT_RELEASE_GB is the
-# device memory COMM_LAYER_VSLOT_RELEASE=1 returns per node (the user adopted it 2026-10-11: 8.59 GB, results/C06.md) -- subtracted from the device peak; 0 = off (c09's table)
+# device memory the always-on v-slot release returns per node (the user adopted it 2026-10-11: 8.59 GB, results/C06.md) -- subtracted from the device peak; 0 = off (c09's table)
 PROFILE = os.environ.get('GT_PROFILE', 'target')
 RELEASE_GB = float(os.environ.get('GT_RELEASE_GB', '0'))
 LAYV = os.environ.get('GT_LAYV')                                       # L4: override the profile's layv factor (sensitivity)

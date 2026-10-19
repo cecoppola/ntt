@@ -13,7 +13,7 @@
 #include <sys/stat.h>
 #include "binsplit.h"
 size_t comm_shmem_heap_env(const char **name); int comm_shmem_pool_in_heap(void); int comm_shmem_pe_per_apu(void);   /* the pool rule's heap check -- declared here, comm.h needs HIP's headers and this file is plain C */
-int comm_layered_vslot_pool_on(void); int comm_layered_inter2_on(void); int comm_layered_vslot_share_on(void); int comm_layered_vslot_release_on(void);   /* TASKS 27 (comm.h; comm_layered.c): the X2 / S36 / M3 defaults */
+int comm_layered_vslot_pool_on(void); int comm_layered_inter2_on(void);   /* TASKS 27 (comm.h; comm_layered.c): the X2 default */
 #include "rns_mul.h"
 #include "mem.h"
 #include "dbig.h"
@@ -354,7 +354,6 @@ static size_t dm_nq_of(unsigned long N)                    /* dm_layout's n_Q (Q
     double lg = lgamma((double)N + 1.0) / log(10.0), dl10 = 18.0;
     return (size_t)ceil(lg / dl10) + 2;
 }
-static int vslot_share_on(void) { return comm_layered_vslot_share_on(); }   /* S36 (comm_layered.c): one pair of v-slots per device, handed from level to level */
 size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *by, size_t bylen)
 {
     if (tree_top) *tree_top = 0;
@@ -372,18 +371,14 @@ size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *b
     size_t a = rns_mul_dist_mn_vslot(nq, nq, size), b = rns_mul_dist_mn_vslot(nq, nq / 2 + 1, size), dm = a > b ? a : b, top = top_tree > dm ? top_tree : dm;
     if (by && dm && o + 64 < bylen) o += (size_t)snprintf(by + o, bylen - o, "%sdm g %d %.3f GB", o ? ", " : "", size, dm * 1e-9);
     if (by && !o && bylen) snprintf(by, bylen, "none (no general-map group)");
-    if (vslot_share_on()) {   /* S36 COMM_LAYER_VSLOT_SHARE=1: the levels' pairs are one pair on a device, at the largest level's size: max, not sum */
-        size_t tt = top_tree > maxlow ? top_tree : maxlow, all = top > maxlow ? top : maxlow;
-        if (by && o + 64 < bylen) snprintf(by + o, bylen - o, "%sS36 shared pair: max not sum (sum would be %.3f GB)", o ? ", " : "", (lower + top) * 1e-9);
-        if (tree_top) *tree_top = tt;
-        return all;
-    }
-    if (tree_top) *tree_top = lower + top_tree;
-    return lower + top;
+    /* S36: the levels' pairs are one pair on a device (comm_layered.c), at the largest level's size: max, not sum */
+    size_t tt = top_tree > maxlow ? top_tree : maxlow, all = top > maxlow ? top : maxlow;
+    if (by && o + 64 < bylen) snprintf(by + o, bylen - o, "%sS36 shared pair: max not sum (sum would be %.3f GB)", o ? ", " : "", (lower + top) * 1e-9);
+    if (tree_top) *tree_top = tt;
+    return all;
 }
 /* X2 (results/XEFF.md item 2): COMM_LAYER_VSLOT_POOL=1 -- the v-slots come from the comm pool (comm_sym_alloc), so the pool rule counts them and the hipMalloc'd budget does not */
 static int vslot_pool_on(void) { return comm_layered_vslot_pool_on(); }   /* (default 1) */
-static int vslot_release_on(void) { return comm_layered_vslot_release_on() && vslot_pool_on(); }   /* M3 (results/C06.md): the pool's v-slots are freed after each product's v-exchanges, so the staging and the slots share the pool in time */
 /* S31 (COMM_LAYER_VSLOT_POOL): each v-slot is allocated once at the model's per-slot maximum of its group size g (env COMM_LAYER_VSLOT_MB_<g>, MiB; comm_layered.c need_vslot),
  * not regrown with every larger product -- a slot regrown in the comm pool (free, then allocate) strands holes between the short-lived staging blocks (S28: 10 nodes,
  * COMM_OFI_POOL_MB 4096 "too small" with 1432 MiB free but no 1023 MiB hole).  A hand-set COMM_LAYER_VSLOT_MB or COMM_LAYER_VSLOT_MB_<g> wins.  Called by the pool rule on every rank. */
@@ -401,7 +396,7 @@ static void vslot_prealloc_env(unsigned long N, int size)
         if (g < size && size % g) { int gc = size % g, ncc = (gc + Gp - 1) / Gp; size_t vc = ncc >= 2 ? rns_mul_dist_mn_vslot(nqc, nqc * (size_t)(ncc - 1), gc) : 0; if (vc) VS_NOTE(gc, vc); }
     }
     { size_t a = rns_mul_dist_mn_vslot(nq, nq, size), b = rns_mul_dist_mn_vslot(nq, nq / 2 + 1, size); if (a || b) VS_NOTE(size, a > b ? a : b); }
-    if (vslot_share_on()) { size_t m = 0; for (int k = 0; k < n; k++) if (mx[k] > m) m = mx[k]; for (int k = 0; k < n; k++) mx[k] = m; }   /* S36: the pair is shared, allocated once at the overall maximum (every group size the same) */
+    { size_t m = 0; for (int k = 0; k < n; k++) if (mx[k] > m) m = mx[k]; for (int k = 0; k < n; k++) mx[k] = m; }   /* S36: the pair is shared, allocated once at the overall maximum (every group size the same) */
     for (int k = 0; k < n; k++) { char nm[48], v[32]; snprintf(nm, sizeof nm, "COMM_LAYER_VSLOT_MB_%d", gg[k]); snprintf(v, sizeof v, "%zu", (mx[k] >> 20) + 1); if (!getenv(nm)) setenv(nm, v, 1);
         { const char *er = getenv("COMM_RANK"), *ve = getenv("ECALC_VERBOSE"); if (getenv("MN_PLAN_ONLY") || ((!er || atoi(er) == 0) && ve && atoi(ve) >= 2)) printf("plan vslot-prealloc  %s=%s MiB per slot (S31: each v-slot of a %d-node group allocated once)\n", nm, getenv(nm), gg[k]); } }
 #undef VS_NOTE
@@ -640,7 +635,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     g_ofi_dev_mb = 0; g_px_dev_mb = 0;
     if (ofi || px) {   /* a comm_ofi pool per device: one APU's staging (at least the self-tests' 128 MiB) + its slabs + a 256 MiB margin, in whole 256 MiB */
         size_t stg = best * 8 > ((size_t)128 << 20) ? best * 8 : ((size_t)128 << 20);
-        size_t dv = (vslot_release_on() ? (stg > vsp ? stg : vsp) : stg + vsp) + ((size_t)256 << 20);   /* M3: staged exchanges and the slots are not live together: the larger, not the sum */
+        size_t dv = (stg > vsp ? stg : vsp) + ((size_t)256 << 20);   /* M3 (results/C06.md): the pool's v-slots are freed after each product's v-exchanges; staged exchanges and the slots are not live together: the larger, not the sum */
         g_ofi_dev_mb = ((dv + ((size_t)1 << 20) - 1) >> 20); g_ofi_dev_mb = (g_ofi_dev_mb + 255) / 256 * 256;
         if (px && comm_shmem_pe_per_apu() > 1) { size_t m = (size_t)256 << 20, k = (size_t)comm_shmem_pe_per_apu(); dv = (dv - m) / k + m;   /* N7E: the APU's area split over its helper heaps */
             g_ofi_dev_mb = ((dv + ((size_t)1 << 20) - 1) >> 20); g_ofi_dev_mb = (g_ofi_dev_mb + 255) / 256 * 256; }

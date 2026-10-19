@@ -60,7 +60,7 @@ per node at 400 Gb/s (2 per APU: 100 GB/s injection peak per APU); Rocky Linux 9
 | S38–S41 | `DBIG_ADDSUB2`, `DBIG_MAXIDX_TOP` (scan from the top), `DBIG_QSEL` (built in) | 4 n −50.0 s [−71.7, −28.3]; 1 n 94 → 78 s (m) | `results/S43.md`, `results/S38.md`, `results/S41.md` |
 | C1 | `MN_T_CHUNK_MB=2048` on the aac7 line and the target template | 10 n −42.3 s, 24 pairs, p ≈ 0.04; 4 n recheck +7.0 s [−10.3, +24.3] (m); target A/B still to run | `results/S22.md`, `results/S47.md` |
 | C2 | X2 (`COMM_LAYER_INTER2`, `COMM_LAYER_VSLOT_POOL`), code default since wave 2 | 10 n −31.7 s [−55.7, −7.8] (m); target try still to run | `results/S31.md`, `results/W2B.md` |
-| M3 / S-1 | `COMM_LAYER_VSLOT_SHARE` and `COMM_LAYER_VSLOT_RELEASE` (code defaults since wave 2) | SHARE −8.4 GB per node at 4 n (m); RELEASE −8.60 GB device peak at 4 n (m), −8.59 GB at 576 n (mod) | `results/S36.md`, `results/C06.md`, `results/L1.md` |
+| M3 / S-1 | `COMM_LAYER_VSLOT_SHARE` and `COMM_LAYER_VSLOT_RELEASE` (code defaults since wave 2; switches removed 2026-10-19, task 4: always on) | SHARE −8.4 GB per node at 4 n (m); RELEASE −8.60 GB device peak at 4 n (m), −8.59 GB at 576 n (mod) | `results/S36.md`, `results/C06.md`, `results/L1.md` |
 | M1 | Spend the memory margin on digits: target size 3.82 × 10¹³ (+3.0 %) | rank-0 margin 12.9 GB (mod); 3.83 × 10¹³ and up change the plan (+20 s), ≥ 3.95 × 10¹³ unsafe (mod) | `results/S52.md`, `results/L1.md` |
 | G1 | `FI_MR_CACHE_MONITOR=userfaultfd` against the mapper deadlock / segfault | reproducer hangs 22/105 → 0/104; 46 four-node runs, 0 segfaults (m) | `results/S46.md`, `results/T12.md` |
 | DC8 | `DIST_CHUNKS=8` | device −13.4 GB per node at 576 n for +2.4 s (mod) | `results/S45.md` |

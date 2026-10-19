@@ -1392,7 +1392,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         }
         ec_ph(phf_);
         if (oB.rb) { db_pool_free(d, oB.rb); oB.rb = 0; }
-        if (gen) comm_layered_release_vslots(cl);           /* M3 COMM_LAYER_VSLOT_RELEASE=1 (comm_layered.c): the v-exchanges of this product are all waited for; the pool's slots go before the staged result exchange (no-op otherwise) */
+        if (gen) comm_layered_release_vslots(cl);           /* M3 v-slot release (comm_layered.c): the v-exchanges of this product are all waited for; the pool's slots go before the staged result exchange (no-op otherwise) */
         double s2 = mem_now(); tf[d] = s2 - s1;
         int phc_ = ec_ph(EC_PH_RD_CRT);
         for (int p = 0; p < np; p++) {
