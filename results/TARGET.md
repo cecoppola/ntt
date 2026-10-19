@@ -1507,7 +1507,7 @@ nodes writing at once each at its single-stream rate are **assumed**; 0.6–0.8 
   `seed_fill=0` (B0 and before). `TARGET_NP = 4`.
 - `VMM_DM_GROW_FILL = 16.3 GB` (**measured**, RESULTS §86's ten fill runs: device 377.3 GB at init, 393.6 at dm — the division
   grows the block pool by 12.9 GB with the fill, 2.1 without); applied at size 1 only (assumed 0 at size > 1).
-- `HOST_EARLY = 0.9 GB` (modelled from results/IO15.md §6) on the host at dm at size > 1 with `MN_OUT_EARLY`.
+- `HOST_EARLY = 0.9 GB` (modelled from results/OUTPUT_IO.md §IO15 §6) on the host at dm at size > 1 with `MN_OUT_EARLY`.
 - `--check-c FILE [POOL_LOG [MN_T_CHUNK_MB [BS_SEED_FILL]]]` (fill default 128); `--p15` prints B0's rows as `[B0]`, the new
   1e11 row, the target on four primes (and three, B0 for comparison), the ceilings on four primes.
 

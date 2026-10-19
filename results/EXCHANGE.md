@@ -1095,7 +1095,7 @@ The micro-gain of 5 ms x 2 launches (about 0.01 s) is two orders below the run n
 Labels: m measured, mod modelled. Times Eastern, 2026-10-12.
 
 #### 1. Share of run time (from existing reports, m)
-- 1 node, 6.441e10 digits, default DIST_GATHER_RAW=2: k_gather_raw<1> 2.0 s per APU (4.3 % of 47 s GPU time, results/CAND.md); the 58 raw gathers cost ~34 ms each, plus 232 coalesced canon passes ~3 ms each (mod ~0.7 s; results/EXCHANGE.md §K1b). Total ~2.7 s (mod) of ~70-80 s wall.
+- 1 node, 6.441e10 digits, default DIST_GATHER_RAW=2: k_gather_raw<1> 2.0 s per APU (4.3 % of 47 s GPU time, results/SINGLE_NODE.md §CAND); the 58 raw gathers cost ~34 ms each, plus 232 coalesced canon passes ~3 ms each (mod ~0.7 s; results/EXCHANGE.md §K1b). Total ~2.7 s (mod) of ~70-80 s wall.
 - 2+ nodes: the leaf's mdev uses the same dist_core path (results/EXCHANGE.md §K1b section on > 1 node: leaf mdev 7.2 / 8.8 s on aac7, gather saving at 3.8e13 ~1.4 s); the tree gathers (k_gather_mn24_np) have no kernel breakdown in any report; no profiled run was made.
 
 #### 2. Probe (new tests/t_gather_p2_probe.c, aac7, 1 node, best of 8; rows 8192 x C 65536 / rows 1024 x C 524288; all variants identical to the product kernel, 0 mismatches) (m)
@@ -1123,7 +1123,7 @@ Nothing running. Probe output on aac7 ~/p2/probe{1,2}.log; worktree ~/ntt-wt/p2 
 
 (former file: K6.md)
 
-Branch k6 (from main a448d73, 2026-10-12). Source: docs OPPORTUNITIES §B.3 K6 ← results/S38.md §2 ("the C-tier all-to-all: 10.0 s of
+Branch k6 (from main a448d73, 2026-10-12). Source: docs OPPORTUNITIES §B.3 K6 ← results/KERNELS.md §S38 §2 ("the C-tier all-to-all: 10.0 s of
 the 24.4 s C time is exposed host wait at 1 node; only deeper overlap across primes remains"). Labels: measured / modelled / assumed.
 Times Eastern.
 

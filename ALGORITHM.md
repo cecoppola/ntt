@@ -84,7 +84,7 @@ is chosen per level from the largest node length `max_nl`:
 | 2·max_nl + 1 ≤ 2³⁰ points (`BS_MDEV_LOGL`) | **batch** | one `rns_mul_batch` of all 2·npairs products of the level (`rns_mul.c`) |
 | otherwise | **device top levels** | each pair as `dbig` numbers through `rns_mul_dist_db` (`rns_dist.c`); inputs freed as consumed |
 
-(The CPU schoolbook tier below `bs_school_nl` is set to 0: the batch tier is faster at every size. With `BS_BATCH_PIPE=1`, the default since D20, the batch tier's host side runs without needless gaps: a level's layout and the products' scans in parallel and each device's tiles issued back to back through pinned descriptor slots, one length read-back per level, `results/N3.md`; `BS_BATCH_PIPE=0` keeps the old host side.)
+(The CPU schoolbook tier below `bs_school_nl` is set to 0: the batch tier is faster at every size. With `BS_BATCH_PIPE=1`, the default since D20, the batch tier's host side runs without needless gaps: a level's layout and the products' scans in parallel and each device's tiles issued back to back through pinned descriptor slots, one length read-back per level, `results/KERNELS.md §N3`; `BS_BATCH_PIPE=0` keeps the old host side.)
 
 **Across nodes.** With size > 1, node r takes the term range [1 + N·r/size, 1 + N·(r+1)/size) and runs the whole leaf tree
 on it, leaving (P_r, Q_r) on its devices. `mn_tree` then combines nodes in groups (§6.5), so after the last level P and Q
@@ -146,7 +146,7 @@ digits (`ec_words_to_dec`, at most four). Limb k of the product is
 
 where Cj are the j-th base-10¹⁸ digits of the coefficients and x_k the added operand; the carry chain is resolved in LDS
 (per 256-coefficient chunk, as a carry-lookahead over the waves'
-ballot masks, `results/K4b.md`; `RNS_CRT_SCAN=0` keeps the serial chain, D21).
+ballot masks, `results/KERNELS.md §K4b`; `RNS_CRT_SCAN=0` keeps the serial chain, D21).
 On the GPU (`k_crt_batch`) a product's coefficients are cut into S stripes (a block per stripe, coalesced reads, 256
 coefficients per chunk); each stripe emits a 4-limb *spill* past its end, and the spills are merged into the limbs
 (`k_spill_merge`, or chunked-carry adds in the distributed tiers). A CPU Garner is kept for small products and tests.
@@ -155,10 +155,10 @@ coefficients per chunk); each stripe emits a 4-limb *spill* past its end, and th
 to 3 points, so a view of n limbs has ⌈3n/4⌉ points and a piece is 3/4 as long. A coefficient is then at most
 min·(10²⁴ − 1)², which fits four primes while min(Pa, Pb) ≤ 10¹² (`P24_MIN_MAX`); the coefficient of point x, shifted by
 s = 6·(x mod 3) digits, lands on limbs L(x) … L(x)+3 with L(x) = ⌊4x/3⌋. Gain: −38 % at 10¹⁰ digits on 2 processes (m;
-`results/P2415.md`). It applies to every multi-node product whose plane pool holds four primes (built in; since D18 every multi-node product; with `ECALC_NP_MN3=1` the 18-digit form below 32 node-processes).
+`results/PRIMES_STRATEGY.md §P2415`). It applies to every multi-node product whose plane pool holds four primes (built in; since D18 every multi-node product; with `ECALC_NP_MN3=1` the 18-digit form below 32 node-processes).
 Its CRT kernel `k_crt24` (`p24_crt.c`, one block per column, 256 points per chunk) sums the at most three points meeting
 each of a chunk's up to 342 limbs and resolves the chunk's carry chain on one thread; with `P24_CRT_SCAN=1` (the default since D24, `=0` the serial chain;
-`results/K4c.md`) as the same carry-lookahead over wave ballot masks as `RNS_CRT_SCAN` (two limbs per thread, 512-bit masks).
+`results/KERNELS.md §K4c`) as the same carry-lookahead over wave ballot masks as `RNS_CRT_SCAN` (two limbs per thread, 512-bit masks).
 
 ### 4.4 Product tiers
 

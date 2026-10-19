@@ -138,7 +138,7 @@ Helper merges (SH3 follow-ups): `dmod128`/`dmod192` once in `rns_int.h` (rns_mul
   6.441e10 x 2, and the 576-node share, with the guard 0 and 1.
 - ABBA, 1 node, 1e10 digits, no digit output, A = guard 0, B = guard 1, 4 rounds (8 pairs of runs): B - A = +0.25 s,
   95% CI [-1.00, +1.50] s (n.s.; runs 15.9-19.4 s): no measurable cost.
-- Not re-measured here: `P24_CRT_SCAN` has no effect at 1 node (multi-node only); its timing is results/K4c.md.
+- Not re-measured here: `P24_CRT_SCAN` has no effect at 1 node (multi-node only); its timing is results/KERNELS.md §K4c.
 
 #### RESUME
 Done; merged. Raw logs on the cluster under `~/adopt2/` (removed by the coordinator when no longer needed).

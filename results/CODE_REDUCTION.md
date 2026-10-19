@@ -98,7 +98,7 @@ I made no runs. "0" means the removed path does not run at the defaults or launc
    pool 0 holds four planes. So aac7 gates at 1–6 nodes run the 18-digit three-prime `mn_core` path, and the target runs the
    P24 path (`p24.h`, `p24_mn.h`, `p24_crt.c`, 32 `p24` branches in `mn_core`). No gate sets `ECALC_NP=4` or
    `ECALC_NP_AUTO_TERMS` (grep of `tools/gate.sh`, `ecalc/mnaccept.sh`, TESTING.md: none). P24 was last run on aac7 under
-   that knob in `results/P2415.md`. Item 6 fixes this. A cheaper stopgap is one gate step with
+   that knob in `results/PRIMES_STRATEGY.md §P2415`. Item 6 fixes this. A cheaper stopgap is one gate step with
    `ECALC_NP_AUTO_TERMS=1000000` at 2 nodes.
 3. The merge gate runs 1, 2 or 4 nodes (`tools/gate.sh:40`), which are all powers of two. The target's top two tree levels
    (192, 576) use the general map, which only `mnaccept`/G515-type runs at 3 and 6 processes exercise.
@@ -118,7 +118,7 @@ Size: S ≤ 1 day, M 1–3 days, L > 3 days (assumed). "Lines" = lines removed n
 | 7 | `tree_level` folded into `tree_level_k` | `tree_level_k`'s own comment says that for nch = 2 it is `tree_level`'s pair of products with the same operands in the same order. The frees match too (P_i after the first product, the shares after the second). | `mn.c:453-474` (22), the dispatch at 412 | ≈ −25 | 0 | low (the log line format changes: check the parsers, e.g. `calib_table.py`) | gate 2 n + 4 n digits; `mem_live` lines unchanged | S |
 | 8 | One output-writer machinery (a sub-step of 5, doable alone) | Size 1 starts its writer through `x_bg`/`x_hi`. Size > 1 does the same job with `mn_out_early_start` / `mn_out_early_hi_start` / `mn_out_early_lo_release`. Size 1 can call the latter on a g = 1 view of its dbig X. | `ecalc.c:58-131`, the hook calls in `newton_db.c:385-437` | ≈ −70 | 0 (same writer underneath: `mn_out_run`) | medium (patch/defer paths) | `t_patch`, `mnaccept` corr, recheck; gate 1 n | M |
 | 9 | `mdb_add_shifted`: one implementation, no shift parameter | Two bodies exist: the single-shot body and `mdb_add_shifted_rounds`. Both callers pass k = 0 (`rns_dist.c:1838, 1879`, measured). The rounds body can serve every size (K = 1 when the window fits), and k can go. | `rns_dist.c:2196-2338` (121 + kernels) | ≈ −50 | 0 (the single-shot is the K = 1 case) | low | `t_mn_grid`, gate 2 n | S |
-| 10 | One transform cache | There are two slot mechanisms. Full slots (`cache_avail`, own hipMalloc, sized by the budget) serve `mul_grid` and `mn_grid` with `RNS_DIST_CACHE_PARTIAL=0`. Partial slots (`cache_pc_take`, from the block pool) are the mn default. At the target the full slots get 0 slots (`rns_dist.c` TC comment, `results/TC15.md`). Using partial slots in `mul_grid` too leaves one mechanism. | `rns_dist.c:273-481` (cache section, ≈ 200), `cache_avail` 301-336, `cache_pc_take` 408-450 | ≈ −60 | Unknown at 1 node (the full slots serve the single-node grids at 6.44 × 10¹⁰): needs a 1-node ABBA | medium | 1-node ABBA at 6.44 × 10¹⁰; gate 1 n + 2 n | M |
+| 10 | One transform cache | There are two slot mechanisms. Full slots (`cache_avail`, own hipMalloc, sized by the budget) serve `mul_grid` and `mn_grid` with `RNS_DIST_CACHE_PARTIAL=0`. Partial slots (`cache_pc_take`, from the block pool) are the mn default. At the target the full slots get 0 slots (`rns_dist.c` TC comment, `results/CACHE.md §TC15`). Using partial slots in `mul_grid` too leaves one mechanism. | `rns_dist.c:273-481` (cache section, ≈ 200), `cache_avail` 301-336, `cache_pc_take` 408-450 | ≈ −60 | Unknown at 1 node (the full slots serve the single-node grids at 6.44 × 10¹⁰): needs a 1-node ABBA | medium | 1-node ABBA at 6.44 × 10¹⁰; gate 1 n + 2 n | M |
 
 #### Decisions for the user (simplifications that remove a capability)
 
@@ -144,7 +144,7 @@ Size: S ≤ 1 day, M 1–3 days, L > 3 days (assumed). "Lines" = lines removed n
   2.3–2.4× slower per APU thread at 6 nodes (`results/TIME_MODEL.md §S48`, m), so the cost is far above 1 %.
 - **One batch form** (dropping the striped batch for the locality-aware one): the striped form serves the few, large
   products of the upper batch levels, where per-device locality would leave APUs idle (`rns_mul.c:856-880`).
-- **NTT kernels** (`k_b16` partial passes beside `k_b16r`): `plan_auto` needs the partial passes (`results/K13b.md`);
+- **NTT kernels** (`k_b16` partial passes beside `k_b16r`): `plan_auto` needs the partial passes (`results/KERNELS.md §K13b`);
   the kernel set is already minimal.
 
 #### Handed to AUD2 (dead code seen, not counted above)
@@ -396,7 +396,7 @@ Merged: every gate and mnaccept step PASS with digits identical; 1531 lines and 
 - Duplicates not merged: the device Garner of `rns_mul.c` / `p24_crt.c` (`dmod128`, `dmod192`) and `k_store` /
   `k_copy_h2d` (kernels in two translation units: a shared header would change code generation, so it needs its own check);
   `make_mdb` of `t_mn_grid.c` / `cx_grid.c` (cx_grid has no Makefile rule).
-- `t_ntt bench` is cited by `results/K13.md`, `K13b.md`, `NTT3P.md` (history; the code is in the archive).
+- `t_ntt bench` is cited by `results/KERNELS.md §K13`, `K13b.md`, `NTT3P.md` (history; the code is in the archive).
 
 #### RESUME
 

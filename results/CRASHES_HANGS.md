@@ -676,7 +676,7 @@ is not exercised here (aac6 has no SHMEM/OFI multi-node).
 
 #### Design
 - Code: main a448d73 built on aac6 in its own clone (full git bundle; the shared aac6 clone is older), default switches.
-- Size and environment: `ecalc 4000000000` (no digit output), `RNS_INIT_POOL_LOG=29 ECALC_PLANE_CAP=2^30` (the CPX environment of results/S44.md);
+- Size and environment: `ecalc 4000000000` (no digit output), `RNS_INIT_POOL_LOG=29 ECALC_PLANE_CAP=2^30` (the CPX environment of results/KERNELS.md §S44);
   one run is about 20-26 s of wall time on a CPX node (measured, first runs).
 - Nodes: the 4 SH5_MI300A_CPX nodes plus the one PPAC_MI300A_CPX node. One controller per node (`tools/g2_ctl.sh`): successive 45-min
   holds on that node, `tools/g2_node.sh` run inside by `srun --overlap`; no new run is started after 09:45 ET or when the run's
