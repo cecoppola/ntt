@@ -273,9 +273,10 @@ static void *heap_mmap(void *a, size_t l, int prot, int fl, int fd, off_t o)
         if (zero) {
             void *r = MAP_FAILED;
             if (g_hp_mode) {                              /* L5 COMM_SHMEM_HUGETLB=1: the same shared mapping from the 2 MiB hugetlb pool (never compacted); ENOMEM (no pool): the THP path below */
-                size_t lh = (l + THP_SZ - 1) & ~(THP_SZ - 1); g_hp_need = lh / THP_SZ;
-                r = (void *)syscall(SYS_mmap, a, lh, prot, (fl & ~MAP_NORESERVE) | MAP_ANONYMOUS | MAP_HUGETLB | MAP_HUGE_2MB, -1, (off_t)0);
-                if (r == MAP_FAILED) g_hp_err = errno; else { g_hp_used = 1; l = lh; }
+                g_hp_need = (l + THP_SZ - 1) / THP_SZ;
+                if (l & (THP_SZ - 1)) g_hp_err = EINVAL;      /* the library unmaps with its own length: only a 2 MiB multiple maps from hugetlb */
+                else { r = (void *)syscall(SYS_mmap, a, l, prot, (fl & ~MAP_NORESERVE) | MAP_ANONYMOUS | MAP_HUGETLB | MAP_HUGE_2MB, -1, (off_t)0);
+                       if (r == MAP_FAILED) g_hp_err = errno; else g_hp_used = 1; }
             }
             if (g_hp_used) { g_np_addr = r; g_np_len = l; double tc = now_s(); pool_populate((char *)r, l, g_thp_thr); g_np_t = now_s() - tc; return r; }
             r = !a && !(fl & MAP_FIXED) ? thp_mmap(l, prot, fl, fd, o) : (void *)syscall(SYS_mmap, a, l, prot, fl, fd, o);
