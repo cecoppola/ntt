@@ -2,6 +2,7 @@
 """tools/trace_report.py -- the report of a COMM_TRACE=1 run (ecalc/comm_trace.h; switches in ecalc/README.md).
 
   python3 tools/trace_report.py [options] RUN [RUN ...]       RUN = DIR or LABEL=DIR; DIR holds the run's trace_pe<PE>.bin files
+  python3 tools/trace_report.py --compare DIR_A DIR_B [--label A B]    one table, A | B | B-A | (B-A)/A (several runs per side: --compare A1 A2 --vs B1 B2: medians)
   python3 tools/trace_report.py --selftest                    a synthetic 3-node trace through the whole analysis (exit 1 on a failure)
 
 Reads the per-process files (node-processes and proxies) with numpy memory maps in chunks, puts every stamp on node 0's clock (the ping-pong offsets of the
@@ -23,6 +24,9 @@ plus compact per-message tables (capped at --max-msgs, uniformly thinned beyond)
   8a           (COMM_TRACE_HB_MEM) per node, the seconds with pgmigrate_fail > 20000/s with fragmentation score, MemFree, Dirty+Writeback, kcompactd ticks and KFD evicted_ms around them
   8b           (COMM_TRACE_PH, _THR, _WD_MS) the progress-watchdog firings and the slowest exchanges' late nodes: the phase tag of every thread of the node-process at the onset (ecalc/comm_phase.h),
                the thread snapshot (state, wchan, run_delay, CPU) and the heartbeat state (alive / gaps)
+compare      (--compare) start-up (init -> first exchange), exchange time in total and per kind, the compute between exchanges, the time inside the exchanges split into copy in,
+               rounds (publish, send copy, sends, signal wait, quiet, receive copy), message components (offset-word wait, put, flush, signal wait), heartbeat gaps and watchdog
+               firings, KFD evicted_ms / kcompactd ticks / compact_stall (HB_MEM), and the total; per node-process means from node-local clocks (no clock estimate needed)
 A communicator is identified by (id, the node of each rank): ids repeat across disjoint node groups (layeq pairs), shown as id@nodes.
 Times of different nodes are only as good as the clock estimate (bound = half the best round trip, printed); 'neg%' counts cross-node one-way latencies
 below zero (a measure of the clock error against the real latency)."""
@@ -871,6 +875,151 @@ def compare(runs, sums, L):
         L.append("   %-5s %-12s %-6s | " % (k[0], k[1], "all" if k[2] < 0 else KIND[k[2]]) + " | ".join(cells))
 
 
+# ---------------------------------------------------------------- --compare: two runs (or two groups of runs) side by side
+def _pair(R, ea, eb, fields):
+    """the records of event ea matched with the first record of event eb of the same key (fields of the record, ea's me/peer); returns (records of ea that found a partner, tb - ta in ns)"""
+    A = R[R["ev"] == ea]; B = R[R["ev"] == eb]
+    if not len(A) or not len(B):
+        return A[:0], np.zeros(0, np.int64)
+    def low(X):
+        k = np.zeros(len(X), np.int64)
+        for f, bits in fields:
+            k = (k << bits) | (X[f].astype(np.int64) + (1 if f in ("me", "peer") else 0))
+        return k
+    la, lb = low(A), low(B)
+    _, inv = np.unique(np.concatenate([la, lb]), return_inverse=True)
+    ka = (inv[:len(A)].astype(np.int64) << 32) | A["seq"]; kb = (inv[len(A):].astype(np.int64) << 32) | B["seq"]
+    # a key can repeat (sequence numbers restart, a communicator id is reused): the k-th record of ea pairs with the k-th of eb of the same key, in time order
+    def rank(k, t):
+        o = np.lexsort((t, k)); ks = k[o]; first = np.r_[0, np.flatnonzero(ks[1:] != ks[:-1]) + 1]
+        r = np.arange(len(k)) - np.repeat(first, np.diff(np.r_[first, len(k)])); out = np.empty(len(k), np.int64); out[o] = r
+        return out
+    ra, rb = rank(ka, A["t"]), rank(kb, B["t"])
+    _, inv2 = np.unique(np.concatenate([ka, kb]), return_inverse=True)
+    ka = (inv2[:len(A)].astype(np.int64) << 24) | np.minimum(ra, (1 << 24) - 1); kb = (inv2[len(A):].astype(np.int64) << 24) | np.minimum(rb, (1 << 24) - 1)
+    o = np.argsort(kb, kind="stable"); kb_s = kb[o]
+    i = np.minimum(np.searchsorted(kb_s, ka), len(kb_s) - 1); ok = kb_s[i] == ka
+    d = B["t"][o[i]].astype(np.int64) - A["t"].astype(np.int64)
+    ok &= d >= 0
+    return A[ok], d[ok]
+
+
+_FX = (("comm", 12), ("me", 14), ("seq", 32))                                 # an exchange of one rank
+_FR = (("comm", 12), ("me", 14), ("round", 16), ("seq", 32))                  # a round of one rank
+_FM = (("comm", 12), ("me", 14), ("peer", 14), ("round", 16), ("seq", 32))    # one message, one end
+
+
+def node_metrics(run, h):
+    """seconds / counts of one node-process (see section_compare); node-local clock only, so no clock estimate is needed"""
+    ev = lambda n: run.ev.get(n, 255)
+    R = np.concatenate(list(chunks(h))) if h["nrec"] else np.zeros(0, REC)
+    R = R[R["ev"] != 0]; m = {}; s = 1e-9
+    isH = R["ev"] >= ev("H_GAP") if "H_GAP" in run.ev else np.zeros(len(R), bool)
+    X = R[~isH]; Hh = R[isH]; t0 = h["meta"]["m0"]
+    eb = X[X["ev"] == ev("E_BEGIN")]
+    m["start"] = (float(eb["t"].min()) - t0) * s if len(eb) else NAN
+    m["window"] = (float(X["t"][X["ev"] == ev("E_DONE")].max()) - float(eb["t"].min())) * s if len(eb) and (X["ev"] == ev("E_DONE")).any() else NAN
+    m["total"] = (float(R["t"].max()) - t0) * s if len(R) else NAN
+    A, d = _pair(X, ev("E_BEGIN"), ev("E_DONE"), _FX)
+    m["ex"] = d.sum() * s; m["n_ex"] = float(len(d))
+    kind = (A["kp"] & 15).astype(int)
+    for k in range(len(KIND)):
+        m["k_" + KIND[k]] = d[kind == k].sum() * s; m["n_" + KIND[k]] = float((kind == k).sum())
+    o = np.argsort(A["t"]); st = A["t"][o].astype(np.int64); en = st + d[o]       # the exchanges of the communicators / threads overlap: the time with at least one in flight
+    if len(st):
+        cm = np.maximum.accumulate(en); m["busy"] = ((cm[-1] - st[0]) - np.clip(st[1:] - cm[:-1], 0, None).sum()) * s
+    else:
+        m["busy"] = 0.0
+    m["between"] = m["window"] - m["busy"] if m["window"] == m["window"] else NAN
+    for key, a, b, f in (("copy_in", "E_COPY_ISS", "E_COPY_DONE", _FX), ("x_quiet", "E_SIGS_SEEN", "E_QUIET_END", _FX), ("x_rcopy", "E_RCOPY_ISS", "E_RCOPY_DONE", _FX), ("rounds", "R_BEGIN", "R_END", _FR),
+                         ("r_publish", "R_BEGIN", "R_PUBLISHED", _FR), ("r_scopy", "R_SCOPY_ISS", "R_SCOPY_DONE", _FR), ("r_send", "R_PUBLISHED", "R_SENDS_DONE", _FR), ("r_sig", "R_SENDS_DONE", "R_SIGS_DONE", _FR),
+                         ("r_quiet", "R_SIGS_DONE", "R_QUIET_END", _FR), ("r_rcopy", "R_QUIET_END", "R_END", _FR),
+                         ("roff", "M_ROFF_WAIT", "M_ROFF_SEEN", _FM), ("put", "M_PUT_ISSUE", "M_PUT_POSTED", _FM), ("put_done", "M_PUT_POSTED", "M_PUT_DONE", _FM),
+                         ("flush", "M_FLUSH_BEG", "M_FLUSH_END", _FM), ("sigw", "M_SIG_WAIT", "M_SIG_SEEN", _FM)):
+        _, dd = _pair(X, ev(a), ev(b), f)
+        m[key] = dd.sum() * s; m["n_" + key] = float(len(dd))
+    m["x_other"] = m["ex"] - m["copy_in"] - m["rounds"] - m["x_quiet"] - m["x_rcopy"]
+    g = Hh[Hh["ev"] == ev("H_GAP")]["bytes"].astype(np.float64) * s if "H_GAP" in run.ev else np.zeros(0)
+    w = Hh[Hh["ev"] == ev("H_WD")]["bytes"].astype(np.float64) * s if "H_WD" in run.ev else np.zeros(0)
+    m["gap_n"] = float(len(g)); m["gap_s"] = g.sum(); m["gap_max"] = g.max() if len(g) else 0.0
+    m["wd_n"] = float(len(w)); m["wd_max"] = w.max() if len(w) else 0.0
+    names = h["meta"].get("hbnames") or []; C = Hh[Hh["ev"] == ev("H_CNT")] if "H_CNT" in run.ev else Hh[:0]
+    def delta(pred):
+        tot = 0.0; seen = False
+        for i, nm in enumerate(names):
+            if pred(nm):
+                c = C[C["round"] == i]
+                if len(c) > 1:
+                    seen = True; tot += float(c["bytes"][c["t"].argmax()]) - float(c["bytes"][c["t"].argmin()])
+        return tot if seen else NAN
+    m["evicted"] = delta(lambda n: n.startswith("kfd_") and n.endswith("_evicted_ms")) * 1e-3
+    m["kcompactd"] = delta(lambda n: n.startswith("kcompactd") and n.endswith("_ticks"))
+    m["cstall"] = delta(lambda n: n == "compact_stall"); m["migfail"] = delta(lambda n: n == "pgmigrate_fail")
+    return m
+
+
+def run_metrics(d):
+    """one run directory -> {metric: mean over its node-processes (max for *_max)}"""
+    run = load_run(d, os.path.basename(os.path.normpath(d)))
+    ms = [node_metrics(run, h) for h in run.nodeproc]
+    out = {}
+    for k in ms[0]:
+        v = [m[k] for m in ms if m[k] == m[k]]
+        out[k] = (max(v) if k.endswith("_max") else sum(v) / len(v)) if v else NAN
+    out["_nodes"] = run.nodes; out["_procs"] = len(ms); out["_hbms"] = run.meta0.get("hb_ms"); out["_gapms"] = run.meta0.get("hb_gap_ms")
+    e = run.meta0.get("env") or {}; out["_transport"] = ("libfabric" if e.get("COMM_OFI") == "1" else "") + (" " if e.get("COMM_OFI") == "1" else "") + e.get("COMM_TRANSPORT", "?")
+    return out
+
+
+def _med(vs):
+    v = sorted(x for x in vs if x == x)
+    return NAN if not v else (v[len(v) // 2] if len(v) % 2 else 0.5 * (v[len(v) // 2 - 1] + v[len(v) // 2]))
+
+
+def section_compare(sides, labels, L):
+    """sides = [[run_metrics dict, ...] for A, for B]; one table, medians over the runs of a side"""
+    n = [len(s) for s in sides]
+    med = [{k: _med([r[k] for r in s]) for k in s[0] if not k.startswith("_")} for s in sides]
+    L.append("== COMPARE  %s (%d run%s, %s, %d nodes)  vs  %s (%d run%s, %s, %d nodes)  --  per node-process means, median over the runs of a side; times in s ==" % (
+        labels[0], n[0], "s" * (n[0] != 1), sides[0][0]["_transport"], sides[0][0]["_nodes"], labels[1], n[1], "s" * (n[1] != 1), sides[1][0]["_transport"], sides[1][0]["_nodes"]))
+    a, b = med
+    L.append("   %-34s %12s %12s %12s %9s" % ("", labels[0][:12], labels[1][:12], "B-A", "(B-A)/A"))
+    def row(name, key, fmt="%.3f", mul=1.0, indent=0, always=False):
+        x, y = a.get(key, NAN) * mul, b.get(key, NAN) * mul
+        if not always and not ((x == x and x != 0) or (y == y and y != 0)):
+            return
+        f = lambda v: "-" if v != v else fmt % v
+        dl = y - x + 0.0 if x == x and y == y else NAN
+        L.append("   %-34s %12s %12s %12s %9s" % ("  " * indent + name, f(x), f(y), f(dl), "%+.1f%%" % (100 * dl / x) if dl == dl and x not in (0, NAN) and x == x else "-"))
+    row("start-up (init -> 1st exchange)", "start", always=True)
+    row("exchange window (1st..last)", "window", always=True)
+    row("exchange in flight (union)", "busy", always=True); row("no exchange in flight (compute)", "between", indent=1, always=True)
+    row("exchanges, sum begin..done", "ex", always=True); row("n exchanges", "n_ex", "%.0f", indent=1, always=True)
+    for k in KIND:
+        row("kind " + k, "k_" + k, indent=1)
+    
+    L.append("   inside the exchanges (seconds summed over the exchanges):")
+    row("copy in", "copy_in", indent=1); row("rounds (rounds path)", "rounds", indent=1)
+    for nm, key in (("publish offsets", "r_publish"), ("send copy", "r_scopy"), ("sends (offset wait + put + flush)", "r_send"), ("signal wait", "r_sig"), ("quiet", "r_quiet"), ("receive copy", "r_rcopy")):
+        row(nm, key, indent=2)
+    row("quiet (non-rounds)", "x_quiet", indent=1); row("copy out (non-rounds)", "x_rcopy", indent=1); row("rest (waits for the peers, other paths)", "x_other", indent=1)
+    L.append("   message components (message-seconds summed over the node's messages; peers overlap, so can exceed the exchange time):")
+    for nm, key in (("offset-word wait (M_ROFF)", "roff"), ("put post", "put"), ("put post -> done", "put_done"), ("flush (libfabric)", "flush"), ("signal wait (M_SIG)", "sigw")):
+        row(nm, key, indent=1)
+    L.append("   node stalls (heartbeat gap > %s ms; watchdog):" % (sides[0][0]["_gapms"] if sides[0][0]["_gapms"] == sides[1][0]["_gapms"] else "%s / %s" % (sides[0][0]["_gapms"], sides[1][0]["_gapms"])))
+    row("heartbeat gaps, count", "gap_n", "%.1f", indent=1); row("heartbeat gaps, total", "gap_s", indent=1); row("heartbeat gap, longest", "gap_max", indent=1)
+    row("watchdog firings", "wd_n", "%.1f", indent=1); row("watchdog, longest idle", "wd_max", indent=1)
+    L.append("   OS counters over the run (HB_MEM; '-' = not recorded):")
+    row("KFD evicted time", "evicted", indent=1); row("kcompactd CPU ticks", "kcompactd", "%.1f", indent=1); row("compact_stall", "cstall", "%.1f", indent=1); row("pgmigrate_fail", "migfail", "%.0f", indent=1)
+    row("total (init -> last record)", "total", always=True)
+    L.append("   (exchanges of different communicators overlap, so the per-exchange sums can exceed the window; per-kind and per-round rows are sums over exchanges; 'longest' = max over nodes; zero rows omitted)")
+
+
+def compare_runs(dirsA, dirsB, labels, L):
+    sides = [[run_metrics(d) for d in ds] for ds in (dirsA, dirsB)]
+    section_compare(sides, labels, L)
+
+
 # ---------------------------------------------------------------- selftest: a synthetic trace
 def synth(d, nodes=3, nex=60, seed=3):
     """one communicator (id 4, APU 0), rounds path K = 1 with PX3 proxies; node 2 is the slow one (late by 4 ms in 10% of the exchanges, in a burst);
@@ -1000,11 +1149,26 @@ def main():
     ap.add_argument("--bin-s", type=float, default=1.0, help="time bin of the clustering test, seconds (default 1)")
     ap.add_argument("--slow-ratio", type=float, default=2.0, help="slow = duration above this multiple of the median of its class (default 2)")
     ap.add_argument("--max-msgs", type=int, default=6000000, help="message rows kept for the link / time tables (default 6e6; thinned beyond)")
+    ap.add_argument("--compare", nargs="+", metavar="DIR", help="side-by-side table of two runs: DIR_A DIR_B, or with --vs: the runs of side A (medians over the runs of a side)")
+    ap.add_argument("--vs", nargs="+", metavar="DIR", help="the runs of side B for --compare")
+    ap.add_argument("--label", nargs=2, metavar=("A", "B"), help="column labels of --compare (default A B)")
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("-v", action="store_true")
     args = ap.parse_args()
     if args.selftest:
         sys.exit(selftest())
+    if args.compare:
+        da, db = (args.compare, args.vs) if args.vs else (args.compare[:1], args.compare[1:])
+        if not da or not db or (not args.vs and len(args.compare) != 2):
+            ap.error("--compare needs DIR_A DIR_B, or DIRS_A... --vs DIRS_B...")
+        L = []; compare_runs(da, db, args.label or ["A", "B"], L)
+        txt = "\n".join(L) + "\n"
+        if args.out:
+            with open(args.out, "w") as f:
+                f.write(txt)
+        else:
+            sys.stdout.write(txt)
+        return
     if not args.runs:
         ap.error("no RUN given")
     runs = []

@@ -102,6 +102,7 @@ reference value (GMP, or the one-node device product at the default plane checke
 checks the reference itself (one limb changed low, in the middle or at the top must fail; `t_mul` runs it on every product
 of sections 1 and 2). `tests/` at the repository root holds two model scripts
 (`t2_seed_model.py`, `as_pool_replay.py`); `tools/test_unpack.py` and `tools/test_pack60.c` test the packed format.
+Python unit tests of the tools (`trace_report.py`, `switch_registry.py`, `doccheck.py`; stdlib, numpy only for the first, each < 5 s): `python3 -m unittest discover -s tests` from the repository root (`tests/test_tools.py`).
 
 Digits against a reference:
 
@@ -110,6 +111,7 @@ Digits against a reference:
 
 Message trace (`COMM_TRACE=1`, `ecalc/README.md`): `make -C ecalc tests/t_trace && COMM_TRACE=1 COMM_TRACE_MAX_MB=16 ecalc/tests/t_trace <dir>` (no GPU, no SHMEM: writer, arena
 overflow and drop count; prints PASS) and `python3 tools/trace_report.py --selftest` (reader and analysis on a synthetic 3-node trace with a known straggler and clock skew; exit 0).
+Two runs side by side (e.g. libfabric against SHMEM at the same node count): `python3 tools/trace_report.py --compare <dirA> <dirB> --label A B` (several runs per side: `--compare A1 A2 --vs B1 B2`, medians): start-up, exchange time per kind and per round stage, message waits, heartbeat gaps, KFD evicted_ms, kcompactd ticks, total; columns A, B, B-A, (B-A)/A.
 The gate for the switch itself is the usual 1-node and 2-node digit compare with `COMM_TRACE=1`.
 
 A run's own checks (`VERIFY OK`: T1 residues, T2 windows) are described in `ALGORITHM.md` §10; they do not replace the
