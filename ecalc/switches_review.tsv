@@ -106,3 +106,4 @@ COMM_SHMEM_OFFS_WITH_DATA	experiment	N7F	2026-10-15	<MiB> per-communicator inbox
 MEM_PRECOMPACT_GB	experiment	FRAGFIX	2026-11-16	one-shot huge-page populate + unmap per NUMA node before the pools: the user-side compaction against the fragmented-node stall (Phase B, items 88/89); adopt (a default in GiB) or remove after the 2- and 4-node F vs FX items
 ECALC_MEMPREP_ONLY	experiment	FRAGFIX	2026-11-16	standalone memory-preparation step (mnrun.sh MNRUN_MEMPREP_GB): adopt or remove with MEM_PRECOMPACT_GB after the fragfix items
 MEM_HSTAGE_THP	experiment	FRAGFIX	2026-11-16	0 = no MADV_HUGEPAGE on the pinned host staging (no direct reclaim / compaction per fault on a fragmented node); adopt or remove after items 88/89
+COMM_SHMEM_NP_HEAP_THP	experiment	NPHEAP	2026-11-16	1 = the node-process symmetric heap pre-faulted and collapsed to 2 MiB pages before the library registers it (kcompactd stall mechanism, item 97m); adopt or remove after the s3xx items

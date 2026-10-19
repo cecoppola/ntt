@@ -241,6 +241,10 @@ static int g_heap_numa = -1, g_heap_mbind = -2;          /* N7C COMM_SHMEM_PX_NU
  * the helper pre-faults its pool and collapses it to 2 MiB pages before the barrier (pool_collapse).  Raw syscalls: no wrapper recursion. */
 static int g_thp, g_thp_err, g_thp_thr = 4; static double g_thp_t; static void *g_heap_hint; static int g_heap_fl;
 static void pool_populate(char *p, size_t n, int nt); static int pool_collapse(char *p, size_t n, int nt);
+/* NPHEAP COMM_SHMEM_NP_HEAP_THP=1 (default 0 = off, nothing below runs): the node-process's own symmetric heap (the library's one shared anonymous /dev/zero mapping) is
+ * pre-faulted and collapsed to 2 MiB pages inside the wrapper, before the library registers it (kcompactd isolates pinned 4 KiB shmem pages, fails to migrate them and retries
+ * through unmap = KFD queue evictions; compound pages are skipped).  The mapping itself is the library's own call (address, flags, fd kept; only an unhinted one is 2 MiB aligned). */
+static int g_np_mode, g_np_err; static void *g_np_addr; static size_t g_np_len; static double g_np_t;
 #define THP_SZ ((size_t)2 << 20)
 #ifndef MADV_COLLAPSE
 #define MADV_COLLAPSE 25
@@ -259,6 +263,15 @@ static void *thp_mmap(size_t l, int prot, int fl, int fd, off_t o)
 }
 static void *heap_mmap(void *a, size_t l, int prot, int fl, int fd, off_t o)
 {
+    if (g_heap_arm && g_np_mode && !g_np_addr && (fl & MAP_SHARED) && l >= g_heap_min) {
+        int zero = (fl & MAP_ANONYMOUS) != 0;
+        if (!zero && fd >= 0) { struct stat st; zero = fstat(fd, &st) == 0 && S_ISCHR(st.st_mode) && major(st.st_rdev) == 1 && minor(st.st_rdev) == 5; }
+        if (zero) {
+            void *r = !a && !(fl & MAP_FIXED) ? thp_mmap(l, prot, fl, fd, o) : (void *)syscall(SYS_mmap, a, l, prot, fl, fd, o);
+            if (r != MAP_FAILED) { double tc = now_s(); g_np_addr = r; g_np_len = l; pool_populate((char *)r, l, g_thp_thr); g_np_err = pool_collapse((char *)r, l, g_thp_thr); g_np_t = now_s() - tc; }
+            return r;
+        }
+    }
     if (g_heap_arm && !g_heap_addr && (fl & MAP_SHARED) && l >= g_heap_min) {
         int zero = (fl & MAP_ANONYMOUS) != 0;
         if (!zero && fd >= 0) { struct stat st; zero = fstat(fd, &st) == 0 && S_ISCHR(st.st_mode) && major(st.st_rdev) == 1 && minor(st.st_rdev) == 5; }
@@ -777,8 +790,17 @@ int comm_shmem_init(void)
             int d = (getenv("SLURM_LOCALID") ? atoi(getenv("SLURM_LOCALID")) : 0) / S.ppa; char p[96]; snprintf(p, sizeof p, "/sys/class/cxi/cxi%d/device/numa_node", d);
             FILE *f = fopen(p, "r"); g_heap_numa = d; if (f) { int n = -1; if (fscanf(f, "%d", &n) == 1 && n >= 0) g_heap_numa = n; fclose(f); } }
         g_heap_arm = 1; } }
+    g_np_mode = env_int("COMM_SHMEM_NP_HEAP_THP", 0);   /* NPHEAP: node-process (every PE that is not a helper; mnrun.sh sets COMM_SHMEM_PROXY=1 for helpers only); the proxy path above wins */
+    if (g_np_mode < 0 || g_np_mode > 1) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_NP_HEAP_THP=%d: 0 (off) or 1 (the node-process heap in 2 MiB pages)\n", g_np_mode);
+    if (g_np_mode && g_heap_arm) g_np_mode = 0;   /* a helper (its heap file is the proxy path's) */
+    if (g_np_mode) {
+        g_thp_thr = env_int("COMM_SHMEM_PX_INIT_THREADS", 4);
+        { g_heap_min = comm_shmem_heap_env(0); if (!g_heap_min) { g_np_mode = 0; fprintf(stderr, "comm_shmem: COMM_SHMEM_NP_HEAP_THP=1 skipped: SHMEM_SYMMETRIC_SIZE is not set\n"); } else g_heap_arm = 1; } }
     shmem_init_thread(SHMEM_THREAD_MULTIPLE, &prov);
     g_heap_arm = 0; g_t_shinit = now_s() - g_t0;
+    if (g_np_mode) { long pmd = g_np_addr ? smaps_kb(g_np_addr, "ShmemPmdMapped") : -1;
+        fprintf(stderr, "comm_shmem: pe %d: COMM_SHMEM_NP_HEAP_THP=1: heap %p, %zu MiB (%s), %ld MiB PMD-mapped after, collapse %.2f s incl. pre-fault, %s\n", shmem_my_pe(), g_np_addr, g_np_len >> 20,
+            g_np_addr ? "mapped" : "no shared anonymous mapping >= SHMEM_SYMMETRIC_SIZE seen", pmd >> 10, g_np_t, g_np_err ? strerror(g_np_err > 0 ? g_np_err : EINVAL) : "no error"); }
     S.prov = prov;
     S.pme = S.me = shmem_my_pe(); S.pnpes = S.npes = shmem_n_pes();
     if (S.ppa) {                                          /* N7b: logical PE = node; the last PE of a node's block is its node-process */
