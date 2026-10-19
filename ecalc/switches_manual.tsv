@@ -44,11 +44,11 @@ DBIG_SMALL_BOUNCE	1	int	0|1	built-in default	dbig.c; O2+CAND, user-adopted 2026-
 BS_SEED_PULL	1	int	0|1	built-in default	dbig.c; K8b+CAND, user-adopted 2026-10-12 (acts with DB_POOL_VMM); 0 = old path
 COMM_HS_TS	0	bool	0|1	test-only	newton_db.c; G1 print-only handshake time stamps
 BS_BATCH_PIPE	1	bool	0|1	built-in default	rns_mul.c, binsplit.c; N3 batch-tier host overlap (results/N3.md); default 1 since D20, =0 kept fallback
-DM_MN_WRAP	auto (fit)	int	0|1|20..62	built-in default	binsplit.c binsplit_fit / binsplit_dm_wrap (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): unset = 1 when the device with the wrap fits ECALC_DEVICE_GB less ECALC_DEVICE_MARGIN_GB, else 0; =0/=1 explicit wins (a warning when 1 does not fit); the wrap itself P1/D22 (results/P1.md), dm_layout counts it (D19, results/LAUNCH_DEFAULTS.md §DEF)
+DM_MN_WRAP	auto (fit)	int	0|1|20..62	built-in default	binsplit.c binsplit_fit / binsplit_dm_wrap (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): unset = 1 when the device with the wrap fits ECALC_DEVICE_GB less ECALC_DEVICE_MARGIN_GB, else 0; =0/=1 explicit wins (a warning when 1 does not fit); the wrap itself P1/D22 (results/DIVISION.md §P1), dm_layout counts it (D19, results/LAUNCH_DEFAULTS.md §DEF)
 ECALC_NP_MN3	0	bool	0|1	built-in default	crt.c ec_np_init; =1 the three-prime multi-node path, kept fallback after D18 (results/LAUNCH_DEFAULTS.md §DEF)
 RNS_CRT_SCAN	1	bool	0|1	built-in default	K4b: k_crt_batch parallel carry (rns_mul.c rns_gconst); default 1 since D21, =0 kept fallback
 P24_CRT_SCAN	1	bool	0|1	built-in default	K4c: k_crt24 parallel carry (p24_crt.c p24_crt_scan_on); default 1 since D24, =0 kept fallback
-NEWTON_CHAIN_GUARD	1	int	0|1	built-in default	newton_db.c newton_chain_guard; default 1 since D25, =0 kept fallback (RECIP, results/RECIP.md); dm_layout and mem_model.py follow it
+NEWTON_CHAIN_GUARD	1	int	0|1	built-in default	newton_db.c newton_chain_guard; default 1 since D25, =0 kept fallback (RECIP, results/DIVISION.md §RECIP); dm_layout and mem_model.py follow it
 ECALC_DEVICE_GB	373.44	float	GB per node	built-in default	binsplit.c binsplit_fit (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): the device edge per node the memory fit checks (the target: 373.44, m, TGTBENCH2; aac7 profile 444.0, m); a run above it is refused before launch
 ECALC_DEVICE_MARGIN_GB	5	float	GB per node	built-in default	binsplit.c binsplit_fit (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): DM_MN_WRAP automatic takes the wrap only when the device with it is at most ECALC_DEVICE_GB less this margin
 COMM_SHMEM_PEER_ORDER	rank	str	rank|shift	experiment	comm_shmem.c; N7 peer order of the puts

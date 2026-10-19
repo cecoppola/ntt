@@ -57,7 +57,7 @@ error, not a deterministic one**. Its shape — the product wrong from one limb 
 same node, the position of the order of a stripe boundary of the children's products — is what a single wrong operand
 limb (or a stale read of one) at that position produces. The fault is inside the leaf's level loop (`binsplit.c` +
 `rns_mul.c`'s batch tiers: the CPU `spill_merge` writes into the device regions between the CRT kernel and the next
-level's scatter kernel are the one CPU-to-GPU hand-over there), under the forced growth of plane pool 1 — the configuration A-mem's rule excludes (`results/A-mem.md`: pool 1 at the full pool for
+level's scatter kernel are the one CPU-to-GPU hand-over there), under the forced growth of plane pool 1 — the configuration A-mem's rule excludes (`results/MEMORY.md §A-mem`: pool 1 at the full pool for
 `POOL_LOG` ≤ 30, so nothing grows inside a phase); none of the ≈ 15 default-configuration runs at 10¹⁰/4 and none
 of the regressions failed. Batch 7 (job 20830, `ECALC_RES_LOG_LEVEL=11 ECALC_RES_LOG_CPU=1`: the per-level check reads the regions with the CPU
 only — no kernel, no stream synchronisation — and would dump the first wrong node with its four children):

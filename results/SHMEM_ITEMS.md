@@ -1068,7 +1068,7 @@ Scope: the N7C record (2026-10-14, aac7, 2 and 6 nodes): diagnosis of the proxy 
 **Diagnosis (measured at 6 n in the B3 logs and at 2 n in a 12-run item; modelled where marked).** `t_comm` is host-only and sees only the NICs.
 ecalc's exchanges are mostly GPU work on the pool (xGMI pushes, transposes, scatter, `hipMemcpyAsync`). Under `comm_ofi` the pool is
 fine-grained device memory on the APU's HBM; in the proxy mode it is the proxy's `/dev/shm` heap: 4 KiB pages (no huge-page route on aac7),
-placed by first touch (local to its APU in 6 of 24 pool-runs, m), and copies that touch it go to the SDMA engine (21 GB/s, results/I.md).
+placed by first touch (local to its APU in 6 of 24 pool-runs, m), and copies that touch it go to the SDMA engine (21 GB/s, results/MEMORY.md §I).
 Two fixes: F1 `COMM_SHMEM_PX_NUMA=1` (mbind of the proxy heap to the NIC's NUMA node: 32 of 32 pools local, m) and F2 `HSA_ENABLE_SDMA=0` (environment
 only; copies by blit kernels). At 2 nodes, 5e10 digits (m, one run each, mirrored order): comm_ofi fabric stage 8.8 s, rounds kinds 7.5 s,
 total 55.1-59.3 s; proxy mode 14.7-21.8 s, 12.5-12.7 s, 80.1-99.3 s; with both fixes 9.7 s, 7.6 s, 57.1 s (the first run 136.0 s: slow init, 80 s).
@@ -1407,7 +1407,7 @@ have to give `COMM_OFI=0` at every node count?
 model output, digits cannot change. `COMM_OFI=1` (the default transport) is unchanged.
 
 - `ecalc/binsplit.c` `binsplit_shmem_pool_need`: under `COMM_OFI=0` the v-slots of the four APU threads are added to the
-  pool (`sym += 4 x vsp`) also when `COMM_LAYER_VSLOT_RELEASE=1` (the default); before, M3 (results/C06.md) took
+  pool (`sym += 4 x vsp`) also when `COMM_LAYER_VSLOT_RELEASE=1` (the default); before, M3 (results/GRID_GROUPS.md §C06) took
   `max(staging, 4 x vsp)`. The `plan pool` line now names the slots (`v-slots <MiB> = 4 x <MiB>`).
 - `ecalc/mem_model.py` `shmem_pool`: the same law.
 - `ecalc/README.md`, `COMM_LAYER_VSLOT_RELEASE` row: the "larger, not the sum" rule holds under `COMM_OFI` only.
@@ -1444,7 +1444,7 @@ Pool per node-process from the planner (MiB, mod; the pool is host memory, the h
 | 3.82e13, 576 (target template) | 10240 | 17664 | 7312 = 4 x 1828 | 2304 |
 
 At the target the `COMM_OFI=0` pool grows by 7424 MiB (7.25 GiB) per node (mod); `plan check` stays OK (1240 products).
-The base value 10240 MiB at the target (results/TGT.md) would have failed the same way: a general area of about 2 GiB
+The base value 10240 MiB at the target (results/TARGET.md §TGT) would have failed the same way: a general area of about 2 GiB
 for 1.6 GiB of control and 7.1 GiB of slots (mod).
 
 Runs (aac7, measured, 1e10 digits, `COMM_OFI=0`, aac7 launch line; queue item `50_shm_pool.sh`, summary `~/shm/summary.txt`; times ET):

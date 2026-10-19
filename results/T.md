@@ -153,7 +153,7 @@ further. It is not exercised at the defaults' pool sizes any more than the growt
 runs with the growth, none of the ≈ 15 default-configuration runs at 10¹⁰ size 4 failed (A-mem's 3, the
 integrator's, D2's 4, C6's) — so the growth (a 3 GiB `hipFree` + 4 GiB `hipMalloc` per APU inside bs, moving every
 later allocation) most likely exposes a use of freed or uninitialised device memory elsewhere rather than in the
-tier that grows the pool. `results/A-mem.md`'s rule stands: pool 1 at the full pool for `POOL_LOG` ≤ 30, so nothing
+tier that grows the pool. `results/MEMORY.md §A-mem`'s rule stands: pool 1 at the full pool for `POOL_LOG` ≤ 30, so nothing
 grows inside a phase.
 
 ## E3 — `ecalc/README.md`

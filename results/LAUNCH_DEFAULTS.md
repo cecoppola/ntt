@@ -274,7 +274,7 @@ said OK (results/NIGHT_RUNS.md §NIGHT, section 7).
   `COMM_OFI_POOL=host` moves them out). Printed by `MN_PLAN_ONLY` (`plan fit` lines; a run that does not fit ends with
   `plan REFUSED ...: the memory does not fit`, exit 8), by every run (`memory fit:` lines on rank 0) and by `BS_LAYOUT_ONLY`
   (a `fit:` line per point).
-- New switches: `ECALC_DEVICE_GB` (default 373.44: the target's edge, 93.36 GB per APU, m, results/TGTBENCH2.md) and
+- New switches: `ECALC_DEVICE_GB` (default 373.44: the target's edge, 93.36 GB per APU, m, results/TARGET.md §TGTBENCH2) and
   `ECALC_DEVICE_MARGIN_GB` (default 5.0: the tighter of CAP17's two bars). `profiles/aac7.conf`: `ECALC_DEVICE_GB=444.0`
   (m: aac7 SPX t_edge, job 12287, VMM 444.0 GB committed, hipMalloc about 448.0; archive:RESULTS_ARCHIVE_1-114.md, section 107;
   the lower, graceful one is taken), on the aac7 launch line; `profiles/target.conf.template`: 373.44.

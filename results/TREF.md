@@ -1,6 +1,6 @@
 # TREF — a test reference product, and the host product tier removed
 
-**Question.** Build the test reference designed in `results/SH3.md` so the host product tier (`rns_mul`: mdev, the Karatsuba /
+**Question.** Build the test reference designed in `results/CODE_REDUCTION.md §SH3` so the host product tier (`rns_mul`: mdev, the Karatsuba /
 chunked split, the CPU schoolbook, `rns_mul_low`, `rns_mul_pair`; no production caller) can go; prove the reference first
 (it must catch injected faults and agree with the old reference on every existing `t_mul` case), then move the tests and
 remove the tier. No switch, no default, no digit changed.

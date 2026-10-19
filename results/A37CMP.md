@@ -1,8 +1,8 @@
 # A37CMP: apumult a37v1 spec against ecalc, item by item
 
 Tasked by the main session (read-only on code; this file is the only write). Sources: the a37v1 spec (scratchpad copy), ecalc `main`
-@ 6e220db (`ecalc/*.c|h`), internal code notes, internal apumult study, `TASKS.md`, `RESULTS.md`, `results/S19B.md`, `results/N-kernel.md`,
-`results/K13b.md`, `results/TGTBENCH2.md`. Labels: **(m)** measured, **(mod)** modelled, **(a)** assumed. Where unsure, the row says so.
+@ 6e220db (`ecalc/*.c|h`), internal code notes, internal apumult study, `TASKS.md`, `RESULTS.md`, `results/TIME_MODEL.md §S19B`, `results/N-kernel.md`,
+`results/K13b.md`, `results/TARGET.md §TGTBENCH2`. Labels: **(m)** measured, **(mod)** modelled, **(a)** assumed. Where unsure, the row says so.
 Spec sections: the spec has no §17 (it jumps 16 -> 18); §5 and §6 are summarised in one line each in the spec itself.
 
 ## 0. The comparison in five sentences

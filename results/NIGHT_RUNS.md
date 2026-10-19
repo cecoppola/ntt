@@ -156,7 +156,7 @@ Order 1 2 4 6 6 4 2 1. Stage times in seconds, mean of 2 runs (measured):
 | 6 | 204.64 | 76.15 | 22.65 | 85.70 | 39.20 | 209.68, 199.60 | 246.4 | -16.9 % | 0.33 (0.30) |
 
 - All 8 runs passed (`VERIFY=OK`). The two 1-node runs were 69.7 s and 65.6 s.
-- Efficiency is weak scaling (work grows with the node count): T1 / Tn, the same definition as `results/M2a.md`.
+- Efficiency is weak scaling (work grows with the node count): T1 / Tn, the same definition as `results/TIME_MODEL.md §M2a`.
 - Tonight's 6-node mean (204.6 s) agrees with the repeat mean (202.1 s, section 5).
 - Only two runs per point; the differences are measured, not tested for significance.
 

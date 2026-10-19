@@ -966,7 +966,7 @@ right after `ECALC_FATAL_ABORT` (the other fatal-path switches).
 
 (former file: T23.md)
 
-**Question.** TASKS row 23 (results/CRASHES_HANGS.md §A05, results/G12.md §5 and §6, results/NODE_SLOWMODE.md §A13 part B): at 4 nodes, 10⁹ digits,
+**Question.** TASKS row 23 (results/CRASHES_HANGS.md §A05, results/GRID_GROUPS.md §G12 §5 and §6, results/NODE_SLOWMODE.md §A13 part B): at 4 nodes, 10⁹ digits,
 `POOL_LOG=29 DIST_LOGN_TEST=23` stopped with "newton_mn_divmod: 65 corrections" (the guard `++nc > 64`), while
 `DIST_LOGN_TEST=24` passed. Is this a defect of the sharded division's forced-grid path, and what fixes it?
 

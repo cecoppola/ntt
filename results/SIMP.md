@@ -1,6 +1,6 @@
 # SIMP — AUD3 items 1–4: one single-node division flow, DKM only, no 3·2^k distributed planes, one grid planner
 
-**Question.** Can the four simplifications of `results/AUD3.md` (items 1–4) be made with byte-identical digits and no
+**Question.** Can the four simplifications of `results/CODE_REDUCTION.md §AUD3` (items 1–4) be made with byte-identical digits and no
 slowdown, and does item 1 close AUD3 coverage gap (a) (the 1-node 10⁹ gate did not run the production DKM division)?
 
 **Change / branch.** Branch `simp`, four commits in the order 3, 4, 1, 2 (3 and 4 first: 1 and 2 overlapped the files of P1

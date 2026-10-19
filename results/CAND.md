@@ -4,9 +4,9 @@ Branch `cand` (off `main` a448d73). Labels: measured / modelled / assumed. Times
 
 ## Design
 - Code only, squashed from the three branches (one commit each; their results files and tools stay on their branches):
-  - `o2`: `DBIG_SMALL_BOUNCE` (+ print-only `DBIG_BOUNCE_TS`, `tests/t_bounce.c`) - results/O2.md on o2.
-  - `k1b`: `DIST_GATHER_RAW` (+ `DIST_GATHER_RAW_MARGIN_GB`, `tests/t_gather_raw_probe.c`) - results/K1b.md on k1b.
-  - `k8b` at 99eee11 (includes the hang fix b1ff573): `BS_SEED_PULL` - results/K8b.md on k8b.
+  - `o2`: `DBIG_SMALL_BOUNCE` (+ print-only `DBIG_BOUNCE_TS`, `tests/t_bounce.c`) - results/DIVISION.md §O2 on o2.
+  - `k1b`: `DIST_GATHER_RAW` (+ `DIST_GATHER_RAW_MARGIN_GB`, `tests/t_gather_raw_probe.c`) - results/EXCHANGE.md §K1b on k1b.
+  - `k8b` at 99eee11 (includes the hang fix b1ff573): `BS_SEED_PULL` - results/MEMORY.md §K8b on k8b.
 - No textual conflicts. Switch registry regenerated with `tools/switch_registry.py`; the three new switches given
   `experiment` rows in `ecalc/switches_manual.tsv`; `--check`: 269 rows, 0 problems (measured). README rows from each branch kept.
 - All switches off by default; with them unset the cand binary takes the main code paths.

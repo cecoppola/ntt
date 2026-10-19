@@ -3,7 +3,7 @@
 **Question.** Remove the code the user approved for removal on 2026-10-12, without changing a digit: D11 (keep only the
 top-level checkpoint set: no restart inside a run), D16 (the unreachable stand-in scatter of the output stage), D14 (the
 SOS / OSHMEM build branches, after mnrun.sh dropped their launch paths), and the re-scanned AUD2 items 1 (remainder), 4,
-5, 6 and 8 (`results/AUD2.md`, `results/AUD3.md`); then the residue log `ECALC_RES_LOG*` (held for T23, which closed).
+5, 6 and 8 (`results/CODE_REDUCTION.md §AUD2`, `results/CODE_REDUCTION.md §AUD3`); then the residue log `ECALC_RES_LOG*` (held for T23, which closed).
 
 **Change / branch.** Branch `shr2`, rebased on main d1d19bf (after P1 merged); eleven commits. No switch added; no default
 changed. `rns_dist.c` and `mdb.h` were not touched (on open branches during the work); `newton_db.c` only after P1 merged.

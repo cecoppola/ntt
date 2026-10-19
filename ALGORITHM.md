@@ -173,7 +173,7 @@ Every product goes to the cheapest tier that can hold it:
 
 `RNS_STRATEGY=auto` (default) picks B where its planes fit the plane pools sized at init, else C, and never allocates.
 The host product tier (`rns_mul`: one product per prime per APU from host operands, a Karatsuba split above the pool, a CPU
-schoolbook below 2¹⁰ points) had no production caller and was removed (TREF, `results/TREF.md`); the tests check products
+schoolbook below 2¹⁰ points) had no production caller and was removed (TREF, `results/CODE_REDUCTION.md §TREF`); the tests check products
 against `ecalc/tests/tref.h` instead.
 With three primes form B transforms on three APUs and the fourth only takes part in the CRT.
 
@@ -189,7 +189,7 @@ piece products:
 - the shape minimises the total transform points under a cost model that prices form B pieces at 0.70 (3·2^k
   form B lengths at 1.05 per point) and adds a per-piece pipeline cost (one search, `grid_search` in `rns_dist.c`, over a form per tier; one piece loop, `grid_loop`);
 - the shape jumps at some sizes (a "grid step", e.g. about +20 s of modelled wall above 3.82 × 10¹³, mod;
-  `results/S52.md`); the target size is chosen just below a step;
+  `results/GRID_GROUPS.md §S52`); the target size is chosen just below a step;
 - **cuts** skip pieces that cannot contribute: `grid_piece_skipped(oa, ob, la, lb, lowcut, w)` skips a piece that starts at
   or above w (low products, the band of the reciprocal) or ends at or below `lowcut` (high products whose low limbs are
   discarded). Entry points: `rns_mul_dist_db`, `rns_mul_low_db` (A·B mod B^w), `rns_mul_high_db` (only C ≫ cut used),
@@ -223,7 +223,7 @@ error (≤ 2M + 3 units at 2j) by ≥ 1 limb; a doubling with jn = 2j (the ancho
 keeps it, and a run of such doublings squares it (k = 2^m: up to two limbs lost, modelled). The division's corrections
 absorb it unless the run is long and μ's top limbs are used uncut (DKM with h = k₁, i.e. an odd quotient length); then the
 step-1 estimate can be off by more than the 64-correction limit (fatal, never wrong digits). `NEWTON_CHAIN_GUARD=1` (the default
-since D25, `=0` the old chain) anchors the chain at k, ⌈k/2⌉ + 1, … so every doubling is cut: |error| ≤ 8 units at any M (results/RECIP.md).
+since D25, `=0` the old chain) anchors the chain at k, ⌈k/2⌉ + 1, … so every doubling is cut: |error| ≤ 8 units at any M (results/DIVISION.md §RECIP).
 
 ### 5.2 Division in two quotient halves ("DKM")
 
@@ -318,7 +318,7 @@ that divide the size, then the odd part's prime factors in ascending order; at 5
   P = P_i·Q + P, Q = Q_i·Q: 2(k−1) products in sequence, each balanced over all g nodes.
 - Each product runs `rns_mul_dist_mn` → `mn_grid` → `mn_core` over the group. Dead shares are freed between a level's two
   products, so a node holds its child's P, Q, the running pair and the new pair.
-- Uneven last groups are correct but not faster (`results/B06.md`); the group structure follows the rack layout.
+- Uneven last groups are correct but not faster (`results/GRID_GROUPS.md §B06`); the group structure follows the rack layout.
 
 The only checkpoint is the top-level set (`ECALC_CKPT_TOP`, `bs_ckpt_tree_*` / `bs_ckpt_bg_*` in `binsplit.c`): each node's P and Q after the last tree level, read by `ECALC_RECHECK`. There is no restart inside a run.
 
@@ -448,8 +448,8 @@ A run is good only with `VERIFY OK` on every node (`verify.c/h`, `out_stage` in 
 | `MN_PLAN_ONLY`, `BS_LAYOUT_ONLY` | the code's own decisions (grids, pieces, prime counts, layout, the memory fit) without a device |
 | `tools/plan_values.py` | the launch values of a size; `--fit`: the memory-fit report, exit 1 when a run does not fit |
 
-Fabric profiles: `target_l4` (default; the target fabric with the L4 refit, `results/L4.md`) and `aac7` (the S48 refit,
-`results/S48.md`). The model is calibrated on the test system up to 6 nodes; the target's per-NIC rate and its fall-off are
+Fabric profiles: `target_l4` (default; the target fabric with the L4 refit, `results/TIME_MODEL.md §L4`) and `aac7` (the S48 refit,
+`results/TIME_MODEL.md §S48`). The model is calibrated on the test system up to 6 nodes; the target's per-NIC rate and its fall-off are
 assumed (a).
 
 ## Glossary

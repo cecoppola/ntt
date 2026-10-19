@@ -780,7 +780,7 @@ main launch line — this script adopts them for its own probe runs only).
 | `a3` | injection bandwidth with `comm_ofi`, 1 NIC/APU vs 2 NICs/APU (`COMM_OFI_NICS`), GB/s per node | §1.3 (A3) |
 | `a4` | the all-to-all rate at 2/8/64 nodes with `MN_COMM_MARK=1`, VERIFY, wall | §1.4 (A4) |
 
-A3 and A4 are "still the top uncertainty" per results/TGTBENCH2.md §0; this kit is what gets them measured.
+A3 and A4 are "still the top uncertainty" per results/TARGET.md §TGTBENCH2 §0; this kit is what gets them measured.
 
 #### Stages and expected runtime (wall clock, once the allocation is live)
 

@@ -67,7 +67,7 @@ binary-limb path (`LIMB_BASE=2`, the radix conversion) keeps the whole-string co
 X is scattered over mesh 0 (basis N = X.n, `comm_shard`) into a device share per node (`dbig`,
 share length limbs), node 0's own share included; the writer and the residues run on the device
 shares exactly as they will on the `mdb` of X. The two `HOOK A-div` comments in `out_stage` say what
-plugs in: `src.dev = &Xm.sh` with `mdb_share` for lo/cnt (the scatter goes), and the P, Q, R residues
+plugs in: `src->dev = &Xm.sh` with `mdb_share` for lo/cnt (the scatter goes), and the P, Q, R residues
 per share by `db_mod_qs` + `mn_out_res_combine` instead of the broadcast.
 
 ## Tests
@@ -118,7 +118,7 @@ digit residue joined over the nodes, `comm_allgather` over the TCP mesh (the day
   `mdb_share` instead of the scatter; P, Q, R residues per share by `db_mod_qs` + `mn_out_res_combine`
   instead of node 0's broadcast. The stand-in scatter (`mn_out_scatter_standin`) can then go.
   Note the size-1 flow keeps X on the host (17.8 GB): with A-div's X on the device the size-1 writer
-  can use the device source too (`src.dev`, no host X at all) — a 17.8 GB further drop.
+  can use the device source too (`src->dev`, no host X at all) — a 17.8 GB further drop.
 - `mn_out_allgather_u64` allocates its two small device buffers per call (a few calls per run).
 - Part naming is file order (`part0000` = the head), i.e. k = size − 1 − rank, since node 0 holds
   the low limbs of an `mdb`; if the integrator prefers `.part<rank>` it is one line in `mn_out_run`.

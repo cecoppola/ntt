@@ -1,7 +1,7 @@
 # MEAS-P24 — four-prime product form (P24) for all multi-node products against the default, 2 nodes
 **Question.** OPPORTUNITIES AUD3-6: time and device-memory cost of running P24 for every multi-node product (what `tools/gate.sh --p24` forces) at the standard 2-node size.
 **Change / branch.** None (measurement only). Build `main` a6ba51d (SHMEM). Switch `ECALC_NP_AUTO_TERMS=1000000` (B), unset (A).
-**Method.** Queue item `83_meas_p24` (user-approved 2026-10-12), one 2-node hold, driver `meas_abba.sh`: 4 rounds of A B B A (cap), 2 x 6.441e10 = 1.2882e11 digits, no digit writes, aac7 launch line from `tools/profile_load.py aac7 --line` (+ `COMM_XSTATS=1 MN_WAIT_STATS=1`). VERIFY OK and rc 0 on all 16 runs; B logs show `plane pool 0 for 4 primes`, A `... for 3 primes`. Digits not compared in these runs (the gate compares them at 10^9, `results/AUD3.md`).
+**Method.** Queue item `83_meas_p24` (user-approved 2026-10-12), one 2-node hold, driver `meas_abba.sh`: 4 rounds of A B B A (cap), 2 x 6.441e10 = 1.2882e11 digits, no digit writes, aac7 launch line from `tools/profile_load.py aac7 --line` (+ `COMM_XSTATS=1 MN_WAIT_STATS=1`). VERIFY OK and rc 0 on all 16 runs; B logs show `plane pool 0 for 4 primes`, A `... for 3 primes`. Digits not compared in these runs (the gate compares them at 10^9, `results/CODE_REDUCTION.md §AUD3`).
 **Results (measured).**
 
 | statistic | value |

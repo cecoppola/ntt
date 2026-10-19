@@ -1,6 +1,6 @@
 # DKM15: the division in two quotient halves with a half-length reciprocal (Phase 15 Batch 3, agent DKM)
 
-Branch `p15-DKM` from `int15g` be2eec3. The item is SC's rank 2 (results/SC15.md §3.2), approved by the user on 2026-09-28.
+Branch `p15-DKM` from `int15g` be2eec3. The item is SC's rank 2 (results/TARGET.md §SC15 §3.2), approved by the user on 2026-09-28.
 The aac6 clone is `~/ntt-DKM15`. Times are Eastern. Every number is labelled **measured**, **modelled** or **assumed**.
 
 The switch is `NEWTON_DKM=1`. It is off by default. With it off, the code paths are the ones on the base, unchanged.
