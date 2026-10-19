@@ -1,7 +1,7 @@
 # SHMEM — the SHMEM proxy mode against libfabric at 6 nodes: one summary (2026-10-17)
 
 Owner of the SHMEM-vs-libfabric story. Per-item records: results/N7B.md to N7E.md (proxy mode, NUMA, copy kernel,
-send and init variants), results/N7G.md (huge pages, items 37-51), this file (items 52-89 and 72j-75d, to 2026-10-18 11:45 ET). Labels: (m) measured,
+send and init variants), results/N7G.md (huge pages, items 37-51), results/SHMEM_STALLS.md (the full account of the compaction-stall work, 2026-10-14 to 10-18, for whoever returns to it), this file (items 52-89 and 72j-75d, to 2026-10-18 11:45 ET). Labels: (m) measured,
 (mod) modelled, (a) assumed. Unless a section says otherwise: aac7, 6 nodes, 3.8646e11 digits, the aac7 launch line, SHMEM arm `COMM_OFI=0`
 with the defaults (huge-page proxy pools, D36), libfabric arm `COMM_OFI` unset. Raw data stay on aac7 in the day
 directories named per item (`summary.txt`, `digest/`).
@@ -46,7 +46,7 @@ runs wait on peers, they do not compute more.
 | switch | result | status | default |
 |---|---|---|---|
 | `COMM_SHMEM_PX_THP` (huge-page proxy pools) | item 37, 4 pairs: −287.8 s [−507, −68], faster 4/4; items 38, 39, 41 (default on vs off): +207.7 (2 pairs), +28.4 [−27, +84], +163.5 [−45, +372] | adopted, D36 (a) | 1 |
-| `COMM_SHMEM_NP_HEAP_THP` (node-process heap in 2 MiB pages) | 3 n items 97q-97t: stalls 0/12 runs on vs 7/18 off; see "Compaction stalls" | adopted, D48 | 1 |
+| `COMM_SHMEM_NP_HEAP_THP` (node-process heap in 2 MiB pages) | 3 n items 97q-97t: stalls in 0 of 16 runs on (and 0 of 6 at 2 n, 97v) vs 9 of 24 off; see "Compaction stalls" and results/SHMEM_STALLS.md | adopted, D48 | 1 |
 | `COMM_SHMEM_PX_PIN` (pinned pools) | N7G, 3 pairs with THP: −124.9 s [−460.6, +210.8]; never separated from THP | removed 2026-10-18 (not significant, no gain at 3 n in items 97e/97f; review date passed) | removed |
 | `COMM_SHMEM_HEAP_THP` (huge-page SHMEM heap) | item 40, 2 pairs: +24.8 s [−179, +229]; gates PASS | dropped (D39), not merged | — |
 | `COMM_SHMEM_OFFS_WITH_DATA=64` + `COMM_SHMEM_MESH_PAR=1` (N7F fixes A and C) | item 40 task-3 arm, 2 pairs: +49 s | off, no gain | 0 / 0 |
