@@ -137,7 +137,6 @@ static struct {
     double tv; long nv;                    /* all-to-all time (alltoall, alltoallv), post to completion, summed over the APU threads; the count */
     double bv;                             /* the bytes this PE received from the other PEs in those exchanges (the off-process traffic), summed */
     int ppa, ppn, pme, pnpes, proxy;       /* N7b COMM_SHMEM_PE_PER_APU: proxies per APU (0 off), PEs per node (1 + 4 ppa), my physical PE and the count, 1 = this PE is a proxy */
-    size_t pxch;                           /* COMM_SHMEM_PX_BLOCK_MB: the chunk of a PX_SEND=3 put (default PXCH = 4 MiB; the same on every PE) */
     int pxsend;                            /* N7D COMM_SHMEM_PX_SEND: 1 (fallback; default only without PE_PER_APU=1 or OpenSHMEM 1.5) the proxy's batch-then-quiet, 3 (PX3, default since D53) plain chunks + one fence and signal word per command (px_serve2); 2 (chunked put-with-signal) was removed 2026-10-19 */
 } S;
 enum { K_CTRL, K_STAGE, K_SYM };
@@ -519,7 +518,7 @@ static long px_write(px_dev *x, int dst_pe, size_t roff, const void *src, size_t
     }
     return -1;
 }
-/* N7D COMM_SHMEM_PX_SEND=3 (PX3): a proxy's life without batch-then-quiet.  Every command is cut into S.pxch chunks, posted round robin over the
+/* N7D COMM_SHMEM_PX_SEND=3 (PX3): a proxy's life without batch-then-quiet.  Every command is cut into PXCH (4 MiB) chunks, posted round robin over the
  * commands in the ring (so the peers' transfers interleave) on the context of its destination node (up to PXNCTX contexts: a slow peer's
  * completion does not hold the others').  Each chunk is a plain shmem_ctx_putmem_nbi; after a command's last chunk, one shmem_ctx_fence on the
  * peer's context + the signal word (set to PACK(seq, n)): the receiver waits for that word alone, through the receiving proxy's pool -- it needs
@@ -545,9 +544,9 @@ static void px_serve2(void)
                 for (long k = tp; k < t; k++) { int s = (int)(k % PXRING); if (fp[s]) continue;
                     struct px_ent *e = &ring[s]; shmem_ctx_t c = cx[co[s]];
                     if (!e->n) { shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); fp[s] = 1; if (tra[s]) TRP(P_SIGNAL, 0, k, e, 0); continue; }
-                    size_t o = posted[s], len = e->n - o < S.pxch ? e->n - o : S.pxch; int last = o + len == e->n;
+                    size_t o = posted[s], len = e->n - o < PXCH ? e->n - o : PXCH; int last = o + len == e->n;
                     shmem_ctx_putmem_nbi(c, S.pool + e->roff + o, S.pool + e->soff + o, len, (int)e->pe);   /* a plain chunk; the command's last chunk is followed by a fence and its signal word */
-                    if (tra[s]) TRP(P_CHUNK, o / S.pxch, k, e, len);
+                    if (tra[s]) TRP(P_CHUNK, o / PXCH, k, e, len);
                     if (last) { shmem_ctx_fence(c); shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); nsig++; if (tra[s]) TRP(P_SIGNAL, 0, k, e, e->n); }
                     posted[s] = o + len; nput++; bytes += (double)len;
                     if (last) fp[s] = 1; else more = 1;
@@ -797,10 +796,6 @@ static int comm_shmem_init_i(void)
     if (S.pxsend != 1 && S.pxsend != 3) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d: 1 (batch then quiet) or 3 (chunked puts, one fence + signal per command); 2 (chunked put-with-signal) was removed 2026-10-19\n", S.pxsend);
     if (S.pxsend == 3 && S.ppa == 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d is not built for COMM_SHMEM_PE_PER_APU=2\n", S.pxsend);
     if (S.pxsend == 3 && (!S.ppa || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d needs COMM_SHMEM_PE_PER_APU=1 and an OpenSHMEM 1.5 build (the proxy's context code is compiled only with 1.5 headers; PX_SEND=3 itself uses plain puts, not put-with-signal)\n", S.pxsend);
-    { const char *e = getenv("COMM_SHMEM_PX_BLOCK_MB"); double mb = e ? atof(e) : 4;   /* the PX_SEND=3 chunk (fewer chunks per peer); PE_PER_APU=2's 4 MiB heap alternation keeps PXCH */
-      if (!(mb >= 1 && mb <= 1024)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_BLOCK_MB=%s: 1..1024 (MiB; default 4)\n", e ? e : "");
-      S.pxch = (size_t)(mb * 1048576.0);
-      if (S.pxch != PXCH && S.pxsend != 3) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_BLOCK_MB needs COMM_SHMEM_PX_SEND=3 (COMM_SHMEM_PE_PER_APU=1); PE_PER_APU=2 keeps the 4 MiB heap blocks\n"); }
     S.mb_bytes = ((size_t)MAXID * npes_hint * 8 * (S.pxsend == 3 ? 2 : 1) + ALIGN - 1) & ~(size_t)(ALIGN - 1);   /* (N7D: a proxy's signal words in its second half) */
     S.pool_bytes = (mb << 20) + S.mb_bytes;
     { const char *ex = getenv("COMM_SHMEM_PROXY"); if (S.ppa && ex && atoi(ex)) {   /* N7b: a proxy's heap as a named file (heap_mmap) */

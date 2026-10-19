@@ -50,7 +50,7 @@ runs wait on peers, they do not compute more.
 | `COMM_SHMEM_PX_PIN` (pinned pools) | N7G, 3 pairs with THP: −124.9 s [−460.6, +210.8]; never separated from THP | removed 2026-10-18 (not significant, no gain at 3 n in items 97e/97f; review date passed) | removed |
 | `COMM_SHMEM_HEAP_THP` (huge-page SHMEM heap) | item 40, 2 pairs: +24.8 s [−179, +229]; gates PASS | dropped (D39), not merged | — |
 | `COMM_SHMEM_OFFS_WITH_DATA=64` + `COMM_SHMEM_MESH_PAR=1` (N7F fixes A and C) | item 40 task-3 arm, 2 pairs: +49 s | off, no gain; `COMM_SHMEM_OFFS_WITH_DATA` removed 2026-10-18 (D49), `COMM_SHMEM_MESH_PAR` removed 2026-10-19 (task 4) | 0 / 0 |
-| `COMM_SHMEM_PX_BLOCK_MB` (N7F fix B, put chunk) | not timed; default 4 MiB equals the comm_ofi chunk | off (unchanged) | 4 |
+| `COMM_SHMEM_PX_BLOCK_MB` (N7F fix B, put chunk) | not timed; default 4 MiB equals the comm_ofi chunk | removed 2026-10-19 (D54; 1/16/64 MiB did not improve PX3, item 99c) | fixed 4 MiB |
 | `COMM_SHMEM_LAYV_ANY` (layered exchange, any-order push) | items 49-50, 4 pairs: −45.0 s [−116, +26], faster 4/4; item 56, 4 pairs: +4.6 s [−174, +183]; pooled over 8 pairs: no effect; gates PASS 1 and 2 n, 6-n 1e10 identical (item 55) | merged c3a469d, no effect; removed 2026-10-18 (gates PASS 1 and 2 n, item 93g) | — |
 | `COMM_SHMEM_PE_PER_APU=2` | item 58 found an abort, not a timing: Cray SHMEM kills the job when `SHMEM_OFI_NUM_NICS` exceeds the NICs present (aac7: 4; the default 4 x PE_PER_APU asked for 8). Fixed in bbf471e/f67baf7 (mnrun.sh caps the default at the node's NIC count); item 63 gates PASS (1 and 2 n with value 2, 2 n default). Timing at 2 n: item 80 (ppa2s, 4 pairs, 2026-10-17): value 2 +5.6 s [+2.5, +8.6] slower than 1 (116.8 vs 122.4 s, CV 1.0 % both, m) | fixed; value 2 slower at 2 n, off | 1 |
 | `ECALC_HOST_THP=0` (transparent huge pages off for the node process; branch hthp, unmerged) | item 65 (pb1, 2 n, 2026-10-17 22:07): D 124.6, C 125.8, H 146.0 s; H − D +21.4 (rounds +31, -6, +17, +44), C − D +1.2 (m) | not adopted; branch kept for reference | 1 |
@@ -284,7 +284,7 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
   shift (DT) 215.1 s at 6 n, worse than `PX_SEND=1`). `PX_SEND=4` (put-with-signal on the last put, branch pxsig, archived):
   6 n 246.6 s (99b); with shift 149.2 s at 4 n (libfabric level) but 221.9 s at 6 n, +9.0 s against `PX_SEND=1`, CI [+5.0,
   +13.1] (99g): whole puts with one-to-one pairing help at 3 peers and hurt at 5.
-  `COMM_SHMEM_PEER_ORDER` was removed 2026-10-19 (D54): every peer loop walks in rank order; the trace header keeps `shift` = 0.
+  `COMM_SHMEM_PEER_ORDER` and `COMM_SHMEM_PX_BLOCK_MB` were removed 2026-10-19 (D54; the chunk is the fixed 4 MiB): every peer loop walks in rank order; the trace header keeps `shift` = 0.
 - **Remaining gap** at 6 n: PX3 against libfabric about +9 % (208 against 190 s); see "Six-node confirmation and the gap
   against the off-node peers" above.
 
