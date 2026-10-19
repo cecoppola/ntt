@@ -14,6 +14,7 @@ BS_SEED_FILL	bool	unset	unset	0|1	built-in default	-	T215.md+DOC15.md	Y	ecalc	bi
 BS_SEED_PULL	int	1	1	0|1	built-in default	-	-	Y	ecalc	dbig.c	2	coordinator (TASKS S)	2026-11-11	dbig.c; K8b+CAND, user-adopted 2026-10-12 (acts with DB_POOL_VMM); 0 = old path
 BS_SEED_TERMS	int	derived	derived		built-in default	-	T215.md+WP7.md	Y	ecalc	binsplit.c	5	-	-	
 BS_SEED_THREADS	int	all	all		built-in default	-	I.md+S22.md	Y	ecalc	binsplit.c	6	-	-	
+COMM_KTIME	int	0	0		unclassified	-	-	Y	ecalc	comm_copy.c,comm_shmem.c	2	diagnostics (TESTING.md)	2027-04-12	
 COMM_LAYER_INTER2	bool	derived	derived	0|1	built-in default	-	XEFF.md+S47.md	Y	ecalc	comm_layered.c	1	coordinator (TASKS S)	2026-11-11	comm_layered.c; default since 2026-10-12 (TASKS 27): follows COMM_LAYER_VSLOT_POOL (1)
 COMM_LAYER_STATS	int	0	0		test-only	-	X13.md+C16.md	Y	ecalc	comm_layered.c	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_LAYER_VSLOT_MB	bool	derived	derived	0|1	built-in default	-	-	prose	ecalc	comm_layered.c	2	-	-	
@@ -40,13 +41,12 @@ COMM_SHMEM_PEER_ORDER	str	rank	unset	rank|shift	experiment	-	N7.md	Y	ecalc	comm_
 COMM_SHMEM_PE_PER_APU	int	0	0	0|1|2	experiment	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/N7D.md)	2026-11-14	comm_shmem.c, mnrun.sh, binsplit.c; N7b one SHMEM proxy PE per APU under COMM_OFI=0; N7E 2 = two helper PEs per APU (one per NIC)
 COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_ofi.c,comm_shmem.c	11	-	-	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
 COMM_SHMEM_POOL_NEED_MB	bool	?	?	0|1	test-only	-	-	Y	ecalc	comm_shmem.c	4	diagnostics (TESTING.md)	2027-04-12	
-COMM_SHMEM_PROXY	bool	unset	derived	0|1	experiment	-	-	Y	ecalc	comm_shmem.c	3	N7b	2026-11-14	comm_shmem.c; set by mnrun.sh on the proxy PEs (N7b), checked at init
+COMM_SHMEM_PROXY	bool	unset	unset	0|1	experiment	-	-	Y	ecalc	comm_shmem.c	2	N7b	2026-11-14	comm_shmem.c; set by mnrun.sh on the proxy PEs (N7b), checked at init
 COMM_SHMEM_PX_BLOCK_MB	float	4	4		unclassified	-	-	Y	ecalc	comm_shmem.c	1	N7F	2026-10-25	
 COMM_SHMEM_PX_INIT	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	1	N7D	2026-11-14	
 COMM_SHMEM_PX_INIT_THREADS	int	4	4		unclassified	-	-	Y	ecalc	comm_shmem.c	2	N7D	2026-11-14	
 COMM_SHMEM_PX_KCOPY	int	derived	derived		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/N7D.md)	2026-11-14	
 COMM_SHMEM_PX_NUMA	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/N7D.md)	2026-11-14	
-COMM_SHMEM_PX_PIN	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	1	N7G	2026-10-15	
 COMM_SHMEM_PX_SEND	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	N7D	2026-11-14	
 COMM_SHMEM_PX_THP	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D36, results/N7G.md)	2026-10-15	
 COMM_SHMEM_RING_KB	int	256	256		built-in default	-	S12.md+S.md	Y	ecalc	binsplit.c,comm_shmem.c	4	-	-	
@@ -56,6 +56,18 @@ COMM_SHMEM_SPIN_US	int	2000	2000		built-in default	-	S12.md+S13d.md	Y	ecalc	comm
 COMM_SHMEM_STAGE_SLOT_MB	bool	0	0	0|1	test-only	-	V114.md+STD17.md	prose	ecalc	comm_shmem.c	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_SHMEM_VERBOSE	int	0	0		test-only	-	P214.md+V114.md	Y	ecalc	comm_shmem.c	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_SIZE	int	1	conflict:0|1|4096	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,comm_shmem.c,ecalc.c,fatal.c,mem.c,mn.c,rns_mul.c,segv_trace.c	19	-	-	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
+COMM_TRACE	bool	1	1	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
+COMM_TRACE_CLOCK_N	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
+COMM_TRACE_DIR	bool	derived	derived	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
+COMM_TRACE_HB	int	0	0		unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
+COMM_TRACE_HB_GAP_MS	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
+COMM_TRACE_HB_MEM	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
+COMM_TRACE_HB_PX	bool	1	1	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
+COMM_TRACE_MAX_MB	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
+COMM_TRACE_PH	int	0	0		unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
+COMM_TRACE_SAMPLE	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
+COMM_TRACE_THR	bool	derived	derived	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	2	diagnostics (TESTING.md)	2027-04-12	
+COMM_TRACE_WD_MS	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_TRANSPORT	enum	unset	derived	shmem	launch-line	aac7	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c	3	-	-	mn.c: shmem is needed for COMM_SIZE > 1 (mnrun.sh sets it); tcp removed 2026-10-12
 COMM_XGMI_STATS	int	0	0		test-only	-	X13.md+D16.md	Y	ecalc	comm_xgmi.c	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_XSTATS	int	0	0		test-only	-	XEFF.md	Y	ecalc	comm_shmem.c	1	diagnostics (TESTING.md)	2027-04-12	

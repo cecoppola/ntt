@@ -45,7 +45,7 @@ OFI_LIBS   = -L$(LIBFABRIC)/lib64 -lfabric -Wl,-rpath,$(LIBFABRIC)/lib64
 SHMEM_LIBS += $(OFI_LIBS)
 endif
 
-TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_strategy tests/t_cap tests/t_primes tests/t_seed tests/t_patch tests/t_p24 tests/t_crtk tests/t_crt24k
+TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_kbench tests/t_strategy tests/t_cap tests/t_primes tests/t_seed tests/t_patch tests/t_p24 tests/t_crtk tests/t_crt24k
 OBJS  = ntt.o ntt3.o mem.o crt.o comm_local.o comm_sim4.o comm_xgmi.o comm_copy.o comm_shmem.o comm_ofi.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o config_line.o
 REF   = ref/gen_e
 
@@ -124,7 +124,7 @@ comm_sim4.o: comm_sim4.c comm.h
 	$(HIPC) -c $< -o $@
 
 
-comm_shmem.o: comm_shmem.c comm.h comm_ofi.h
+comm_shmem.o: comm_shmem.c comm.h comm_ofi.h comm_trace.h comm_phase.h
 	$(HIPC) $(SHMEM_CFLAGS) -c $< -o $@
 
 comm_ofi.o: comm_ofi.c comm_ofi.h fatal.h
@@ -148,7 +148,10 @@ comm_util.o: comm_util.c comm.h
 comm_xgmi.o: comm_xgmi.c comm.h
 	$(HIPC) -c $< -o $@
 
-tests/t_comm: tests/t_comm.c comm_shmem.c comm_ofi.c comm_util.c fatal.c comm.h comm_ofi.h fatal.h
+tests/t_trace: tests/t_trace.c comm_trace.h comm_phase.h
+	$(CC) -O2 -I. $< -lpthread -o $@
+
+tests/t_comm: tests/t_comm.c comm_shmem.c comm_ofi.c comm_util.c fatal.c comm.h comm_ofi.h comm_trace.h fatal.h
 	$(CC) -O2 -DCOMM_HOST_ONLY -DEC_FATAL_NO_HIP $(SHMEM_CFLAGS) $(OFI_CFLAGS) -I. $< comm_shmem.c comm_ofi.c comm_util.c fatal.c -lpthread $(SHMEM_LIBS) -o $@
 
 ntt_dist.o: ntt_dist.c ntt_dist.h ntt.h comm.h modarith.h
@@ -179,6 +182,8 @@ tests/t_copy_order: tests/t_copy_order.c tests/harness.h
 	$(HIPC) $< -o $@ $(GMP_LIBS)
 tests/t_hred_race: tests/t_hred_race.c tests/harness.h
 	$(HIPC) $< -o $@ $(GMP_LIBS)
+tests/t_kbench: tests/t_kbench.c
+	$(HIPC) $< -o $@ -lpthread
 tests/t_ntt3: tests/t_ntt3.c $(OBJS) ntt.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
 

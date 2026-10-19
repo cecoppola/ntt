@@ -18,12 +18,14 @@ project instructions). Within a class, rows are in the order to do them.
 | 4 | P | **Performance on aac7:** distributed division multiply (+94 s at 6 nodes vs 1, m); `k_gather` and init mapping evaluated, not pursued | adopted 2026-10-12 (D20-D22): `BS_BATCH_PIPE=1` (N3, −0.99 s at 1 n, m), `RNS_CRT_SCAN=1` (K4b, −2.52 s at 1 n, m) and `DM_MN_WRAP=1` (P1, D22; +5.4 GB per APU, mod) are code defaults, `=0` fallbacks; nothing running | results/P2.md, P3.md, P1.md, DEF.md, N3.md, K4b.md |
 | 4 | N7E | **Paired repeat of the N7D proxy switches at 6 n** (`COMM_SHMEM_PX_SEND=2`, `COMM_SHMEM_PX_INIT=1`) against comm_ofi | done 2026-10-14 (commit 2f34f01 run, 83/83 ok): B − A +129.3 s [+92.9, +165.7], 1.68 × (28 pairs, m); the N7D 1.43 × gap is not reproduced; PX_SEND 2 vs 1 and PX_INIT 1 vs 0 n.s.; both stay off, no default change | results/N7E.md |
 | 4 | N7b | **One SHMEM PE per APU (D29 (a)); target: 2 NICs per APU → PEs per APU parameter 1 or 2** (one PE per node uses one of four NICs; Fix A `COMM_SHMEM_PEER_ORDER=shift` is measured, off by default) | B3 done 2026-10-14: digits identical at 1/2/6 n; 6-n full run 656.7 s vs comm_ofi 224.0 s (+432.7 s, CI [+174.3, +691.1], 4 pairs, m): mode stays off; N7C 2026-10-14: diagnosed (pool on a random NUMA node, SDMA copies); `COMM_SHMEM_PX_NUMA=1` + `HSA_ENABLE_SDMA=0` merged off by default, digits identical, 6-n +242.4 s vs comm_ofi (CI [+127.1, +357.7], m), still 2.1 x slower; N7D 2026-10-14: `COMM_SHMEM_PX_KCOPY`, `COMM_SHMEM_PX_INIT`, `COMM_SHMEM_PX_SEND` merged off by default, gates 1/2/6 n PASS, 6-n +83.2 s vs comm_ofi (CI [+37.7, +128.7], 3 pairs, m), 1.43 x | results/N7B.md, results/N7C.md, results/N7D.md |
-| 4 | N7G | **THP and PIN on the proxy mode** (`COMM_SHMEM_PX_THP`, `COMM_SHMEM_PX_PIN`, default 0): 3 pairs at 6 n, B − A −124.9 s [−460.6, +210.8], not significant (m); both stay off | done 2026-10-15 (results/N7G.md); next: 4 more pairs, THP only against the default, not run (needs the user's word) |
+| 4 | N7G | **THP and PIN on the proxy mode** (`COMM_SHMEM_PX_THP`, `COMM_SHMEM_PX_PIN`, default 0): 3 pairs at 6 n, B − A −124.9 s [−460.6, +210.8], not significant (m); both stay off (PX_PIN removed 2026-10-18) | done 2026-10-15 (results/N7G.md); next: 4 more pairs, THP only against the default, not run (needs the user's word) |
 
 Closed 2026-10-13: 23, RECIP, SHM, S, SH3, SIMP, 27, SH4, D, FIT (pre-launch memory fit, automatic DM_MN_WRAP; results/FIT.md), STAT (static-analysis fixes; results/STAT.md) — details in archive:TASKS_HISTORY_2026-10-12.md.
 
 SHMEM 2026-10-17 (summary in results/SHMEM.md): libfabric 184.5 s vs SHMEM default 286.0 s mean over 24 runs, best 4 220.5 s (m); huge-page default kept (D36), heap switch dropped (D39), fixes A/C no gain, COMM_SHMEM_LAYV_ANY and COMM_PHASE_TS merged (c3a469d, default 0, gates PASS item 55). Items 56-67 recorded in results/SHMEM.md (LAYV_ANY no effect; no stalls or gap at 1 and 2 n; scaling model); items 70-89 recorded too (stall reproduced as host-memory fragmentation, memory-preparation fix partial; proxy path loses about 20 % at 4 n, SS candidate, workers not adopted); open: fix #2 for the stalls, SS confirmation (items 72j, 72k).
 
+
+Closed 2026-10-18: SHMEM stall work. Cause: kernel proactive compaction plus the 4 KiB pinned node-process SHMEM heap, which evicted the GPU queues (KFD). Fix: `COMM_SHMEM_NP_HEAP_THP` default 1 (D48); 0 stalls in 12 runs at 3 n vs 7 in 18 (m, results/SHMEM.md). `COMM_SHMEM_PX_PIN` removed (no significant gain). Remaining items are under Proposed.
 
 Closed 2026-10-12 and earlier (waves 0+1, user decisions, plan rev 2): details in `archive:TASKS_HISTORY_2026-10-12.md`.
 
@@ -34,6 +36,11 @@ Closed 2026-10-12 and earlier (waves 0+1, user decisions, plan rev 2): details i
 
 New work found by agents or the coordinator goes here first, one line each (what, why, size), until the user schedules,
 merges or drops it. Nothing is started from this section without the user's word.
+
+- SHMEM 6-node confirmation: full-size run (3.8646e11 digits) of SHMEM with `COMM_SHMEM_NP_HEAP_THP=1` against libfabric 184.5 s (m, results/SHMEM.md); 6 nodes, paired runs.
+- Hugetlb backing switch for the proxy and node-process heaps (the target has hugetlb): removes the 4 KiB pinned pages the compaction works on; new switch, off by default; size medium.
+- The remaining 3-6 % SHMEM gap at 3 n: comm-span excess and the init heap collapse (2.9 s per helper) (m, results/SHMEM.md); measurement then fix.
+- Residual GPU-queue evictions from successful compaction on NUMA node 0 of the job's first node (1.4-12 s summed per run, m, results/SHMEM.md); likely solved by the hugetlb switch above.
 
 - Node drain after our jobs: the 6 nodes of a job went to `needs_reboot` ("reboot timed out") right after three of our jobs ended: 2026-10-13 21:07 ET and 2026-10-14 02:05 ET (both runs killed at their timeout) and 2026-10-14 09:06 ET (a job that ended normally); other normal ends had no drain; cause unknown, site-side; investigate (results/N7.md §6, results/NIGHT2.md). Size unknown.
 - Gather layout: each rank holds its own rows so the 3/4 remote pull in `k_gather` disappears; `k_gather_raw` is 2.0 s/APU at 1 node (m), floor is the remote read (results/P2.md). Algorithm change, size unknown — needs a scoping pass.

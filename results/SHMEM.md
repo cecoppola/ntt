@@ -1,7 +1,7 @@
 # SHMEM — the SHMEM proxy mode against libfabric at 6 nodes: one summary (2026-10-17)
 
 Owner of the SHMEM-vs-libfabric story. Per-item records: results/N7B.md to N7E.md (proxy mode, NUMA, copy kernel,
-send and init variants), results/N7G.md (huge pages, items 37-51), this file (items 52-89 and 72j-75d, to 2026-10-18 11:45 ET). Labels: (m) measured,
+send and init variants), results/N7G.md (huge pages, items 37-51), results/SHMEM_STALLS.md (the full account of the compaction-stall work, 2026-10-14 to 10-18, for whoever returns to it), this file (items 52-89 and 72j-75d, to 2026-10-18 11:45 ET). Labels: (m) measured,
 (mod) modelled, (a) assumed. Unless a section says otherwise: aac7, 6 nodes, 3.8646e11 digits, the aac7 launch line, SHMEM arm `COMM_OFI=0`
 with the defaults (huge-page proxy pools, D36), libfabric arm `COMM_OFI` unset. Raw data stay on aac7 in the day
 directories named per item (`summary.txt`, `digest/`).
@@ -46,8 +46,8 @@ runs wait on peers, they do not compute more.
 | switch | result | status | default |
 |---|---|---|---|
 | `COMM_SHMEM_PX_THP` (huge-page proxy pools) | item 37, 4 pairs: −287.8 s [−507, −68], faster 4/4; items 38, 39, 41 (default on vs off): +207.7 (2 pairs), +28.4 [−27, +84], +163.5 [−45, +372] | adopted, D36 (a) | 1 |
-| `COMM_SHMEM_NP_HEAP_THP` (node-process heap in 2 MiB pages) | 3 n items 97q-97t: stalls 0/12 runs on vs 7/18 off; see "Compaction stalls" | adopted, D48 | 1 |
-| `COMM_SHMEM_PX_PIN` (pinned pools) | N7G, 3 pairs with THP: −124.9 s [−460.6, +210.8]; never separated from THP | off, not significant | 0 |
+| `COMM_SHMEM_NP_HEAP_THP` (node-process heap in 2 MiB pages) | 3 n items 97q-97t: stalls in 0 of 16 runs on (and 0 of 6 at 2 n, 97v) vs 9 of 24 off; see "Compaction stalls" and results/SHMEM_STALLS.md | adopted, D48 | 1 |
+| `COMM_SHMEM_PX_PIN` (pinned pools) | N7G, 3 pairs with THP: −124.9 s [−460.6, +210.8]; never separated from THP | removed 2026-10-18 (not significant, no gain at 3 n in items 97e/97f; review date passed) | removed |
 | `COMM_SHMEM_HEAP_THP` (huge-page SHMEM heap) | item 40, 2 pairs: +24.8 s [−179, +229]; gates PASS | dropped (D39), not merged | — |
 | `COMM_SHMEM_OFFS_WITH_DATA=64` + `COMM_SHMEM_MESH_PAR=1` (N7F fixes A and C) | item 40 task-3 arm, 2 pairs: +49 s | off, no gain | 0 / 0 |
 | `COMM_SHMEM_PX_BLOCK_MB` (N7F fix B, put chunk) | not timed; default 4 MiB equals the comm_ofi chunk | off (unchanged) | 4 |
@@ -215,8 +215,8 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
 - Fix: `COMM_SHMEM_NP_HEAP_THP=1` pre-faults and collapses that heap to 2 MiB pages before registration (compaction skips
   compound pages); 3096 MiB fully PMD-mapped, 1.9-2.0 s per process, overlapped (init unchanged). Gates 1 n, 2 n SHMEM and
   libfabric, off and on: PASS, digits identical (97q, 97s; main-based build in 97w).
-- Runs, 3 n (97q/97r/97s/97t): with the switch 0 of 12 runs stalled (SHMEM DT 47.4-50.9 s, libfabric 45.9-47.9 s);
-  without it 7 of 18 stalled (SHMEM up to 70.3 s). Same nodes: SHMEM with the switch about 6 % behind libfabric when
+- Runs, 3 n (97q/97r/97s/97t): with the switch 0 of 16 runs stalled (SHMEM DT 47.4-50.9 s, libfabric 45.9-48.0 s;
+  2 n, 97v: 0 of 6); without it 9 of 24 stalled (SHMEM up to 70.3 s). Same nodes: SHMEM with the switch about 6 % behind libfabric when
   libfabric runs well (49.6 vs 46.6 s, 97q/97r). Default 1 since D48 (user 2026-10-18).
 - Not adopted: `MEM_FRAG_RESERVE_GB` (branch fragres): a 6 GiB reserve on NUMA node 0 lowers the score after start-up but
   costs 4-8 s of init and, without the heap fix, makes the storms worse (97s/97t). `MNRUN_MEMPREP_GB=100` (97g/97h),
@@ -227,12 +227,15 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
 
 ## Open questions and next experiments
 
-- Problem A (stalls): the own-allocation design is in progress (the process takes and prepares its large host and
-  device regions itself, large huge-page-sensitive ones first, once). The per-allocation compaction (MEM_DEV_COMPACT) is
-  dropped. Open: an exhausted-node test of the preparation step (a ballast holding all but about 1 GiB of free 2 MiB
-  blocks, n >= 4 nodes), and the node-to-node spread in MemAvailable that stops a run at the budget check (item 72n). A
-  node-count-independent fix must remove the stall, not shrink it (see the scaling model).
-- Problem B (steady gap): PX3 statistics at 4 n are running (items 75a, 75b, 75d). SS is not confirmed (12 pairs, no
+- Stalls (cause and fix recorded above): kernel proactive compaction on a 4 KiB pinned node-process heap evicted the GPU
+  queues; `COMM_SHMEM_NP_HEAP_THP=1` (default, D48) removes it. Open:
+  1. 6-node full-size confirmation of SHMEM with the fix against libfabric 184.5 s (TASKS Proposed).
+  2. Hugetlb backing for the proxy and node-process heaps (the target has hugetlb); would also remove the residual
+     evictions below.
+  3. The remaining 3-6 % gap at 3 n (comm-span excess; init heap collapse 2.9 s per helper).
+  4. Residual GPU-queue evictions from successful compaction on NUMA node 0 of the job's first node (1.4-12 s summed per
+     run, m).
+- Problem B (steady gap): PX3 statistics at 4 n were running (items 75a, 75b, 75d). SS is not confirmed (12 pairs, no
   separation). If PX3 + shift + 64 MiB chunks separates from the default at 4 n (at least 8 pairs, CI excluding 0), a
   6-n confirmation against the item 45 and 57 baselines follows; if it does not, probe the hand-off between the node
   process and the proxy.
