@@ -323,7 +323,7 @@ static void divmod_shifted_dkm(bigint *X, const dbig *S, size_t dl, const dbig *
     db_free(&mu);
     dkm_window_db(&Aw, &R1, s, w); db_free(&R1);
     { long tk = newton_test_corr();                                    /* Phase 15 K: ECALC_TEST_CORR on X_lo (X - k) */
-      if (tk) { if (tk > 0 && (!Xl.n || (Xl.n == 1 && db_limb(&Xl, 0) < (uint64_t)tk))) { ec_fatal(EC_RC_FATAL, "ECALC_TEST_CORR=%ld under NEWTON_DKM: X_lo is below it\n", tk); } dkm_add_small(&Xl, -tk); } }
+      if (tk) { if (tk > 0 && (!Xl.n || (Xl.n == 1 && db_limb(&Xl, 0) < (uint64_t)tk))) { ec_fatal(EC_RC_FATAL, "ECALC_TEST_CORR=%ld under the DKM division: X_lo is below it\n", tk); } dkm_add_small(&Xl, -tk); } }
     if (xhi) {   /* Phase 15 EW -- the X_lo hook: X_lo0 to the caller's device X; the hook releases the writer onto it unless X_lo0 >= B^s (then
                   * the corrections go into X_lo0 in place, results/EW15.md 1.2 item 3); X = X_hi B^s + X_lo is never formed */
         double td = mem_now();

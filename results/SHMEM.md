@@ -221,6 +221,7 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
 - Not adopted: `MEM_FRAG_RESERVE_GB` (branch fragres): a 6 GiB reserve on NUMA node 0 lowers the score after start-up but
   costs 4-8 s of init and, without the heap fix, makes the storms worse (97s/97t). `MNRUN_MEMPREP_GB=100` (97g/97h),
   `MEM_HSTAGE_THP=0` (97b3/97b4), `COMM_SHMEM_PX_INIT_THREADS=16` (97i/97j), `COMM_SHMEM_PX_CONC=1` (97c/97d): no effect.
+  `COMM_SHMEM_PX_INIT_THREADS` removed 2026-10-19 (a constant 4): 98d (2 n, measured) heap collapse about 3 s at 4, 8 and 16 threads (node-process heap mean 2.7-3.4 s, helper heaps 2.9-3.4 s).
 - Remaining (m): successful compaction passes on that node still evict the GPU queues for 1.4-12 s summed per run; root
   access (`compaction_proactiveness=0` per job, hugetlb heaps) would remove them (private list of settings kept outside the
   repository).

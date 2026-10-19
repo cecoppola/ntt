@@ -240,7 +240,7 @@ static int g_heap_numa = -1, g_heap_mbind = -2;          /* N7C COMM_SHMEM_PX_NU
  * huge=, no reserved hugepages -- so MADV_HUGEPAGE does nothing on shmem and MFD_HUGETLB fails -- but MADV_COLLAPSE works on /dev/shm files (1 GiB
  * fully PMD-mapped in 0.29 s).  So the heap file is mapped at an address = its offset mod 2 MiB (helper and node-process: a PMD maps only there) and
  * the helper pre-faults its pool and collapses it to 2 MiB pages before the barrier (pool_collapse).  Raw syscalls: no wrapper recursion. */
-static int g_thp, g_thp_err, g_thp_thr = 4; static double g_thp_t; static void *g_heap_hint; static int g_heap_fl;
+static int g_thp, g_thp_err, g_thp_thr = 4 /* threads per heap pre-fault and collapse pool (a former switch, removed 2026-10-19) */; static double g_thp_t; static void *g_heap_hint; static int g_heap_fl;
 static void pool_populate(char *p, size_t n, int nt); static int pool_collapse(char *p, size_t n, int nt);
 /* NPHEAP COMM_SHMEM_NP_HEAP_THP=1 (default 1 since D48, user 2026-10-18; 0 = off, nothing below runs): the node-process's own symmetric heap (the library's one shared anonymous /dev/zero mapping) is
  * pre-faulted and collapsed to 2 MiB pages inside the wrapper, before the library registers it (kcompactd isolates pinned 4 KiB shmem pages, fails to migrate them and retries
@@ -658,7 +658,6 @@ static void *reg_thread(void *a) { struct reg_job *j = (struct reg_job *)a; doub
     else { j->dpok = hipHostGetDevicePointer(&dp, j->p, 0) == hipSuccess && dp == (void *)j->p; if (!j->dpok) (void)hipGetLastError(); }
     j->t = now_s() - t; return 0; }
 #endif
-static int g_pxthr = 4;                                 /* COMM_SHMEM_PX_INIT_THREADS */
 /* the node-process: attach the proxies' pools (shmem_ptr: Cray's on-node XPMEM), register them with HIP, start the allocators */
 /* N7E (COMM_SHMEM_PE_PER_APU=2): map APU x->d's two helper heaps (named files) as the interleaved virtual range of px_dev */
 static void px_map2(px_dev *x)
@@ -776,10 +775,10 @@ static int comm_shmem_init_i(void)
 #else
     S.devheap = env_int("COMM_SHMEM_DEVHEAP", 0);
 #endif
-    S.ppa = comm_shmem_pe_per_apu(); g_pxthr = env_int("COMM_SHMEM_PX_INIT_THREADS", 4);
+    S.ppa = comm_shmem_pe_per_apu();
     S.ppn = S.ppa ? 1 + 4 * S.ppa : 1;   /* N7b: 1 + 4 ppa PEs per node */
     if (S.ppa && comm_ofi_enabled()) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PE_PER_APU=%d needs COMM_OFI=0 (the proxies carry the data instead of comm_ofi)\n", S.ppa);
-    g_thp = S.ppa && env_int("COMM_SHMEM_PX_THP", 1) > 0; g_thp_thr = g_pxthr;   /* N7G: THP default 1 (D36) */
+    g_thp = S.ppa && env_int("COMM_SHMEM_PX_THP", 1) > 0;   /* N7G: THP default 1 (D36) */
     /* the mailbox needs the PE count, known only after init; sized for the launcher's count when it tells us, else for 4096 PEs (N7b: nodes) */
     int npes_hint = getenv("SLURM_NTASKS") ? atoi(getenv("SLURM_NTASKS")) / S.ppn : getenv("PMI_SIZE") ? atoi(getenv("PMI_SIZE")) / S.ppn : getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 4096;
     if (npes_hint < 1) npes_hint = 4096;
@@ -804,7 +803,6 @@ static int comm_shmem_init_i(void)
     if (g_np_mode < 0 || g_np_mode > 1) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_NP_HEAP_THP=%d: 0 (off) or 1 (the node-process heap in 2 MiB pages)\n", g_np_mode);
     if (g_np_mode && g_heap_arm) g_np_mode = 0;   /* a helper (its heap file is the proxy path's) */
     if (g_np_mode) {
-        g_thp_thr = env_int("COMM_SHMEM_PX_INIT_THREADS", 4);
         { g_heap_min = comm_shmem_heap_env(0); if (!g_heap_min) { g_np_mode = 0; fprintf(stderr, "comm_shmem: COMM_SHMEM_NP_HEAP_THP=1 skipped: SHMEM_SYMMETRIC_SIZE is not set\n"); } else g_heap_arm = 1; } }
     shmem_init_thread(SHMEM_THREAD_MULTIPLE, &prov);
     g_heap_arm = 0; g_t_shinit = now_s() - g_t0;
