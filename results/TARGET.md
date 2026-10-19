@@ -49,7 +49,7 @@ OpenSHMEMX is 11.8.0 there (11.7.4 the only other), and aac7 has one NIC per APU
 **Results.**
 
 ROCm 7.14.0 (m, 2026-10-12): `ecalc` and `make all` (tests, tools) build with `-DCOMM_SHMEM`, linked against the 7.14.0
-`libamdhip64`; with or without `-fPIC` the `ld.lld` relocation failure of `results/V16.md` does not reproduce. Not run on
+`libamdhip64`; with or without `-fPIC` the `ld.lld` relocation failure of `results/AAC7_PORT.md §V16` does not reproduce. Not run on
 a compute node: no digits and no time yet.
 
 ecalc's writer today: one process per node; a background writer thread with 8 pwrite threads per 256 MB chunk

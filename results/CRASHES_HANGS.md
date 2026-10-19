@@ -27,7 +27,7 @@ Verdict: **not a deadlock and not a code bug.** `mnrun.sh 2 ./tests/t_mn_grid` w
 mesh (`comm_tcp.c`), and `COMM_HOSTS` holds the Slurm host names. On aac7 those names resolve (IPv4) to `bond0`, the
 **1 Gb/s management Ethernet** (one slave, `enp129s0`, speed 1000), not to the Slingshot `hsn0..3` (200 Gb/s). The test
 is then bound by the network at about 110 MB/s per process and runs far past the 150-1200 s timeouts. The earlier pass
-(results/A16.md step 4: 55 s) was over `COMM_TRANSPORT=shmem`. The stacks in results/CRASHES_HANGS.md §T13 (threads idle in futex or
+(results/AAC7_PORT.md §A16 step 4: 55 s) was over `COMM_TRANSPORT=shmem`. The stacks in results/CRASHES_HANGS.md §T13 (threads idle in futex or
 socket waits, a different place each run) show a slow run, not a stuck one. No code change. Main = 6d80ef1, date
 2026-10-11 13:50-14:20 EDT, aac7 own job 12522 (aac7-n30 + aac7-n31), cancelled.
 
@@ -468,7 +468,7 @@ Collect nothing more on aac7 for this note. Next: implement the print-only times
 
 Branch `p16-S` from `main` 3eb531f. Times Eastern (aac7 is PDT = Eastern − 3 h). Every number **measured** unless marked.
 
-#### 1. The symptom (results/A16.md step 7)
+#### 1. The symptom (results/AAC7_PORT.md §A16 step 7)
 2 real nodes, `mnrun.sh 2 env COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 … ./ecalc 10000000000`: task 1 segfaults
 inside Cray's `shmem_init_thread` in 3 of 23 launches (after `bs: arenas 45.1 GB allocated`, before `comm_shmem: shmem, 2 PEs`);
 0 of 24 at 10⁹ / t_comm. PE 0 then hangs in PMI (`_pmi_network_allgather failed`). libsma installed its own SIGSEGV handler over A's

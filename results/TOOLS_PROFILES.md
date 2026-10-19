@@ -847,10 +847,10 @@ and `--only env,build,edge,a3,a4` as needed, pointed at a scratch `--out`.
 
 #### Module handling
 
-Two bugs, found by rehearsing on aac7 (results/V16.md) and by re-reading the script against `mnrun.sh`/`aac7env.sh`:
+Two bugs, found by rehearsing on aac7 (results/AAC7_PORT.md §V16) and by re-reading the script against `mnrun.sh`/`aac7env.sh`:
 
 1. **ROCm choice.** `module -t avail rocm | sort -V | tail -1` picks the *newest* version, which on aac7 is
-   `rocm/7.14.0` -- a version that fails to link ecalc (results/V16.md: 7.12.0/7.13.0/7.14.0 and `rocm-new`/10.0.0 all
+   `rocm/7.14.0` -- a version that fails to link ecalc (results/AAC7_PORT.md §V16: 7.12.0/7.13.0/7.14.0 and `rocm-new`/10.0.0 all
    hit the same `-fPIC` device-link error in `ld.lld`; `rocm/7.2.4` is the newest that links). The target's ROCm is
    unknown ahead of time ("do your best with the libraries you have"), so `stage_build` now tries candidates in
    order and keeps the first that actually builds `ecalc` + `tests/t_comm` + `tests/t_edge` + `tools`:
@@ -878,7 +878,7 @@ both print the ROCm candidate list (`rocm/7.2.4 rocm/7.2.3 rocm/7.0.3 rocm/7.14.
 and assume the first, write `kit_modules.env`, and every later-stage `srun` line carries the module unload/load
 preamble and a `hipconfig --version` probe. A real `--only build` run (no `srun`, so safe on the login node) chose
 `rocm/7.2.4` on the first try and built `ecalc`, `tests/t_comm`, `tests/t_edge`, and `tools` successfully --
-confirming the candidate order matches results/V16.md's finding without needing the aac7-specific version hard-coded.
+confirming the candidate order matches results/AAC7_PORT.md §V16's finding without needing the aac7-specific version hard-coded.
 
 ## S18KITFIX — three bugs in `ecalc/target_kit.sh`, found in the aac7 rehearsal (`~/s18ab3`), fixed and verified for real
 

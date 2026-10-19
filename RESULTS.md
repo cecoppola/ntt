@@ -11,7 +11,7 @@ This file is a short index: the current measured figures, every adopted change w
 and the changes that were measured and not adopted. The full measurement log is kept outside the repository:
 sections §1-§114 in `archive:RESULTS_ARCHIVE_1-114.md` and §115-§145 (to 2026-10-12) in
 `archive:RESULTS_HISTORY_2026-10-12.md`. "RESULTS §NN" citations in other notes refer to those section numbers.
-Agent reports are in `results/<ID>.md`; reports that no longer support the current code are in `archive:results/`.
+Agent reports are merged into topic files in `results/` (lookup by old ID: `results/INDEX.md`; a new report starts as `results/<ID>.md` and is merged into its topic file later); raw data and drivers are in `archive:results_raw_2026-10-19/`; reports that no longer support the current code are in `archive:results/`.
 
 Labels: **m** measured, **mod** modelled, **a** assumed. Times are wall-clock seconds; "digits/node" is the size divided by
 the node count. Test machines: aac7 (MI300A nodes with Slingshot, the main test system) and aac6 (single-node coverage).
@@ -56,7 +56,7 @@ setting it to 0 restores the old path; a setting named "built in" no longer exis
 | division in two quotient halves (`NEWTON_DKM=1`; built in) | Phase 15 | division -25.7 s at 10¹¹ | m | results/DIVISION.md §DKM15 |
 | 24 digits per transform point in multi-node products (`MN_P24=2`; built in) | Phase 15 | -38 % at 10¹⁰ on 2 processes | m | results/PRIMES_STRATEGY.md §P2415 |
 | `ECALC_CORR_PATCH=2`, `MN_OUT_EARLY=1`: write overlapped with the division, corrections patched | Phase 15 | write hidden under the division | m | results/OUTPUT_IO.md §IO15, IO215.md |
-| `ECALC_OUT_PACKED=2`: packed output, 60-bit, 0.4167 B/digit (=1, 0.444 B/digit, until 2026-10-12) | Phase 15; 2 since 2026-10-12 | ASCII made off the clock by `tools/unpack_digits` | m | results/W.md, results/OUTPUT_IO.md §O4 |
+| `ECALC_OUT_PACKED=2`: packed output, 60-bit, 0.4167 B/digit (=1, 0.444 B/digit, until 2026-10-12) | Phase 15; 2 since 2026-10-12 | ASCII made off the clock by `tools/unpack_digits` | m | results/TESTING_VERIF.md §W, results/OUTPUT_IO.md §O4 |
 | `BS_BATCH_PIPE=1`: the batch tier's host side in parallel, tiles back to back (user decision D20; `=0` fallback) | 2026-10-12 | 1 n −0.99 s [−1.18, −0.80], 4 ABBA rounds, digits identical | m | results/KERNELS.md §N3 |
 | `RNS_CRT_SCAN=1`: `k_crt_batch` carry-lookahead (user decision D21; `=0` fallback) | 2026-10-12 | 1 n 6.441e10 −2.52 s [−4.19, −0.85], 4 ABBA rounds, digits identical | m | results/KERNELS.md §K4b |
 | `P24_CRT_SCAN=1`: `k_crt24` (the P24 CRT) carry-lookahead (user decision D24; `=0` fallback) | 2026-10-13 | kernel 1.55x; 2 n 6.441e10 per node total -1.89 s [-7.51, +3.73] n.s., 4 ABBA rounds, digits identical | m | results/KERNELS.md §K4c |
@@ -69,7 +69,7 @@ setting it to 0 restores the old path; a setting named "built in" no longer exis
 | `ECALC_BUDGET_CHECK=1`, `ECALC_MEM_GUARD_GB` | Phase 14 | named stop (rc 8 / rc 9) instead of the OOM killer | m | results/MEMORY.md §L114 |
 | `RNS_STRATEGY=auto`, `ECALC_PLANE_CAP=2^31`, three primes at size 1 | Phase 13 | three primes: -17 % wall, -25.8 GB | m | results/PRIMES_STRATEGY.md §B13b, X13b.md, archive RESULTS §78-80 |
 | two-deep v-exchange (`COMM_ALLTOALLV_DEPTH=2`; built in) | Phase 13 | xGMI stage hidden under the fabric (1.4 → 74 %) | m | results/EXCHANGE.md §X13 |
-| T1 moduli: the first eight primes above 2⁶² | Phase 11 | earlier moduli were composite | m | results/V.md |
+| T1 moduli: the first eight primes above 2⁶² | Phase 11 | earlier moduli were composite | m | results/TESTING_VERIF.md §V |
 
 ## Launch-line settings in force (not code defaults)
 
@@ -81,8 +81,8 @@ On both launch lines (`profiles/aac7.conf` (`LAUNCH_LINE_KEYS`) for aac7, `profi
 | `ECALC_NP=auto` (4 primes above the three-prime bound) | needed at the target size | mod | results/PRIMES_STRATEGY.md §NP15, P15.md |
 | `MN_OUT_DKM_HI=1`, `RNS_DIST_CACHE_PARTIAL=1` (code default) | write starts after division step 1; cache from free pool bytes, -12.8 s at 5.1 × 10¹³ | mod | results/CACHE.md §TC15, IO215.md |
 | lean division (`DM_MN_LEAN=1`; built in) | same digits, less division memory | m | archive RESULTS §104 |
-| `MN_T_CHUNK_MB=2048` | aac7: 24 paired rounds, mean -42.3 s, p ≈ 0.04; 4-node recheck inconclusive (+6.98 s [-10.3, +24.3]) | m | results/S22.md, S47.md |
-| X2: `COMM_LAYER_INTER2=1`, `COMM_LAYER_VSLOT_POOL=1` (code default) | -31.7 s at 10 nodes (CI -55.7 .. -7.8) | m | results/S31.md |
+| `MN_T_CHUNK_MB=2048` | aac7: 24 paired rounds, mean -42.3 s, p ≈ 0.04; 4-node recheck inconclusive (+6.98 s [-10.3, +24.3]) | m | results/SESSIONS.md §S22, S47.md |
+| X2: `COMM_LAYER_INTER2=1`, `COMM_LAYER_VSLOT_POOL=1` (code default) | -31.7 s at 10 nodes (CI -55.7 .. -7.8) | m | results/SESSIONS.md §S31 |
 | `COMM_LAYER_VSLOT_SHARE=1` (code default) | -8.4 GB per node at 4 nodes; -5.79 GB at 576 | m / mod | results/GRID_GROUPS.md §S36, S45.md |
 | `COMM_LAYER_VSLOT_RELEASE=1` (code default) | device peak -8.60 GB at 4 nodes; -8.59 GB at 576 | m / mod | results/GRID_GROUPS.md §C06, L1.md |
 | `COMM_SHMEM_ROUND_MB=1024` | SHMEM pool 45.0 → 9.8 GB per node | mod | results/SHMEM_ITEMS.md §V114 |
@@ -142,5 +142,5 @@ Add one short section per merged experiment below this line: date, what changed,
 
 ### 2026-10-14
 
-- ROCM, ROCm 7.14.0 against 7.2.4 at 1 node, 1e10 digits: digits identical, B - A +4.74 s [-17.02, +26.49] (4 pairs; -2.01 s [-8.62, +4.59] without the cold first run) (m); first 7.14.0 launch is slow (cold start); `results/ROCM.md`.
+- ROCM, ROCm 7.14.0 against 7.2.4 at 1 node, 1e10 digits: digits identical, B - A +4.74 s [-17.02, +26.49] (4 pairs; -2.01 s [-8.62, +4.59] without the cold first run) (m); first 7.14.0 launch is slow (cold start); `results/AAC7_PORT.md §ROCM`.
 - SCALE35, scaling at 3 and 5 nodes (6.441e10 digits per node): 147.7 s and 182.1 s (mean of 3, VERIFY OK) (m); `results/TIME_MODEL.md §SCALE35`.

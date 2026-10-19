@@ -2276,7 +2276,7 @@ index 89fc588..c1c170b 100644
      if (g_nd) return g_nd;
 @@ -178,7 +179,14 @@ int rns_init(int pool_log)
       * transform of the dist tier) are then the victims and the tier's gathers and transforms run 4-10 x slower
-      * (results/N414.md).  Mapped first, they take 2 MiB blocks; the seeds start after them (default 0: the hook first). */
+      * (results/TESTING_VERIF.md §N414).  Mapped first, they take 2 MiB blocks; the seeds start after them (default 0: the hook first). */
      int planes_first = getenv("RNS_PLANES_FIRST") ? atoi(getenv("RNS_PLANES_FIRST")) : 1;   /* default 1 since Phase 14 (N414: the planes get the 2 MiB pages) */
 -    if (rns_after_staging_hook && !planes_first) rns_after_staging_hook(rns_hook_arg);     /* Phase 8 I2: the seeds start now, during the pool allocations below */
 +    /* K8 (results/MEMORY.md §K8): RNS_HOOK_CONCUR=1 -- the hook (binsplit_seeds_begin: the seed thread, the region arenas' parity-0 halves) runs
