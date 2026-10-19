@@ -127,7 +127,7 @@ off for multi-node timing runs (digits are written only by the gates).
 - **Report** the mean difference B − A with its 95 % CI and the number of pairs, never a bare ratio. Each arm's wall is the
   run's own total line; state the size, node count, and settings of both arms.
 - `ecalc/calib_table.py <dirs…> --ab` turns run logs into rows with a rate-adjusted paired A/B and warns about a shift in
-  the fabric rate between arms; `tools/rundriver.sh` is the watchdog for driver scripts. A multi-node timing comparison is
+  the fabric rate between arms. A multi-node timing comparison is
   invalid when the rate shifted ("slow mode") — repeat the rounds.
 - A long driver is one fire-and-forget script on the cluster with a done marker, not a polling agent.
 
