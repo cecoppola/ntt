@@ -1251,23 +1251,6 @@ def big_products(D, strategy, cap, np, scope=('top', 'recip', 'div'), pipe=False
     for ph in ('top', 'recip', 'div'): out[ph] *= k
     return out
 
-def big_by_form(D, strategy='auto', cap=1 << 31, np=3):
-    """Phase 13d D2: the big products' plain-law seconds by (phase group 'bs' | 'dm', form), x NTT_MODMUL=1's factor (the fit's input)"""
-    out = {}
-    for ph, name, na, nb, lowcut, w, count in big_shapes(D):
-        g = 'bs' if ph == 'top' else 'dm'
-        for st, p in product_pieces(na, nb, lowcut, w, strategy, cap, np)[1]:
-            out[(g, st)] = out.get((g, st), 0.0) + count * t_prod(st, p, np)[0] * F_MM1
-    return out
-
-def pieces1(D, strategy='auto', cap=1 << 31, np=3):
-    """Phase 13d D2: size 1's piece counts in L's MN_PLAN_ONLY=<D>:1 categories for the big shapes: leaf (the mdev levels), div, and
-    the reciprocal's top three doublings"""
-    c = {'top': 0, 'recip': 0, 'div': 0}
-    for ph, name, na, nb, lowcut, w, count in big_shapes(D):
-        c[ph] += count * len(product_pieces(na, nb, lowcut, w, strategy, cap, np)[1])
-    return c
-
 # the M-run (Phase 13b, ~/mrun on aac6, results/mrun_13b.log): 4e10 at size 1, three primes, NTT_MODMUL=1, agent K's kernels on, s24-26
 K_FACTOR = 62.91 / 65.38               # MEASURED: auto at 2^31 with NTT_B1R=3 NTT_PLAN=1 (n 8) against without (n 3)
 STRAT_FIT = {                          # FITTED: the (strategy, cap) rows the per-product law misses by > 3 % -- measured mean wall (K on), n

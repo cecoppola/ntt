@@ -17,7 +17,7 @@ node and over node groups. The goal is 3.82 × 10¹³ digits on 576 nodes; the c
 | `TESTING.md` | how to check a change: gate, regression, unit tests, timing method, merge criteria, report template |
 | `ecalc/README.md` | every environment switch with its default and evidence; the files of `ecalc/` |
 | `RESULTS.md` | what is in force, with the evidence file of each adopted change |
-| `TASKS.md` | open work and the user's decisions |
+| `TASKS.md` | open work (by priority class), proposed items, decisions still acting, target-session items |
 | `OPPORTUNITIES.md` | every performance idea (time, memory, concurrency, algorithm), open or tried, with its evidence and a ranking |
 | `results/` | agent reports (`<ID>.md`) cited by the files above |
 
@@ -30,8 +30,8 @@ History (the old plan, measurement logs, older reports, moved drivers) is kept o
 |---|---|
 | `ecalc/` | the program (C/HIP), its `Makefile`, launch and test scripts, the time and memory models, the switch registry |
 | `ecalc/tests/` | one GMP-checked test program per module (`t_ntt`, `t_mul`, `t_dbig`, `t_newton`, `t_mn_grid`, …) and the test harness headers |
-| `tools/` | `gate.sh`, `rundriver.sh`, `unpack_digits`, the profile loader and checks, node screen, `target_probe.sh` (target bring-up facts, profiles/README.md runbook) |
-| `profiles/` | machine profiles: `aac7.conf`, `aac6.conf`, `target.conf.template` |
+| `tools/` | `gate.sh`, `unpack_digits`, the profile loader and checks, node screen, `target_probe.sh` (target bring-up facts, profiles/README.md runbook) |
+| `profiles/` | machine profiles: `aac7.conf`, `aac6.conf` (aac6 is set aside), `target.conf.template` |
 | `tests/` | two model scripts (seed-span model, block-pool replay) |
 
 ## Build
