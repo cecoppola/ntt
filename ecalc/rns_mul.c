@@ -65,6 +65,20 @@ int rns_pool0_np(void)
     const char *e = getenv("COMM_SIZE"); int g = e ? atoi(e) : 1; if (g < 1) g = 1;
     return ec_np_planes(g_pool_log ? g_pool_log : 31, g);
 }
+/* MN_NONPOW2_CAP=1 (default 0): in a run whose COMM_SIZE is not a power of two (3, 5, 6, 7, ...) the rank plane q may be 43/32 x 2^(pool_log-2) limbs, so a group of
+ * g = 3 * 2^k nodes takes the next power-of-two plane (2^33 points over 3 nodes: 716 M limbs per rank, not 2^29 = 537 M) and its products need fewer pieces.
+ * Costs 11/32 more plane pool memory per APU (both pools and the cache slots); rns_plane_pool_bytes is the one formula, so the planner and the fit see it.
+ * rns_np2cap_group: the plan-only run's group size (no COMM_SIZE there). */
+static int g_np2_g = 0;
+void rns_np2cap_group(int g) { g_np2_g = g; }
+int rns_np2cap(void)
+{
+    static int on = -1; if (on < 0) { const char *e = getenv("MN_NONPOW2_CAP"); on = e && atoi(e) == 1; }
+    if (!on) return 0;
+    int g = g_np2_g; if (!g) { const char *c = getenv("COMM_SIZE"); g = c ? atoi(c) : 1; }
+    return g >= 3 && (g & (g - 1));
+}
+size_t rns_q_slot(int pool_log) { size_t q = (size_t)1 << (pool_log - 2); return rns_np2cap() ? q + q * 11 / 32 : q; }   /* the rank plane the pools are made for (limbs per prime) */
 /* the plane pools' bytes per APU as rns_init makes them, from (pool_log, the prime count) alone -- the one formula for
  * rns_init, rns_pool1_default_bytes and binsplit's BS_LAYOUT_ONLY report (and mem_model.py's port).  q = the dist tier's rank
  * plane per prime: 2^(pool_log-2) (the plane cap n = 4 q = 2^pool_log).  Pool 0 = np q limbs (the np planes xa[]), exact.  Pool 1 = xb | sbuf | rbuf, one prime at a time:
@@ -74,7 +88,7 @@ int rns_pool0_np(void)
 size_t rns_plane_pool_bytes(int pool_log, int np, size_t *p0, size_t *p1)
 {
     int pl = pool_log ? pool_log : 31;
-    size_t q = (size_t)1 << (pl - 2), al = (size_t)2 << 20;
+    size_t q = rns_q_slot(pl), al = (size_t)2 << 20;
     size_t a = (size_t)np * q * 8, b = (3 * q + 16) * 8, full = (size_t)8 << (pl < 30 ? pl : 30);
     if (b < full) b = full;
     /* the batch-local tier (rns_mul_batch_local) takes np Mmax L B limbs from pool 1 with np Mmax L <= its plane
@@ -152,6 +166,7 @@ int rns_init(int pool_log)
         HIP_CHECK(hipSetDevice(d));
         if (ec_np == 3 && rns_pool0_np() == 4) { size_t p0; rns_plane_pool_bytes(g_pool_log, 4, &p0, 0); dpool_get_exact(&D[d].da, d, p0); }   /* NP (ECALC_NP=auto): four planes where a product may need them */
         else if (ec_np == 3) dpool_get_exact(&D[d].da, d, pool0_np3_bytes());   /* P3: the dist tier's 3 q (3/4 of the four-prime pool) */
+        else if (rns_np2cap()) { size_t p0; rns_plane_pool_bytes(g_pool_log, ec_np, &p0, 0); dpool_get_exact(&D[d].da, d, p0); }   /* MN_NONPOW2_CAP: np q at the larger q */
         else dpool_get(&D[d].da, d, bytes);      /* pregrow to 2^pool_log */
         dpool_get_exact(&D[d].db, d, b1);
     }

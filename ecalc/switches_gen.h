@@ -116,6 +116,7 @@ static const char *const cfg_names[] = {
     "MEM_REPORT_DEVS",
     "MN_COMM_MARK",
     "MN_GROUPS",
+    "MN_NONPOW2_CAP",
     "MN_OUT_CHUNK_MB",
     "MN_OUT_DKM_HI",
     "MN_OUT_DKM_HI_TEST_CARRY",
@@ -157,4 +158,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 155
+#define CFG_NAMES_N 156

@@ -301,6 +301,7 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
     memset(g_pieces, 0, sizeof g_pieces); memset(g_pieces4, 0, sizeof g_pieces4); memset(g_prods, 0, sizeof g_prods); memset(g_grids, 0, sizeof g_grids); g_lvl[0] = 0;
     memset(g_pieces24, 0, sizeof g_pieces24);
     rns_preinit_pool_log(pool_log);                               /* rns_pool_log() as rns_init would set it (mn_logn_cap reads it) */
+    rns_np2cap_group(size);                                       /* MN_NONPOW2_CAP: the plan-only group size (rns_np2cap reads COMM_SIZE otherwise) */
     int np = ec_np_init();
     chk_init(np);                                                 /* the plan-time check */
     size_t p0, p1; rns_plane_pool_bytes(pool_log, ec_np_planes(pool_log, size), &p0, &p1);   /* rns_init's pools (the device flow; pool 0 at rns_pool0_np's planes) */

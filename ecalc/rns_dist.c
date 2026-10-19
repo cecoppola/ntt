@@ -201,7 +201,8 @@ static int cache_slots_of(int mn)
 static int g_cache_mn;                                        /* the tier asking (set by mul_grid / mn_grid before the products) */
 static int cache_slots(void) { return cache_slots_of(g_cache_mn); }
 static int cache_slot_log(void) { int c = dist_logn_max(); if (rns_pool_log() > 0 && rns_pool_log() < c) c = rns_pool_log(); return c - 2; }   /* Phase 15 TC: log2 of a slot's q (at the cap min(dist_logn_max, POOL_LOG)) */
-static size_t cache_slot_bytes(void) { return (size_t)rns_pool0_np() * ((size_t)1 << cache_slot_log()) * 8; }   /* the largest plane per prime per rank (NP: the primes pool 0 is made for) */
+static size_t cache_slot_q(void) { int c = dist_logn_max(); if (rns_pool_log() > 0 && rns_pool_log() < c) c = rns_pool_log(); return rns_q_slot(c); }   /* a slot's q: 2^(c - 2), or 43/32 of it under MN_NONPOW2_CAP */
+static size_t cache_slot_bytes(void) { return (size_t)rns_pool0_np() * cache_slot_q() * 8; }   /* the largest plane per prime per rank (NP: the primes pool 0 is made for) */
 /* the slots' planes, allocated at the first product that wants them: as many of the configured slots as every APU's free
  * memory allows (hipMemGetInfo minus the margin), the four APUs in parallel; the count is decided once */
 static int cache_avail(void)
@@ -219,7 +220,7 @@ static int cache_avail(void)
     double room = g_cache_room - cache_fit_reserve() / g_cache_ranks;
     if (g_cache_room_set) { nbud = room > 0 ? (int)(room / ((double)NR * bytes)) : 0; if (nbud < n) n = nbud; }   /* Phase 15 TC: the budget room less the reserve */
     if (n < 0) n = 0;
-    g_cache.slot_bytes = bytes; g_cache.slot_q = (size_t)1 << cache_slot_log();
+    g_cache.slot_bytes = bytes; g_cache.slot_q = cache_slot_q();
     double t0 = mem_now();
     if (n > 0) {
 #pragma omp parallel num_threads(NR)
@@ -1219,7 +1220,12 @@ static int mn_logn_cap(int g)
     int lgt = 0; while ((2 << lgt) <= g) lgt++;
     int c = dist_logn_max(); if (rns_pool_log() < c) c = rns_pool_log();
     int logn = c + lgt;
-    if (!is_pow2(g)) { int ln, lr, lc; size_t qm; mn_shape((size_t)1 << logn, g, &ln, &lr, &lc, &qm); if (qm > ((size_t)1 << (c - 2))) logn--; }
+    if (!is_pow2(g)) {
+        int ln, lr, lc; size_t qm, qcap = rns_q_slot(c);                       /* MN_NONPOW2_CAP: the pools' q (43/32 larger), else 2^(c - 2) as before */
+        mn_shape((size_t)1 << logn, g, &ln, &lr, &lc, &qm);
+        if (qm > qcap) logn--;
+        else if (rns_np2cap()) { mn_shape((size_t)1 << (logn + 1), g, &ln, &lr, &lc, &qm); if (qm <= qcap) logn++; }   /* the next power of two fits: 2^33 over 3 nodes */
+    }
     return logn;
 }
 int rns_mul_dist_mn_logcap(mn_group *G) { return mn_logn_cap(G->g); }
@@ -1710,7 +1716,7 @@ void rns_dist_cache_plan(int size, int pool_log, int np0, long grids_tree, long 
     int w = cache_slots_of(1);
     const char *first = grids_tree ? "the tree" : grids_recip ? "the reciprocal" : grids_div ? "the division" : 0;
     int ld = dist_logn_max(), lf = pool_log > 0 && pool_log < ld ? pool_log : ld;
-    double sd = (double)np0 * ((size_t)1 << (ld - 2)) * 8, sf = (double)np0 * ((size_t)1 << (lf - 2)) * 8;   /* one slot per APU: the default's, FIT's */
+    double sd = (double)np0 * rns_q_slot(ld) * 8, sf = (double)np0 * rns_q_slot(lf) * 8;   /* one slot per APU: the default's, FIT's */
     double budget = (getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0) * 1e9, room = budget - node_bytes - cache_fit_reserve();
     int nf = room > 0 ? (int)(room / (NR * sf)) : 0; if (nf > w) nf = w;
     if (!w || !first) { printf("plan cache  the mn transform cache (RNS_DIST_CACHE_MN=%d): %s -- nothing allocated; node %.2f GB\n", w, !w ? "off" : "not wanted (no mn grid product)", node_bytes / 1e9); return; }
