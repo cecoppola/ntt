@@ -114,7 +114,7 @@ primes give p₀p₁p₂ = 2^155.36 against (B − 1)² = 2^119.59, so three pri
 
 - one-node tiers use three primes (`ECALC_NP` defaults to 3 in `ecalc.c`);
 - multi-node products use `ECALC_NP=auto` (`ecalc.c` sets it when `ECALC_NP` is unset at size > 1): since the user's
-  decision D18 (2026-10-12, `results/DEF.md`) plane pool 0 holds four planes in every run of more than one node-process
+  decision D18 (2026-10-12, `results/LAUNCH_DEFAULTS.md §DEF`) plane pool 0 holds four planes in every run of more than one node-process
   (`ec_np_planes`), so every multi-node product runs four primes in the P24 form (below). `ECALC_NP_MN3=1` keeps the
   three-prime multi-node path: three primes, or four (P24) when a piece of the run's largest group can exceed the
   three-prime bound (from 32 node-processes, which the target size needs at its top levels). `ec_np_check` refuses a
@@ -297,7 +297,7 @@ budget).
 | `comm_local.c` | one rank (size 1): no-ops and copies; the single-node pipeline runs through it |
 | `comm_xgmi.c` | the node's four APUs: peer copies over the xGMI mesh, driven by four host threads |
 | `comm_shmem.c` | OpenSHMEM: a communicator is a strided PE set; one symmetric pool holds every remote-writable buffer; the sender puts a slab at an offset the receiver chose, then a signal word; the receiver polls signals. Setup, collectives and the fallback data path |
-| `comm_ofi.c` | libfabric (`cxi`): the device exchanges' data plane over every NIC of the node, one domain per APU thread, chunks striped over the NICs; completion is signalled through SHMEM. On by default wherever a cxi NIC is present; `COMM_OFI=0` forces the SHMEM path. ×2.1 over SHMEM at 10 nodes (m; `results/OFI17.md`) |
+| `comm_ofi.c` | libfabric (`cxi`): the device exchanges' data plane over every NIC of the node, one domain per APU thread, chunks striped over the NICs; completion is signalled through SHMEM. On by default wherever a cxi NIC is present; `COMM_OFI=0` forces the SHMEM path. ×2.1 over SHMEM at 10 nodes (m; `results/OFI_FABRIC.md §OFI17`) |
 | `comm_layered.c` | the layered composition of an intra (xGMI) and an inter (SHMEM/OFI) communicator, §6.3 |
 | `comm_sim4.c`, `comm_util.c` | a synthetic four-rank layout in one APU's memory for tests; shared helpers |
 | `comm_copy.c` | N7D: the GPU copy kernel for copies that touch the SHMEM proxies' host-registered pool (`COMM_SHMEM_PX_KCOPY=1`, called from `comm_shmem.c`'s `COPY`) |
@@ -377,7 +377,7 @@ everything is allocated once, up front, and sized by a model that the C layout r
   launch lines 2048); `mdb_shift` slabs are bounded by `MDB_SHIFT_CHUNK_MB`.
 - **Exchange memory.** Staging for SHMEM/OFI and the general map's v-slots are counted in the node budget
   (`binsplit_vslot_bytes`, `binsplit_shmem_pool_need`); `COMM_LAYER_VSLOT_*` share and release them in time.
-- **Memory fit (FIT, `results/FIT.md`).** `binsplit_fit` (`binsplit.c`) puts the node's device peak -- the larger of the dm
+- **Memory fit (FIT, `results/LAUNCH_DEFAULTS.md §FIT`).** `binsplit_fit` (`binsplit.c`) puts the node's device peak -- the larger of the dm
   phase (planes + arena + comm_ofi pools + the v-slots) and the bs phase (the same + the VMM pool's bs growth, 6.0 GB m, + the
   tree top's v-slots) -- against the device edge `ECALC_DEVICE_GB` and the node (planes + arena + bs growth + host + v-slots)
   against `ECALC_NODE_GB`, at rank 0's layout, so every rank computes the same numbers. `MN_PLAN_ONLY` prints it (`plan fit`),

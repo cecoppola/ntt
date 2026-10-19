@@ -46,11 +46,11 @@ digits up to 10¹¹.
 | 2 nodes (aac7), 6.441 × 10¹⁰ digits per node, same three defaults | 134.51 s against 140.10 s without them (pooled 12 pairs, -5.58 s [-10.54, -0.63]) (m, 2026-10-12); one gate run after the wave 2 removals: 134.0 s (m) | `results/CAND.md`, `results/W2B.md` |
 | 1 node, 6.441 × 10¹⁰ digits, before the 2026-10-12 defaults | 76-78 s (m) | `RESULTS.md`, `results/S48.md` |
 | 1 node, 10¹¹ digits | 129.3 s (m, before the 2026-10-12 defaults) | `results/L2.md` |
-| 1 / 2 / 4 / 6 nodes at 6.441 × 10¹⁰ digits per node (scaling, aac7, mean of 2 runs per count, 2026-10-13 overnight, defaults of 4ae95ec1) | 67.6 / 119.4 / 172.2 / 204.6 s; efficiency vs 1 node (T1/Tn) 0.57 / 0.39 / 0.33 (m, 2026-10-13; before tonight's runs: 74.4 / 138.9 / 188.2 / 246.4 s, `results/M2a.md`) | `results/NIGHT.md` §4 |
+| 1 / 2 / 4 / 6 nodes at 6.441 × 10¹⁰ digits per node (scaling, aac7, mean of 2 runs per count, 2026-10-13 overnight, defaults of 4ae95ec1) | 67.6 / 119.4 / 172.2 / 204.6 s; efficiency vs 1 node (T1/Tn) 0.57 / 0.39 / 0.33 (m, 2026-10-13; before tonight's runs: 74.4 / 138.9 / 188.2 / 246.4 s, `results/M2a.md`) | `results/NIGHT_RUNS.md §NIGHT` §4 |
 | 3 / 5 nodes at 6.441 × 10¹⁰ digits per node (aac7, comm_ofi default, 2026-10-14): 147.7 s (3 runs, sd 4.5) and 182.1 s (3 runs, sd 9.7); with the 1/2/4/6 points the curve reads 67.6 / 119.4 / 147.7 / 172.2 / 182.1 / 204.6 s for 1 to 6 nodes (m, 2026-10-14) | `results/SCALE35.md` |
-| 6 nodes, 3.8646 × 10¹¹ digits (repeat, aac7, defaults, no writes, 2026-10-13) | mean 202.1 s, sd 8.6 s, min 192.0 s, max 230.9 s over 47 runs; 0 hangs (m) | `results/NIGHT.md` §5 |
-| 6 nodes, 3.8646 × 10¹¹ digits (repeat, test cluster, defaults of 209712f, no writes, 2026-10-13 day plan) | mean 197.1 s, sd 12.0 s, min 181.1 s, max 224.8 s over 34 runs; 0 hangs (m) | `results/DAY.md` §4 |
-| 6 nodes, 3.8646 × 10¹¹ digits (repeat on main 1aa2b80, after the CKPT, N7 and N7b merges, aac7, 2026-10-14, no writes) | mean 190.70 s, sd 12.03 s, min 175.38 s, max 217.78 s over 31 runs; 0 hangs; gates at 1/2/4/6 nodes PASS (digits identical); SHMEM-path sweep 24/24 digits identical at 1 to 6 nodes (m; not a paired speed claim) | 2026-10-14 repeat; results/NIGHT2.md |
+| 6 nodes, 3.8646 × 10¹¹ digits (repeat, aac7, defaults, no writes, 2026-10-13) | mean 202.1 s, sd 8.6 s, min 192.0 s, max 230.9 s over 47 runs; 0 hangs (m) | `results/NIGHT_RUNS.md §NIGHT` §5 |
+| 6 nodes, 3.8646 × 10¹¹ digits (repeat, test cluster, defaults of 209712f, no writes, 2026-10-13 day plan) | mean 197.1 s, sd 12.0 s, min 181.1 s, max 224.8 s over 34 runs; 0 hangs (m) | `results/NIGHT_RUNS.md §DAY` §4 |
+| 6 nodes, 3.8646 × 10¹¹ digits (repeat on main 1aa2b80, after the CKPT, N7 and N7b merges, aac7, 2026-10-14, no writes) | mean 190.70 s, sd 12.03 s, min 175.38 s, max 217.78 s over 31 runs; 0 hangs; gates at 1/2/4/6 nodes PASS (digits identical); SHMEM-path sweep 24/24 digits identical at 1 to 6 nodes (m; not a paired speed claim) | 2026-10-14 repeat; results/NIGHT_RUNS.md §NIGHT2 |
 
 The 60-bit packed output (`ECALC_OUT_PACKED=2`) is the default since 2026-10-12 (batch D5, `results/W2A.md`).
 The wave 2 settings removals changed no timing at the defaults (`results/W2A.md`, `results/W2B.md`).
@@ -73,8 +73,8 @@ The multi-node launch line sets, in addition: the transport (`COMM_TRANSPORT=shm
 symmetric heap in device memory, SHMEM rounds of 1 GiB), `ECALC_NP=auto`, `MN_T_CHUNK_MB=2048`, the memory guard, the
 crash-trace handler and the verbose memory lines. Every multi-node product runs the four-prime 24-digit form P24 (user decision
 D18, 2026-10-12: the code default at every size > 1, as the target always had from 32 nodes; `results/MEAS-P24.md`: −8.9 s
-at 2 nodes, +8.6 GB per APU, m; `results/DEF.md`). The three-prime multi-node path stays selectable for A/B runs with
-`ECALC_NP_MN3=1` (`tools/gate.sh --mn-primes 3` gates it). The batch tier's host overlap `BS_BATCH_PIPE` (D20, `results/N3.md`: −0.99 s at 1 node, m) and the carry-lookahead in `k_crt_batch` `RNS_CRT_SCAN` (D21, `results/K4b.md`: −2.52 s at 1 node, m) and the division's low product as one cyclic plane `DM_MN_WRAP` (D22, `results/P1.md`, `results/DEF.md`: 6 nodes dm −6.25 s, +5.4 GB per APU, counted by the memory model, m) are code defaults since 2026-10-12, each with a `=0` fallback (`DM_MN_WRAP` automatic since 2026-10-13, D26, `results/FIT.md`: on only where the device with it fits the device limit less a 5 GB margin -- on at aac7's 1 to 6 nodes, off at 3.82 × 10¹³ on 576 nodes); so are the P24 CRT carry-lookahead `P24_CRT_SCAN` (D24, `results/K4c.md`) and the reciprocal chain guard `NEWTON_CHAIN_GUARD` (D25, `results/RECIP.md`, counted by the memory model) since 2026-10-13. The transform-cache fit and partial cache, the early write after
+at 2 nodes, +8.6 GB per APU, m; `results/LAUNCH_DEFAULTS.md §DEF`). The three-prime multi-node path stays selectable for A/B runs with
+`ECALC_NP_MN3=1` (`tools/gate.sh --mn-primes 3` gates it). The batch tier's host overlap `BS_BATCH_PIPE` (D20, `results/N3.md`: −0.99 s at 1 node, m) and the carry-lookahead in `k_crt_batch` `RNS_CRT_SCAN` (D21, `results/K4b.md`: −2.52 s at 1 node, m) and the division's low product as one cyclic plane `DM_MN_WRAP` (D22, `results/P1.md`, `results/LAUNCH_DEFAULTS.md §DEF`: 6 nodes dm −6.25 s, +5.4 GB per APU, counted by the memory model, m) are code defaults since 2026-10-12, each with a `=0` fallback (`DM_MN_WRAP` automatic since 2026-10-13, D26, `results/LAUNCH_DEFAULTS.md §FIT`: on only where the device with it fits the device limit less a 5 GB margin -- on at aac7's 1 to 6 nodes, off at 3.82 × 10¹³ on 576 nodes); so are the P24 CRT carry-lookahead `P24_CRT_SCAN` (D24, `results/K4c.md`) and the reciprocal chain guard `NEWTON_CHAIN_GUARD` (D25, `results/RECIP.md`, counted by the memory model) since 2026-10-13. The transform-cache fit and partial cache, the early write after
 division step 1, the lean division and the X2 exchange with slot sharing and release are code defaults (TASKS 27,
 `results/W2B.md`; each has a `=0` fallback). The two lines are kept in:
 
@@ -89,14 +89,14 @@ division step 1, the lean division and the X2 exchange with slot sharing and rel
 Profiles (`profiles/*.conf`, loaded by `tools/profile_load.py`, precedence: explicit environment > profile > code default)
 hold what is machine-specific. Settings adopted on both lines are code defaults (TASKS 27).
 
-Size-dependent values are computed, never typed (TASKS 27, `results/T27.md`): the SHMEM pool (`COMM_SHMEM_POOL_MB`, from
+Size-dependent values are computed, never typed (TASKS 27, `results/TOOLS_PROFILES.md §T27`): the SHMEM pool (`COMM_SHMEM_POOL_MB`, from
 the planner `MN_PLAN_ONLY`), the library heap (pool + 512 MiB), `FI_UNIVERSE_SIZE` (`mnrun.sh`) and the tree schedule
 `MN_GROUPS` (the code's default). `tools/plan_values.py [--profile P] [--line FILE] [--exports] <digits> <nodes>` prints
 them without launching, checks a hand-typed line against them, and prints `export` lines for a launch without `mnrun.sh`.
 At 3.82 × 10¹³ digits on 576 nodes the plan asks for a pool of 2304 MiB and a heap of 2816 MiB with the current defaults
 (m, planner on the aac7 login node); a typed 1536 / 2048 MiB is right only with `COMM_LAYER_VSLOT_POOL=0`. User decision D9 (a), 2026-10-12: the target launch block does not type pool or heap; it takes them from `tools/plan_values.py --profile target --exports <digits> <nodes>`.
 
-**Memory fit before every launch (FIT, user decision D26, `results/FIT.md`).** Only runs whose memory fits are launched. The
+**Memory fit before every launch (FIT, user decision D26, `results/LAUNCH_DEFAULTS.md §FIT`).** Only runs whose memory fits are launched. The
 planner (`MN_PLAN_ONLY`, C, the source of truth) reports for (digits, nodes, profile) the device peak per node and per APU
 against the machine's device edge `ECALC_DEVICE_GB` (target 373.44 GB per node, m; aac7 444.0, m, in `profiles/aac7.conf`),
 the node against `ECALC_NODE_GB`, the margins and the largest consumers; `tools/plan_values.py --fit <digits> <nodes>` prints
@@ -124,7 +124,7 @@ nodes (TASKS 23), performance on aac7 (largest item: the distributed division mu
 5. Growing runs (a few nodes, then larger groups), each VERIFY OK; then the 576-node run with the write, RECHECK and
    `unpack_digits` off the clock, and a prefix compare against a 10¹¹ reference.
 
-**Not rehearsed on aac7** (results/A06.md): the 2-NIC A3 stage, an 8-node A4, the s2chk stage, the `--spares` path and
+**Not rehearsed on aac7** (results/TOOLS_PROFILES.md §A06): the 2-NIC A3 stage, an 8-node A4, the s2chk stage, the `--spares` path and
 the plan-REFUSED path.
 
 **Risks.**

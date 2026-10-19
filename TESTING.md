@@ -30,13 +30,13 @@ covers it; its log shows the `I3:` line.
 - `--line` selects the launch line (the test system's is the `LAUNCH_LINE_KEYS` of `profiles/aac7.conf`, printed by
   `tools/profile_load.py aac7 --line`; the target's is supplied as a file); `--profile NAME` loads `profiles/NAME.conf`; `--env "K=V …"` adds settings; `--digits` and
   `--ref` change size and reference (only 10⁹ has a default reference).
-- `--mn-primes p24|3` (default `p24`; checked at `--nodes` > 1). Since the user's decision D18 (2026-10-12, `results/DEF.md`)
+- `--mn-primes p24|3` (default `p24`; checked at `--nodes` > 1). Since the user's decision D18 (2026-10-12, `results/LAUNCH_DEFAULTS.md §DEF`)
   every multi-node product runs the four-prime 24-digit form P24 (`ec_np_planes` in `crt.c` gives pool 0 four planes at
   g > 1, so `mn_p24_of()` in `rns_dist.c` is true): `p24` checks that the run log shows `plane pool 0 for 4 primes`.
   `3` gates the three-prime multi-node path kept for A/B runs (adds `ECALC_NP_MN3=1`) and checks `plane pool 0 for 3 primes`.
   A missing line is a FAIL; the digits must be identical as always. (Replaces `--p24`, which forced P24 through
   `ECALC_NP_AUTO_TERMS` when it switched on only from 32 nodes.)
-- **Memory fit (FIT, user decision D26, `results/FIT.md`).** Before any node time is used (before `--alloc`'s sbatch and before
+- **Memory fit (FIT, user decision D26, `results/LAUNCH_DEFAULTS.md §FIT`).** Before any node time is used (before `--alloc`'s sbatch and before
   the run in a hold) the gate prints the run's memory fit, `tools/plan_values.py --fit` on the launch line (`fit.txt`): the
   planner's device peak per node and per APU against the device limit `ECALC_DEVICE_GB` (the profile's measured edge; code
   default 373.44, the target's), the node against `ECALC_NODE_GB`, both margins, the largest consumers and the `DM_MN_WRAP`
@@ -52,7 +52,7 @@ covers it; its log shows the `I3:` line.
 `ecalc/mnaccept.sh <hold> [--full] [--only unit,grid,e9,mn,ckpt,recheck,corr]` runs on the login node against a
 one-node allocation and prints one PASS/FAIL line per step, a summary, and exits with the number of failures. Logs go to
 `ecalc/results/mnaccept/<hold>/`.
-Durations on aac7 (measured 2026-10-13, results/HANG.md): `--only unit` ≈ 25 min on a 2-node hold, `grid` ≈ 2 min,
+Durations on aac7 (measured 2026-10-13, results/CRASHES_HANGS.md §HANG): `--only unit` ≈ 25 min on a 2-node hold, `grid` ≈ 2 min,
 `t_mul 20` ≈ 12 min. Give a queue item running `unit` a step timeout of at least 2400 s and `# EST_MIN=` of at least 45
 (the runner stops an item at 1.5 × EST_MIN + 5 min); a shorter limit looks like a hang.
 
@@ -71,7 +71,7 @@ References are `ecalc/ref/e_<digits>.txt` of the clone, else `ECALC_REF`; make a
 
 A recheck of a large run is bound by the file system, not the node: it reads every part file and the top-level set
 again. On aac7 (NFS) that is ≈ 12.5 MB/s per node for the parts and ≈ 45 MB/s for the set (measured at 2 nodes,
-results/CKPT.md): 281 s at 10¹⁰ and 527 s at 2 × 10¹⁰ on 2 nodes (measured), ≈ 1 h at 3.86 × 10¹¹ on 6 nodes (modelled),
+results/CHECKPOINT.md §CKPT): 281 s at 10¹⁰ and 527 s at 2 × 10¹⁰ on 2 nodes (measured), ≈ 1 h at 3.86 × 10¹¹ on 6 nodes (modelled),
 7380 s (2 h 3 min) there (measured, 2026-10-14).
 Give it a timeout of at least 3 h for the 6-node large run (the model is about half the measured time); a recheck killed at its timeout leaves the
 question open, and killed runs have been followed by nodes draining for a reboot.
