@@ -91,7 +91,7 @@ key without a consumer), SCRIPT-ONLY (aac7env.sh sets it but the profile lacks i
 1. **Modules** (`TARGET_ROCM`, `TARGET_SMA_MODULE`, `TARGET_DSMML_MODULE`, `MNRUN_MODULES`, `MNRUN_UNLOAD`). From `module avail`: the ROCm module whose
    version is the stated one, the OpenSHMEM module (`cray-openshmemx` or `cray-shmem` family) of the stated version, the highest dsmml. Check
    `MODULE_LOAD_RC=rc=0` and `MODULES_AFTER_LOAD` in the facts: a ROCm module loaded by default conflicts and the later `module load` silently
-   fails (results/ROCM.md), so `MNRUN_UNLOAD` = every default-loaded ROCm module (`MOD_LOADED_ROCM`); empty only if none is loaded.
+   fails (results/AAC7_PORT.md §ROCM), so `MNRUN_UNLOAD` = every default-loaded ROCm module (`MOD_LOADED_ROCM`); empty only if none is loaded.
    Expected: three names; the SHMEM library's libfabric (`SMA_LIBFABRIC_RESOLVED`) is the stated libfabric version.
 2. **Build** (`SHMEM_CRAY=1`, `GMP_HOME`). `tools/gate.sh --build` on a login node or in the allocation; the log must show `-DCOMM_SHMEM`. `GMP_HOME`: a
    `gmp.h` on the include path (probe note "a gmp.h is available") means delete the key; otherwise build GMP from source and set it to the
@@ -114,7 +114,7 @@ key without a consumer), SCRIPT-ONLY (aac7env.sh sets it but the profile lacks i
 7. **Plan check.** `tools/plan_values.py --profile target 38200000000000 576` (digits and nodes of the headline run) prints the pool, heap, `FI_UNIVERSE_SIZE`, `MN_GROUPS` and the memory fit;
    all must be present and the fit must say it fits with the margin the rules ask for. `MN_PLAN_ONLY` needs no allocation.
 8. **First small run.** 1 node, `1e9` digits with write and compare against a reference, then 2 nodes (gates per TESTING.md §2), then a 1e10 run. **Give the first launch a long timeout (at least
-   600 s, 2 x the cold figure of results/ROCM.md: init 33 s warm-up there, an earlier first run did not finish the reciprocal in 240 s)**: ROCm 7.14 builds its code objects on first use.
+   600 s, 2 x the cold figure of results/AAC7_PORT.md §ROCM: init 33 s warm-up there, an earlier first run did not finish the reciprocal in 240 s)**: ROCm 7.14 builds its code objects on first use.
    Watch `libamdhip64` in the log (the right ROCm), `-DCOMM_SHMEM`, `config-src:`. A second identical run shows the warm time; use that for any comparison.
 9. **SHMEM checks that decide `COMM_SHMEM_PE_PER_APU`** (`SHMEM_*` lines of the facts; the probe prints its reading as "COMM_SHMEM_PE_PER_APU advice"):
    * `SHMEM_TWOPE_PROBE`: `shmem_ptr_peers_nonnull=1/1` means the library has an on-node path (XPMEM present: `XPMEM_DEV=1`) and the proxy mode can map a
