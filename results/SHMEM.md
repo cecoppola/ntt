@@ -46,6 +46,7 @@ runs wait on peers, they do not compute more.
 | switch | result | status | default |
 |---|---|---|---|
 | `COMM_SHMEM_PX_THP` (huge-page proxy pools) | item 37, 4 pairs: −287.8 s [−507, −68], faster 4/4; items 38, 39, 41 (default on vs off): +207.7 (2 pairs), +28.4 [−27, +84], +163.5 [−45, +372] | adopted, D36 (a) | 1 |
+| `COMM_SHMEM_NP_HEAP_THP` (node-process heap in 2 MiB pages) | 3 n items 97q-97t: stalls 0/12 runs on vs 7/18 off; see "Compaction stalls" | adopted, D48 | 1 |
 | `COMM_SHMEM_PX_PIN` (pinned pools) | N7G, 3 pairs with THP: −124.9 s [−460.6, +210.8]; never separated from THP | off, not significant | 0 |
 | `COMM_SHMEM_HEAP_THP` (huge-page SHMEM heap) | item 40, 2 pairs: +24.8 s [−179, +229]; gates PASS | dropped (D39), not merged | — |
 | `COMM_SHMEM_OFFS_WITH_DATA=64` + `COMM_SHMEM_MESH_PAR=1` (N7F fixes A and C) | item 40 task-3 arm, 2 pairs: +49 s | off, no gain | 0 / 0 |
@@ -201,6 +202,28 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
   plausibly kernel reclaim or compaction under five pinned 3 GiB symmetric heaps per node plus the huge-page pools,
   which the libfabric path does not create.
 - Clock sync error between nodes is about 0.4 ms (inferred, not measured).
+
+## Compaction stalls and `COMM_SHMEM_NP_HEAP_THP` (3 nodes, 4.8e10, items 97a-97t, 2026-10-18; m unless marked)
+
+- Mechanism (items 97k-97n, heartbeat counters `COMM_TRACE_HB_MEM`, per-mapping smaps capture): the kernel's proactive
+  compaction (`compaction_proactiveness` 20) starts on a NUMA node whose free memory is > 90 % in blocks < 2 MiB. After
+  start-up this is NUMA node 0 of the job's first node in nearly every run (score 91-99; other nodes 0-11). A pass isolates
+  the node-process's Cray SHMEM symmetric heap (`/dev/zero` shared mapping at the library base, all 4 KiB: 3096 MiB under
+  SHMEM, 1048 MiB under libfabric), fails to migrate the NIC-registered pages and retries; every unmap evicts the process's
+  GPU queues (KFD `evicted_ms` +42 s summed in an 8 s storm), so all 4 APU threads stall. Failed-page counts per storm match
+  the heap sizes (740k pages = 2.9 GiB SHMEM, 241k pages = 0.94 GiB libfabric).
+- Fix: `COMM_SHMEM_NP_HEAP_THP=1` pre-faults and collapses that heap to 2 MiB pages before registration (compaction skips
+  compound pages); 3096 MiB fully PMD-mapped, 1.9-2.0 s per process, overlapped (init unchanged). Gates 1 n, 2 n SHMEM and
+  libfabric, off and on: PASS, digits identical (97q, 97s; main-based build in 97w).
+- Runs, 3 n (97q/97r/97s/97t): with the switch 0 of 12 runs stalled (SHMEM DT 47.4-50.9 s, libfabric 45.9-47.9 s);
+  without it 7 of 18 stalled (SHMEM up to 70.3 s). Same nodes: SHMEM with the switch about 6 % behind libfabric when
+  libfabric runs well (49.6 vs 46.6 s, 97q/97r). Default 1 since D48 (user 2026-10-18).
+- Not adopted: `MEM_FRAG_RESERVE_GB` (branch fragres): a 6 GiB reserve on NUMA node 0 lowers the score after start-up but
+  costs 4-8 s of init and, without the heap fix, makes the storms worse (97s/97t). `MNRUN_MEMPREP_GB=100` (97g/97h),
+  `MEM_HSTAGE_THP=0` (97b3/97b4), `COMM_SHMEM_PX_INIT_THREADS=16` (97i/97j), `COMM_SHMEM_PX_CONC=1` (97c/97d): no effect.
+- Remaining (m): successful compaction passes on that node still evict the GPU queues for 1.4-12 s summed per run; root
+  access (`compaction_proactiveness=0` per job, hugetlb heaps) would remove them (private list of settings kept outside the
+  repository).
 
 ## Open questions and next experiments
 

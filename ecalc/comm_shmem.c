@@ -241,7 +241,7 @@ static int g_heap_numa = -1, g_heap_mbind = -2;          /* N7C COMM_SHMEM_PX_NU
  * the helper pre-faults its pool and collapses it to 2 MiB pages before the barrier (pool_collapse).  Raw syscalls: no wrapper recursion. */
 static int g_thp, g_thp_err, g_thp_thr = 4; static double g_thp_t; static void *g_heap_hint; static int g_heap_fl;
 static void pool_populate(char *p, size_t n, int nt); static int pool_collapse(char *p, size_t n, int nt);
-/* NPHEAP COMM_SHMEM_NP_HEAP_THP=1 (default 0 = off, nothing below runs): the node-process's own symmetric heap (the library's one shared anonymous /dev/zero mapping) is
+/* NPHEAP COMM_SHMEM_NP_HEAP_THP=1 (default 1 since D48, user 2026-10-18; 0 = off, nothing below runs): the node-process's own symmetric heap (the library's one shared anonymous /dev/zero mapping) is
  * pre-faulted and collapsed to 2 MiB pages inside the wrapper, before the library registers it (kcompactd isolates pinned 4 KiB shmem pages, fails to migrate them and retries
  * through unmap = KFD queue evictions; compound pages are skipped).  The mapping itself is the library's own call (address, flags, fd kept; only an unhinted one is 2 MiB aligned). */
 static int g_np_mode, g_np_err; static void *g_np_addr; static size_t g_np_len; static double g_np_t;
@@ -790,7 +790,7 @@ int comm_shmem_init(void)
             int d = (getenv("SLURM_LOCALID") ? atoi(getenv("SLURM_LOCALID")) : 0) / S.ppa; char p[96]; snprintf(p, sizeof p, "/sys/class/cxi/cxi%d/device/numa_node", d);
             FILE *f = fopen(p, "r"); g_heap_numa = d; if (f) { int n = -1; if (fscanf(f, "%d", &n) == 1 && n >= 0) g_heap_numa = n; fclose(f); } }
         g_heap_arm = 1; } }
-    g_np_mode = env_int("COMM_SHMEM_NP_HEAP_THP", 0);   /* NPHEAP: node-process (every PE that is not a helper; mnrun.sh sets COMM_SHMEM_PROXY=1 for helpers only); the proxy path above wins */
+    g_np_mode = env_int("COMM_SHMEM_NP_HEAP_THP", 1);   /* NPHEAP (default 1, D48): node-process (every PE that is not a helper; mnrun.sh sets COMM_SHMEM_PROXY=1 for helpers only); the proxy path above wins */
     if (g_np_mode < 0 || g_np_mode > 1) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_NP_HEAP_THP=%d: 0 (off) or 1 (the node-process heap in 2 MiB pages)\n", g_np_mode);
     if (g_np_mode && g_heap_arm) g_np_mode = 0;   /* a helper (its heap file is the proxy path's) */
     if (g_np_mode) {
