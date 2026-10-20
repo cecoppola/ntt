@@ -108,6 +108,8 @@ COMM_SHMEM_PX_PWS	experiment	shx (D58/D59)	2026-11-20	off by default; last chunk
 COMM_SHMEM_PX_WINDOW	experiment	shx (D58/D59)	2026-11-20	off by default; PX3 posts at most K commands (peers) at a time, walk staggered by local PE index; branch shx, untested
 COMM_SHMEM_PX_ONECTX	experiment	shx (D58/D59)	2026-11-20	off by default; PX3 proxy uses one context for all peer nodes; branch shx, untested
 COMM_SHMEM_PX_SIGSET	experiment	shx (D58/D59)	2026-11-20	off by default; the PX3 signal word written by shmem_ctx_putmem_signal_nbi (0 or 8 data bytes); branch shx, untested
+COMM_SHMEM_PX_DEVSRC	experiment	shx (D58/D59)	2026-11-20	off by default; the PX3 proxies put from a HIP device buffer (1 fine-grained, 2 coarse) with a startup self-test and timing; branch shx, untested
+COMM_SHMEM_PX_DEVSRC_MB	experiment	shx (D58/D59)	2026-11-20	size of the PX_DEVSRC device buffer per proxy in MiB (0 = half the pool); branch shx, untested
 COMM_SHMEM_HUGETLB	experiment	L5	2027-03-31	off by default; node-process heap from the 2 MiB hugetlb pool (aac7 has no pool: falls back to NP_HEAP_THP); review at the target session
 MN_NONPOW2_CAP	experiment	T2 (D57)	2026-11-19	off by default; adopt or remove after the 3 n timing item
 T_COMM_EX_MB	test	ecalc/tests/t_comm.c	2027-04-12	test harness setting (t_comm --ex)

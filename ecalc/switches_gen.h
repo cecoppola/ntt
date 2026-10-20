@@ -34,6 +34,8 @@ static const char *const cfg_names[] = {
     "COMM_SHMEM_POOL_MB",
     "COMM_SHMEM_POOL_NEED_MB",
     "COMM_SHMEM_PROXY",
+    "COMM_SHMEM_PX_DEVSRC",
+    "COMM_SHMEM_PX_DEVSRC_MB",
     "COMM_SHMEM_PX_FENCE_GROUP",
     "COMM_SHMEM_PX_KCOPY",
     "COMM_SHMEM_PX_NUMA",
@@ -165,4 +167,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 163
+#define CFG_NAMES_N 165

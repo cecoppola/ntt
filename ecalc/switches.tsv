@@ -35,6 +35,8 @@ COMM_SHMEM_PE_PER_APU	int	0	0	0|1|2	experiment	-	-	Y	ecalc	comm_shmem.c	1	coordi
 COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_ofi.c,comm_shmem.c	11	-	-	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
 COMM_SHMEM_POOL_NEED_MB	bool	?	?	0|1	test-only	-	-	Y	ecalc	comm_shmem.c	4	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	
 COMM_SHMEM_PROXY	bool	unset	unset	0|1	experiment	-	-	Y	ecalc	comm_shmem.c	2	N7b	2026-11-14	comm_shmem.c; set by mnrun.sh on the proxy PEs (N7b), checked at init
+COMM_SHMEM_PX_DEVSRC	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	1	shx (D58/D59)	2026-11-20	
+COMM_SHMEM_PX_DEVSRC_MB	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	1	shx (D58/D59)	2026-11-20	
 COMM_SHMEM_PX_FENCE_GROUP	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	1	shx (D58/D59)	2026-11-20	
 COMM_SHMEM_PX_KCOPY	int	derived	derived		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	
 COMM_SHMEM_PX_NUMA	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	
