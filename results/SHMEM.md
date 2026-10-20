@@ -373,6 +373,11 @@ state per node count and why the rest stays open on aac7.
 - **Defaults (user Q59, Q60, 2026-10-20).** `COMM_SHMEM_PX_SCHED` unset = `auto` (99 up to 4 nodes, PX3 above;
   `=0` restores PX3); the aac7 profile sets `COMM_SHMEM_ROUND_MB=128`. At the plain launch line, 2 n 1.2882e11 (item
   9jj): SHMEM 116.2, 113.5, 111.1 s (mean 113.6) against libfabric 119.3, 121.3, 113.5 s (118.0).
+  Merged main 3fa7555, plain launch line (items 9jo, 9jn, 9jd): 2 n 1.2882e11 SHMEM 112.0, 112.0, 113.8 s (112.6) against
+  libfabric 113.4, 114.8, 113.6 s (114.0); 4 n 2.5764e11 SHMEM 146.8, 144.8, 145.9 s (145.8) against libfabric 146.7,
+  165.5, 147.3 s (153.1, bimodal); 3 n 1.9323e11 (`MN_NONPOW2_CAP` auto: on; item 9jw) SHMEM 155.0 (first), 142.6,
+  147.4 s (148.3) against libfabric 136.2, 141.0, 143.9 s (140.4); 6 n 3.8646e11 (`MN_NONPOW2_CAP` on) SHMEM 193.7 (first), 182.3, 184.0 s (186.7)
+  against libfabric 174.2, 173.5, 174.7 s (174.1).
 
 ## Open questions and next experiments
 

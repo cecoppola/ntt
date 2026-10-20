@@ -147,6 +147,25 @@ Variants of `mn.c tree_level_k`'s live set at the two 3-way levels (192 and 576)
 
 **Open:** one 8-s wait of the seed thread's first launch behind a plane-pool hipMalloc (≈ −2 s more); host HWM with 2 × 8 GB seed buffers (27 GB at 10¹¹; re-check at 1.4 × 10¹¹); binary E2 and CPU schoolbook tiers unsupported; `T_ALLOC_VMM_SERIAL=0` untested; reserved VA 3 × arena (a run remapping > 2 × arena would fall back to hipMalloc, counted; not seen).
 
+**Background mapping cost (PLAN16, 2026-10-20; items 9jl, 9jm, 9js, 9jt, 9jv on benchmark branches initx and vmmtail,
+not merged; m unless marked).** With `ECALC_INIT_TL=2` the arena's chunks past the first half map in the background from
+the end of rns_init (0.3 s after the region arenas) for about 20 s, the four APUs one at a time behind one mapper lock
+(14-17 s of each APU's 21 s queued). While it runs, GPU work overlapping it slows: bs NTT levels run 2.5-4x slower,
+about 0.7 s lost per second of overlap (inference from per-level times). With the self-tests on, most of the window falls
+on the self-tests and init. Skipping both self-tests (`ECALC_SELFTEST=0`) starts bs 6-9 s earlier but moves the window
+onto bs levels 6-13: 4 n 2.5764e11 142.1 s against 142.8 / 143.0 with the tests (9jt); 2 n 1.2882e11 about -2 s.
+Holding the tail until bs level 14 (`DB_VMM_TAIL=14`) restores levels 6-13 but slows levels 14-20 by the same 7-9 s
+(4 n 144.1 / 144.8 s); from level 25 a waiter needs the tail first (2 n 125.3 / 112.4 s). The cost is the tail mapping
+itself (the dm extra, about 100 GB per node), not its placement; the line is closed. What would help: a smaller dm
+extra in the arena plan or a faster mapper (TASKS Proposed).
+Arena chunk size (items 9jx, 9jy, main 3fa7555): `DB_POOL_VMM_CHUNK_GB` 8 finishes the background mapping 9 s sooner
+but maps more before bs (init +2 s) and rounds the arena up (+8.6 GB per node); 2 n 112.2 against 111.2 s (2 GiB), 4 n
+145.1 against 143.1 / 146.1 s; 4 GiB slower at both. Arena size (items 9jz, 9ka; report ARENA1): at 2 n 1.2882e11 the
+arena is 66.57 GB per APU and the measured dm peak 55.47 GB (83 %). `BS_ARENA_ROOM=0.14` drops one chunk per APU
+(arena 257.70 against 266.29 GB per node, 0 remaps, 0 in-phase hipMalloc): 2 n 108.8 / 109.2 against 113.3 / 110.6 s,
+4 n 147.2 (first) / 144.0 against 144.4 / 144.6 s. `DM_MN_WRAP=0` with it saves 43 GB per node but dm takes +8 to +15 s
+(2 n 117.2, 4 n 155.8 s); `DB_POOL_VMM=0 DM_TIGHT=1` (no background mapper) loses in bs (+10 to +12 s).
+
 ## DKM15: the division in two quotient halves with a half-length reciprocal (Phase 15 Batch 3, agent DKM)
 
 Branch `p15-DKM` (from int15g be2eec3), SC's rank 2 (`results/TARGET.md §SC15` §3.2), approved by the user 2026-09-28. Switch `NEWTON_DKM=1` (off in the base; see the Topic summary for the current default).
