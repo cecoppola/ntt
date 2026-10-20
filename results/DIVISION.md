@@ -237,7 +237,7 @@ Branch `o5` (from main 0298fe2), TASKS items 39 / 37; design basis `archive:resu
 ## NPCAP — `MN_NONPOW2_CAP=1`: non-power-of-two groups on the next power-of-two plane (branch npcap (unmerged), default off; items 9bf, 9bg, 9bj, 9bi, 2026-10-19; m)
 
 - **What it does.** A group of 3 x 2^k nodes takes the next power-of-two plane (rank plane 43/32 larger), so the division
-  has 6 pieces instead of 22 at 1.85e11 digits (plan). Cost: plane memory per node 120.3 -> 161.6 GB (+41.5 GB, m) and about
+  has 6 pieces instead of 22 at 1.85e11 digits (plan). Cost: plane memory per node 120.3 -> 161.6 GB (+41.3 GB, m) and about
   +25 GB of arena and v-slots (plan); the node fit refuses 3 n above 1.85e11 and 6 n above 3.70e11 with the wrap on
   (`DM_MN_WRAP=0` fits both).
 - **Gates (item 9bf):** 6/6 PASS (1 n and 2 n default path; 3 n default against switch on at a lowered cap, libfabric and
@@ -249,5 +249,7 @@ Branch `o5` (from main 0298fe2), TASKS items 39 / 37; design basis `archive:resu
   All VERIFY OK at 2^34-point pieces.
 - **Init cost** is the larger plane pools mapped in rns_init: fixed, independent of the digits. Crossover about 4.5e10
   digits per node (mod, linear in the pieces saved).
-- **Before adoption:** 6 n gates (item 9bo, queued), the engine acceptance of TESTING §4 with the switch on at 3 n, and the
-  review fix already on the branch (d26df9a); then the user's decision.
+- **6 n gates (item 9bo):** 4/4 PASS, digits identical (6 n default against switch on at a lowered cap, libfabric and
+  SHMEM; switch on at the default cap).
+- **Before adoption:** the engine acceptance of TESTING §4 with the switch on (item 9bp, queued), and the review fix
+  already on the branch (d26df9a); then the user's decision.
