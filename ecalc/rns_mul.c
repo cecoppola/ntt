@@ -68,14 +68,12 @@ int rns_pool0_np(void)
 /* MN_NONPOW2_CAP=1 (default 0): in a run whose COMM_SIZE is not a power of two (3, 5, 6, 7, ...) the rank plane q may be 43/32 x 2^(pool_log-2) limbs, so a group of
  * g = 3 * 2^k nodes takes the next power-of-two plane (2^33 points over 3 nodes: 716 M limbs per rank, not 2^29 = 537 M) and its products need fewer pieces.
  * Costs 11/32 more plane pool memory per APU (both pools and the cache slots); rns_plane_pool_bytes is the one formula, so the planner and the fit see it.
- * rns_np2cap_group: the plan-only run's group size (no COMM_SIZE there). */
-static int g_np2_g = 0;
-void rns_np2cap_group(int g) { g_np2_g = g; }
+ * It reads COMM_SIZE each call (the plan-only runs set it around the plan: mn_plan.c plan_run). */
 int rns_np2cap(void)
 {
     static int on = -1; if (on < 0) { const char *e = getenv("MN_NONPOW2_CAP"); on = e && atoi(e) == 1; }
     if (!on) return 0;
-    int g = g_np2_g; if (!g) { const char *c = getenv("COMM_SIZE"); g = c ? atoi(c) : 1; }
+    const char *c = getenv("COMM_SIZE"); int g = c ? atoi(c) : 1;
     return g >= 3 && (g & (g - 1));
 }
 size_t rns_q_slot(int pool_log) { size_t q = (size_t)1 << (pool_log - 2); return rns_np2cap() ? q + q * 11 / 32 : q; }   /* the rank plane the pools are made for (limbs per prime) */
@@ -159,7 +157,8 @@ int rns_init(int pool_log)
      * edge the last allocations get what is left of the free memory in pieces below 2 MiB; the plane pools (every
      * transform of the dist tier) are then the victims and the tier's gathers and transforms run 4-10 x slower
      * (results/TESTING_VERIF.md §N414).  Mapped first, they take 2 MiB blocks; the seeds start after them. */
-    size_t b1 = rns_pool1_bytes_req ? rns_pool1_bytes_req : bytes;   /* C4: pool 1 sized to the dist tier's 3 q when the flow is all-device (the removed host mdev tier needed the full 2^pool_log; TREF) */
+    size_t b1 = rns_pool1_bytes_req ? rns_pool1_bytes_req : bytes;
+    if (!rns_pool1_bytes_req && rns_np2cap()) { size_t p1; rns_plane_pool_bytes(g_pool_log, ec_np_init(), 0, &p1); if (p1 > b1) b1 = p1; }   /* MN_NONPOW2_CAP: 3 q + 16 (4 q at four one-node primes) of the larger q exceeds 4 q of 2^(pool_log-2) */   /* C4: pool 1 sized to the dist tier's 3 q when the flow is all-device (the removed host mdev tier needed the full 2^pool_log; TREF) */
     if (getenv("RNS_POOL1_GB")) b1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);
 #pragma omp parallel for num_threads(g_nd) schedule(static)
     for (int d = 0; d < g_nd; d++) {

@@ -295,13 +295,12 @@ static void plan_div_dkm(size_t nq, size_t dl, size_t k_mu, long double lq, int 
     }
 }
 
-static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, int silent)
+static int plan_run_in(unsigned long d, unsigned long N, int size, int pool_log, int silent)
 {
     g_quiet = silent || (getenv("MN_PLAN_QUIET") && atoi(getenv("MN_PLAN_QUIET")));
     memset(g_pieces, 0, sizeof g_pieces); memset(g_pieces4, 0, sizeof g_pieces4); memset(g_prods, 0, sizeof g_prods); memset(g_grids, 0, sizeof g_grids); g_lvl[0] = 0;
     memset(g_pieces24, 0, sizeof g_pieces24);
     rns_preinit_pool_log(pool_log);                               /* rns_pool_log() as rns_init would set it (mn_logn_cap reads it) */
-    rns_np2cap_group(size);                                       /* MN_NONPOW2_CAP: the plan-only group size (rns_np2cap reads COMM_SIZE otherwise) */
     int np = ec_np_init();
     chk_init(np);                                                 /* the plan-time check */
     size_t p0, p1; rns_plane_pool_bytes(pool_log, ec_np_planes(pool_log, size), &p0, &p1);   /* rns_init's pools (the device flow; pool 0 at rns_pool0_np's planes) */
@@ -349,6 +348,14 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
     if (!g_quiet) printf("plan note   pieces = products formed (a one-plane product is 1 piece), in mn_model.py's categories (run()['pieces'] = tree + recip + div);"
                          " size 1: the dist tier's (the model counts none there)\n");
     return chk_report((double)d, size);                          /* the verdict line; EC_RC_FATAL when a product exceeds the primes */
+}
+/* the plan with COMM_SIZE = size (rns_np2cap and rns_pool0_np read it), restored after: BS_LAYOUT_ONLY plans several group sizes in one process */
+static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, int silent)
+{
+    const char *e = getenv("COMM_SIZE"); char *old = e ? strdup(e) : 0; char b[16]; snprintf(b, sizeof b, "%d", size); setenv("COMM_SIZE", b, 1);
+    int rc = plan_run_in(d, N, size, pool_log, silent);
+    if (old) { setenv("COMM_SIZE", old, 1); free(old); } else unsetenv("COMM_SIZE");
+    return rc;
 }
 int mn_plan_run(unsigned long d, unsigned long N, int size, int pool_log) { return plan_run(d, N, size, pool_log, 0); }
 /* the check alone (BS_LAYOUT_ONLY): the plan of d total digits (N terms) on `size` node-processes, silently, then the

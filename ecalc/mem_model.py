@@ -262,6 +262,11 @@ def level_children(g, spec=None):
         out.append((S, ch)); P = S
     return out
 
+NP2CAP = os.environ.get("MN_NONPOW2_CAP", "0") == "1"   # rns_mul.c rns_np2cap: MN_NONPOW2_CAP=1 and the run's group size not a power of two
+def np2_q(q, g):
+    """rns_mul.c rns_q_slot: the rank plane the pools are made for: 43/32 of q = 2^(pool_log-2) under MN_NONPOW2_CAP in a non-pow2 run (g)"""
+    return q + q * 11 // 32 if NP2CAP and g >= 3 and g & (g - 1) else q
+
 def mn_cap_log(g, pool_log=31):
     """rns_dist.c mn_logn_cap: 2^(min(31, pool_log) + floor(log2 g)) points per piece over g nodes (one less where the
     rounding of R / nr would not fit the pools: never for g <= 2304)"""
@@ -269,8 +274,10 @@ def mn_cap_log(g, pool_log=31):
     while (2 << lgt) <= g: lgt += 1
     c = min(31, pool_log); logn = c + lgt
     if g & (g - 1):
+        qcap = np2_q(1 << (c - 2), g)
         qm = mn_shape(1 << logn, g)[3]
-        if qm > (1 << (c - 2)): logn -= 1
+        if qm > qcap: logn -= 1
+        elif NP2CAP and mn_shape(1 << (logn + 1), g)[3] <= qcap: logn += 1   # MN_NONPOW2_CAP: the next power of two fits
     return logn
 
 @functools.lru_cache(maxsize=None)
@@ -577,7 +584,7 @@ def b_extra_limbs(form, n, pool_log=31, p3q30=False, np=EC_NP, pool1_np=None):
         out.append(ex)
     return out
 
-def planes_bytes(pool_log=31, digits=0, p3q30=None, np=None, strategy='C', cap=None, pool1_np=None):
+def planes_bytes(pool_log=31, digits=0, p3q30=None, np=None, strategy='C', cap=None, pool1_np=None, g=0):
     """rns_mul.c: pool 0 = EC_NP x q limbs with q = 2^pool_log / 4, pool 1 = 3 q + 16 limbs (C4, 2 MiB-aligned), per APU; + the
     contexts.  Phase 13a M (TASKS 1.1): with the 3 2^k planes (the default below 5e10 digits at 2^31 pools, Phase 12 I) pool 0 is
     3 2^(pool_log-1) limbs (24 GiB) and pool 1 3 q + 16 at q = 3 2^(pool_log-3) (18 GiB): 180.4 GB per node instead of 120.3 --
@@ -592,7 +599,7 @@ def planes_bytes(pool_log=31, digits=0, p3q30=None, np=None, strategy='C', cap=N
     if on:
         q = 3 << (pool_log - 3)
     else:
-        q = (1 << pool_log) // 4
+        q = np2_q((1 << pool_log) // 4, g)   # MN_NONPOW2_CAP (g = the run's group size)
     p0 = np * q * 8
     p1 = (3 * q + 16) * 8 if pool_log > 30 else max((3 * q + 16) * 8, 8 << min(pool_log, 30))   # pool 1 is the full pool at POOL_LOG <= 30 (results/MEMORY.md §A-mem, open issue 1)
     if (np if pool1_np is None else pool1_np) >= 4: p1 = max(p1, 4 * q * 8)   # Phase 15 PS (rns_plane_pool_bytes): four one-node primes -- the batch-local tier's
@@ -914,7 +921,7 @@ def cache_mn_bytes(g, pool_log=31, np=4, slots=CACHE_MN_SLOTS_CODE, fit=False):
     min(31, POOL_LOG) (RNS_DIST_CACHE_FIT: the mn tier's cap, mn_logn_cap: q <= 2^(c - 2)); the planes pool 0 is made for (np).  Only a
     run with an mn grid product takes it (MN_PLAN_ONLY's `plan cache` line says where; at the target: tree level 1)"""
     c = min(DIST_LOGN_MAX, pool_log) if fit else DIST_LOGN_MAX
-    return slots * NR * np * (1 << (c - 2)) * 8 if g > 1 else 0
+    return slots * NR * np * np2_q(1 << (c - 2), g) * 8 if g > 1 else 0
 
 def cache_report():
     """the cache at the target and one step below (TARGET_LAUNCH), and at the single-node test points of results/CACHE.md §TC15"""
@@ -993,7 +1000,7 @@ def _mem_per_node(D, g=1, opts=None):
     # v-exchange scratch, 2 slots of A + max(A, B) at both depths' forms, hipMalloc'd OUTSIDE the arena, added to dev_bs / dev_dm below)
     npp = np_planes(o['np'], g, o['pool_log'])                          # Phase 15 NP: ECALC_NP=auto -- pool 0's planes by the run's largest group
     p1np = o.get('pool1_np') or (3 if o['np'] == 'auto' else o['np'])  # Phase 15 PS: pool 1 at the one-node tiers' prime count (auto: three)
-    planes = planes_bytes(o['pool_log'], d, o['planes_3q30'], npp, o['strategy'], pool1_np=p1np)
+    planes = planes_bytes(o['pool_log'], d, o['planes_3q30'], npp, o['strategy'], pool1_np=p1np, g=g)
     pdet = {}                                                             # (Phase 15 DL: the host terms before the room's decision, which counts them)
     if g > 1 and o['transport'] == 'shmem' and o['staging'] in ('code', 'sym'):   # Phase 14 P2: the measured law (the code as it is; 'sym': DIST_MN_SYM_SLABS=1)
         ofi = ofi_planned() if o.get('ofi') is None else o['ofi']           # Phase 17 OFIMEM: COMM_OFI (None: as the code decides on this host)

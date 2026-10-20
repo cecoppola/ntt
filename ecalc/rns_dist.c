@@ -201,6 +201,7 @@ static int cache_slots_of(int mn)
 static int g_cache_mn;                                        /* the tier asking (set by mul_grid / mn_grid before the products) */
 static int cache_slots(void) { return cache_slots_of(g_cache_mn); }
 static int cache_slot_log(void) { int c = dist_logn_max(); if (rns_pool_log() > 0 && rns_pool_log() < c) c = rns_pool_log(); return c - 2; }   /* Phase 15 TC: log2 of a slot's q (at the cap min(dist_logn_max, POOL_LOG)) */
+static const char *q_name(int lg, char *b) { if (rns_np2cap()) snprintf(b, 24, "2^%d x 43/32", lg); else snprintf(b, 24, "2^%d", lg); return b; }   /* a slot's q in the prints: 2^lg, or its MN_NONPOW2_CAP form */
 static size_t cache_slot_q(void) { int c = dist_logn_max(); if (rns_pool_log() > 0 && rns_pool_log() < c) c = rns_pool_log(); return rns_q_slot(c); }   /* a slot's q: 2^(c - 2), or 43/32 of it under MN_NONPOW2_CAP */
 static size_t cache_slot_bytes(void) { return (size_t)rns_pool0_np() * cache_slot_q() * 8; }   /* the largest plane per prime per rank (NP: the primes pool 0 is made for) */
 /* the slots' planes, allocated at the first product that wants them: as many of the configured slots as every APU's free
@@ -233,10 +234,11 @@ static int cache_avail(void)
     g_cache.navail = n; g_cache.bytes = (size_t)n * NR * bytes; g_cache.t_alloc = mem_now() - t0;
     if (n > 0) mem_acct_register(cache_acct);                  /* Phase 15 TC: the slots in the memory report */
     if (getenv("RNS_VERBOSE") || getenv("ECALC_VERBOSE")) {
+        char qb[24];
         printf("   transform cache: %d of %d slots of %.1f GiB per APU allocated in %.2f s (margin %.0f GB)", n, cache_slots(), bytes / 1073741824.0, g_cache.t_alloc, margin / 1e9);
-        if (g_cache_room_set) printf(" [transform-cache fit: slot 2^%d limbs x %d primes, %d node-process%s on the node, budget room %.1f GB less the reserve %.1f -> at most %d slot%s]",
-                                               cache_slot_log(), rns_pool0_np(), g_cache_ranks, g_cache_ranks > 1 ? "es" : "", g_cache_room / 1e9, cache_fit_reserve() / g_cache_ranks / 1e9, nbud, nbud == 1 ? "" : "s");
-        else printf(" [transform-cache fit: slot 2^%d limbs x %d primes; no budget room (ECALC_BUDGET_CHECK=0): the free memory alone]", cache_slot_log(), rns_pool0_np());
+        if (g_cache_room_set) printf(" [transform-cache fit: slot %s limbs x %d primes, %d node-process%s on the node, budget room %.1f GB less the reserve %.1f -> at most %d slot%s]",
+                                               q_name(cache_slot_log(), qb), rns_pool0_np(), g_cache_ranks, g_cache_ranks > 1 ? "es" : "", g_cache_room / 1e9, cache_fit_reserve() / g_cache_ranks / 1e9, nbud, nbud == 1 ? "" : "s");
+        else printf(" [transform-cache fit: slot %s limbs x %d primes; no budget room (ECALC_BUDGET_CHECK=0): the free memory alone]", q_name(cache_slot_log(), qb), rns_pool0_np());
         printf(" = %.2f GB per node-process\n", (double)g_cache.bytes / 1e9);
     }
     return n;
@@ -1713,7 +1715,7 @@ void rns_dist_plan_cap_test(int logn) { g_cap_test = logn; }
  * host, binsplit_node_bytes -- the run's own check uses its measured init peak where that is larger) */
 void rns_dist_cache_plan(int size, int pool_log, int np0, long grids_tree, long grids_recip, long grids_div, double node_bytes)
 {
-    int w = cache_slots_of(1);
+    int w = cache_slots_of(1); char qb[24], qb2[24];
     const char *first = grids_tree ? "the tree" : grids_recip ? "the reciprocal" : grids_div ? "the division" : 0;
     int ld = dist_logn_max(), lf = pool_log > 0 && pool_log < ld ? pool_log : ld;
     double sd = (double)np0 * rns_q_slot(ld) * 8, sf = (double)np0 * rns_q_slot(lf) * 8;   /* one slot per APU: the default's, FIT's */
@@ -1723,17 +1725,17 @@ void rns_dist_cache_plan(int size, int pool_log, int np0, long grids_tree, long 
     if (pc_on()) {                                            /* Phase 15 PC: the partial slots come from the block pool per grid product -- decided at run time by the pool's free bytes */
         printf("plan cache  the mn transform cache (RNS_DIST_CACHE_PARTIAL=1, RNS_DIST_CACHE_MN=%d): wanted first in %s (mn grids: tree %ld, recip %ld, div %ld); per grid product, slots from the block pool"
                " (the arena, inside the node's %.2f GB: nothing added): P = (the pool's free bytes - the product's need - %.2f GB margin per APU) / (q x 8), at most what the free extents hold;"
-               " one prime at the cap 2^%d limbs = %.2f GiB per APU (%.2f GB per node); P >= %d primes: full slots, else 1 slot of P primes; P24 products cached too; the grid's loop along its longer axis"
+               " one prime at the cap %s limbs = %.2f GiB per APU (%.2f GB per node); P >= %d primes: full slots, else 1 slot of P primes; P24 products cached too; the grid's loop along its longer axis"
                " (mn_model.py --cache-partial models the primes per phase)\n",
                w, first, grids_tree, grids_recip, grids_div, node_bytes / 1e9, 0.5,
-               lf - 2, ((size_t)1 << (lf - 2)) * 8 / 1073741824.0, NR * ((size_t)1 << (lf - 2)) * 8 / 1e9, np0);
+               q_name(lf - 2, qb), rns_q_slot(lf) * 8 / 1073741824.0, NR * rns_q_slot(lf) * 8 / 1e9, np0);
         return;
     }
     printf("plan cache  the mn transform cache (RNS_DIST_CACHE_MN=%d, transform-cache fit on): wanted first in %s (mn grids: tree %ld, recip %ld, div %ld), held to the division's end"
-           " | default: %d slot%s x %.2f GiB per APU (2^%d limbs x %d primes) = %.2f GB per node when hipMemGetInfo less RNS_DIST_CACHE_MARGIN_GB allows it, in no budget: node %.2f -> %.2f GB"
-           " | FIT: %.2f GiB per APU (2^%d x %d), room %.2f GB (ECALC_NODE_GB %.0f less the node and the reserve %.0f) -> %d slot%s = %.2f GB, node %.2f GB\n",
-           w, first, grids_tree, grids_recip, grids_div, w, w > 1 ? "s" : "", sd / 1073741824.0, ld - 2, np0, w * NR * sd / 1e9, node_bytes / 1e9, (node_bytes + w * NR * sd) / 1e9,
-           sf / 1073741824.0, lf - 2, np0, room / 1e9, budget / 1e9, cache_fit_reserve() / 1e9, nf, nf == 1 ? "" : "s", nf * NR * sf / 1e9, (node_bytes + nf * NR * sf) / 1e9);
+           " | default: %d slot%s x %.2f GiB per APU (%s limbs x %d primes) = %.2f GB per node when hipMemGetInfo less RNS_DIST_CACHE_MARGIN_GB allows it, in no budget: node %.2f -> %.2f GB"
+           " | FIT: %.2f GiB per APU (%s x %d), room %.2f GB (ECALC_NODE_GB %.0f less the node and the reserve %.0f) -> %d slot%s = %.2f GB, node %.2f GB\n",
+           w, first, grids_tree, grids_recip, grids_div, w, w > 1 ? "s" : "", sd / 1073741824.0, q_name(ld - 2, qb), np0, w * NR * sd / 1e9, node_bytes / 1e9, (node_bytes + w * NR * sd) / 1e9,
+           sf / 1073741824.0, q_name(lf - 2, qb2), np0, room / 1e9, budget / 1e9, cache_fit_reserve() / 1e9, nf, nf == 1 ? "" : "s", nf * NR * sf / 1e9, (node_bytes + nf * NR * sf) / 1e9);
 }
 /* the plan's piece: the same loop and cuts as the products' (a piece past the operand's end is empty and not counted) */
 struct plan_piece { size_t na, nb, pa, pb, lowcut, w; struct rns_grid_plan *p; };
