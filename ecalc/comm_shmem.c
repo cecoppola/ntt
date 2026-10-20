@@ -99,6 +99,11 @@ int   comm_shmem_pe_per_apu(void) { return 0; }
 #else
 #include <shmem.h>
 #include "comm_trace.h"                       /* COMM_TRACE=1: the per-message trace (default off) */
+#ifdef __has_include
+#if __has_include(<shmemx.h>)
+#include <shmemx.h>                           /* shx: shmemx_ctx_session_start / _stop and SHMEM_SESSION_* (Cray OpenSHMEMX) */
+#endif
+#endif
 #if SHMEM_MAJOR_VERSION > 1 || (SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 5)
 #define HAVE_PUT_SIGNAL 1                  /* shmem_ctx_putmem_signal_nbi (OpenSHMEM 1.5) */
 #else
@@ -138,6 +143,10 @@ static struct {
     double bv;                             /* the bytes this PE received from the other PEs in those exchanges (the off-process traffic), summed */
     int ppa, ppn, pme, pnpes, proxy;       /* N7b COMM_SHMEM_PE_PER_APU: proxies per APU (0 off), PEs per node (1 + 4 ppa), my physical PE and the count, 1 = this PE is a proxy */
     int sched;                             /* COMM_SHMEM_PX_SCHED = W (0 = off): PX3 command stream with whole put-with-signal commands, sent to the peers as a shifted ring with at most W senders per receiver (W >= n - 1: no window) */
+    int nostore;                           /* shx COMM_SHMEM_CTX_NOSTORE=1: the proxy's contexts are created with SHMEM_CTX_NOSTORE (default 0) */
+    int fgrp;                              /* shx COMM_SHMEM_PX_FENCE_GROUP = G (0 = off): PX3 posts the data of G commands, then one fence per context, then their G signal words */
+    int pws;                               /* shx COMM_SHMEM_PX_PWS (0 = off): 1 the last chunk of a command is a put-with-signal (a fence before it if the command has earlier chunks), 2 as 1 inside a context session */
+    int pxwin;                             /* shx COMM_SHMEM_PX_WINDOW = K (0 = off): PX3 posts at most K commands (peers) at a time, the walk staggered by the local PE index */
     int pxsend;                            /* N7D COMM_SHMEM_PX_SEND: 1 (fallback; default only without PE_PER_APU=1 or OpenSHMEM 1.5) the proxy's batch-then-quiet, 3 (PX3, default since D53) plain chunks + one fence and signal word per command (px_serve2); 2 (chunked put-with-signal) was removed 2026-10-19 */
 } S;
 enum { K_CTRL, K_STAGE, K_SYM };
@@ -521,8 +530,12 @@ static void px_serve2(void)
 {
     struct px_hdr *h = px_hdr_of(S.pool); struct px_ent *ring = px_ring_of(S.pool); long *dn = px_dn_of(S.pool);
     __atomic_store_n(&h->ppid, (long)getpid(), __ATOMIC_RELEASE);
+    long ctxopt = 0;
+#ifdef SHMEM_CTX_NOSTORE
+    if (S.nostore) ctxopt |= SHMEM_CTX_NOSTORE;            /* shx COMM_SHMEM_CTX_NOSTORE=1 */
+#endif
     shmem_ctx_t cx[PXNCTX]; int nc = 0, peers = S.npes - 1 < PXNCTX ? S.npes - 1 : PXNCTX;
-    while (nc < peers && shmem_ctx_create(SHMEM_CTX_PRIVATE, &cx[nc]) == 0) nc++;
+    while (nc < peers && shmem_ctx_create(SHMEM_CTX_PRIVATE | ctxopt, &cx[nc]) == 0) nc++;
     int own = nc; if (!nc) { cx[0] = SHMEM_CTX_DEFAULT; nc = 1; }
     static size_t posted[PXRING]; static unsigned char fp[PXRING], fd[PXRING], co[PXRING], tra[PXRING];   /* bytes posted, fully posted, done, context */
     long t = 0, tp = 0, tl = 0, nput = 0, nq = 0, nsig = 0; double bytes = 0, tchk = now_s(), tbusy = 0; unsigned idle = 0;
@@ -794,6 +807,11 @@ static int comm_shmem_init_i(void)
     if (S.pxsend != 1 && S.pxsend != 3) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d: 1 (batch then quiet) or 3 (chunked puts, one fence + signal per command); 2 (chunked put-with-signal) was removed 2026-10-19\n", S.pxsend);
     if (S.pxsend == 3 && S.ppa == 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d is not built for COMM_SHMEM_PE_PER_APU=2\n", S.pxsend);
     if (S.pxsend == 3 && (!S.ppa || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d (resolved value; PX3 is the default) needs an OpenSHMEM 1.5 build with COMM_SHMEM_PE_PER_APU=1 (the proxy's context code is compiled only with 1.5 headers; PX_SEND=3 itself uses plain puts, not put-with-signal)\n", S.pxsend);
+    S.nostore = env_int("COMM_SHMEM_CTX_NOSTORE", 0);
+#ifndef SHMEM_CTX_NOSTORE
+    if (S.nostore) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_CTX_NOSTORE=1: this OpenSHMEM header has no SHMEM_CTX_NOSTORE\n");
+#endif
+    if (S.nostore && S.pxsend != 3) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_CTX_NOSTORE=1 needs PX3 (COMM_SHMEM_PX_SEND=3, the default; it applies to the proxy's contexts)\n");
     S.sched = env_int("COMM_SHMEM_PX_SCHED", 0);
     if (S.sched < 0) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SCHED=%d: 0 (off) or the window W >= 1 (99: no window)\n", S.sched);
     if (S.sched && (S.pxsend != 3 || S.ppa != 1 || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SCHED needs PX3 (COMM_SHMEM_PX_SEND=3, the default) under COMM_SHMEM_PE_PER_APU=1 and an OpenSHMEM 1.5 build\n");
@@ -903,6 +921,7 @@ static int comm_shmem_init_i(void)
     S.inited = 1;
     if (S.verbose && S.ppa) printf("comm_shmem: pe %d: init timeline: shmem_init %.2f, pool alloc+pre-fault/registration done at %.2f, barrier took %.2f s, passed at %.2f\n", S.me, g_t_shinit, t_bar - g_t0, now_s() - t_bar, now_s() - g_t0);
     if (S.ppa) { int ph_ = ec_ph(EC_PH_PX_ATTACH); px_attach(); ec_ph(ph_); }                               /* N7b: (after the barrier: the proxies' control is zeroed) */
+    if (S.me == 0 && S.nostore) printf("comm_shmem: COMM_SHMEM_CTX_NOSTORE=1: the proxies' contexts are created with SHMEM_CTX_NOSTORE\n");
     if (S.me == 0 && S.sched) printf("comm_shmem: COMM_SHMEM_PX_SCHED=%d: whole put-with-signal commands, peers as a shifted ring, %s\n", S.sched, S.sched >= S.npes - 1 ? "no window" : "window W senders per receiver");
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);
