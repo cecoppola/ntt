@@ -2,6 +2,7 @@
    The registered switches (sorted by strcmp) that the startup `config:` line looks up in the environment. */
 static const char *const cfg_names[] = {
     "BS_ARENA_ROOM",
+    "BS_ARENA_TRIM_GB",
     "BS_BALANCE_N",
     "BS_BATCH_PIPE",
     "BS_CKPT_BG_CHUNK_MB",
@@ -160,4 +161,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 158
+#define CFG_NAMES_N 159

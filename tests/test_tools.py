@@ -134,5 +134,15 @@ class DocCheck(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+class ArenaTrim(unittest.TestCase):
+    """mem_model.arena_trim (BS_ARENA_TRIM_GB's twin): off = identity, a trim subtracts, the clamp stops at max(v2, v3)"""
+    def test_trim(self):
+        sys.path.insert(0, os.path.join(ROOT, "ecalc")); import mem_model as M
+        G = 10**9
+        def need(t):
+            L = dict(need_dev=100 * G, v2=60 * G, v3=50 * G); r = M.arena_trim(L, 10 * G, t); return r // G, L["trim"] // G
+        self.assertEqual(need(0), (110, 0)); self.assertEqual(need(25), (85, 25)); self.assertEqual(need(99), (60, 50))
+
+
 if __name__ == "__main__":
     unittest.main()

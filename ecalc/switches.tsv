@@ -2,6 +2,7 @@
 # one row per environment switch read by ecalc/*.c|h (source=ecalc) or only by ecalc/tests (source=tests)
 name	type	default	code_default	range	scope	profile	evidence	readme	source	files	sites	owner	review	note
 BS_ARENA_ROOM	float	0.16	0.16		built-in default	-	AS15.md+DL15.md	Y	ecalc	binsplit.c	1	-	-	
+BS_ARENA_TRIM_GB	float	0	0		unclassified	-	-	Y	ecalc	binsplit.c	1	coordinator (TASKS S)	2026-11-11	
 BS_BALANCE_N	int	unset	unset		built-in default	-	-	Y	ecalc	binsplit.c	2	-	-	
 BS_BATCH_PIPE	bool	1	1	0|1	built-in default	-	-	Y	ecalc	rns_mul.c	1	coordinator (D20, results/KERNELS.md §N3)	2026-11-11	rns_mul.c, binsplit.c; N3 batch-tier host overlap (results/KERNELS.md §N3); default 1 since D20, =0 kept fallback
 BS_CKPT_BG_CHUNK_MB	int	256	256		built-in default	-	N13.md	Y	ecalc	binsplit.c	1	-	-	
@@ -25,7 +26,7 @@ COMM_OFI_POOL	bool	derived	derived	0|1	built-in default	-	TGTBENCH2.md+OFI17.md	
 COMM_OFI_POOL_MB	int	auto	derived	MiB per device	launch-line	-	STD17.md+S18KITFIX.md	Y	ecalc	binsplit.c,comm_ofi.c,ecalc.c	7	-	-	binsplit.c:694 sets it from the modelled need when unset
 COMM_OFI_VERBOSE	int	0	0		test-only	-	OFI17.md+STD17.md	Y	ecalc	comm_ofi.c	2	diagnostics (TESTING.md)	2027-04-12	
 COMM_OFI_WINDOW	int	unset	unset		built-in default	-	TUNE17.md+OFI17.md	Y	ecalc	comm_ofi.c	2	-	-	
-COMM_RANK	int	0	0	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,segv_trace.c	14	-	-	set per process by the launcher (mnrun.sh); excluded from the config hash
+COMM_RANK	int	0	0	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,segv_trace.c	15	-	-	set per process by the launcher (mnrun.sh); excluded from the config hash
 COMM_SHMEM_DEVHEAP	bool	0	0	0|1	launch-line	aac7	S12.md+A16.md	Y	ecalc	comm_shmem.c	1	-	-	comm_shmem.c
 COMM_SHMEM_HUGETLB	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	1	L5	2027-03-31	
 COMM_SHMEM_NP_HEAP_THP	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D48, results/SHMEM.md)	2026-11-18	
