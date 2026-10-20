@@ -1180,7 +1180,8 @@ static void staging(shm_priv *p, size_t send, size_t recv, const char *what)
     }
 }
 /* the order the peers are walked in: step k of a send loop goes to rank k; dir (+1 send, -1 receive side) is unused.  Step 0 is me. */
-#define PEERS(p, k, r, from, dir) for (int k = (from), r; k < (p)->n && ((r = k), 1); k++) if (r != (p)->me)
+/* COMM_SHMEM_PX_SCHED: the peers as a shifted ring (dir +1: me + k, the sender's order; dir -1: me - k, the receiver's: who sends to me at step k); otherwise rank order */
+#define PEERS(p, k, r, from, dir) for (int k = (from), r; k < (p)->n && ((r = S.sched ? (((p)->me + (dir) * k) % (p)->n + (p)->n) % (p)->n : k), 1); k++) if (r != (p)->me)
 /* the sender's half of an exchange for the peers from step `from`: wait for each receiver's offset (at most spin_us when
  * >= 0: returns the first step not ready), put, signal.  Returns n when every peer is done. */
 static int push_peers(shm_priv *p, int from, long spin_us)
@@ -1226,7 +1227,10 @@ static void push_sched(shm_priv *p)
     int n = p->n, me = p->me, Wc = S.sched < n - 1 ? S.sched : n - 1, lim = n - 1 - Wc, sent = 0;
     for (int k = 1; k < n; k++) {
         int r = (me + k) % n; long seq = p->oseq[r], *w = W(p, p->base, W_ROFF, r);
-        TR(p, M_ROFF_WAIT, 0, r, seq, 0, 0); sched_wait(p, w, PACK(seq, 0), k - 1, &sent, lim, Wc); TR(p, M_ROFF_SEEN, 0, r, seq, 0, 0);
+        TR(p, M_ROFF_WAIT, 0, r, seq, 0, 0);
+        if (!lim) { XWAIT(p, xroff, w, PACK(seq, 0)); }       /* (no baton to send: the library's blocking wait, as push_peers -- the polled wait cost 20 s of roff wait per run at 4 n) */
+        else sched_wait(p, w, PACK(seq, 0), k - 1, &sent, lim, Wc);
+        TR(p, M_ROFF_SEEN, 0, r, seq, 0, 0);
         if (k > Wc) sched_wait(p, W(p, p->base, W_BATON, (me + Wc) % n), PACK(p->seq, k - Wc), k - 1, &sent, lim, Wc);
         long x = *(volatile long *)w; if (UNSEQ(x) != seq) die("exchange sequence mismatch");
         size_t nb = p->scnt ? p->scnt[r] : p->bytes; const char *s = p->scnt ? p->src + p->sdsp[r] : p->src + p->stride * (size_t)r;
