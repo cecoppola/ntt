@@ -903,7 +903,7 @@ static int comm_shmem_init_i(void)
     S.inited = 1;
     if (S.verbose && S.ppa) printf("comm_shmem: pe %d: init timeline: shmem_init %.2f, pool alloc+pre-fault/registration done at %.2f, barrier took %.2f s, passed at %.2f\n", S.me, g_t_shinit, t_bar - g_t0, now_s() - t_bar, now_s() - g_t0);
     if (S.ppa) { int ph_ = ec_ph(EC_PH_PX_ATTACH); px_attach(); ec_ph(ph_); }                               /* N7b: (after the barrier: the proxies' control is zeroed) */
-    if (S.me == 0 && S.sched) printf("comm_shmem: COMM_SHMEM_PX_SCHED=%d: whole put-with-signal commands, peers as a shifted ring, at most %d senders per receiver\n", S.sched, S.sched);
+    if (S.me == 0 && S.sched) printf("comm_shmem: COMM_SHMEM_PX_SCHED=%d: whole put-with-signal commands, peers as a shifted ring, %s\n", S.sched, S.sched >= 99 ? "no window" : "window W senders per receiver (none when W >= n - 1)");
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);
     if (S.me == 0) printf("comm_shmem: %s, %d PEs%s, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us, peer order rank\n", comm_shmem_impl(), S.npes, S.ppa ? (S.pxsend == 3 ? " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1; proxy send COMM_SHMEM_PX_SEND=3: plain chunks, one fence + signal per command, a context per peer node)" : " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1)") : "", prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
@@ -1205,21 +1205,21 @@ static int push_peers(shm_priv *p, int from, long spin_us)
 }
 /* COMM_SHMEM_PX_SCHED = W (proxy mode only): the sender's half as a shifted ring.  Step k (1 .. n - 1) goes to node (me + k) mod n, so every step is a permutation
  * (one sender per receiver); with W < n - 1 step k > W also waits for the baton of the node W ahead of me, which sends it to the node W behind it once its put of step
- * k - W has completed: a receiver then has at most W senders in flight, whatever the sizes or the skew.  Batons are sent from every wait loop (a node blocked at a later
+ * k - W has completed (a rank on the rounds path releases all its batons at once, one word: alltoallv_rounds): a receiver then has at most W senders in flight, whatever the sizes or the skew.  Batons are sent from every wait loop (a node blocked at a later
  * step still owes the earlier ones), steps deeper than n - 1 - W need none.  The word is (p->seq, step): p->seq counts the communicator's exchanges on every member. */
 static void sched_batons(shm_priv *p, int posted, int *sent, int lim, int Wc)
 {
     px_progress(p->px);
     while (*sent < posted && *sent < lim) {
         int j = *sent + 1, d = (p->me + j) % p->n; if (__atomic_load_n(&p->ocnt[d], __ATOMIC_ACQUIRE)) break;
-        SHM_LOCK(); put_word(p, ((p->me - Wc) % p->n + p->n) % p->n, W_BATON, p->me, PACK(p->seq, j)); SHM_UNLOCK(); (*sent)++;
+        SHM_LOCK(); shmem_ctx_fence(p->ctx); put_word(p, ((p->me - Wc) % p->n + p->n) % p->n, W_BATON, p->me, PACK(p->seq, j)); SHM_UNLOCK(); (*sent)++;   /* (the fence: batons to one word must land in order -- a lower value over a higher one would hang the waiter) */
     }
 }
 static void sched_wait(shm_priv *p, long *w, long v, int posted, int *sent, int lim, int Wc)
 {
-    double t0 = S.xstats ? now_s() : 0;
+    double t0 = S.xstats ? now_s() : 0, wt = comm_wst_t0();   /* (wst: the wait-stats hook, as wait_ge) */
     for (unsigned spins = 0; !test_ge(w, v); spins++) { sched_batons(p, posted, sent, lim, Wc); if (spins > 64) sched_yield(); }
-    if (S.xstats) p->xroff += now_s() - t0;
+    comm_wst_ready_end(wt); if (S.xstats) p->xroff += now_s() - t0;
 }
 static void push_sched(shm_priv *p)
 {
@@ -1400,6 +1400,9 @@ static int alltoallv_rounds(comm *c, const void *sb, const size_t *scnt, const s
     { size_t st = (sin ? 0 : ss) + (rin ? 0 : rs); pthread_mutex_lock(&S.alloc_lock); if (st > S.round_stage_max) S.round_stage_max = st; pthread_mutex_unlock(&S.alloc_lock); }
     if (scnt[me] != rcnt[me]) die("alltoallv self count mismatch");
     p->seq++;                                             /* (the pairs' sequences advance in the rounds) */
+    if (S.sched && S.sched < n - 1 && p->xo && p->px) {   /* COMM_SHMEM_PX_SCHED: this rank sends no steps in order, so its batons (all steps in one word) are released now */
+        SHM_LOCK(); shmem_ctx_fence(p->ctx); put_word(p, ((me - S.sched) % n + n) % n, W_BATON, me, PACK(p->seq, n - 1)); SHM_UNLOCK();
+    }
     p->xK = K; p->v = 1; p->rounds = 1; p->bytes = 0; p->rb = rb; p->st = s; p->rcnt = rcnt; p->rdsp = rdsp; p->scnt = scnt; p->sdsp = sdsp; p->rin = rin; p->pending = 1;
     p->vsb = (const char *)sb; p->vrb = (char *)rb; p->vsin = sin; p->chunk = ch;
 #ifndef COMM_HOST_ONLY
