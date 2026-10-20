@@ -1148,7 +1148,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
             for cap, pb in re.findall(r'cap (\S+?)\*?: planes ([0-9.]+)', line):
                 pl, r3 = cap_pool(CAPS[cap]); p0np = np_planes(npm, g, pl)
                 p1np = 3 if npm == 'auto' or not pool1_4q else npm
-                py = planes_bytes(pl, 0, r3, p0np, 'C', pool1_np=p1np) - int((0.61 if pl >= 30 else 2.16) * GB) + 610000000   # C: BS_TABLES_BYTES 0.61 GB at every cap
+                py = planes_bytes(pl, 0, r3, p0np, 'C', pool1_np=p1np, g=g) - int((0.61 if pl >= 30 else 2.16) * GB) + 610000000   # C: BS_TABLES_BYTES 0.61 GB at every cap
                 ok = '%.2f' % (py * 1e-9) == pb; nplanes += 1
                 if not ok: globals()['_c_layout_bad'] = globals().get('_c_layout_bad', 0) + 1
                 print('   planes D %s g %d np %s cap %-6s C %s  model %.2f GB  %s' % (m.group(1), g, npm, cap, pb, py * 1e-9, 'exact' if ok else 'DIFFERS'))
@@ -1174,7 +1174,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
             if m2: npl = int(m2.group(1)); break
         npm = np_mode if np_mode is not None else (npl or EC_NP)
         pl0 = pool_log; r3 = env.get('RNS_PLANES_3Q30', '0') not in ('', '0')        # as_room_fits: POOL_LOG, RNS_PLANES_3Q30 (not the size rule)
-        room_planes = planes_bytes(pl0, 0, r3, np_planes(npm, g, pl0), 'C', pool1_np=3 if npm == 'auto' or not pool1_4q else npm) - int((0.61 if pl0 >= 30 else 2.16) * GB) + 610000000
+        room_planes = planes_bytes(pl0, 0, r3, np_planes(npm, g, pl0), 'C', pool1_np=3 if npm == 'auto' or not pool1_4q else npm, g=g) - int((0.61 if pl0 >= 30 else 2.16) * GB) + 610000000
         S_ = seed_span(N, g, seed_fill); nt_ = N // g if g > 1 else N           # (BS_LAYOUT_ONLY: rank 0's range [1, 1 + N / g))
         sb = seedbuf_vmm(N, nt_, S_) if g > 1 else 0
         pool_b = 0; ofi_b = 0
