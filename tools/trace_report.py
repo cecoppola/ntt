@@ -88,7 +88,10 @@ def load_run(d, label):
         for c in h["meta"]["comms"]:
             key = (c["id"], tuple(c["node"]))
             if key not in groups:
-                groups[key] = len(groups); r.comms[groups[key]] = dict(id=c["id"], n=c["n"], node=c["node"], apu=c["apu"])
+                groups[key] = len(groups); r.comms[groups[key]] = dict(id=c["id"], n=c["n"], node=c["node"], apu=c["apu"], apun={}, legacy=False)
+            ci = r.comms[groups[key]]; ci["apun"][h["meta"]["node"]] = c["apu"]
+            # trace version 1 wrote the device current at the first exchange, which in proxy mode (ppa > 0) is not the communicator's proxy: infer it (infer_apu)
+            ci["legacy"] = ci["legacy"] or (h["meta"].get("version", 1) < 2 and h["meta"].get("ppa", 0) > 0)
             lut[c["id"]] = groups[key]
         h["lut"] = lut
     idc = collections.Counter(c["id"] for c in r.comms.values())
@@ -244,7 +247,22 @@ def rd_table(R, E):
     return out
 
 
-def msg_table(R, E, nodes_of_rank, apu, P):
+def infer_apu(m, P, node):
+    """proxy of a communicator on one node for a version-1 trace: the proxy whose ring has the sender's commands (same ring index, picked up 0..2 ms after the post) most often"""
+    best, bs = None, -1
+    sel = np.flatnonzero((m["nsrc"] == node) & (m["pxk"] != PXNONE))
+    for (nd, apu), t in P.items():
+        if nd != node:
+            continue
+        kk = m["pxk"][sel]; ok = kk < len(t["pick"])
+        dt = t["pick"][kk[ok]] - m["t_posted"][sel][ok]
+        sc = int(np.count_nonzero((dt >= 0) & (dt < 2e6)))
+        if sc > bs:
+            best, bs = apu, sc
+    return best
+
+
+def msg_table(R, E, nodes_of_rank, cinfo, P):
     ev = R["ev"]; g = lambda n: R[ev == E[n]]
     pi = g("M_PUT_ISSUE")
     if len(pi) == 0:
@@ -263,7 +281,11 @@ def msg_table(R, E, nodes_of_rank, apu, P):
     for c in ("pick", "cfirst", "clast", "psig", "pdone"):
         m[c] = np.full(n, NAN)
     for node in np.unique(m["nsrc"]):
-        t = P.get((int(node), apu))
+        node = int(node)
+        if cinfo["legacy"] and node not in cinfo.setdefault("apuinf", {}):
+            cinfo["apuinf"][node] = infer_apu(m, P, node)
+        apu = cinfo["apuinf"][node] if cinfo["legacy"] else cinfo["apun"].get(node, cinfo["apu"])
+        t = P.get((node, apu))
         if t is None:
             continue
         sel = np.flatnonzero((m["nsrc"] == node) & (m["pxk"] != PXNONE) & (m["pxk"] < len(t["pick"])))
@@ -364,7 +386,7 @@ def last_analysis(m, d, nodes, acc):
 
 def add_comm(R, run, cid, cinfo, P, acc, rng, top_k):
     E = run.ev
-    ex = ex_table(R, E); rd = rd_table(R, E); mt = msg_table(R, E, cinfo["node"], cinfo["apu"], P)
+    ex = ex_table(R, E); rd = rd_table(R, E); mt = msg_table(R, E, cinfo["node"], cinfo, P)
     if ex is not None:
         for name, f in EX_STAGES:
             for kd in np.unique(ex["kind"]):
@@ -530,7 +552,7 @@ def section_slowest(run, acc, L, P, nshow, ntl):
     top = acc.top[:nshow]
     for rank_i, (dur, cid, xs, sub) in enumerate(top):
         cinfo = run.comms[cid]; E = run.ev
-        ex = ex_table(sub, E); mt = msg_table(sub, E, cinfo["node"], cinfo["apu"], P)
+        ex = ex_table(sub, E); mt = msg_table(sub, E, cinfo["node"], cinfo, P)
         t0 = float(np.nanmin(ex["t_begin"])) if ex is not None else float(sub["t"].min())
         k = int(ex["K"].max()) if ex is not None else 1
         L.append(" #%d comm %s (APU %d) xseq %d kind %s path %s rounds %d: xt %.2f ms; arrival skew %.2f ms" % (rank_i + 1, cinfo["lab"], cinfo["apu"], xs, KIND[int(ex["kind"][0])] if ex is not None else "?", PATH[int(ex["path"].max())] if ex is not None else "?", k,
@@ -1021,9 +1043,11 @@ def compare_runs(dirsA, dirsB, labels, L):
 
 
 # ---------------------------------------------------------------- selftest: a synthetic trace
-def synth(d, nodes=3, nex=60, seed=3):
+def synth(d, nodes=3, nex=60, seed=3, ncomm=1, legacy=False):
     """one communicator (id 4, APU 0), rounds path K = 1 with PX3 proxies; node 2 is the slow one (late by 4 ms in 10% of the exchanges, in a burst);
-    node clocks: node j = true + j*1.5 ms + drift j*40 us/s"""
+    node clocks: node j = true + j*1.5 ms + drift j*40 us/s.
+    ncomm > 1: proxy mode with ncomm communicators (ids 4..), communicator c on proxy (APU) c; each proxy has its own ring index counter; exchange x belongs to communicator (x-1) % ncomm.
+    The header of the communicators says APU c (trace version 2), or with legacy = True APU 0 and version 1 (what the old writer did)."""
     rng = np.random.default_rng(seed); EVN = ["E_BEGIN", "E_COPY_ISS", "E_COPY_DONE", "E_PUBLISHED", "E_POSTED", "E_WAIT", "E_JOINED", "E_SIGS_SEEN", "E_QUIET_END", "E_RCOPY_ISS", "E_RCOPY_DONE", "E_DONE",
                                            "R_BEGIN", "R_PUBLISHED", "R_SCOPY_ISS", "R_SCOPY_DONE", "R_SENDS_DONE", "R_SIGS_DONE", "R_QUIET_END", "R_RCOPY_ISS", "R_END",
                                            "M_ROFF_ISSUE", "M_ROFF_WAIT", "M_ROFF_SEEN", "M_PUT_ISSUE", "M_PUT_POSTED", "M_PUT_DONE", "M_SIG_ISSUE", "M_SIG_WAIT", "M_SIG_SEEN", "M_FLUSH_BEG", "M_FLUSH_END",
@@ -1037,39 +1061,40 @@ def synth(d, nodes=3, nex=60, seed=3):
         recs[node].append((int(t) + off(node, t), nb, comm, seq, xs, aux, rnd, EV[ev], kp, me, peer))
     t = base + 10_000_000
     for x in range(1, nex + 1):
+        ci = (x - 1) % ncomm; cid = 4 + ci
         slowx = 20 <= x < 26
         begin = [t + int(rng.integers(0, 300_000)) + (4_000_000 if (slowx and j == 2) else 0) for j in range(nodes)]
         pub = [b + 800_000 for b in begin]; done_t = 0
         sig_issue = {}
         for s in range(nodes):
-            put(s, "E_BEGIN", begin[s], 4, s, -1, x, x, nb=(nodes - 1) * 8 << 20); put(s, "E_COPY_ISS", begin[s] + 100_000, 4, s, -1, x, x); put(s, "E_COPY_DONE", begin[s] + 400_000, 4, s, -1, x, x)
-            put(s, "E_POSTED", begin[s] + 500_000, 4, s, -1, x, x, aux=1); put(s, "R_BEGIN", begin[s] + 520_000, 4, s, -1, x, x, 0, 0, 1); put(s, "R_PUBLISHED", pub[s], 4, s, -1, x, x, 0)
+            put(s, "E_BEGIN", begin[s], cid, s, -1, x, x, nb=(nodes - 1) * 8 << 20); put(s, "E_COPY_ISS", begin[s] + 100_000, cid, s, -1, x, x); put(s, "E_COPY_DONE", begin[s] + 400_000, cid, s, -1, x, x)
+            put(s, "E_POSTED", begin[s] + 500_000, cid, s, -1, x, x, aux=1); put(s, "R_BEGIN", begin[s] + 520_000, cid, s, -1, x, x, 0, 0, 1); put(s, "R_PUBLISHED", pub[s], cid, s, -1, x, x, 0)
             for r in range(nodes):
                 if r == s:
                     continue
-                put(s, "M_ROFF_ISSUE", pub[s], 4, s, r, x, x, nb=8 << 20)
+                put(s, "M_ROFF_ISSUE", pub[s], cid, s, r, x, x, nb=8 << 20)
         for s in range(nodes):
             for r in range(nodes):
                 if r == s:
                     continue
                 tw = pub[s] + 100_000; seen = max(tw, pub[r] + 60_000 + int(rng.integers(0, 20_000))); tp = seen + 5_000
-                put(s, "M_ROFF_WAIT", tw, 4, s, r, x, x); put(s, "M_ROFF_SEEN", seen, 4, s, r, x, x); put(s, "M_PUT_ISSUE", tp, 4, s, r, x, x, nb=8 << 20)
-                k = kcount[s]; kcount[s] += 1
-                put(s, "M_PUT_POSTED", tp + 8_000, 4, s, r, x, x, nb=8 << 20, aux=k)
+                put(s, "M_ROFF_WAIT", tw, cid, s, r, x, x); put(s, "M_ROFF_SEEN", seen, cid, s, r, x, x); put(s, "M_PUT_ISSUE", tp, cid, s, r, x, x, nb=8 << 20)
+                k = kcount[(s, ci)]; kcount[(s, ci)] += 1
+                put(s, "M_PUT_POSTED", tp + 8_000, cid, s, r, x, x, nb=8 << 20, aux=k)
                 pick = tp + 20_000 + int(rng.integers(0, 10_000)); first = pick + 3_000; last = first + 300_000; sig = last + 10_000; done = sig + 300_000
-                node_p = prec[(s, 0)]; nodeoff = off(s, pick)
+                node_p = prec[(s, ci)]; nodeoff = off(s, pick)
                 for ev, tt, extra in (("P_PICKUP", pick, 8 << 20), ("P_CHUNK", first, 4 << 20), ("P_CHUNK", last, 4 << 20), ("P_SIGNAL", sig, 8 << 20), ("P_QUIET_BEG", sig + 1_000, 0), ("P_QUIET_END", done, 0), ("P_DONE", done, 0)):
-                    node_p.append((int(tt) + nodeoff, extra, 4, x, 0, k, 0, EV[ev], 0, s, r))
+                    node_p.append((int(tt) + nodeoff, extra, cid, x, 0, k, 0, EV[ev], 0, s, r))
                 sig_issue[(s, r)] = sig
-                put(r, "M_SIG_WAIT", max(pub[r] + 700_000, tp), 4, r, s, x, x)
+                put(r, "M_SIG_WAIT", max(pub[r] + 700_000, tp), cid, r, s, x, x)
         for r in range(nodes):
             last = 0
             for s in range(nodes):
                 if s == r:
                     continue
-                seen = sig_issue[(s, r)] + 40_000 + int(rng.integers(0, 5_000)); put(r, "M_SIG_SEEN", seen, 4, r, s, x, x); last = max(last, seen)
-            put(r, "R_SENDS_DONE", last - 300_000, 4, r, -1, x, x, 0); put(r, "R_SIGS_DONE", last, 4, r, -1, x, x, 0); put(r, "R_QUIET_END", last + 20_000, 4, r, -1, x, x, 0); put(r, "R_END", last + 120_000, 4, r, -1, x, x, 0)
-            put(r, "E_WAIT", begin[r] + 700_000, 4, r, -1, x, x); put(r, "E_JOINED", last + 130_000, 4, r, -1, x, x); put(r, "E_DONE", last + 140_000, 4, r, -1, x, x); done_t = max(done_t, last + 140_000)
+                seen = sig_issue[(s, r)] + 40_000 + int(rng.integers(0, 5_000)); put(r, "M_SIG_SEEN", seen, cid, r, s, x, x); last = max(last, seen)
+            put(r, "R_SENDS_DONE", last - 300_000, cid, r, -1, x, x, 0); put(r, "R_SIGS_DONE", last, cid, r, -1, x, x, 0); put(r, "R_QUIET_END", last + 20_000, cid, r, -1, x, x, 0); put(r, "R_END", last + 120_000, cid, r, -1, x, x, 0)
+            put(r, "E_WAIT", begin[r] + 700_000, cid, r, -1, x, x); put(r, "E_JOINED", last + 130_000, cid, r, -1, x, x); put(r, "E_DONE", last + 140_000, cid, r, -1, x, x); done_t = max(done_t, last + 140_000)
         if x == 20:
             tstall = begin[2]
         t = done_t + 2_000_000
@@ -1088,7 +1113,7 @@ def synth(d, nodes=3, nex=60, seed=3):
     clock0 = [{"node": j, "off_m": j * 1_500_000, "off_r": 0, "rtt": 8000 + 100 * j, "rtt_med": 12000, "t0": base} for j in range(1, nodes)]
     clock1 = [{"node": j, "off_m": int(j * 1_500_000 + j * 40e-6 * (t - base)), "off_r": 0, "rtt": 8100, "rtt_med": 12000, "t0": int(t)} for j in range(1, nodes)]
     def wr(pe, node, proxy, apu, rows, comms, clock):
-        meta = {"version": 1, "rec_bytes": 40, "pe": pe, "node": node, "nodes": nodes, "ppn": 5, "ppa": 1, "proxy": proxy, "apu": apu, "pxsend": 3, "order": 2, "shift": 1, "round_mb": 1024.0, "sample": 1, "arena_mb": 256,
+        meta = {"version": 1 if legacy else 2, "rec_bytes": 40, "pe": pe, "node": node, "nodes": nodes, "ppn": 5, "ppa": 1, "proxy": proxy, "apu": apu, "pxsend": 3, "order": 2, "shift": 1, "round_mb": 1024.0, "sample": 1, "arena_mb": 256,
                 "nrec": len(rows), "dropped": 0, "m0": base + off(node, base), "r0": 0, "events": EVN, "hbnames": HBN, "hbstrs": STR, "phases": PHN, "hb_ms": 1, "hb_gap_ms": 20, "comms": comms, "clock": clock, "env": {"COMM_TRACE": "1", "COMM_SHMEM_PX_SEND": "3"}}
         js = json.dumps(meta).encode(); js += b" " * ((8 - len(js) % 8) % 8)
         arr = np.array(rows, dtype=REC) if rows else np.zeros(0, REC)
@@ -1096,8 +1121,9 @@ def synth(d, nodes=3, nex=60, seed=3):
             f.write(struct.pack("<8sIIQQQQ", b"ECTRACE1", 40, len(js), 64, 64 + len(js), len(arr), 0) + b"\0" * 16); f.write(js); arr.tofile(f)
     for j in range(nodes):
         rows = sorted(recs[j], key=lambda r: r[0])
-        wr(5 * j + 4, j, 0, -1, rows, [{"id": 4, "n": nodes, "rank": j, "apu": 0, "node": list(range(nodes))}], [clock0, clock1] if j == 0 else [])
-        wr(5 * j, j, 1, 0, sorted(prec[(j, 0)], key=lambda r: r[0]), [], [])
+        wr(5 * j + 4, j, 0, -1, rows, [{"id": 4 + c, "n": nodes, "rank": j, "apu": 0 if legacy else c, "node": list(range(nodes))} for c in range(ncomm)], [clock0, clock1] if j == 0 else [])
+        for c in range(ncomm):
+            wr(5 * j + c, j, 1, c, sorted(prec[(j, c)], key=lambda r: r[0]), [], [])
 
 
 def selftest():
@@ -1131,6 +1157,14 @@ def selftest():
         s8 = txt.split("8b stall classification")[1] if "8b stall classification" in txt else ""
         if "t101:VSLOT_RELEASE" not in s8 or "t102:RD_FWD" not in s8 or "futex_wait_queue" not in s8 or "dly 2.5ms" not in s8 or "n2 1/3/1" not in s8:
             bad.append("the phase tags / watchdog snapshot of node 2 were not reported (8b)")
+        # proxy mode, 4 communicators on 4 proxies: the px figures must be the synthetic ones (post -> pick ~ 12-18 us, chunks 300 us, one-way signal ~ 42 us) with the header
+        # APU (version 2) and with the legacy header (every communicator APU 0, version 1: the proxy is inferred); the old mapping by the header APU fails both
+        for leg in (False, True):
+            synth(os.path.join(tmp, "px%d" % leg), ncomm=4, legacy=leg)
+            rp = load_run(os.path.join(tmp, "px%d" % leg), "px"); Lp = []; Sp = run_report(rp, args, Lp)
+            pr, sg = Sp[("msg", "px_ring", 5)], Sp[("msg", "sig_oneway", 5)]
+            if not (10 < pr["p50"] < 20): bad.append("proxy mode (legacy %s): px_ring p50 %.1f us, expected 10..20: comm -> proxy mapping wrong" % (leg, pr["p50"]))
+            if not (35 < sg["p50"] < 55): bad.append("proxy mode (legacy %s): signal one way p50 %.1f us, expected ~42" % (leg, sg["p50"]))
         print(txt if "-v" in sys.argv else "selftest: report %d lines" % len(L))
         for b in bad:
             print("selftest FAIL:", b)

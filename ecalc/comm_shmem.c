@@ -382,7 +382,7 @@ static void tr_flush(int proxy)
     char path[400]; mkdir(g_tr.dir, 0777); snprintf(path, sizeof path, "%s/trace_pe%d.bin", g_tr.dir, S.pme);
     char *jb = 0; size_t jn = 0; FILE *f = open_memstream(&jb, &jn); if (!f) return;   /* the JSON text */
     uint64_t nrec = tr_count();
-    fprintf(f, "{\"version\":1,\"rec_bytes\":%zu,\"pe\":%d,\"node\":%d,\"nodes\":%d,\"ppn\":%d,\"ppa\":%d,\"proxy\":%d,\"apu\":%d,\"pxsend\":%d,\"order\":%d,\"shift\":0,\"round_mb\":%.6g,\"sample\":%u,\"arena_mb\":%zu,\"nrec\":%llu,\"dropped\":%llu,\"m0\":%llu,\"r0\":%llu,\"events\":",
+    fprintf(f, "{\"version\":2,\"rec_bytes\":%zu,\"pe\":%d,\"node\":%d,\"nodes\":%d,\"ppn\":%d,\"ppa\":%d,\"proxy\":%d,\"apu\":%d,\"pxsend\":%d,\"order\":%d,\"shift\":0,\"round_mb\":%.6g,\"sample\":%u,\"arena_mb\":%zu,\"nrec\":%llu,\"dropped\":%llu,\"m0\":%llu,\"r0\":%llu,\"events\":",
             sizeof(struct tr_rec), S.pme, S.me, S.npes, S.ppn, S.ppa, proxy, proxy ? S.pme % S.ppn : -1, S.pxsend, S.order, S.round_bytes / 1048576.0, g_tr.sample, g_tr.mb,
             (unsigned long long)nrec, (unsigned long long)g_tr.dropped, (unsigned long long)g_tr.m0, (unsigned long long)g_tr.r0);
     tr_json_events(f); fprintf(f, ",\"hbnames\":"); tr_json_hbnames(f); fprintf(f, ",\"hb_ms\":%u,\"hb_gap_ms\":%u,\"wd_ms\":%u,\"thr\":%d,\"ph\":%d,\"hbstrs\":", g_hb.ms, g_hb.gap_ms, g_tr.wd_ms, g_hb.thr, ec_ph_on + g_ph.ev); tr_json_hbstrs(f); fprintf(f, ",\"phases\":"); tr_json_phases(f); fprintf(f, ",\"comms\":[");
@@ -993,6 +993,7 @@ static void tr_comm_register(shm_priv *p)
 #ifndef COMM_HOST_ONLY
     if (hipGetDevice(&apu) != hipSuccess) { (void)hipGetLastError(); apu = 0; }
 #endif
+    if (p->px) apu = p->px->d;                      /* proxy mode: the APU of the communicator's proxy as chosen at creation (the device current at the first exchange can be another one) */
     int *node = (int *)malloc((size_t)p->n * sizeof(int)); for (int r = 0; r < p->n; r++) node[r] = p->pe[r] / S.ppn;
     tr_comm_add(p->id, p->n, p->me, apu, node); free(node);
 }
