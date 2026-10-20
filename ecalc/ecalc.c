@@ -436,8 +436,13 @@ int main(int argc, char **argv)
     setvbuf(stdout, NULL, _IOLBF, 0);
     if (!getenv("ECALC_NP")) { const char *cs = getenv("COMM_SIZE"); setenv("ECALC_NP", cs && atoi(cs) > 1 ? "auto" : "3", 1); }   /* three primes for decimal limbs (RESULTS 78: -17 % wall, -25.8 GB); D18 (results/LAUNCH_DEFAULTS.md §DEF): auto at size > 1, so every multi-node product runs P24 (crt.c ec_np_planes) */
     d = ((d_out + 17) / 18) * 18;
+    rns_np2_set_digits((double)d);                    /* MN_NONPOW2_CAP auto: on from MN_NONPOW2_MIN digits per node-process (rns_mul.c rns_np2cap) */
     printf("== ecalc: e to %lu digits (decimal limbs, base 10^18)%s ==\n", d_out, d != d_out ? " [computed to the next multiple of 18]" : "");
     meta_line("ecalc");
+    { const char *es = getenv("COMM_SIZE"), *er = getenv("COMM_RANK"), *nc = getenv("MN_NONPOW2_CAP"); int sz = es ? atoi(es) : 1;
+      if (verbose >= 1 && (!er || atoi(er) == 0) && sz >= 3 && (sz & (sz - 1))) {
+          if (nc && *nc && strcmp(nc, "auto")) printf("MN_NONPOW2_CAP=%s: %s\n", nc, rns_np2cap() ? "on" : "off");
+          else printf("MN_NONPOW2_CAP auto: %s (%.3g digits per node %s %.3g)\n", rns_np2cap() ? "on" : "off", (double)d / sz, rns_np2cap() ? ">=" : "<", rns_np2_min()); } }
     double t00 = mem_now(), t;
     unsigned long N = e_terms(d);
     { const char *es = getenv("COMM_SIZE"), *er = getenv("COMM_RANK"); int sz = es ? atoi(es) : 1, rk = er ? atoi(er) : 0;   /* M2: this process's term range (mn_init below checks the rest) */

@@ -353,7 +353,9 @@ static int plan_run_in(unsigned long d, unsigned long N, int size, int pool_log,
 static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, int silent)
 {
     const char *e = getenv("COMM_SIZE"); char *old = e ? strdup(e) : 0; char b[16]; snprintf(b, sizeof b, "%d", size); setenv("COMM_SIZE", b, 1);
+    double od = rns_np2_set_digits((double)d);                    /* MN_NONPOW2_CAP auto: this plan's digits per node */
     int rc = plan_run_in(d, N, size, pool_log, silent);
+    rns_np2_set_digits(od);
     if (old) { setenv("COMM_SIZE", old, 1); free(old); } else unsetenv("COMM_SIZE");
     return rc;
 }

@@ -65,16 +65,22 @@ int rns_pool0_np(void)
     const char *e = getenv("COMM_SIZE"); int g = e ? atoi(e) : 1; if (g < 1) g = 1;
     return ec_np_planes(g_pool_log ? g_pool_log : 31, g);
 }
-/* MN_NONPOW2_CAP=1 (default 0): in a run whose COMM_SIZE is not a power of two (3, 5, 6, 7, ...) the rank plane q may be 43/32 x 2^(pool_log-2) limbs, so a group of
+/* MN_NONPOW2_CAP (Q58, user 2026-10-20; unset or "auto" = on only when the run's digits per node-process >= MN_NONPOW2_MIN, default 4.5e10: results/DIVISION.md §NPCAP,
+ * the larger pools' init cost is fixed (+7 s at 3 n 6e10), the gain grows with the digits; =1 forces on, =0 restores the power-of-two plane): in a run whose COMM_SIZE is not a power of two (3, 5, 6, 7, ...) the rank plane q may be 43/32 x 2^(pool_log-2) limbs, so a group of
  * g = 3 * 2^k nodes takes the next power-of-two plane (2^33 points over 3 nodes: 716 M limbs per rank, not 2^29 = 537 M) and its products need fewer pieces.
  * Costs 11/32 more plane pool memory per APU (both pools and the cache slots); rns_plane_pool_bytes is the one formula, so the planner and the fit see it.
- * It reads COMM_SIZE each call (the plan-only runs set it around the plan: mn_plan.c plan_run). */
+ * It reads COMM_SIZE each call (the plan-only runs set it around the plan: mn_plan.c plan_run) and the run's total digits (rns_np2_set_digits: ecalc.c and plan_run;
+ * unset = 0: auto counts as on). */
+static double g_np2_digits = 0;
+double rns_np2_set_digits(double d) { double o = g_np2_digits; g_np2_digits = d; return o; }
+static int np2_mode(void) { static int m = -2; if (m == -2) { const char *e = getenv("MN_NONPOW2_CAP"); m = -1; if (e && *e && strcmp(e, "auto")) m = !strcmp(e, "1"); } return m; }   /* -1 auto, 0 off, 1 on */
+double rns_np2_min(void) { static double v = -1; if (v < 0) { const char *e = getenv("MN_NONPOW2_MIN"); v = e && *e && atof(e) > 0 ? atof(e) : 4.5e10; } return v; }
 int rns_np2cap(void)
 {
-    static int on = -1; if (on < 0) { const char *e = getenv("MN_NONPOW2_CAP"); on = e && atoi(e) == 1; }
-    if (!on) return 0;
+    int m = np2_mode(); if (!m) return 0;
     const char *c = getenv("COMM_SIZE"); int g = c ? atoi(c) : 1;
-    return g >= 3 && (g & (g - 1));
+    if (g < 3 || !(g & (g - 1))) return 0;
+    return m > 0 || g_np2_digits <= 0 || g_np2_digits / g >= rns_np2_min();
 }
 size_t rns_q_slot(int pool_log) { size_t q = (size_t)1 << (pool_log - 2); return rns_np2cap() ? q + q * 11 / 32 : q; }   /* the rank plane the pools are made for (limbs per prime) */
 /* the plane pools' bytes per APU as rns_init makes them, from (pool_log, the prime count) alone -- the one formula for
