@@ -526,6 +526,15 @@ static long px_write(px_dev *x, int dst_pe, size_t roff, const void *src, size_t
  * no second hop through the sending node-process.  A command is reported done (its stamp) after the quiet of its own context; between two
  * contexts' quiets new commands are taken and posted.  (The former PX_SEND=2, 4 MiB put-with-signal chunks, posted at 14.8-14.9 GB/s per NIC
  * against 19-20 for whole puts: ecalc mpss4, t_comm 72b; removed 2026-10-19.) */
+/* shx COMM_SHMEM_PX_FENCE_GROUP: the commands pend[0 .. *np) have posted all their data; one fence per context involved (not one per command), then their signal words */
+static void px_flush_group(shmem_ctx_t *cx, struct px_ent *ring, const unsigned char *co, const unsigned char *tra, const long *pend, int *np, long *nsig, long *nfence)
+{
+    unsigned char fenced[PXNCTX]; memset(fenced, 0, sizeof fenced);
+    for (int i = 0; i < *np; i++) { int c = co[pend[i] % PXRING]; if (!fenced[c]) { fenced[c] = 1; shmem_ctx_fence(cx[c]); (*nfence)++; } }
+    for (int i = 0; i < *np; i++) { long k = pend[i]; int s = (int)(k % PXRING); struct px_ent *e = &ring[s];
+        shmem_ctx_long_p(cx[co[s]], px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); (*nsig)++; if (tra[s]) TRP(P_SIGNAL, 0, k, e, e->n); }
+    *np = 0;
+}
 static void px_serve2(void)
 {
     struct px_hdr *h = px_hdr_of(S.pool); struct px_ent *ring = px_ring_of(S.pool); long *dn = px_dn_of(S.pool);
@@ -538,6 +547,7 @@ static void px_serve2(void)
     while (nc < peers && shmem_ctx_create(SHMEM_CTX_PRIVATE | ctxopt, &cx[nc]) == 0) nc++;
     int own = nc; if (!nc) { cx[0] = SHMEM_CTX_DEFAULT; nc = 1; }
     static size_t posted[PXRING]; static unsigned char fp[PXRING], fd[PXRING], co[PXRING], tra[PXRING];   /* bytes posted, fully posted, done, context */
+    static long pend[PXRING]; int np = 0; long nfence = 0;   /* shx FENCE_GROUP: the commands whose data is posted and whose signal waits for the group's fence */
     long t = 0, tp = 0, tl = 0, nput = 0, nq = 0, nsig = 0; double bytes = 0, tchk = now_s(), tbusy = 0; unsigned idle = 0;
     for (;;) {
         long hd = __atomic_load_n(&h->head, __ATOMIC_ACQUIRE);
@@ -559,11 +569,13 @@ static void px_serve2(void)
                     size_t o = posted[s], len = e->n - o < PXCH ? e->n - o : PXCH; int last = o + len == e->n;
                     shmem_ctx_putmem_nbi(c, S.pool + e->roff + o, S.pool + e->soff + o, len, (int)e->pe);   /* a plain chunk; the command's last chunk is followed by a fence and its signal word */
                     if (tra[s]) TRP(P_CHUNK, o / PXCH, k, e, len);
-                    if (last) { shmem_ctx_fence(c); shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); nsig++; if (tra[s]) TRP(P_SIGNAL, 0, k, e, e->n); }
+                    if (last && S.fgrp) { pend[np++] = k; if (np >= S.fgrp) px_flush_group(cx, ring, co, tra, pend, &np, &nsig, &nfence); }   /* shx: the fence and the signal word wait for the group */
+                    else if (last) { shmem_ctx_fence(c); shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); nsig++; if (tra[s]) TRP(P_SIGNAL, 0, k, e, e->n); }
                     posted[s] = o + len; nput++; bytes += (double)len;
                     if (last) fp[s] = 1; else more = 1;
                 }
             }
+            if (np) px_flush_group(cx, ring, co, tra, pend, &np, &nsig, &nfence);   /* shx: the pass ended: the rest of the group */
             while (tp < t && fp[tp % PXRING]) tp++;
             tbusy += now_s() - t0; idle = 0; continue;    /* (new commands first, then a quiet) */
         }
@@ -587,8 +599,8 @@ static void px_serve2(void)
     }
     for (int i = 0; i < own; i++) shmem_ctx_destroy(cx[i]);
     tr_flush(1);
-    if (S.verbose || S.pme < S.ppn) fprintf(stderr, "comm_shmem: proxy pe %d (node %d, APU %d): COMM_SHMEM_PX_SEND=%d, %d contexts: %ld chunks, %.2f GB, %ld context quiets, %ld fence+signal, %.2f s posting + quiet = %.2f GB/s while busy\n",
-                                           S.pme, S.pme / S.ppn, S.pme % S.ppn, S.pxsend, own, nput, bytes / 1e9, nq, nsig, tbusy, tbusy > 0 ? bytes / 1e9 / tbusy : 0);
+    if (S.verbose || S.pme < S.ppn) fprintf(stderr, "comm_shmem: proxy pe %d (node %d, APU %d): COMM_SHMEM_PX_SEND=%d, %d contexts: %ld chunks, %.2f GB, %ld context quiets, %ld signals (%ld fences in groups), %.2f s posting + quiet = %.2f GB/s while busy\n",
+                                           S.pme, S.pme / S.ppn, S.pme % S.ppn, S.pxsend, own, nput, bytes / 1e9, nq, nsig, nfence, tbusy, tbusy > 0 ? bytes / 1e9 / tbusy : 0);
 }
 static void px_spin_ge(long *w, long v) { for (unsigned spins = 0; __atomic_load_n(w, __ATOMIC_ACQUIRE) < v; spins++) if (spins > 64) sched_yield(); }
 /* a proxy's life: post every command in its ring, quiet, report them done; leave on quit (or when the node-process is gone) */
@@ -812,8 +824,12 @@ static int comm_shmem_init_i(void)
     if (S.nostore) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_CTX_NOSTORE=1: this OpenSHMEM header has no SHMEM_CTX_NOSTORE\n");
 #endif
     if (S.nostore && S.pxsend != 3) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_CTX_NOSTORE=1 needs PX3 (COMM_SHMEM_PX_SEND=3, the default; it applies to the proxy's contexts)\n");
+    S.fgrp = env_int("COMM_SHMEM_PX_FENCE_GROUP", 0);
+    if (S.fgrp < 0 || S.fgrp == 1) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_FENCE_GROUP=%d: 0 (off) or G >= 2 (99: all ready commands)\n", S.fgrp);
+    if (S.fgrp && S.pxsend != 3) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_FENCE_GROUP needs PX3 (COMM_SHMEM_PX_SEND=3, the default)\n");
     S.sched = env_int("COMM_SHMEM_PX_SCHED", 0);
     if (S.sched < 0) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SCHED=%d: 0 (off) or the window W >= 1 (99: no window)\n", S.sched);
+    if (S.sched && S.fgrp) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_FENCE_GROUP is for the chunked PX3 send: not with COMM_SHMEM_PX_SCHED (whole put-with-signal commands have no fence)\n");
     if (S.sched && (S.pxsend != 3 || S.ppa != 1 || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SCHED needs PX3 (COMM_SHMEM_PX_SEND=3, the default) under COMM_SHMEM_PE_PER_APU=1 and an OpenSHMEM 1.5 build\n");
     S.mb_bytes = ((size_t)MAXID * npes_hint * 8 * (S.pxsend == 3 ? 2 : 1) + ALIGN - 1) & ~(size_t)(ALIGN - 1);   /* (N7D: a proxy's signal words in its second half) */
     S.pool_bytes = (mb << 20) + S.mb_bytes;
@@ -922,6 +938,7 @@ static int comm_shmem_init_i(void)
     if (S.verbose && S.ppa) printf("comm_shmem: pe %d: init timeline: shmem_init %.2f, pool alloc+pre-fault/registration done at %.2f, barrier took %.2f s, passed at %.2f\n", S.me, g_t_shinit, t_bar - g_t0, now_s() - t_bar, now_s() - g_t0);
     if (S.ppa) { int ph_ = ec_ph(EC_PH_PX_ATTACH); px_attach(); ec_ph(ph_); }                               /* N7b: (after the barrier: the proxies' control is zeroed) */
     if (S.me == 0 && S.nostore) printf("comm_shmem: COMM_SHMEM_CTX_NOSTORE=1: the proxies' contexts are created with SHMEM_CTX_NOSTORE\n");
+    if (S.me == 0 && S.fgrp) printf("comm_shmem: COMM_SHMEM_PX_FENCE_GROUP=%d: the data of up to %d commands, one fence per context, then their signal words\n", S.fgrp, S.fgrp);
     if (S.me == 0 && S.sched) printf("comm_shmem: COMM_SHMEM_PX_SCHED=%d: whole put-with-signal commands, peers as a shifted ring, %s\n", S.sched, S.sched >= S.npes - 1 ? "no window" : "window W senders per receiver");
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);
