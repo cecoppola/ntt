@@ -370,8 +370,9 @@ state per node count and why the rest stays open on aac7.
   -2.5 and -4.1 s against the 1024 arms; 6 n 1.93e11 (item 9io): neutral (1024 97.0 s, 128 97.5 s, 256 94.9 s, n 2
   each). Planner fit (mod): at 6 n 3.8646e11 with `MN_NONPOW2_CAP` the node margin is +46.25 GB for libfabric and, for
   SHMEM, -3.68 GB at ROUND_MB 1024 against +3.84 GB at 128.
-- **Open decisions** (the user's): `PX_SCHED=auto` as the default and `ROUND_MB=128` as the aac7 profile default
-  (TASKS Proposed); a candidate branch exists.
+- **Defaults (user Q59, Q60, 2026-10-20).** `COMM_SHMEM_PX_SCHED` unset = `auto` (99 up to 4 nodes, PX3 above;
+  `=0` restores PX3); the aac7 profile sets `COMM_SHMEM_ROUND_MB=128`. At the plain launch line, 2 n 1.2882e11 (item
+  9jj): SHMEM 116.2, 113.5, 111.1 s (mean 113.6) against libfabric 119.3, 121.3, 113.5 s (118.0).
 
 ## Open questions and next experiments
 

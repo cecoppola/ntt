@@ -6,7 +6,7 @@ Scope: the distributed division and the reciprocal: Newton error, DKM halves, mi
 |---|---|
 | A-div | M4: the distributed division, with B2/B3/C3 (Phase 9, PLAN.md §19) |
 | P1 | the distributed division multiply: the low product X·Q as a low part + one cyclic plane (`DM_MN_WRAP`) |
-| NPCAP | non-power-of-two node groups on the next power-of-two plane (`MN_NONPOW2_CAP`, on main default off, 2026-10-19) |
+| NPCAP | non-power-of-two node groups on the next power-of-two plane (`MN_NONPOW2_CAP`, default auto from 2026-10-20: on from 4.5e10 digits per node) |
 | RECIP | the Newton reciprocal's error: the t_newton bound or the reciprocal? |
 | R415 | R4 (Phase 15, row 1b): the reciprocal's Q_t·r as a middle product (V3 item 4 = PLAN §33 B2) |
 | R114 | R1 (Phase 14, W1): E7 the reciprocal's products cut to the band read; E9 Karatsuba over the grid (model); E10 the 576 tree-level spill (model) |
@@ -234,7 +234,7 @@ Branch `o5` (from main 0298fe2), TASKS items 39 / 37; design basis `archive:resu
 
 **Verdict.** B5 is correct but gives no wall-clock gain (the inverse form itself 0.027 s slower, 0.03 s of an 8.9 s run). Not adopted. Open (historical): a lower balance than 2.25 n would need the forward split too; `k_b5_merge` could be fused into the last inverse pass.
 
-## NPCAP — `MN_NONPOW2_CAP=1`: non-power-of-two groups on the next power-of-two plane (on main, default off; items 9bf, 9bg, 9bj, 9bi, 9bo, 9bp, 2026-10-19; m)
+## NPCAP — `MN_NONPOW2_CAP`: non-power-of-two groups on the next power-of-two plane (default auto since 2026-10-20, user Q58; items 9bf, 9bg, 9bj, 9bi, 9bo, 9bp, 9jf, 9ji, 9jd; m)
 
 - **What it does.** A group of 3 x 2^k nodes takes the next power-of-two plane (rank plane 43/32 larger), so the division
   has 6 pieces instead of 22 at 1.85e11 digits (plan). Cost: plane memory per node 120.3 -> 161.6 GB (+41.3 GB, m) and about
@@ -253,6 +253,10 @@ Branch `o5` (from main 0298fe2), TASKS items 39 / 37; design basis `archive:resu
   SHMEM; switch on at the default cap).
 - **Engine acceptance (item 9bp):** `mnaccept.sh --only unit,grid,e9,mn,ckpt,recheck,corr` with the switch on: 23 passed, 0 failed.
   Merged default-off after it.
-- **Node budget:** with the switch on, the standard 6 n size 3.8646e11 does not fit the node budget for SHMEM (planner,
-  mod: node margin -3.68 GB at `COMM_SHMEM_ROUND_MB` 1024, +3.84 GB at 128); libfabric fits (+46.25 GB). Adoption as a
-  default needs that limit handled (the user's decision); see results/SHMEM.md, PLAN16 section.
+- **Default (user Q58, 2026-10-20).** Unset or `auto`: on for a non-power-of-two node count when the digits per
+  node-process reach `MN_NONPOW2_MIN` (default 4.5e10, the crossover); `=1` forces on, `=0` keeps the plain plane.
+  `rns_np2cap`, the planner and `tools/mem_model.py` share the rule. Below the threshold it stays off: 3 n 1.2e11
+  (4e10 per node, item 9jf) on 95.7 against off 93.2 s; an unconditional default cost +8.6 s at 3 n 6e10.
+- **Node budget:** with the switch on, the standard 6 n size 3.8646e11 fits for libfabric (planner, mod: node margin
+  +46.25 GB) and for SHMEM only with `COMM_SHMEM_ROUND_MB` 128 (+3.84 GB; -3.68 GB at 1024), the aac7 profile value since
+  2026-10-20 (user Q60); see results/SHMEM.md, PLAN16 section.
