@@ -29,7 +29,6 @@ One line each (what, why, size); nothing here is started without the user's word
 - 6 n paired ABBA of grid [2,6] against [6], at least 8 runs per arm (earlier data +23 +/- 12 s, unexplained, m); aac7, one item.
 - NIC launch-group probe in every multi-node run, to separate the layv factor 0.92 from the rate; small.
 - G2 soak results were never recorded and the start-up hang at 7.7e10 (A114 E1) is still open (results/CRASHES_HANGS.md); size unknown.
-- Shared memory on the nodes (`Shmem` in /proc/meminfo) starts at 24-28 GB on a fresh allocation and grows by about 1.2-1.5 GB per launch of ours (35-38 GB after seven launches, items 9cd/9ce, 2026-10-19) (m); check whether something our cleanup misses stays in /dev/shm; small.
 - SHMEM send schedule: whole puts to one peer at a time (archived `PX_SEND=4` with the shift order, P4S) is steady at 150.9 s at 4 n against 162.5 s for the PX3 default and 147.4 s for libfabric (item 9ae, n 3-4 each) (m) but lost 9 s at 6 n (item 99g); team T1 is designing a default-off schedule switch that keeps the 4 n gain; medium.
 - Switch audit ASK list (5 switches left; COMM_KTIME, COMM_LAYER_STATS, COMM_XGMI_STATS and NP_MN3 were removed 2026-10-19, D56): MN_OUT_WAVES, FAST_EXIT, DM_TAIL_DEAD, NP_AUTO_MIN, PE_PER_APU=2; `COMM_XSTATS` after the parser migration; kept until the target session (D56, user 2026-10-19).
 

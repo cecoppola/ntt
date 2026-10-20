@@ -20,6 +20,8 @@ Scope: the bimodal 4-node totals (slow mode), what picks it, and the node screen
 | T10 | cold-path node-check probe vs the known slow host aac7-n01 (2026-10-11) |
 | S49 | slow-host policy: per-host `nodechk` rehearsal (aac7 all hosts, aac6 PPAC) |
 | NIC | node screen catches nodes with fewer NICs than the launch asks for |
+| L1 | the NIC bank group is a fair per-launch coin (items 9cg, 9ch, 2026-10-19) |
+| RAMDISK | node RAM-disk leftovers (`Shmem` in /proc/meminfo; items 9cj-9cm, 2026-10-19) |
 
 ## §T05 - why 4-node run totals are bimodal (fast ~181 s / slow ~208 s)
 
@@ -161,3 +163,31 @@ Finished 2026-10-11 09:10 EDT: 15 hosts measured (13 aac7 + 2 aac6, m), none fla
 Done 2026-10-13, branch `nicchk`, merged to main. **Problem (m).** 2026-10-13 12:55 three SHMEM runs (`COMM_OFI=0`, `SHMEM_OFI_NUM_NICS=4`) aborted within seconds (rc 141) on one node: "invalid number of nics 4 ... There is only 1 NIC available"; later runs on the same allocation passed (21 of 24); the screen checked only times.
 **Change.** `tools/nodescreen.sh` local stage prints `NS nics have=<n> want=<w>` per node (`have` = distinct `fi_info -p cxi` domains the runtime sees after the SHMEM launch's module load; `want` = `--want-nics N`, default `$SHMEM_OFI_NUM_NICS`, 0 = report only); `nodescreen_tab.py` flags `have < want` as a failed step so the node lands in EXCLUDE. An option of the tool, no new setting; README tool row updated.
 **Verification (m, 4 nodes, one queue item, local stage).** want 4: `have` 4, 4, 4, 4 (`/sys/class/cxi` also 4), EXCLUDE empty, rc 0; want 8 (positive control): all four flagged `NICs 4 < 8 wanted`, rc 3. Not reproduced on a real 1-NIC node; the login node has no cxi device (count 0), so the check is meaningful only on compute nodes. Use `tools/nodescreen.sh --hold JOB --want-nics 4` before SHMEM runs that set 4 NICs.
+
+## §L1 - the NIC bank group is a fair per-launch coin (items 9cg 2 n, 9ch 4 n, 2026-10-19; m)
+
+- **What picks the group: nothing we can set.** Bank A (`oxe_mcu_meas` 18-25) or B (26-33), chi-square against burn, idle gap
+  (0 / 15 s), step id mod 2-4, VNI mod 2-4, child pid, previous launch's group: all below the critical value at 4 n (28
+  libfabric launches, 14 A / 14 B; runs test 15 against 15.0 expected, sd 2.6), so a fair, memoryless draw. 2 n (32
+  launches, 16 / 16) shows one weak alternation (p about 0.05 among 13 tests), not seen at 4 n. The CXI service is the same in
+  every launch.
+- **Job-wide.** The bank is the same on all 4 NICs of all 4 nodes of a launch (32 of 32 launches).
+- **Speed at 4 n.** Bank B was fast in 14 of 14 launches (11.85-12.82 GB/s per thread). Bank A: 6 launches 9.0-9.6, 2 at
+  10.45-10.48, 6 at 11.15-11.70; hard-slow (< 9.7) is 6 of 28 = 21 %. At 2 n the rate is equal in both groups.
+- **SHMEM** uses a fixed layout, not a draw: NIC 0 and 3 on bank B, NIC 1 and 2 on bank A in every launch (4 n, 4 launches;
+  2 n, 6 launches), at 9.65-9.83 GB/s (byte split 57 / 43 %). The same transport reaches libfabric's fast dm with whole puts
+  to one peer (SHMEM.md, send schedule), so the layout does not cap it (assumed for that run: its counters were not recorded).
+- **Verdict.** No launch tweak is supported (earlier tclass, NUM_NICS, NIC policy, SEP, startup-connect and CXI_PID_BASE
+  tests did not pin it either, §A14); detect-and-relaunch loses (relaunch costs init about 25 s plus a probe against 10-14 s
+  saved in half the launches, mod). The pinning line is closed; compare arms interleaved and report the mode.
+
+## §RAMDISK - node RAM-disk leftovers (items 9cj-9cm, 2026-10-19; m)
+
+- Fresh-boot nodes start with 0.3 GB of `Shmem` (the root RAM-disk) and stay flat over our launches (SHMEM and libfabric, 1e9 and
+  1.6e10 digits; 9cj, 9cl, 9cm). Between boots, leftovers of 9-80 GB build up (start levels seen: 0.3, 9, 23-27, 52, 79.8 GB);
+  they persist across allocations and are freed only by a reboot.
+- The writer is unidentified and not ours: no ecalc_px files, /dev/shm 20 kB, no deleted-open or memfd handles, our own files
+  in the RAM-disk are two 476-byte Slurm spool files. A growth of 1.6 GB per launch on one dirty node (9ck) and +5 to +10 GB
+  per allocation (9cd, 9ce) did not recur on clean nodes or on the 80 GB node.
+- Cost: up to 80 GB (17 % of 480 GB) of node RAM lost on dirty nodes, relevant only when the plan's host need is near the
+  budget. Mitigation: read MemFree at start (the PRE line records `memfree_min`) before a production-size run. No code change.

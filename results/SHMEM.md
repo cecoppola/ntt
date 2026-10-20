@@ -303,6 +303,8 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
   147.4 s (n 3, all fast launches; dm 52.0-52.3 s) (item 9ae). PX3's dm sits at libfabric's slow-launch level in about 45
   runs at 4 n and never at the fast one, so it is not the per-launch draw; likely cause: incast from PX3's round-robin
   chunks to all peers at once (derived). At 6 n P4S lost 9 s (item 99g); a schedule that keeps the 4 n gain is in design.
+- **NIC policy** (item 9af, 4 n 2.5764e11): `SHMEM_OFI_NIC_POLICY=NUMA` aborts at init (rc 134, 2 of 2 runs), so it is not
+  usable. Controls in the same item: PX3 168.3 s warm (the first run 183.0 s), libfabric 162.0 and 157.9 s (m).
 
 ## Open questions and next experiments
 
