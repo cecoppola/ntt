@@ -109,3 +109,7 @@ COMM_SHMEM_PX_WINDOW	experiment	shx (D58/D59)	2026-11-20	off by default; PX3 pos
 COMM_SHMEM_PX_ONECTX	experiment	shx (D58/D59)	2026-11-20	off by default; PX3 proxy uses one context for all peer nodes; branch shx, untested
 COMM_SHMEM_HUGETLB	experiment	L5	2027-03-31	off by default; node-process heap from the 2 MiB hugetlb pool (aac7 has no pool: falls back to NP_HEAP_THP); review at the target session
 MN_NONPOW2_CAP	experiment	T2 (D57)	2026-11-19	off by default; adopt or remove after the 3 n timing item
+T_COMM_EX_MB	test	ecalc/tests/t_comm.c	2027-04-12	test harness setting (t_comm --ex)
+T_COMM_EX_N	test	ecalc/tests/t_comm.c	2027-04-12	test harness setting (t_comm --ex)
+T_COMM_EX_T	test	ecalc/tests/t_comm.c	2027-04-12	test harness setting (t_comm --ex)
+T_COMM_EX_UNEQ	test	ecalc/tests/t_comm.c	2027-04-12	test harness setting (t_comm --ex)

@@ -271,7 +271,7 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 | `NTT_SIZE_STATS` | *S22, print only*: the NTT time per transform size, once per rank, via hip event pairs (0) |
 | `RNS_INIT_POOL_LOG` | *S44, test knob*: the log2 size `rns_init` uses for the pool in the unit tests (`rns_init(31)` is fixed there; a CPX XCD has 22.9 GB); `29` makes aac6's CPX nodes usable up to 4 × 10⁹ digits; unset = unchanged |
 
-The tests alone read `DIST_XGMI`, `DIST_LAYERED`, `DIST_BIG`, `DIST_TINV` (`t_dist`'s modes), `T_COMM_TRACE` (`t_comm`) and
+The tests alone read `DIST_XGMI`, `DIST_LAYERED`, `DIST_BIG`, `DIST_TINV` (`t_dist`'s modes), `T_COMM_TRACE`, `T_COMM_EX_*` (`t_comm`, `--ex` defaults: mb, n, t, uneq) and
 *Phase 12 (I)* `T_ALLOC_NTT`, `T_ALLOC_PROBE`, `T_ALLOC_SEED` (`t_alloc`). The SHMEM transport also reads the launcher's
 `SLURM_NTASKS` / `PMI_SIZE` (a PE-count hint). `mnaccept.sh`
 reads `ECALC_REF` and `ECALC_REF_4E10` (the reference files).
@@ -307,7 +307,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | fallback | coordinator (D36, results/SHMEM_ITEMS.md §N7G) | 2027-03-31 | `COMM_SHMEM_PX_THP` |
 | diagnostic | diagnostics (TESTING.md) | 2027-04-12 | `BS_CKPT_BG_MBS`, `COMM_OFI_DEV`, `COMM_OFI_VERBOSE`, `COMM_TRACE`, `COMM_TRACE_CLOCK_N`, `COMM_TRACE_DIR`, `COMM_TRACE_HB`, `COMM_TRACE_HB_GAP_MS`, `COMM_TRACE_HB_MEM`, `COMM_TRACE_HB_PX`, `COMM_TRACE_MAX_MB`, `COMM_TRACE_PH`, `COMM_TRACE_SAMPLE`, `COMM_TRACE_THR`, `COMM_TRACE_WD_MS`, `COMM_XSTATS`, `DC_STATS`, `DIST_GEN`, `DIST_LOGN_TEST`, `DIST_STATS`, `ECALC_BUDGET_RANK_GB`, `ECALC_FATAL_TEST`, `ECALC_INIT_ONLY`, `ECALC_LIVE`, `ECALC_MEM_GUARD_PERIOD`, `ECALC_MEM_SAMPLE`, `ECALC_MEM_SAMPLE_FILE`, `ECALC_NP_AUTO_TERMS`, `ECALC_SEGV_TEST`, `ECALC_TEST_CORR`, `ECALC_WINDOWS`, `MEM_DPOOL_FILL`, `MN_OUT_DKM_HI_TEST_CARRY`, `MN_OUT_STRIPE_FORCE`, `MN_PLAN_QUIET`, `MN_SELFTEST_LOGR`, `MN_TREE_LOGN_TEST`, `NEWTON_DKM_TEST_HI`, `NEWTON_DOUBLING_TS`, `NEWTON_MN_RECIP_TS`, `NEWTON_VERBOSE`, `NTT_SIZE_STATS`, `RNS_DIST_CACHE_PARTIAL_FORCE`, `RNS_DIST_CACHE_TRACE`, `RNS_POOL_GROW`, `RNS_STRATEGY_CHECK` |
 | test | ecalc/tests/t_alloc.c | 2027-04-12 | `T_ALLOC_NTT`, `T_ALLOC_PROBE`, `T_ALLOC_SEED` |
-| test | ecalc/tests/t_comm.c | 2027-04-12 | `T_COMM_TRACE` |
+| test | ecalc/tests/t_comm.c | 2027-04-12 | `T_COMM_EX_MB`, `T_COMM_EX_N`, `T_COMM_EX_T`, `T_COMM_EX_UNEQ`, `T_COMM_TRACE` |
 | test | ecalc/tests/t_dist.c | 2027-04-12 | `DIST_BIG`, `DIST_BIG_K`, `DIST_BIG_PRIMES`, `DIST_H4`, `DIST_H4_MB`, `DIST_H4_REPS`, `DIST_LAYERED`, `DIST_LBENCH`, `DIST_LREPS`, `DIST_TBENCH`, `DIST_TINV`, `DIST_XGMI` |
 | test | ecalc/tests/t_patch.c | 2027-04-12 | `T_PATCH_DIR`, `T_PATCH_UNPACK` |
 | test | ecalc/tests/t_strategy.c | 2027-04-12 | `TSTRAT_BUDGET_GB`, `TSTRAT_GMP` |

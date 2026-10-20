@@ -181,6 +181,10 @@ TSTRAT_GMP	int	unset	unset		test-only	-	-	prose	tests	t_strategy.c	2	ecalc/tests
 T_ALLOC_NTT	int	1	1		test-only	-	-	prose	tests	t_alloc.c	2	ecalc/tests/t_alloc.c	2027-04-12	
 T_ALLOC_PROBE	int	1	1		test-only	-	-	prose	tests	t_alloc.c	2	ecalc/tests/t_alloc.c	2027-04-12	
 T_ALLOC_SEED	int	1	1		test-only	-	-	prose	tests	t_alloc.c	2	ecalc/tests/t_alloc.c	2027-04-12	
+T_COMM_EX_MB	float	67	67		test-only	-	-	prose	tests	t_comm.c	2	ecalc/tests/t_comm.c	2027-04-12	
+T_COMM_EX_N	int	200	200		test-only	-	-	prose	tests	t_comm.c	2	ecalc/tests/t_comm.c	2027-04-12	
+T_COMM_EX_T	int	4	4		test-only	-	-	prose	tests	t_comm.c	2	ecalc/tests/t_comm.c	2027-04-12	
+T_COMM_EX_UNEQ	int	0	0		test-only	-	-	prose	tests	t_comm.c	2	ecalc/tests/t_comm.c	2027-04-12	
 T_COMM_TRACE	bool	unset	unset	0|1	test-only	-	-	prose	tests	t_comm.c	5	ecalc/tests/t_comm.c	2027-04-12	
 T_PATCH_DIR	bool	/tmp	/tmp	0|1	test-only	-	-	prose	tests	t_patch.c	2	ecalc/tests/t_patch.c	2027-04-12	
 T_PATCH_UNPACK	bool	../tools/unpack_digits	../tools/unpack_digits	0|1	test-only	-	-	prose	tests	t_patch.c	2	ecalc/tests/t_patch.c	2027-04-12	

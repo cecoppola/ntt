@@ -202,8 +202,73 @@ static int run_sweep(int argc, char **argv)
     comm_shmem_finalize();
     return 0;
 }
+/* ---- the layeq exchange benchmark (shx) ----------------------------------------------------
+ * t_comm --ex [t=4] [n=200] [mb=67] [uneq] [host]     (defaults also from T_COMM_EX_T, _N, _MB, _UNEQ=1; arguments win)
+ * Replays the layered inter-node exchange through the real transport layer, so every COMM_SHMEM_* / COMM_OFI switch applies unchanged
+ * (transport = the launch line: COMM_TRANSPORT=shmem with COMM_OFI=0 + COMM_SHMEM_PE_PER_APU=1 for the proxy, COMM_OFI=1 for libfabric).
+ * t threads (ecalc's four APU threads), each with its own communicator over all n PEs, run n back-to-back exchanges of mb MB per peer
+ * pair on pool-resident buffers (XK_LAYEQ tagged, so COMM_XSTATS=1 prints roff_wait / sig_wait at finalize).  uneq: the pair (a, b) slab is
+ * mb x {0.75, 1, 1.25} by (a + b) % 3 (symmetric: a to b = b to a), rounded to 8 B -- a stand-in for the unequal blocks of 3/5/6 nodes (assumed).
+ * One result line per PE ("t_comm ex: pe ... key value ..."): mean/p50/p95 ms per exchange over all threads' samples, the GB/s received per
+ * PE (= node: one PE per node under PE_PER_APU=1) over the timed wall, and lat_us = the median of 200 x 8 B all-to-alls (per exchange: the
+ * signal / offset-word round trip over n - 1 peers).  The proxies' busy rate is the "GB/s while busy" line of comm_shmem at finalize. */
+struct ex_arg { comm *c; int n, reps, uneq, host; size_t base; double *ts, tot, lat; pthread_barrier_t *bar; };
+static size_t ex_cnt(size_t base, int a, int b, int uneq) { if (!uneq) return base; size_t w = (size_t)((a + b) % 3); return ((base * (3 + w) / 4) + 7) & ~(size_t)7; }   /* 0.75, 1.0, 1.25 x base */
+static void *ex_thread(void *a)
+{
+    struct ex_arg *w = (struct ex_arg *)a; comm *c = w->c; int n = w->n, me = comm_shmem_rank(), reps = w->reps; comm_xtag_set(XK_LAYEQ);
+    size_t *scnt = malloc(n * sizeof *scnt), *sdsp = malloc(n * sizeof *sdsp), *rcnt = malloc(n * sizeof *rcnt), *rdsp = malloc(n * sizeof *rdsp);
+    for (int r = 0; r < n; r++) { scnt[r] = ex_cnt(w->base, me, r, w->uneq); rcnt[r] = ex_cnt(w->base, r, me, w->uneq); }
+    size_t ts_ = comm_prefix(scnt, sdsp, n), tr = comm_prefix(rcnt, rdsp, n);
+    int ssym = !w->host, rsym = !w->host; char *sb = xalloc(c, ts_ + 8, &ssym), *rb = xalloc(c, tr + 8, &rsym);
+    if (!w->host && (!ssym || !rsym)) { fprintf(stderr, "t_comm: the pool could not hold %zu B + %zu B (raise COMM_SHMEM_POOL_MB)\n", ts_, tr); exit(2); }
+    memset(sb, 0x5A, ts_); memset(rb, 0, tr);
+    int y1 = 1, y2 = 1; char *s8 = xalloc(c, 8 * (size_t)n, &y1), *r8 = xalloc(c, 8 * (size_t)n, &y2);
+#define EX_ONE() do { if (w->uneq) comm_alltoallv(c, sb, scnt, sdsp, rb, rcnt, rdsp, NULL); else comm_alltoall(c, sb, rb, w->base, NULL); comm_wait(c); } while (0)
+    for (int i = 0; i < 5; i++) EX_ONE();                                    /* warm-up */
+    double *lt = malloc(200 * sizeof *lt);
+    for (int i = 0; i < 205; i++) { double x = tnow(); comm_alltoall(c, s8, r8, 8, NULL); comm_wait(c); if (i >= 5) lt[i - 5] = tnow() - x; }
+    qsort(lt, 200, sizeof *lt, cmp_d); w->lat = lt[100]; free(lt);
+    comm_barrier(c);
+    pthread_barrier_wait(w->bar);
+    double t0 = tnow();
+    for (int r = 0; r < reps; r++) { double x = tnow(); EX_ONE(); w->ts[r] = tnow() - x; }
+    w->tot = tnow() - t0;
+    comm_barrier(c);
+    free(scnt); free(sdsp); free(rcnt); free(rdsp);
+    return 0;
+}
+static int run_ex(int argc, char **argv)
+{
+    int T = getenv("T_COMM_EX_T") ? atoi(getenv("T_COMM_EX_T")) : 4, reps = getenv("T_COMM_EX_N") ? atoi(getenv("T_COMM_EX_N")) : 200, uneq = getenv("T_COMM_EX_UNEQ") ? atoi(getenv("T_COMM_EX_UNEQ")) > 0 : 0, host = 0;
+    double mb = getenv("T_COMM_EX_MB") ? atof(getenv("T_COMM_EX_MB")) : 67;
+    for (int i = 2; i < argc; i++) {
+        if (!strncmp(argv[i], "t=", 2)) T = atoi(argv[i] + 2); else if (!strncmp(argv[i], "n=", 2)) reps = atoi(argv[i] + 2); else if (!strncmp(argv[i], "mb=", 3)) mb = atof(argv[i] + 3);
+        else if (!strcmp(argv[i], "uneq")) uneq = 1; else if (!strcmp(argv[i], "host")) host = 1; else { fprintf(stderr, "t_comm --ex: unknown argument %s\n", argv[i]); return 2; }
+    }
+    if (T < 1 || T > 16 || reps < 1 || mb <= 0) { fprintf(stderr, "t_comm --ex: bad arguments\n"); return 2; }
+    int n = comm_shmem_init(), me = comm_shmem_rank(); size_t base = ((size_t)(mb * 1048576.0)) & ~(size_t)7;
+    comm *cs[16]; for (int t = 0; t < T; t++) cs[t] = comm_shmem_create_at(0, 1, n, t);
+    pthread_barrier_t bar; pthread_barrier_init(&bar, 0, T);
+    struct ex_arg w[16]; pthread_t th[16]; double *all = malloc((size_t)T * reps * sizeof *all);
+    for (int t = 0; t < T; t++) { w[t] = (struct ex_arg){ cs[t], n, reps, uneq, host, base, all + (size_t)t * reps, 0, 0, &bar }; pthread_create(&th[t], 0, ex_thread, &w[t]); }
+    double tot = 0, lat = 0; for (int t = 0; t < T; t++) { pthread_join(th[t], 0); if (w[t].tot > tot) tot = w[t].tot; lat += w[t].lat / T; }
+    double sum = 0; size_t N = (size_t)T * reps; qsort(all, N, sizeof *all, cmp_d); for (size_t i = 0; i < N; i++) sum += all[i];
+    double recv = 0; for (int r = 0; r < n; r++) if (r != me) recv += (double)ex_cnt(base, r, me, uneq);   /* bytes received per thread per exchange */
+    printf("t_comm ex: pe %d n %d threads %d mb %.3f mode %s exch %d mean_ms %.3f p50_ms %.3f p95_ms %.3f recv_gb %.4f node_gbs %.2f wall_s %.3f lat_us %.1f\n", me, n, T, mb, uneq ? "unequal" : "equal", reps,
+           sum / N * 1e3, all[N / 2] * 1e3, all[(size_t)(N * 0.95)] * 1e3, recv * T / 1e9, recv * T * reps / tot / 1e9, tot, lat * 1e6);
+    fflush(stdout);
+    for (int t = 0; t < T; t++) comm_destroy(cs[t]);
+    printf("t_comm ex: pe %d done\n", me);
+    comm_shmem_finalize();
+    return 0;
+}
 int main(int argc, char **argv)
 {
+    if (argc > 1 && !strcmp(argv[1], "--ex")) {
+        if (!(getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem"))) { fprintf(stderr, "t_comm --ex needs COMM_TRANSPORT=shmem\n"); return 2; }
+        return run_ex(argc, argv);
+    }
     if (argc > 1 && (!strcmp(argv[1], "--bw") || !strcmp(argv[1], "--lat"))) {   /* the sweep (SHMEM only) */
         if (!(getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem"))) { fprintf(stderr, "t_comm %s needs COMM_TRANSPORT=shmem\n", argv[1]); return 2; }
         return run_sweep(argc, argv);
