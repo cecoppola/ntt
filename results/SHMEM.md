@@ -303,6 +303,17 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
   147.4 s (n 3, all fast launches; dm 52.0-52.3 s) (item 9ae). PX3's dm sits at libfabric's slow-launch level in about 45
   runs at 4 n and never at the fast one, so it is not the per-launch draw; likely cause: incast from PX3's round-robin
   chunks to all peers at once (derived). At 6 n P4S lost 9 s (item 99g); a schedule that keeps the 4 n gain is in design.
+- **Schedule switch `COMM_SHMEM_PX_SCHED=W`** (branch pxsched (unmerged), default off): whole put-with-signal per command, a
+  shifted ring for both the sender and the receiver loops, a baton window W, and a blocking receive-offset wait when
+  W >= n-1. A first version that shifted only the sender did not reproduce the gain (SC99 162-165 s, dm 65 s, sender offset
+  wait 24.5 s): both ends must walk the ring and the offset wait must be the library's blocking one.
+  - Item 9am (4 n 2.5764e11): gates 4/4 PASS. SC1 150.6 / 149.4 s, SC99 152.5 / 153.5 s (first run 157.8 s), PX3 167.5 /
+    166.9 s. dm 53-55 s for SC against 67 s. Mechanism: 11354 whole puts against 196369 4 MiB chunks; proxy rate while busy
+    19.5 against 17.1 GB/s; dm post-to-complete 22.5 against 32.1 ms per exchange; sender offset wait 0.8 against 7.4 s.
+    SC1 and SC99 are not separable at n 2.
+  - Item 9aj (6 n 3.8646e11): PX3 217.6 / 215.4 s, SC99 223.4 / 221.3 s, SC1 246.0 / 249.3 s, libfabric 207.5 / 201.3 s.
+    The schedule loses at 6 n (SC99 +5.8 s, SC1 +31 s against PX3 means), the same pattern as P4S.
+  - Not adopted. Options: W = 2-3 at 6 n, or a default that depends on the node count (user decision).
 - **NIC policy** (item 9af, 4 n 2.5764e11): `SHMEM_OFI_NIC_POLICY=NUMA` aborts at init (rc 134, 2 of 2 runs), so it is not
   usable. Controls in the same item: PX3 168.3 s warm (the first run 183.0 s), libfabric 162.0 and 157.9 s (m).
 
