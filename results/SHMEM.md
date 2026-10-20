@@ -329,6 +329,50 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
 - **NIC policy** (item 9af, 4 n 2.5764e11): `SHMEM_OFI_NIC_POLICY=NUMA` aborts at init (rc 134, 2 of 2 runs), so it is not
   usable. Controls in the same item: PX3 168.3 s warm (the first run 183.0 s), libfabric 162.0 and 157.9 s (m).
 
+## PLAN16 (2026-10-20): the remaining gap and what closes it (items 9hi-9iz; m measured, mod modelled, d derived)
+
+The send schedule itself is described above ("Schedule switch `COMM_SHMEM_PX_SCHED=W|auto`"); this section records the
+state per node count and why the rest stays open on aac7.
+
+- **Per node count (ecalc, m).**
+  - 2 n 1.2882e11: `PX_SCHED=99` + `COMM_SHMEM_ROUND_MB=128` 112.4 s (n 5) against libfabric 116.1 s (n 5, warm): SHMEM
+    ahead (items 9iq, 9iv).
+  - 4 n 2.5764e11: the same configuration 148.3 s (n 10; 146.9 s, sd 0.4, in 9iu alone) against libfabric 157.0 s (n 8;
+    fast launches 145.0-149.4 s, slow launches 160.5-167.7 s): closed (items 9il, 9ip, 9iu).
+  - 3 n 1.9323e11: no SHMEM variant closes the gap (PX3 about 158 s, SC99 about 158 s, SH1 156 s, libfabric about 145 s;
+    items 9hu, 9hv, 9in).
+  - 6 n 1.93e11: PX3 about 94-98 s, libfabric 84-92 s; no schedule helps (items 9hi, 9ho, 9hp, 9hw, 9io).
+- **Cause at 3 and 6 n** (non-power-of-two counts, unequal all-to-all-v "layv" exchanges). Traces (items 9ij, 9in) show
+  bulk transfers in flight for about 59-61 s in every SHMEM variant against 51 s in libfabric for the same bytes (d);
+  the node-process `shmem_ctx_quiet` at the end of layv exchanges is 13.8 against 0.46 s per node, with copies equal.
+  Control-path fixes (NOARRIVEQ, SC99) only move the wait into the put tail. Libfabric with a host staging pool is no
+  faster at 6 n (item 9hr) and far slower at 3 n (item 9ir, no THP on that pool). The cxi driver gives huge NIC
+  translation entries only for hugetlb or dmabuf memory (driver source), so SHMEM's host staging always uses 4 KiB NIC
+  translations on aac7 (`nr_hugepages` 0): fact from the driver source. That the gap shrinks on the target, where hugetlb
+  pages exist, is an inference (target items 29 and 31 test it).
+- **Closed levers.** Hidden libsma fence and signal knobs (item 9ic); library environment flags and NIC maps (9ea, 9ed,
+  9hs MCU bank); ATS and ODP (9it, 9is); device-source puts (DEVSRC, -14: slower); global objects (needs symmetric
+  memory, 9id); small staging rounds for translation reuse at 6 n (9hw); `COMM_SHMEM_LAYV_ROUND` (branch layvr, not
+  merged: dm +5 s at round 128 and +10 s at round 16 against PX3 at 3 n, items 9ix, 9iz); SC99 with `MN_NONPOW2_CAP` at
+  3 n (9ih, 9ii: paired -1.1 s, n.s.); the shx, shx2 and shx3 switches (benchmark builds, not merged).
+- **`COMM_SHMEM_ROUND_MB` sweep and memory.** 2 n 1.2882e11 (item 9im; total s, two runs each / init s / dm s / proxy pool
+  MiB, four pools per node):
+
+  | ROUND_MB | total | init | dm | pool |
+  |---|---|---|---|---|
+  | 64 | 113.3, 113.7 | 35.1 | 39.3 | 770 |
+  | 128 | 114.3, 114.0 | 36.0 | 39.1 | 770 |
+  | 256 | 112.5, 116.1 | 37.5 | 38.3 | 1026 |
+  | 512 | 114.8, 117.2 | 36.8 | 38.3 | 1538 |
+  | 1024 (default) | 116.2, 115.3 | 37.7 | 38.2 | 2562 |
+
+  The pool floor is 770 MiB at 128 and below; 128 saves 7.2 GB per node at 2 n with no time lost. 4 n (item 9il):
+  -2.5 and -4.1 s against the 1024 arms; 6 n 1.93e11 (item 9io): neutral (1024 97.0 s, 128 97.5 s, 256 94.9 s, n 2
+  each). Planner fit (mod): at 6 n 3.8646e11 with `MN_NONPOW2_CAP` the node margin is +46.25 GB for libfabric and, for
+  SHMEM, -3.68 GB at ROUND_MB 1024 against +3.84 GB at 128.
+- **Open decisions** (the user's): `PX_SCHED=auto` as the default and `ROUND_MB=128` as the aac7 profile default
+  (TASKS Proposed); a candidate branch exists.
+
 ## Open questions and next experiments
 
 - Stalls (cause and fix recorded above): kernel proactive compaction on a 4 KiB pinned node-process heap evicted the GPU

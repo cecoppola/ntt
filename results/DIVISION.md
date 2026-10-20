@@ -253,6 +253,6 @@ Branch `o5` (from main 0298fe2), TASKS items 39 / 37; design basis `archive:resu
   SHMEM; switch on at the default cap).
 - **Engine acceptance (item 9bp):** `mnaccept.sh --only unit,grid,e9,mn,ckpt,recheck,corr` with the switch on: 23 passed, 0 failed.
   Merged default-off after it.
-- **Node budget:** with the switch on, the standard 6 n size 3.8646e11 does not fit the node budget (plan: node 483.7 GB
-  against 480 GB, margin -3.7 GB; device margin +15.2 GB); 3.70e11 fits. Adoption as a default needs that limit handled
-  (the user's decision).
+- **Node budget:** with the switch on, the standard 6 n size 3.8646e11 does not fit the node budget for SHMEM (planner,
+  mod: node margin -3.68 GB at `COMM_SHMEM_ROUND_MB` 1024, +3.84 GB at 128); libfabric fits (+46.25 GB). Adoption as a
+  default needs that limit handled (the user's decision); see results/SHMEM.md, PLAN16 section.
