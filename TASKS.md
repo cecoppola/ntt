@@ -29,7 +29,7 @@ One line each (what, why, size); nothing here is started without the user's word
 - 6 n paired ABBA of grid [2,6] against [6], at least 8 runs per arm (earlier data +23 +/- 12 s, unexplained, m); aac7, one item.
 - NIC launch-group probe in every multi-node run, to separate the layv factor 0.92 from the rate; small.
 - G2 soak results were never recorded and the start-up hang at 7.7e10 (A114 E1) is still open (results/CRASHES_HANGS.md); size unknown.
-- SHMEM send schedule: switch `COMM_SHMEM_PX_SCHED=W` exists on branch pxsched (unmerged, default off); it wins at 4 n (149-153 s against 167 s for PX3, item 9am) and loses at 6 n (SC99 +5.8 s, SC1 +31 s against PX3, item 9aj; W=2 and W=3 +18 to +20 s, item 9ao) (m; results/SHMEM.md). Decision pending: archive the branch, or a default by node count; medium.
+- SHMEM send schedule: `COMM_SHMEM_PX_SCHED=W|auto` is on main, default off (gates 7/7, item 9hz); `auto` = 99 up to 4 nodes, else 0 (PX3). Measured: 4 n -14.1 s (-8.6 %, n 7 against 6, every run faster), 3 n and 2 n neutral, 6 n loses (results/SHMEM.md). Decision: make `auto` the default (user); small.
 - Switch audit ASK list (5 switches left; COMM_KTIME, COMM_LAYER_STATS, COMM_XGMI_STATS and NP_MN3 were removed 2026-10-19, D56): MN_OUT_WAVES, FAST_EXIT, DM_TAIL_DEAD, NP_AUTO_MIN, PE_PER_APU=2; `COMM_XSTATS` after the parser migration; kept until the target session (D56, user 2026-10-19).
 
 ## Decisions (user) still acting
