@@ -558,8 +558,10 @@ static void px_serve2(void)
 #ifdef SHMEM_SESSION_OP_PWS
             if (S.pws == 2) for (int i = 0; i < nc; i++) shmemx_ctx_session_start(cx[i], SHMEM_SESSION_BUNDLE | SHMEM_SESSION_OP_PWS);   /* shx PX_PWS=2: the posting loop is one session per context */
 #endif
-            for (int more = 1; more;) { more = 0;
-                for (long k = tp; k < t; k++) { int s = (int)(k % PXRING); if (fp[s]) continue;
+            const long span = t - tp, woff = S.pxwin ? (S.pme % S.ppn) % span : 0;   /* shx PX_WINDOW: the walk of the commands starts woff in (staggered by the local PE index) */
+            for (int more = 1; more;) { more = 0; int act = 0;
+                for (long i = 0; i < span; i++) { long k = tp + (i + woff) % span; int s = (int)(k % PXRING); if (fp[s]) continue;
+                    if (S.pxwin && ++act > S.pxwin) { more = 1; continue; }   /* shx: at most K commands (peers) in flight in this round */
                     struct px_ent *e = &ring[s]; shmem_ctx_t c = cx[co[s]];
                     if (!e->n) { shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); fp[s] = 1; if (tra[s]) TRP(P_SIGNAL, 0, k, e, 0); continue; }
                     if (S.sched) {                    /* COMM_SHMEM_PX_SCHED: the whole command as one put-with-signal (whole puts run at the wire rate; no fence, no second word) */
@@ -848,8 +850,12 @@ static int comm_shmem_init_i(void)
 #ifndef SHMEM_SESSION_OP_PWS
     if (S.pws == 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_PWS=2: this build has no shmemx_ctx_session_start / SHMEM_SESSION_OP_PWS (Cray OpenSHMEMX shmemx.h)\n");
 #endif
+    S.pxwin = env_int("COMM_SHMEM_PX_WINDOW", 0);
+    if (S.pxwin < 0) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_WINDOW=%d: 0 (off) or K >= 1 commands in flight\n", S.pxwin);
+    if (S.pxwin && (S.pxsend != 3 || S.ppa != 1)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_WINDOW needs PX3 (COMM_SHMEM_PX_SEND=3, the default) under COMM_SHMEM_PE_PER_APU=1\n");
     S.sched = env_int("COMM_SHMEM_PX_SCHED", 0);
     if (S.sched < 0) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SCHED=%d: 0 (off) or the window W >= 1 (99: no window)\n", S.sched);
+    if (S.sched && S.pxwin) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_WINDOW is for the chunked PX3 send: not with COMM_SHMEM_PX_SCHED (it has its own window W)\n");
     if (S.sched && S.pws) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_PWS is for the chunked PX3 send: not with COMM_SHMEM_PX_SCHED (already whole put-with-signal)\n");
     if (S.sched && S.fgrp) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_FENCE_GROUP is for the chunked PX3 send: not with COMM_SHMEM_PX_SCHED (whole put-with-signal commands have no fence)\n");
     if (S.sched && (S.pxsend != 3 || S.ppa != 1 || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SCHED needs PX3 (COMM_SHMEM_PX_SEND=3, the default) under COMM_SHMEM_PE_PER_APU=1 and an OpenSHMEM 1.5 build\n");
@@ -962,6 +968,7 @@ static int comm_shmem_init_i(void)
     if (S.me == 0 && S.nostore) printf("comm_shmem: COMM_SHMEM_CTX_NOSTORE=1: the proxies' contexts are created with SHMEM_CTX_NOSTORE\n");
     if (S.me == 0 && S.fgrp) printf("comm_shmem: COMM_SHMEM_PX_FENCE_GROUP=%d: the data of up to %d commands, one fence per context, then their signal words\n", S.fgrp, S.fgrp);
     if (S.me == 0 && S.pws) printf("comm_shmem: COMM_SHMEM_PX_PWS=%d: the last chunk of a command is a put-with-signal (a fence before it when earlier chunks exist)%s\n", S.pws, S.pws == 2 ? ", the posting loop in a bundle + PWS context session" : "");
+    if (S.me == 0 && S.pxwin) printf("comm_shmem: COMM_SHMEM_PX_WINDOW=%d: at most %d commands (peers) posted at a time per proxy, the walk staggered by the local PE index\n", S.pxwin, S.pxwin);
     if (S.me == 0 && S.sched) printf("comm_shmem: COMM_SHMEM_PX_SCHED=%d: whole put-with-signal commands, peers as a shifted ring, %s\n", S.sched, S.sched >= S.npes - 1 ? "no window" : "window W senders per receiver");
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);

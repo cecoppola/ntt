@@ -105,5 +105,6 @@ COMM_SHMEM_PX_SCHED	experiment	T1 (D57)	2026-11-18	off by default (0 = today's P
 COMM_SHMEM_CTX_NOSTORE	experiment	shx (D58/D59)	2026-11-20	off by default; the proxy contexts also get SHMEM_CTX_NOSTORE (PX3); branch shx, untested
 COMM_SHMEM_PX_FENCE_GROUP	experiment	shx (D58/D59)	2026-11-20	off by default; PX3 posts the data of G commands, one fence per context, then G signal words; branch shx, untested
 COMM_SHMEM_PX_PWS	experiment	shx (D58/D59)	2026-11-20	off by default; last chunk of each PX3 command a put-with-signal (1), in a context session (2); branch shx, untested
+COMM_SHMEM_PX_WINDOW	experiment	shx (D58/D59)	2026-11-20	off by default; PX3 posts at most K commands (peers) at a time, walk staggered by local PE index; branch shx, untested
 COMM_SHMEM_HUGETLB	experiment	L5	2027-03-31	off by default; node-process heap from the 2 MiB hugetlb pool (aac7 has no pool: falls back to NP_HEAP_THP); review at the target session
 MN_NONPOW2_CAP	experiment	T2 (D57)	2026-11-19	off by default; adopt or remove after the 3 n timing item
