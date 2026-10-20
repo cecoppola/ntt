@@ -305,15 +305,13 @@ static void region_need(unsigned long N, size_t need[NR])
  * at 4 / 7 / 8e10, exactly the in-phase hipMalloc) -- reserved as the arena's tail; thresh is what the pool treats as "large"
  * (5/8 of the hole: r, r2 at ~ half of it stay out of the tail, t1 takes it).  At size > 1 the shares are 1/size of it
  * (the sharded division, A-div) and the tree's products add their slabs (tree_need_dev). */
-struct dm_layout { size_t nq, k, tcap, hole, thresh, need_dev, tree_dev; size_t jl, v2, v3, div; int tight, tail_dead; size_t room; int dkm, lean; size_t wrap; };   /* DL: dkm = the layout follows the DKM division; lean = the lean division set */   /* room = BS_ARENA_ROOM's term (in need_dev) */   /* jl = the last doubling's start, v2 / v3 / div = the terms per device, the switches */
+struct dm_layout { size_t nq, k, tcap, hole, thresh, need_dev, tree_dev; size_t jl, v2, v3, div; int tight; size_t room; int dkm, lean; size_t wrap; };   /* DL: dkm = the layout follows the DKM division; lean = the lean division set */   /* room = BS_ARENA_ROOM's term (in need_dev) */   /* jl = the last doubling's start, v2 / v3 / div = the terms per device, the switches */
 static size_t quarter_bytes(size_t limbs) { return ((limbs + 3) / 4 + 4095) / 4096 * 4096 * 8; }
 /* DM_TIGHT=1 -- the reciprocal reserves r2 only when d is first written (2j + 4 limbs, freed whenever
  * its content is dead) and t1 per doubling at Q_t (take) + r (j + 1) + 8, and the device tier's top levels free each input pair as it is
- * consumed; dm_layout's v2 / v3 follow (E2: -1 n_Q of arena).  DM_TAIL_DEAD=1 -- v3 no longer reserves the hole beside the top level:
- * after the top level its dead inputs' space becomes the block pool's tail (db_pool_retarget_tail); =2 -- also v2 without the P term
- * (E5: P spilled during the reciprocal), which needs the spill (W2): refused at init until dm_p_spill_wired says it is there. */
-int dm_tight = -1, dm_tail_dead = -1, dm_p_spill_wired = 0;
-void dm_switches(void) { if (dm_tight < 0) { dm_tight = getenv("DM_TIGHT") ? atoi(getenv("DM_TIGHT")) : db_pool_vmm_on();   /* default: on with the VMM pool (it places DM_TIGHT's blocks) */ dm_tail_dead = getenv("DM_TAIL_DEAD") ? atoi(getenv("DM_TAIL_DEAD")) : 0; } }
+ * consumed; dm_layout's v2 / v3 follow (E2: -1 n_Q of arena).  */
+int dm_tight = -1;
+void dm_switches(void) { if (dm_tight < 0) { dm_tight = getenv("DM_TIGHT") ? atoi(getenv("DM_TIGHT")) : db_pool_vmm_on();   /* default: on with the VMM pool (it places DM_TIGHT's blocks) */ } }
 static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_scratch)
 {
     /* the tree's levels follow the MN_GROUPS schedule (mn_groups_parse; default the binary
@@ -517,7 +515,7 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     size_t nq = (size_t)ceil(lg / dl10) + 2, dl = (size_t)ceil((lg - 50.0) / dl10) + 1;   /* Q's limbs; the limbs of 10^d for the run's d (the driver: d <= log10 N! - 50) */
     size_t k = nq + 1 + dl - nq + 2 + 1, tcap = (nq + k > 2 * k ? nq + k : 2 * k) + 8;   /* k_mu with P.n = n_Q + 1 (P > Q) */
     int pl = rns_pool_log() > 0 ? rns_pool_log() : 31;
-    dm_switches(); int tight = dm_tight > 0, tdead = dm_tail_dead > 0 ? dm_tail_dead : 0;
+    dm_switches(); int tight = dm_tight > 0;
     /* the last doubling starts at jl = ceil(k/2) (newton_chain_next's anchored targets k, ceil(k/2), ...).  Its first product Q_t r is take + (jl + 1)
      * limbs (r has j + 1 limbs), reserved + 8 by the grid: the largest block of the tight schedule, i.e. the hole */
     /* the DKM division (built in since Batch 3) -- the reciprocal runs to h = floor(k/2) + 1
@@ -546,13 +544,12 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     else if (tight) { tcap = 2 * k + 8; L->hole = hole_t > hole_r ? hole_t : hole_r; }
     else { size_t tcap_s = (tcap + size - 1) / size; L->hole = quarter_bytes(tcap_s); if (size == 1) L->hole = quarter_bytes(tcap); }
     L->hole += L->hole / 64;
-    L->nq = nq; L->k = k; L->tcap = tcap; L->jl = jl; L->tight = tight; L->tail_dead = tdead; L->dkm = dkm; L->lean = lean;
+    L->nq = nq; L->k = k; L->tcap = tcap; L->jl = jl; L->tight = tight; L->dkm = dkm; L->lean = lean;
     L->thresh = L->hole - L->hole * 3 / 8;
     size_t piece = ((size_t)1 << pl) + 8; if (piece > nq_s + k_s + 16) piece = nq_s + k_s + 16;
     size_t qp = quarter_bytes(nq_s + nq_s / 10 + 8);                          /* Q, or S = P + Q, with the bound's margin */
     if (!tight) L->v2 = 2 * qp + 2 * quarter_bytes(k_s + 4) + L->hole + quarter_bytes(piece);
     else L->v2 = 2 * qp + quarter_bytes(2 * jl_s + 4) + L->hole + quarter_bytes(piece);   /* E2: Q, S, r2 (d and r' share it: db_pow_sub writes 2j + 1 limbs), the hole (r + t1), a piece */
-    if (tdead >= 2) L->v2 -= qp;                                               /* E5: P is on disk during the reciprocal */
     /* the division's own set -- S, Q, mu (k + 1) and t = A_h mu (2k + 8), or (tight: S freed after the window Aw is formed)
      * Q, X (k), Aw (n_Q + 2) and the low product xq (n_Q + k + 8), a piece beside them.  Below the reciprocal's set today (5.2 n_Q
      * against 6.2), it binds once the reciprocal is tight or P is spilled */
@@ -575,11 +572,10 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     /* v3: the device top levels of bs must fit beside the tail, or their P, Q (alive into dm) spill into it and t1 finds it broken
      * (1e11 with v2: two APUs fell back by 22.2 GB with the tail's 30 GB free in two extents): the last level's inputs (2 P, 2 Q of
      * half n_Q) and outputs (P, Q of n_Q, with the bound's margin) + 1/8 for the fit, plus the hole.  DM_TIGHT frees
-     * P1, P2 after P = P1 Q2 + P2, so Q = Q1 Q2 runs beside 2 inputs and 2 outputs: max of the two moments; DM_TAIL_DEAD: no hole
-     * (the tail is re-laid over the dead inputs after the level) */
+     * P1, P2 after P = P1 Q2 + P2, so Q = Q1 Q2 runs beside 2 inputs and 2 outputs: max of the two moments */
     { size_t in = quarter_bytes(nq_s / 2 + nq_s / 20 + 8), out = qp, top;
       if (!tight) top = 4 * in + 2 * out; else { size_t m1 = 4 * in + out, m2 = 2 * in + 2 * out; top = m1 > m2 ? m1 : m2; }
-      top += top / 8 + (tdead ? 0 : L->hole); L->v3 = top;
+      top += top / 8 + L->hole; L->v3 = top;
       if (top > L->need_dev) L->need_dev = top; }
     size_t top_scratch = 0; L->tree_dev = size > 1 ? tree_need_dev(nq_s, size, pl, &top_scratch) : 0;
     L->need_dev += top_scratch;
@@ -635,8 +631,6 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
         size_t stg = best * 8 > ((size_t)128 << 20) ? best * 8 : ((size_t)128 << 20);
         size_t dv = (stg > vsp ? stg : vsp) + ((size_t)256 << 20);   /* M3 (results/GRID_GROUPS.md §C06): the pool's v-slots are freed after each product's v-exchanges; staged exchanges and the slots are not live together: the larger, not the sum */
         g_ofi_dev_mb = ((dv + ((size_t)1 << 20) - 1) >> 20); g_ofi_dev_mb = (g_ofi_dev_mb + 255) / 256 * 256;
-        if (px && comm_shmem_pe_per_apu() > 1) { size_t m = (size_t)256 << 20, k = (size_t)comm_shmem_pe_per_apu(); dv = (dv - m) / k + m;   /* N7E: the APU's area split over its helper heaps */
-            g_ofi_dev_mb = ((dv + ((size_t)1 << 20) - 1) >> 20); g_ofi_dev_mb = (g_ofi_dev_mb + 255) / 256 * 256; }
         if (px) { g_px_dev_mb = g_ofi_dev_mb + 1; g_ofi_dev_mb = 0; }   /* (+ 1 MiB: the proxy's command ring) */
     }
     if (by && ofi) snprintf(by, bylen, "COMM_OFI: SHMEM staging 128 MiB (host ops), control %.1f MiB; the device staging in 4 comm_ofi pools of %zu MiB = %.1f MiB by %s + margin%s", control / 1048576.0, g_ofi_dev_mb, best * 8 / 1048576.0, who, "");
@@ -877,8 +871,8 @@ static void binsplit_layout_only(const char *spec)
             arena += as_arena(base + extra); bs2 += base;
         }
         char wrapb[40] = ""; if (L.wrap) snprintf(wrapb, sizeof wrapb, " wrap %zu", L.wrap);
-        printf("layout: D %.4g g %d d %lu N %lu nq %zu k %zu tcap %zu | hole %zu dm_need %zu (top scratch %zu) tree_need %zu want %zu | bs regions %zu arena %zu (node, bytes) | tight %d tail_dead %d jl %zu v2 %zu v3 %zu div %zu early_free %d room %zu chunk %zu room_planes %zu%s%s\n",
-               D, g, d, N, L.nq, L.k, L.tcap, L.hole, L.need_dev, top, L.tree_dev, want, bs2, arena, L.tight, L.tail_dead, L.jl, L.v2, L.v3, L.div, 1,
+        printf("layout: D %.4g g %d d %lu N %lu nq %zu k %zu tcap %zu | hole %zu dm_need %zu (top scratch %zu) tree_need %zu want %zu | bs regions %zu arena %zu (node, bytes) | tight %d jl %zu v2 %zu v3 %zu div %zu early_free %d room %zu chunk %zu room_planes %zu%s%s\n",
+               D, g, d, N, L.nq, L.k, L.tcap, L.hole, L.need_dev, top, L.tree_dev, want, bs2, arena, L.tight, L.jl, L.v2, L.v3, L.div, 1,
                L.room, bs_arena_room() > 0 && db_pool_vmm_on() ? db_pool_vmm_chunk() : (size_t)0, bs_arena_room() > 0 && db_pool_vmm_on() ? g_room_planes : (size_t)0,
                L.dkm ? (L.lean ? " dkm 1 lean 1" : " dkm 1") : "", wrapb);   /* D19: " wrap <bytes>" with DM_MN_WRAP's term (absent: off) */   /* BS_ARENA_ROOM's term (in dm_need) and the chunk the arenas are rounded to (0: not rounded) */   /* lean 1 = the lean division set */   /* early_free 1 (always) */   /* the variant and its terms (per device) */   /* DL: dkm 1 = the layout follows NEWTON_DKM (absent: today's; the line is then unchanged) */
         if (bs_arena_room() > 0 && db_pool_vmm_on() && g_room_fit >= 0)       /* DL: the room's decision, term by term (bytes; mem_model.py --check-c compares them) */
@@ -935,9 +929,6 @@ void binsplit_pregrow(unsigned long N)
          *. */
         struct dm_layout dml; memset(&dml, 0, sizeof dml); int sz = getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1; if (sz < 1) sz = 1;
         dm_layout(N, sz, &dml);
-        if (dml.tail_dead >= 2 && !dm_p_spill_wired && !(getenv("ECALC_INIT_ONLY") && atoi(getenv("ECALC_INIT_ONLY")))) {   /* the E5 layout needs the P spill (W2) */
-            fprintf(stderr, "bs: DM_TAIL_DEAD=%d lays the arena out without P during the reciprocal, but the P spill is not wired in this build: layout only (BS_LAYOUT_ONLY, ECALC_INIT_ONLY=1)\n", dml.tail_dead); exit(2);
-        }
         size_t extra[NR], hole[NR], cap[NR]; int nd = mem_device_count(), per_dev = (NR + nd - 1) / nd;   /* regions per device (one, on the four-APU node) */
         for (int r = 0; r < NR; r++) {
             cap[r] = need[r] + need[r] / 8 + 4096;
@@ -954,7 +945,7 @@ void binsplit_pregrow(unsigned long N)
             }
         }
         if (bs_verbose) printf("bs: dm layout: n_Q %zu limbs, k %zu, t1 %zu limbs; per device: need %.2f GB (v2 %.2f, v3 %.2f, division %.2f; tree %.2f), tail %.2f GB (thresh %.2f)%s%s%s%s\n", dml.nq, dml.k, dml.tcap, dml.need_dev * 1e-9, dml.v2 * 1e-9, dml.v3 * 1e-9, dml.div * 1e-9, dml.tree_dev * 1e-9, dml.hole * 1e-9, dml.thresh * 1e-9,
-                                          dml.room ? "; BS_ARENA_ROOM: room in need, arenas in whole chunks" : "", dml.tight ? "; DM_TIGHT" : "", dml.tail_dead ? (dml.tail_dead >= 2 ? "; DM_TAIL_DEAD (no hole beside the top level, no P in the reciprocal)" : "; DM_TAIL_DEAD (no hole beside the top level)") : "", dml.dkm ? "; NEWTON_DKM (the reciprocal to h, the two quotient halves)" : "");
+                                          dml.room ? "; BS_ARENA_ROOM: room in need, arenas in whole chunks" : "", dml.tight ? "; DM_TIGHT" : "", dml.dkm ? "; NEWTON_DKM (the reciprocal to h, the two quotient halves)" : "");
         if (dml.tight) db_pool_pack_large(1);                  /* the large blocks packed at the arena's top (dbig.c ext_take) */
 #pragma omp parallel for num_threads(NR) schedule(static)   /* the regions per device in parallel */
         for (int r = 0; r < NR; r++) arena_get(r, cap[r], extra[r], hole[r], dml.thresh);
@@ -1604,8 +1595,6 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
                            o->pn = o->pd->n; o->qn = o->qd->n; }
                 for (size_t i = 0; i < cur.n; i++) { if (cur.nd[i].pd) { db_free(cur.nd[i].pd); free(cur.nd[i].pd); } if (cur.nd[i].qd) { db_free(cur.nd[i].qd); free(cur.nd[i].qd); } cur.nd[i].pd = cur.nd[i].qd = 0; }
                 if (cur.pool[0] && mem_dev_of(cur.pool[0]) >= 0) donate_pools(which ^ 1);   /* the children's pools are consumed */
-                if (nxt.n == 1 && dm_tail_dead > 0) for (int r = 0; r < NR; r++) if (g_arena[r].base && g_arena[r].hole)   /* the top level's dead inputs are free now: the block pool's tail moves to the largest free extent's back (t1's block) */
-                    db_pool_retarget_tail(g_arena[r].dev, g_arena[r].hole, g_arena[r].thresh);
                 if (nxt.n == 1 && dm_tight > 0) db_pool_pack_large(2);   /* from here the dm phase's large blocks take the tail first (t1), then the highest end (r2 below Q) */
                 if (nxt.n == 1) {
                     if (bs_keep_dev) { bs_Pd = *nxt.nd[0].pd; bs_Qd = *nxt.nd[0].qd; P->n = Q->n = 0; }   /* the caller copies them out (overlapped with the reciprocal) */

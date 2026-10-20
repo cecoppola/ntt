@@ -22,7 +22,7 @@ Times Eastern.
   of 1244 products over the bound, the first at tree level 5, 1.01x over; even a min(pa, pb) test leaves 46). §P15.
 - **Current state (see ecalc/README.md; D18, 2026-10-12, results/LAUNCH_DEFAULTS.md).** At size 1 `ECALC_NP` is 3; unset at size > 1
   it becomes `auto`, plane pool 0 holds four planes in every multi-node run, and **every multi-node product runs four primes in the
-  24-digit P24 form** (`mn_p24_of`; the former `MN_P24=1/2` switch is built in). The pre-D18 three-prime multi-node path (`ECALC_NP_MN3`) was removed 2026-10-19 (D56). `ECALC_NP_AUTO_MIN` (min(pa, pb) switch-over, §MPB15) and `ECALC_NP_AUTO_TERMS` (test knob) remain; the
+  24-digit P24 form** (`mn_p24_of`; the former `MN_P24=1/2` switch is built in). The pre-D18 three-prime multi-node path (`ECALC_NP_MN3`) was removed 2026-10-19 (D56). `ECALC_NP_AUTO_MIN` (min(pa, pb) switch-over, §MPB15) was removed 2026-10-20 (Q53); `ECALC_NP_AUTO_TERMS` (test knob) remains; the
   `auto` per-product switch-over of §NP15 now matters only at one node-process (the `ECALC_NP_MN3=1` path is removed, D56).
 - **Digits.** Every variant is exact by construction and was byte-identical in every test (mnaccept, 1e8/1e9, 4e10, 1e11, 2^34
   transforms). Roots above 2^33 were broken (w = 1) and fixed with no switch (§P15).

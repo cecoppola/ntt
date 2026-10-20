@@ -123,8 +123,7 @@ key without a consumer), SCRIPT-ONLY (aac7env.sh sets it but the profile lacks i
    * `heap_is_device=1`: the library's `shmem_malloc` returns device memory, so `COMM_SHMEM_DEVHEAP=1` takes effect (otherwise ecalc falls back to the registered host pool and says so); `0` = host heap, the template's
      `COMM_SHMEM_DEVHEAP=1` is then harmless but a no-op.
    * `SHMEM_NICS{1,2,4,8}_RC` and `SHMEM_POLICY_*_RC`: which `SHMEM_OFI_NUM_NICS` the library accepts for ONE PE, and which NIC policies exist. Accepts 2 (and more): one PE can drive more than one NIC. Rejects
-     everything above 1 ("only 1 NIC available"): one PE = one NIC, so with 2 NICs per APU **`COMM_SHMEM_PE_PER_APU=2`** (two proxy PEs per APU, one per NIC) is the way to use both; with 1 PE per APU (`=1`) only one of the two NICs
-     of each APU is used. Note `COMM_SHMEM_PE_PER_APU=2` is designed, not built (mnrun.sh refuses it): the probe result is the input for that decision, which is the user's.
+     everything above 1 ("only 1 NIC available"): one PE = one NIC, so with 1 PE per APU (`COMM_SHMEM_PE_PER_APU=1`) only one of the two NICs of each APU is used (the two-PEs-per-APU form was removed).
    * `SHMEM_NICS4_5PE_RC` / `SHMEM_NICS2_4PE_RC`: the PE counts of the proxy mode (4 proxies + the node-process) start with the NIC count they ask for (mnrun.sh sets `SHMEM_OFI_NUM_NICS=4` for `=1`).
      Then the real check is the 2-node gate and a 6-node 1e10 with `COMM_OFI=0` (per-NIC traffic: the telemetry counters read by `tools/envprobe.sh`).
    Decision rule (assumed, to be confirmed by the user): comm_ofi (the default) is used unless a proxy-mode arm measures faster in an ABBA at the target (≤ 4 rounds, results/SHMEM_ITEMS.md §N7D is the aac7 reference: 1.43 x slower there).

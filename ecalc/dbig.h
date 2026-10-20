@@ -33,7 +33,6 @@ size_t db_pool_hipmalloc_bytes(int dev);             /* bytes the pool mapped it
 void db_pool_set_tail(int dev, void *p, size_t bytes, size_t thresh);   /* the last `bytes` of a donated region are the reserved tail: requests >= thresh are carved from its back, smaller ones avoid it while anything else fits */
 void db_pool_pack_large(int on);
 void db_pool_pin_tail(int on);                         /* while on, requests are carved from the back of the tail's free part (r right below t1) */                       /* requests >= the tail's thresh carved from the back of the highest-ending free extent that fits (the big blocks stack at the top) */
-void db_pool_retarget_tail(int dev, size_t bytes, size_t thresh);   /* the tail becomes the last `bytes` of the largest free extent (all of it when it is smaller; a line under DB_POOL_VERBOSE) */
 int db_pool_vmm_on(void);                            /* DB_POOL_VMM=1 -- the arena as a VMM range whose free chunks are remapped contiguously on demand (results/DIVISION.md §R114 5) */
 size_t db_pool_vmm_chunk(void);                      /* the VMM arena's chunk in bytes (DB_POOL_VMM_CHUNK_GB, default 2 GiB) */
 void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first);   /* the arena's VA (a borrowed region of the pool; the seed thread must not store into it directly); the first `first` bytes mapped now, the rest by a thread */

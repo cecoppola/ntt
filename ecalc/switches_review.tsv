@@ -19,16 +19,13 @@ DIST_GATHER_RAW	fallback	coordinator (TASKS S)	2026-11-11	other values are the f
 DIST_GEN	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DIST_LOGN_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DIST_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-DM_TAIL_DEAD	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
 ECALC_BUDGET_RANK_GB	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-ECALC_FAST_EXIT	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
 ECALC_FATAL_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_INIT_ONLY	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_LIVE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_MEM_GUARD_PERIOD	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_MEM_SAMPLE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_MEM_SAMPLE_FILE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-ECALC_NP_AUTO_MIN	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
 ECALC_NP_AUTO_TERMS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_OUT_PACKED	fallback	coordinator (TASKS S)	2026-11-11	=1 / =0 fallbacks of the 60-bit packed output (TASKS 40, default 2 with lane A batch D5)
 ECALC_PLANE_CAP	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
@@ -40,7 +37,6 @@ MEM_DPOOL_FILL	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or faul
 MN_OUT_DKM_HI	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback (one part file per node); default since 2026-10-12 (W2B D1e)
 MN_OUT_DKM_HI_TEST_CARRY	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 MN_OUT_STRIPE_FORCE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-MN_OUT_WAVES	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
 MN_PLAN_QUIET	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 MN_SELFTEST_LOGR	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 MN_TREE_LOGN_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
@@ -82,7 +78,7 @@ T_PATCH_UNPACK	test	ecalc/tests/t_patch.c	2027-04-12	test harness setting
 DM_MN_WRAP	fallback	P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF)	2026-11-11	on by default since D22; =0 keeps the old low-product form; 6-node (P24) dm -6.25 s, total -2.86 s n.s., +5.4 GB/APU, in the memory model (DEF)
 BS_BATCH_PIPE	fallback	coordinator (D20, results/KERNELS.md §N3)	2026-11-11	on by default since D20; =0 keeps the old batch-tier host side; remove it at review
 NEWTON_CHAIN_GUARD	fallback	coordinator (D25, results/DIVISION.md §RECIP)	2026-11-11	on by default since D25; =0 keeps the old chain; digits identical (the division is exact either way); removes a rare fatal (chains of exact doublings)
-COMM_SHMEM_PE_PER_APU	fallback	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	=0 with COMM_OFI=0 restores the plain SHMEM data path; 1 is the COMM_OFI=0 default since D31 (2026-10-14); 2 (N7E, two helpers per APU) is for targets with 2 NICs per APU, opt-in
+COMM_SHMEM_PE_PER_APU	fallback	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	=0 with COMM_OFI=0 restores the plain SHMEM data path; 1 is the COMM_OFI=0 default since D31 (2026-10-14)
 COMM_SHMEM_PROXY	experiment	N7b	2026-11-14	goes with COMM_SHMEM_PE_PER_APU
 COMM_SHMEM_PX_KCOPY	fallback	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	=0 restores hipMemcpyAsync (SDMA) for proxy-pool copies; default in the proxy mode since D31 (2026-10-14)
 COMM_SHMEM_PX_THP	fallback	coordinator (D36, results/SHMEM_ITEMS.md §N7G)	2027-03-31	permanent fallback (D49, 2026-10-18): review at the target session; =0 restores 4 KiB helper heaps; default 1 in the proxy mode since D36 (2026-10-15)

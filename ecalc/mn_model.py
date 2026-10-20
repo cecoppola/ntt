@@ -424,7 +424,7 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     scale = q / (1 << 29)
     # the local part: the measured piece (its xGMI exchanges included, 84 % hidden), on shared APUs times the share
     dz = DZ
-    npc = 4 if p24 else piece_np(dz, nc, na, nb)        # Phase 15 NP (MPB: min(na, nb) under NP_AUTO_MIN): the piece's primes (ECALC_NP=auto: 4 over the three-prime bound); P24: four
+    npc = 4 if p24 else piece_np(dz, nc, na, nb)        # Phase 15 NP the piece's primes (ECALC_NP=auto: 4 over the three-prime bound); P24: four
     if dz is None or dz.legacy: t31 = T_PIECE_31 if fwd == 2 else T_PIECE_31_BHIT
     else: t31 = T_PIECE_31_NP[npc] * (1.0 if fwd == 2 else T_PIECE_31_BHIT / T_PIECE_31) * dz.f_mm() * NODE_SCALE   # Phase 13b D: S13's C at 2^31 (P = 3 / 4); Phase 16 C: x NODE_SCALE
     t_loc = t31 * scale * (P24_F if p24 else 1.0) + 0.005             # P24 (Phase 15 Batch 3): the regroup / CRT kernels' surcharge (ASSUMED, P24_F)
@@ -469,17 +469,13 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     return c
 
 NP_AUTO_TERMS = mem_model.NP3_MAX_TERMS   # Phase 15 NP: ECALC_NP=auto's switch-over (ECALC_NP_AUTO_TERMS; the three-prime bound)
-NP_AUTO_MIN = os.environ.get('ECALC_NP_AUTO_MIN', '0').strip() not in ('', '0')   # Phase 15 MPB: the C switch (crt.c ec_np_terms): the switch-over
-                                                                                    # on min(pa, pb), the coefficients' real term count, instead of pa + pb
 NP_STATS = dict(n3=0, n4=0)                # the pieces priced at three / four primes under auto (the memo counts a product once)
 def piece_np(dz, nc, na=None, nb=None):
     """Phase 15 NP (crt.c ec_np_for): a piece's prime count -- the design's np, or under np_auto four when nc = pa + pb exceeds the
-    switch-over (mn_core / dist_core decide per product; the one-node tiers keep three).  Phase 15 MPB: with NP_AUTO_MIN
-    (ECALC_NP_AUTO_MIN=1) the term count is min(na, nb) (crt.c ec_np_terms)"""
+    switch-over (mn_core / dist_core decide per product; the one-node tiers keep three)."""
     if dz is None or dz.legacy: return EC_NP
     if getattr(dz, 'np_auto', False):
-        t = min(na, nb) if NP_AUTO_MIN and na is not None and nb is not None else nc
-        k = 4 if t > NP_AUTO_TERMS else 3; NP_STATS['n%d' % k] += 1; return k
+        k = 4 if nc > NP_AUTO_TERMS else 3; NP_STATS['n%d' % k] += 1; return k
     return dz.np
 
 # ---- Phase 15 Batch 3 P24 (results/PRIMES_STRATEGY.md §P2415): four primes at 24 digits per transform point in the mn tier (MN_P24) ---------------------------
@@ -513,8 +509,8 @@ def p24_of(na, nb, g, cap):
     pa, pb = na, nb
     if na + nb > cap:
         ka, kb, _ = split_grid(na, nb, cap, g); pa, pb = -(-na // ka), -(-nb // kb)
-    if getattr(dz, 'np_auto', False):                                 # INT3: MPB's rule (min(pa, pb) under ECALC_NP_AUTO_MIN=1), as mn_p24_of
-        return (min(pa, pb) if NP_AUTO_MIN else pa + pb) > NP_AUTO_TERMS
+    if getattr(dz, 'np_auto', False):                                 # INT3: as mn_p24_of
+        return pa + pb > NP_AUTO_TERMS
     return dz.np == 4
 def _product_cost_p24(fab, na, nb, g, cap, lowcut=0, highcut=None, with_x=False, form="grid", cache=True):
     """a P24 product: the grid on the points (p24_split at min(cap, 2^40)), every piece at four primes; the cache only with CACHE_P24 (Phase 15 PC,
@@ -548,7 +544,7 @@ def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tru
     """memoised _product_cost (Phase 13b D: the design table evaluates the same products for many rows); the key is the fabric's
     parameters, the arguments and what of the design the product depends on"""
     dz = DZ
-    dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, NP_AUTO_MIN, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G, CACHE_MODEL, cache_slots_now(), CACHE_HIT_F, cache_primes_now(), CACHE_LOOP, P24, P24_F, CACHE_P24, CACHE_PART_F)
+    dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G, CACHE_MODEL, cache_slots_now(), CACHE_HIT_F, cache_primes_now(), CACHE_LOOP, P24, P24_F, CACHE_P24, CACHE_PART_F)
     k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target, fab.v_factor, fab.k_other,
          na, nb, g, lowcut, highcut, with_x, cache, form, dk)
     c = _PC.get(k)
@@ -967,7 +963,6 @@ class Design:
         """the environment that selects this row: RNS_STRATEGY (agent B), ECALC_PLANE_CAP (agent P: sets POOL_LOG,
         RNS_PLANES_3Q30 and DIST_LOGN_TEST), MDB_SHIFT_CHUNK_MB / MN_T_CHUNK_MB (Phase 13a M), COMM_ALLTOALLV_DEPTH (agent X)"""
         e = dict(ECALC_NP='auto' if (self.np_auto or self.np_mn == 'auto') else (self.np_mn or self.np), NTT_MODMUL=self.modmul, RNS_STRATEGY=self.strategy)   # (np_mn: the target's launch line, ECALC_NP=4)
-        if e['ECALC_NP'] == 'auto' and NP_AUTO_MIN: e['ECALC_NP_AUTO_MIN'] = 1              # Phase 15 MPB
         if self.cap is not None: e['ECALC_PLANE_CAP'] = mem_model.cap_name(self.cap)
         if self.shift_mb: e['MDB_SHIFT_CHUNK_MB'] = int(self.shift_mb)
         if self.t_mb: e['MN_T_CHUNK_MB'] = int(self.t_mb)
@@ -1842,7 +1837,7 @@ def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, stagi
     """the per-node memory model (mem_model.mem_per_node): GB of device at the dm peak, host (with the SHMEM pool), the node peak"""
     if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1
     o = dict(mem_model.OLD13); o.update(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging)   # Phase 15: the old forms unless the design is p15
-    if design is not None and not design.legacy: o.update(design.mem_opts(D * g)); o.update(p24=P24, np_auto_min=NP_AUTO_MIN, dkm=DKM)   # MS: MN_P24's scratch (mem_model's P24 branch); DL: dm_layout follows NEWTON_DKM (DKM)
+    if design is not None and not design.legacy: o.update(design.mem_opts(D * g)); o.update(p24=P24, dkm=DKM)   # MS: MN_P24's scratch (mem_model's P24 branch); DL: dm_layout follows NEWTON_DKM (DKM)
     elif design is None: o.update(np=4, host_fit=False)                                 # the legacy path: four primes (before step 0)
     r = mem_model.mem_per_node(int(D), g, o)
     gb = lambda k: r[k] / 1e9
@@ -1859,7 +1854,7 @@ def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=Non
     if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1 on the target's launch line
     saved = DZ; DZ = design; saved_c = CACHE_RUN_SLOTS
     if design is not None and getattr(design, 'cache_fit', False) and g > 1:   # Phase 15 DOC2: RNS_DIST_CACHE_FIT -- the slots the code's budget rule allows
-        o = dict(mem_model.OLD13); o.update(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging); o.update(design.mem_opts(D * g)); o.update(p24=P24, np_auto_min=NP_AUTO_MIN, dkm=DKM)
+        o = dict(mem_model.OLD13); o.update(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging); o.update(design.mem_opts(D * g)); o.update(p24=P24, dkm=DKM)
         CACHE_RUN_SLOTS = min(CACHE_MN_SLOTS, mem_model.mem_per_node(int(D), g, o)['cache_fit_slots'])
     else: CACHE_RUN_SLOTS = None
     try:
@@ -2170,7 +2165,7 @@ def cache_partial_rooms(T=None, g=None, design=None, keep_room=False):
     T = T or TARGET_DIGITS; g = g or TARGET_NODES; design = (design or DEFAULT15C(cache_fit=False)).at_g(g)
     o = design.mem_opts(T); r0 = mem_model.mem_per_node(T / g, g, o)
     o1 = dict(o); o1['dkm'] = bool(DKM); r1 = mem_model.mem_per_node(T / g, g, o1)
-    L = mem_model.dm_layout(int(r0['N']), g, 31, True, True, 0, room=o.get('arena_room', 0.0) or 0.0, dkm=bool(DKM))
+    L = mem_model.dm_layout(int(r0['N']), g, 31, True, True, room=o.get('arena_room', 0.0) or 0.0, dkm=bool(DKM))
     room_b = 4 * L['room'] if not keep_room else 0
     tree = r0['arena'] - r0['tree_need']; dm = r0['arena'] - (r1['dm_need'] - room_b)
     return tree, dm, dict(arena=r0['arena'], tree_need=r0['tree_need'], dm_need=r1['dm_need'], dm_need0=r0['dm_need'], room=4 * L['room'])

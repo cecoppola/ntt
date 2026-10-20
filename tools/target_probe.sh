@@ -245,8 +245,8 @@ advice() {  # the SHMEM facts that decide COMM_SHMEM_PE_PER_APU (see profiles/RE
   n2=$(fact SHMEM_NICS2_RC); n4=$(fact SHMEM_NICS4_RC); two=$(fact SHMEM_TWOPE_PROBE)
   [ -n "$n2" ] || { echo "UNKNOWN (SHMEM runs not done: rerun with --hold on a compute node)"; return; }
   if [ "$n4" = 0 ]; then echo "one PE accepts SHMEM_OFI_NUM_NICS=4 -> one PE can use >1 NIC; try PE_PER_APU=0 with NUM_NICS=$(fact CXI_DEV_COUNT) first (measure), then 1"
-  elif [ "$n2" = 0 ]; then echo "one PE accepts NUM_NICS=2 but not 4 -> 1 PE per APU gets both of its NICs (PE_PER_APU=1 is the 2-NIC form); a value 2 would need the NIC count per PE >2 (not needed)"
-  else echo "one PE accepts only 1 NIC -> use PE_PER_APU=2 (two PEs per APU, one per NIC) if the 2 NICs per APU must both be used; PE_PER_APU=1 uses one NIC per APU"; fi
+  elif [ "$n2" = 0 ]; then echo "one PE accepts NUM_NICS=2 but not 4 -> 1 PE per APU gets both of its NICs (PE_PER_APU=1 is the 2-NIC form)"
+  else echo "one PE accepts only 1 NIC -> PE_PER_APU=1 uses one NIC per APU (the two-PEs-per-APU form was removed)"; fi
   case "$two" in *"nonnull=0/"*) echo "# NOTE: shmem_ptr is NULL for a same-node peer: no on-node path, the proxy mode needs the /dev/shm heap workaround (N7b)";; esac
 }
 report() {
