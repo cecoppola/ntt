@@ -35,7 +35,7 @@ One line each (what, why, size); nothing here is started without the user's word
 - D48 (user 2026-10-18): `COMM_SHMEM_NP_HEAP_THP=1` is the default (main 23c2c1f); `=0` restores 4 KiB pages.
 - D53 (user 2026-10-19): `COMM_SHMEM_PX_SEND` unset is 3 (PX3) under `PE_PER_APU=1` with an OpenSHMEM 1.5 build, else 1 (main a6cc1b3); `=1` is the fallback.
 - D54 (user 2026-10-19): `COMM_SHMEM_PEER_ORDER` and `COMM_SHMEM_PX_BLOCK_MB` removed (main 66e34d0; gates 7/7 and acceptance 23/23, items 99l and 99m): peer loops walk in rank order, the PX3 chunk is the fixed 4 MiB.
-- Q58 (user 2026-10-20): `MN_NONPOW2_CAP` default 1 (a group whose size is not a power of two takes the next power-of-two plane: 6 n 3.70e11 -18.3 s with libfabric, +41.3 GB per node of plane memory; `=0` restores the power-of-two plane; results/DIVISION.md).
+- Q58 (user 2026-10-20): `MN_NONPOW2_CAP` default auto = on only from `MN_NONPOW2_MIN` (4.5e10) digits per node-process, off below (3 n 6e10 was +8.9 s with it on; a group whose size is not a power of two takes the next power-of-two plane: 6 n 3.70e11 -18.3 s with libfabric, +41.3 GB per node of plane memory; `=1` forces on, `=0` restores the power-of-two plane; results/DIVISION.md).
 - Q59 (user 2026-10-20): `COMM_SHMEM_PX_SCHED` unset = `auto` (99 up to 4 nodes, else PX3; 4 n -14 s; `=0` restores PX3; results/SHMEM.md).
 - Q60 (user 2026-10-20): aac7 profile `COMM_SHMEM_ROUND_MB=128` (was 1024; host staging 10.2 -> 3.1 GB per node at 2 n, no time lost at 2-6 n; lets `MN_NONPOW2_CAP` fit 3.8646e11 at 6 n for SHMEM; results/SHMEM.md).
 

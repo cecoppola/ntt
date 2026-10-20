@@ -262,10 +262,16 @@ def level_children(g, spec=None):
         out.append((S, ch)); P = S
     return out
 
-NP2CAP = os.environ.get("MN_NONPOW2_CAP", "1") in ("1", "")   # rns_mul.c rns_np2cap: MN_NONPOW2_CAP=1 and the run's group size not a power of two
+NP2CAP = os.environ.get("MN_NONPOW2_CAP", "") or "auto"   # rns_mul.c rns_np2cap: MN_NONPOW2_CAP unset/auto = on at digits per node >= MN_NONPOW2_MIN, 1 = on, 0 = off
+NP2MIN = float(os.environ.get("MN_NONPOW2_MIN", "") or 4.5e10)   # results/DIVISION.md §NPCAP: crossover about 4.5e10 digits per node (mod)
+NP2_D = 0.0                                                   # the run's digits per node (set by mem_per_node); 0 = unknown: auto counts as on, as the C does before the digits are set
+def np2_on(g):
+    """rns_mul.c rns_np2cap: the run's group size g not a power of two, and the switch on (auto: digits per node >= MN_NONPOW2_MIN)"""
+    if g < 3 or not g & (g - 1) or NP2CAP not in ("auto", "1"): return False
+    return NP2CAP != "auto" or NP2_D <= 0 or NP2_D >= NP2MIN
 def np2_q(q, g):
     """rns_mul.c rns_q_slot: the rank plane the pools are made for: 43/32 of q = 2^(pool_log-2) under MN_NONPOW2_CAP in a non-pow2 run (g)"""
-    return q + q * 11 // 32 if NP2CAP and g >= 3 and g & (g - 1) else q
+    return q + q * 11 // 32 if np2_on(g) else q
 
 def mn_cap_log(g, pool_log=31):
     """rns_dist.c mn_logn_cap: 2^(min(31, pool_log) + floor(log2 g)) points per piece over g nodes (one less where the
@@ -277,7 +283,7 @@ def mn_cap_log(g, pool_log=31):
         qcap = np2_q(1 << (c - 2), g)
         qm = mn_shape(1 << logn, g)[3]
         if qm > qcap: logn -= 1
-        elif NP2CAP and mn_shape(1 << (logn + 1), g)[3] <= qcap: logn += 1   # MN_NONPOW2_CAP: the next power of two fits
+        elif np2_on(g) and mn_shape(1 << (logn + 1), g)[3] <= qcap: logn += 1   # MN_NONPOW2_CAP: the next power of two fits
     return logn
 
 @functools.lru_cache(maxsize=None)
@@ -943,6 +949,12 @@ def mem_per_node(D, g=1, opts=None):
     environment no DM_MN_WRAP, at g > 1: the wrap's arm if its device peak (dev_max) is within ECALC_DEVICE_GB (373.44) less
     ECALC_DEVICE_MARGIN_GB (5.0), else the arm without it; r['wrap'] says which.  (This model's dev_max is not the C's device: the C
     also counts the comm_ofi pools as device memory; the C's `plan fit` lines are the source of truth.)"""
+    global NP2_D
+    d0 = NP2_D; NP2_D = float(D)                                       # MN_NONPOW2_CAP auto: the rule reads the digits per node
+    try: return _mem_per_node_wrap(D, g, opts)
+    finally: NP2_D = d0
+
+def _mem_per_node_wrap(D, g, opts):
     o = dict(opts or {})
     if o.get('wrap') is not None or 'DM_MN_WRAP' in os.environ or g < 2:
         r = _mem_per_node(D, g, o); r['wrap'] = o['wrap'] if o.get('wrap') is not None else dm_mn_wrap(); return r

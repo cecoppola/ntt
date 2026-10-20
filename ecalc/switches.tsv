@@ -25,7 +25,7 @@ COMM_OFI_POOL	bool	derived	derived	0|1	built-in default	-	TGTBENCH2.md+OFI17.md	
 COMM_OFI_POOL_MB	int	auto	derived	MiB per device	launch-line	-	STD17.md+S18KITFIX.md	Y	ecalc	binsplit.c,comm_ofi.c,ecalc.c	7	-	-	binsplit.c:694 sets it from the modelled need when unset
 COMM_OFI_VERBOSE	int	0	0		test-only	-	OFI17.md+STD17.md	Y	ecalc	comm_ofi.c	2	diagnostics (TESTING.md)	2027-04-12	
 COMM_OFI_WINDOW	int	unset	unset		built-in default	-	TUNE17.md+OFI17.md	Y	ecalc	comm_ofi.c	2	-	-	
-COMM_RANK	int	0	0	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,segv_trace.c	13	-	-	set per process by the launcher (mnrun.sh); excluded from the config hash
+COMM_RANK	int	0	0	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,segv_trace.c	14	-	-	set per process by the launcher (mnrun.sh); excluded from the config hash
 COMM_SHMEM_DEVHEAP	bool	0	0	0|1	launch-line	aac7	S12.md+A16.md	Y	ecalc	comm_shmem.c	1	-	-	comm_shmem.c
 COMM_SHMEM_HUGETLB	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	1	L5	2027-03-31	
 COMM_SHMEM_NP_HEAP_THP	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D48, results/SHMEM.md)	2026-11-18	
@@ -44,7 +44,7 @@ COMM_SHMEM_ROUND_MB	float	0	0	>=0 MiB	launch-line	aac7	V114.md	Y	ecalc	binsplit.
 COMM_SHMEM_SERIAL	bool	auto	derived	0|1	launch-line	aac6,aac7	S.md+S16.md	Y	ecalc	comm_shmem.c	1	-	-	comm_shmem.c:284 per-build default (OSHMEM 1)
 COMM_SHMEM_SPIN_US	int	2000	2000		built-in default	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	1	-	-	
 COMM_SHMEM_STAGE_SLOT_MB	bool	0	0	0|1	test-only	-	V114.md+STD17.md	prose	ecalc	comm_shmem.c	1	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	
-COMM_SIZE	int	1	conflict:0|1|4096	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,comm_shmem.c,ecalc.c,fatal.c,mem.c,mn.c,mn_plan.c,rns_mul.c,segv_trace.c	21	-	-	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
+COMM_SIZE	int	1	conflict:0|1|4096	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,comm_shmem.c,ecalc.c,fatal.c,mem.c,mn.c,mn_plan.c,rns_mul.c,segv_trace.c	22	-	-	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
 COMM_TRACE	bool	0	0	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_TRACE_CLOCK_N	int	50	unset	N	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	comm_trace.h:97
 COMM_TRACE_DIR	bool	derived	derived	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
@@ -118,7 +118,8 @@ MEM_DPOOL_FILL	int	0	0		test-only	-	V.md+R.md	Y	ecalc	mem.c	2	diagnostics (TESTI
 MEM_REPORT_DEVS	bool	0	unset	0|1	launch-line	aac7	B7ACCT.md+TC15.md	Y	ecalc	ecalc.c,mem.c	2	-	-	ecalc.c:372/537 (presence test)
 MN_COMM_MARK	bool	0	unset	0|1	launch-line	-	D16.md	Y	ecalc	mn.c	1	-	-	mn.c:28 (atoi > 0)
 MN_GROUPS	str	unset	derived	group list	launch-line	-	T114.md+SC15.md	Y	ecalc	rns_dist.c	1	-	-	rns_dist.c:2315; unset = the automatic schedule
-MN_NONPOW2_CAP	bool	1	1	0|1	built-in default	-	-	Y	ecalc	rns_mul.c	1	T2 (D57)	2026-11-19	rns_mul.c rns_np2cap: 1 (default, Q58) = non-pow2 groups take the next pow2 plane; 0 = the pow2 plane (T2, D57)
+MN_NONPOW2_CAP	str	auto	derived	auto|0|1	built-in default	-	-	Y	ecalc	ecalc.c,rns_mul.c	2	T2 (D57)	2026-11-19	rns_mul.c rns_np2cap: auto (unset, Q58) = non-pow2 groups take the next pow2 plane from MN_NONPOW2_MIN digits per node; 1 = always; 0 = the pow2 plane (T2, D57)
+MN_NONPOW2_MIN	num	4.5e10	unset	>0	built-in default	-	-	Y	ecalc	rns_mul.c	1	T2 (D57)	2026-11-19	rns_mul.c rns_np2_min: digits per node-process from which MN_NONPOW2_CAP auto is on (results/DIVISION.md NPCAP crossover)
 MN_OUT_CHUNK_MB	int	256	256		built-in default	-	IO15.md+A-out.md	Y	ecalc	mn_out.c	2	-	-	
 MN_OUT_DKM_HI	bool	1	1	0|1	built-in default	-	EW15.md+R§93	Y	ecalc	ecalc.c	2	coordinator (TASKS S)	2026-11-11	ecalc.c; default 1 since 2026-10-12 (TASKS 27)
 MN_OUT_DKM_HI_TEST_CARRY	bool	unset	unset	0|1	test-only	-	EW15.md	prose	ecalc	ecalc.c	1	diagnostics (TESTING.md)	2027-04-12	
