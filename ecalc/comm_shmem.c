@@ -137,6 +137,7 @@ static struct {
     double tv; long nv;                    /* all-to-all time (alltoall, alltoallv), post to completion, summed over the APU threads; the count */
     double bv;                             /* the bytes this PE received from the other PEs in those exchanges (the off-process traffic), summed */
     int ppa, ppn, pme, pnpes, proxy;       /* N7b COMM_SHMEM_PE_PER_APU: proxies per APU (0 off), PEs per node (1 + 4 ppa), my physical PE and the count, 1 = this PE is a proxy */
+    int sched;                             /* COMM_SHMEM_PX_SCHED = W (0 = off): PX3 command stream with whole put-with-signal commands, sent to the peers as a shifted ring with at most W senders per receiver (W >= n - 1: no window) */
     int pxsend;                            /* N7D COMM_SHMEM_PX_SEND: 1 (fallback; default only without PE_PER_APU=1 or OpenSHMEM 1.5) the proxy's batch-then-quiet, 3 (PX3, default since D53) plain chunks + one fence and signal word per command (px_serve2); 2 (chunked put-with-signal) was removed 2026-10-19 */
 } S;
 enum { K_CTRL, K_STAGE, K_SYM };
@@ -535,6 +536,13 @@ static void px_serve2(void)
                 for (long k = tp; k < t; k++) { int s = (int)(k % PXRING); if (fp[s]) continue;
                     struct px_ent *e = &ring[s]; shmem_ctx_t c = cx[co[s]];
                     if (!e->n) { shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); fp[s] = 1; if (tra[s]) TRP(P_SIGNAL, 0, k, e, 0); continue; }
+                    if (S.sched) {                    /* COMM_SHMEM_PX_SCHED: the whole command as one put-with-signal (whole puts run at the wire rate; no fence, no second word) */
+#if HAVE_PUT_SIGNAL
+                        shmem_ctx_putmem_signal_nbi(c, S.pool + e->roff, S.pool + e->soff, e->n, (uint64_t *)px_sigw(S.pool, 1, e->sigidx), (uint64_t)e->sig, SHMEM_SIGNAL_SET, (int)e->pe);
+#endif
+                        if (tra[s]) { TRP(P_CHUNK, 0, k, e, e->n); TRP(P_SIGNAL, 0, k, e, e->n); }
+                        nsig++; nput++; bytes += (double)e->n; fp[s] = 1; posted[s] = e->n; continue;
+                    }
                     size_t o = posted[s], len = e->n - o < PXCH ? e->n - o : PXCH; int last = o + len == e->n;
                     shmem_ctx_putmem_nbi(c, S.pool + e->roff + o, S.pool + e->soff + o, len, (int)e->pe);   /* a plain chunk; the command's last chunk is followed by a fence and its signal word */
                     if (tra[s]) TRP(P_CHUNK, o / PXCH, k, e, len);
@@ -786,6 +794,9 @@ static int comm_shmem_init_i(void)
     if (S.pxsend != 1 && S.pxsend != 3) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d: 1 (batch then quiet) or 3 (chunked puts, one fence + signal per command); 2 (chunked put-with-signal) was removed 2026-10-19\n", S.pxsend);
     if (S.pxsend == 3 && S.ppa == 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d is not built for COMM_SHMEM_PE_PER_APU=2\n", S.pxsend);
     if (S.pxsend == 3 && (!S.ppa || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d needs COMM_SHMEM_PE_PER_APU=1 and an OpenSHMEM 1.5 build (the proxy's context code is compiled only with 1.5 headers; PX_SEND=3 itself uses plain puts, not put-with-signal)\n", S.pxsend);
+    S.sched = env_int("COMM_SHMEM_PX_SCHED", 0);
+    if (S.sched < 0) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SCHED=%d: 0 (off) or the window W >= 1 (99: no window)\n", S.sched);
+    if (S.sched && (S.pxsend != 3 || S.ppa != 1 || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SCHED needs PX3 (COMM_SHMEM_PX_SEND=3, the default) under COMM_SHMEM_PE_PER_APU=1 and an OpenSHMEM 1.5 build\n");
     S.mb_bytes = ((size_t)MAXID * npes_hint * 8 * (S.pxsend == 3 ? 2 : 1) + ALIGN - 1) & ~(size_t)(ALIGN - 1);   /* (N7D: a proxy's signal words in its second half) */
     S.pool_bytes = (mb << 20) + S.mb_bytes;
     { const char *ex = getenv("COMM_SHMEM_PROXY"); if (S.ppa && ex && atoi(ex)) {   /* N7b: a proxy's heap as a named file (heap_mmap) */
@@ -892,6 +903,7 @@ static int comm_shmem_init_i(void)
     S.inited = 1;
     if (S.verbose && S.ppa) printf("comm_shmem: pe %d: init timeline: shmem_init %.2f, pool alloc+pre-fault/registration done at %.2f, barrier took %.2f s, passed at %.2f\n", S.me, g_t_shinit, t_bar - g_t0, now_s() - t_bar, now_s() - g_t0);
     if (S.ppa) { int ph_ = ec_ph(EC_PH_PX_ATTACH); px_attach(); ec_ph(ph_); }                               /* N7b: (after the barrier: the proxies' control is zeroed) */
+    if (S.me == 0 && S.sched) printf("comm_shmem: COMM_SHMEM_PX_SCHED=%d: whole put-with-signal commands, peers as a shifted ring, at most %d senders per receiver\n", S.sched, S.sched);
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);
     if (S.me == 0) printf("comm_shmem: %s, %d PEs%s, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us, peer order rank\n", comm_shmem_impl(), S.npes, S.ppa ? (S.pxsend == 3 ? " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1; proxy send COMM_SHMEM_PX_SEND=3: plain chunks, one fence + signal per command, a context per peer node)" : " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1)") : "", prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
@@ -929,7 +941,7 @@ void comm_shmem_finalize(void)
 
 /* ---- a communicator ---- */
 /* the control block of a member (offsets from its base): the words other members write */
-enum { W_ROFF, W_SIG, W_VAL0, W_VAL1, W_VSEQ0, W_VSEQ1, W_PROD, W_CONS, W_N };
+enum { W_ROFF, W_SIG, W_VAL0, W_VAL1, W_VSEQ0, W_VSEQ1, W_PROD, W_CONS, W_BATON, W_N };   /* W_BATON: COMM_SHMEM_PX_SCHED's step-done word, (comm.seq, step) from the node W ranks ahead */
 typedef struct {
     int n, me, id, *pe;                    /* pe[r]: the PE of rank r */
     shmem_ctx_t ctx; int own_ctx;
@@ -1191,7 +1203,39 @@ static int push_peers(shm_priv *p, int from, long spin_us)
     }
     return p->n;
 }
-static void *pusher(void *a) { comm *c = (comm *)a; shm_priv *p = PRIV(c); push_peers(p, p->next, -1); return 0; }
+/* COMM_SHMEM_PX_SCHED = W (proxy mode only): the sender's half as a shifted ring.  Step k (1 .. n - 1) goes to node (me + k) mod n, so every step is a permutation
+ * (one sender per receiver); with W < n - 1 step k > W also waits for the baton of the node W ahead of me, which sends it to the node W behind it once its put of step
+ * k - W has completed: a receiver then has at most W senders in flight, whatever the sizes or the skew.  Batons are sent from every wait loop (a node blocked at a later
+ * step still owes the earlier ones), steps deeper than n - 1 - W need none.  The word is (p->seq, step): p->seq counts the communicator's exchanges on every member. */
+static void sched_batons(shm_priv *p, int posted, int *sent, int lim, int Wc)
+{
+    px_progress(p->px);
+    while (*sent < posted && *sent < lim) {
+        int j = *sent + 1, d = (p->me + j) % p->n; if (__atomic_load_n(&p->ocnt[d], __ATOMIC_ACQUIRE)) break;
+        SHM_LOCK(); put_word(p, ((p->me - Wc) % p->n + p->n) % p->n, W_BATON, p->me, PACK(p->seq, j)); SHM_UNLOCK(); (*sent)++;
+    }
+}
+static void sched_wait(shm_priv *p, long *w, long v, int posted, int *sent, int lim, int Wc)
+{
+    double t0 = S.xstats ? now_s() : 0;
+    for (unsigned spins = 0; !test_ge(w, v); spins++) { sched_batons(p, posted, sent, lim, Wc); if (spins > 64) sched_yield(); }
+    if (S.xstats) p->xroff += now_s() - t0;
+}
+static void push_sched(shm_priv *p)
+{
+    int n = p->n, me = p->me, Wc = S.sched < n - 1 ? S.sched : n - 1, lim = n - 1 - Wc, sent = 0;
+    for (int k = 1; k < n; k++) {
+        int r = (me + k) % n; long seq = p->oseq[r], *w = W(p, p->base, W_ROFF, r);
+        TR(p, M_ROFF_WAIT, 0, r, seq, 0, 0); sched_wait(p, w, PACK(seq, 0), k - 1, &sent, lim, Wc); TR(p, M_ROFF_SEEN, 0, r, seq, 0, 0);
+        if (k > Wc) sched_wait(p, W(p, p->base, W_BATON, (me + Wc) % n), PACK(p->seq, k - Wc), k - 1, &sent, lim, Wc);
+        long x = *(volatile long *)w; if (UNSEQ(x) != seq) die("exchange sequence mismatch");
+        size_t nb = p->scnt ? p->scnt[r] : p->bytes; const char *s = p->scnt ? p->src + p->sdsp[r] : p->src + p->stride * (size_t)r;
+        SHM_LOCK(); put_signalled(p, r, UNOFF(x), s, nb, PACK(seq, nb)); SHM_UNLOCK();
+    }
+    while (sent < lim) sched_batons(p, n - 1, &sent, lim, Wc);
+    ofi_flush(p);
+}
+static void *pusher(void *a) { comm *c = (comm *)a; shm_priv *p = PRIV(c); if (S.sched && p->xo && p->px) push_sched(p); else push_peers(p, p->next, -1); return 0; }
 /* post the pending exchange's puts: inline for the peers ready within the spin (only where nothing blocks: putsig /
  * fence), a helper thread for the rest */
 static void start_push(comm *c)
