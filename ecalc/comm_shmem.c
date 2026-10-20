@@ -147,6 +147,7 @@ static struct {
     int fgrp;                              /* shx COMM_SHMEM_PX_FENCE_GROUP = G (0 = off): PX3 posts the data of G commands, then one fence per context, then their G signal words */
     int pws;                               /* shx COMM_SHMEM_PX_PWS (0 = off): 1 the last chunk of a command is a put-with-signal (a fence before it if the command has earlier chunks), 2 as 1 inside a context session */
     int onectx;                            /* shx COMM_SHMEM_PX_ONECTX=1: the proxy uses one context for all peer nodes (default 0: one per peer node, up to PXNCTX) */
+    int sigset;                            /* shx COMM_SHMEM_PX_SIGSET (0 = off): the proxy's signal word written as a put-with-signal (1: 0 data bytes, 2: 8 data bytes) */
     int pxwin;                             /* shx COMM_SHMEM_PX_WINDOW = K (0 = off): PX3 posts at most K commands (peers) at a time, the walk staggered by the local PE index */
     int pxsend;                            /* N7D COMM_SHMEM_PX_SEND: 1 (fallback; default only without PE_PER_APU=1 or OpenSHMEM 1.5) the proxy's batch-then-quiet, 3 (PX3, default since D53) plain chunks + one fence and signal word per command (px_serve2); 2 (chunked put-with-signal) was removed 2026-10-19 */
 } S;
@@ -413,6 +414,20 @@ static void tr_flush(int proxy)
     if (S.verbose || !proxy) fprintf(stderr, "comm_trace: pe %d (%s): %ld records (%.1f MiB), %llu dropped, sample 1/%u, %s\n", S.pme, proxy ? "proxy" : "node-process", w, w * sizeof(struct tr_rec) / 1048576.0, (unsigned long long)g_tr.dropped, g_tr.sample, path);
 }
 static long *px_sigw(char *base, int w, long idx) { return (long *)base + (size_t)w * MAXID * S.npes + (size_t)idx; }
+/* shx COMM_SHMEM_PX_SIGSET: the proxy's signal word write.  Default shmem_ctx_long_p (a plain 8 B put).  1: shmem_ctx_putmem_signal_nbi with 0 data bytes (the library's
+ * signal-SET path, "Optimized WAW signal SET" / weak fence in its logs); 2: the same with 8 data bytes (slot 0 of the signal array -- unused since PX_SEND=2 was removed -- to itself),
+ * in case a 0-byte put-with-signal is dropped.  Ordering after the command's data stays with the ctx_fence before it (put-with-signal orders a signal after ITS OWN data only). */
+static void px_sigput(shmem_ctx_t c, const struct px_ent *e)
+{
+#if HAVE_PUT_SIGNAL
+    if (S.sigset) {
+        char *d = (char *)px_sigw(S.pool, 0, e->sigidx);
+        shmem_ctx_putmem_signal_nbi(c, d, d, S.sigset == 2 ? 8 : 0, (uint64_t *)px_sigw(S.pool, 1, e->sigidx), (uint64_t)e->sig, SHMEM_SIGNAL_SET, (int)e->pe);
+        return;
+    }
+#endif
+    shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe);
+}
 /* N7E COMM_SHMEM_PE_PER_APU=2: an APU's two helper PEs h = 0, 1 (local PEs 2d, 2d + 1, on their own NICs).  The APU's staging/slab area is ONE virtual
  * range `base` (span bytes) mapped by the node-process: [0, PXDATA) is helper 0's control, then 4 MiB blocks (PXCH) alternate between the
  * helpers' heaps (block b of the data area = helper b & 1, local offset PXDATA + (b >> 1) PXCH + ...).  Every offset in the protocol is a
@@ -533,7 +548,7 @@ static void px_flush_group(shmem_ctx_t *cx, struct px_ent *ring, const unsigned 
     unsigned char fenced[PXNCTX]; memset(fenced, 0, sizeof fenced);
     for (int i = 0; i < *np; i++) { int c = co[pend[i] % PXRING]; if (!fenced[c]) { fenced[c] = 1; shmem_ctx_fence(cx[c]); (*nfence)++; } }
     for (int i = 0; i < *np; i++) { long k = pend[i]; int s = (int)(k % PXRING); struct px_ent *e = &ring[s];
-        shmem_ctx_long_p(cx[co[s]], px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); (*nsig)++; if (tra[s]) TRP(P_SIGNAL, 0, k, e, e->n); }
+        px_sigput(cx[co[s]], e); (*nsig)++; if (tra[s]) TRP(P_SIGNAL, 0, k, e, e->n); }
     *np = 0;
 }
 static void px_serve2(void)
@@ -564,7 +579,7 @@ static void px_serve2(void)
                 for (long i = 0; i < span; i++) { long k = tp + (i + woff) % span; int s = (int)(k % PXRING); if (fp[s]) continue;
                     if (S.pxwin && ++act > S.pxwin) { more = 1; continue; }   /* shx: at most K commands (peers) in flight in this round */
                     struct px_ent *e = &ring[s]; shmem_ctx_t c = cx[co[s]];
-                    if (!e->n) { shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); fp[s] = 1; if (tra[s]) TRP(P_SIGNAL, 0, k, e, 0); continue; }
+                    if (!e->n) { px_sigput(c, e); fp[s] = 1; if (tra[s]) TRP(P_SIGNAL, 0, k, e, 0); continue; }
                     if (S.sched) {                    /* COMM_SHMEM_PX_SCHED: the whole command as one put-with-signal (whole puts run at the wire rate; no fence, no second word) */
 #if HAVE_PUT_SIGNAL
                         shmem_ctx_putmem_signal_nbi(c, S.pool + e->roff, S.pool + e->soff, e->n, (uint64_t *)px_sigw(S.pool, 1, e->sigidx), (uint64_t)e->sig, SHMEM_SIGNAL_SET, (int)e->pe);
@@ -584,7 +599,7 @@ static void px_serve2(void)
                     shmem_ctx_putmem_nbi(c, S.pool + e->roff + o, S.pool + e->soff + o, len, (int)e->pe);   /* a plain chunk; the command's last chunk is followed by a fence and its signal word */
                     if (tra[s]) TRP(P_CHUNK, o / PXCH, k, e, len);
                     if (last && S.fgrp) { pend[np++] = k; if (np >= S.fgrp) px_flush_group(cx, ring, co, tra, pend, &np, &nsig, &nfence); }   /* shx: the fence and the signal word wait for the group */
-                    else if (last) { shmem_ctx_fence(c); shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); nsig++; if (tra[s]) TRP(P_SIGNAL, 0, k, e, e->n); }
+                    else if (last) { shmem_ctx_fence(c); px_sigput(c, e); nsig++; if (tra[s]) TRP(P_SIGNAL, 0, k, e, e->n); }
                     posted[s] = o + len; nput++; bytes += (double)len;
                     if (last) fp[s] = 1; else more = 1;
                 }
@@ -856,6 +871,10 @@ static int comm_shmem_init_i(void)
     if (S.pxwin && (S.pxsend != 3 || S.ppa != 1)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_WINDOW needs PX3 (COMM_SHMEM_PX_SEND=3, the default) under COMM_SHMEM_PE_PER_APU=1\n");
     S.onectx = env_int("COMM_SHMEM_PX_ONECTX", 0);
     if (S.onectx && (S.pxsend != 3 || S.ppa != 1)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_ONECTX needs PX3 (COMM_SHMEM_PX_SEND=3, the default) under COMM_SHMEM_PE_PER_APU=1\n");
+    S.sigset = env_int("COMM_SHMEM_PX_SIGSET", 0);
+    if (S.sigset < 0 || S.sigset > 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SIGSET=%d: 0 (off), 1 (signal-set with 0 data bytes) or 2 (8 data bytes)\n", S.sigset);
+    if (S.sigset && (S.pxsend != 3 || S.ppa != 1 || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SIGSET needs PX3 (COMM_SHMEM_PX_SEND=3, the default) under COMM_SHMEM_PE_PER_APU=1 and an OpenSHMEM 1.5 build\n");
+    if (S.sigset && (env_int("COMM_SHMEM_PX_SCHED", 0) || env_int("COMM_SHMEM_PX_PWS", 0))) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SIGSET is for the chunked PX3 signal word: not with COMM_SHMEM_PX_SCHED or COMM_SHMEM_PX_PWS (they already end in a put-with-signal)\n");
     S.sched = env_int("COMM_SHMEM_PX_SCHED", 0);
     if (S.sched < 0) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SCHED=%d: 0 (off) or the window W >= 1 (99: no window)\n", S.sched);
     if (S.sched && S.pxwin) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_WINDOW is for the chunked PX3 send: not with COMM_SHMEM_PX_SCHED (it has its own window W)\n");
@@ -973,6 +992,7 @@ static int comm_shmem_init_i(void)
     if (S.me == 0 && S.pws) printf("comm_shmem: COMM_SHMEM_PX_PWS=%d: the last chunk of a command is a put-with-signal (a fence before it when earlier chunks exist)%s\n", S.pws, S.pws == 2 ? ", the posting loop in a bundle + PWS context session" : "");
     if (S.me == 0 && S.pxwin) printf("comm_shmem: COMM_SHMEM_PX_WINDOW=%d: at most %d commands (peers) posted at a time per proxy, the walk staggered by the local PE index\n", S.pxwin, S.pxwin);
     if (S.me == 0 && S.onectx) printf("comm_shmem: COMM_SHMEM_PX_ONECTX=1: one proxy context for all peer nodes (one fence and one quiet cover every peer)\n");
+    if (S.me == 0 && S.sigset) printf("comm_shmem: COMM_SHMEM_PX_SIGSET=%d: the proxy's signal word is a put-with-signal (SET) with %d data bytes (the fence before it stays)\n", S.sigset, S.sigset == 2 ? 8 : 0);
     if (S.me == 0 && S.sched) printf("comm_shmem: COMM_SHMEM_PX_SCHED=%d: whole put-with-signal commands, peers as a shifted ring, %s\n", S.sched, S.sched >= S.npes - 1 ? "no window" : "window W senders per receiver");
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);

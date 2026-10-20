@@ -41,6 +41,7 @@ static const char *const cfg_names[] = {
     "COMM_SHMEM_PX_PWS",
     "COMM_SHMEM_PX_SCHED",
     "COMM_SHMEM_PX_SEND",
+    "COMM_SHMEM_PX_SIGSET",
     "COMM_SHMEM_PX_THP",
     "COMM_SHMEM_PX_WINDOW",
     "COMM_SHMEM_RING_KB",
@@ -164,4 +165,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 162
+#define CFG_NAMES_N 163
