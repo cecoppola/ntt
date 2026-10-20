@@ -141,6 +141,7 @@ static int check_all(comm *c, int me, int n)
  * median us per message (the exchange's time / (n - 1)). */
 #include <pthread.h>
 #include <sys/time.h>
+#include <stdint.h>
 static double tnow(void) { struct timeval tv; gettimeofday(&tv, 0); return tv.tv_sec + tv.tv_usec * 1e-6; }
 static int cmp_d(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
 struct sw_arg { comm *c; int t, n, reps, host; size_t bytes; double med, min, tot; pthread_barrier_t *bar; };
@@ -202,8 +203,98 @@ static int run_sweep(int argc, char **argv)
     comm_shmem_finalize();
     return 0;
 }
+/* --a2a <arms> [sizes_MiB] [reps] [rounds] [local]: the library's own all-to-all against ours (benchmark only; a bound on what libsma's
+ * schedule could do).  Arms (comma list, default ours,lib): ours = comm_alltoall, lib = shmem_alltoallmem (SHMEM_TEAM_WORLD), the equal blocks;
+ * oursv = comm_alltoallv, libv = shmemx_team_alltoallv, the unequal blocks (the layv shape: block(from,to) = b * (6 + (7 from + 13 to) % 7) / 9, about b
+ * on average, 8-byte multiples); libpad = shmem_alltoallmem padded to the largest unequal block (b * 12 / 9).  Both sides use the transport's
+ * symmetric pool (comm_sym_alloc), so the library arms see the same memory as ours.  The library arms need one PE per node
+ * (COMM_SHMEM_PE_PER_APU=0: helper PEs would sit outside the collective); ours runs under either setting.  The library's SHMEM_ALLTOALL_*
+ * variables are read from the launch environment.  The first exchange of each arm is checked (sampled words) and excluded from the timing;
+ * a failing arm prints FAILED and is skipped.  a sixth argument `local`: libv's t_offsets are the receiver's own layout (default: where my block lands
+ * at the target).  Output per arm, size and round: median over reps of the slowest PE's time per exchange, GB/s received per PE (self excluded). */
+#ifdef COMM_SHMEM
+#include <shmem.h>
+#include <shmemx.h>
+#endif
+static size_t a2a_blk(int from, int to, size_t b) { return (b * (size_t)(6 + (from * 7 + to * 13) % 7) / 9) & ~(size_t)7; }
+static void a2a_fill(char *sb, int me, int n, const size_t *sdsp, const size_t *scnt)
+{
+    for (int r = 0; r < n; r++) { uint64_t *w = (uint64_t *)(sb + sdsp[r]); for (size_t k = 0; k < scnt[r] / 8; k++) w[k] = slab_word(me, r, 200, k); }
+}
+static long a2a_check(const char *rb, int me, int n, const size_t *rdsp, const size_t *rcnt)
+{
+    long bad = 0;
+    for (int r = 0; r < n; r++) { const uint64_t *w = (const uint64_t *)(rb + rdsp[r]); size_t m = rcnt[r] / 8;
+        for (size_t k = 0; k < m; k += k < 8 ? 1 : 4099) if (w[k] != slab_word(r, me, 200, k)) bad++;
+        if (m && w[m - 1] != slab_word(r, me, 200, m - 1)) bad++; }
+    return bad;
+}
+static int run_a2a(int argc, char **argv)
+{
+    const char *arms = argc > 2 ? argv[2] : "ours,lib"; const char *szs = argc > 3 ? argv[3] : "64,128";
+    int reps = argc > 4 ? atoi(argv[4]) : 100, rounds = argc > 5 ? atoi(argv[5]) : 2;
+    if (reps < 1 || rounds < 1) { fprintf(stderr, "t_comm --a2a: bad reps or rounds\n"); return 2; }
+    int n = comm_shmem_init(), me = comm_shmem_rank(), toff_local = argc > 6 && !strcmp(argv[6], "local");
+    comm *c = comm_shmem_create_at(0, 1, n, 0);
+    char names[8][8]; int na = 0;
+    { char buf[128]; snprintf(buf, sizeof buf, "%s", arms); for (char *t = strtok(buf, ","); t && na < 8; t = strtok(0, ",")) snprintf(names[na++], 8, "%s", t); }
+    if (me == 0) printf("t_comm a2a: %d PEs, arms %s, sizes %s MiB, %d reps x %d rounds (odd rounds in reverse arm order), proxy mode %d\n", n, arms, szs, reps, rounds, comm_shmem_pe_per_apu());
+    int bad_total = 0;
+    char sbuf[128]; snprintf(sbuf, sizeof sbuf, "%s", szs);
+    for (char *tok = strtok(sbuf, ","); tok; tok = strtok(0, ",")) {
+        size_t b = (size_t)atol(tok) << 20, cap = b * 3 / 2 * n + 4096; int s1 = 1, s2 = 1;
+        char *sb = xalloc(c, cap, &s1), *rb = xalloc(c, cap, &s2);
+        if (!s1 || !s2) { if (me == 0) fprintf(stderr, "t_comm --a2a: the pool could not hold 2 x %zu B (raise COMM_SHMEM_POOL_MB)\n", cap); return 2; }
+        size_t *scnt = malloc(n * sizeof *scnt), *sdsp = malloc(n * sizeof *sdsp), *rcnt = malloc(n * sizeof *rcnt), *rdsp = malloc(n * sizeof *rdsp), *toff = malloc(n * sizeof *toff);
+        double *ts = malloc(reps * sizeof *ts);
+        for (int rd = 0; rd < rounds; rd++) for (int ai = 0; ai < na; ai++) {
+            const char *arm = names[rd & 1 ? na - 1 - ai : ai];
+            int v = !strcmp(arm, "oursv") || !strcmp(arm, "libv"), pad = !strcmp(arm, "libpad"), lib = !strncmp(arm, "lib", 3);
+            if (!(v || pad || !strcmp(arm, "ours") || !strcmp(arm, "lib"))) { if (me == 0) fprintf(stderr, "t_comm --a2a: unknown arm %s\n", arm); return 2; }
+            if (lib && comm_shmem_pe_per_apu()) { if (me == 0) printf("t_comm a2a: %s skipped: needs COMM_SHMEM_PE_PER_APU=0\n", arm); continue; }
+            size_t blk = pad ? (b * 12 / 9) & ~(size_t)7 : b;                 /* the equal block (padded: the largest unequal one) */
+            for (int r = 0; r < n; r++) {
+                scnt[r] = v ? a2a_blk(me, r, b) : blk; rcnt[r] = v ? a2a_blk(r, me, b) : blk;
+                sdsp[r] = rdsp[r] = (size_t)r * blk; }
+            if (v) { size_t o = 0, q = 0;
+                for (int r = 0; r < n; r++) { sdsp[r] = o; o += scnt[r]; rdsp[r] = q; q += rcnt[r]; }
+                for (int r = 0; r < n; r++) { size_t t = 0; for (int k = 0; k < me; k++) t += a2a_blk(k, r, b); toff[r] = toff_local ? rdsp[r] : t; } }   /* t = where my block lands at target r (blocks of lower ranks first) */
+            double recv = 0; for (int r = 0; r < n; r++) if (r != me) recv += (double)rcnt[r];
+            int fail = 0;
+            a2a_fill(sb, me, n, sdsp, scnt); memset(rb, 0, cap);
+            for (int it = -1; it < reps; it++) {
+                comm_barrier(c);
+                double x = tnow();
+                if (!lib) { if (v) comm_alltoallv(c, sb, scnt, sdsp, rb, rcnt, rdsp, NULL); else comm_alltoall(c, sb, rb, blk, NULL); comm_wait(c); }
+#ifdef COMM_SHMEM
+                else if (!strcmp(arm, "libv")) shmemx_team_alltoallv(rb, toff, scnt, sb, sdsp, scnt, SHMEM_TEAM_WORLD);
+                else { if (shmem_alltoallmem(SHMEM_TEAM_WORLD, rb, sb, blk)) fail = 2; }
+#endif
+                double dt = tnow() - x;
+                if (it < 0) { long bad = a2a_check(rb, me, n, rdsp, rcnt); if (bad) { fail = 1; printf("t_comm a2a: pe %d: %s %zu MiB: %ld bad words\n", me, arm, b >> 20, bad); } }
+                else ts[it] = dt;
+                if (it < 0 && comm_allreduce_max(c, (size_t)fail)) { fail = 1; break; }
+            }
+            if (fail) { bad_total++; if (me == 0) printf("t_comm a2a: %s %zu MiB round %d: FAILED (verify or call error; libv: try the sixth argument local)\n", arm, b >> 20, rd); continue; }
+            qsort(ts, reps, sizeof *ts, cmp_d);
+            size_t med = comm_allreduce_max(c, (size_t)(ts[reps / 2] * 1e9)), mn = comm_allreduce_max(c, (size_t)(ts[0] * 1e9)), p90 = comm_allreduce_max(c, (size_t)(ts[reps * 9 / 10] * 1e9));
+            printf("t_comm a2a: pe %d: %-6s %4zu MiB block, round %d: median %.3f ms (slowest PE; min %.3f, p90 %.3f), this PE %.2f GB/s received (own median %.3f ms)\n", me, arm, b >> 20, rd, med * 1e-6, mn * 1e-6, p90 * 1e-6, recv / ts[reps / 2] / 1e9, ts[reps / 2] * 1e3);
+            if (me == 0) printf("t_comm a2a: SUMMARY %-6s %4zu MiB block, round %d: median %.3f ms per exchange, %.2f GB/s per PE (slowest-PE median), %d PEs\n", arm, b >> 20, rd, med * 1e-6, recv / (med * 1e-9) / 1e9, n);
+            fflush(stdout);
+        }
+        free(ts); free(scnt); free(sdsp); free(rcnt); free(rdsp); free(toff); xfree(c, sb, s1); xfree(c, rb, s2);
+    }
+    comm_destroy(c);
+    printf("t_comm a2a: pe %d done (%d failed arm runs)\n", me, bad_total);
+    comm_shmem_finalize();
+    return bad_total != 0;
+}
 int main(int argc, char **argv)
 {
+    if (argc > 1 && !strcmp(argv[1], "--a2a")) {
+        if (!(getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem"))) { fprintf(stderr, "t_comm --a2a needs COMM_TRANSPORT=shmem\n"); return 2; }
+        return run_a2a(argc, argv);
+    }
     if (argc > 1 && (!strcmp(argv[1], "--bw") || !strcmp(argv[1], "--lat"))) {   /* the sweep (SHMEM only) */
         if (!(getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem"))) { fprintf(stderr, "t_comm %s needs COMM_TRANSPORT=shmem\n", argv[1]); return 2; }
         return run_sweep(argc, argv);
