@@ -163,7 +163,8 @@ but maps more before bs (init +2 s) and rounds the arena up (+8.6 GB per node); 
 145.1 against 143.1 / 146.1 s; 4 GiB slower at both. Arena size (items 9jz, 9ka; report ARENA1): at 2 n 1.2882e11 the
 arena is 66.57 GB per APU and the measured dm peak 55.47 GB (83 %). `BS_ARENA_ROOM=0.14` drops one chunk per APU
 (arena 257.70 against 266.29 GB per node, 0 remaps, 0 in-phase hipMalloc): 2 n 108.8 / 109.2 against 113.3 / 110.6 s,
-4 n 147.2 (first) / 144.0 against 144.4 / 144.6 s. `DM_MN_WRAP=0` with it saves 43 GB per node but dm takes +8 to +15 s
+4 n 147.2 (first) / 144.0 against 144.4 / 144.6 s. At 6 n 3.8646e11 (item 9kc) it drops no chunk (arena 206.16 GB per node in
+both; SHMEM 185.2 / 186.1 against 198.3 (first) / 189.3 s, libfabric 175.7 / 178.1 against 187.5 / 176.5 s: noise). `DM_MN_WRAP=0` with it saves 43 GB per node but dm takes +8 to +15 s
 (2 n 117.2, 4 n 155.8 s); `DB_POOL_VMM=0 DM_TIGHT=1` (no background mapper) loses in bs (+10 to +12 s).
 
 ## DKM15: the division in two quotient halves with a half-length reciprocal (Phase 15 Batch 3, agent DKM)
