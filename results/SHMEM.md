@@ -315,7 +315,7 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
     The schedule loses at 6 n (SC99 +5.8 s, SC1 +31 s against PX3 means), the same pattern as P4S.
   - Review fixes (1aeabae1: with the switch off the control block is the same as main): gates 5/5 PASS (item 9an; 1 n and
     2 n default path, 2 n W=99, 2 n W=1 with rounds).
-  - Not adopted. Options: W = 2-3 at 6 n, or a default that depends on the node count (user decision). Item 9ao (6 n, W = 2 and 3) is queued.
+  - Not adopted. Options: archive the branch, or a default that depends on the node count (user decision). Item 9ao (6 n 3.8646e11, branch 1aeabae1): PX3 222.6 (first run) / 204.9 s, W=2 234.0 / 233.5 s, W=3 232.1 / 231.8 s (m): every window loses at 6 n.
 - **NIC policy** (item 9af, 4 n 2.5764e11): `SHMEM_OFI_NIC_POLICY=NUMA` aborts at init (rc 134, 2 of 2 runs), so it is not
   usable. Controls in the same item: PX3 168.3 s warm (the first run 183.0 s), libfabric 162.0 and 157.9 s (m).
 

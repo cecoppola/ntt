@@ -30,6 +30,8 @@ size_t rns_pool1_default_bytes(int pool_log);
 size_t rns_plane_limbs(void);
 int rns_pool0_np(void);                                              /* the planes plane pool 0 is made for (ec_np; ECALC_NP=auto: 3 or 4 by the run's largest group, ec_np_planes) */
 size_t rns_plane_pool_bytes(int pool_log, int np, size_t *p0, size_t *p1);   /* pools 0 and 1 per APU as rns_init makes them (bytes; returns the sum) */
+int  rns_np2cap(void);                          /* MN_NONPOW2_CAP=1 and COMM_SIZE not a power of two: the rank plane is 43/32 x 2^(pool_log-2) */
+size_t rns_q_slot(int pool_log);                 /* the rank plane (limbs per prime) the pools are made for */
 void rns_preinit_pool_log(int pool_log);                                                /* rns_pool_log() before rns_init (BS_LAYOUT_ONLY without a device) */
 size_t rns_dpool_cap(int dev, int which);   /* the pool's current bytes (0 before rns_init) */
 extern void (*rns_shutdown_hook)(void);   /* called first by rns_shutdown (binsplit's region arenas) */

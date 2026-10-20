@@ -6,7 +6,7 @@ Scope: the distributed division and the reciprocal: Newton error, DKM halves, mi
 |---|---|
 | A-div | M4: the distributed division, with B2/B3/C3 (Phase 9, PLAN.md §19) |
 | P1 | the distributed division multiply: the low product X·Q as a low part + one cyclic plane (`DM_MN_WRAP`) |
-| NPCAP | non-power-of-two node groups on the next power-of-two plane (`MN_NONPOW2_CAP`, branch npcap, 2026-10-19) |
+| NPCAP | non-power-of-two node groups on the next power-of-two plane (`MN_NONPOW2_CAP`, on main default off, 2026-10-19) |
 | RECIP | the Newton reciprocal's error: the t_newton bound or the reciprocal? |
 | R415 | R4 (Phase 15, row 1b): the reciprocal's Q_t·r as a middle product (V3 item 4 = PLAN §33 B2) |
 | R114 | R1 (Phase 14, W1): E7 the reciprocal's products cut to the band read; E9 Karatsuba over the grid (model); E10 the 576 tree-level spill (model) |
@@ -234,7 +234,7 @@ Branch `o5` (from main 0298fe2), TASKS items 39 / 37; design basis `archive:resu
 
 **Verdict.** B5 is correct but gives no wall-clock gain (the inverse form itself 0.027 s slower, 0.03 s of an 8.9 s run). Not adopted. Open (historical): a lower balance than 2.25 n would need the forward split too; `k_b5_merge` could be fused into the last inverse pass.
 
-## NPCAP — `MN_NONPOW2_CAP=1`: non-power-of-two groups on the next power-of-two plane (branch npcap (unmerged), default off; items 9bf, 9bg, 9bj, 9bi, 2026-10-19; m)
+## NPCAP — `MN_NONPOW2_CAP=1`: non-power-of-two groups on the next power-of-two plane (on main, default off; items 9bf, 9bg, 9bj, 9bi, 9bo, 9bp, 2026-10-19; m)
 
 - **What it does.** A group of 3 x 2^k nodes takes the next power-of-two plane (rank plane 43/32 larger), so the division
   has 6 pieces instead of 22 at 1.85e11 digits (plan). Cost: plane memory per node 120.3 -> 161.6 GB (+41.3 GB, m) and about
@@ -251,5 +251,8 @@ Branch `o5` (from main 0298fe2), TASKS items 39 / 37; design basis `archive:resu
   digits per node (mod, linear in the pieces saved).
 - **6 n gates (item 9bo):** 4/4 PASS, digits identical (6 n default against switch on at a lowered cap, libfabric and
   SHMEM; switch on at the default cap).
-- **Before adoption:** the engine acceptance of TESTING §4 with the switch on (item 9bp, queued), and the review fix
-  already on the branch (d26df9a); then the user's decision.
+- **Engine acceptance (item 9bp):** `mnaccept.sh --only unit,grid,e9,mn,ckpt,recheck,corr` with the switch on: 23 passed, 0 failed.
+  Merged default-off after it.
+- **Node budget:** with the switch on, the standard 6 n size 3.8646e11 does not fit the node budget (plan: node 483.7 GB
+  against 480 GB, margin -3.7 GB; device margin +15.2 GB); 3.70e11 fits. Adoption as a default needs that limit handled
+  (the user's decision).

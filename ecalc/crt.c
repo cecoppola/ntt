@@ -94,7 +94,7 @@ int ec_np_planes(int pool_log, int g)
     if (!ec_np_auto) return ec_np;
     if (g > 1) return 4;
     int c = pool_log > 0 && pool_log < 31 ? pool_log : 31, lg = 0; while (g > 1 && (2 << lg) <= g) lg++;
-    return ((size_t)1 << (c + lg)) > ec_np_auto_terms ? 4 : 3;   /* (an upper bound of mn_logn_cap / dist_cap: no product of the run exceeds it) */
+    return ((size_t)1 << (c + lg)) > ec_np_auto_terms ? 4 : 3;   /* (an upper bound of mn_logn_cap / dist_cap: no product of the run exceeds it; g > 1 returns before it, so MN_NONPOW2_CAP's larger caps do not reach it) */
 }
 void ec_np_check(size_t nterms, const char *where)
 {
