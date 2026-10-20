@@ -6,6 +6,7 @@ Scope: the distributed division and the reciprocal: Newton error, DKM halves, mi
 |---|---|
 | A-div | M4: the distributed division, with B2/B3/C3 (Phase 9, PLAN.md §19) |
 | P1 | the distributed division multiply: the low product X·Q as a low part + one cyclic plane (`DM_MN_WRAP`) |
+| NPCAP | non-power-of-two node groups on the next power-of-two plane (`MN_NONPOW2_CAP`, branch npcap, 2026-10-19) |
 | RECIP | the Newton reciprocal's error: the t_newton bound or the reciprocal? |
 | R415 | R4 (Phase 15, row 1b): the reciprocal's Q_t·r as a middle product (V3 item 4 = PLAN §33 B2) |
 | R114 | R1 (Phase 14, W1): E7 the reciprocal's products cut to the band read; E9 Karatsuba over the grid (model); E10 the 576 tree-level spill (model) |
@@ -232,3 +233,23 @@ Branch `o5` (from main 0298fe2), TASKS items 39 / 37; design basis `archive:resu
 **Results** (aac7 queue item 85, 2026-10-11; m): gates 2 nodes 1e9 PASS (total 21.18 s) and 1 node PASS (11.06 s); `t_strategy 28 1 V` rc 0, 8 B5 products used; CHECK 1e10 B5 rc 0, total 8.90 s. **ABBA 1e10, 1 node, 8 pairs (A = B, B = B5): total +0.077 s [−0.754, +0.909], p ≥ 0.05; B-form time +0.027 s [+0.024, +0.031], p < 0.05** (sd 0.005). The aac6 driver never ran (hold did not start in 25 min).
 
 **Verdict.** B5 is correct but gives no wall-clock gain (the inverse form itself 0.027 s slower, 0.03 s of an 8.9 s run). Not adopted. Open (historical): a lower balance than 2.25 n would need the forward split too; `k_b5_merge` could be fused into the last inverse pass.
+
+## NPCAP — `MN_NONPOW2_CAP=1`: non-power-of-two groups on the next power-of-two plane (branch npcap (unmerged), default off; items 9bf, 9bg, 9bj, 9bi, 2026-10-19; m)
+
+- **What it does.** A group of 3 x 2^k nodes takes the next power-of-two plane (rank plane 43/32 larger), so the division
+  has 6 pieces instead of 22 at 1.85e11 digits (plan). Cost: plane memory per node 120.3 -> 161.6 GB (+41.3 GB, m) and about
+  +25 GB of arena and v-slots (plan); the node fit refuses 3 n above 1.85e11 and 6 n above 3.70e11 with the wrap on
+  (`DM_MN_WRAP=0` fits both).
+- **Gates (item 9bf):** 6/6 PASS (1 n and 2 n default path; 3 n default against switch on at a lowered cap, libfabric and
+  SHMEM, and at the default cap); digits identical.
+- **Timing, libfabric.** 3 n 1.7e11 (item 9bg, 3 pairs): NPC 124.6 against L 132.2 s (-7.6 s; dm 40.1 against 51.0 s;
+  init +4.6 s). 3 n 1.2e11 with the wrap forced (item 9bj): NPC 92.4 against 89.2 s (+3.2 s; dm -0.9 s; init +4.1 s).
+  6 n 3.70e11 (item 9bi): NPC 175.0 / 174.7 / 169.3 s against L 202.0 (first run) / 186.3 / 185.6 s; means 173.0 against
+  191.3 s (-18.3 s, -12.9 s against warm L); pair differences -27.0 / -11.5 / -16.2 s; dm 62.2 against 81.8 s; init +3.5 s.
+  All VERIFY OK at 2^34-point pieces.
+- **Init cost** is the larger plane pools mapped in rns_init: fixed, independent of the digits. Crossover about 4.5e10
+  digits per node (mod, linear in the pieces saved).
+- **6 n gates (item 9bo):** 4/4 PASS, digits identical (6 n default against switch on at a lowered cap, libfabric and
+  SHMEM; switch on at the default cap).
+- **Before adoption:** the engine acceptance of TESTING §4 with the switch on (item 9bp, queued), and the review fix
+  already on the branch (d26df9a); then the user's decision.
