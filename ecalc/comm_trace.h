@@ -73,6 +73,7 @@ _Static_assert(sizeof(struct tr_rec) == 40, "trace record");
 typedef struct tr_buf { uint32_t chunk, pos; } tr_buf;   /* chunk 0: none yet; UINT32_MAX: the arena is full */
 #define TR_MAXCOMM 4096
 #define TR_MAXNODE 256
+/* apu: the communicator's APU; in proxy mode (COMM_SHMEM_PE_PER_APU) that of its proxy (JSON version 2; version 1 recorded the device current at the first exchange) */
 struct tr_comm { int id, n, rank, apu, *node; };
 struct tr_clk { int64_t off_m, off_r, rtt, rtt_med, t0; int ok; };   /* node j's clock minus node 0's: monotonic, realtime (ns), the best round trip, the median one, node 0's monotonic time of the best */
 static struct {
