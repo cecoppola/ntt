@@ -65,13 +65,13 @@ int rns_pool0_np(void)
     const char *e = getenv("COMM_SIZE"); int g = e ? atoi(e) : 1; if (g < 1) g = 1;
     return ec_np_planes(g_pool_log ? g_pool_log : 31, g);
 }
-/* MN_NONPOW2_CAP=1 (default 0): in a run whose COMM_SIZE is not a power of two (3, 5, 6, 7, ...) the rank plane q may be 43/32 x 2^(pool_log-2) limbs, so a group of
+/* MN_NONPOW2_CAP (default 1 since Q58, user 2026-10-20; =0 restores the power-of-two plane): in a run whose COMM_SIZE is not a power of two (3, 5, 6, 7, ...) the rank plane q may be 43/32 x 2^(pool_log-2) limbs, so a group of
  * g = 3 * 2^k nodes takes the next power-of-two plane (2^33 points over 3 nodes: 716 M limbs per rank, not 2^29 = 537 M) and its products need fewer pieces.
  * Costs 11/32 more plane pool memory per APU (both pools and the cache slots); rns_plane_pool_bytes is the one formula, so the planner and the fit see it.
  * It reads COMM_SIZE each call (the plan-only runs set it around the plan: mn_plan.c plan_run). */
 int rns_np2cap(void)
 {
-    static int on = -1; if (on < 0) { const char *e = getenv("MN_NONPOW2_CAP"); on = e && atoi(e) == 1; }
+    static int on = -1; if (on < 0) { const char *e = getenv("MN_NONPOW2_CAP"); on = !e || !*e || atoi(e) == 1; }
     if (!on) return 0;
     const char *c = getenv("COMM_SIZE"); int g = c ? atoi(c) : 1;
     return g >= 3 && (g & (g - 1));

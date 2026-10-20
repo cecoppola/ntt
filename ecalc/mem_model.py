@@ -262,7 +262,7 @@ def level_children(g, spec=None):
         out.append((S, ch)); P = S
     return out
 
-NP2CAP = os.environ.get("MN_NONPOW2_CAP", "0") == "1"   # rns_mul.c rns_np2cap: MN_NONPOW2_CAP=1 and the run's group size not a power of two
+NP2CAP = os.environ.get("MN_NONPOW2_CAP", "1") in ("1", "")   # rns_mul.c rns_np2cap: MN_NONPOW2_CAP=1 and the run's group size not a power of two
 def np2_q(q, g):
     """rns_mul.c rns_q_slot: the rank plane the pools are made for: 43/32 of q = 2^(pool_log-2) under MN_NONPOW2_CAP in a non-pow2 run (g)"""
     return q + q * 11 // 32 if NP2CAP and g >= 3 and g & (g - 1) else q

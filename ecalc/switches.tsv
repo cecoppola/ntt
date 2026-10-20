@@ -118,7 +118,7 @@ MEM_DPOOL_FILL	int	0	0		test-only	-	V.md+R.md	Y	ecalc	mem.c	2	diagnostics (TESTI
 MEM_REPORT_DEVS	bool	0	unset	0|1	launch-line	aac7	B7ACCT.md+TC15.md	Y	ecalc	ecalc.c,mem.c	2	-	-	ecalc.c:372/537 (presence test)
 MN_COMM_MARK	bool	0	unset	0|1	launch-line	-	D16.md	Y	ecalc	mn.c	1	-	-	mn.c:28 (atoi > 0)
 MN_GROUPS	str	unset	derived	group list	launch-line	-	T114.md+SC15.md	Y	ecalc	rns_dist.c	1	-	-	rns_dist.c:2315; unset = the automatic schedule
-MN_NONPOW2_CAP	bool	0	unset	0|1	experiment	-	-	Y	ecalc	rns_mul.c	1	T2 (D57)	2026-11-19	rns_mul.c rns_np2cap: 1 = non-pow2 groups take the next pow2 plane (T2, D57)
+MN_NONPOW2_CAP	bool	1	1	0|1	built-in default	-	-	Y	ecalc	rns_mul.c	1	T2 (D57)	2026-11-19	rns_mul.c rns_np2cap: 1 (default, Q58) = non-pow2 groups take the next pow2 plane; 0 = the pow2 plane (T2, D57)
 MN_OUT_CHUNK_MB	int	256	256		built-in default	-	IO15.md+A-out.md	Y	ecalc	mn_out.c	2	-	-	
 MN_OUT_DKM_HI	bool	1	1	0|1	built-in default	-	EW15.md+R§93	Y	ecalc	ecalc.c	2	coordinator (TASKS S)	2026-11-11	ecalc.c; default 1 since 2026-10-12 (TASKS 27)
 MN_OUT_DKM_HI_TEST_CARRY	bool	unset	unset	0|1	test-only	-	EW15.md	prose	ecalc	ecalc.c	1	diagnostics (TESTING.md)	2027-04-12	

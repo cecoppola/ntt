@@ -24,13 +24,10 @@ One line each (what, why, size); nothing here is started without the user's word
 
 - Node drain after our jobs: the 6 nodes of a job went to `needs_reboot` right after three of our jobs ended (2026-10-13 and 2026-10-14; two killed at their timeout, one normal end), cause unknown, site-side (results/SHMEM_ITEMS.md §N7 section 6, results/NIGHT_RUNS.md §NIGHT2). Same symptom again on 2026-10-19 at about 11:05 ET: 7 nodes went to `needs_reboot` ("reboot timed out") right at the end of our jobs, 4 nodes of a 6-node job after a normal end and 3 nodes of two 2-node jobs cancelled mid-run (m). No admin request (D43); size unknown.
 - Gather layout: scoping done 2026-10-19; recommendation drop: best achievable saving 1.7 s of about 73 s at 1 node and at most 0.4 s of 184.5 s at 6 nodes (mod, upper bounds); optional cheap probe: owner-push gather, small; close OPPORTUNITIES N2 layout as not worth it.
-- Distributed division multiply: the fix is on main (`MN_NONPOW2_CAP=1`, default off) and is measured: 6 n 3.70e11 173.0 against 191.3 s libfabric (-18.3 s, m; results/DIVISION.md §NPCAP). 6 n gates 4/4 PASS (item 9bo); adoption acceptance 23/23 (item 9bp); with the switch on 3.8646e11 does not fit the 6 n node budget (-3.7 GB, plan); adoption as the default is the user's decision.
 - Start-up shortening (init 23.65 s at 2 n warm SHMEM, m): overlapping `mn_init` with the plane-pool allocation was tried and dropped (starves the heap collapse of 2 MiB blocks); next-best: register the four proxy pools from four threads (about 1.0 -> 0.3 s, mod); restructure the two self-tests (6.3 s for work that costs milliseconds, m); size small to medium.
 - 6 n paired ABBA of grid [2,6] against [6], at least 8 runs per arm (earlier data +23 +/- 12 s, unexplained, m); aac7, one item.
 - NIC launch-group probe in every multi-node run, to separate the layv factor 0.92 from the rate; small.
 - G2 soak results were never recorded and the start-up hang at 7.7e10 (A114 E1) is still open (results/CRASHES_HANGS.md); size unknown.
-- SHMEM send schedule: `COMM_SHMEM_PX_SCHED=W|auto` is on main, default off (gates 7/7, item 9hz); `auto` = 99 up to 4 nodes, else 0 (PX3). Measured: 4 n -14.1 s (-8.6 %, n 7 against 6, every run faster), 3 n and 2 n neutral, 6 n loses (results/SHMEM.md). Decision: make `auto` the default (user); small.
-- aac7 profile `COMM_SHMEM_ROUND_MB=128` (memory -7.2 GB per node at 2 n, no time lost, 4 n -2.5 to -4.1 s, 6 n neutral; results/SHMEM.md PLAN16 section). Decision: adopt in the profile (user); small.
 - Switch audit ASK list (5 switches left; COMM_KTIME, COMM_LAYER_STATS, COMM_XGMI_STATS and NP_MN3 were removed 2026-10-19, D56): MN_OUT_WAVES, FAST_EXIT, DM_TAIL_DEAD, NP_AUTO_MIN, PE_PER_APU=2; `COMM_XSTATS` after the parser migration; kept until the target session (D56, user 2026-10-19).
 
 ## Decisions (user) still acting
@@ -38,6 +35,9 @@ One line each (what, why, size); nothing here is started without the user's word
 - D48 (user 2026-10-18): `COMM_SHMEM_NP_HEAP_THP=1` is the default (main 23c2c1f); `=0` restores 4 KiB pages.
 - D53 (user 2026-10-19): `COMM_SHMEM_PX_SEND` unset is 3 (PX3) under `PE_PER_APU=1` with an OpenSHMEM 1.5 build, else 1 (main a6cc1b3); `=1` is the fallback.
 - D54 (user 2026-10-19): `COMM_SHMEM_PEER_ORDER` and `COMM_SHMEM_PX_BLOCK_MB` removed (main 66e34d0; gates 7/7 and acceptance 23/23, items 99l and 99m): peer loops walk in rank order, the PX3 chunk is the fixed 4 MiB.
+- Q58 (user 2026-10-20): `MN_NONPOW2_CAP` default 1 (a group whose size is not a power of two takes the next power-of-two plane: 6 n 3.70e11 -18.3 s with libfabric, +41.3 GB per node of plane memory; `=0` restores the power-of-two plane; results/DIVISION.md).
+- Q59 (user 2026-10-20): `COMM_SHMEM_PX_SCHED` unset = `auto` (99 up to 4 nodes, else PX3; 4 n -14 s; `=0` restores PX3; results/SHMEM.md).
+- Q60 (user 2026-10-20): aac7 profile `COMM_SHMEM_ROUND_MB=128` (was 1024; host staging 10.2 -> 3.1 GB per node at 2 n, no time lost at 2-6 n; lets `MN_NONPOW2_CAP` fit 3.8646e11 at 6 n for SHMEM; results/SHMEM.md).
 
 ## Ideas (saved, not scheduled)
 
