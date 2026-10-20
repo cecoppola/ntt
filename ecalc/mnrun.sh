@@ -25,7 +25,7 @@
 # launch values have one source.  Unset, nothing changes.
 # FIT (D26, results/LAUNCH_DEFAULTS.md §FIT): before srun, the planner's memory fit of the command's ecalc run is printed and a run that does not fit
 # (device over ECALC_DEVICE_GB, node over ECALC_NODE_GB) is refused with exit 4; MNRUN_FIT=0 skips it (see the FIT block below).
-# N7b (value 2: N7E, 1 + 8 PEs per node, local PEs 2d and 2d + 1 are APU d's helpers, NICs round robin over 8): COMM_SHMEM_PE_PER_APU=1 (exported or a VAR=value word of the command; default 1 under an explicit COMM_OFI=0 (D31), else 0) launches 1 + 4 PEs per node under
+# N7b: COMM_SHMEM_PE_PER_APU=1 (exported or a VAR=value word of the command; default 1 under an explicit COMM_OFI=0 (D31), else 0) launches 1 + 4 PEs per node under
 # COMM_TRANSPORT=shmem: local PEs 0..3 are comm_shmem's proxies (one per APU and NIC: SHMEM_OFI_NIC_POLICY=ROUND-ROBIN and
 # SHMEM_OFI_NUM_NICS=4 x the value unless set, capped at the node's cxi count), the last one the node-process; <procs> is still the node count (one node-process per node), COMM_RANK
 # and COMM_SIZE count nodes, the proxies' stdout goes to /dev/null, every task may use all of the step's CPUs (--cpu-bind=none).
@@ -102,19 +102,19 @@ PPN=1   # N7b: PEs per node (1 + 4 COMM_SHMEM_PE_PER_APU under SHMEM)
 # per node; an explicit COMM_SHMEM_PE_PER_APU (exported or a word of the command) wins; comm_ofi runs (COMM_OFI unset or 1) are unchanged
 if [ -z "${COMM_SHMEM_PE_PER_APU+x}" ] && [ "${COMM_OFI:-}" = 0 ] && [ "${COMM_TRANSPORT:-}" = shmem ] && [ "$P" -gt 1 ] && [ "$per" = 1 ]; then
     COMM_SHMEM_PE_PER_APU=1; echo "mnrun.sh: COMM_OFI=0: COMM_SHMEM_PE_PER_APU=1 (the default under COMM_OFI=0, D31)"; fi
-case "${COMM_SHMEM_PE_PER_APU:-0}" in 0|"") ;; 1|2)
+case "${COMM_SHMEM_PE_PER_APU:-0}" in 0|"") ;; 1)
     if [ "${COMM_TRANSPORT:-}" = shmem ] && [ "$P" -gt 1 ]; then   # (one process: no SHMEM PEs at all -- ecalc runs single-node, the setting has no effect)
         [ "$per" = 1 ] || { echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=1 needs one node-process per node (<procs> = nodes; here $per per node)" >&2; exit 1; }
         case "${COMM_OFI:-}" in 0) ;; "") export COMM_OFI=0; echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=1: COMM_OFI=0 (the proxies carry the data)";; *) echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=1 needs COMM_OFI=0 (got COMM_OFI=$COMM_OFI)" >&2; exit 1;; esac
         export COMM_SHMEM_PE_PER_APU; PPN=$((1 + 4 * COMM_SHMEM_PE_PER_APU))
         # the default NIC count is the target layout (one NIC per helper PE); the launched task caps it at the node's cxi count
-        # (MNRUN_NICS_AUTO=1; the wrapper below), because Cray SHMEM aborts the job when SHMEM_OFI_NUM_NICS exceeds the NICs it finds
-        # (aac7: 4 NICs, value 2 asked for 8 -> "LIBSMA ERROR ... There are a total of 4 NICs available", item ppa2).  A caller's value is never changed.
+        # (MNRUN_NICS_AUTO=1; the wrapper below), because Cray SHMEM aborts the job when SHMEM_OFI_NUM_NICS exceeds the NICs it finds.
+        # A caller's value is never changed.
         [ -n "${SHMEM_OFI_NUM_NICS:-}" ] || export MNRUN_NICS_AUTO=1
         export SHMEM_OFI_NIC_POLICY=${SHMEM_OFI_NIC_POLICY:-ROUND-ROBIN} SHMEM_OFI_NUM_NICS=${SHMEM_OFI_NUM_NICS:-$((4 * COMM_SHMEM_PE_PER_APU))}
         echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=$COMM_SHMEM_PE_PER_APU: $PPN PEs per node ($((PPN - 1)) proxies + the node-process), SHMEM_OFI_NIC_POLICY=$SHMEM_OFI_NIC_POLICY SHMEM_OFI_NUM_NICS=$SHMEM_OFI_NUM_NICS${MNRUN_NICS_AUTO:+ (the default; capped on the node at its cxi count)}"
     fi;;
-  *) echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=$COMM_SHMEM_PE_PER_APU: 0, 1 or 2" >&2; exit 1;; esac
+  *) echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=$COMM_SHMEM_PE_PER_APU: 0 or 1" >&2; exit 1;; esac
 export MNRUN_PPN=$PPN
 if [ "$PPN" -gt 1 ]; then   # the CPUs: -c the node's CPUs / PEs per node (auto) and no per-task binding, so the node-process's threads use the whole step
     for i in "${!copt[@]}"; do [ "${copt[$i]}" = -c ] && unset 'copt[i]' 'copt[i+1]'; done; copt=("${copt[@]}")

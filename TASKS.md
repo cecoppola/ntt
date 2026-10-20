@@ -28,7 +28,7 @@ One line each (what, why, size); nothing here is started without the user's word
 - 6 n paired ABBA of grid [2,6] against [6], at least 8 runs per arm (earlier data +23 +/- 12 s, unexplained, m); aac7, one item.
 - NIC launch-group probe in every multi-node run, to separate the layv factor 0.92 from the rate; small.
 - G2 soak results were never recorded and the start-up hang at 7.7e10 (A114 E1) is still open (results/CRASHES_HANGS.md); size unknown.
-- Switch audit ASK list (5 switches left; COMM_KTIME, COMM_LAYER_STATS, COMM_XGMI_STATS and NP_MN3 were removed 2026-10-19, D56): MN_OUT_WAVES, FAST_EXIT, DM_TAIL_DEAD, NP_AUTO_MIN, PE_PER_APU=2; `COMM_XSTATS` after the parser migration; kept until the target session (D56, user 2026-10-19).
+- Switch audit ASK list (1 switch left; COMM_KTIME, COMM_LAYER_STATS, COMM_XGMI_STATS and NP_MN3 were removed 2026-10-19, D56; MN_OUT_WAVES, ECALC_FAST_EXIT, DM_TAIL_DEAD, ECALC_NP_AUTO_MIN and `COMM_SHMEM_PE_PER_APU=2` 2026-10-20, Q53): `COMM_XSTATS` after the parser migration; kept until the target session (D56, user 2026-10-19).
 - `BS_ARENA_ROOM` default 0.16 -> 0.14: one arena chunk less per APU at the 2 n and 4 n standard sizes (-8.6 GB per node, 0 remaps, time neutral; items 9jz, 9ka), no change at 6 n (9kc); needs a pool replay over sizes (`tests/as_pool_replay.py`) before a default change; small.
 
 ## Decisions (user) still acting

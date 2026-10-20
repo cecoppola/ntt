@@ -18,7 +18,7 @@
  * the write mode ECALC_OUT_MODE (direct, buffered, sync, drop, auto) and MN_OUT_THREADS; the
  * packed form ECALC_OUT_PACKED=1 / 2 (2, the 60-bit form, the default; the limbs as they are, packed_fmt.h: no ASCII formatting in the run; the T1 digit residues
  * from the packed bytes, the T2 windows from the digits they cover; tools/unpack_digits converts and checks); MN_OUT_STRIPE
- * (a Lustre layout per part file); MN_OUT_WAVES (at most ceil(size/n) nodes write at once).  ECALC_RECHECK reads packed
+ * (a Lustre layout per part file).  ECALC_RECHECK reads packed
  * files too. */
 #ifndef EC_MN_OUT_H
 #define EC_MN_OUT_H
@@ -49,9 +49,7 @@ typedef struct mn_out_s {
     char tail[24]; size_t ntail;             /* the d - d_out computed digits after d_out (the node holding limb 0) */
     void *priv;                              /* the writer thread while a write is in flight (mn_out_finish joins it) */
     size_t t2_defer;                         /* > 0 -- the T2 windows ending in the last t2_defer digits (>= d_out + 1 - t2_defer) are left to mn_out_tail_fix */
-    comm *c;                                 /* set by mn_out_boundaries: MN_OUT_WAVES's barrier (0: no waves) */
     int packed;                              /* out: the part was written packed (ECALC_OUT_PACKED=1, packed_fmt.h) */
-    int wave, nwaves; double t_wave, t_wave_own;   /* out: MN_OUT_WAVES -- this rank's wave, the waves, the seconds waiting for the others / in its own */
     /* X = X_hi B^s + X_lo held apart */
     size_t split; const mn_out_src *src_hi;  /* split > 0 (size 1, one file in two ranges): the limbs >= split are read from src_hi (its lo = split), the
                                               * rest from the main source; no chunk crosses split.  src_hi also serves mn_out_tail_fix's gather (both sizes) */
@@ -83,7 +81,7 @@ int  mn_out_tail_core(mn_out *o, const uint64_t *low, size_t w, long dx, mn_out_
  * the hook (it all-gathers the T2 tails: a collective) and starts a background thread running mn_out_run over this rank's
  * share of X (read on the device, as out_stage reads it); mn_out_early_join returns the finished mn_out (its last write still
  * in flight: mn_out_finish as usual).  A correction to X after the hook (newton_st's corrections) makes the caller redo the
- * part file (mn_out_run again), as at size 1.  No waves in the background (MN_OUT_WAVES is ignored with it). */
+ * part file (mn_out_run again), as at size 1. */
 typedef struct mn_out_early mn_out_early;
 struct mdb_s;
 mn_out_early *mn_out_early_start(const struct mdb_s *X, unsigned long d, unsigned long d_out, const char *outfile, int rank, int size, int verbose, comm *c, size_t t2_defer);

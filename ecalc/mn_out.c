@@ -122,7 +122,7 @@ static void boundaries_ex(mn_out *o, const mn_out_src *src, comm *c, const char 
 void mn_out_boundaries(mn_out *o, const mn_out_src *src, comm *c) { boundaries_ex(o, src, c, 0, 0, 0, 0); }
 static void boundaries_ex(mn_out *o, const mn_out_src *src, comm *c, const char *above, size_t nabove, char *bot, size_t *nbot)
 {
-    o->nhead = 0; o->c = c;                                       /* the waves' barrier */
+    o->nhead = 0;
     if (!c || comm_size(c) == 1) return;
     size_t nl, pad, lo, hi, k0, k1; ranges(o, src, &nl, &pad, &lo, &hi, &k0, &k1);
     char tail[64]; size_t nt = 0;
@@ -156,9 +156,9 @@ static void boundaries_ex(mn_out *o, const mn_out_src *src, comm *c, const char 
  * buffers are in flight ----
  * the write mode (ECALC_OUT_MODE: direct / buffered / sync / drop / auto; unset = the rule below) and
  * the number of pwrite threads per chunk (MN_OUT_THREADS, 8).  W2: the packed form (ECALC_OUT_PACKED=1, packed_fmt.h).
- * W5: the stripe layout (MN_OUT_STRIPE) and the waves (MN_OUT_WAVES).  Functions: out_mode, out_stripe, out_open,
- * direct_job, writer_run, writer_drain, out_packed, packed_mods, packed_digits, packed_hdr_*, out_run_one, mn_out_run
- * (the waves), mn_out_finish. */
+ * W5: the stripe layout (MN_OUT_STRIPE).  Functions: out_mode, out_stripe, out_open,
+ * direct_job, writer_run, out_packed, packed_mods, packed_digits, packed_hdr_*, out_run_one, mn_out_run,
+ * mn_out_finish. */
 enum { OUT_BUFFERED = 0, OUT_DIRECT, OUT_SYNC, OUT_DROP };
 static const char *out_mode_name[] = { "buffered", "O_DIRECT", "buffered + fsync + DONTNEED at close", "buffered + fdatasync + DONTNEED per chunk" };
 struct wjob { const char *data; size_t len; size_t off; int prefix, newline, buf; char first; };   /* prefix: "<first>." before the data (digit 0 and the point) */
@@ -276,15 +276,6 @@ static void *writer_run(void *a)
     }
     return 0;
 }
-/* every job handed to the writer is on disk (the carry of the O_DIRECT form excepted: < 4 KiB, written at
- * finish); the buffered forms also fdatasync, so a wave's data has left the node before the next wave starts */
-static void writer_drain(struct writer *w)
-{
-    for (int b = 0; b < 2; b++) sem_wait(&w->buf_free[b]);
-    if (!w->direct && w->fd >= 0 && fdatasync(w->fd) != 0 && !w->err) w->err = errno;
-    for (int b = 0; b < 2; b++) sem_post(&w->buf_free[b]);
-}
-
 /* ---- the packed form (packed_fmt.h) ---- */
 static int out_packed(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_OUT_PACKED"); v = e ? atoi(e) : 2; if (v < 0 || v > 2) v = v < 0 ? 0 : 2; } return v; }   /* 2 = the 60-bit form (ECP_VERSION60), the default; 1 = the 64-bit form; 0 = ASCII */   /* packed since Phase 15 (the user's decision: packed on disk, converted off the clock by tools/unpack_digits) */
 static uint64_t mulmod_u(uint64_t a, uint64_t b, uint64_t q) { return (uint64_t)(((unsigned __int128)a * b) % q); }
@@ -474,26 +465,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
     }
     return 0;
 }
-/* MN_OUT_WAVES=<n> at size > 1 (mn_out_boundaries gave the communicator) -- the ranks in waves of
- * ceil(size/n) in rank order: a wave formats, checks and writes its ranges completely (writer_drain) while the others wait
- * at the barrier (an all-gather) that ends the wave; the same number of barriers on every rank.  Unset or 1: every node at
- * once, as before. */
-int mn_out_run(mn_out *o, const mn_out_src *src)
-{
-    int W = getenv("MN_OUT_WAVES") ? atoi(getenv("MN_OUT_WAVES")) : 1;
-    o->t_wave = o->t_wave_own = 0; o->wave = 0; o->nwaves = 1;
-    if (W <= 1 || o->size <= 1 || !o->c) return out_run_one(o, src);
-    int per = (o->size + W - 1) / W, nw = (o->size + per - 1) / per, my = o->rank / per, rc = 0;
-    o->wave = my; o->nwaves = nw;
-    for (int wv = 0; wv < nw; wv++) {
-        double t0 = mem_now();
-        if (wv == my) { rc = out_run_one(o, src); writer_drain((struct writer *)o->priv); o->t_wave_own = mem_now() - t0; }
-        double tb = mem_now(); mn_out_allreduce_or(o->c, 0);
-        o->t_wave += wv == my ? mem_now() - tb : mem_now() - t0;
-    }
-    printf("mn: node %d: MN_OUT_WAVES=%d: wave %d of %d (%d ranks each): wrote in %.2f s, waited %.2f s\n", o->rank, W, my, nw, per, o->t_wave_own, o->t_wave);
-    return rc;
-}
+int mn_out_run(mn_out *o, const mn_out_src *src) { return out_run_one(o, src); }
 void mn_out_finish(mn_out *o)
 {
     struct writer *w = (struct writer *)o->priv; if (!w) return;
@@ -569,7 +541,6 @@ void mn_out_early_lo_release(mn_out_early *e, const struct mdb_s *Xl, comm *c)
     size_t lo, hi; mdb_share(Xl, e->o.rank, &lo, &hi);
     e->src.dev = &e->sh; e->src.lo = lo; e->src.cnt = hi > lo ? hi - lo : 0; if (e->src.cnt > e->sh.n) e->src.cnt = e->sh.n;
     boundaries_ex(&e->o, &e->src, c, e->above, e->nabove, 0, 0);   /* collective: the low layer's heads, the top one after X_hi's last digits */
-    e->o.c = 0;
     sp_dev_sync_all();
     sem_post(&e->go);
 }
@@ -583,7 +554,6 @@ mn_out_early *mn_out_early_start(const struct mdb_s *X, unsigned long d, unsigne
     e->o.d = d; e->o.d_out = d_out; e->o.outfile = outfile; e->o.rank = rank; e->o.size = size; e->o.verbose = verbose;
     e->o.t2_defer = t2_defer;                           /* K's deferred windows (ECALC_CORR_PATCH=2), set before the writer starts */
     mn_out_boundaries(&e->o, &e->src, c);             /* collective: every rank is at the hook */
-    e->o.c = 0;                                        /* no waves in the background (their barriers would race the division's exchanges) */
     sp_dev_sync_all();                                 /* X complete on every APU before the writer's copies on its own streams */
     if (pthread_create(&e->th, 0, early_run, e) == 0) e->started = 1; else early_run(e);
     return e;
