@@ -260,3 +260,7 @@ Branch `o5` (from main 0298fe2), TASKS items 39 / 37; design basis `archive:resu
 - **Node budget:** with the switch on, the standard 6 n size 3.8646e11 fits for libfabric (planner, mod: node margin
   +46.25 GB) and for SHMEM only with `COMM_SHMEM_ROUND_MB` 128 (+3.84 GB; -3.68 GB at 1024), the aac7 profile value since
   2026-10-20 (user Q60); see results/SHMEM.md, PLAN16 section.
+- **Defaults confirmed (items 9ji, 9jd, 2026-10-20; m).** Gates 1/2/3 n (auto off below the threshold, `=1` on) and 6 n
+  (switch on, SHMEM and libfabric) PASS, digits identical. 6 n 3.8646e11 with the switch on runs for both transports:
+  libfabric 174.2, 173.5, 174.7 s (mean 174.1); SHMEM 193.7 (first), 182.3, 184.0 s (186.7). 3 n 6e10 (libfabric): auto
+  (off) 59.2, 51.8 s against `=0` 54.7, 53.6 s.
