@@ -530,7 +530,6 @@ mn_out_early *mn_out_early_hi_start(const struct mdb_s *Xh, size_t s, unsigned l
     oh->t2_defer = 0;                                  /* X_hi's digits never change: all their windows now */
     ol->t2_defer = t2_defer; ol->lim = s; ol->src_hi = &e->src_hi;   /* the low part's patch gathers X_hi's limbs too (mn_out_tail_fix) */
     boundaries_ex(oh, &e->src_hi, c, 0, 0, e->above, &e->nabove);   /* collective: every rank is at the hook; X_hi's last 49 digits kept for the low layer */
-    oh->c = 0;
     sp_dev_sync_all();
     if (pthread_create(&e->th, 0, early_run, e) == 0) e->started = 1; else { fprintf(stderr, "mn_out: MN_OUT_DKM_HI: no writer thread\n"); exit(1); }
     return e;
