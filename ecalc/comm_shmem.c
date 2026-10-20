@@ -793,7 +793,7 @@ static int comm_shmem_init_i(void)
     S.pxsend = env_int("COMM_SHMEM_PX_SEND", S.ppa == 1 && HAVE_PUT_SIGNAL ? 3 : 1);
     if (S.pxsend != 1 && S.pxsend != 3) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d: 1 (batch then quiet) or 3 (chunked puts, one fence + signal per command); 2 (chunked put-with-signal) was removed 2026-10-19\n", S.pxsend);
     if (S.pxsend == 3 && S.ppa == 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d is not built for COMM_SHMEM_PE_PER_APU=2\n", S.pxsend);
-    if (S.pxsend == 3 && (!S.ppa || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d needs COMM_SHMEM_PE_PER_APU=1 and an OpenSHMEM 1.5 build (the proxy's context code is compiled only with 1.5 headers; PX_SEND=3 itself uses plain puts, not put-with-signal)\n", S.pxsend);
+    if (S.pxsend == 3 && (!S.ppa || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d (resolved value; PX3 is the default) needs an OpenSHMEM 1.5 build with COMM_SHMEM_PE_PER_APU=1 (the proxy's context code is compiled only with 1.5 headers; PX_SEND=3 itself uses plain puts, not put-with-signal)\n", S.pxsend);
     S.sched = env_int("COMM_SHMEM_PX_SCHED", 0);
     if (S.sched < 0) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SCHED=%d: 0 (off) or the window W >= 1 (99: no window)\n", S.sched);
     if (S.sched && (S.pxsend != 3 || S.ppa != 1 || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SCHED needs PX3 (COMM_SHMEM_PX_SEND=3, the default) under COMM_SHMEM_PE_PER_APU=1 and an OpenSHMEM 1.5 build\n");
@@ -903,7 +903,7 @@ static int comm_shmem_init_i(void)
     S.inited = 1;
     if (S.verbose && S.ppa) printf("comm_shmem: pe %d: init timeline: shmem_init %.2f, pool alloc+pre-fault/registration done at %.2f, barrier took %.2f s, passed at %.2f\n", S.me, g_t_shinit, t_bar - g_t0, now_s() - t_bar, now_s() - g_t0);
     if (S.ppa) { int ph_ = ec_ph(EC_PH_PX_ATTACH); px_attach(); ec_ph(ph_); }                               /* N7b: (after the barrier: the proxies' control is zeroed) */
-    if (S.me == 0 && S.sched) printf("comm_shmem: COMM_SHMEM_PX_SCHED=%d: whole put-with-signal commands, peers as a shifted ring, %s\n", S.sched, S.sched >= 99 ? "no window" : "window W senders per receiver (none when W >= n - 1)");
+    if (S.me == 0 && S.sched) printf("comm_shmem: COMM_SHMEM_PX_SCHED=%d: whole put-with-signal commands, peers as a shifted ring, %s\n", S.sched, S.sched >= S.npes - 1 ? "no window" : "window W senders per receiver");
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);
     if (S.me == 0) printf("comm_shmem: %s, %d PEs%s, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us, peer order rank\n", comm_shmem_impl(), S.npes, S.ppa ? (S.pxsend == 3 ? " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1; proxy send COMM_SHMEM_PX_SEND=3: plain chunks, one fence + signal per command, a context per peer node)" : " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1)") : "", prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
@@ -941,7 +941,8 @@ void comm_shmem_finalize(void)
 
 /* ---- a communicator ---- */
 /* the control block of a member (offsets from its base): the words other members write */
-enum { W_ROFF, W_SIG, W_VAL0, W_VAL1, W_VSEQ0, W_VSEQ1, W_PROD, W_CONS, W_BATON, W_N };   /* W_BATON: COMM_SHMEM_PX_SCHED's step-done word, (comm.seq, step) from the node W ranks ahead */
+enum { W_ROFF, W_SIG, W_VAL0, W_VAL1, W_VSEQ0, W_VSEQ1, W_PROD, W_CONS, W_N, W_BATON = W_N };   /* W_N = 8: the control words of main. W_BATON (COMM_SHMEM_PX_SCHED's step-done word, (comm.seq, step) from the node W ranks ahead) is a 9th word, present only when S.sched is set (WN below); S.sched comes from the job-wide environment, so all PEs agree on the layout */
+#define WN (S.sched ? W_N + 1 : W_N)
 typedef struct {
     int n, me, id, *pe;                    /* pe[r]: the PE of rank r */
     shmem_ctx_t ctx; int own_ctx;
@@ -1052,7 +1053,7 @@ static void xs_print(void)
 /* a timed wait on a peer's offset word (skew) or signal word (transfer, tail) when COMM_XSTATS is on */
 #define XWAIT(p, acc, w, v) do { if (S.xstats) { double xt_ = now_s(); wait_ge((w), (v)); (p)->acc += now_s() - xt_; } else wait_ge((w), (v)); } while (0)
 static long *W(shm_priv *p, size_t base, int w, int r) { return (long *)(S.pool + base + ((size_t)w * p->n + r) * 8); }   /* word w of rank r in the block at base */
-static char *RING(shm_priv *p, size_t base, int r) { return S.pool + base + (size_t)W_N * p->n * 8 + (size_t)r * p->ring; }
+static char *RING(shm_priv *p, size_t base, int r) { return S.pool + base + (size_t)WN * p->n * 8 + (size_t)r * p->ring; }
 #define PACK(seq, off) (((long)(seq) << 40) | (long)(off))   /* a byte offset / count below 2^40 tagged with the sequence (< 2^23) */
 #define UNSEQ(x) ((x) >> 40)
 #define UNOFF(x) ((size_t)((x) & (((long)1 << 40) - 1)))
@@ -1653,8 +1654,8 @@ comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id)
     c->ops = &shm_ops; c->priv = p; c->rank = me; c->size = n; c->inflight = 1;
     p->n = n; p->me = me; p->id = id; p->pe = (int *)malloc(n * sizeof(int)); for (int r = 0; r < n; r++) p->pe[r] = phys_pe(pe_start + r * pe_stride);
     p->ring = (getenv("COMM_SHMEM_RING_KB") ? (size_t)atol(getenv("COMM_SHMEM_RING_KB")) : 256) << 10; if (p->ring < 4096) p->ring = 4096;
-    p->ctrl_bytes = (size_t)W_N * n * 8 + (size_t)n * p->ring;
-    p->base = pool_alloc(p->ctrl_bytes, K_CTRL); memset(S.pool + p->base, 0, (size_t)W_N * n * 8);
+    p->ctrl_bytes = (size_t)WN * n * 8 + (size_t)n * p->ring;
+    p->base = pool_alloc(p->ctrl_bytes, K_CTRL); memset(S.pool + p->base, 0, (size_t)WN * n * 8);
     p->rbase = (size_t *)calloc(n, sizeof(size_t)); p->rpre = (size_t *)calloc(n, sizeof(size_t)); p->spre = (size_t *)calloc(n, sizeof(size_t));
     p->sent = (long *)calloc(n, sizeof(long)); p->got = (long *)calloc(n, sizeof(long));
     p->oseq = (long *)calloc(n, sizeof(long)); p->iseq = (long *)calloc(n, sizeof(long));
