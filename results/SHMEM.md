@@ -351,7 +351,7 @@ state per node count and why the rest stays open on aac7.
   translations on aac7 (`nr_hugepages` 0): fact from the driver source. That the gap shrinks on the target, where hugetlb
   pages exist, is an inference (target items 29 and 31 test it).
 - **Closed levers.** Hidden libsma fence and signal knobs (item 9ic); library environment flags and NIC maps (9ea, 9ed,
-  9hs MCU bank); ATS and ODP (9it, 9is); device-source puts (DEVSRC, -14: slower); global objects (needs symmetric
+  9hs MCU bank); ATS and ODP (9it, 9is); device-source puts (DEVSRC: libsma 11.8 rejects a device-memory source, -14 Bad address); global objects (needs symmetric
   memory, 9id); small staging rounds for translation reuse at 6 n (9hw); `COMM_SHMEM_LAYV_ROUND` (branch layvr, not
   merged: dm +5 s at round 128 and +10 s at round 16 against PX3 at 3 n, items 9ix, 9iz); SC99 with `MN_NONPOW2_CAP` at
   3 n (9ih, 9ii: paired -1.1 s, n.s.); the shx, shx2 and shx3 switches (benchmark builds, not merged).
