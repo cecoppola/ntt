@@ -136,6 +136,7 @@ static struct {
     long nrpath, nround_ex, nrounds; size_t round_stage_max;   /* exchanges through the rounds' path, those in more than one round, their rounds, the largest per-round staging (send + recv) */
     double tv; long nv;                    /* all-to-all time (alltoall, alltoallv), post to completion, summed over the APU threads; the count */
     double bv;                             /* the bytes this PE received from the other PEs in those exchanges (the off-process traffic), summed */
+    int sched_auto;                        /* COMM_SHMEM_PX_SCHED=auto was given (S.sched is resolved at init) */
     int ppa, ppn, pme, pnpes, proxy;       /* N7b COMM_SHMEM_PE_PER_APU: proxies per APU (0 off), PEs per node (1 + 4 ppa), my physical PE and the count, 1 = this PE is a proxy */
     int sched;                             /* COMM_SHMEM_PX_SCHED = W (0 = off): PX3 command stream with whole put-with-signal commands, sent to the peers as a shifted ring with at most W senders per receiver (W >= n - 1: no window) */
     int pxsend;                            /* N7D COMM_SHMEM_PX_SEND: 1 (fallback; default only without PE_PER_APU=1 or OpenSHMEM 1.5) the proxy's batch-then-quiet, 3 (PX3, default since D53) plain chunks + one fence and signal word per command (px_serve2); 2 (chunked put-with-signal) was removed 2026-10-19 */
@@ -795,6 +796,7 @@ static int comm_shmem_init_i(void)
     if (S.pxsend == 3 && S.ppa == 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d is not built for COMM_SHMEM_PE_PER_APU=2\n", S.pxsend);
     if (S.pxsend == 3 && (!S.ppa || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d (resolved value; PX3 is the default) needs an OpenSHMEM 1.5 build with COMM_SHMEM_PE_PER_APU=1 (the proxy's context code is compiled only with 1.5 headers; PX_SEND=3 itself uses plain puts, not put-with-signal)\n", S.pxsend);
     S.sched = env_int("COMM_SHMEM_PX_SCHED", 0);
+    { const char *sv = getenv("COMM_SHMEM_PX_SCHED"); S.sched_auto = sv && !strcmp(sv, "auto"); }   /* "auto": resolved below, once the node count is known (<= 4 nodes: 99, else 0) */
     if (S.sched < 0) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SCHED=%d: 0 (off) or the window W >= 1 (99: no window)\n", S.sched);
     if (S.sched && (S.pxsend != 3 || S.ppa != 1 || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SCHED needs PX3 (COMM_SHMEM_PX_SEND=3, the default) under COMM_SHMEM_PE_PER_APU=1 and an OpenSHMEM 1.5 build\n");
     S.mb_bytes = ((size_t)MAXID * npes_hint * 8 * (S.pxsend == 3 ? 2 : 1) + ALIGN - 1) & ~(size_t)(ALIGN - 1);   /* (N7D: a proxy's signal words in its second half) */
@@ -833,6 +835,7 @@ static int comm_shmem_init_i(void)
         if (S.proxy && !g_heap_addr) { fprintf(stderr, "comm_shmem: proxy pe %d: the symmetric heap was not mapped through the named file (no shared anonymous mapping >= SHMEM_SYMMETRIC_SIZE seen)\n", S.pme); shmem_global_exit(1); }
         const char *ex = getenv("COMM_SHMEM_PROXY"); if (ex && (atoi(ex) != 0) != S.proxy) { fprintf(stderr, "comm_shmem: pe %d: COMM_SHMEM_PROXY=%s but the PE's place in its node makes it %s (block placement expected)\n", S.pme, ex, S.proxy ? "a proxy" : "the node-process"); shmem_global_exit(1); }
     }
+    if (S.sched_auto) S.sched = S.npes <= 4 && S.pxsend == 3 && S.ppa == 1 && HAVE_PUT_SIGNAL ? 99 : 0;   /* COMM_SHMEM_PX_SCHED=auto: <= 3 off-node peers per node-process -> no window; else PX3 as before */
     if (S.npes > npes_hint) { fprintf(stderr, "comm_shmem: %d PEs but the mailbox was sized for %d (set COMM_SIZE)\n", S.npes, npes_hint); shmem_global_exit(1); }
     pthread_mutex_init(&S.lock, 0); pthread_mutex_init(&S.alloc_lock, 0);
     const char *e = getenv("COMM_SHMEM_SERIAL");
@@ -903,6 +906,7 @@ static int comm_shmem_init_i(void)
     S.inited = 1;
     if (S.verbose && S.ppa) printf("comm_shmem: pe %d: init timeline: shmem_init %.2f, pool alloc+pre-fault/registration done at %.2f, barrier took %.2f s, passed at %.2f\n", S.me, g_t_shinit, t_bar - g_t0, now_s() - t_bar, now_s() - g_t0);
     if (S.ppa) { int ph_ = ec_ph(EC_PH_PX_ATTACH); px_attach(); ec_ph(ph_); }                               /* N7b: (after the barrier: the proxies' control is zeroed) */
+    if (S.me == 0 && S.sched_auto) printf("comm_shmem: COMM_SHMEM_PX_SCHED=auto resolved to %d (%d nodes; 99 up to 4 nodes, else 0 = PX3)\n", S.sched, S.npes);
     if (S.me == 0 && S.sched) printf("comm_shmem: COMM_SHMEM_PX_SCHED=%d: whole put-with-signal commands, peers as a shifted ring, %s\n", S.sched, S.sched >= S.npes - 1 ? "no window" : "window W senders per receiver");
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);

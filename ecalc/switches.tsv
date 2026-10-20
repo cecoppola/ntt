@@ -36,7 +36,7 @@ COMM_SHMEM_POOL_NEED_MB	bool	?	?	0|1	test-only	-	-	Y	ecalc	comm_shmem.c	4	planne
 COMM_SHMEM_PROXY	bool	unset	unset	0|1	experiment	-	-	Y	ecalc	comm_shmem.c	2	N7b	2026-11-14	comm_shmem.c; set by mnrun.sh on the proxy PEs (N7b), checked at init
 COMM_SHMEM_PX_KCOPY	int	derived	derived		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	
 COMM_SHMEM_PX_NUMA	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	
-COMM_SHMEM_PX_SCHED	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	1	T1 (D57)	2026-11-18	
+COMM_SHMEM_PX_SCHED	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	2	T1 (D57)	2026-11-18	
 COMM_SHMEM_PX_SEND	int	auto: 3	derived	1|3	built-in default	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D53, results/SHMEM.md)	2026-11-18	comm_shmem.c; D53 (user 2026-10-19): unset = 3 (PX3) under PE_PER_APU=1 with an OpenSHMEM 1.5 build, else 1; an explicit value keeps its checks
 COMM_SHMEM_PX_THP	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D36, results/SHMEM_ITEMS.md §N7G)	2027-03-31	
 COMM_SHMEM_RING_KB	int	256	256		built-in default	-	S12.md+S.md	Y	ecalc	binsplit.c,comm_shmem.c	4	-	-	
