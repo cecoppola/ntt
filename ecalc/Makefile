@@ -45,8 +45,8 @@ OFI_LIBS   = -L$(LIBFABRIC)/lib64 -lfabric -Wl,-rpath,$(LIBFABRIC)/lib64
 SHMEM_LIBS += $(OFI_LIBS)
 endif
 
-TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_kbench tests/t_strategy tests/t_cap tests/t_primes tests/t_seed tests/t_patch tests/t_p24 tests/t_crtk tests/t_crt24k
-OBJS  = ntt.o ntt3.o mem.o crt.o comm_local.o comm_sim4.o comm_xgmi.o comm_copy.o comm_shmem.o comm_ofi.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o config_line.o
+TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_kbench tests/t_strategy tests/t_cap tests/t_primes tests/t_seed tests/t_patch tests/t_p24 tests/t_crtk tests/t_crt24k tests/t_vpe
+OBJS  = ntt.o ntt3.o mem.o crt.o comm_local.o comm_sim4.o comm_xgmi.o comm_copy.o comm_shmem.o comm_ofi.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o config_line.o vpe.o
 REF   = ref/gen_e
 
 all: $(REF) $(OBJS) $(TESTS) ecalc tools
@@ -117,6 +117,11 @@ tests/t_mn_grid: tests/t_mn_grid.c $(OBJS) dbig.h mdb.h mn.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
 mem.o: mem.c mem.h
 	$(HIPC) -c -o $@ $<
+# S1a (plan TARGET1): the virtual PEs (vpe.h; ECALC_VPE=1 at run time, off by default: the object is always linked, never called with the switch off)
+vpe.o: vpe.c vpe.h mem.h fatal.h comm.h
+	$(HIPC) -c -o $@ $<
+tests/t_vpe: tests/t_vpe.c $(OBJS) vpe.h mn.h comm.h
+	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
 comm_local.o: comm_local.c comm.h
 	$(HIPC) -c $< -o $@
 
@@ -133,7 +138,7 @@ comm_ofi.o: comm_ofi.c comm_ofi.h fatal.h
 comm_layered.o: comm_layered.c comm.h
 	$(HIPC) -c $< -o $@
 
-mn.o: mn.c mn.h mdb.h comm.h ntt_dist.h ntt.h mem.h dbig.h
+mn.o: mn.c mn.h mdb.h comm.h ntt_dist.h ntt.h mem.h dbig.h vpe.h
 	$(HIPC) -c $< -o $@
 
 mn_out.o: mn_out.c mn_out.h verify.h dbig.h comm.h mem.h
@@ -280,7 +285,7 @@ tests/t_xshmem_ofi_smoke: tests/t_xshmem_ofi_smoke.c xshmem.h $(XOBJS)
 # S3a (plan TARGET1): with XSHMEM=ofi every binary that links OBJS (ecalc and the tests) also links the xshmem engine (comm_xshmem.c:
 # COMM_TRANSPORT=xshmem) and the backend; mn.o is compiled with -DXSHMEM_ENGINE (without it COMM_TRANSPORT=xshmem is a fatal at start).
 # The object list and flags below are applied only under XSHMEM=ofi; rebuild with -B when switching (the default build is unchanged).
-comm_xshmem.o: comm_xshmem.c comm.h xshmem.h xshmem_boot.h pe_geo.h comm_trace.h comm_phase.h
+comm_xshmem.o: comm_xshmem.c comm.h vpe.h xshmem.h xshmem_boot.h pe_geo.h comm_trace.h comm_phase.h
 	$(HIPC) $(XSHMEM_CFLAGS) -DXSHMEM_ENGINE -c $< -o $@
 OBJS += comm_xshmem.o $(XOBJS)
 SHMEM_LIBS += $(XSHMEM_LIBS)

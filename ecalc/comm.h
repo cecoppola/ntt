@@ -139,6 +139,10 @@ int   comm_xshmem_available(void);
 int   comm_xshmem_init(void);                  /* returns the node-process count */
 int   comm_xshmem_rank(void);
 comm *comm_xshmem_create_at(int pe_start, int pe_stride, int n, int id);
+comm *comm_xshmem_create_flat(int pe_start, int n, int id);   /* S1a (ECALC_VPE): the contiguous PE run [pe_start, pe_start + n) in PE units (PE = K node + loopback PE); local, no message */
+void  comm_xshmem_select(int lpe);             /* S1a: this thread's current loopback PE (the vpe.h thread hook) */
+int   comm_xshmem_loopback_pes(void);          /* K: loopback PEs per process */
+int   comm_xshmem_nodes(void);
 void  comm_xshmem_finalize(void);
 void  comm_xshmem_counters(double *t, long *n, double *bytes);
 #endif

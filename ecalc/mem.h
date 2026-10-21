@@ -17,7 +17,8 @@
 extern "C" {
 #endif
 
-int  mem_numa_node_of_device(int dev);              /* node index (== dev here) */
+int  mem_numa_node_of_device(int dev);              /* node index (== dev here; with mem_set_numa_pci(1), the vPE mode: the NUMA node of the GPU's PCI function) */
+void mem_set_numa_pci(int on);                      /* S1a (ECALC_VPE): look the device's NUMA node up by PCI bus id and sysfs (default off: node == dev) */
 void mem_pin_to_node(int node);                     /* sched_setaffinity to the node's cpulist */
 void mem_unpin(void);                               /* back to all cpus */
 int  mem_ncpus_node(int node);

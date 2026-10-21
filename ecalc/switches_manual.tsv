@@ -71,3 +71,5 @@ ECALC_XEX_THREAD	1	int	0|1	experiment	comm_xshmem.c; one persistent worker threa
 XSHMEM_ORDER	rot	str	rot|seq	experiment	comm_xshmem.c; peer order of the offset words, puts and signals: rot = (me+q)%n (default, no incast on member 0), seq = rank order (the reference's)
 XSHMEM_ROUND_MB	0	float	>= 0	experiment	comm_xshmem.c; 0 = off, whole-exchange staging; m > 0: an all-to-all whose pair exceeds m/(n-1) MiB goes in rounds staging at most m MiB each way (needs ECALC_XEX_THREAD=1); the planner sizes XSHMEM_HEAP_MB from it
 TMPDIR		str	path	test-only	t_pe_geo.c; the system temp directory for the mock sysfs tree; unset = /tmp
+ECALC_VPE	0	bool	0/1	experiment	vpe.c; 1 = one pthread per GPU (vPE), PE = L*node+lane; needs COMM_TRANSPORT=xshmem; aborts "stages not merged" until S1a..S1e are all in
+ECALC_VPE_LANES	4	int	1..8	experiment	vpe.c; vPEs per process (= XSHMEM_LOOPBACK_PES); only with ECALC_VPE=1
