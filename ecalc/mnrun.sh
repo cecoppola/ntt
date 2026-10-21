@@ -37,7 +37,7 @@ if [ "$PRINT_ENV" != 0 ]; then exec 3>&1 1>&2; fi
 print_env_exit() {   # T27: the variables mnrun.sh sets or computes for the launch, as export lines on the saved stdout (fd 3)
     local v
     echo "# mnrun.sh MNRUN_PRINT_ENV: $P process(es), transport ${COMM_TRANSPORT:-none}, SHMEM implementation ${impl:-none}" >&3
-    for v in COMM_TRANSPORT COMM_SHMEM_POOL_MB COMM_OFI_PLAN_CXI SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE \
+    for v in COMM_TRANSPORT XSHMEM_LOOPBACK_PES XSHMEM_HEAP_MB COMM_SHMEM_POOL_MB COMM_OFI_PLAN_CXI SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE \
              FI_UNIVERSE_SIZE FI_LOG_LEVEL \
              FI_MR_CACHE_MONITOR MNRUN_MODULES MNRUN_UNLOAD; do
         [ -n "${!v+x}" ] && printf 'export %s=%q\n' "$v" "${!v}" >&3
@@ -92,10 +92,10 @@ list=$(echo "$use" | paste -sd,)
 # Phase 16 A: COMM_TRANSPORT given as a leading VAR=value word of the command (`mnrun.sh 2 env COMM_TRANSPORT=shmem ... ./ecalc`, the
 # launch line's form) counts as well -- without this the non-SHMEM path launched it (no heap variable: the library's default heap);
 # the same for ECALC_LOG_CLOCKS, which the wrappers test before the command runs
-for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPORT=${a#*=};; ECALC_LOG_CLOCKS=*) export ECALC_LOG_CLOCKS=${a#*=};; COMM_SHMEM_PE_PER_APU=*) COMM_SHMEM_PE_PER_APU=${a#*=};; COMM_OFI=*) COMM_OFI=${a#*=};; *=*) continue;; *) break;; esac; done   # (ECALC_LOG_CLOCKS: the wrapper reads it)
+for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPORT=${a#*=};; ECALC_LOG_CLOCKS=*) export ECALC_LOG_CLOCKS=${a#*=};; COMM_SHMEM_PE_PER_APU=*) COMM_SHMEM_PE_PER_APU=${a#*=};; COMM_OFI=*) COMM_OFI=${a#*=};; XSHMEM_HEAP_MB=*) XSHMEM_HEAP_MB=${a#*=};; *=*) continue;; *) break;; esac; done   # (ECALC_LOG_CLOCKS: the wrapper reads it)
 # 2026-10-12 (TCP removed): SHMEM is the only multi-process transport -- the default for <procs> > 1; any other value is refused
 [ "$P" -gt 1 ] && COMM_TRANSPORT=${COMM_TRANSPORT:-shmem}
-if [ "$P" -gt 1 ] && [ "$COMM_TRANSPORT" != shmem ]; then echo "mnrun.sh: COMM_TRANSPORT=$COMM_TRANSPORT: only shmem runs more than one process (the TCP transport was removed)" >&2; exit 1; fi
+if [ "$P" -gt 1 ] && [ "$COMM_TRANSPORT" != shmem ] && [ "$COMM_TRANSPORT" != xshmem ]; then echo "mnrun.sh: COMM_TRANSPORT=$COMM_TRANSPORT: only shmem (and xshmem, make XSHMEM=ofi) runs more than one process (the TCP transport was removed)" >&2; exit 1; fi
 [ -n "${COMM_TRANSPORT:-}" ] && export COMM_TRANSPORT
 PPN=1   # N7b: PEs per node (1 + 4 COMM_SHMEM_PE_PER_APU under SHMEM)
 # D31: an explicit COMM_OFI=0 makes the proxy mode the default (COMM_SHMEM_PE_PER_APU=1) for a multi-node SHMEM run of one node-process
@@ -121,7 +121,11 @@ if [ "$PPN" -gt 1 ]; then   # the CPUs: -c the node's CPUs / PEs per node (auto)
     ncpu=$(scontrol show node "$(echo "$use" | head -1)" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p'); [ -n "$ncpu" ] && copt+=(-c $((ncpu / PPN)))
     copt+=(--cpu-bind=none)
 fi
-if [ "$COMM_TRANSPORT" = shmem ]; then
+# COMM_TRANSPORT=xshmem (TARGET1 S3a, make XSHMEM=ofi): the placement, the FI_* block, the plan and the plain srun launch are the shmem block's; in addition
+# XSHMEM_LOOPBACK_PES (default = the GPUs per node-process, 4: one xshmem PE per APU thread, each on its own GPU and NIC) and XSHMEM_HEAP_MB (the plan's value
+# below, or the caller's) are exported.  The libsma heap below is still sized (the plan counts the pool conservatively; xshmem does not initialise libsma).
+[ "$COMM_TRANSPORT" = xshmem ] && export XSHMEM_LOOPBACK_PES=${XSHMEM_LOOPBACK_PES:-4}
+if [ "$COMM_TRANSPORT" = shmem ] || [ "$COMM_TRANSPORT" = xshmem ]; then
     # s18-target Part 2 (TGTBENCH2 L2, internal target notes §4; the user: "use the flags that optimize performance but allow us to
     # adjust to a different system later"): two libfabric knobs, overridable per system by exporting them before the call.
     # FI_UNIVERSE_SIZE: comm_ofi opens its AVs at the provider's default count (comm_ofi.c:157) and inserts every
@@ -161,8 +165,10 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
                 if timeout 120 srun --jobid="$SLURM_JOB_ID" -N 1 -n 1 -w "$(echo "$use" | head -1)" --overlap test -e /sys/class/cxi/cxi0 2>/dev/null; then export COMM_OFI_PLAN_CXI=1; else export COMM_OFI_PLAN_CXI=0; fi
                 echo "mnrun.sh: COMM_OFI_PLAN_CXI=$COMM_OFI_PLAN_CXI (a cxi NIC on the compute node: comm_ofi's default; the plan counts its pools)"
             fi
-            pline=$(bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES > /dev/null 2>&1; exec "$@"' _ env "${pas[@]}" COMM_TRANSPORT=shmem MN_PLAN_ONLY="$pd:$P" "$pbin" 2>/dev/null | grep '^plan pool' || true)
+            pline=$(bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES > /dev/null 2>&1; exec "$@"' _ env "${pas[@]}" COMM_TRANSPORT="$COMM_TRANSPORT" MN_PLAN_ONLY="$pd:$P" "$pbin" 2>/dev/null | grep '^plan pool' || true)
             pmb=$(echo "$pline" | sed -n 's/.*COMM_SHMEM_POOL_MB=\([0-9][0-9]*\).*/\1/p')
+            xmb=$(echo "$pline" | sed -n 's/.*XSHMEM_HEAP_MB=\([0-9][0-9]*\).*/\1/p')
+            if [ "$COMM_TRANSPORT" = xshmem ] && [ -n "$xmb" ] && [ -z "${XSHMEM_HEAP_MB:-}" ]; then export XSHMEM_HEAP_MB=$xmb; echo "mnrun.sh: XSHMEM_HEAP_MB=$xmb (the plan's DATA heap per loopback PE)"; fi
             if [ -n "$pmb" ]; then export COMM_SHMEM_POOL_MB=$pmb; echo "mnrun.sh: COMM_SHMEM_POOL_MB=$pmb from MN_PLAN_ONLY=$pd:$P ($(echo "$pline" | sed 's/^plan pool *//'))"
             else echo "mnrun.sh: MN_PLAN_ONLY=$pd:$P of $pbin gave no 'plan pool' line: the pool stays at COMM_SHMEM_POOL_MB=8192" >&2; fi
         fi
@@ -219,7 +225,7 @@ if [ "${MNRUN_FIT:-1}" != 0 ]; then
             if timeout 120 srun --jobid="$SLURM_JOB_ID" -N 1 -n 1 -w "$(echo "$use" | head -1)" --overlap test -e /sys/class/cxi/cxi0 2>/dev/null; then export COMM_OFI_PLAN_CXI=1; else export COMM_OFI_PLAN_CXI=0; fi
             echo "mnrun.sh: FIT: COMM_OFI_PLAN_CXI=$COMM_OFI_PLAN_CXI (a cxi NIC on the compute node: the plan counts the comm_ofi pools)"
         fi
-        ftr=(); [ "$P" -gt 1 ] && ftr=(COMM_TRANSPORT=shmem)
+        ftr=(); [ "$P" -gt 1 ] && ftr=(COMM_TRANSPORT="$COMM_TRANSPORT")
         fout=$(bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES > /dev/null 2>&1; exec "$@"' _ env "${fas[@]}" "${ftr[@]}" MN_PLAN_ONLY="$fd:$P" "$fbin" 2>&1) || true
         flines=$(echo "$fout" | grep -aE '^plan (fit|REFUSED)' || true)
         if [ -z "$flines" ]; then

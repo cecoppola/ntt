@@ -447,6 +447,7 @@ static size_t as_seedbuf(unsigned long N)             /* seeds_stream's two pinn
     return 2 * (bytes / span_bytes * span_bytes);
 }
 size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t bylen);
+static int xsh_on(void) { const char *t = getenv("COMM_TRANSPORT"); return t && !strcmp(t, "xshmem"); }   /* COMM_TRANSPORT=xshmem (make XSHMEM=ofi): planned as shmem with comm_ofi's pools, one heap per device (XSHMEM_HEAP_MB), no rounds */
 static size_t g_ofi_dev_mb;                           /* the last need's comm_ofi pool per device (MiB; 0 = not an OFI run) */
 static size_t g_px_dev_mb;                            /* N7b: the last need's proxy pool per APU (MiB; 0 = COMM_SHMEM_PE_PER_APU off) */
 static size_t ofi_pool_mb(void)                       /* the comm_ofi pool per device this run will have (MiB): COMM_OFI_POOL_MB, else the need */
@@ -460,7 +461,7 @@ static size_t as_shmem_pool(unsigned long N, int size, size_t *ofi)
 {
     const char *tr = getenv("COMM_TRANSPORT");
     if (ofi) *ofi = 0;
-    if (size < 2 || !(tr && !strcmp(tr, "shmem"))) return 0;
+    if (size < 2 || !(tr && (!strcmp(tr, "shmem") || !strcmp(tr, "xshmem")))) return 0;
     size_t need = binsplit_shmem_pool_need(N, size, 0, 0), mb = (need + ((size_t)1 << 20) - 1) >> 20; mb = (mb + 255) / 256 * 256;
     size_t have = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : g_ofi_dev_mb ? mb : 8192;   /* OFIMEM: unset under OFI = the need (the rule sets it) */
     if (ofi) *ofi = 4 * (ofi_pool_mb() << 20);
@@ -622,11 +623,11 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     { size_t st = rns_mul_dist_mn_stage(nq, nq / 2 + 1, size, sh, (nq / 2 + size - 1) / size, (3 * nq / 2 + size - 1) / size, &q); if (q > qmax) qmax = q; if (st > best) { best = st; who = "the reciprocal's Q_t r"; } }
     { const char *e = getenv("MDB_SHIFT_CHUNK_MB"); size_t ch = (size_t)((e ? atof(e) : 1024.0) * 1048576.0 / 8), so = (2 * nq + size - 1) / size / 4, si = sh / 4;   /* the division's mdb_shift: t (2 nq) >> (k + 1) -> X (nq) */
       size_t sl = so < si ? so : si, K = ch && sl > ch ? (sl + ch - 1) / ch : 1, st = (so + si + K - 1) / K;   /* newton_db.c: K rounds from the shorter side's part */
-      const char *er = getenv("COMM_SHMEM_ROUND_MB"); size_t Rl = er && atof(er) > 0 ? (size_t)(atof(er) * 1048576.0) / 8 : 0;   /* the transport's rounds bound each side */
+      const char *er = getenv(xsh_on() ? "XSHMEM_ROUND_MB" : "COMM_SHMEM_ROUND_MB"); size_t Rl = er && atof(er) > 0 ? (size_t)(atof(er) * 1048576.0) / 8 : 0;   /* the transport's rounds bound each side */
       if (Rl) { size_t a = (so + K - 1) / K / size * (size - 1), b = (si + K - 1) / K / size * (size - 1); st = (a > Rl ? Rl : a) + (b > Rl ? Rl : b); }   /* (the peers' part: no self slab) */
       if (st > best) { best = st; who = "the division's mdb_shift"; } }
     g_stage_apu = best * 8;
-    int ofi = comm_ofi_planned();                         /* under COMM_OFI the device staging and the symmetric slabs are in the comm_ofi pools */
+    int ofi = comm_ofi_planned() || xsh_on();                         /* under COMM_OFI the device staging and the symmetric slabs are in the comm_ofi pools */
     int px = !ofi && comm_shmem_pe_per_apu() > 0;         /* N7b: under COMM_SHMEM_PE_PER_APU they are in the proxies' pools -- the comm_ofi law, one pool per APU */
     size_t staging = ofi || px ? 0 : 4 * best * 8, ring = (getenv("COMM_SHMEM_RING_KB") ? (size_t)atol(getenv("COMM_SHMEM_RING_KB")) : 256) << 10, members = (size_t)size;
     if (ring < 4096) ring = 4096;
@@ -665,7 +666,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
 size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
 {
     const char *tr = getenv("COMM_TRANSPORT");
-    if (size < 2 || (!plan && !(tr && !strcmp(tr, "shmem")))) return 0;
+    if (size < 2 || (!plan && !(tr && (!strcmp(tr, "shmem") || !strcmp(tr, "xshmem"))))) return 0;
     vslot_prealloc_env(N, size);                          /* S31 */
     char by[256]; size_t need = binsplit_shmem_pool_need(N, size, by, sizeof by), mb = (need + ((size_t)1 << 20) - 1) >> 20;
     mb = (mb + 255) / 256 * 256;                          /* whole 256 MiB */
@@ -675,11 +676,13 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
     if (!g_ofi_dev_mb && !g_px_dev_mb) { char v[32]; snprintf(v, sizeof v, "%zu", ((g_stage_apu + ((size_t)1 << 20) - 1) >> 20) + 1); setenv("COMM_SHMEM_STAGE_SLOT_MB", v, 1); }   /* comm_shmem's staging regions (one per APU; + 1 MiB of alignment); OFIMEM: none under COMM_OFI (the staging is in the comm pools) */
     if (plan) { printf("plan pool   the SHMEM pool per %s: COMM_SHMEM_POOL_MB=%zu (%s); the SHMEM heap (SHMEM_SYMMETRIC_SIZE / SHMEM_SYMMETRIC_HEAP_SIZE) >= %zu MiB", g_px_dev_mb ? "PE (COMM_SHMEM_PE_PER_APU: 5 or 9 PEs per node)" : "node-process", mb, by, mb + 512);
                 if (g_ofi_dev_mb) printf("; the comm_ofi pools 4 x COMM_OFI_POOL_MB=%zu", ofi_pool_mb());
+                if (g_ofi_dev_mb && xsh_on()) printf("; XSHMEM_HEAP_MB=%zu", getenv("XSHMEM_HEAP_MB") ? (size_t)atol(getenv("XSHMEM_HEAP_MB")) : ofi_pool_mb());
                 printf("\n"); return mb; }
     if (g_ofi_dev_mb) {   /* the comm pools sized by the rule (comm_ofi.c's own default, COMM_SHMEM_POOL_MB / 4 + 256, assumed the full pool) */
         if (!getenv("COMM_SHMEM_POOL_MB")) { char v[32]; snprintf(v, sizeof v, "%zu", mb); setenv("COMM_SHMEM_POOL_MB", v, 1); have = mb; }
         if (!getenv("COMM_OFI_POOL_MB")) { char v[32]; snprintf(v, sizeof v, "%zu", g_ofi_dev_mb); setenv("COMM_OFI_POOL_MB", v, 1); }
         else if ((size_t)atol(getenv("COMM_OFI_POOL_MB")) < g_ofi_dev_mb && rank0) fprintf(stderr, "comm_ofi pool: WARNING: COMM_OFI_POOL_MB=%s is below the modelled need of this run, %zu MiB per device\n", getenv("COMM_OFI_POOL_MB"), g_ofi_dev_mb);
+        if (xsh_on() && !getenv("XSHMEM_HEAP_MB")) { char v[32]; snprintf(v, sizeof v, "%zu", ofi_pool_mb()); setenv("XSHMEM_HEAP_MB", v, 1); }   /* the xshmem DATA heap per loopback PE = the comm_ofi pool law */
         if (rank0) printf("comm_shmem pool: COMM_OFI: the SHMEM pool %zu MiB (need %zu MiB) + 4 comm_ofi pools of COMM_OFI_POOL_MB=%zu (%s)\n", mb > have ? mb : have, mb, ofi_pool_mb(), by);
     }
     if (mb > have) {

@@ -15,7 +15,19 @@
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define NA 4
 static int g_rank, g_size = 1; static comm *g_cm[NA];
-static int g_shmem;                                   /* COMM_TRANSPORT=shmem -- the meshes are strided PE sets over SHMEM (comm_shmem.c) */
+static int g_shmem;                                   /* COMM_TRANSPORT=shmem or xshmem -- the meshes are strided PE sets over SHMEM (comm_shmem.c) or over xshmem (comm_xshmem.c) */
+static int g_xshmem;                                  /* COMM_TRANSPORT=xshmem (make XSHMEM=ofi; the target-shaped engine, loopback PEs): the meshes come from comm_xshmem_create_at */
+#ifdef XSHMEM_ENGINE
+int comm_xshmem_available(void); int comm_xshmem_init(void); int comm_xshmem_rank(void); comm *comm_xshmem_create_at(int pe_start, int pe_stride, int n, int id);
+void comm_xshmem_finalize(void); void comm_xshmem_counters(double *t, long *n, double *bytes);
+#endif
+static comm *mesh_create(int pe_start, int pe_stride, int n, int id)   /* every mesh of this file: the transport's communicator over the PE set */
+{
+#ifdef XSHMEM_ENGINE
+    if (g_xshmem) return comm_xshmem_create_at(pe_start, pe_stride, n, id);
+#endif
+    return comm_shmem_create_at(pe_start, pe_stride, n, id);
+}
 int mn_rank(void) { return g_rank; }
 /* MN_COMM_MARK=1 (default 0: off) -- at the end of each tree level, of the reciprocal and of the division, node 0 prints
  * this PE's all-to-all traffic since the previous mark: exchanges, GB received, post-to-completion s summed over the APU threads,
@@ -26,7 +38,11 @@ void mn_comm_mark(const char *what)
     static int on = -1; static double t0, b0, w0; static long n0;
     if (on < 0) { const char *e = getenv("MN_COMM_MARK"); on = e && atoi(e) > 0; w0 = mem_now(); }
     if (!on || !mn_transport_shmem()) return;
-    double t, b, w = mem_now(); long n; comm_shmem_counters(&t, &n, &b);
+    double t, b, w = mem_now(); long n;
+#ifdef XSHMEM_ENGINE
+    if (g_xshmem) comm_xshmem_counters(&t, &n, &b); else
+#endif
+    comm_shmem_counters(&t, &n, &b);
     if (g_rank == 0) printf("comm-mark %s: %ld exchanges, %.2f GB received, %.2f s post to completion (summed over the APU threads) = %.2f GB/s per APU thread; wall %.2f s\n",
                             what, n - n0, (b - b0) / 1e9, t - t0, t > t0 ? (b - b0) / 1e9 / (t - t0) : 0, w - w0);
     t0 = t; b0 = b; n0 = n; w0 = w;
@@ -63,14 +79,32 @@ int mn_init(void) { int ph_ = ec_ph(EC_PH_MN_INIT); int r = mn_init_i(); ec_ph(p
 static int mn_init_i(void)
 {
     const char *es = getenv("COMM_SIZE"), *et = getenv("COMM_TRANSPORT");
-    g_shmem = et && !strcmp(et, "shmem") && es && atoi(es) > 1;   /* (a single process -- no launcher, COMM_SIZE unset by mnrun.sh -- stays size 1 with the variable exported) */
+    g_xshmem = et && !strcmp(et, "xshmem") && es && atoi(es) > 1;
+#ifndef XSHMEM_ENGINE
+    if (g_xshmem) { ec_fatal(EC_RC_FATAL, "mn: COMM_TRANSPORT=xshmem but built without the engine (make XSHMEM=ofi)\n"); }
+#endif
+    g_shmem = g_xshmem || (et && !strcmp(et, "shmem") && es && atoi(es) > 1);   /* (a single process -- no launcher, COMM_SIZE unset by mnrun.sh -- stays size 1 with the variable exported) */
     if (g_shmem) {                                       /* rank and size from the SHMEM runtime (srun --mpi=pmix / oshrun); COMM_RANK is not needed */
+#ifdef XSHMEM_ENGINE
+        if (g_xshmem) {
+            if (!comm_xshmem_available()) { ec_fatal(EC_RC_FATAL, "mn: COMM_TRANSPORT=xshmem but the xshmem backend is not available (make XSHMEM=ofi)\n"); }
+            double tx = mem_now();
+            g_size = comm_xshmem_init(); g_rank = comm_xshmem_rank();
+            if (g_size <= 1) { g_size = 1; g_rank = 0; comm_xshmem_finalize(); g_xshmem = g_shmem = 0; return 1; }
+#pragma omp parallel for num_threads(NA) schedule(static)
+            for (int d = 0; d < NA; d++) { HIP_CHECK(hipSetDevice(d)); int ph_ = ec_ph(EC_PH_MESH_CREATE); g_cm[d] = mesh_create(0, 1, g_size, d); ec_ph(ph_); }
+            HIP_CHECK(hipSetDevice(0));
+            printf("mn: node %d of %d, four meshes of %d PEs over xshmem: created in %.2f s\n", g_rank, g_size, g_size, mem_now() - tx);
+            mn_comm_mark("start (the meshes created)");
+            return g_size;
+        }
+#endif
         if (!comm_shmem_available()) { ec_fatal(EC_RC_FATAL, "mn: COMM_TRANSPORT=shmem but built without SHMEM (make SHMEM=1)\n"); }
         double t0 = mem_now();
         g_size = comm_shmem_init(); g_rank = comm_shmem_rank();
         if (g_size <= 1) { g_size = 1; g_rank = 0; comm_shmem_finalize(); return 1; }
 #pragma omp parallel for num_threads(NA) schedule(static)
-        for (int d = 0; d < NA; d++) { HIP_CHECK(hipSetDevice(d)); int ph_ = ec_ph(EC_PH_MESH_CREATE); g_cm[d] = comm_shmem_create_at(0, 1, g_size, d); ec_ph(ph_); }
+        for (int d = 0; d < NA; d++) { HIP_CHECK(hipSetDevice(d)); int ph_ = ec_ph(EC_PH_MESH_CREATE); g_cm[d] = mesh_create(0, 1, g_size, d); ec_ph(ph_); }
         HIP_CHECK(hipSetDevice(0));
         printf("mn: node %d of %d, four meshes of %d PEs over SHMEM: created in %.2f s\n", g_rank, g_size, g_size, mem_now() - t0);
         mn_comm_mark("start (the meshes created)");   /* the marks' origin */
@@ -86,6 +120,9 @@ static void groups_finalize(void);
 void mn_finalize(void)
 {
     if (g_size > 1) { groups_finalize(); for (int d = 0; d < NA; d++) if (g_cm[d]) { comm_destroy(g_cm[d]); g_cm[d] = 0; } }
+#ifdef XSHMEM_ENGINE
+    if (g_size > 1 && g_xshmem) { comm_xshmem_finalize(); return; }
+#endif
     if (g_size > 1 && g_shmem) comm_shmem_finalize();
 }
 /* self-test: on every APU thread, prime d, a random cyclic convolution of 2^(logR+logC) points from a seed all
@@ -154,7 +191,7 @@ static mn_group *g_groups[MN_MAXL];
 static comm *sub_mesh(int g0, int g, int slot, int d)
 {
     if (g0 == 0 && g == g_size) return g_cm[d];
-    int ph_ = ec_ph(EC_PH_MESH_CREATE); comm *r = comm_shmem_create_at(g0, 1, g, NA + NA * slot + d); ec_ph(ph_); return r;   /* S: the PE set [g0, g0+g); id unique per (slot, d) -- the base meshes hold ids 0..3 */
+    int ph_ = ec_ph(EC_PH_MESH_CREATE); comm *r = mesh_create(g0, 1, g, NA + NA * slot + d); ec_ph(ph_); return r;   /* S: the PE set [g0, g0+g); id unique per (slot, d) -- the base meshes hold ids 0..3 */
 }
 static int pow2_floor(int g) { int p = 1; while (2 * p <= g) p *= 2; return p; }
 /* this node's group at level l >= 1: the nodes [k 2^l, min((k+1) 2^l, size)), k = rank >> l; its meshes are
@@ -203,7 +240,7 @@ mn_group *mn_group_span(int l, int g0, int g)
     for (int d = 0; d < NA; d++) {
         HIP_CHECK(hipSetDevice(d)); G->tr[d] = 0;
         /* a PE-set id of its own (NA + NA (2 MN_MAXL + l) + d) */
-        G->all[d] = comm_shmem_create_at(g0, 1, g, NA + NA * (2 * MN_MAXL + l) + d);
+        G->all[d] = mesh_create(g0, 1, g, NA + NA * (2 * MN_MAXL + l) + d);
     }
     HIP_CHECK(hipSetDevice(0));
     printf("mn: node %d: schedule level %d group [%d, %d) (%d nodes, the general map): meshes connected in %.2f s\n", g_rank, l, g0, g0 + g, g, mem_now() - t0);
@@ -217,9 +254,9 @@ comm *mn_mesh2(mn_group *G, int d, int sub)
 {
     comm **slot = sub ? &G->tr2[d] : &G->in2[d];
     if (*slot) return *slot;
-    if (!g_shmem) ec_fatal(EC_RC_FATAL, "COMM_LAYER_INTER2=1 needs COMM_TRANSPORT=shmem\n");
+    if (!g_shmem) ec_fatal(EC_RC_FATAL, "COMM_LAYER_INTER2=1 needs COMM_TRANSPORT=shmem or xshmem\n");
     int idx = (G->sched ? 2 * MN_MAXL : 0) + (sub ? MN_MAXL : 0) + G->lvl;
-    *slot = comm_shmem_create_at(G->g0, 1, sub ? G->gt : G->g, NA + NA * (3 * MN_MAXL + idx) + d);
+    *slot = mesh_create(G->g0, 1, sub ? G->gt : G->g, NA + NA * (3 * MN_MAXL + idx) + d);
     if (d == 0) printf("mn: node %d: COMM_LAYER_INTER2: second mesh (%s) of level %d%s group [%d, %d), %d nodes\n", g_rank, sub ? "transform nodes" : "all nodes", G->lvl, G->sched ? " schedule" : "", G->g0, G->g0 + G->g, sub ? G->gt : G->g);
     return *slot;
 }

@@ -83,6 +83,7 @@ question open, and killed runs have been followed by nodes draining for a reboot
 | anything in `ecalc/` | gate, 1 node; plus 2 nodes for multi-node code (comm, `mn*`, `rns_dist.c`, `newton_db.c` sharded paths, output) |
 | the engine (NTT, CRT, products, binary splitting, Newton, memory layout) | `mnaccept.sh <hold> --only unit,e9` plus the touched steps (`mn`, `grid`, `ckpt`, `recheck`, `corr`); `t_newton`, `t_mul`; 4 × 10¹⁰ digits identical to the reference; `ecalc/mem_model.py --check-c` exact if sizing changed |
 | switches or defaults | `tools/switch_registry.py --check`; the switch row in `ecalc/README.md` |
+| the xshmem layer (`xshmem*.{h,c}`, `comm_xshmem.c`, `pe_geo.c`) | build `make XSHMEM=ofi` (needs `OFI=1`); `tests/t_pe_geo` (host only); `tests/t_xshmem` at 1, 2 and 3 nodes x 4 PEs (sections `basic exch deadlock layer limit`); then the gate at 1 node and at 2 nodes with `COMM_TRANSPORT=xshmem` (digits identical, with and without `XSHMEM_ROUND_MB=128`) and `mnaccept.sh <hold> --only mn` with `MNACCEPT_ENV="COMM_TRANSPORT=xshmem"` (`results/XSHMEM.md` §5-6) |
 | speed claims | the timing method in section 6, on top of the above |
 
 ## 5. Unit tests and digit comparison

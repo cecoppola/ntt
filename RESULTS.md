@@ -28,6 +28,7 @@ the node count. Test machines: aac7 (MI300A nodes with Slingshot, the main test 
 | target device edge | 93.36 GB per APU = 373.44 GB per node (n = 5, 0 % spread) | m (target) | results/TARGET.md §TGTBENCH2 |
 | `BS_ARENA_TRIM_GB=8` (opt-in, default 0), 2 n 1.2882e11 | arena -34.4 GB per node (266.3 -> 231.9); 115.2 s (7 runs) vs 111.4 s (5 runs); 3 n 1.9323e11: 149.4 vs 149.6 s; 0 remaps | m | results/ATRIM.md |
 | `comm_ofi` vs SHMEM, 10 nodes, 8.1 × 10¹¹ | 1669.98 s vs 3532.05 s (× 2.1) | m | results/OFI_FABRIC.md §OFI17, STD17.md |
+| `COMM_TRANSPORT=xshmem` (opt-in, off by default; `make XSHMEM=ofi`; target-shaped Cray SHMEM 12.1 style communication emulated over libfabric), 3 n, 1.9323e11, ABBA 17/17 VERIFY OK | libfabric reference 157.3 s (sd 6.8, n 9) vs xshmem (`XSHMEM_ROUND_MB=128`, rot order) 149.3 s (sd 1.2, n 8); paired -8.5 s, CI [-14.0, -3.0], 8/8 pairs; gates 1 n PASS, 2 n and 3 n digits identical with and without rounds, mnaccept `mn` 5/5; whole-exchange staging at 3 n 1.9323e11 fails the memory budget | m | results/XSHMEM.md |
 | overnight 2026-10-13 (commit 4ae95ec1): sweep 60/60 and fallbacks 17/18 digit-identical; 6-node repeat 202.1 s mean; open bugs: `COMM_OFI=0` at 6 nodes (pool), large run timed out on the slow file system | m | results/NIGHT_RUNS.md §NIGHT |
 | `COMM_OFI=0` pool at 6 nodes (NIGHT bug A): the v-slots now count in the SHMEM pool; 1e10 6-node run rc 3 -> VERIFY OK, digits identical; 4 and 2 nodes OK (pool 2816 -> 3328 MiB at 6 nodes) | 40.28 / 39.20 / 47.66 s total (single runs) | m | results/SHMEM_ITEMS.md §SHM |
 | Pre-launch memory fit (D26): the planner reports device/node memory vs the machine limits before every launch and refuses a run that does not fit; `DM_MN_WRAP` automatic (on only with ≥5 GB device margin). Target 3.82e13:576: 358.96 GB device vs 373.44 (wrap off; with wrap 384.73, refused); aac7 6 nodes 374.22 vs 444 (wrap on) | planner values | mod/m | results/LAUNCH_DEFAULTS.md §FIT |
@@ -150,3 +151,7 @@ Add one short section per merged experiment below this line: date, what changed,
 
 - ROCM, ROCm 7.14.0 against 7.2.4 at 1 node, 1e10 digits: digits identical, B - A +4.74 s [-17.02, +26.49] (4 pairs; -2.01 s [-8.62, +4.59] without the cold first run) (m); first 7.14.0 launch is slow (cold start); `results/AAC7_PORT.md §ROCM`.
 - SCALE35, scaling at 3 and 5 nodes (6.441e10 digits per node): 147.7 s and 182.1 s (mean of 3, VERIFY OK) (m); `results/TIME_MODEL.md §SCALE35`.
+
+### 2026-10-21
+
+- XSHMEM, target-shaped communication (plan TARGET1): `xshmem.h` with a libfabric backend (aac7) and a Cray SHMEM forwarding header (target), the engine `COMM_TRANSPORT=xshmem` (opt-in, default `shmem`): digits identical at 1, 2 and 3 n; 3 n 1.9323e11 149.3 s against the reference 157.3 s, paired -8.5 s [-14.0, -3.0] (m); adoption and the open items are the user's; `results/XSHMEM.md`.

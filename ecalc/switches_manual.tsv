@@ -14,7 +14,7 @@ COMM_SHMEM_POOL_MB	8192	int	MiB		binsplit.c:684: 8192 unless COMM_OFI (then the 
 COMM_SHMEM_ROUND_MB	0	float	>=0 MiB		comm_shmem.c:305; 0 = no rounds
 COMM_SHMEM_SERIAL	auto	bool	0|1		comm_shmem.c:284 per-build default (OSHMEM 1)
 COMM_SIZE	1	int	>=1		set per run by the launcher; code defaults are 1 (4096 only in a self-test)
-COMM_TRANSPORT	unset	enum	shmem		mn.c: shmem is needed for COMM_SIZE > 1 (mnrun.sh sets it); tcp removed 2026-10-12
+COMM_TRANSPORT	unset	enum	shmem		mn.c: shmem is needed for COMM_SIZE > 1 (mnrun.sh sets it); xshmem (make XSHMEM=ofi) = the S3a engine; tcp removed 2026-10-12
 DB_POOL_VERBOSE	0	int	0|1|2		dbig.c:123: defaults to 1 when RNS_VERBOSE is set, else 0
 ECALC_CHECKPOINT	0	bool	0|1		ecalc.c:580; 1 = budgeted top set (ECALC_CKPT_TOP=2)
 ECALC_CKPT_TOP	auto	int	0|1|2		ecalc.c:579: ECALC_CHECKPOINT ? 2 : 0
@@ -57,3 +57,17 @@ COMM_SHMEM_PX_SEND	auto: 3	int	1|3	built-in default	comm_shmem.c; D53 (user 2026
 MN_NONPOW2_CAP	auto	str	auto|0|1	built-in default	rns_mul.c rns_np2cap: auto (unset, Q58) = non-pow2 groups take the next pow2 plane from MN_NONPOW2_MIN digits per node; 1 = always; 0 = the pow2 plane (T2, D57)
 MN_NONPOW2_MIN	4.5e10	num	>0	built-in default	rns_mul.c rns_np2_min: digits per node-process from which MN_NONPOW2_CAP auto is on (results/DIVISION.md NPCAP crossover)
 COMM_SHMEM_PX_SCHED	auto (99 up to 4 nodes, else 0)	int	0, W >= 1, auto	experiment	comm_shmem.c:799; unset or "auto" resolves at init by the node count (Q59); 0 = PX3
+PE_GEO_SYSFS_ROOT		str	path prefix	test-only	pe_geo.c; prefix of every /sys path (mock trees for tests/t_pe_geo); unset = the real /sys
+XSHMEM_CTRL	heap	str	heap|host	experiment	xshmem.h xshmem_cfg_load; host = control words in a host region (design 1.3 b)
+XSHMEM_HEAP_MB	0	int	MiB per PE	experiment	xshmem.h; 0 = backend default; binsplit.c sets it under COMM_TRANSPORT=xshmem
+XSHMEM_IPC	0	int	0|1	experiment	xshmem.h; ofi backend maps node-local heaps with hipIpc (xshmem_ptr)
+XSHMEM_LANES	1	int	>=1	experiment	xshmem.h, pe_geo.c; lanes (contexts) per PE; may exceed the NICs (virtual lanes)
+XSHMEM_LOCAL	0	int	0|1	experiment	xshmem.h; engine uses xshmem_ptr node-local copies
+XSHMEM_LOOPBACK_PES	1	int	1..8	experiment	xshmem.h; PEs one process hosts in the ofi backend (PE = K*rank + l, own GPU/NIC/heap each); 1 = one PE per process
+XSHMEM_MRMODE	libsma	str	libsma|ofi	experiment	xshmem.h; ofi backend memory-registration mode
+XSHMEM_OFI_SIG	dc	str	dc|flush|waw	experiment	xshmem.h; ofi backend signal-after-data mode (design 1.4)
+XSHMEM_PES_PER_GPU	1	int	>=1	experiment	pe_geo.c; PEs per GPU (target fallback 2)
+ECALC_XEX_THREAD	1	int	0|1	experiment	comm_xshmem.c; one persistent worker thread per loopback PE owns the sender half of the exchanges (1, default); 0 = poll-only, the APU thread does it in post and wait
+XSHMEM_ORDER	rot	str	rot|seq	experiment	comm_xshmem.c; peer order of the offset words, puts and signals: rot = (me+q)%n (default, no incast on member 0), seq = rank order (the reference's)
+XSHMEM_ROUND_MB	0	float	>= 0	experiment	comm_xshmem.c; 0 = off, whole-exchange staging; m > 0: an all-to-all whose pair exceeds m/(n-1) MiB goes in rounds staging at most m MiB each way (needs ECALC_XEX_THREAD=1); the planner sizes XSHMEM_HEAP_MB from it
+TMPDIR		str	path	test-only	t_pe_geo.c; the system temp directory for the mock sysfs tree; unset = /tmp

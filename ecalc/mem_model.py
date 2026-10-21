@@ -1196,10 +1196,11 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         S_ = seed_span(N, g, seed_fill); nt_ = N // g if g > 1 else N           # (BS_LAYOUT_ONLY: rank 0's range [1, 1 + N / g))
         sb = seedbuf_vmm(N, nt_, S_) if g > 1 else 0
         pool_b = 0; ofi_b = 0
-        if g > 1 and env.get('COMM_TRANSPORT') == 'shmem':                        # binsplit.c as_shmem_pool: binsplit_shmem_pool_rule's pool
-            pd_ = {}; ofi = ofi_planned(env)                                       # Phase 17 OFIMEM: the comm_ofi pools beside the SHMEM pool
+        xsh = env.get('COMM_TRANSPORT') == 'xshmem'                                # S3a: planned as shmem with the comm_ofi pools, no rounds (binsplit.c xsh_on)
+        if g > 1 and env.get('COMM_TRANSPORT') in ('shmem', 'xshmem'):            # binsplit.c as_shmem_pool: binsplit_shmem_pool_rule's pool
+            pd_ = {}; ofi = 1 if xsh else ofi_planned(env)                                       # Phase 17 OFIMEM: the comm_ofi pools beside the SHMEM pool
             px = 0 if ofi else int(env.get('COMM_SHMEM_PE_PER_APU') or ('1' if env.get('COMM_OFI') == '0' else '0'))   # N7b: 4 x value proxy pools, each the size of the pool (D31: default under COMM_OFI=0, as mnrun.sh)
-            nd = shmem_pool(dm_layout(N, g, pool_log, True, tight)['nq'], g, None, pool_log, t_chunk_mb, int(env.get('MDB_SHIFT_CHUNK_MB', '1024')), False, round_mb=int(float(env.get('COMM_SHMEM_ROUND_MB', '0') or 0)), detail=pd_, ofi=ofi, px=px,
+            nd = shmem_pool(dm_layout(N, g, pool_log, True, tight)['nq'], g, None, pool_log, t_chunk_mb, int(env.get('MDB_SHIFT_CHUNK_MB', '1024')), False, round_mb=int(float(env.get('XSHMEM_ROUND_MB' if xsh else 'COMM_SHMEM_ROUND_MB', '0') or 0)), detail=pd_, ofi=ofi, px=px,
                             vslot=(vslot_resident(dm_layout(N, g, pool_log, True, tight)['nq'], g, os.environ.get('MN_GROUPS') or None, pool_log, ((int(os.environ.get('MN_P24', '2') or 0), np_mode if np_mode is not None else EC_NP, g) if int(os.environ.get('MN_P24', '2') or 0) else None))['per_apu']))
             mb = -(-nd // (1 << 20)); mb = -(-mb // 256) * 256; have = int(env.get('COMM_SHMEM_POOL_MB', str(mb) if ofi else '8192'))
             pool_b = (mb if mb > have else have) << 20   # (the pool rule always raises the pool: COMM_SHMEM_POOL_AUTO removed 2026-10-12)

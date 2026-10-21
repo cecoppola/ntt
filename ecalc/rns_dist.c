@@ -1006,8 +1006,14 @@ static int node_carry_in(mn_group *G, int c, int p)
 {
     comm *cm = G->all[0]; int g = G->g, me = G->me, cin = 0;
     uint8_t v = (uint8_t)(c | (p << 1)), *all = (uint8_t *)malloc(g); all[me] = v;
+    if (!cm->ops->send) {                                     /* a transport without point-to-point (xshmem): one byte per node by the host all-gather, padded to 8 B */
+        uint64_t mine = v, *gv = (uint64_t *)malloc((size_t)g * 8); comm_allgather_host(cm, &mine, gv, 8);
+        for (int r = 0; r < g; r++) all[r] = (uint8_t)gv[r];
+        free(gv);
+    } else {
     for (int r = 0; r < g; r++) if (r != me) comm_send(cm, r, &v, 1);
     for (int r = 0; r < g; r++) if (r != me) comm_recv(cm, r, &all[r], 1);
+    }
     for (int r = 0; r < me; r++) cin = (all[r] & 1) | (((all[r] >> 1) & 1) & cin);
     int top = cin; for (int r = me; r < g; r++) top = (all[r] & 1) | (((all[r] >> 1) & 1) & top);
     free(all);
@@ -1892,11 +1898,12 @@ size_t rns_mul_dist_mn_vslot(size_t na, size_t nb, int g)
  * piece RT(nc), and my window's part win / 4), the redistribution of A or B (my share's part va / 4 + 2 g rows out, my rows RT(pa)
  * in), the transform's inter-node stage (q / 4 each way).  mem_model.py mn_stage is the same formula; measured to the MiB at 1e8 -
  * 1e10 on 2 nodes and 1e9 - 1e10 on 4 processes.  *qmax = the product's plane q (DIST_MN_SYM_SLABS keeps 3 q per APU). */
+static const char *round_env(void) { const char *t = getenv("COMM_TRANSPORT"); return getenv(t && !strcmp(t, "xshmem") ? "XSHMEM_ROUND_MB" : "COMM_SHMEM_ROUND_MB"); }   /* the planner: the round size of the transport (xshmem: XSHMEM_ROUND_MB, 0 = whole-exchange staging) */
 size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t share_b, size_t share_c, size_t *qmax)
 {
     if (qmax) *qmax = 0;
     if (!na || !nb || g < 2) return 0;
-    const char *er0 = getenv("COMM_SHMEM_ROUND_MB"); size_t Rl0 = er0 && atof(er0) > 0 ? (size_t)(atof(er0) * 1048576.0) / 8 : 0;
+    const char *er0 = round_env(); size_t Rl0 = er0 && atof(er0) > 0 ? (size_t)(atof(er0) * 1048576.0) / 8 : 0;
     if (mn_p24_of(na, nb, g) && p24_pts(na / 32 + 1) + p24_pts(nb / 32 + 1) <= p24_cap(g)) {   /* P24: the same exchanges over runs of limbs (as rns_mul_dist_mn_scratch's P24 branch) */
         int ka = 1, kb = 1; mn_grid_shape(na, nb, g, 1, &ka, &kb);
         size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, nc = pa + pb;
@@ -1927,7 +1934,7 @@ size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t
     /* Phase 14 V1: COMM_SHMEM_ROUND_MB = m -- comm_shmem.c carries an all-to-all whose pair exceeds m / (n - 1) in rounds that
      * stage at most m each way, and leaves the self slab out of the staging: each side of each exchange is its peers' part
      * (modelled as (g - 1) / g of it) bounded by m (RMIN) */
-    const char *er = getenv("COMM_SHMEM_ROUND_MB"); size_t Rl = er && atof(er) > 0 ? (size_t)(atof(er) * 1048576.0) / 8 : 0;
+    const char *er = round_env(); size_t Rl = er && atof(er) > 0 ? (size_t)(atof(er) * 1048576.0) / 8 : 0;
 #define RMIN(x) (Rl ? ((x) / (size_t)g * (size_t)(g - 1) > Rl ? Rl : (x) / (size_t)g * (size_t)(g - 1)) : (x))
     size_t result = RMIN(send) + RMIN(win / 4);
     size_t ra = RMIN(RT(pa)) + RMIN(va / 4 + 2 * (size_t)g * rows), rb = RMIN(RT(pb)) + RMIN(vb / 4 + 2 * (size_t)g * rows), redist = ra > rb ? ra : rb;

@@ -102,3 +102,17 @@ COMM_SHMEM_PX_SCHED	experiment	T1 (D57)	2026-11-18	off by default (0 = today's P
 COMM_SHMEM_HUGETLB	experiment	L5	2027-03-31	off by default; node-process heap from the 2 MiB hugetlb pool (aac7 has no pool: falls back to NP_HEAP_THP); review at the target session
 MN_NONPOW2_MIN	experiment	T2 (D57)	2026-11-19	the auto rule's threshold (digits per node, 4.5e10)
 MN_NONPOW2_CAP	experiment	T2 (D57)	2026-11-19	auto since Q58 (user 2026-10-20): on from MN_NONPOW2_MIN digits per node; 6 n -18 s libfabric, +41 GB/node planes; 1 = on, 0 = off
+XSHMEM_CTRL	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
+XSHMEM_HEAP_MB	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
+XSHMEM_IPC	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
+XSHMEM_LANES	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
+XSHMEM_LOCAL	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
+XSHMEM_LOOPBACK_PES	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
+XSHMEM_MRMODE	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
+XSHMEM_OFI_SIG	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
+XSHMEM_PES_PER_GPU	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
+PE_GEO_SYSFS_ROOT	test-only	TARGET1 (B3)	2026-12-31	mock sysfs root of tests/t_pe_geo
+ECALC_XEX_THREAD	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine arm (comm_xshmem.c); review when the xshmem transport gate (S3a) closes
+XSHMEM_ORDER	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine arm (comm_xshmem.c); review when the xshmem transport gate (S3a) closes
+XSHMEM_ROUND_MB	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine arm (comm_xshmem.c), off by default; review when the xshmem transport gate (S3a) closes
+TMPDIR	test-only	TARGET1 (B3)	2026-12-31	system temp directory read by tests/t_pe_geo

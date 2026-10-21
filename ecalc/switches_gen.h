@@ -110,6 +110,7 @@ static const char *const cfg_names[] = {
     "ECALC_VERBOSE",
     "ECALC_VMM_BG",
     "ECALC_WINDOWS",
+    "ECALC_XEX_THREAD",
     "MDB_SHIFT_CHUNK_MB",
     "MEM_DPOOL_FILL",
     "MEM_REPORT_DEVS",
@@ -140,6 +141,7 @@ static const char *const cfg_names[] = {
     "NEWTON_VERBOSE",
     "NTT_SIZE_STATS",
     "P24_CRT_SCAN",
+    "PE_GEO_SYSFS_ROOT",
     "POOL_LOG",
     "RNS_BATCH_LOCAL_MIN",
     "RNS_BATCH_TILE_GB",
@@ -156,5 +158,16 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY",
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
+    "XSHMEM_CTRL",
+    "XSHMEM_HEAP_MB",
+    "XSHMEM_IPC",
+    "XSHMEM_LANES",
+    "XSHMEM_LOCAL",
+    "XSHMEM_LOOPBACK_PES",
+    "XSHMEM_MRMODE",
+    "XSHMEM_OFI_SIG",
+    "XSHMEM_ORDER",
+    "XSHMEM_PES_PER_GPU",
+    "XSHMEM_ROUND_MB",
 };
-#define CFG_NAMES_N 155
+#define CFG_NAMES_N 168

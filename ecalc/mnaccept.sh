@@ -133,7 +133,7 @@ fi
 # ---- multi-process on one node --------------------------------------------------------------------------------
 mnrun_check() { local tag=$1 p=$2 d=$3 pl=$4 to=$5; shift 5   # tag procs digits pool_log timeout [env...]
   local log=$OUT/$tag.log f=$TMP/$tag.txt name="mn e$(( ${#d} - 1 )) size $p"
-  M "$to" "$p" POOL_LOG=$pl "$@" ./ecalc "$d" "$f" > "$log" 2>&1; local rc=$?
+  M "$to" "$p" POOL_LOG=$pl ${MNACCEPT_ENV:-} "$@" ./ecalc "$d" "$f" > "$log" 2>&1; local rc=$?   # MNACCEPT_ENV="COMM_TRANSPORT=xshmem": the same sizes on another transport
   local c; c=$(cmpref "$f" "$REF/e_$d.txt")
   local ok; ok=$(grep -ac 'VERIFY OK' "$log")
   if [ $rc -eq 0 ] && grep -aq "mn: all $p nodes: VERIFY OK" "$log" && [ "$c" = identical ]; then pass "$name" "$c; all $p nodes VERIFY OK; $(total_of "$log")"

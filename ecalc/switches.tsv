@@ -20,10 +20,10 @@ COMM_LAYER_VSLOT_MB	bool	derived	derived	0|1	built-in default	-	-	prose	ecalc	co
 COMM_OFI	bool	auto	derived	0|1	launch-line	aac7	OFI17.md	Y	ecalc	comm_ofi.c	3	-	-	comm_ofi.c:98 default = a cxi NIC is present (cxi_present())
 COMM_OFI_CHUNK_MB	float	unset	unset		built-in default	-	TUNE17.md+OFI17.md	Y	ecalc	comm_ofi.c	2	-	-	
 COMM_OFI_DEV	int	derived	derived		test-only	-	-	Y	ecalc	comm_shmem.c	4	diagnostics (TESTING.md)	2027-04-12	
-COMM_OFI_NICS	str	unset	derived	NIC list, ; between devices	launch-line	-	TUNE17.md+TGTBENCH2.md	Y	ecalc	comm_ofi.c	1	-	-	comm_ofi.c:123; unset = automatic
+COMM_OFI_NICS	str	unset	derived	NIC list, ; between devices	launch-line	-	TUNE17.md+TGTBENCH2.md	Y	ecalc	comm_ofi.c,pe_geo.c	2	-	-	comm_ofi.c:123; unset = automatic
 COMM_OFI_PLAN_CXI	bool	0	derived	0|1	launch-line	-	STD17.md+XEFF.md	Y	ecalc	comm_ofi.c	1	-	-	comm_ofi.c:92 (cxi_present() || set)
 COMM_OFI_POOL	bool	derived	derived	0|1	built-in default	-	TGTBENCH2.md+OFI17.md	Y	ecalc	binsplit.c,comm_ofi.c	2	-	-	
-COMM_OFI_POOL_MB	int	auto	derived	MiB per device	launch-line	-	STD17.md+S18KITFIX.md	Y	ecalc	binsplit.c,comm_ofi.c,ecalc.c	7	-	-	binsplit.c:694 sets it from the modelled need when unset
+COMM_OFI_POOL_MB	int	auto	derived	MiB per device	launch-line	-	STD17.md+S18KITFIX.md	Y	ecalc	binsplit.c,comm_ofi.c,comm_xshmem.c,ecalc.c	9	-	-	binsplit.c:694 sets it from the modelled need when unset
 COMM_OFI_VERBOSE	int	0	0		test-only	-	OFI17.md+STD17.md	Y	ecalc	comm_ofi.c	2	diagnostics (TESTING.md)	2027-04-12	
 COMM_OFI_WINDOW	int	unset	unset		built-in default	-	TUNE17.md+OFI17.md	Y	ecalc	comm_ofi.c	2	-	-	
 COMM_RANK	int	0	0	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,segv_trace.c	15	-	-	set per process by the launcher (mnrun.sh); excluded from the config hash
@@ -32,7 +32,7 @@ COMM_SHMEM_HUGETLB	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	1	L5	2027-03-3
 COMM_SHMEM_NP_HEAP_THP	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D48, results/SHMEM.md)	2026-11-18	
 COMM_SHMEM_ORDER	bool	derived	derived	0|1	built-in default	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	1	-	-	
 COMM_SHMEM_PE_PER_APU	int	0	0	0|1	experiment	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	comm_shmem.c, mnrun.sh, binsplit.c; N7b one SHMEM proxy PE per APU under COMM_OFI=0
-COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_ofi.c,comm_shmem.c	11	-	-	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
+COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_ofi.c,comm_shmem.c,comm_xshmem.c	13	-	-	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
 COMM_SHMEM_POOL_NEED_MB	bool	?	?	0|1	test-only	-	-	Y	ecalc	comm_shmem.c	4	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	
 COMM_SHMEM_PROXY	bool	unset	unset	0|1	experiment	-	-	Y	ecalc	comm_shmem.c	2	N7b	2026-11-14	comm_shmem.c; set by mnrun.sh on the proxy PEs (N7b), checked at init
 COMM_SHMEM_PX_KCOPY	int	derived	derived		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	
@@ -41,7 +41,7 @@ COMM_SHMEM_PX_SCHED	int	auto (99 up to 4 nodes, else 0)	conflict:0|1	0, W >= 1, 
 COMM_SHMEM_PX_SEND	int	auto: 3	derived	1|3	built-in default	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D53, results/SHMEM.md)	2026-11-18	comm_shmem.c; D53 (user 2026-10-19): unset = 3 (PX3) under PE_PER_APU=1 with an OpenSHMEM 1.5 build, else 1; an explicit value keeps its checks
 COMM_SHMEM_PX_THP	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D36, results/SHMEM_ITEMS.md §N7G)	2027-03-31	
 COMM_SHMEM_RING_KB	int	256	256		built-in default	-	S12.md+S.md	Y	ecalc	binsplit.c,comm_shmem.c	4	-	-	
-COMM_SHMEM_ROUND_MB	float	0	0	>=0 MiB	launch-line	aac7	V114.md	Y	ecalc	binsplit.c,comm_shmem.c,rns_dist.c	4	-	-	comm_shmem.c:305; 0 = no rounds
+COMM_SHMEM_ROUND_MB	float	0	0	>=0 MiB	launch-line	aac7	V114.md	Y	ecalc	comm_shmem.c	1	-	-	comm_shmem.c:305; 0 = no rounds
 COMM_SHMEM_SERIAL	bool	auto	derived	0|1	launch-line	aac6,aac7	S.md+S16.md	Y	ecalc	comm_shmem.c	1	-	-	comm_shmem.c:284 per-build default (OSHMEM 1)
 COMM_SHMEM_SPIN_US	int	2000	2000		built-in default	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	1	-	-	
 COMM_SHMEM_STAGE_SLOT_MB	bool	0	0	0|1	test-only	-	V114.md+STD17.md	prose	ecalc	comm_shmem.c	1	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	
@@ -58,7 +58,7 @@ COMM_TRACE_PH	int	0	0		unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TEST
 COMM_TRACE_SAMPLE	int	1	unset	N	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	comm_trace.h:96; 1 traces every exchange
 COMM_TRACE_THR	bool	derived	derived	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	2	diagnostics (TESTING.md)	2027-04-12	
 COMM_TRACE_WD_MS	int	0	unset	ms	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	comm_trace.h:106; 0 = no watchdog
-COMM_TRANSPORT	enum	unset	derived	shmem	launch-line	aac7	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c	3	-	-	mn.c: shmem is needed for COMM_SIZE > 1 (mnrun.sh sets it); tcp removed 2026-10-12
+COMM_TRANSPORT	enum	unset	derived	shmem	launch-line	aac7	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c,rns_dist.c	5	-	-	mn.c: shmem is needed for COMM_SIZE > 1 (mnrun.sh sets it); xshmem (make XSHMEM=ofi) = the S3a engine; tcp removed 2026-10-12
 COMM_XSTATS	int	0	0		test-only	-	XEFF.md	Y	ecalc	comm_shmem.c	1	diagnostics (TESTING.md)	2027-04-12	
 DBIG_SMALL_BOUNCE	int	1	1	0|1	built-in default	-	-	Y	ecalc	dbig.c	2	coordinator (TASKS S)	2026-11-11	dbig.c; O2+CAND, user-adopted 2026-10-12; 0 = old path
 DB_POOL_VERBOSE	int	0	derived	0|1|2	launch-line	-	T215.md+S18KITFIX.md	Y	ecalc	dbig.c	6	-	-	dbig.c:123: defaults to 1 when RNS_VERBOSE is set, else 0
@@ -111,6 +111,7 @@ ECALC_TEST_CORR	int	0	0		test-only	-	DKM15.md+KP15.md	prose	ecalc	newton_db.c	1	
 ECALC_VERBOSE	int	1	1	0|1|2	launch-line	aac7	PC15.md+M13.md	Y	ecalc	binsplit.c,comm_shmem.c,ecalc.c,memsample.c,mn.c,newton_db.c,rns_dist.c	20	-	-	ecalc.c
 ECALC_VMM_BG	bool	unset	unset	0|1	built-in default	-	S34.md	Y	ecalc	dbig.c	1	-	-	
 ECALC_WINDOWS	bool	derived	derived	0|1	test-only	-	A-out.md+H.md	Y	ecalc	verify.c	1	diagnostics (TESTING.md)	2027-04-12	
+ECALC_XEX_THREAD	int	1	1	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	TARGET1 (S3a)	2026-12-31	comm_xshmem.c; one persistent worker thread per loopback PE owns the sender half of the exchanges (1, default); 0 = poll-only, the APU thread does it in post and wait
 MDB_SHIFT_CHUNK_MB	float	1024	1024		built-in default	-	P214.md	Y	ecalc	binsplit.c,newton_db.c	4	-	-	
 MEM_DPOOL_FILL	int	0	0		test-only	-	V.md+R.md	Y	ecalc	mem.c	2	diagnostics (TESTING.md)	2027-04-12	
 MEM_REPORT_DEVS	bool	0	unset	0|1	launch-line	aac7	B7ACCT.md+TC15.md	Y	ecalc	ecalc.c,mem.c	2	-	-	ecalc.c:372/537 (presence test)
@@ -141,6 +142,7 @@ NEWTON_RECIP_GUARD	bool	unset	unset	0|1	built-in default	-	R114.md	Y	ecalc	newto
 NEWTON_VERBOSE	int	0	0		test-only	-	L114.md+L13d.md	Y	ecalc	newton_db.c	6	diagnostics (TESTING.md)	2027-04-12	
 NTT_SIZE_STATS	int	0	0		test-only	-	S22.md+NTT3P.md	Y	ecalc	ntt.c	1	diagnostics (TESTING.md)	2027-04-12	
 P24_CRT_SCAN	bool	1	derived	0|1	built-in default	-	-	Y	ecalc	p24_crt.c	1	coordinator (D24, results/KERNELS.md §K4c)	2026-11-11	K4c: k_crt24 parallel carry (p24_crt.c p24_crt_scan_on); default 1 since D24, =0 kept fallback
+PE_GEO_SYSFS_ROOT	str			path prefix	test-only	-	-	Y	ecalc	pe_geo.c	1	TARGET1 (B3)	2026-12-31	pe_geo.c; prefix of every /sys path (mock trees for tests/t_pe_geo); unset = the real /sys
 POOL_LOG	int	31	31	29..31	launch-line	-	A-mem.md+M13.md	Y	ecalc	ecalc.c	3	-	-	ecalc.c:rewritten by ECALC_PLANE_CAP; 31 default (2^31 pools)
 RNS_BATCH_LOCAL_MIN	int	unset	unset		built-in default	-	P3.md+R.md	Y	ecalc	rns_mul.c	2	-	-	
 RNS_BATCH_TILE_GB	float	unset	unset		built-in default	-	P.md	Y	ecalc	rns_mul.c	2	-	-	
@@ -157,6 +159,17 @@ RNS_R3	int	derived	derived		experiment	-	P.md	Y	ecalc	rns_mul.c	2	coordinator (T
 RNS_STRATEGY	bool	derived	derived	0|1	built-in default	-	B13b.md+G13d.md	Y	ecalc	rns_dist.c	1	-	-	
 RNS_STRATEGY_CHECK	int	0	0		test-only	-	B13b.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
 RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	30	-	-	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
+XSHMEM_CTRL	str	heap	unset	heap|host	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h xshmem_cfg_load; host = control words in a host region (design 1.3 b)
+XSHMEM_HEAP_MB	int	0	0	MiB per PE	experiment	-	-	Y	ecalc	binsplit.c,xshmem.h	4	TARGET1 (B1)	2026-12-31	xshmem.h; 0 = backend default; binsplit.c sets it under COMM_TRANSPORT=xshmem
+XSHMEM_IPC	int	0	0	0|1	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h; ofi backend maps node-local heaps with hipIpc (xshmem_ptr)
+XSHMEM_LANES	int	1	1	>=1	experiment	-	-	Y	ecalc	pe_geo.c,xshmem.h	2	TARGET1 (B1)	2026-12-31	xshmem.h, pe_geo.c; lanes (contexts) per PE; may exceed the NICs (virtual lanes)
+XSHMEM_LOCAL	int	0	0	0|1	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h; engine uses xshmem_ptr node-local copies
+XSHMEM_LOOPBACK_PES	int	1	1	1..8	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (S3a)	2026-12-31	xshmem.h; PEs one process hosts in the ofi backend (PE = K*rank + l, own GPU/NIC/heap each); 1 = one PE per process
+XSHMEM_MRMODE	str	libsma	unset	libsma|ofi	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h; ofi backend memory-registration mode
+XSHMEM_OFI_SIG	str	dc	derived	dc|flush|waw	experiment	-	-	Y	ecalc	xshmem.h,xshmem_ofi.c	2	TARGET1 (B1)	2026-12-31	xshmem.h; ofi backend signal-after-data mode (design 1.4)
+XSHMEM_ORDER	str	rot	derived	rot|seq	experiment	-	-	Y	ecalc	comm_xshmem.c	1	TARGET1 (S3a)	2026-12-31	comm_xshmem.c; peer order of the offset words, puts and signals: rot = (me+q)%n (default, no incast on member 0), seq = rank order (the reference's)
+XSHMEM_PES_PER_GPU	int	1	1	>=1	experiment	-	-	Y	ecalc	pe_geo.c	2	TARGET1 (B1)	2026-12-31	pe_geo.c; PEs per GPU (target fallback 2)
+XSHMEM_ROUND_MB	float	0	0	>= 0	experiment	-	-	Y	ecalc	comm_xshmem.c	1	TARGET1 (S3a)	2026-12-31	comm_xshmem.c; 0 = off, whole-exchange staging; m > 0: an all-to-all whose pair exceeds m/(n-1) MiB goes in rounds staging at most m MiB each way (needs ECALC_XEX_THREAD=1); the planner sizes XSHMEM_HEAP_MB from it
 DIST_BIG	int	derived	derived		test-only	-	-	Y	tests	t_dist.c,t_mul.c	3	ecalc/tests/t_dist.c	2027-04-12	
 DIST_BIG_K	int	64	64		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
 DIST_BIG_PRIMES	str	0,2	0,2		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
@@ -169,6 +182,7 @@ DIST_LREPS	int	3	3		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	20
 DIST_TBENCH	bool	unset	unset	0|1	test-only	-	-	prose	tests	t_dist.c	1	ecalc/tests/t_dist.c	2027-04-12	
 DIST_TINV	int	derived	derived		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
 DIST_XGMI	int	derived	derived		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
+TMPDIR	str	derived	derived	path	test-only	-	-	prose	tests	t_pe_geo.c	1	TARGET1 (B3)	2026-12-31	t_pe_geo.c; the system temp directory for the mock sysfs tree; unset = /tmp
 TSTRAT_BUDGET_GB	float	derived	derived		test-only	-	-	prose	tests	t_strategy.c	2	ecalc/tests/t_strategy.c	2027-04-12	
 TSTRAT_GMP	int	unset	unset		test-only	-	-	prose	tests	t_strategy.c	2	ecalc/tests/t_strategy.c	2027-04-12	
 T_ALLOC_NTT	int	1	1		test-only	-	-	prose	tests	t_alloc.c	2	ecalc/tests/t_alloc.c	2027-04-12	

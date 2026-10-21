@@ -235,3 +235,63 @@ clean:
 .PHONY: all clean tools
 tests/t_ofi_alloc: tests/t_ofi_alloc.c comm_ofi.c comm_ofi.h fatal.c fatal.h
 	$(CC) -O2 -DCOMM_HOST_ONLY -DEC_FATAL_NO_HIP $(OFI_CFLAGS) -I. $< fatal.c -lpthread -L$(LIBFABRIC)/lib64 -lfabric -o $@
+
+# ---- XSHMEM (plan TARGET1, design TARGET12_DESIGN; B1): the target-shaped communication layer behind xshmem.h.  Off by default: with
+# XSHMEM unset or 0 nothing below adds a prerequisite, object or flag to OBJS / `all` / ecalc (the default build is unchanged).
+#   make XSHMEM=ofi  tests/t_xshmem tests/t_pe_geo   libfabric cxi backend (xshmem_ofi.c, xshmem_boot.c PMI2, pe_geo.c); aac7, needs OFI=1
+#   make XSHMEM=ofi ecalc                            + the engine comm_xshmem.c (COMM_TRANSPORT=xshmem; S3a)
+#   make XSHMEM=cray tests/t_xshmem                  Cray SHMEM backend (xshmem_cray.h, static inline); 11.8 on aac7, 12.1 on the target
+# XSHMEM_CRAY_DEFS = -D selectors of
+# xshmem_cray.h (XSHMEM_CRAY_HEAP, _SIGSET, _WAIT, _TEST, _PUTSIG_SPLIT).  XTEST_OBJS = extra objects for tests/t_xshmem (e.g. comm_ofi.o).
+XSHMEM ?= 0
+XSHMEM_CRAY_DEFS ?=
+XTEST_OBJS ?=
+XTEST_RUN_DEPS =
+ifeq ($(XSHMEM),ofi)
+ifneq ($(OFI),1)
+$(error XSHMEM=ofi needs libfabric headers: OFI=1 (LIBFABRIC=$(LIBFABRIC)))
+endif
+PMI_HOME     ?= /opt/cray/pe/pmi/default
+XSHMEM_CFLAGS = -DXSHMEM_OFI -DUSE_HIP $(OFI_CFLAGS) -I$(PMI_HOME)/include
+XSHMEM_LIBS   = $(OFI_LIBS) -L/opt/cray/pe/lib64 -lpmi2 -Wl,-rpath,/opt/cray/pe/lib64 -lpthread
+XOBJS         = xshmem_ofi.o xshmem_boot.o pe_geo.o
+else ifeq ($(XSHMEM),cray)
+CRAY_SMA   ?= $(if $(CRAY_OPENSHMEMX_PREFIX),$(CRAY_OPENSHMEMX_PREFIX),/opt/cray/pe/sma/11.8.0/ofi/sma)
+CRAY_DSMML ?= $(if $(CRAY_DSMML_PREFIX),$(CRAY_DSMML_PREFIX),/opt/cray/pe/dsmml/0.3.1/dsmml)
+XSHMEM_CFLAGS = -DXSHMEM_CRAY -DUSE_HIP $(XSHMEM_CRAY_DEFS) -I$(CRAY_SMA)/include -I$(CRAY_DSMML)/include
+XSHMEM_LIBS   = -L$(CRAY_SMA)/lib64 -L$(CRAY_DSMML)/lib -L/opt/cray/pe/lib64 -lsma -lpmi -lpmi2 -ldsmml -Wl,-rpath,$(CRAY_SMA)/lib64 -Wl,-rpath,$(CRAY_DSMML)/lib -Wl,-rpath,/opt/cray/pe/lib64 -lpthread
+XOBJS         =
+else ifneq ($(XSHMEM),0)
+$(error XSHMEM must be 0, ofi or cray)
+endif
+
+ifneq ($(XSHMEM),0)
+xshmem_ofi.o: xshmem_ofi.c xshmem.h xshmem_boot.h pe_geo.h
+	$(HIPC) $(XSHMEM_CFLAGS) -c $< -o $@
+xshmem_boot.o: xshmem_boot.c xshmem_boot.h
+	$(HIPC) $(XSHMEM_CFLAGS) -c $< -o $@
+pe_geo.o: pe_geo.c pe_geo.h
+	$(HIPC) $(XSHMEM_CFLAGS) -c $< -o $@
+tests/t_xshmem: tests/t_xshmem.c xshmem.h xshmem_cray.h $(XOBJS) tests/harness.h
+	$(HIPC) $(XSHMEM_CFLAGS) $< -x none $(XOBJS) $(XTEST_OBJS) -o $@ $(XSHMEM_LIBS) $(SHMEM_LIBS)
+ifeq ($(XSHMEM),ofi)
+tests/t_xshmem_ofi_smoke: tests/t_xshmem_ofi_smoke.c xshmem.h $(XOBJS)
+	$(HIPC) $(XSHMEM_CFLAGS) $< -x none $(XOBJS) -o $@ $(XSHMEM_LIBS)
+# S3a (plan TARGET1): with XSHMEM=ofi every binary that links OBJS (ecalc and the tests) also links the xshmem engine (comm_xshmem.c:
+# COMM_TRANSPORT=xshmem) and the backend; mn.o is compiled with -DXSHMEM_ENGINE (without it COMM_TRANSPORT=xshmem is a fatal at start).
+# The object list and flags below are applied only under XSHMEM=ofi; rebuild with -B when switching (the default build is unchanged).
+comm_xshmem.o: comm_xshmem.c comm.h xshmem.h xshmem_boot.h pe_geo.h comm_trace.h comm_phase.h
+	$(HIPC) $(XSHMEM_CFLAGS) -DXSHMEM_ENGINE -c $< -o $@
+OBJS += comm_xshmem.o $(XOBJS)
+SHMEM_LIBS += $(XSHMEM_LIBS)
+mn.o: comm_xshmem.o $(XOBJS)
+mn.o: HIPFLAGS += -DXSHMEM_ENGINE
+tests/t_pe_geo: tests/t_pe_geo.c pe_geo.c pe_geo.h xshmem_boot.o
+	$(HIPC) $(XSHMEM_CFLAGS) -I. $< pe_geo.c -x none xshmem_boot.o -o $@ $(XSHMEM_LIBS)
+tests/t_pe_geo_live: tests/t_pe_geo_live.c pe_geo.c pe_geo.h xshmem_boot.o xshmem_boot.h
+	$(HIPC) $(XSHMEM_CFLAGS) -I. $< pe_geo.c -x none xshmem_boot.o -o $@ $(XSHMEM_LIBS)
+endif
+else
+tests/t_xshmem tests/t_pe_geo tests/t_pe_geo_live:
+	@echo "set XSHMEM=ofi or XSHMEM=cray (XSHMEM is off by default)"; false
+endif

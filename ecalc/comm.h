@@ -132,6 +132,16 @@ void  comm_shmem_finalize(void);
 size_t comm_shmem_heap_env(const char **name);   /* the SHMEM heap's size from the launch line's variable (0: unset); *name = the variable */
 int   comm_shmem_pool_in_heap(void);
 int   comm_shmem_pe_per_apu(void);           /* N7b: COMM_SHMEM_PE_PER_APU (0 off, 1 one proxy PE per APU; checked); 0 without SHMEM */           /* 1 when the pool is carved from the library's heap (a host heap, or a device heap sized by the launch line) */
+#ifdef XSHMEM_ENGINE
+/* the xshmem transport (comm_xshmem.c; COMM_TRANSPORT=xshmem, make XSHMEM=ofi): the target-shaped engine over xshmem.h, one PE per APU (loopback PEs in a node-process).
+ * Same shape as the SHMEM block above; the PE set of create_at is NODE indices (the process rank).  comm_xshmem_counters: as comm_shmem_counters. */
+int   comm_xshmem_available(void);
+int   comm_xshmem_init(void);                  /* returns the node-process count */
+int   comm_xshmem_rank(void);
+comm *comm_xshmem_create_at(int pe_start, int pe_stride, int n, int id);
+void  comm_xshmem_finalize(void);
+void  comm_xshmem_counters(double *t, long *n, double *bytes);
+#endif
 void  comm_layered_scratch(comm *c, void *p, size_t bytes);
 void  comm_layered_set_inter2(comm *c, comm *inter2);   /* X2: COMM_LAYER_INTER2=1 -- a second inter communicator over the same PE set (the v-exchanges alternate) */
 int   comm_layered_inter2_on(void);          /* COMM_LAYER_INTER2; default 0 (both transports) */
