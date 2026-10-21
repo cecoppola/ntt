@@ -17,7 +17,7 @@
 #define NA 4
 static int g_rank, g_size = 1; static comm *g_cm[NA];   /* off path: this node and the nodes; under ECALC_VPE (S1a) g_rank / g_size stay the NODE values -- the PE view is mn_rank() / mn_size() */
 /* S1a (ECALC_VPE): lane-indexed state, one entry per vPE (vpe.h): the flat communicator over all PEs, the cached sub-communicators, the tree's groups */
-typedef struct { int g0, g, slot; comm *c; } subent;
+typedef struct { int g0, g, slot, id; comm *c; } subent;
 typedef struct { subent e[64]; int n; } sublist;
 typedef struct { struct mn_group *grp[16], *sch[16]; } grplist;
 VPE_STATE(comm *, flat); VPE_STATE(sublist, subl); VPE_STATE(grplist, gl);
@@ -84,7 +84,17 @@ comm *mn_comm(int apu) { return vpe_on() ? (mn_size() > 1 ? VPE(flat) : 0) : g_s
 static comm *cm0(void) { return vpe_on() ? VPE(flat) : g_cm[0]; }
 /* the PE communicators (vpe.h).  The flat one is made by mn_init; sub-communicators are made on first use by every member PE (local creation, no message) and
  * cached per lane.  The id is a function of (g0, g, slot) alone, so the members agree without an exchange: an aligned power-of-two run (g0 % g == 0)
- * 1 + log2 g + 16 slot (< 256); any other run 256 + (g + 61 slot) % 250 (< 506).  Two runs that share a PE and map to one id are a fatal "id used twice". */
+ * 1 + log2 g + 16 slot (slot < 16, g < 2^15: ids < 256); any other run 256 + 64 slot + g (slot < 4, g < 64: ids 259..511 < MAXID_VPE).  The map is
+ * injective over that domain, so two runs share an id only if they have the same (g, slot) -- and then sharing a PE is the fatal "id used twice"
+ * (use another slot).  Outside the domain: fatal.  Creation is local, so no PE order is needed; DESTRUCTION is collective (x_destroy barriers) and
+ * sub_destroy_all therefore goes by descending id, a total order the members of every communicator agree on, never by creation order. */
+__attribute__((unused)) static int sub_id(int g, int g0, int slot)
+{
+    int lg = 0; while ((1 << lg) < g) lg++;
+    if ((1 << lg) == g && g0 % g == 0) return 1 + lg + 16 * slot;
+    if (g >= 64 || slot >= 4) ec_fatal(EC_RC_FATAL, "vpe_sub(%d, %d, slot %d): a run that is not an aligned power of two supports g < 64 and slot < 4\n", g0, g, slot);
+    return 256 + 64 * slot + g;
+}
 comm *vpe_comm(void) { return VPE(flat); }
 comm *vpe_sub_slot(int g0, int g, int slot)
 {
@@ -98,10 +108,9 @@ comm *vpe_sub_slot(int g0, int g, int slot)
     if (sl->n >= 64) ec_fatal(EC_RC_FATAL, "vpe_sub: more than 64 sub-communicators on one vPE\n");
 #ifdef XSHMEM_ENGINE
     { int dev = -1; HIP_CHECK(hipGetDevice(&dev)); if (dev != vpe_idx()) ec_fatal(EC_RC_FATAL, "vpe_sub: device %d is not this vPE's (%d)\n", dev, vpe_idx()); }
-    int lg = 0; while ((1 << lg) < g) lg++;
-    int id = ((1 << lg) == g && g0 % g == 0) ? 1 + lg + 16 * slot : 256 + (g + 61 * slot) % 250;
+    int id = sub_id(g, g0, slot);
     int ph_ = ec_ph(EC_PH_MESH_CREATE); comm *c = comm_xshmem_create_flat(g0, g, id); ec_ph(ph_);
-    sl->e[sl->n].g0 = g0; sl->e[sl->n].g = g; sl->e[sl->n].slot = slot; sl->e[sl->n].c = c; sl->n++;
+    sl->e[sl->n].g0 = g0; sl->e[sl->n].g = g; sl->e[sl->n].slot = slot; sl->e[sl->n].c = c; sl->e[sl->n].id = id; sl->n++;
     return c;
 #else
     return 0;
@@ -134,6 +143,7 @@ static int mn_init_vpe(void)
     int npe = vpe_npe();
     for (int d = 0; d < L; d++) { HIP_CHECK(hipSetDevice(d)); comm_xshmem_select(d); int ph_ = ec_ph(EC_PH_MESH_CREATE); vpe_t_idx = d; flat_v[d] = comm_xshmem_create_flat(0, npe, 0); ec_ph(ph_); }
     vpe_t_idx = 0; comm_xshmem_select(0); HIP_CHECK(hipSetDevice(0));
+    for (int d = 0; d < L; d++) (void)mem_numa_node_of_device(d);   /* prime the NUMA lookup cache while single-threaded (mem.c) */
     printf("mn: node %d of %d: %d vPEs per node, one flat communicator over %d PEs over xshmem: created in %.2f s\n", g_rank, g_size, L, npe, mem_now() - tx);
     mn_comm_mark("start (the meshes created)");
     return npe;
@@ -181,10 +191,14 @@ static int mn_init_i(void)
 }
 void mn_barrier(void) { if (mn_size() > 1) comm_barrier(cm0()); }   /* vPE: collective over all PEs (every vPE thread calls it) */
 static void groups_finalize(void);
-static void sub_destroy_all(void)       /* vPE: the cached sub-communicators of this lane, last created first (the members agree on the order), then the flat one */
+static void sub_destroy_all(void)       /* vPE: the cached sub-communicators of this lane, descending id (the members agree on that order), then the flat one */
 {
     sublist *sl = &VPE(subl);
-    for (int i = sl->n - 1; i >= 0; i--) { comm_destroy(sl->e[i].c); sl->e[i].c = 0; }
+    /* x_destroy is collective (a barrier of its members): destroy in DESCENDING ID order, the same total order on every PE, whatever the creation order was */
+    for (int done = 0; done < sl->n; done++) {
+        int b = -1; for (int i = 0; i < sl->n; i++) if (sl->e[i].c && (b < 0 || sl->e[i].id > sl->e[b].id)) b = i;
+        comm_destroy(sl->e[b].c); sl->e[b].c = 0;
+    }
     sl->n = 0;
 }
 static void finalize_vpe_lane(void *unused)

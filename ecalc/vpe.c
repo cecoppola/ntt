@@ -21,6 +21,7 @@ int vpe_on(void)
     int on = __atomic_load_n(&g_on, __ATOMIC_ACQUIRE);
     if (on < 0) {
         const char *e = getenv("ECALC_VPE"); on = e && atoi(e) != 0;
+        if (e && *e) { char *end; (void)strtol(e, &end, 10); if (*end) fprintf(stderr, "warning: ECALC_VPE=%s is not a number: treated as off\n", e); }
         if (on) mem_set_numa_pci(1);                     /* the device -> NUMA node lookup by PCI bus id (mem.c) */
         __atomic_store_n(&g_on, on, __ATOMIC_RELEASE);
     }

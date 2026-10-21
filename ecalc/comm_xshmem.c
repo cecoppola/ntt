@@ -473,6 +473,8 @@ static void x_sym_free(comm *c, void *ptr)
     for (int l = 0; l < X.K; l++) if (in_heap(&X.pe[l], ptr)) { xfree(&X.pe[l], (size_t)((char *)ptr - X.pe[l].data)); ec_ph(ph_); return; }
     ec_fatal(EC_RC_FATAL, "comm_xshmem: sym_free of a pointer outside the heaps\n");
 }
+/* COLLECTIVE (x_barrier over the members): every member must destroy its communicators in one agreed order, or the barriers deadlock.  mn.c sub_destroy_all
+ * orders by descending communicator id (the id is a function of the run, identical on all members), not by creation order. */
 static void x_destroy(comm *c)
 {
     xpriv *p = PRIV(c);

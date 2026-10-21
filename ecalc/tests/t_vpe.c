@@ -2,7 +2,9 @@
  *
  *   t_vpe [all|probe|host|stages]
  *     host    no GPU, no network: identity arithmetic (vpe_set_nodes / lanes), the log prefix, VPE_STATE, the "stages not merged" text is NOT run here
- *     stages  ECALC_VPE=1 t_vpe stages: vpe_stages_check() must abort with "ECALC_VPE: stages ... not merged" (rc 3) while stages are missing
+ *     stages  vpe_stages_check() in a forked child must abort with "ECALC_VPE: stages ... not merged" and rc 3 while stages are missing (rc 0 once all are
+ *             merged); the harness sets ECALC_VPE=1 itself.  The host part also checks, in forked children, vpe_sub out of range (fatal, rc 3) and vpe_sub
+ *             NULL for a PE outside the run; the communicator part checks the duplicate-id fatal ("used twice", rc 3) and the NULL case
  *     probe   the sub-communicator probe (D1): on every PE, the aligned groups of 2 and 4 PEs of a node and the contiguous runs of 3, 6, 12 PEs: barrier,
  *             allreduce_max, allgather_host, alltoallv of random counts on each; prints T_VPE_PROBE PASS|FAIL per process
  *     all     host + probe + the flat communicator (alltoall, alltoallv of random counts incl. zeros, allreduce_max, allgather_host, barrier) + the
@@ -13,6 +15,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <unistd.h>
+#include <sys/wait.h>
 #include <hip/hip_runtime.h>
 #include "../vpe.h"
 #include "../mn.h"
@@ -24,6 +28,25 @@ static int g_fail, g_checks, g_skip_comm;
 #define CHK(c, ...) do { __atomic_fetch_add(&g_checks, 1, __ATOMIC_RELAXED); if (!(c)) { __atomic_fetch_add(&g_fail, 1, __ATOMIC_RELAXED); \
     printf("  FAILED %s:%d  %s  pe %d: ", __FILE__, __LINE__, #c, vpe_pe()); printf(__VA_ARGS__); printf("\n"); } } while (0)
 #define HIPC(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { printf("HIP %s at %d\n", hipGetErrorString(e_), __LINE__); exit(3); } } while (0)
+
+/* run fn in a forked child with stdout+stderr captured: returns the exit code, the text in buf (the fatal path _exit()s, so nothing of the parent runs) */
+static int in_child(void (*fn)(void *), void *arg, char *buf, size_t n)
+{
+    int pf[2]; fflush(stdout); fflush(stderr);
+    if (pipe(pf)) return -1;
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (!pid) { dup2(pf[1], 1); dup2(pf[1], 2); close(pf[0]); close(pf[1]); fn(arg); fflush(stdout); fflush(stderr); _exit(0); }
+    close(pf[1]);
+    size_t k = 0; ssize_t r; while (k + 1 < n && (r = read(pf[0], buf + k, n - 1 - k)) > 0) k += (size_t)r;
+    buf[k] = 0; close(pf[0]);
+    int st = 0; waitpid(pid, &st, 0);
+    return WIFEXITED(st) ? WEXITSTATUS(st) : 128 + WTERMSIG(st);
+}
+static void sub_range_body(void *a) { (void)a; (void)vpe_sub(0, vpe_npe() + 1); }
+static void sub_slot_body(void *a) { (void)a; (void)vpe_sub_slot(0, 2, 16); }
+static void stages_body(void *a) { (void)a; vpe_stages_check(); }
+static void dup_body(void *a) { int g0 = ((int *)a)[0]; (void)comm_xshmem_create_flat(g0, 2, 2); }   /* the id of the aligned run of 2 that probe created */
 
 /* ---- host part ---- */
 VPE_STATE(int, cnt); static int g_barrier_sum;
@@ -51,6 +74,15 @@ static void host_part(void)
     CHK(!strcmp(ec_log_prefix(), ""), "no prefix outside vpe_run");
     CHK(vpe_root() == 0 && vpe_node_leader() == 1, "root/leader on the main thread of node 2");
     vpe_set_nodes(0, 1);
+    {   /* vpe_sub argument checks (before any communicator exists), in children: fatal rc 3 + text; a PE outside the run gets NULL */
+        char b[512]; int rc = in_child(sub_range_body, 0, b, sizeof b);
+        CHK(rc == 3 && strstr(b, "outside the"), "vpe_sub out of range: rc %d text '%s'", rc, b);
+        rc = in_child(sub_slot_body, 0, b, sizeof b);
+        CHK(rc == 3 && strstr(b, "outside the"), "vpe_sub slot 16: rc %d text '%s'", rc, b);
+        vpe_set_nodes(1, 2);                             /* PE 4 (L = 4): outside the run [0, 2) */
+        CHK(vpe_sub(0, 2) == 0, "vpe_sub NULL for a PE outside the run");
+        vpe_set_nodes(0, 1);
+    }
     printf("t_vpe: host part: %d lanes, identity, prefix: done\n", L);
 }
 
@@ -117,6 +149,11 @@ static void comm_body(void *unused)
         int g = sizes[i]; if (g > npe) continue;
         if (g <= L && (L % g) == 0) partition(g, "node subgroup"); else partition(g, "run");
     }
+    if (g_mode_all && vpe_idx() == 0 && npe >= 2 && L >= 2) {   /* the same communicator id twice on one PE: fatal "used twice" (the child dies before any message) */
+        char b[512]; int g0 = vpe_pe() / 2 * 2; comm *c2 = vpe_sub(g0, 2); (void)c2;
+        int rc = in_child(dup_body, &g0, b, sizeof b);
+        CHK(rc == 3 && strstr(b, "used twice"), "duplicate id: rc %d text '%s'", rc, b);
+    }
     /* the tree's group schedule for this PE count (mn_groups_parse in PE units), every level's group built and exercised */
     if (g_mode_all) {
         int gs[32]; int nl = mn_groups_parse(npe, gs, 31);
@@ -137,8 +174,11 @@ int main(int argc, char **argv)
     const char *mode = argc > 1 ? argv[1] : "all";
     g_mode_probe = !strcmp(mode, "probe"); g_mode_all = !strcmp(mode, "all");
     if (!strcmp(mode, "stages")) {
-        if (!vpe_on()) { printf("t_vpe stages: run with ECALC_VPE=1\n"); return 2; }
-        vpe_stages_check(); printf("t_vpe stages: no abort (all stages merged)\n"); return 0;
+        setenv("ECALC_VPE", "1", 1);
+        char b[512]; int rc = in_child(stages_body, 0, b, sizeof b), want = (VPE_S_ALL & ~VPE_STAGES_MERGED) ? 3 : 0;
+        CHK(rc == want, "stages: rc %d want %d (text '%s')", rc, want, b);
+        CHK(!want || strstr(b, "ECALC_VPE: stages") && strstr(b, "not merged"), "stages text '%s'", b);
+        printf("t_vpe stages: %s (%d checks)\n", g_fail ? "FAILED" : "OK", g_checks); return g_fail != 0;
     }
     if (!g_mode_all && !g_mode_probe && strcmp(mode, "host")) { printf("usage: t_vpe [all|probe|host|stages]\n"); return 2; }
     vpe_set_forced(VPE_S_A);

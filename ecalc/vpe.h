@@ -62,7 +62,11 @@ void vpe_node_barrier(void);                            /* barrier over the vPE 
 /* the PE communicators (mn.c; collective over their members, creation is local: no message).  vpe_comm: all PEs, rank = PE, created by mn_init.
  * vpe_sub(g0, g): the PEs [g0, g0 + g) (PE units), NULL for a PE outside; cached per vPE; the whole run returns vpe_comm().  Aligned power-of-two runs
  * (g0 % g == 0) and any contiguous run (3, 6, 12 ...) work.  The id of a run follows from (g0, g): one id per size per PE, so two different runs of
- * the same size that share a PE need vpe_sub_slot (slot 1..15 = another id), or the creation is a fatal "id used twice". */
+ * the same size that share a PE need vpe_sub_slot (slot 1..15 = another id), or the creation is a fatal "id used twice".  Runs that are not an aligned
+ * power of two support g < 64 and slot < 4 (fatal otherwise; ids are collision-free over the domain).  Destruction (mn_finalize) is collective and goes by
+ * descending id.
+ * CAVEAT for S1b..S1e: under ECALC_VPE, mn_comm(apu) IGNORES apu and returns the calling vPE's flat comm; OpenMP workers inside a vPE thread are NOT
+ * adopted (vpe_idx() = 0 there).  Do not call mn_comm(d) from omp num_threads(NA) regions: take the communicator in the vPE thread and pass it in. */
 comm *vpe_comm(void);
 comm *vpe_sub(int g0, int g);
 comm *vpe_sub_slot(int g0, int g, int slot);

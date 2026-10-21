@@ -23,13 +23,15 @@ double mem_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); re
 
 /* S1a: with ECALC_VPE the device's NUMA node comes from its PCI function (hipDeviceGetPCIBusId, sysfs numa_node: the pe_geo.c chain), so a
  * PE's pinning follows its GPU wherever the node numbers it; off: node == device (unchanged).  Unknown (no sysfs value): the device index. */
-static int g_numa_pci;
+static int g_numa_pci = -1;                      /* -1: not decided yet (decided from ECALC_VPE here, so no pinning can run before it is set) */
 void mem_set_numa_pci(int on) { g_numa_pci = on; }
 int mem_numa_node_of_device(int dev)
 {
-    if (!g_numa_pci || dev < 0 || dev >= 64) return dev;
-    static int cache[64]; static int have[64];
-    if (have[dev]) return cache[dev] - 1;
+    int pci = __atomic_load_n(&g_numa_pci, __ATOMIC_ACQUIRE);
+    if (pci < 0) { const char *e = getenv("ECALC_VPE"); pci = e && atoi(e) != 0; __atomic_store_n(&g_numa_pci, pci, __ATOMIC_RELEASE); }
+    if (!pci || dev < 0 || dev >= 64) return dev;
+    static int cache[64]; static int have[64];       /* published by a release store of have[], read with acquire (mn_init_vpe also primes every device single-threaded) */
+    if (__atomic_load_n(&have[dev], __ATOMIC_ACQUIRE)) return cache[dev] - 1;
     int node = dev; char bus[32], path[96];
     if (hipDeviceGetPCIBusId(bus, sizeof bus, dev) == hipSuccess) {
         for (char *c = bus; *c; c++) if (*c >= 'A' && *c <= 'F') *c += 'a' - 'A';
@@ -38,7 +40,7 @@ int mem_numa_node_of_device(int dev)
         if (f) { if (fscanf(f, "%d", &v) != 1) v = -1; fclose(f); }
         if (v >= 0) node = v;
     }
-    cache[dev] = node + 1; have[dev] = 1;
+    cache[dev] = node + 1; __atomic_store_n(&have[dev], 1, __ATOMIC_RELEASE);
     return node;
 }
 

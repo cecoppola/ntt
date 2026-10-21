@@ -83,6 +83,7 @@ question open, and killed runs have been followed by nodes draining for a reboot
 | anything in `ecalc/` | gate, 1 node; plus 2 nodes for multi-node code (comm, `mn*`, `rns_dist.c`, `newton_db.c` sharded paths, output) |
 | the engine (NTT, CRT, products, binary splitting, Newton, memory layout) | `mnaccept.sh <hold> --only unit,e9` plus the touched steps (`mn`, `grid`, `ckpt`, `recheck`, `corr`); `t_newton`, `t_mul`; 4 × 10¹⁰ digits identical to the reference; `ecalc/mem_model.py --check-c` exact if sizing changed |
 | switches or defaults | `tools/switch_registry.py --check`; the switch row in `ecalc/README.md` |
+| virtual PEs (`ecalc/vpe.{h,c}`, the `vpe_*` part of `mn.c`, `ECALC_VPE`) | `tests/t_vpe host` and `ECALC_VPE=1 tests/t_vpe stages` (no GPU work; login node is enough; both check the fatal paths in forked children); `tests/t_vpe all` and `probe` with `COMM_TRANSPORT=xshmem XSHMEM_LOOPBACK_PES=4` (`make XSHMEM=ofi`) at 1, 2 and 3 nodes, one process per node (4, 8, 12 PEs; prints `T_VPE_RESULT PASS`); the switch-off path must stay byte-identical (gate at 1 node, digits and log text) |
 | the xshmem layer (`xshmem*.{h,c}`, `comm_xshmem.c`, `pe_geo.c`) | build `make XSHMEM=ofi` (needs `OFI=1`); `tests/t_pe_geo` (host only); `tests/t_xshmem` at 1, 2 and 3 nodes x 4 PEs (sections `basic exch deadlock layer limit`); then the gate at 1 node and at 2 nodes with `COMM_TRANSPORT=xshmem` (digits identical, with and without `XSHMEM_ROUND_MB=128`) and `mnaccept.sh <hold> --only mn` with `MNACCEPT_ENV="COMM_TRANSPORT=xshmem"` (`results/XSHMEM.md` §5-6) |
 | speed claims | the timing method in section 6, on top of the above |
 
@@ -90,7 +91,7 @@ question open, and killed runs have been followed by nodes draining for a reboot
 
 Local unit tests are `ecalc/tests/t_*.c`, built by `make` in `ecalc/` (`make tests/t_<name>`), one GMP-checked program per
 module (`t_ntt`, `t_ntt3`, `t_modarith`, `t_primes`, `t_crt`, `t_mul`, `t_dbig`, `t_bs`, `t_newton`, `t_dist`, `t_mn_grid`,
-`t_p24`, `t_verify`, `t_out`, `t_patch`, `t_comm`, …). Run one inside a one-node allocation with 4 GPUs (or `mnaccept.sh <hold> --only unit` for the standard set):
+`t_p24`, `t_verify`, `t_out`, `t_patch`, `t_comm`, `t_vpe`, …). Run one inside a one-node allocation with 4 GPUs (or `mnaccept.sh <hold> --only unit` for the standard set):
 
     srun --jobid=<hold> -N1 --gpus=4 --overlap ./tests/t_ntt 24            # arguments are the test's size
     srun --jobid=<hold> -N1 --gpus=4 --overlap ./ref/gen_e 1000000000 ref  # reference digits by GMP
