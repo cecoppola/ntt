@@ -83,7 +83,7 @@ int vpe_lanes(void)
             int sp = slurm_ppn(); l = sp > 0 ? sp : (e && *e ? atoi(e) : 0);
             if (l < 1) ec_fatal(EC_RC_FATAL, "ECALC_PE_PER_GPU=1: the PEs per node are unknown (srun --ntasks-per-node sets SLURM_NTASKS_PER_NODE)\n");
             if (sp > 0 && e && *e && atoi(e) != sp) ec_fatal(EC_RC_FATAL, "ECALC_PE_PER_GPU=1: ECALC_VPE_LANES=%s but the launch has %d tasks per node\n", e, sp);
-            if (g_ppg_local < 0 || g_ppg_local >= l) ec_fatal(EC_RC_FATAL, "ECALC_PE_PER_GPU=1: SLURM_LOCALID=%d outside the %d PEs per node (one process per PE needs srun)\n", g_ppg_local, l);
+            if ((g_ppg_local < 0 || g_ppg_local >= l) && !getenv("MN_PLAN_ONLY") && !getenv("BS_LAYOUT_ONLY")) ec_fatal(EC_RC_FATAL, "ECALC_PE_PER_GPU=1: SLURM_LOCALID=%d outside the %d PEs per node (one process per PE needs srun)\n", g_ppg_local, l);
         } else l = e ? atoi(e) : 4;
         if (l < 1 || l > VPE_MAX) ec_fatal(EC_RC_FATAL, "ECALC_VPE_LANES=%s: 1..%d\n", e ? e : "", VPE_MAX);
         g_lanes = l;
