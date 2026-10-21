@@ -31,6 +31,10 @@
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define NR 4
+/* S1b (vPE, ECALC_VPE=1): the mn tier counts PEs as its nodes -- one APU (this PE's device vpe_lane()) per node, so a group of g PEs has nr = g ranks (rho = me) and
+ * one mesh (d = 0); off, the four APU threads of a node: NL() = 4, LD(d) = d.  d below is always the MESH index, LD(d) the DEVICE. */
+#define NL() (vpe_on() ? 1 : NR)
+#define LD(d) (vpe_on() ? vpe_lane() + (d) : (d))
 #define DIST_LOGN_MAX 31
 /* the plane cap; DIST_LOGN_TEST lowers it (tests only) so the grid split runs at small sizes */
 static int g_cap_test;                                        /* Phase 12 G: rns_dist_cap_test -- the tree's own forced cap (MN_TREE_LOGN_TEST), 0 = DIST_LOGN_TEST / the default */
@@ -78,11 +82,18 @@ static struct rank_state RS[NR];
 static int g_init;
 struct rns_dist_stats rns_dist_st;
 
+static void rank_init(int r);
+/* the rank states this process needs: all four devices (off), or this PE's own (vPE) */
+static void ranks_ready(void)
+{
+    if (vpe_on()) { if (!RS[vpe_lane()].s) { rank_init(vpe_lane()); dist_st.on = getenv("DIST_STATS") != 0; } return; }
+    if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
+}
 static void rank_init(int r)
 {
     struct rank_state *v = &RS[r];
     HIP_CHECK(hipSetDevice(r));
-    v->cm = comm_xgmi_create(r);
+    v->cm = vpe_on() ? 0 : comm_xgmi_create(r);           /* S1b: under vPE there is no node-local xGMI mesh -- the flat PE communicator carries every exchange */
     for (int p = 0; p < EC_NP; p++) v->ctx[p] = ntt_ctx_create(p);
     HIP_CHECK(hipStreamCreate(&v->s));
 }
@@ -959,6 +970,7 @@ static int dist_gen_forced(void) { static int v = -1; if (v < 0) { const char *e
 /* the layered communicator of the group over mesh d: all g nodes (rank rho = g d + r) */
 static comm *lay_get(mn_group *G, int d)
 {
+    if (vpe_on()) return G->all[0];                            /* S1b: the flat PE communicator is the transform's (no layered mesh) */
     if (!G->lay[d]) {
         G->lay[d] = comm_layered_create(RS[d].cm, G->all[d], d);
         if (comm_layered_inter2_on()) comm_layered_set_inter2(G->lay[d], mn_mesh2(G, d, 0));   /* X2: collective over the group's nodes (all call lay_get for the same product) */
@@ -1001,7 +1013,7 @@ static void redistribute_i(const struct mn_ctx *X, const mdbv *op, struct rdst *
     seg_tables(X, op, d, ss, rs, &stot, &rtot, &S);
     size_t *scnt = o->cnt, *sdsp = scnt + g, *rcnt = sdsp + g, *rdsp = rcnt + g;
     seg_bytes(ss, g, scnt, sdsp); seg_bytes(rs, g, rcnt, rdsp);
-    o->sb = db_pool_alloc(d, (stot + 16) * 8); o->rb = db_pool_alloc(d, (rtot + 16) * 8);
+    o->sb = db_pool_alloc(LD(d), (stot + 16) * 8); o->rb = db_pool_alloc(LD(d), (rtot + 16) * 8);
     o->tend = rtot;
     if (stot) {
         size_t lo, hi; view_share(op, X->node, &lo, &hi);
@@ -1013,12 +1025,14 @@ static void redistribute_i(const struct mn_ctx *X, const mdbv *op, struct rdst *
     }
     HIP_SYNC(s);
     { int xk_ = comm_xtag_set(XK_REDIST); comm_alltoallv(X->G->all[d], o->sb, scnt, sdsp, o->rb, rcnt, rdsp, s); comm_xtag_set(xk_); } comm_wait(X->G->all[d]);
-    db_pool_free(d, o->sb); o->sb = 0;
+    db_pool_free(LD(d), o->sb); o->sb = 0;
 }
 /* the (carry, propagate) flags of the g nodes' shares, all-gathered over the group's mesh 0 (one byte per node, host
  * point-to-point: write to all, then read from all), and the scan: carry into node r = c_{r-1} | (p_{r-1} & carry into r-1);
  * returns the carry into this node, and aborts on a carry out of the last node (the fixed-length sum overflowed) */
-static int g_top_ok;                                          /* Phase 10 A5: a truncated product (basis w): the carry out of the top node is dropped (mod B^w) */
+VPE_STATE(int, top_ok);
+#define g_top_ok VPE(top_ok)               /* S1b: per vPE (the truncated product's flag is set by mn_grid on the PE's own thread) */
+/* Phase 10 A5: a truncated product (basis w): the carry out of the top node is dropped (mod B^w) */
 static int node_carry_in(mn_group *G, int c, int p)
 {
     comm *cm = G->all[0]; int g = G->g, me = G->me, cin = 0;
@@ -1084,7 +1098,7 @@ struct rkt { size_t off, i0, n; };
 struct gplan { int K, nr, logR, logC; size_t R, C, rows, row0, cols, qs, qr; struct rkt *hT, *dT; size_t *regs, *regr, *fsc, *fsd, *frc, *frd; };
 static void gplan_build(struct gplan *p, int g, int rho, int logR, int logC, int d)
 {
-    int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC;
+    int nr = NL() * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC;
     p->nr = nr; p->logR = logR; p->logC = logC; p->R = R; p->C = C;
     p->rows = partn(R, nr, rho); p->row0 = part0(R, nr, rho); p->cols = partn(C, nr, rho);
     p->qs = p->rows * C; p->qr = p->cols * R;
@@ -1229,7 +1243,7 @@ static void gen_inv_pw(const struct gplan *p, const dist_plan *pl, ntt_ctx *ctx,
 /* the plane's shape for nc limbs over g nodes: logn, logR, logC, and the largest per-rank plane (limbs) */
 static void mn_shape(size_t nc, int g, int *logn_, int *logR_, int *logC_, size_t *qmax)
 {
-    int nr = 4 * g, lg = 0; while ((1 << lg) < nr) lg++;
+    int nr = NL() * g, lg = 0; while ((1 << lg) < nr) lg++;
     int logn = 0; while (((size_t)1 << logn) < nc) logn++;
     int logmin = 2 * (5 + lg); if (logmin < 20) logmin = 20;   /* rows >= 32, R, C >= 2^10 */
     if (logn < logmin) logn = logmin;
@@ -1244,7 +1258,7 @@ static int mn_logn_cap(int g)
 {
     int lgt = 0; while ((2 << lgt) <= g) lgt++;
     int c = dist_logn_max(); if (rns_pool_log() < c) c = rns_pool_log();
-    int logn = c + lgt;
+    int logn = c + lgt - (vpe_on() ? 2 : 0);              /* S1b: one rank plane q = 2^(c - 2) per PE, nr = g ranks: n = g q */
     if (!is_pow2(g)) {
         int ln, lr, lc; size_t qm, qcap = rns_q_slot(c);                       /* MN_NONPOW2_CAP: the pools' q (43/32 larger), else 2^(c - 2) as before */
         mn_shape((size_t)1 << logn, g, &ln, &lr, &lc, &qm);
@@ -1293,7 +1307,7 @@ static void mn_round_add(struct mn_rounds *rd, mdb *Cn, dbig *T, size_t wlo, siz
             rd->cy = 0;
         } else db_zero_fill(T, tcap);
     }
-    for (int d = 0; d < NR; d++) { db_pool_free(d, spill_rb[d]); db_pool_free(d, sptab_d[d]); }
+    for (int d = 0; d < NL(); d++) { db_pool_free(LD(d), spill_rb[d]); db_pool_free(LD(d), sptab_d[d]); }
 }
 /* the core of one plane: C's shares += (A B (+ X)) << shift.  direct: shift 0, the piece is the whole product (X allowed),
  * the rows go straight into C's zero-filled shares (M3's path, bit for bit).  Otherwise the rows go into a temporary T
@@ -1305,7 +1319,7 @@ static void mn_round_add(struct mn_rounds *rd, mdb *Cn, dbig *T, size_t wlo, siz
  * chosen for P).  No added operand, no P24. */
 static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t shift, int direct, struct mn_times *tm, int slA, int slB, int p24, size_t cyc)
 {
-    int g = G->g, me = G->me, nr = 4 * g, node = G->g0 + me, verbose = getenv("RNS_VERBOSE") != 0;
+    int g = G->g, me = G->me, nr = NL() * g, node = G->g0 + me, verbose = getenv("RNS_VERBOSE") != 0;
     int gen = !is_pow2(g) || dist_gen_forced();                /* the general transform (unequal parts) or ntt_dist's pipelined one */
     size_t na = A->len, nb = B->len, nc = na + nb, Np = cyc ? cyc + 4 : nc + (X ? 1 : 0);   /* P1: the cyclic plane's value spans [0, P + 4) */
     if (!na || !nb) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: a zero operand\n"); }
@@ -1322,7 +1336,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     const int np = p24 ? 4 : ec_np_prod(cyc ? cyc : nc, "mn_core");   /* Phase 13a P3: three primes -- decimal limbs, within the bound; Phase 15 NP: ECALC_NP=auto -- four over the bound; P24: four (INT3: the two composed) */
     size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC;
     double t0 = mem_now();
-    if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
+    ranks_ready();
     struct mn_ctx X0 = { G, node, g, nr, R, C, n }; X0.p24 = p24;
     mdbv Xv = { X, 0, X ? X->n : 0 };
     /* A1 over shares: an operand whose transform is cached skips its redistribution, gathers and forward transforms on every
@@ -1347,27 +1361,27 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     dbig T; db_init(&T); dbig *dst = direct ? &Cn->sh : &T;
     if (!direct && tn && !chunked) db_zero_fill(&T, tn);         /* (chunked: T of one chunk, allocated after the operands, below) */
     size_t rbo_max[NR] = {0};                                 /* Phase 13a M: the result exchange's rbO per APU, the largest round */
-    const uint64_t *sp[NR]; uint64_t *spill_rb[NR]; const size_t *sptab[NR]; size_t *sptab_d[NR];
+    const uint64_t *sp[NR] = { 0 }; uint64_t *spill_rb[NR] = { 0 }; const size_t *sptab[NR] = { 0 }; size_t *sptab_d[NR] = { 0 };   /* (vPE: index 0 only) */
     double tr[NR] = {0}, tf[NR] = {0}, tc[NR] = {0}, to[NR] = {0};
     struct gconst gc = rns_gconst(); gc.np = np;               /* NP: the CRT of this product's primes */
     uint64_t c18[EC_NP][3]; for (int p = 0; p < EC_NP; p++) p24_c18(p, c18[p]);   /* P24: 10^(18 - s) mod p (the gathers) */
-#pragma omp parallel num_threads(NR)
+#pragma omp parallel num_threads(NL())
     {
-        int d = omp_get_thread_num(); struct rank_state *v = &RS[d]; hipStream_t s = v->s; int rho = g * d + me;
-        HIP_CHECK(hipSetDevice(d));
+        int d = omp_get_thread_num(), dv = LD(d); struct rank_state *v = &RS[dv]; hipStream_t s = v->s; int rho = g * d + me;
+        HIP_CHECK(hipSetDevice(dv));
         size_t rows = partn(R, nr, rho), qs = rows * C, a0 = part0(R, nr, rho);   /* my rows and sequence length (= q for a power-of-two g); a0 my first row (P24) */
         struct rdst oA, oB, oX; memset(&oA, 0, sizeof oA); memset(&oB, 0, sizeof oB); memset(&oX, 0, sizeof oX);
         struct seg *hseg = (struct seg *)malloc(8 * g * sizeof *hseg), *hsO = hseg + 6 * g, *hsI = hseg + 7 * g;
-        struct seg *dseg = (struct seg *)db_pool_alloc(d, 8 * g * sizeof *hseg + 64), *dsI = dseg + 7 * g;
+        struct seg *dseg = (struct seg *)db_pool_alloc(dv, 8 * g * sizeof *hseg + 64), *dsI = dseg + 7 * g;
         size_t *cnt = (size_t *)malloc(23 * g * sizeof *cnt), *ocnt = cnt + 12 * g, *pcnt = cnt + 16 * g, *htab = cnt + 20 * g;   /* Phase 12 G: pcnt (4 g) and htab (3 g) for the spill exchange */
         oA.hs = hseg; oA.ds = dseg; oA.cnt = cnt; oB.hs = hseg + 2 * g; oB.ds = dseg + 2 * g; oB.cnt = cnt + 4 * g; oX.hs = hseg + 4 * g; oX.ds = dseg + 4 * g; oX.cnt = cnt + 8 * g;
         comm *cl = lay_get(G, d);
         /* (Phase 14 P2's DIST_MN_SYM_SLABS=1, the slabs and scratch in the transport's symmetric pool, was removed 2026-10-12: not the
          * design, results/SHMEM_ITEMS.md §P214) */
-        uint64_t *cx = X ? db_pool_alloc(d, q * 8) : 0, *tmp = gen ? 0 : db_pool_alloc(d, q * 8);
+        uint64_t *cx = X ? db_pool_alloc(dv, q * 8) : 0, *tmp = (gen || vpe_on()) ? 0 : db_pool_alloc(dv, q * 8);   /* (vPE: the flat communicator needs no layered scratch) */
         /* A1: the cache planes of A and B on this rank: cache_pl(slA / slB, d, p, q) for primes p < kA / kB (Phase 15 PC) */
         /* planes: xa[4] in pool 0, xb (q + 16: the CRT's carry limb) | sbuf | rbuf in pool 1 */
-        uint64_t *pl = (uint64_t *)rns_dpool(d, 0, (size_t)np * q * 8), *p1 = (uint64_t *)rns_dpool(d, 1, (size_t)(3 * q + 16) * 8);
+        uint64_t *pl = (uint64_t *)rns_dpool(dv, 0, (size_t)np * q * 8), *p1 = (uint64_t *)rns_dpool(dv, 1, (size_t)(3 * q + 16) * 8);
         uint64_t *xa[EC_NP] = { 0 }, *xb = p1, *sl = p1 + q + 16, *xt = sl;
         for (int p = 0; p < np; p++) xa[p] = pl + (size_t)p * q;
         if (comm_rank(cl) != rho || comm_size(cl) != nr) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: layered rank %d/%d, expected %d/%d\n", comm_rank(cl), comm_size(cl), rho, nr); }
@@ -1379,14 +1393,14 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
                 v->plan[p].logR = logR; v->plan[p].logC = logC; v->plan[p].built = 1; v->plan[p].cm = cl; v->plan[p].sl = sl;
             }
         }
-        struct gplan gp; if (gen) gplan_build(&gp, g, rho, logR, logC, d);
+        struct gplan gp; if (gen) gplan_build(&gp, g, rho, logR, logC, dv);
         double s0 = mem_now();
         /* A: every node packs and exchanges; every rank gathers its rows for the four primes */
         if (ha < 0 && p24) {                                /* P24: A's points from its in-runs; A's sequence freed before B's (the operands' peak max(A, B)) */
             redistribute(&X0, A, &oA, d, s);
             struct p24_c18s cs; for (int p = 0; p < EC_NP; p++) for (int i = 0; i < 3; i++) cs.c[3 * p + i] = c18[p][i];
             k_gather_mn24_np<<<nblk(qs), 256, 0, s>>>(xa[0], xa[1], xa[2], xa[3], np, oA.rb, oA.tend, R, C, a0, rows, ec_mod_get(0), ec_mod_get(1), ec_mod_get(2), ec_mod_get(3), cs);   /* the four planes in one pass */
-            HIP_SYNC(s); db_pool_free(d, oA.rb); oA.rb = 0;
+            HIP_SYNC(s); db_pool_free(dv, oA.rb); oA.rb = 0;
         } else if (ha < 0) {
             redistribute(&X0, A, &oA, d, s);
             for (int p = 0; p < np; p++) k_gather_mn<<<nblk(qs), 256, 0, s>>>(xa[p], oA.rb, oA.tend, rows, C, ec_mod_get(p), 1, 1);
@@ -1396,13 +1410,13 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
                 if (p24) k_gather_mn24<<<nblk(qs), 256, 0, s>>>(xa[p], oA.rb, oA.tend, R, C, a0, rows, ec_mod_get(p), c18[p][0], c18[p][1], c18[p][2]);
                 else k_gather_mn<<<nblk(qs), 256, 0, s>>>(xa[p], oA.rb, oA.tend, rows, C, ec_mod_get(p), 1, 1);
             }
-            if (p24) { HIP_SYNC(s); db_pool_free(d, oA.rb); oA.rb = 0; }   /* (as the P24 miss: A's sequence freed before B's) */
+            if (p24) { HIP_SYNC(s); db_pool_free(dv, oA.rb); oA.rb = 0; }   /* (as the P24 miss: A's sequence freed before B's) */
             for (int p = 0; p < kA; p++) HIP_CHECK(hipMemcpyAsync(xa[p], cache_pl(slA, d, p, q), q * 8, hipMemcpyDeviceToDevice, s));
         } else for (int p = 0; p < np; p++) HIP_CHECK(hipMemcpyAsync(xa[p], cache_pl(slA, d, p, q), q * 8, hipMemcpyDeviceToDevice, s));   /* A hit: the product forms over a copy */
         if (!bfull) redistribute(&X0, B, &oB, d, s);
         if (X) { redistribute(&X0, &Xv, &oX, d, s); k_gather_mn<<<nblk(qs), 256, 0, s>>>(cx, oX.rb, oX.tend, rows, C, ec_mod_get(0), 0, 0); }
         HIP_SYNC(s);
-        if (oA.rb) { db_pool_free(d, oA.rb); oA.rb = 0; } if (oX.rb) { db_pool_free(d, oX.rb); oX.rb = 0; }
+        if (oA.rb) { db_pool_free(dv, oA.rb); oA.rb = 0; } if (oX.rb) { db_pool_free(dv, oX.rb); oX.rb = 0; }
         double s1 = mem_now(); tr[d] = s1 - s0;
         int phf_ = ec_ph(EC_PH_RD_FWD);
         for (int p = 0; p < np; p++) {
@@ -1422,8 +1436,8 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             HIP_SYNC(s);
         }
         ec_ph(phf_);
-        if (oB.rb) { db_pool_free(d, oB.rb); oB.rb = 0; }
-        if (gen) comm_layered_release_vslots(cl);           /* M3 v-slot release (comm_layered.c): the v-exchanges of this product are all waited for; the pool's slots go before the staged result exchange (no-op otherwise) */
+        if (oB.rb) { db_pool_free(dv, oB.rb); oB.rb = 0; }
+        if (gen && !vpe_on()) comm_layered_release_vslots(cl);           /* M3 v-slot release (comm_layered.c): the v-exchanges of this product are all waited for; the pool's slots go before the staged result exchange (no-op otherwise) */
         double s2 = mem_now(); tf[d] = s2 - s1;
         int phc_ = ec_ph(EC_PH_RD_CRT);
         for (int p = 0; p < np; p++) {
@@ -1432,7 +1446,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             HIP_CHECK(hipMemcpyAsync(xa[p], xt, qs * 8, hipMemcpyDeviceToDevice, s));
         }
         struct bdesc hd = { 0, 0, cx, xb, (uint32_t)qs, 0, (uint32_t)(cx ? qs : 0) };
-        struct bdesc *dd = (struct bdesc *)dpool_get(&v->desc, d, sizeof hd);
+        struct bdesc *dd = (struct bdesc *)dpool_get(&v->desc, dv, sizeof hd);
         HIP_CHECK(hipMemcpyAsync(dd, &hd, sizeof hd, hipMemcpyHostToDevice, s));
         if (v->spill_cap < C) { if (v->spill) HIP_CHECK(hipFree(v->spill)); v->spill_cap = C + 16; HIP_CHECK(hipMalloc(&v->spill, v->spill_cap * 4 * 8)); }
         if (p24) {                                          /* P24: the CRT into my out-run sequence (<= 4 qs / 3 + 2 C limbs: xb and the idle slabs of pool 1, 3 q + 16) */
@@ -1453,7 +1467,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
 #pragma omp barrier
 #pragma omp single
           { if (tn) db_zero_fill(&T, tn < Wt ? tn : Wt); }
-          HIP_CHECK(hipSetDevice(d));
+          HIP_CHECK(hipSetDevice(dv));
         }
         for (int rc = 0; rc < Kt; rc++) {
         int phq_ = ec_ph(EC_PH_RD_RESULT);
@@ -1470,7 +1484,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
                                         else { hsI[r].t0 = seq_start(lo, R, nr, rr); hsI[r].t1 = seq_start(hi, R, nr, rr); }
                                         hsI[r].off = rtot; rtot += hsI[r].t1 - hsI[r].t0; if (hsI[r].t1 - hsI[r].t0 > S) S = hsI[r].t1 - hsI[r].t0; }
           seg_bytes(hsO, g, scnt, sdsp); seg_bytes(hsI, g, rcnt, rdsp);
-          uint64_t *rbO = db_pool_alloc(d, (rtot + 16) * 8); if ((rtot + 16) * 8 > rbo_max[d]) rbo_max[d] = (rtot + 16) * 8;
+          uint64_t *rbO = db_pool_alloc(dv, (rtot + 16) * 8); if ((rtot + 16) * 8 > rbo_max[d]) rbo_max[d] = (rtot + 16) * 8;
           double s3 = mem_now();
           { int xk_ = comm_xtag_set(XK_RESULT); comm_alltoallv(G->all[d], xb, scnt, sdsp, rbO, rcnt, rdsp, s); comm_xtag_set(xk_); } comm_wait(G->all[d]);
           if (wn && rtot) { HIP_CHECK(hipMemcpyAsync(dsI, hsI, g * sizeof *hsI, hipMemcpyHostToDevice, s));
@@ -1489,28 +1503,28 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             for (int r = 0; r < g; r++) { size_t j0, j1;
                                           if (p24) p24_spill_cols(wlo, whi, part0(R, nr, g * d + r + 1), R, C, &j0, &j1); else spill_cols(wlo, whi, part0(R, nr, g * d + r + 1), R, C, &j0, &j1);
                                           htab[3 * r] = j0; htab[3 * r + 1] = j1; htab[3 * r + 2] = blocks; rcnt2[r] = (j1 - j0) * 4 * 8; rdsp2[r] = blocks * 4 * 8; blocks += j1 - j0; }
-            spill_rb[d] = db_pool_alloc(d, (blocks * 4 + 16) * 8); sptab_d[d] = (size_t *)db_pool_alloc(d, 3 * (size_t)g * 8 + 64);
+            spill_rb[d] = db_pool_alloc(dv, (blocks * 4 + 16) * 8); sptab_d[d] = (size_t *)db_pool_alloc(dv, 3 * (size_t)g * 8 + 64);
             HIP_CHECK(hipMemcpyAsync(sptab_d[d], htab, 3 * (size_t)g * 8, hipMemcpyHostToDevice, s)); HIP_SYNC(s);
             { int xk_ = comm_xtag_set(XK_SPILL); comm_alltoallv(G->all[d], v->spill, scnt2, sdsp2, spill_rb[d], rcnt2, rdsp2, s); comm_xtag_set(xk_); } comm_wait(G->all[d]);
             HIP_SYNC(s);
             sp[d] = spill_rb[d]; sptab[d] = sptab_d[d]; }
           to[d] += mem_now() - s3;
-          db_pool_free(d, rbO); ec_ph(phq_); }
+          db_pool_free(dv, rbO); ec_ph(phq_); }
         if (chunked) {
 #pragma omp barrier
 #pragma omp single
           mn_round_add(&rd, Cn, &T, wlo, wn, whi == thi, shift, clo, cn, sp, sptab, R, nr, C, g, spill_rb, sptab_d, tn < Wt ? tn : Wt, p24);
-          HIP_CHECK(hipSetDevice(d));                         /* (the single's db calls moved this thread's device) */
+          HIP_CHECK(hipSetDevice(dv));                         /* (the single's db calls moved this thread's device) */
         }
         }
-        if (cx) db_pool_free(d, cx);
-        db_pool_free(d, (uint64_t *)dseg); free(hseg); free(cnt);
-        if (gen) gplan_free(&gp, d);
-        if (tmp) { comm_layered_scratch(cl, 0, 0); db_pool_free(d, tmp); }
+        if (cx) db_pool_free(dv, cx);
+        db_pool_free(dv, (uint64_t *)dseg); free(hseg); free(cnt);
+        if (gen) gplan_free(&gp, dv);
+        if (tmp) { comm_layered_scratch(cl, 0, 0); db_pool_free(dv, tmp); }
     }
-    HIP_CHECK(hipSetDevice(0));
+    HIP_CHECK(hipSetDevice(LD(0)));
     /* the spills into the windows, then the carries across the nodes */
-    { size_t b = (T.cap ? T.cap * 8 : 0); for (int d = 0; d < NR; d++) b += rbo_max[d]; if (b > rns_dist_tscratch_max) rns_dist_tscratch_max = b; }   /* Phase 13a M: measured T + rbO */
+    { size_t b = (T.cap ? T.cap * 8 : 0); for (int d = 0; d < NL(); d++) b += rbo_max[d]; if (b > rns_dist_tscratch_max) rns_dist_tscratch_max = b; }   /* Phase 13a M: measured T + rbO */
     double t4 = mem_now(); int phk_ = ec_ph(EC_PH_RD_CARRY); int co = 0, pr = 1;                /* an empty window propagates (the windows tile the piece) */
     if (chunked) {                                            /* Phase 13a M: the rounds added the chunks into C; the two carry scans */
         if (rd.kc > 1) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: %d carries out of a share in one piece (the bound is 1)\n", rd.kc); }
@@ -1521,7 +1535,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     if (tn && p24) db_share_add_spills_x24(dst, tn, tlo, sp, sptab, R, C, g, &co, &pr);   /* P24: the blocks at L(R j + a) */
     else if (tn) db_share_add_spills_x(dst, tn, tlo, sp, sptab, R, R / nr, C, g, &co, &pr);   /* (rows = R / nr: dbig.c decodes the unequal parts when it does not divide) */
     share_carry_fix(G, dst, tn, co, pr);
-    for (int d = 0; d < NR; d++) { db_pool_free(d, spill_rb[d]); db_pool_free(d, sptab_d[d]); }
+    for (int d = 0; d < NL(); d++) { db_pool_free(LD(d), spill_rb[d]); db_pool_free(LD(d), sptab_d[d]); }
     }
     if (!direct && !chunked) {                                            /* C's share += T << (its window's offset); the carries across the nodes */
         co = 0; pr = cn == 0;
@@ -1531,7 +1545,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     }
     ec_ph(phk_);
     Cn->sh.n = cn;                                            /* the fixed-length adds set sh.n to their length */
-    double mr = 0, mf = 0, mc = 0, mo = 0; for (int d = 0; d < NR; d++) { if (tr[d] > mr) mr = tr[d]; if (tf[d] > mf) mf = tf[d]; if (tc[d] > mc) mc = tc[d]; if (to[d] > mo) mo = to[d]; }
+    double mr = 0, mf = 0, mc = 0, mo = 0; for (int d = 0; d < NL(); d++) { if (tr[d] > mr) mr = tr[d]; if (tf[d] > mf) mf = tf[d]; if (tc[d] > mc) mc = tc[d]; if (to[d] > mo) mo = to[d]; }
     double tcar = mem_now() - t4, tt = mem_now() - t0;
     rns_dist_st.n++; rns_dist_st.t_total += tt; rns_dist_st.t_load += mr; rns_dist_st.t_ntt += mf; rns_dist_st.t_crt += mc; rns_dist_st.t_merge += mo + tcar;
     tm->redistribute += mr; tm->ntt += mf; tm->crt += mc; tm->out += mo; tm->carry += tcar; tm->total += tt;
@@ -1568,7 +1582,7 @@ void mdb_norm(mdb *C, mn_group *G, size_t below)
  * low product X Q comes out in the corrections' basis without a re-sharding shift; pieces whose limbs end at or below
  * lowcut (oa + ob + len_a + len_b <= lowcut: the A_h mu product's pieces below k + 1, B3) are skipped as on one node.  A
  * skipped (0,0) piece just leaves the first formed piece on the accumulating path (C's shares start zero-filled). */
-static size_t mn_logmin(int g) { int nr = 4 * g, lg = 0; while ((1 << lg) < nr) lg++; int logmin = 2 * (5 + lg); return logmin < 20 ? 20 : logmin; }
+static size_t mn_logmin(int g) { int nr = NL() * g, lg = 0; while ((1 << lg) < nr) lg++; int logmin = 2 * (5 + lg); return logmin < 20 ? 20 : logmin; }
 /* ---- Phase 15 Batch 3 P24 (results/PRIMES_STRATEGY.md §P2415): four primes at 24 digits per transform point in the mn tier ------------------------
  * Every mn product runs P24 when pool 0 holds four planes (ECALC_NP=4, or auto where the run's largest group can form a four-prime
  * piece); else the 18-digit form.  (P24 as the 2-mode, the user's decision of 2026-09-29, built in 2026-10-12; its forms 0 = off and 1 = only the
@@ -1832,30 +1846,30 @@ size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t sh
         int ka = 1, kb = 1; mn_grid_shape(na, nb, g, 1, &ka, &kb);
         size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, nc = pa + pb; if (pieces) *pieces = ka * kb;
         int logn, logR, logC; size_t q; mn_shape(p24_pts(pa) + p24_pts(pb), g, &logn, &logR, &logC, &q);
-        int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = (R + nr - 1) / nr, rl = rows + rows / 3 + 2, qsl = rl * C;
+        int nr = NL() * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = (R + nr - 1) / nr, rl = rows + rows / 3 + 2, qsl = rl * C;
 #define RT24(len) ((((p24_pts(len)) + R - 1) / R + 1) * rl < qsl ? (((p24_pts(len)) + R - 1) / R + 1) * rl : qsl)
         size_t va = share_a < pa ? share_a : pa, vb = share_b < pb ? share_b : pb;
-        size_t sba = va / 4 + va / R * (size_t)g + 2 * (size_t)g * rl, sbb = vb / 4 + vb / R * (size_t)g + 2 * (size_t)g * rl;
+        size_t sba = va / NL() + va / R * (size_t)g + 2 * (size_t)g * rl, sbb = vb / NL() + vb / R * (size_t)g + 2 * (size_t)g * rl;
         size_t win = share_c < nc ? share_c : nc, tmp = is_pow2(g) ? q : 0;
         { size_t Wt = mn_t_chunk_limbs(); if (Wt && win > Wt) win = Wt; }
         size_t ia = RT24(pa) + sba, ib = RT24(pb) + sbb, peak1 = (ia > ib ? ia : ib) + tmp + 16 * (size_t)g;
-        size_t peak2 = win / 4 + 2 * (size_t)g * rl + 4 * C + 4 * (size_t)g + tmp;
+        size_t peak2 = win / NL() + 2 * (size_t)g * rl + 4 * C + 4 * (size_t)g + tmp;
 #undef RT24
-        return (peak1 > peak2 ? peak1 : peak2) * 8 + 32 * (size_t)g * 8 + ((win + 3) / 4 + 4095) / 4096 * 4096 * 8;
+        return (peak1 > peak2 ? peak1 : peak2) * 8 + 32 * (size_t)g * 8 + ((win + NL() - 1) / NL() + 4095) / 4096 * 4096 * 8;
     }
     int ka = 1, kb = 1; mn_grid_shape(na, nb, g, 0, &ka, &kb);
     size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, nc = pa + pb; if (pieces) *pieces = ka * kb;
     int logn, logR, logC; size_t q; mn_shape(nc, g, &logn, &logR, &logC, &q);
-    int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = (R + nr - 1) / nr, qs = rows * C;
+    int nr = NL() * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = (R + nr - 1) / nr, qs = rows * C;
 #define RT(len) ((((len) + R - 1) / R + 1) * rows < qs ? (((len) + R - 1) / R + 1) * rows : qs)   /* my sequence over an operand of len limbs */
     size_t va = share_a < pa ? share_a : pa, vb = share_b < pb ? share_b : pb;                  /* my part of a piece view */
-    size_t sb = (va > vb ? va : vb) / 4 + 2 * (size_t)g * rows;                                 /* the packed part on APU d's ranks */
+    size_t sb = (va > vb ? va : vb) / NL() + 2 * (size_t)g * rows;                                 /* the packed part on APU d's ranks */
     int xin = has_x && ka * kb == 1;                                                                /* X rides in the CRT only on one plane; a grid adds it afterwards (mdb_add_shifted: O(chunk)) */
     size_t win = share_c < nc ? share_c : nc, xq = xin ? q : 0, tmp = is_pow2(g) ? q : 0;
     { size_t Wt = mn_t_chunk_limbs(); if (Wt && win > Wt) win = Wt; }                             /* Phase 13a M: MN_T_CHUNK_MB -- rbO and T (and mdb_add_shifted's T) hold one chunk */
     size_t peak1 = RT(pa) + RT(pb) + (xin ? RT(nc) : 0) + sb + xq + tmp + 16 * (size_t)g;          /* the operands in: the sequences + one packed part + cx, tmp */
-    size_t peak2 = win / 4 + 2 * (size_t)g * rows + 4 * C + 4 * (size_t)g + xq + tmp;              /* the result out: rbO (my window's part), the spills, cx and tmp still held */
-    size_t bytes = (peak1 > peak2 ? peak1 : peak2) * 8 + 32 * (size_t)g * 8 + ((win + 3) / 4 + 4095) / 4096 * 4096 * 8;   /* + the tables, + T's quarter (the accumulating pieces) */
+    size_t peak2 = win / NL() + 2 * (size_t)g * rows + 4 * C + 4 * (size_t)g + xq + tmp;              /* the result out: rbO (my window's part), the spills, cx and tmp still held */
+    size_t bytes = (peak1 > peak2 ? peak1 : peak2) * 8 + 32 * (size_t)g * 8 + ((win + NL() - 1) / NL() + 4095) / 4096 * 4096 * 8;   /* + the tables, + T's quarter (the accumulating pieces) */
 #undef RT
     return bytes;
 }
@@ -1874,17 +1888,17 @@ size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t sh
  * its exchanges take the caller's scratch (tmp, from the block pool).  The plane is the grid's largest piece, as rns_mul_dist_mn_scratch. */
 static size_t vslot_shape(int logR, int logC, int g)
 {
-    int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rmin = R / nr;
+    int nr = NL() * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rmin = R / nr;
     int K = getenv("DIST_CHUNKS") ? atoi(getenv("DIST_CHUNKS")) : 8; if (K < 1) K = 1; if (K > 16) K = 16;   /* gplan_build's K */
     while (K > 1 && rmin / K < 32) K--;
-    size_t *rk = (size_t *)malloc((size_t)nr * sizeof(size_t)), colcol[4] = { 0, 0, 0, 0 }, need = 0;
-    for (int d = 0; d < 4; d++) for (int r = 0; r < g; r++) colcol[d] += partn(C, nr, g * d + r);
+    size_t *rk = (size_t *)malloc((size_t)nr * sizeof(size_t)), colcol[NR] = { 0 }, need = 0;
+    for (int d = 0; d < NL(); d++) for (int r = 0; r < g; r++) colcol[d] += partn(C, nr, g * d + r);
     for (int k = 0; k < K; k++) {
-        size_t tot = 0, rkcol[4] = { 0, 0, 0, 0 };
+        size_t tot = 0, rkcol[NR] = { 0 };
         for (int s = 0; s < nr; s++) { size_t rr = partn(R, nr, s); rk[s] = rr * (k + 1) / K - rr * k / K; tot += rk[s]; rkcol[s / g] += rk[s]; }
         for (int r = 0; r < g; r++) {
-            size_t srk = 0, scol = 0; for (int dd = 0; dd < 4; dd++) { srk += rk[g * dd + r]; scol += partn(C, nr, g * dd + r); }
-            for (int d = 0; d < 4; d++) {
+            size_t srk = 0, scol = 0; for (int dd = 0; dd < NL(); dd++) { srk += rk[g * dd + r]; scol += partn(C, nr, g * dd + r); }
+            for (int d = 0; d < NL(); d++) {
                 int rho = g * d + r;
                 size_t Af = srk * colcol[d] * 8, Bf = partn(C, nr, rho) * tot * 8, Ai = scol * rkcol[d] * 8, Bi = rk[rho] * C * 8;
                 size_t nf = Af + (Af > Bf ? Af : Bf) + 4, ni = Ai + (Ai > Bi ? Ai : Bi) + 4;
@@ -1912,8 +1926,8 @@ size_t rns_mul_dist_mn_vslot(size_t na, size_t nb, int g)
 /* Phase 14 P2 (results/SHMEM_ITEMS.md §P214): the SHMEM transport's staging for the same product, limbs per APU thread = the send + receive of
  * its largest staged exchange (comm_shmem.c stages every buffer outside its symmetric pool, per exchange, released after it; the
  * four APU threads run the same exchange at once, so the pool holds 4 of these): the result exchange (xb -> rbO: my rows of the
- * piece RT(nc), and my window's part win / 4), the redistribution of A or B (my share's part va / 4 + 2 g rows out, my rows RT(pa)
- * in), the transform's inter-node stage (q / 4 each way).  mem_model.py mn_stage is the same formula; measured to the MiB at 1e8 -
+ * piece RT(nc), and my window's part win / NL()), the redistribution of A or B (my share's part va / NL() + 2 g rows out, my rows RT(pa)
+ * in), the transform's inter-node stage (q / NL() each way).  mem_model.py mn_stage is the same formula; measured to the MiB at 1e8 -
  * 1e10 on 2 nodes and 1e9 - 1e10 on 4 processes.  *qmax = the product's plane q (DIST_MN_SYM_SLABS keeps 3 q per APU). */
 static const char *round_env(void) { const char *t = getenv("COMM_TRANSPORT"); return getenv(t && !strcmp(t, "xshmem") ? "XSHMEM_ROUND_MB" : "COMM_SHMEM_ROUND_MB"); }   /* the planner: the round size of the transport (xshmem: XSHMEM_ROUND_MB, 0 = whole-exchange staging) */
 size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t share_b, size_t share_c, size_t *qmax)
@@ -1925,15 +1939,15 @@ size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t
         int ka = 1, kb = 1; mn_grid_shape(na, nb, g, 1, &ka, &kb);
         size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, nc = pa + pb;
         int logn, logR, logC; size_t q; mn_shape(p24_pts(pa) + p24_pts(pb), g, &logn, &logR, &logC, &q); if (qmax) *qmax = q;
-        int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = (R + nr - 1) / nr, rl = rows + rows / 3 + 2, qsl = rl * C;
+        int nr = NL() * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = (R + nr - 1) / nr, rl = rows + rows / 3 + 2, qsl = rl * C;
 #define RT24(len) ((((p24_pts(len)) + R - 1) / R + 1) * rl < qsl ? (((p24_pts(len)) + R - 1) / R + 1) * rl : qsl)
 #define RMIN(x) (Rl0 ? ((x) / (size_t)g * (size_t)(g - 1) > Rl0 ? Rl0 : (x) / (size_t)g * (size_t)(g - 1)) : (x))
         size_t va = share_a < pa ? share_a : pa, vb = share_b < pb ? share_b : pb;
         size_t win = share_c < nc ? share_c : nc, send = RT24(nc);
-        { size_t Wt = mn_t_chunk_limbs(); if (Wt && win > Wt) { win = Wt; size_t sc = Wt / 4 + 2 * (size_t)g * rl; if (send > sc) send = sc; } }
-        size_t result = RMIN(send) + RMIN(win / 4);
-        size_t ra = RMIN(RT24(pa)) + RMIN(va / 4 + va / R * (size_t)g + 2 * (size_t)g * rl), rb = RMIN(RT24(pb)) + RMIN(vb / 4 + vb / R * (size_t)g + 2 * (size_t)g * rl), redist = ra > rb ? ra : rb;
-        size_t transform = 2 * RMIN(q / 4);
+        { size_t Wt = mn_t_chunk_limbs(); if (Wt && win > Wt) { win = Wt; size_t sc = Wt / NL() + 2 * (size_t)g * rl; if (send > sc) send = sc; } }
+        size_t result = RMIN(send) + RMIN(win / NL());
+        size_t ra = RMIN(RT24(pa)) + RMIN(va / NL() + va / R * (size_t)g + 2 * (size_t)g * rl), rb = RMIN(RT24(pb)) + RMIN(vb / NL() + vb / R * (size_t)g + 2 * (size_t)g * rl), redist = ra > rb ? ra : rb;
+        size_t transform = 2 * RMIN(q / NL());
 #undef RMIN
 #undef RT24
         size_t m = result > redist ? result : redist; return m > transform ? m : transform;
@@ -1943,19 +1957,19 @@ size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t
     else mn_grid_shape(na, nb, g, 0, &ka, &kb);
     size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, nc = pa + pb;
     int logn, logR, logC; size_t q; mn_shape(nc, g, &logn, &logR, &logC, &q); if (qmax) *qmax = q;
-    int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = (R + nr - 1) / nr, qs = rows * C;
+    int nr = NL() * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = (R + nr - 1) / nr, qs = rows * C;
 #define RT(len) ((((len) + R - 1) / R + 1) * rows < qs ? (((len) + R - 1) / R + 1) * rows : qs)
     size_t va = share_a < pa ? share_a : pa, vb = share_b < pb ? share_b : pb;
     size_t win = share_c < nc ? share_c : nc, send = RT(nc);
-    { size_t Wt = mn_t_chunk_limbs(); if (Wt && win > Wt) { win = Wt; size_t sc = Wt / 4 + 2 * (size_t)g * rows; if (send > sc) send = sc; } }   /* MN_T_CHUNK_MB: the rounds */
+    { size_t Wt = mn_t_chunk_limbs(); if (Wt && win > Wt) { win = Wt; size_t sc = Wt / NL() + 2 * (size_t)g * rows; if (send > sc) send = sc; } }   /* MN_T_CHUNK_MB: the rounds */
     /* Phase 14 V1: COMM_SHMEM_ROUND_MB = m -- comm_shmem.c carries an all-to-all whose pair exceeds m / (n - 1) in rounds that
      * stage at most m each way, and leaves the self slab out of the staging: each side of each exchange is its peers' part
      * (modelled as (g - 1) / g of it) bounded by m (RMIN) */
     const char *er = round_env(); size_t Rl = er && atof(er) > 0 ? (size_t)(atof(er) * 1048576.0) / 8 : 0;
 #define RMIN(x) (Rl ? ((x) / (size_t)g * (size_t)(g - 1) > Rl ? Rl : (x) / (size_t)g * (size_t)(g - 1)) : (x))
-    size_t result = RMIN(send) + RMIN(win / 4);
-    size_t ra = RMIN(RT(pa)) + RMIN(va / 4 + 2 * (size_t)g * rows), rb = RMIN(RT(pb)) + RMIN(vb / 4 + 2 * (size_t)g * rows), redist = ra > rb ? ra : rb;
-    size_t transform = 2 * RMIN(q / 4);
+    size_t result = RMIN(send) + RMIN(win / NL());
+    size_t ra = RMIN(RT(pa)) + RMIN(va / NL() + 2 * (size_t)g * rows), rb = RMIN(RT(pb)) + RMIN(vb / NL() + 2 * (size_t)g * rows), redist = ra > rb ? ra : rb;
+    size_t transform = 2 * RMIN(q / NL());
 #undef RMIN
 #undef RT
     size_t m = result > redist ? result : redist; return m > transform ? m : transform;
@@ -2038,30 +2052,30 @@ static void mdb_add_shifted_rounds(mdb *C, const mdb *X, size_t k, mn_group *G, 
     struct acc src = acc_db(&X->sh, 0, xhi > xlo ? xhi - xlo : 0);
     for (int c = 0; c < K; c++) {
         size_t wlo = tlo + (size_t)c * W; if (wlo > thi) wlo = thi; size_t whi = wlo + W < thi ? wlo + W : thi, wn = whi - wlo;
-#pragma omp parallel num_threads(NR)
+#pragma omp parallel num_threads(NL())
         {
-            int d = omp_get_thread_num(); hipStream_t s = RS[d].s;
-            HIP_CHECK(hipSetDevice(d));
+            int d = omp_get_thread_num(), dv = LD(d); hipStream_t s = RS[dv].s;
+            HIP_CHECK(hipSetDevice(dv));
             struct rng *ht = (struct rng *)malloc((size_t)2 * g * sizeof *ht), *hu = ht + g;
             size_t *cnt = (size_t *)malloc((size_t)4 * g * sizeof *cnt), *scnt = cnt, *sdsp = cnt + g, *rcnt = cnt + 2 * g, *rdsp = cnt + 3 * g, o = 0, so = 0, S = 16;
             for (int r = 0; r < g; r++) {                  /* pack: receiver r's chunk c, its quarter d -> X's [a, b) cut to my part */
                 size_t lo, hi; add_window(C, G->g0 + r, k, nX, &lo, &hi);
                 size_t x = lo + (size_t)c * W; if (x > hi) x = hi; size_t y = x + W < hi ? x + W : hi, ln = y - x;
-                size_t qlo = x + ln * d / 4, qhi = x + ln * (d + 1) / 4;
+                size_t qlo = x + ln * d / NL(), qhi = x + ln * (d + 1) / NL();
                 size_t a = qlo - k, b = qhi - k; if (a < xlo) a = xlo; if (b > xhi) b = xhi; if (b < a) b = a;
                 ht[r].a = a; ht[r].b = b; ht[r].src = a - xlo; ht[r].off = o; scnt[r] = (b - a) * 8; sdsp[r] = o * 8; o += b - a; if (b - a > S) S = b - a;
             }
             so = o; o = 0;
-            size_t qlo = wlo + wn * d / 4, qhi = wlo + wn * (d + 1) / 4;
+            size_t qlo = wlo + wn * d / NL(), qhi = wlo + wn * (d + 1) / NL();
             for (int r = 0; r < g; r++) {                  /* unpack: sender r's slab = X's [a, b) in my quarter chunk -> T at a + k - wlo */
                 size_t plo, phi; x_part(X, G->g0 + r, &plo, &phi);
                 size_t a = qlo - k, b = qhi - k; if (a < plo) a = plo; if (b > phi) b = phi; if (b < a) b = a;
                 hu[r].a = a; hu[r].b = b; hu[r].src = a + k - wlo; hu[r].off = o; rcnt[r] = (b - a) * 8; rdsp[r] = o * 8; o += b - a; if (b - a > S) S = b - a;
             }
-            uint64_t *sb = db_pool_alloc(d, (so + 16) * 8), *rb = db_pool_alloc(d, (o + 16) * 8);
+            uint64_t *sb = db_pool_alloc(dv, (so + 16) * 8), *rb = db_pool_alloc(dv, (o + 16) * 8);
 #pragma omp atomic
             add_rb += (o + 16) * 8;
-            struct rng *dt = (struct rng *)db_pool_alloc(d, g * sizeof *dt + 64);
+            struct rng *dt = (struct rng *)db_pool_alloc(dv, g * sizeof *dt + 64);
             HIP_CHECK(hipMemcpyAsync(dt, ht, g * sizeof *ht, hipMemcpyHostToDevice, s));
             if (so) k_pack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(sb, src, dt, g, S);
             HIP_SYNC(s);
@@ -2069,9 +2083,9 @@ static void mdb_add_shifted_rounds(mdb *C, const mdb *X, size_t k, mn_group *G, 
             HIP_CHECK(hipMemcpyAsync(dt, hu, g * sizeof *hu, hipMemcpyHostToDevice, s));
             if (o) { struct acc dst = acc_db(&T, 0, wn); k_unpack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(dst, rb, dt, g, S); }
             HIP_SYNC(s);
-            db_pool_free(d, sb); db_pool_free(d, rb); db_pool_free(d, (uint64_t *)dt); free(ht); free(cnt);
+            db_pool_free(dv, sb); db_pool_free(dv, rb); db_pool_free(dv, (uint64_t *)dt); free(ht); free(cnt);
         }
-        HIP_CHECK(hipSetDevice(0));
+        HIP_CHECK(hipSetDevice(LD(0)));
         if (wn) { int co = 0, p = 0; db_share_add_shifted(&C->sh, cn, &T, wlo - clo, &co, &p); kc += co; pr = p; if (whi < thi) db_zero_fill(&T, tcap); }
     }
     if (kc > 1) { ec_fatal(EC_RC_FATAL, "mdb_add_shifted: %d carries out of a share (the bound is 1)\n", kc); }
@@ -2083,7 +2097,7 @@ void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
 {
     int g = G->g, node = g_node_of(G); size_t nX = X->n;
     double t0 = mem_now();
-    if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; }
+    ranks_ready();
     if (nX && k + nX > C->N) { ec_fatal(EC_RC_FATAL, "mdb_add_shifted: %zu limbs at %zu exceed the basis %zu\n", nX, k, C->N); }
     { size_t W = mn_t_chunk_limbs(), mx = 0; if (W) { for (int r = 0; r < g; r++) { size_t lo, hi; add_window(C, G->g0 + r, k, nX, &lo, &hi); if (hi - lo > mx) mx = hi - lo; }
       if (mx > W) { int K = (int)((mx + W - 1) / W); mdb_add_shifted_rounds(C, X, k, G, W, K);
@@ -2097,10 +2111,10 @@ void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
     size_t xlo, xhi; x_part(X, node, &xlo, &xhi);
     size_t stot_max[NR] = {0}, rtot_max[NR] = {0}, add_rb = 0;
     if (rounds) {
-#pragma omp parallel num_threads(NR)
+#pragma omp parallel num_threads(NL())
     {
-        int d = omp_get_thread_num(); hipStream_t s = RS[d].s;
-        HIP_CHECK(hipSetDevice(d));
+        int d = omp_get_thread_num(), dv = LD(d); hipStream_t s = RS[dv].s;
+        HIP_CHECK(hipSetDevice(dv));
         /* the tables of every round first (both sides' cuts from the descriptors), then the buffers at the largest round */
         struct rng *hs = (struct rng *)malloc((size_t)2 * rounds * g * sizeof *hs), *hr = hs + (size_t)rounds * g;
         size_t *cnt = (size_t *)malloc((size_t)4 * rounds * g * sizeof *cnt), smax = 0, rmax = 0;
@@ -2108,12 +2122,12 @@ void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
             struct rng *ht = hs + (size_t)c * g, *hu = hr + (size_t)c * g; size_t *scnt = cnt + (size_t)4 * c * g, *sdsp = scnt + g, *rcnt = sdsp + g, *rdsp = rcnt + g, o = 0;
             for (int r = 0; r < g; r++) {                      /* pack: for every receiver r, its quarter d, chunk c (in C's coordinates) -> X's [a, b) cut to my part */
                 size_t lo, hi; add_window(C, G->g0 + r, k, nX, &lo, &hi); size_t wn = hi - lo;
-                size_t qlo = lo + wn * d / 4 + (size_t)c * S, qhi = lo + wn * (d + 1) / 4; if (qlo + S < qhi) qhi = qlo + S; if (qhi < qlo) qhi = qlo;
+                size_t qlo = lo + wn * d / NL() + (size_t)c * S, qhi = lo + wn * (d + 1) / NL(); if (qlo + S < qhi) qhi = qlo + S; if (qhi < qlo) qhi = qlo;
                 size_t a = qlo - k, b = qhi - k; if (a < xlo) a = xlo; if (b > xhi) b = xhi; if (b < a) b = a;   /* qlo >= k: the window starts at k or above */
                 ht[r].a = a; ht[r].b = b; ht[r].src = a - xlo; ht[r].off = o; scnt[r] = (b - a) * 8; sdsp[r] = o * 8; o += b - a;
             }
             if (o > smax) smax = o; o = 0;
-            size_t qlo = tlo + tn * d / 4 + (size_t)c * S, qhi = tlo + tn * (d + 1) / 4; if (qlo + S < qhi) qhi = qlo + S; if (qhi < qlo) qhi = qlo;
+            size_t qlo = tlo + tn * d / NL() + (size_t)c * S, qhi = tlo + tn * (d + 1) / NL(); if (qlo + S < qhi) qhi = qlo + S; if (qhi < qlo) qhi = qlo;
             for (int r = 0; r < g; r++) {                      /* unpack: sender r's slab holds X's [a, b) = its part cut to my quarter chunk -> T at a + k - tlo */
                 size_t plo, phi; x_part(X, G->g0 + r, &plo, &phi);
                 size_t a = qlo - k, b = qhi - k; if (a < plo) a = plo; if (b > phi) b = phi; if (b < a) b = a;
@@ -2122,10 +2136,10 @@ void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
             if (o > rmax) rmax = o;
         }
         stot_max[d] = smax; rtot_max[d] = rmax;
-        uint64_t *sb = db_pool_alloc(d, (smax + 16) * 8), *rb = db_pool_alloc(d, (rmax + 16) * 8);
+        uint64_t *sb = db_pool_alloc(dv, (smax + 16) * 8), *rb = db_pool_alloc(dv, (rmax + 16) * 8);
 #pragma omp atomic
         add_rb += (rmax + 16) * 8;
-        struct rng *dt = (struct rng *)db_pool_alloc(d, g * sizeof *dt + 64);
+        struct rng *dt = (struct rng *)db_pool_alloc(dv, g * sizeof *dt + 64);
         struct acc src = acc_db(&X->sh, 0, xhi > xlo ? xhi - xlo : 0), dst = acc_db(&T, 0, tn);
         for (int c = 0; c < rounds; c++) {
             struct rng *ht = hs + (size_t)c * g, *hu = hr + (size_t)c * g; size_t *scnt = cnt + (size_t)4 * c * g, *sdsp = scnt + g, *rcnt = sdsp + g, *rdsp = rcnt + g;
@@ -2137,9 +2151,9 @@ void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
             if (tn) k_unpack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(dst, rb, dt, g, S);
             HIP_SYNC(s);
         }
-        db_pool_free(d, sb); db_pool_free(d, rb); db_pool_free(d, (uint64_t *)dt); free(hs); free(cnt);
+        db_pool_free(dv, sb); db_pool_free(dv, rb); db_pool_free(dv, (uint64_t *)dt); free(hs); free(cnt);
     }
-    HIP_CHECK(hipSetDevice(0));
+    HIP_CHECK(hipSetDevice(LD(0)));
     }
     { size_t b = T.cap * 8 + add_rb; if (b > rns_dist_tscratch_max) rns_dist_tscratch_max = b; }
     int co = 0, pr = cn == 0;

@@ -783,7 +783,7 @@ __global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a,
  * The b operand is either a dbig or a sparse set of 4-limb spills (sp != 0): spill j sits at limb
  * R j + row0 + rows for row0 in {0, rows, 2 rows, 3 rows} (four ranks' spill arrays). */
 struct sparse { const uint64_t *sp[4]; size_t R, rows, C; int single; size_t pos; uint64_t val;
-                size_t lo; int gt; const size_t *tab[4]; int p24; int vl; };   /* vl (S1b, vPE): the lanes per node -- one spill array per PE, rank rho = gt PEs' index (sp[0], tab[0] only), nr = vl gt */   /* p24 (results/PRIMES_STRATEGY.md §P2415): the blocks at L(R j + a') of p24.h */   /* tab[d] (the exact spill exchange): sp[d] holds only the blocks that meet this share, per source node r the columns [tab[3r], tab[3r+1]) at block offset tab[3r+2]; 0 = the full [r][j][4] layout */   /* single: one limb val at pos.  gt > 0 (M3): the node's share [lo, ..) of a number whose product ran on 4 gt ranks,
+                size_t lo; int gt; const size_t *tab[4]; int p24; int vl; };   /* vl (S1b, vPE) = 1: gt counts PEs, one rank per PE -- one spill array per rank (sp[0], tab[0] only), rho = the PE's index, nr = gt */   /* p24 (results/PRIMES_STRATEGY.md §P2415): the blocks at L(R j + a') of p24.h */   /* tab[d] (the exact spill exchange): sp[d] holds only the blocks that meet this share, per source node r the columns [tab[3r], tab[3r+1]) at block offset tab[3r+2]; 0 = the full [r][j][4] layout */   /* single: one limb val at pos.  gt > 0 (M3): the node's share [lo, ..) of a number whose product ran on 4 gt ranks,
                                          * rank rho = gt d + r: sp[d] holds [r][j][4], spill (rho, j) at global limb R j + (rho + 1) rows -- or, when rows nr != R
                                          * (gt = g nodes of any count, rows = floor(R / nr)), at R j + R (rho + 1) / nr */
 __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
@@ -1008,14 +1008,14 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
  * source node r in order, the 4-limb blocks of the columns [tab[d][3r], tab[d][3r+1]) at block offset tab[d][3r+2] (device tables) */
 void db_share_add_spills_x(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], const size_t *const tab[4], size_t R, size_t rows, size_t C, int gt, int *cout, int *prop)
 {
-    struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) { s.sp[q] = sp[q]; s.tab[q] = tab[q]; } s.R = R; s.rows = rows; s.C = C; s.lo = lo; s.gt = gt; s.vl = vpe_on() ? vpe_lanes() : 0;
+    struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) { s.sp[q] = sp[q]; s.tab[q] = tab[q]; } s.R = R; s.rows = rows; s.C = C; s.lo = lo; s.gt = gt; s.vl = vpe_on() ? 1 : 0;
     addsub_core2(r, r, 0, 0, &s, n, 0, n, cout, prop);
 }
 /* the same for a P24 product -- the spill of (rank rho, column j) at limb L(R j + a'), a' the
  * next rank's first row (p24.h) */
 void db_share_add_spills_x24(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], const size_t *const tab[4], size_t R, size_t C, int gt, int *cout, int *prop)
 {
-    struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) { s.sp[q] = sp[q]; s.tab[q] = tab[q]; } s.R = R; s.rows = R / ((vpe_on() ? (size_t)vpe_lanes() : 4) * (size_t)gt); s.C = C; s.lo = lo; s.gt = gt; s.p24 = 1; s.vl = vpe_on() ? vpe_lanes() : 0;
+    struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) { s.sp[q] = sp[q]; s.tab[q] = tab[q]; } s.R = R; s.rows = R / ((vpe_on() ? (size_t)1 : 4) * (size_t)gt); s.C = C; s.lo = lo; s.gt = gt; s.p24 = 1; s.vl = vpe_on() ? 1 : 0;
     addsub_core2(r, r, 0, 0, &s, n, 0, n, cout, prop);
 }
 /* M3: r (n limbs, in place) += 1 at limb 0; the carry out reported */
