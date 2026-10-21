@@ -233,6 +233,7 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 | `XSHMEM_CTRL` | *TARGET1*: `heap` (default; control words in the device heap) or `host` (control words in a host region, design 1.3 b) |
 | `XSHMEM_LOCAL` / `XSHMEM_IPC` | *TARGET1*: 1 = the engine copies node-local peers through `xshmem_ptr` / the libfabric backend maps node-local heaps with hipIpc (both off by default; need `--gpu-bind=none`) |
 | `ECALC_VPE` | *TARGET1 S1a* (default 0 = off, byte-identical to before): 1 = virtual PEs, one pthread per GPU (`vpe.c`, API `vpe.h`); vPE = lane d of node n is PE L*n+d with its own device, xshmem loopback PE and a flat communicator over all PEs (rank = PE; sub-communicators of 2/4/3/6/12 PEs by `vpe_sub`); needs `COMM_TRANSPORT=xshmem` and `make XSHMEM=ofi`; device -> NUMA node by PCI bus id; log lines get a `pe N (node n lane d):` prefix. Aborts with `stages not merged` until S1a..S1e are all in |
+| `ECALC_VPE_BG_THREADS` | with `ECALC_VPE=1` the background OpenMP team of one PE (recurrence, writer); default 0 = CPUs / `ECALC_VPE_LANES` (48 on aac7) |
 | `ECALC_VPE_LANES` | vPEs per process with `ECALC_VPE=1` (default 4, 1..8; = `XSHMEM_LOOPBACK_PES`) |
 | `XSHMEM_LOOPBACK_PES` | *TARGET1 S3a*: PEs one process hosts in the libfabric backend (default 1 = one PE per process; `mnrun.sh` sets it to the GPUs per process under `COMM_TRANSPORT=xshmem`): PE = K*rank + l, each with its own GPU, NIC, heap and lock; `XSHMEM_SELECT(l)` picks the PE of a thread |
 | `XSHMEM_ROUND_MB` | *TARGET1 S3a*: the xshmem engine (`COMM_TRANSPORT=xshmem`) carries an all-to-all whose pair exceeds this / (n − 1) MiB in rounds that stage at most this many MiB each way (the self slab is not staged; one signal per round and pair, the pairs' sequences advance per round; the rounds run in the PE's worker, so `ECALC_XEX_THREAD=1` is required). 0 (default) = whole-exchange staging. The planner (`binsplit.c`, `rns_dist.c`, `mem_model.py`) sizes `XSHMEM_HEAP_MB` from it as it does for `COMM_SHMEM_ROUND_MB` |
@@ -301,7 +302,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | T1 (D57) | 2026-11-18 | `COMM_SHMEM_PX_SCHED` |
 | experiment | T2 (D57) | 2026-11-19 | `MN_NONPOW2_CAP`, `MN_NONPOW2_MIN` |
 | experiment | TARGET1 (B1) | 2026-12-31 | `XSHMEM_CTRL`, `XSHMEM_HEAP_MB`, `XSHMEM_IPC`, `XSHMEM_LANES`, `XSHMEM_LOCAL`, `XSHMEM_MRMODE`, `XSHMEM_OFI_SIG`, `XSHMEM_PES_PER_GPU` |
-| experiment | TARGET1 (S1) | 2026-12-31 | `ECALC_VPE`, `ECALC_VPE_LANES` |
+| experiment | TARGET1 (S1) | 2026-12-31 | `ECALC_VPE`, `ECALC_VPE_BG_THREADS`, `ECALC_VPE_LANES` |
 | experiment | TARGET1 (S3a) | 2026-12-31 | `ECALC_XEX_THREAD`, `XSHMEM_LOOPBACK_PES`, `XSHMEM_ORDER`, `XSHMEM_ROUND_MB` |
 | experiment | L5 | 2027-03-31 | `COMM_SHMEM_HUGETLB` |
 | fallback | P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF) | 2026-11-11 | `DM_MN_WRAP` |

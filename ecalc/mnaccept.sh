@@ -22,6 +22,8 @@
 #          patched file; 108388422 at sizes 2 and 4 with ECALC_TEST_CORR=36 (digits [108388413, 108388422], node 0's part).
 #          Each: VERIFY OK on every node, a patch line with bytes rewritten and none FAILED, the digits identical to the first
 #          d + 2 bytes of the 10^9 reference + a newline
+#   vpe    ECALC_VPE=1 (S1e; COMM_TRANSPORT=xshmem, XSHMEM_LOOPBACK_PES=4, build XSHMEM=ofi): 10^8 at 1 and 2 node-processes (4 and 8 PEs), 10^9 at 2,
+#          digits identical to the reference; the top-level set and the recheck at 1 process (every PE RECHECK OK, a flipped digit RECHECK FAILED).  Not in the default set: asked for with --only vpe
 #   full   the standard size at size 1 (--full only; ECALC_STD_DIGITS, default 10^11 since Phase 14, ~5 min; 4 x 10^10 before): the reference evicted from the page
 #          cache first, the wall printed, digits cmp'd against results/e_4e10.out; then ECALC_RECHECK=1 on its files
 #          (the top-level set the run wrote by default into <outfile>.top) -- a second PASS/FAIL line with its time
@@ -35,7 +37,7 @@
 # Phase 16 A (results/AAC7_PORT.md §A16): MNRUN_MODULES (the module line of R(); mnrun.sh's default), MNRUN_CPUS_PER_TASK (srun -c for R();
 # `auto` = the node's CPUs: aac7 confines a task to 2 CPUs otherwise), MNACCEPT_TMP (the digits' directory on the node; default
 # /tmp/mnaccept_<jobid> -- aac7's /tmp is RAM, so a directory under $HOME there).
-J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--stress] [--skip-grid] [--only unit,grid,e9,mn,ckpt,recheck,corr,full,stress]"; exit 2; }
+J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--stress] [--skip-grid] [--only unit,grid,e9,mn,ckpt,recheck,corr,vpe,full,stress]"; exit 2; }
 FULL=0; STRESS=0; ONLY=""; NOGRID=${MNACCEPT_SKIP_GRID:-0}
 while [ $# -gt 0 ]; do case $1 in --full) FULL=1;; --stress) STRESS=1;; --only) ONLY=$2; shift;; --skip-grid) NOGRID=1;; *) echo "unknown option $1"; exit 2;; esac; shift; done
 cd "$(dirname "$0")" || exit 2
@@ -170,6 +172,38 @@ if want ckpt; then
     if [ "$nf" -eq 0 ]; then pass "ckpt off e8 size 2" "identical; BS_CKPT_DIR alone: no file written"; else fail "ckpt off e8 size 2" "identical; $nf files in BS_CKPT_DIR (0 wanted)"; fi
   else fail "ckpt off e8 size 2" "the run: $(cat "$OUT/ckpt_off.cmp")"; fi
   N "rm -rf $f $f.* $CK $CK.2 $CK.3"
+fi
+
+# ---- vPE (S1e of the TARGET1 plan; ECALC_VPE=1, COMM_TRANSPORT=xshmem, 4 vPE threads per process, build XSHMEM=ofi): PE = 4 x node-process + lane ----------
+# the same runs on 1 and 2 node-processes (4 and 8 PEs, two part files per PE), digits identical to the reference; the top-level set and the recheck
+# at 1 process (each PE writes its own .top set; the recheck reads them on every PE; a flipped digit must fail)
+if [[ ",$ONLY," == *",vpe,"* ]]; then
+  VE="ECALC_VPE=1 COMM_TRANSPORT=xshmem XSHMEM_LOOPBACK_PES=4"
+  vpe_check() { local tag=$1 p=$2 d=$3 pl=$4 to=$5 np=$((4 * $2)); shift 5
+    local log=$OUT/$tag.log f=$TMP/$tag.txt name="vpe e$(( ${#d} - 1 )) $p n ($np PEs)"
+    refneed "$name" "$REF/e_$d.txt" || return
+    M "$to" "$p" POOL_LOG=$pl $VE "$@" ./ecalc "$d" "$f" > "$log" 2>&1; local rc=$?
+    local c; c=$(cmpref "$f" "$REF/e_$d.txt")
+    if [ $rc -eq 0 ] && grep -aq "mn: all $np PEs: VERIFY OK" "$log" && [ "$c" = identical ]; then pass "$name" "$c; all $np PEs VERIFY OK; $(total_of "$log")"
+    else fail "$name" "rc $rc; $c; $(grep -a 'VERIFY FAILED\|abort\|error\|Killed\|cannot\|not merged' "$log" | head -1 | cut -c1-120)"; fi
+  }
+  vpe_check vpe_e8_1 1 100000000 27 600
+  vpe_check vpe_e8_2 2 100000000 27 600
+  vpe_check vpe_e9_2 2 1000000000 29 900
+  if refneed "vpe recheck" "$REF/e_100000000.txt"; then
+    f=$TMP/vpe_rc.txt; lg=$OUT/vpe_rc.log; lr=$OUT/vpe_rc_recheck.log; lb=$OUT/vpe_rc_bad.log
+    M 600 1 POOL_LOG=27 $VE ECALC_CKPT_TOP=1 ./ecalc 100000000 "$f" > "$lg" 2>&1; rc=$?
+    M 600 1 $VE ECALC_RECHECK=1 ./ecalc 100000000 "$f" > "$lr" 2>&1; rr=$?
+    c=$(N "$PWD/digcmp.sh $f $REF/e_100000000.txt" 2>/dev/null)
+    nok=$(grep -ac 'RECHECK OK' "$lr")
+    pf=$(N "ls $f.part* 2>/dev/null | tail -1")
+    N "python3 -c \"import sys; p=sys.argv[1]; f=open(p,'r+b'); pk=f.read(8)==b'ECPACK18'; o=4096+8*100 if pk else 1000; f.seek(o); c=f.read(1); f.seek(o); f.write(bytes([c[0]^1]) if pk else (b'0' if c != b'0' else b'1')); f.close()\" $pf"
+    M 600 1 $VE ECALC_RECHECK=1 ./ecalc 100000000 "$f" > "$lb" 2>&1
+    nbad=$(grep -ac 'RECHECK FAILED' "$lb")
+    if [ $rc -eq 0 ] && [ "$c" = identical ] && [ $rr -eq 0 ] && [ "$nok" -ge 4 ] && ! grep -aq 'RECHECK FAILED' "$lr" && [ "$nbad" -ge 1 ]; then pass "vpe recheck e8 1 n" "$nok RECHECK OK (4 PEs wanted), corrupted copy: $nbad RECHECK FAILED"
+    else fail "vpe recheck e8 1 n" "run rc $rc; recheck rc $rr, $nok RECHECK OK (>= 4 wanted); corrupted: $nbad RECHECK FAILED; $(grep -a 'RECHECK FAILED\|cannot\|error' "$lr" | head -1 | cut -c1-120)"; fi
+    N "rm -rf $f $f.*"
+  fi
 fi
 
 # ---- the recheck mode (Phase 12 W, results/TESTING_VERIF.md §W) -----------------------------------------------------------------------------

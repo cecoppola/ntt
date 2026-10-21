@@ -73,3 +73,4 @@ XSHMEM_ROUND_MB	0	float	>= 0	experiment	comm_xshmem.c; 0 = off, whole-exchange s
 TMPDIR		str	path	test-only	t_pe_geo.c; the system temp directory for the mock sysfs tree; unset = /tmp
 ECALC_VPE	0	bool	0/1	experiment	vpe.c; 1 = one pthread per GPU (vPE), PE = L*node+lane; needs COMM_TRANSPORT=xshmem; aborts "stages not merged" until S1a..S1e are all in
 ECALC_VPE_LANES	4	int	1..8	experiment	vpe.c; vPEs per process (= XSHMEM_LOOPBACK_PES); only with ECALC_VPE=1
+ECALC_VPE_BG_THREADS	0	int	0..	experiment	ecalc.c; background OpenMP team of one PE (recurrence, writer) with ECALC_VPE=1; 0 = CPUs / lanes (48 on aac7); only with ECALC_VPE=1
