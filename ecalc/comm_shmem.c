@@ -506,16 +506,19 @@ static long px_post(px_dev *x, int hh, int dst_pe, size_t roff, size_t soff, siz
 /* post the pending commands whose copy is complete (block: wait for each one); dlock held.  The commands go to the ring in the order of their copies. */
 static void px_dev_drain(px_dev *x, int block)
 {
+    if (x->pq_h >= x->pq_t) return;
+    int cur = -1; (void)hipGetDevice(&cur); if (cur != x->d) HIP_CHECK(hipSetDevice(x->d));   /* (the events belong to the APU's device) */
     while (x->pq_h < x->pq_t) {
         int i = (int)(x->pq_h % PXPQ); struct px_pend *q = &x->pq[i];
         hipError_t he = hipEventQuery((hipEvent_t)x->pev[i]);
         if (he == hipErrorNotReady) {
-            (void)hipGetLastError(); if (!block) return;
+            (void)hipGetLastError(); if (!block) break;
             double t = now_s(); HIP_CHECK(hipEventSynchronize((hipEvent_t)x->pev[i])); x->tstall += now_s() - t;
         } else HIP_CHECK(he);
         long k = px_post(x, 0, (int)q->pe, q->roff, q->soff, q->n, q->cnt, q->sigidx, q->sig, 1); x->dstart[k % PXRING] = q->p0;
         __atomic_store_n(&x->pq_h, x->pq_h + 1, __ATOMIC_RELEASE);
     }
+    if (cur >= 0 && cur != x->d) (void)hipSetDevice(cur);
 }
 /* COMM_SHMEM_PX_DEVSRC: the command's data is first copied from src in the proxy pool into the next slot of the proxy's device buffer (a bump ring of positions: a slot is free
  * again when every command before it has retired and posted), and the command names that slot as its source.  A command larger than the buffer goes from the pool as before.
