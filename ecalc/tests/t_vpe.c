@@ -86,7 +86,8 @@ static void host_part(void)
     CHK(g_ppg ? vpe_ppg() && vpe_lpp() == 1 && vpe_idx() >= 0 && vpe_idx() < L && ec_log_prefix()[0] == 'p' : !strcmp(ec_log_prefix(), ""), "prefix outside vpe_run '%s'", ec_log_prefix());
     CHK(vpe_root() == 0 && vpe_node_leader() == (vpe_idx() == 0) && (!g_ppg || vpe_proc_leader()), "root/leader on the main thread of node 2");
     vpe_set_nodes(0, 1);
-    {   /* vpe_sub argument checks (before any communicator exists), in children: fatal rc 3 + text; a PE outside the run gets NULL */
+    if (g_ppg && vpe_early_device() >= 0) { printf("t_vpe: forked fatal checks skipped (a launched process has initialised HIP: fork is unsafe; `t_vpe host --ppg` on a login node runs them)\n"); }
+    else {   /* vpe_sub argument checks (before any communicator exists), in children: fatal rc 3 + text; a PE outside the run gets NULL */
         char b[512]; int rc = in_child(sub_range_body, 0, b, sizeof b);
         CHK(rc == 3 && strstr(b, "outside the"), "vpe_sub out of range: rc %d text '%s'", rc, b);
         rc = in_child(sub_slot_body, 0, b, sizeof b);
