@@ -21,6 +21,9 @@ static void say(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #include <stdarg.h>
 static void say(const char *fmt, ...) { char b[400]; va_list ap; va_start(ap, fmt); int n = vsnprintf(b, sizeof b, fmt, ap); va_end(ap); if (n > 0) { if (n > (int)sizeof b - 1) n = sizeof b - 1; if (write(2, b, n) < 0) {} } }
 
+/* marker for COMM_SHMEM_PX_DEVSRC (comm_shmem.c checks it with dlsym(RTLD_DEFAULT, ...) before the first put from device memory): 'A' or 'B' when this shim is loaded and FI_SHIM_MODE asks for FI_HMEM, else 0 */
+int fi_hmem_shim_mode(void) { const char *m = getenv("FI_SHIM_MODE"); return m && (*m == 'A' || *m == 'B') ? *m : 0; }
+
 int fi_getinfo(uint32_t version, const char *node, const char *service, uint64_t flags, const struct fi_info *hints, struct fi_info **info)
 {
     static getinfo_f real, real_def; static dupinfo_f dup; static freeinfo_f fr; static int logged; static __thread int depth;
