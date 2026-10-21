@@ -72,7 +72,6 @@ static const char *const cfg_names[] = {
     "DIST_LOGN_TEST",
     "DIST_STATS",
     "DM_MN_WRAP",
-    "DM_TAIL_DEAD",
     "DM_TIGHT",
     "ECALC_ARENA_GB",
     "ECALC_BG_THREADS",
@@ -85,7 +84,6 @@ static const char *const cfg_names[] = {
     "ECALC_CORR_PATCH_ZONE",
     "ECALC_DEVICE_GB",
     "ECALC_DEVICE_MARGIN_GB",
-    "ECALC_FAST_EXIT",
     "ECALC_FATAL_ABORT",
     "ECALC_FATAL_TEST",
     "ECALC_FATAL_WAIT",
@@ -98,7 +96,6 @@ static const char *const cfg_names[] = {
     "ECALC_MEM_SAMPLE_FILE",
     "ECALC_NODE_GB",
     "ECALC_NP",
-    "ECALC_NP_AUTO_MIN",
     "ECALC_NP_AUTO_TERMS",
     "ECALC_ODIRECT",
     "ECALC_OUT_MODE",
@@ -127,7 +124,6 @@ static const char *const cfg_names[] = {
     "MN_OUT_STRIPE",
     "MN_OUT_STRIPE_FORCE",
     "MN_OUT_THREADS",
-    "MN_OUT_WAVES",
     "MN_PLAN_ONLY",
     "MN_PLAN_QUIET",
     "MN_SELFTEST_LOGR",
@@ -161,4 +157,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 159
+#define CFG_NAMES_N 155

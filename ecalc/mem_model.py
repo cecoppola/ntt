@@ -183,11 +183,11 @@ def wrap_bytes(nq, k, g, pool_log=31, wrap=None):
     if v == 1 and (k - k // 2 + 1) + nq <= (1 << cap): return 0
     return 2 * quarter_bytes(-(-(P + 4) // g))
 
-def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=True, room=0.0, dkm=False, mdev_logl=30, lean=False, wrap=None):
+def dm_layout(N, g, pool_log=31, decimal=True, tight=False, anchor=True, room=0.0, dkm=False, mdev_logl=30, lean=False, wrap=None):
     """binsplit.c dm_layout: n_Q, k_mu, t1, the hole (t1's quarter), the dm need per device (bytes).
-    Phase 14 L1 (APUMULT_STUDY E2 / E5): tight = DM_TIGHT (the reciprocal's r2 at 2 jl + 4 and t1 at Q_t r's size at the last doubling
-    jl = ceil(k/2), the top level's pairs freed as consumed), tail_dead = DM_TAIL_DEAD (1: v3 without the hole; 2: v2 without P too, the
-    E5 layout that needs the spill); the division's own set (S, Q, mu + t or X + xq, a piece) is a term of v2 in every variant (it never
+    Phase 14 L1 (APUMULT_STUDY E2): tight = DM_TIGHT (the reciprocal's r2 at 2 jl + 4 and t1 at Q_t r's size at the last doubling
+    jl = ceil(k/2), the top level's pairs freed as consumed);
+    the division's own set (S, Q, mu + t or X + xq, a piece) is a term of v2 in every variant (it never
     binds in the default one).  Returns v2 / v3 / div per device beside the need.
     Phase 15 DL (built: binsplit.c dm_layout follows NEWTON_DKM): dkm = NEWTON_DKM=1 -- the reciprocal to h, DKM's division set, the hole =
     DKM's largest block (size 1: step 1's xq = X_hi Q, k1 + n_Q + 8 limbs reserved by mul_grid; size > 1: t, k + 8); taken at size > 1 when
@@ -213,7 +213,6 @@ def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=
     qp = quarter_bytes(nq_s + nq_s // 10 + 8)
     if not tight: v2 = 2 * qp + 2 * quarter_bytes(k_s + 4) + hole + quarter_bytes(piece)
     else: v2 = 2 * qp + quarter_bytes(2 * jl_s + 4) + hole + quarter_bytes(piece)
-    if tail_dead >= 2: v2 -= qp
     hi = 2 * qp + quarter_bytes(k_s + 1) + quarter_bytes(2 * k_s + 8)
     lo = (qp + quarter_bytes(k_s) + quarter_bytes(nq_s + 2) + quarter_bytes(nq_s + k_s + 8)) if tight else (2 * qp + quarter_bytes(k_s) + quarter_bytes(nq_s + k_s + 8))
     if dkm:                                                                    # DKM: step 1's high product Q + S + mu (h) + t (k); step 2's Q + X_hi (k/2)
@@ -228,7 +227,7 @@ def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=
     v2 += min(v2 // 8, 1 << 30)
     inn = quarter_bytes(nq_s // 2 + nq_s // 20 + 8); out = qp
     top = 4 * inn + 2 * out if not tight else max(4 * inn + out, 2 * inn + 2 * out)
-    top += top // 8 + (0 if tail_dead else hole)                                      # v3: the top bs levels beside the tail
+    top += top // 8 + hole                                      # v3: the top bs levels beside the tail
     need = max(v2, top)
     room_b = int(room * float(hole)) if room > 0 else 0                  # Phase 15 AS: BS_ARENA_ROOM=<room> (with the VMM pool): room x the hole in the dm need
     need += room_b
@@ -347,9 +346,8 @@ def split_grid_cap(na, nb, cap, minpts):
     return best[1], best[2]
 
 # MS (Phase 15): P24's branch of rns_mul_dist_mn_scratch (MN_P24, results/PRIMES_STRATEGY.md §P2415; rns_dist.c mn_p24_of / p24_grid_shape / p24_split).
-# p24 = (mode, np, g_run, auto_min): mode 2 = every mn product when pool 0 holds four planes (rns_pool0_np: np_planes(np, g_run) >= 4);
-# 1 = the products whose 18-digit grid's largest piece runs four primes (ECALC_NP=4: all; auto: pa + pb, or min(pa, pb) under
-# ECALC_NP_AUTO_MIN=1, over the three-prime bound).  +34 MB of dm need per device at 5.1e13 on 576, measured by the layout.
+# p24 = (mode, np, g_run): mode 2 = every mn product when pool 0 holds four planes (rns_pool0_np: np_planes(np, g_run) >= 4);
+# 1 = the products whose 18-digit grid's largest piece runs four primes (ECALC_NP=4: all; auto: pa + pb over the three-prime bound).  +34 MB of dm need per device at 5.1e13 on 576, measured by the layout.
 P24_CAP_LOG = 40
 def p24_pts(n): return -(-3 * n // 4)
 def mn_logmin(g):
@@ -359,13 +357,13 @@ def mn_logmin(g):
 def mn_p24_of(na, nb, g, p24, pool_log=31):
     """rns_dist.c mn_p24_of"""
     if not p24 or not p24[0]: return False
-    mode, np, g_run, auto_min = p24
+    mode, np, g_run = p24
     if mode >= 2: return np_planes(np, g_run, pool_log) >= 4
     pa, pb, cap = na, nb, 1 << mn_cap_log(g, pool_log)
     if na + nb > cap:
         if -(-na // 32) + -(-nb // 32) > cap: pa, pb = -(-na // 32), -(-nb // 32)
         else: ka, kb = split_grid_cap(na, nb, cap, 1 << mn_logmin(g)); pa, pb = -(-na // ka), -(-nb // kb)
-    if np == 'auto': return (min(pa, pb) if auto_min else pa + pb) > NP3_MAX_TERMS
+    if np == 'auto': return pa + pb > NP3_MAX_TERMS
     return np == 4
 def p24_grid_shape(na, nb, g, pool_log=31):
     """rns_dist.c p24_grid_shape / p24_split: (ka, kb) on the points at min(the group's cap, 2^40)"""
@@ -842,9 +840,9 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
       ofi (Phase 17 OFIMEM, COMM_OFI): the device staging and the slabs move to one comm_ofi pool per device (detail['ofi_dev_mb']: one
       APU's staging, at least the self-tests' 128 MiB, + its slabs + 256 MiB, in whole 256 MiB); the SHMEM pool keeps 128 MiB of host-op
       staging, the control blocks, the mailbox and the margin (binsplit.c binsplit_shmem_pool_need).
-      px (N7b, COMM_SHMEM_PE_PER_APU = 1 or 2 with COMM_OFI off; the value): the comm_ofi law in px proxy pools per APU; every PE's pool (1 + 4 px per node)
-      is the larger of the node-process's need and a proxy's (ofi_dev_mb + 1 MiB of command ring; under 2 the APU's area, margin aside, is halved:
-      N7E); detail['px_pes'] = 1 + 4 px.
+      px (N7b, COMM_SHMEM_PE_PER_APU = 1 with COMM_OFI off): the comm_ofi law in px proxy pools per APU; every PE's pool (1 + 4 px per node)
+      is the larger of the node-process's need and a proxy's (ofi_dev_mb + 1 MiB of command ring);
+      detail['px_pes'] = 1 + 4 px.
     detail (a dict) receives the parts and the product that sets the staging."""
     if g <= 1: return 0
     best, who, qmax = 0, '', 0
@@ -870,7 +868,6 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
     if ofi or px:
         stg = max(best * 8, SHMEM_SELFTEST)
         dv = max(stg, vslot) + sym // 4 + SHMEM_MARGIN   # M3: release -> the larger, not the sum
-        if px > 1: dv = (dv - SHMEM_MARGIN) // px + SHMEM_MARGIN   # N7E (value 2): an APU's area is split over its px helper heaps (interleaved 4 MiB blocks)
         ofi_dev_mb = round256_mb(dv); staging = 0; sym = 0
     stg0 = max(staging, SHMEM_SELFTEST)
     if not ofi and not px: sym += NR * vslot   # X2: (no comm_ofi) the slots in the SHMEM pool, one set per APU thread; SHM: the sum also under M3's release (comm_shmem's
@@ -982,7 +979,7 @@ def _mem_per_node(D, g=1, opts=None):
           and the staging the transport needs (shmem_staging: staging = 'cached' (the code) | 'per_exchange' | 'resident'),
           in the node's HBM whether host-registered or a device heap).  Returns a dict with the parts and the peaks."""
     o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='grid', groups=None, transport='tcp', pool_mb=8192, staging='code', planes_3q30=None,
-             np=EC_NP, strategy='C', cap=None, depth=2, host_fit=True, tail_dead=0, arena_room=0.0, dkm=False, ofi=None); o.update(DEFAULTS15D); o.update(opts or {})   # early_free: Phase 14 T1 (MN_TREE_EARLY_FREE); form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before; tight / tail_dead: Phase 14 L1 (DM_TIGHT, DM_TAIL_DEAD)
+             np=EC_NP, strategy='C', cap=None, depth=2, host_fit=True, arena_room=0.0, dkm=False, ofi=None); o.update(DEFAULTS15D); o.update(opts or {})   # early_free: Phase 14 T1 (MN_TREE_EARLY_FREE); form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before; tight: Phase 14 L1 (DM_TIGHT)
     # Phase 15 (agent MD): the defaults are the code's since Phase 14 (DEFAULTS15: tight, early_free, t_chunk_mb 1024, shift_chunk_mb 1024,
     # pool 'plan', vmm); pass OLD13 for the forms before.  vmm (DB_POOL_VMM): the host's seed buffers 2 x 8 GiB, the size-1 host fitted anew
     # (host_size1_vmm), the bs phase's measured growth (VMM_BS_GROW) on the device peak.  pool: POOLS.
@@ -994,8 +991,8 @@ def _mem_per_node(D, g=1, opts=None):
     S = seed_span(N, g, o['seed_fill']) if o['decimal'] else 256                # Phase 15 (2026-09-27): BS_SEED_FILL (128 by default; 0 = 256)
     bs = arena_bs_bytes(N, nterms, decimal=o['decimal'], S=S); bs_total = sum(bs)
     aroom = o['arena_room'] if o['vmm'] else 0.0                            # Phase 15 AS: BS_ARENA_ROOM (needs the VMM pool)
-    L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=aroom, dkm=o.get('dkm', False), mdev_logl=o.get('mdev_logl', 30), lean=o.get('lean', False), wrap=o.get('wrap'))   # dkm: NEWTON_DKM (Phase 15 DL: built -- binsplit.c dm_layout follows it; the code's default since Batch 3); lean: DM_MN_LEAN (int15k)
-    p24 = (o.get('p24', 0), o['np'], g, o.get('np_auto_min', False)) if o.get('p24', 0) else None   # MS: MN_P24 (0 = off, the default)
+    L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], room=aroom, dkm=o.get('dkm', False), mdev_logl=o.get('mdev_logl', 30), lean=o.get('lean', False), wrap=o.get('wrap'))   # dkm: NEWTON_DKM (Phase 15 DL: built -- binsplit.c dm_layout follows it; the code's default since Batch 3); lean: DM_MN_LEAN (int15k)
+    p24 = (o.get('p24', 0), o['np'], g) if o.get('p24', 0) else None   # MS: MN_P24 (0 = off, the default)
     sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta'], o['form'], o['pool_log'], o['groups'], o['t_chunk_mb'], o['early_free'], p24) if g > 1 else 0
     arena_trim(L, sc[0] if g > 1 else 0)                                   # (BS_ARENA_TRIM_GB after the scratch) the sharded division's products: the same slabs and spills
     vs = vslot_resident(L['nq'], g, o['groups'], o['pool_log'], p24, o['depth'])   # B7ACCT: the general map's v-slots per APU (hipMalloc'd beside the arena)
@@ -1043,7 +1040,7 @@ def _mem_per_node(D, g=1, opts=None):
         rh = room_host(N, g, pool, seedbuf, o['out_early'])               # counted as binsplit.c as_room_fits counts it (this model's bs-phase node)
         room_node = planes + sum(arena) + VMM_BS_GROW + rh
         if not as_room_fits(planes, sum(arena), rh + vb, o.get('node_gb', 480.0)):   # (B7ACCT: + the v-slots under ECALC_VSLOT_BUDGET=1)
-            aroom = 0.0; L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=0.0, dkm=o.get('dkm', False), mdev_logl=o.get('mdev_logl', 30), lean=o.get('lean', False), wrap=o.get('wrap'))
+            aroom = 0.0; L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], room=0.0, dkm=o.get('dkm', False), mdev_logl=o.get('mdev_logl', 30), lean=o.get('lean', False), wrap=o.get('wrap'))
             arena_trim(L, sc[0] if g > 1 else 0)
             want = max(L['need_dev'], tree); arena = [arena_of(b, want, VMM_CHUNK) for b in bs]; arena_mapped = list(arena); pool_total = sum(arena)
     if g > 1 and sc[1] > (1 << o['pool_log']) // 4:                       # (never with the mn tier's cap: kept for a lowered cap)
@@ -1177,7 +1174,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         if not line.startswith('layout:'): continue
         v = dict((k, float(x)) for k, x in re.findall(r'(\w+(?: \w+)?) ([0-9.e+]+)(?!\w)', line.replace('(', ' ').replace(')', ' ').replace('|', ' ')))
         D, g, N = v['D'], int(v['g']), int(v['N'])
-        tight, tdead = int(v.get('tight', 0)), int(v.get('tail_dead', 0))          # Phase 14 L1: the variant the C line was printed under
+        tight = int(v.get('tight', 0))          # Phase 14 L1: the variant the C line was printed under
         ef = int(v.get('early_free', 0))                                          # Phase 14 T1: MN_TREE_EARLY_FREE
         dkm = int(v.get('dkm', 0))                                                # Phase 15 DL: the layout followed NEWTON_DKM ("dkm 1"; absent: today's)
         lean = int(v.get('lean', 0))                                              # int15k: "lean 1" = DM_MN_LEAN's division set
@@ -1202,8 +1199,8 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         if g > 1 and env.get('COMM_TRANSPORT') == 'shmem':                        # binsplit.c as_shmem_pool: binsplit_shmem_pool_rule's pool
             pd_ = {}; ofi = ofi_planned(env)                                       # Phase 17 OFIMEM: the comm_ofi pools beside the SHMEM pool
             px = 0 if ofi else int(env.get('COMM_SHMEM_PE_PER_APU') or ('1' if env.get('COMM_OFI') == '0' else '0'))   # N7b: 4 x value proxy pools, each the size of the pool (D31: default under COMM_OFI=0, as mnrun.sh)
-            nd = shmem_pool(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, None, pool_log, t_chunk_mb, int(env.get('MDB_SHIFT_CHUNK_MB', '1024')), False, round_mb=int(float(env.get('COMM_SHMEM_ROUND_MB', '0') or 0)), detail=pd_, ofi=ofi, px=px,
-                            vslot=(vslot_resident(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, os.environ.get('MN_GROUPS') or None, pool_log, ((int(os.environ.get('MN_P24', '2') or 0), np_mode if np_mode is not None else EC_NP, g, os.environ.get('ECALC_NP_AUTO_MIN', '0') == '1') if int(os.environ.get('MN_P24', '2') or 0) else None))['per_apu']))
+            nd = shmem_pool(dm_layout(N, g, pool_log, True, tight)['nq'], g, None, pool_log, t_chunk_mb, int(env.get('MDB_SHIFT_CHUNK_MB', '1024')), False, round_mb=int(float(env.get('COMM_SHMEM_ROUND_MB', '0') or 0)), detail=pd_, ofi=ofi, px=px,
+                            vslot=(vslot_resident(dm_layout(N, g, pool_log, True, tight)['nq'], g, os.environ.get('MN_GROUPS') or None, pool_log, ((int(os.environ.get('MN_P24', '2') or 0), np_mode if np_mode is not None else EC_NP, g) if int(os.environ.get('MN_P24', '2') or 0) else None))['per_apu']))
             mb = -(-nd // (1 << 20)); mb = -(-mb // 256) * 256; have = int(env.get('COMM_SHMEM_POOL_MB', str(mb) if ofi else '8192'))
             pool_b = (mb if mb > have else have) << 20   # (the pool rule always raises the pool: COMM_SHMEM_POOL_AUTO removed 2026-10-12)
             if ofi: ofi_b = NR * (int(env.get('COMM_OFI_POOL_MB', str(pd_['ofi_dev_mb']))) << 20)
@@ -1212,16 +1209,16 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         ar_room = None
         ch = VMM_CHUNK if arena_room > 0 else 0
         p24m_ = int(os.environ.get('MN_P24', '2') or 0)                           # B7ACCT: the v-slots (binsplit_vslot_bytes), the tree's P24 decision
-        p24_ = (p24m_, np_mode if np_mode is not None else EC_NP, g, os.environ.get('ECALC_NP_AUTO_MIN', '0') == '1') if p24m_ else None
-        vs = vslot_resident(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, os.environ.get('MN_GROUPS') or None, pool_log, p24_) if g > 1 else dict(per_apu=0, tree_top=0)
+        p24_ = (p24m_, np_mode if np_mode is not None else EC_NP, g) if p24m_ else None
+        vs = vslot_resident(dm_layout(N, g, pool_log, True, tight)['nq'], g, os.environ.get('MN_GROUPS') or None, pool_log, p24_) if g > 1 else dict(per_apu=0, tree_top=0)
         vb = 0                                                                    # the v-slots are in the comm pool, not in as_room_fits' node
         bs = arena_bs_bytes(N, (N + g - 1) // g, S=seed_span(N, g, seed_fill))
         def arm(w):                                                           # FIT (D26): one wrap arm, the room decided as below (binsplit.c fit_arm)
             ar_room = None
             for rm in ([arena_room, 0.0] if arena_room > 0 else [0.0]):             # Phase 15 AS: the room, dropped when the node with it is over the budget
-                L = dm_layout(N, g, pool_log, True, tight, tdead, room=rm, dkm=dkm, mdev_logl=mdev_logl, lean=lean, wrap=w); sc = []
-                p24m = int(os.environ.get('MN_P24', '2') or 0)                 # (DL: '2', the code's default since Batch 3)  MS: the run's MN_P24 / ECALC_NP_AUTO_MIN (the layout line does not print them)
-                p24 = (p24m, np_mode if np_mode is not None else EC_NP, g, os.environ.get('ECALC_NP_AUTO_MIN', '0') == '1') if p24m else None
+                L = dm_layout(N, g, pool_log, True, tight, room=rm, dkm=dkm, mdev_logl=mdev_logl, lean=lean, wrap=w); sc = []
+                p24m = int(os.environ.get('MN_P24', '2') or 0)                 # (DL: '2', the code's default since Batch 3)  MS: the run's MN_P24 (the layout line does not print them)
+                p24 = (p24m, np_mode if np_mode is not None else EC_NP, g) if p24m else None
                 tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, 0, 'grid', pool_log, None, t_chunk_mb, ef, p24) if g > 1 else 0
                 need = arena_trim(L, sc[0] if g > 1 else 0); want = max(need, tree)
                 ar = sum(arena_of(b, want, ch) for b in bs)
@@ -1261,7 +1258,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
             rows += [('fit wrap', fl['wrap'], w_), ('fit device', fl['device'], A['dev']), ('fit node', fl['node'], A['node']),
                      ('fit fits', fl['fits'], 1 if A['dev'] <= lim_ and A['node'] <= float(env.get('ECALC_NODE_GB', '480')) * 1e9 else 0)]
             if g > 1: rows += [('fit device wrap 1', fl['device_wrap1'], A1['dev']), ('fit device wrap 0', fl['device_wrap0'], A0['dev'])]
-        print('D %.3g g %d (N %d) tight %d tail_dead %d early_free %d dkm %d:' % (D, g, N, tight, tdead, ef, dkm))
+        print('D %.3g g %d (N %d) tight %d early_free %d dkm %d:' % (D, g, N, tight, ef, dkm))
         for name, c, py in rows:
             rel = (py - c) / c if c else 0.0
             print('   %-18s C %16.0f  model %16.0f  %+.4f %%' % (name, c, py, 100 * rel))
@@ -1270,9 +1267,8 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
     print('largest arena difference: %.4f %%; %d term(s) not exact (%d plane figures compared)' % (100 * worst, globals().get('_c_layout_bad', 0), nplanes))
     return worst
 
-# ---------------------------------------------------------------- Phase 14 L1: the modelled savings of DM_TIGHT / DM_TAIL_DEAD
-VARIANTS = [('V0 (defaults)', dict()), ('DM_TIGHT=1 (E2)', dict(tight=True)), ('DM_TAIL_DEAD=1', dict(tail_dead=1)),
-            ('DM_TIGHT=1 DM_TAIL_DEAD=1', dict(tight=True, tail_dead=1)), ('DM_TIGHT=1 DM_TAIL_DEAD=2 (E5 layout, needs the spill)', dict(tight=True, tail_dead=2))]
+# ---------------------------------------------------------------- Phase 14 L1: the modelled savings of DM_TIGHT
+VARIANTS = [('V0 (defaults)', dict()), ('DM_TIGHT=1 (E2)', dict(tight=True))]
 TARGET576 = dict(transport='shmem', staging='code', shift_chunk_mb=1024, depth=2)   # Phase 14 P2: staging 'code' (the measured pool law; was 'resident', the flat 8 GiB)   # the target's switches (RESULTS 82: 452 GB at 7.38e10 per node)
 
 def savings():

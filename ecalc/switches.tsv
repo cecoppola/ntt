@@ -31,7 +31,7 @@ COMM_SHMEM_DEVHEAP	bool	0	0	0|1	launch-line	aac7	S12.md+A16.md	Y	ecalc	comm_shme
 COMM_SHMEM_HUGETLB	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	1	L5	2027-03-31	
 COMM_SHMEM_NP_HEAP_THP	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D48, results/SHMEM.md)	2026-11-18	
 COMM_SHMEM_ORDER	bool	derived	derived	0|1	built-in default	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	1	-	-	
-COMM_SHMEM_PE_PER_APU	int	0	0	0|1|2	experiment	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	comm_shmem.c, mnrun.sh, binsplit.c; N7b one SHMEM proxy PE per APU under COMM_OFI=0; N7E 2 = two helper PEs per APU (one per NIC)
+COMM_SHMEM_PE_PER_APU	int	0	0	0|1	experiment	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	comm_shmem.c, mnrun.sh, binsplit.c; N7b one SHMEM proxy PE per APU under COMM_OFI=0
 COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_ofi.c,comm_shmem.c	11	-	-	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
 COMM_SHMEM_POOL_NEED_MB	bool	?	?	0|1	test-only	-	-	Y	ecalc	comm_shmem.c	4	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	
 COMM_SHMEM_PROXY	bool	unset	unset	0|1	experiment	-	-	Y	ecalc	comm_shmem.c	2	N7b	2026-11-14	comm_shmem.c; set by mnrun.sh on the proxy PEs (N7b), checked at init
@@ -61,7 +61,7 @@ COMM_TRACE_WD_MS	int	0	unset	ms	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnost
 COMM_TRANSPORT	enum	unset	derived	shmem	launch-line	aac7	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c	3	-	-	mn.c: shmem is needed for COMM_SIZE > 1 (mnrun.sh sets it); tcp removed 2026-10-12
 COMM_XSTATS	int	0	0		test-only	-	XEFF.md	Y	ecalc	comm_shmem.c	1	diagnostics (TESTING.md)	2027-04-12	
 DBIG_SMALL_BOUNCE	int	1	1	0|1	built-in default	-	-	Y	ecalc	dbig.c	2	coordinator (TASKS S)	2026-11-11	dbig.c; O2+CAND, user-adopted 2026-10-12; 0 = old path
-DB_POOL_VERBOSE	int	0	derived	0|1|2	launch-line	-	T215.md+S18KITFIX.md	Y	ecalc	dbig.c	8	-	-	dbig.c:123: defaults to 1 when RNS_VERBOSE is set, else 0
+DB_POOL_VERBOSE	int	0	derived	0|1|2	launch-line	-	T215.md+S18KITFIX.md	Y	ecalc	dbig.c	6	-	-	dbig.c:123: defaults to 1 when RNS_VERBOSE is set, else 0
 DB_POOL_VMM	bool	derived	derived	0|1	built-in default	-	R114.md	Y	ecalc	dbig.c	1	-	-	
 DB_POOL_VMM_CHUNK_GB	float	2	2		built-in default	-	S46.md+R114.md	Y	ecalc	dbig.c	1	-	-	
 DB_POOL_VMM_RESERVE	float	3	3		built-in default	-	R114.md	Y	ecalc	dbig.c	1	-	-	
@@ -73,7 +73,6 @@ DIST_GEN	bool	0	0	0|1	test-only	-	X13b.md+S36.md	Y	ecalc	rns_dist.c	1	diagnostic
 DIST_LOGN_TEST	int	derived	derived		test-only	-	G12.md+P13b.md	Y	ecalc	ecalc.c,rns_dist.c	2	diagnostics (TESTING.md)	2027-04-12	
 DIST_STATS	bool	derived	derived	0|1	test-only	-	G515.md+CX15.md	Y	ecalc	rns_dist.c	2	diagnostics (TESTING.md)	2027-04-12	
 DM_MN_WRAP	int	auto (fit)	derived	0|1|20..62	built-in default	-	-	Y	ecalc	binsplit.c	1	P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF)	2026-11-11	binsplit.c binsplit_fit / binsplit_dm_wrap (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): unset = 1 when the device with the wrap fits ECALC_DEVICE_GB less ECALC_DEVICE_MARGIN_GB, else 0; =0/=1 explicit wins (a warning when 1 does not fit); the wrap itself P1/D22 (results/DIVISION.md §P1), dm_layout counts it (D19, results/LAUNCH_DEFAULTS.md §DEF)
-DM_TAIL_DEAD	int	0	0		experiment	-	L114.md	Y	ecalc	binsplit.c	2	coordinator (TASKS S)	2026-11-11	
 DM_TIGHT	int	derived	derived		built-in default	-	L114.md+T114.md	Y	ecalc	binsplit.c	2	-	-	
 ECALC_ARENA_GB	float	0	0		built-in default	-	M11.md+A-mem.md	Y	ecalc	binsplit.c	2	-	-	
 ECALC_BG_THREADS	int	48	48		built-in default	-	-	Y	ecalc	ecalc.c,mn_out.c	4	-	-	
@@ -86,11 +85,10 @@ ECALC_CORR_PATCH	int	2	2		built-in default	-	KP15.md	Y	ecalc	ecalc.c	2	-	-
 ECALC_CORR_PATCH_ZONE	int	4096	4096		built-in default	-	K15.md	Y	ecalc	ecalc.c	2	-	-	
 ECALC_DEVICE_GB	float	373.44	373.44	GB per node	built-in default	aac7	-	Y	ecalc	binsplit.c	2	-	-	binsplit.c binsplit_fit (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): the device edge per node the memory fit checks (the target: 373.44, m, TGTBENCH2; aac7 profile 444.0, m); a run above it is refused before launch
 ECALC_DEVICE_MARGIN_GB	float	5	5	GB per node	built-in default	-	-	Y	ecalc	binsplit.c	2	-	-	binsplit.c binsplit_fit (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): DM_MN_WRAP automatic takes the wrap only when the device with it is at most ECALC_DEVICE_GB less this margin
-ECALC_FAST_EXIT	bool	unset	unset	0|1	experiment	-	R§93	Y	ecalc	ecalc.c	1	coordinator (TASKS S)	2026-11-11	
 ECALC_FATAL_ABORT	bool	derived	derived	0|1	built-in default	-	S18W.md+C314.md	Y	ecalc	fatal.c	1	-	-	
 ECALC_FATAL_TEST	int	unset	unset		test-only	-	C314.md	Y	ecalc	binsplit.c	2	diagnostics (TESTING.md)	2027-04-12	
 ECALC_FATAL_WAIT	int	60	60		built-in default	-	C314.md	Y	ecalc	fatal.c	1	-	-	
-ECALC_INIT_ONLY	int	unset	unset		test-only	-	L114.md+P13b.md	prose	ecalc	binsplit.c,ecalc.c	4	diagnostics (TESTING.md)	2027-04-12	
+ECALC_INIT_ONLY	int	unset	unset		test-only	-	L114.md+P13b.md	prose	ecalc	ecalc.c	2	diagnostics (TESTING.md)	2027-04-12	
 ECALC_INIT_TL	bool	0	0	0|1	launch-line	-	MAP15.md	Y	ecalc	dbig.c	2	-	-	dbig.c
 ECALC_LIVE	bool	unset	unset	0|1	test-only	-	T114.md+M615.md	Y	ecalc	memsample.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_MEM_GUARD_GB	float	0	derived	>=0 GB	launch-line	aac7	IO15.md+DOC15.md	Y	ecalc	memsample.c	1	-	-	memsample.c:113; 0 = guard off
@@ -99,7 +97,6 @@ ECALC_MEM_SAMPLE	bool	derived	derived	0|1	test-only	-	IO15.md+S114.md	Y	ecalc	me
 ECALC_MEM_SAMPLE_FILE	bool	derived	derived	0|1	test-only	-	S114.md	Y	ecalc	memsample.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_NODE_GB	float	480	480		built-in default	-	P16.md+C314.md	prose	ecalc	binsplit.c,ecalc.c,rns_dist.c	12	-	-	
 ECALC_NP	enum	auto	derived	auto|3|4	launch-line	aac7	P15.md+DOC215.md	Y	ecalc	crt.c,ecalc.c	3	-	-	ecalc.c: unset becomes auto at size > 1 (D18), 3 at size 1; crt.c reads auto
-ECALC_NP_AUTO_MIN	bool	derived	derived	0|1	experiment	-	MPB15.md	Y	ecalc	crt.c	1	coordinator (TASKS S)	2026-11-11	
 ECALC_NP_AUTO_TERMS	bool	derived	derived	0|1	test-only	-	NP15.md	Y	ecalc	crt.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_ODIRECT	int	1	1		built-in default	-	S114.md+KP15.md	Y	ecalc	spill.c	3	-	-	
 ECALC_OUT_MODE	bool	derived	derived	0|1	built-in default	-	IO15.md	Y	ecalc	mn_out.c	2	-	-	
@@ -128,7 +125,6 @@ MN_OUT_EARLY	int	1	1		built-in default	-	IO15.md	Y	ecalc	binsplit.c,ecalc.c	6	-	
 MN_OUT_STRIPE	bool	1	1	0|1	built-in default	-	IO15.md+SC15.md	Y	ecalc	mn_out.c	1	-	-	
 MN_OUT_STRIPE_FORCE	int	derived	derived		test-only	-	IO15.md	prose	ecalc	mn_out.c	2	diagnostics (TESTING.md)	2027-04-12	
 MN_OUT_THREADS	int	8	8		built-in default	-	IO15.md+TARGET_HW_REVIEW.md	Y	ecalc	mn_out.c	3	-	-	
-MN_OUT_WAVES	int	1	1		experiment	-	IO15.md+DOC15.md	Y	ecalc	ecalc.c,mn_out.c	4	coordinator (TASKS S)	2026-11-11	
 MN_PLAN_ONLY	str	unset	derived	D:g	launch-line	-	P15.md+T215.md	Y	ecalc	binsplit.c,ecalc.c	2	-	-	ecalc.c:451; prints the plan and exits
 MN_PLAN_QUIET	int	unset	unset		test-only	-	L13d.md	Y	ecalc	mn_plan.c	2	diagnostics (TESTING.md)	2027-04-12	
 MN_SELFTEST_LOGR	int	unset	unset		test-only	-	FIX117.md	Y	ecalc	mn.c	2	diagnostics (TESTING.md)	2027-04-12	
@@ -160,7 +156,7 @@ RNS_POOL_GROW	int	0	0		test-only	-	B16.md+R.md	Y	ecalc	binsplit.c,rns_mul.c	6	di
 RNS_R3	int	derived	derived		experiment	-	P.md	Y	ecalc	rns_mul.c	2	coordinator (TASKS S)	2026-11-11	
 RNS_STRATEGY	bool	derived	derived	0|1	built-in default	-	B13b.md+G13d.md	Y	ecalc	rns_dist.c	1	-	-	
 RNS_STRATEGY_CHECK	int	0	0		test-only	-	B13b.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
-RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	31	-	-	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
+RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	30	-	-	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
 DIST_BIG	int	derived	derived		test-only	-	-	Y	tests	t_dist.c,t_mul.c	3	ecalc/tests/t_dist.c	2027-04-12	
 DIST_BIG_K	int	64	64		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
 DIST_BIG_PRIMES	str	0,2	0,2		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	

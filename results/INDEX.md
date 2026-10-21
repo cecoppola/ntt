@@ -260,3 +260,4 @@ Topic files:
 | AAC7_PORT.md | the aac7 port (Phase 16): bring-up at 4 to 12 nodes, the A/Bs and the 12-node scaled headline, the fastest software stack |
 | APUMULT.md | the apumult study (internal reference multiplier) against ecalc: spec comparison and the apumult measurements |
 | SESSIONS.md | aac7 measurement sessions of September/October: profile analysis 2 to 10 nodes, T2048 A/B, XSTATS decomposition, X2 and VMM_SAFE soak |
+| ATRIM | BS_ARENA_TRIM_GB: arena trim at 2 n and 3 n (own file, new) | ATRIM.md |

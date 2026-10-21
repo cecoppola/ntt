@@ -618,7 +618,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
     int logn = 0; while (((size_t)1 << logn) < nc) logn++;
     if (logn < 20) logn = 20;                                  /* R, C >= 2^10 */
     if (logn > dist_logn_max()) { ec_fatal(EC_RC_FATAL, "dist_core: %zu limbs > 2^%d points\n", nc, dist_logn_max()); }
-    const int np = ec_np_prod(ec_np_terms(nc, A.n, B.n), "dist_core");    /* Phase 13a P3: three primes -- decimal limbs, within the bound; Phase 15 NP: ECALC_NP=auto -- four over the bound; Phase 15 MPB: the terms min(A.n, B.n) under ECALC_NP_AUTO_MIN=1 (modarith.h), else nc */
+    const int np = ec_np_prod(nc, "dist_core");    /* Phase 13a P3: three primes -- decimal limbs, within the bound; Phase 15 NP: ECALC_NP=auto -- four over the bound*/
     int logR = logn / 2;
     if (logR < 10) logR = 10; if (logR > logn - 10) logR = logn - 10;   /* (R, C >= 2^10) */
     int logC = logn - logR;
@@ -1296,7 +1296,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     int logn, logR, logC; size_t q; mn_shape(npt, g, &logn, &logR, &logC, &q);
     if (cyc && ((size_t)1 << logn) != cyc) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: cyclic plane %zu below the group's smallest (2^%d)\n", cyc, logn); }
     if (logn > mn_logn_cap(g) || (p24 && logn > P24_CAP_LOG)) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: %zu %s > 2^%d points over %d nodes\n", npt, p24 ? "P24 points" : "limbs", p24 && mn_logn_cap(g) > P24_CAP_LOG ? P24_CAP_LOG : mn_logn_cap(g), g); }
-    const int np = p24 ? 4 : ec_np_prod(ec_np_terms(cyc ? cyc : nc, na, nb), "mn_core");   /* Phase 13a P3: three primes -- decimal limbs, within the bound; Phase 15 NP: ECALC_NP=auto -- four over the bound; Phase 15 MPB: min(na, nb) under ECALC_NP_AUTO_MIN=1, else nc; P24: four (INT3: the two composed) */
+    const int np = p24 ? 4 : ec_np_prod(cyc ? cyc : nc, "mn_core");   /* Phase 13a P3: three primes -- decimal limbs, within the bound; Phase 15 NP: ECALC_NP=auto -- four over the bound; P24: four (INT3: the two composed) */
     size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC;
     double t0 = mem_now();
     if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
@@ -1623,7 +1623,7 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb;
         if (pc && cache_slots()) {                                /* Phase 15 PC: this product's slots from the pool, at its largest piece's plane (every node the same: a collective) */
             size_t npt0 = p24 ? p24_pts(pa) + p24_pts(pb) : pa + pb; int ln0, lr0, lc0; size_t q0; mn_shape(npt0, g, &ln0, &lr0, &lc0, &q0);
-            int np0 = p24 ? 4 : ec_np_for(ec_np_terms(pa + pb, pa, pb));
+            int np0 = p24 ? 4 : ec_np_for(pa + pb);
             NS = cache_pc_take(G, na, nb, A, B, &Cn, q0, np0, &pck); nf = NS; for (int i = 0; i < NS; i++) fs[i] = i;
         }
         const int lng = pc && kb > ka;                           /* Phase 15 PC: the loop along the longer axis -- A's pieces outer, the slots' roles swapped (CX15 3.3) */
@@ -1746,7 +1746,7 @@ static int plan_piece_count(void *ctx, int i, int j, int sa, int sb, int formed)
     if (oa >= c->na || ob >= c->nb) return -1;                                        /* an empty piece (mul_grid: !ai.n) */
     size_t la = c->na - oa < c->pa ? c->na - oa : c->pa, lb = c->nb - ob < c->pb ? c->nb - ob : c->pb;
     if (grid_piece_skipped(oa, ob, la, lb, c->lowcut, c->w)) return 0;
-    c->p->formed4 += ec_np_for(ec_np_terms(la + lb, la, lb)) == 4;                   /* NP: the piece's primes (MPB: its terms as mn_core / dist_core count them) */
+    c->p->formed4 += ec_np_for(la + lb) == 4;                   /* NP: the piece's primes */
     return 1;
 }
 static void plan_pieces(size_t na, size_t nb, int ka, int kb, size_t lowcut, size_t w, struct rns_grid_plan *p)
@@ -1761,11 +1761,11 @@ void rns_dist_db_plan(size_t na, size_t nb, size_t lowcut, size_t w, struct rns_
     g_cache_mn = 0;                                                                    /* as mul_grid sets it before deciding */
     p->logcap = dist_logn_max(); p->cap = dist_cap();
     p->one = db_grid_shape(na, nb, &p->ka, &p->kb);
-    if (p->one) { p->pa = na; p->pb = nb; p->formed = 1; p->formed4 = ec_np_for(ec_np_terms(na + nb, na, nb)) == 4; }   /* one plane: formed whole, whatever the cuts (mul_grid) */
+    if (p->one) { p->pa = na; p->pb = nb; p->formed = 1; p->formed4 = ec_np_for(na + nb) == 4; }   /* one plane: formed whole, whatever the cuts (mul_grid) */
     else plan_pieces(na, nb, p->ka, p->kb, lowcut, w, p);
     size_t pc = p->pa + p->pb; int T, lk;
     p->form_b = b_grid_on() && b_fits(pc);
-    p->np = ec_np_for(ec_np_terms(pc, p->pa, p->pb));                                  /* Phase 15 NP: the piece's primes (ECALC_NP=auto; MPB: min under ECALC_NP_AUTO_MIN=1) */
+    p->np = ec_np_for(pc);                                  /* Phase 15 NP: the piece's primes (ECALC_NP=auto) */
     if (p->form_b) { p->pts = b_len(pc, &T, &lk); p->plane_bytes = 2.0 * p->np * p->pts * 8; }   /* B: two planes of n on each prime's APU */
     else { p->pts = plane_pts(pc); p->plane_bytes = (double)p->np * p->pts * 8; }       /* C: n / 4 points per prime on each of the four APUs */
 }
@@ -1785,12 +1785,12 @@ void rns_dist_mn_plan(size_t na, size_t nb, int g, int has_x, size_t lowcut, siz
     }
     p->logcap = mn_logn_cap(g); p->cap = (size_t)1 << p->logcap;
     p->one = mn_grid_shape(na, nb, g, 0, &p->ka, &p->kb);
-    if (p->one) { p->pa = na; p->pb = nb; if (nc > lowcut) { p->formed = 1; p->formed4 = ec_np_for(ec_np_terms(nc, na, nb)) == 4; } else p->skipped = 1; }   /* mn_grid: one plane, skipped when all of it is below the low cut */
+    if (p->one) { p->pa = na; p->pb = nb; if (nc > lowcut) { p->formed = 1; p->formed4 = ec_np_for(nc) == 4; } else p->skipped = 1; }   /* mn_grid: one plane, skipped when all of it is below the low cut */
     else plan_pieces(na, nb, p->ka, p->kb, lowcut, w, p);
     (void)has_x;
     int logn, logR, logC; size_t q; mn_shape(p->pa + p->pb, g, &logn, &logR, &logC, &q);
     p->pts = (size_t)1 << logn; p->logR = logR; p->logC = logC;
-    p->np = ec_np_for(ec_np_terms(p->pa + p->pb, p->pa, p->pb));                      /* Phase 15 NP: the piece's primes (ECALC_NP=auto; MPB: min under ECALC_NP_AUTO_MIN=1) */
+    p->np = ec_np_for(p->pa + p->pb);                      /* Phase 15 NP: the piece's primes (ECALC_NP=auto) */
     p->plane_bytes = 4.0 * p->np * q * 8;                                              /* per node: q limbs per prime on each of its four APUs (mn_core's xa[]) */
 }
 /* Phase 12 G: the block-pool bytes per device at the peak of the product C = A B (+ X) of na x nb limbs over g nodes, on a

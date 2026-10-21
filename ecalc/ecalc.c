@@ -153,7 +153,6 @@ static void node_pfx(const struct out_ctx *c) { if (c->size > 1) printf("mn: nod
 static void mn_early_hook(mdb *X, void *a)
 {
     struct out_ctx *c = (struct out_ctx *)a;
-    if (getenv("MN_OUT_WAVES") && atoi(getenv("MN_OUT_WAVES")) > 1 && c->rank == 0) printf("mn: MN_OUT_EARLY: MN_OUT_WAVES is ignored (no barriers in the background)\n");
     c->early = mn_out_early_start(X, c->d, c->d_out, c->outfile, c->rank, c->size, c->verbose >= 2, mn_comm(0), newton_x_defer ? c->zone : 0);   /* (K's deferred tail windows) */
 }
 /* Phase 15 EW (MN_OUT_DKM_HI) at size > 1: the X_hi hook (every rank; collective) takes X_hi and starts its part file; the X_lo hook releases the
@@ -243,7 +242,7 @@ static int out_stage(struct out_ctx *c)
         double tj = mem_now(); o = mn_out_early_join(c->early, &c->t_early);
         node_pfx(c); printf("      the part file%s started in the division (MN_OUT_EARLY%s): its writer ran %.2f s, joined after %.2f s here%s\n", c->hi ? "s" : "", c->hi ? ", MN_OUT_DKM_HI: X_hi's after step 1, X_lo's at the release" : "", c->t_early, mem_now() - tj, c->ncorr && !c->defer ? "; X corrected after it started: redoing the part file" : "");
         oh = mn_out_early_hi(c->early);
-        if (c->ncorr && !c->defer) {   /* (with ECALC_CORR_PATCH=2 the corrections are deferred to the tail patch below) */ mn_out_finish(o); mn_out_boundaries(o, &src, cm); o->c = 0; mn_out_run(o, &src); }   /* (every rank: the corrections are the group's) */
+        if (c->ncorr && !c->defer) {   /* (with ECALC_CORR_PATCH=2 the corrections are deferred to the tail patch below) */ mn_out_finish(o); mn_out_boundaries(o, &src, cm); mn_out_run(o, &src); }   /* (every rank: the corrections are the group's) */
     } else {
         o->d = c->d; o->d_out = c->d_out; o->outfile = c->outfile; o->rank = c->rank; o->size = c->size; o->verbose = c->verbose >= 2;
         if (c->defer) o->t2_defer = c->zone;
@@ -664,16 +663,9 @@ int main(int argc, char **argv)
         RESULT("ckpt_top", "s", tw); RESULT("ckpt_top_wait", "s", tq);
     }
     mn_ckpt_top_finish();                             /* (size > 1, node 0: the top tree set's writer) */
-    /* ECALC_FAST_EXIT=1 -- every file is closed, fsync'd and verified by here (the
-     * writers were joined in out_stage, the top set above), so the process ends with _exit after the reports and the transport's
-     * barrier: the block pools' VMM release, rns_shutdown's hipFree of the planes and the HIP runtime's atexit teardown are left to
-     * the kernel's exit unmapping (the same physical pages either way).  Off by default: the walls of a record run are measured with
-     * the teardown inside them unless the user adopts this. */
-    const char *fx = getenv("ECALC_FAST_EXIT"); int fast_exit = fx && atoi(fx) != 0;
-    if (!fast_exit) db_release_pools();               /* B1: X's block (device / sharded) was in use until here */
-    mem_report_host_item(MEM_HOST_X, 0); mem_report("end"); mem_report_summary();   /* (ECALC_FAST_EXIT: the block pools are still mapped in the end table) */
+    db_release_pools();                               /* B1: X's block (device / sharded) was in use until here */
+    mem_report_host_item(MEM_HOST_X, 0); mem_report("end"); mem_report_summary();
     mn_barrier(); mn_finalize();
-    if (fast_exit) { printf("ECALC_FAST_EXIT: _exit(%d) after the reports (%.2f s since t0)\n", fail, mem_now() - t00); fflush(stdout); fflush(stderr); _exit(fail); }
     rns_shutdown();
     return fail;
 }
