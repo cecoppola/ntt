@@ -59,6 +59,7 @@ COMM_TRACE_THR	bool	derived	derived	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	2	
 COMM_TRACE_WD_MS	int	0	unset	ms	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	comm_trace.h:106; 0 = no watchdog
 COMM_TRANSPORT	enum	unset	derived	shmem	launch-line	aac7	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c	3	-	-	mn.c: shmem is needed for COMM_SIZE > 1 (mnrun.sh sets it); tcp removed 2026-10-12
 COMM_XSTATS	int	0	0		test-only	-	XEFF.md	Y	ecalc	comm_shmem.c	1	diagnostics (TESTING.md)	2027-04-12	
+COMM_XSTATS_GEV	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	1	diagnostics (TESTING.md)	2027-04-12	
 DBIG_SMALL_BOUNCE	int	1	1	0|1	built-in default	-	-	Y	ecalc	dbig.c	2	coordinator (TASKS S)	2026-11-11	dbig.c; O2+CAND, user-adopted 2026-10-12; 0 = old path
 DB_POOL_VERBOSE	int	0	derived	0|1|2	launch-line	-	T215.md+S18KITFIX.md	Y	ecalc	dbig.c	6	-	-	dbig.c:123: defaults to 1 when RNS_VERBOSE is set, else 0
 DB_POOL_VMM	bool	derived	derived	0|1	built-in default	-	R114.md	Y	ecalc	dbig.c	1	-	-	

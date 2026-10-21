@@ -13,6 +13,7 @@ COMM_OFI_VERBOSE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fa
 COMM_SHMEM_POOL_NEED_MB	internal	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	internal channel from the planner to the library; do not set by hand
 COMM_SHMEM_STAGE_SLOT_MB	internal	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	internal channel from the planner to the library; do not set by hand
 COMM_XSTATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+COMM_XSTATS_GEV	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DBIG_SMALL_BOUNCE	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback; default since 2026-10-12 (CAND)
 DC_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DIST_GATHER_RAW	fallback	coordinator (TASKS S)	2026-11-11	other values are the fallback; default 2 since 2026-10-12 (CAND)

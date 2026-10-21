@@ -131,6 +131,7 @@ static struct {
     size_t cur[3], peak[3], cur_all, peak_all;   /* pool accounting by kind: 0 control blocks, 1 staging, 2 the callers' symmetric buffers */
     size_t at_peak[3], nstage, nstage_at_peak, stage_blk_max, stage_rep;   /* the kinds at the moment of peak_all, live staging blocks, the largest one, the last staging peak reported */
     int verbose;                           /* ECALC_VERBOSE >= 2 (verbose 2: ECALC_VERBOSE >= 3, the call-site table) -- a line per new staging peak (+5 %), every PE's summary */
+    int xgev;                                 /* COMM_XSTATS_GEV=1 (with COMM_XSTATS=1): GPU-event and host timing of post to wait */
     int xstats;                               /* X1: COMM_XSTATS=1 (per-kind exchange stats, printed at finalize) */
     size_t round_bytes;                    /* COMM_SHMEM_ROUND_MB -- the staging of one alltoallv round, each way (0: off, one round) */
     long nrpath, nround_ex, nrounds; size_t round_stage_max;   /* exchanges through the rounds' path, those in more than one round, their rounds, the largest per-round staging (send + recv) */
@@ -798,7 +799,7 @@ static int comm_shmem_init_i(void)
     else S.order = HAVE_PUT_SIGNAL ? ORDER_PUTSIG : ORDER_QUIET;
     if (S.order == ORDER_PUTSIG && !HAVE_PUT_SIGNAL) { if (S.me == 0) fprintf(stderr, "comm_shmem: putsig needs OpenSHMEM 1.5 headers: using quiet\n"); S.order = ORDER_QUIET; }
     S.spin_us = env_int("COMM_SHMEM_SPIN_US", 2000);
-    S.xstats = env_int("COMM_XSTATS", 0) > 0;
+    S.xstats = env_int("COMM_XSTATS", 0) > 0; S.xgev = S.xstats && env_int("COMM_XSTATS_GEV", 0) > 0;
     tr_init(S.proxy ? 4 : 0);                             /* COMM_TRACE=1: the trace arena (a proxy's is a quarter of COMM_TRACE_MAX_MB) */
     tr_hb_start(S.proxy);                                 /* COMM_TRACE_HB=<ms>: the heartbeat thread (comm_trace.h) */
     { const char *er = getenv("COMM_SHMEM_ROUND_MB"); double rm = er ? atof(er) : 0; S.round_bytes = rm > 0 ? (size_t)(rm * 1048576.0) : 0; }
@@ -885,7 +886,7 @@ void comm_shmem_finalize(void)
     if (S.registered) HIP_CHECK(hipHostUnregister(S.pool));
     for (int d = 0; d < 4; d++) if (g_px[d] && g_px[d]->reg) { (void)hipHostUnregister(g_px[d]->base); (void)hipGetLastError(); }
 #endif
-    if (S.xstats) xs_print();                             /* X1: every PE prints its own lines */
+    if (S.xstats) { xg_drain(); xs_print(); }             /* X1: every PE prints its own lines */
     tr_flush(0);                                          /* COMM_TRACE=1: this node-process's trace file */
     comm_ofi_finalize();                                  /* the per-NIC bytes (COMM_OFI_VERBOSE), then the domains and pools */
     shmem_free(S.pool);
@@ -917,6 +918,7 @@ typedef struct {
      * db: the base its staging offsets, the published roff offsets and the in-pool test refer to (the SHMEM pool, or the device's
      * comm pool under xo); sdb: the pool the cached staging lives in; ocnt[r]: writes to r in flight; osig[r]: r's signal to send
      * once they completed (0: none) */
+    int gslot; double gh0;   /* COMM_XSTATS_GEV: the pending exchange's event slot (-1 none) and the host time of the post */
     int xk, xph, xapu; long xK; double xroff, xsig;   /* X1 xstats: the pending exchange's kind, phase, APU, rounds, and the seconds blocked on offset words (skew) / signal words (transfer, tail) */
     int ofi, xo, sdb; char *db; ofi_dev *od; ofi_peers *op; long *ocnt, *osig;
     void *tev[2]; int tev_ok;   /* COMM_TRACE: hipEvents around the staging copies (the GPU time of the copy, E_COPY_DONE / E_RCOPY_DONE bytes) */
@@ -982,7 +984,7 @@ static const char *const xs_kn[XK_NK] = { "other", "redist", "result", "spill", 
 static void xs_begin(shm_priv *p)
 {
     p->xk = comm_xtag; if (p->xk < 0 || p->xk >= XK_NK) p->xk = 0;
-    p->xph = comm_wst_get_phase(); p->xroff = p->xsig = 0; p->xK = 1; p->xapu = 0;
+    p->xph = comm_wst_get_phase(); p->xroff = p->xsig = 0; p->xK = 1; p->xapu = 0; p->gslot = -1;
 #ifndef COMM_HOST_ONLY
     { int d = 0; if (hipGetDevice(&d) == hipSuccess && d >= 0 && d < 8) p->xapu = d; }
 #endif
@@ -1234,6 +1236,66 @@ static void arrive(shm_priv *p, size_t bytes, const size_t *rcnt)
 static int s_rank(comm *c) { return c->rank; }
 static int s_size(comm *c) { return c->size; }
 static int alltoallv_rounds(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s, int sin, int rin);   /* (below) */
+/* ---- COMM_XSTATS_GEV=1 (diagnostic): the post-to-wait interval of each exchange on the GPU timeline (a hipEvent after the copy-in sync, one at the
+ * start of the wait) against the host's clock for the same interval.  A small pool of event pairs per APU; no synchronisation in the hot path: finished
+ * pairs are read at the next post, the rest at finalize.  gpu > host: the stream is behind the host (the caller's kernels are slower than the host's
+ * launches); gpu ~ host: the stream kept up; the difference to host-side delay is read from the two means.  A full pool drops the sample (counted). ---- */
+#define XG_SLOTS 16
+#ifndef COMM_HOST_ONLY
+static struct xg_slot { hipEvent_t e0, e1; double h; int ph, k, busy; } g_xg[8][XG_SLOTS];
+static pthread_mutex_t g_xg_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct xg_vec { float *g, *h; long n, cap; } g_xv[WST_NP][XK_NK];
+static long g_xg_drop;
+static void xg_add(struct xg_slot *q, float ms)
+{
+    struct xg_vec *v = &g_xv[q->ph][q->k];
+    if (v->n == v->cap) { long c = v->cap ? 2 * v->cap : 1024; v->g = (float *)realloc(v->g, (size_t)c * sizeof(float)); v->h = (float *)realloc(v->h, (size_t)c * sizeof(float)); v->cap = c; }
+    v->g[v->n] = ms * 1e-3f; v->h[v->n] = (float)q->h; v->n++; q->busy = 0;
+}
+static void xg_reap(int d)                                /* lock held */
+{
+    for (int i = 0; i < XG_SLOTS; i++) { struct xg_slot *q = &g_xg[d][i]; float ms;
+        if (q->busy != 2) continue;
+        if (hipEventQuery(q->e1) != hipSuccess) { (void)hipGetLastError(); continue; }
+        if (hipEventElapsedTime(&ms, q->e0, q->e1) == hipSuccess) xg_add(q, ms); else { (void)hipGetLastError(); q->busy = 0; } }
+}
+static void xg_post(shm_priv *p, hipStream_t s)            /* after the copy-in sync */
+{
+    int d = p->xapu; p->gslot = -1; if (d < 0 || d >= 8) return;
+    pthread_mutex_lock(&g_xg_lock);
+    xg_reap(d);
+    for (int i = 0; i < XG_SLOTS; i++) { struct xg_slot *q = &g_xg[d][i]; if (q->busy) continue;
+        if (!q->e0) { if (hipEventCreate(&q->e0) != hipSuccess || hipEventCreate(&q->e1) != hipSuccess) { (void)hipGetLastError(); q->e0 = 0; break; } }
+        if (hipEventRecord(q->e0, s) != hipSuccess) { (void)hipGetLastError(); break; }
+        q->busy = 1; q->ph = p->xph; q->k = p->xk; p->gslot = i; p->gh0 = now_s(); pthread_mutex_unlock(&g_xg_lock); return; }
+    g_xg_drop++; pthread_mutex_unlock(&g_xg_lock);
+}
+static void xg_wait(shm_priv *p, double tw0)               /* at the start of the wait */
+{
+    struct xg_slot *q = &g_xg[p->xapu][p->gslot]; p->gslot = -1;
+    if (hipEventRecord(q->e1, p->st) != hipSuccess) { (void)hipGetLastError(); q->busy = 0; return; }
+    q->h = tw0 - p->gh0; q->busy = 2;
+}
+static int xg_cmp(const void *a, const void *b) { float x = *(const float *)a, y = *(const float *)b; return x < y ? -1 : x > y; }
+static double xg_p95(float *a, long n) { qsort(a, (size_t)n, sizeof(float), xg_cmp); return a[(long)(0.95 * (double)(n - 1))]; }
+static void xg_drain(void)
+{
+    if (!S.xgev) return;
+    for (int d = 0; d < 8; d++) for (int i = 0; i < XG_SLOTS; i++) { struct xg_slot *q = &g_xg[d][i]; float ms;
+        if (q->busy != 2) continue;
+        if (hipEventSynchronize(q->e1) == hipSuccess && hipEventElapsedTime(&ms, q->e0, q->e1) == hipSuccess) xg_add(q, ms); else { (void)hipGetLastError(); q->busy = 0; } }
+    for (int ph = 0; ph < WST_NP; ph++) for (int k = 0; k < XK_NK; k++) { struct xg_vec *v = &g_xv[ph][k]; if (!v->n) continue;
+        double sg = 0, sh = 0; for (long i = 0; i < v->n; i++) { sg += v->g[i]; sh += v->h[i]; }
+        double pg = xg_p95(v->g, v->n), ph95 = xg_p95(v->h, v->n);
+        printf("xstats_gev pe %d phase %s kind %s: n %ld gpu_mean %.3f ms gpu_p95 %.3f ms host_mean %.3f ms host_p95 %.3f ms gcall %.3f s hcall %.3f s gidle %.3f s (post-to-wait: GPU events vs host clock, only the samples with an event pair; gidle = hcall - gcall)\n",
+               S.me, xs_ph[ph], xs_kn[k], v->n, sg / (double)v->n * 1e3, pg * 1e3, sh / (double)v->n * 1e3, ph95 * 1e3, sg, sh, sh - sg); }
+    if (g_xg_drop) printf("xstats_gev pe %d: %ld exchanges without a sample (event pool full)\n", S.me, g_xg_drop);
+}
+#else
+#define xg_post(p, s) ((void)0)
+#define xg_wait(p, t) ((void)0)
+#define xg_drain() ((void)0)
+#endif
 static void s_alltoall_i(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
@@ -1253,7 +1315,7 @@ static void s_alltoall_i(comm *c, const void *sb, void *rb, size_t bytes, hipStr
     if (!sin) COPY(p->db + p->sst, sb, bytes * n, s);                                         /* my slabs (all of them: simpler than skipping the self slab) */
     if ((const char *)sb + (size_t)me * bytes != (char *)rb + (size_t)me * bytes) COPY((char *)rb + (size_t)me * bytes, (const char *)sb + (size_t)me * bytes, bytes, s);   /* the self slab */
     TR(p, E_COPY_ISS, 0, -1, p->tr_xs, 0, 0); tr_cev_end(p, s);
-    SYNC(s); TR(p, E_COPY_DONE, 0, -1, p->tr_xs, tr_cev_ns(p), 0);   /* the stream is done with sb and rb (a pool-resident rb may still be read by the caller's earlier kernels: publish only after) */
+    SYNC(s); TR(p, E_COPY_DONE, 0, -1, p->tr_xs, tr_cev_ns(p), 0); if (S.xgev) xg_post(p, s);   /* the stream is done with sb and rb (a pool-resident rb may still be read by the caller's earlier kernels: publish only after) */
     publish(p, rin ? off_db(p, rb) : p->rst, bytes, 0);
     TR(p, E_PUBLISHED, 0, -1, p->tr_xs, 0, 0);
     start_push(c);
@@ -1394,7 +1456,7 @@ static void s_alltoallv_i(comm *c, const void *sb, const size_t *scnt, const siz
     if (!sin) for (int r = 0; r < n; r++) if (r != me && scnt[r]) COPY(p->db + p->sst + p->spre[r], (const char *)sb + sdsp[r], scnt[r], s);
     if (scnt[me] && (const char *)sb + sdsp[me] != (char *)rb + rdsp[me]) COPY((char *)rb + rdsp[me], (const char *)sb + sdsp[me], scnt[me], s);
     TR(p, E_COPY_ISS, 0, -1, p->tr_xs, 0, 0); tr_cev_end(p, s);
-    SYNC(s); TR(p, E_COPY_DONE, 0, -1, p->tr_xs, tr_cev_ns(p), 0);
+    SYNC(s); TR(p, E_COPY_DONE, 0, -1, p->tr_xs, tr_cev_ns(p), 0); if (S.xgev) xg_post(p, s);
     publish(p, rin ? off_db(p, rb) : p->rst, 0, rin ? rdsp : p->rpre);
     TR(p, E_PUBLISHED, 0, -1, p->tr_xs, 0, 0);
     start_push(c);
@@ -1417,6 +1479,7 @@ static void s_wait_i(comm *c)
     if (!p->pending) return;
     TR(p, E_WAIT, 0, -1, p->tr_xs, 0, 0);
     double xtw0 = S.xstats ? now_s() : 0;                 /* X1 */
+    if (S.xgev && p->gslot >= 0) xg_wait(p, xtw0);
     if (p->thread) { pthread_join(p->th, 0); p->thread = 0; }
     TR(p, E_JOINED, 0, -1, p->tr_xs, 0, 0);
     if (p->rounds) {                                      /* the rounds completed in the helper thread */

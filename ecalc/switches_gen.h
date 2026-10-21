@@ -58,6 +58,7 @@ static const char *const cfg_names[] = {
     "COMM_TRACE_WD_MS",
     "COMM_TRANSPORT",
     "COMM_XSTATS",
+    "COMM_XSTATS_GEV",
     "DBIG_SMALL_BOUNCE",
     "DB_POOL_VERBOSE",
     "DB_POOL_VMM",
@@ -156,4 +157,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 154
+#define CFG_NAMES_N 155
