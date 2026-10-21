@@ -703,10 +703,20 @@ static const char *px_shim_missing(void)
 }
 /* one self-test round: put TS bytes from srcp (pattern of this PE) into the next node's proxy at tdst, say "sent" (flag fl; 2 = nothing to send), verify what the previous node put into my pool, answer
  * with a verdict (vd) to the previous node, and read the next node's verdict on my put.  1 = my put was verified.  Both words are reset before the return. */
+#include <setjmp.h>
+static sigjmp_buf g_pj; static volatile int g_pj_on;
+static void pj_handler(int sig) { (void)sig; if (g_pj_on) siglongjmp(g_pj, 1); signal(SIGSEGV, SIG_DFL); }
 static int px_probe_round(const char *srcp, int have, char *tdst, long *fl, long *vd, int dst, int srcpe, int zc, const char **why)
 {
     const size_t TS = (size_t)8 << 20;
-    if (have) { shmem_putmem(tdst, srcp, TS, dst); shmem_quiet(); }
+    volatile int crashed = 0;
+    if (have && zc) {                                 /* a put from an IPC-opened pointer makes the library's device-memory registration (ROCr) fault on some stacks: contained here, zero-copy is then off */
+        struct sigaction sa, old; memset(&sa, 0, sizeof sa); sa.sa_handler = pj_handler; sigemptyset(&sa.sa_mask); sa.sa_flags = SA_NODEFER;
+        sigaction(SIGSEGV, &sa, &old); g_pj_on = 1;
+        if (sigsetjmp(g_pj, 1) == 0) { shmem_putmem(tdst, srcp, TS, dst); shmem_quiet(); } else crashed = 1;
+        g_pj_on = 0; sigaction(SIGSEGV, &old, 0);
+        if (crashed) { have = 0; *why = "a put from the IPC-opened memory crashed in the library (SIGSEGV, contained)"; }
+    } else if (have) { shmem_putmem(tdst, srcp, TS, dst); shmem_quiet(); }
     shmem_long_p(fl, have ? 1 : 2, dst); shmem_quiet();
     double t0 = now_s(); long fv = 0;
     while (!(fv = __atomic_load_n(fl, __ATOMIC_ACQUIRE))) { if (now_s() - t0 > 60) break; struct timespec ts = { 0, 200000 }; nanosleep(&ts, 0); }
