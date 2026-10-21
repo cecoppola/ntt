@@ -75,7 +75,7 @@ static struct {
     pthread_mutex_t lock;                  /* init and the counters */
     uint64_t maxseq; size_t dbytes;
     xpe pe[MAXLPE]; unsigned char used[MAXLPE][MAXID];
-} X = { {0}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, PTHREAD_MUTEX_INITIALIZER, 0, 0, {}, {} };
+} X = { {0}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, PTHREAD_MUTEX_INITIALIZER, 0, 0, {}, {} };
 
 static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 static int env_int(const char *name, int def) { const char *e = getenv(name); return e ? atoi(e) : def; }
