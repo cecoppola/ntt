@@ -579,8 +579,6 @@ int comm_xshmem_geo(int *v, char *cpus, int ncpus)
     if (cpus && ncpus > 0) { strncpy(cpus, q->cpus, (size_t)ncpus - 1); cpus[ncpus - 1] = 0; }
     return 0;
 }
-    return 0;
-}
 int comm_xshmem_loopback_pes(void) { return X.inited ? X.K : XS_LPES(); }
 int comm_xshmem_nodes(void) { return X.nodes; }
 void comm_xshmem_finalize(void)
