@@ -8,7 +8,7 @@ BS_BATCH_PIPE	bool	1	1	0|1	built-in default	-	-	Y	ecalc	rns_mul.c	1	coordinator 
 BS_CKPT_BG_CHUNK_MB	int	256	256		built-in default	-	N13.md	Y	ecalc	binsplit.c	1	-	-	
 BS_CKPT_BG_MBS	float	0	0		test-only	-	N13.md	Y	ecalc	binsplit.c	1	diagnostics (TESTING.md)	2027-04-12	
 BS_CKPT_DIR	str	unset	derived	path	launch-line	-	W.md+WP7.md	Y	ecalc	ecalc.c	3	-	-	ecalc.c; the top-level set's directory (ECALC_CKPT_TOP); unset or empty = <outfile>.top
-BS_LAYOUT_ONLY	str	unset	derived	D[:g],...	launch-line	-	MS15.md+B7ACCT.md	Y	ecalc	binsplit.c,ecalc.c	5	-	-	ecalc.c:440; layout printer, exits before rns_init
+BS_LAYOUT_ONLY	str	unset	derived	D[:g],...	launch-line	-	MS15.md+B7ACCT.md	Y	ecalc	binsplit.c,ecalc.c,vpe.c	6	-	-	ecalc.c:440; layout printer, exits before rns_init
 BS_MDEV_LOGL	int	derived	derived		built-in default	-	M3.md+A-ckpt.md	Y	ecalc	binsplit.c,mn_plan.c	6	-	-	
 BS_SEED_CHUNK_MB	int	derived	derived		built-in default	-	H.md+R114.md	Y	ecalc	binsplit.c	4	-	-	
 BS_SEED_FILL	bool	unset	unset	0|1	built-in default	-	T215.md+DOC15.md	Y	ecalc	binsplit.c	1	-	-	
@@ -132,7 +132,7 @@ MN_OUT_EARLY	int	1	1		built-in default	-	IO15.md	Y	ecalc	binsplit.c,ecalc.c	6	-	
 MN_OUT_STRIPE	bool	1	1	0|1	built-in default	-	IO15.md+SC15.md	Y	ecalc	mn_out.c	1	-	-	
 MN_OUT_STRIPE_FORCE	int	derived	derived		test-only	-	IO15.md	prose	ecalc	mn_out.c	2	diagnostics (TESTING.md)	2027-04-12	
 MN_OUT_THREADS	int	8	8		built-in default	-	IO15.md+TARGET_HW_REVIEW.md	Y	ecalc	mn_out.c	3	-	-	
-MN_PLAN_ONLY	str	unset	derived	D:g	launch-line	-	P15.md+T215.md	Y	ecalc	binsplit.c,ecalc.c	2	-	-	ecalc.c:451; prints the plan and exits
+MN_PLAN_ONLY	str	unset	derived	D:g	launch-line	-	P15.md+T215.md	Y	ecalc	binsplit.c,ecalc.c,vpe.c	3	-	-	ecalc.c:451; prints the plan and exits
 MN_PLAN_QUIET	int	unset	unset		test-only	-	L13d.md	Y	ecalc	mn_plan.c	2	diagnostics (TESTING.md)	2027-04-12	
 MN_SELFTEST_LOGR	int	unset	unset		test-only	-	FIX117.md	Y	ecalc	mn.c	2	diagnostics (TESTING.md)	2027-04-12	
 MN_TREE_LOGN_TEST	int	0	0		test-only	-	G12.md+M13.md	Y	ecalc	mn.c,mn_plan.c	4	diagnostics (TESTING.md)	2027-04-12	
