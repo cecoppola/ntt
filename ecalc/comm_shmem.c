@@ -866,6 +866,7 @@ static int comm_shmem_init_i(void)
     tr_clock_sync(0);                                     /* COMM_TRACE: node 0's clock against every node (every node-process is here after the barrier) */
     return S.npes;
 }
+static void xg_drain(void);                                /* COMM_XSTATS_GEV: the pending samples and the xstats_gev lines (below) */
 void comm_shmem_finalize(void)
 {
     if (!S.inited) return;
@@ -1294,7 +1295,7 @@ static void xg_drain(void)
 #else
 #define xg_post(p, s) ((void)0)
 #define xg_wait(p, t) ((void)0)
-#define xg_drain() ((void)0)
+static void xg_drain(void) {}
 #endif
 static void s_alltoall_i(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
 {
