@@ -22,7 +22,7 @@
 #          patched file; 108388422 at sizes 2 and 4 with ECALC_TEST_CORR=36 (digits [108388413, 108388422], node 0's part).
 #          Each: VERIFY OK on every node, a patch line with bytes rewritten and none FAILED, the digits identical to the first
 #          d + 2 bytes of the 10^9 reference + a newline
-#   vpe    ECALC_VPE=1 (S1e; COMM_TRANSPORT=xshmem, XSHMEM_LOOPBACK_PES=4, build XSHMEM=ofi): 10^8 at 1 and 2 node-processes (4 and 8 PEs), 10^9 at 2,
+#   vpe    ECALC_VPE=1 (S1e; COMM_TRANSPORT=xshmem, XSHMEM_LOOPBACK_PES=4, build XSHMEM=ofi): 10^8 at 1, 2 and 3 node-processes (4, 8, 12 PEs), 10^9 at 2,
 #          digits identical to the reference; the top-level set and the recheck at 1 process (every PE RECHECK OK, a flipped digit RECHECK FAILED).  Not in the default set: asked for with --only vpe
 #   full   the standard size at size 1 (--full only; ECALC_STD_DIGITS, default 10^11 since Phase 14, ~5 min; 4 x 10^10 before): the reference evicted from the page
 #          cache first, the wall printed, digits cmp'd against results/e_4e10.out; then ECALC_RECHECK=1 on its files
@@ -189,6 +189,7 @@ if [[ ",$ONLY," == *",vpe,"* ]]; then
   }
   vpe_check vpe_e8_1 1 100000000 27 600
   vpe_check vpe_e8_2 2 100000000 27 600
+  vpe_check vpe_e8_3 3 100000000 27 600
   vpe_check vpe_e9_2 2 1000000000 29 900
   if refneed "vpe recheck" "$REF/e_100000000.txt"; then
     f=$TMP/vpe_rc.txt; lg=$OUT/vpe_rc.log; lr=$OUT/vpe_rc_recheck.log; lb=$OUT/vpe_rc_bad.log
