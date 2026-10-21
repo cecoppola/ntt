@@ -171,6 +171,11 @@ DIST_LREPS	int	3	3		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	20
 DIST_TBENCH	bool	unset	unset	0|1	test-only	-	-	prose	tests	t_dist.c	1	ecalc/tests/t_dist.c	2027-04-12	
 DIST_TINV	int	derived	derived		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
 DIST_XGMI	int	derived	derived		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
+HEAPVMM_DEV	int	0	0		test-only	-	-	prose	tests	heap_vmm_shim.c	1	ecalc/tests/heap_vmm_shim.c	2027-04-12	
+HEAPVMM_MIN_MB	bool	256	256	0|1	test-only	-	-	prose	tests	heap_vmm_shim.c	1	ecalc/tests/heap_vmm_shim.c	2027-04-12	
+HEAPVMM_MODE	bool	derived	derived	0|1	test-only	-	-	prose	tests	heap_vmm_shim.c	1	ecalc/tests/heap_vmm_shim.c	2027-04-12	
+HEAPVMM_SHIM	bool	unset	unset	0|1	test-only	-	-	prose	tests	heap_vmm_shim.c	1	ecalc/tests/heap_vmm_shim.c	2027-04-12	
+HEAPVMM_VERBOSE	bool	unset	unset	0|1	test-only	-	-	prose	tests	heap_vmm_shim.c	1	ecalc/tests/heap_vmm_shim.c	2027-04-12	
 TSTRAT_BUDGET_GB	float	derived	derived		test-only	-	-	prose	tests	t_strategy.c	2	ecalc/tests/t_strategy.c	2027-04-12	
 TSTRAT_GMP	int	unset	unset		test-only	-	-	prose	tests	t_strategy.c	2	ecalc/tests/t_strategy.c	2027-04-12	
 T_ALLOC_NTT	int	1	1		test-only	-	-	prose	tests	t_alloc.c	2	ecalc/tests/t_alloc.c	2027-04-12	

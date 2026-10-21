@@ -104,3 +104,8 @@ COMM_SHMEM_PX_DEVSRC_ASYNC	experiment	devsrc3 (D58/D59)	2026-11-20	default 1 (on
 COMM_SHMEM_HUGETLB	experiment	L5	2027-03-31	off by default; node-process heap from the 2 MiB hugetlb pool (aac7 has no pool: falls back to NP_HEAP_THP); review at the target session
 MN_NONPOW2_MIN	experiment	T2 (D57)	2026-11-19	the auto rule's threshold (digits per node, 4.5e10)
 MN_NONPOW2_CAP	experiment	T2 (D57)	2026-11-19	auto since Q58 (user 2026-10-20): on from MN_NONPOW2_MIN digits per node; 6 n -18 s libfabric, +41 GB/node planes; 1 = on, 0 = off
+HEAPVMM_DEV	test	ecalc/tests/heap_vmm_shim.c	2027-04-12	benchmark-only LD_PRELOAD shim / probe setting (commit 6269111, 46bd056)
+HEAPVMM_MIN_MB	test	ecalc/tests/heap_vmm_shim.c	2027-04-12	benchmark-only LD_PRELOAD shim / probe setting (commit 6269111, 46bd056)
+HEAPVMM_MODE	test	ecalc/tests/heap_vmm_shim.c	2027-04-12	benchmark-only LD_PRELOAD shim / probe setting (commit 6269111, 46bd056)
+HEAPVMM_SHIM	test	ecalc/tests/heap_vmm_shim.c	2027-04-12	benchmark-only LD_PRELOAD shim / probe setting (commit 6269111, 46bd056)
+HEAPVMM_VERBOSE	test	ecalc/tests/heap_vmm_shim.c	2027-04-12	benchmark-only LD_PRELOAD shim / probe setting (commit 6269111, 46bd056)
