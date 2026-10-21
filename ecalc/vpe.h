@@ -33,12 +33,32 @@ extern "C" {
 #define VPE_S_E 0x10                                    /* flow, writer threads, parts */
 #define VPE_S_ALL 0x1f
 #define VPE_STAGES_MERGED VPE_S_ALL
+/* S2 (ECALC_PE_PER_GPU=1, one process per PE): its stages; the switch aborts with "stages ... not merged" until all are in (unit tests use vpe_set_forced) */
+#define VPE_P_A 0x01                                    /* identity, launch, bootstrap (vpe.c, mn.c, comm_xshmem.c, mnrun.sh) */
+#define VPE_P_B 0x02                                    /* node-level state in the flow (leader audit, bg threads, budget) */
+#define VPE_P_C 0x04                                    /* planner, host budget, pools */
+#define VPE_P_D 0x08                                    /* gate, measurements */
+#define VPE_P_ALL 0x0f
+#define VPE_PSTAGES_MERGED VPE_P_A
 
 int  vpe_on(void);                                      /* ECALC_VPE=1 (or vpe_set_forced) */
 int  vpe_lanes(void);                                   /* L: vPEs of this process (1 when off); ECALC_VPE_LANES, never a literal 4 */
 extern __thread int vpe_t_idx;
-static inline int vpe_idx(void) { return vpe_t_idx; }   /* thread-local, 0..L-1 (0 outside vpe_run threads) */
-int  vpe_lane(void);                                    /* the device index of this vPE (= vpe_idx) */
+extern int vpe_g_idx;                                   /* S2: the process's PE index on its node (>= 0 with ECALC_PE_PER_GPU: every thread of the process is that PE), else -1 */
+static inline int vpe_idx(void) { return vpe_g_idx >= 0 ? vpe_g_idx : vpe_t_idx; }   /* 0..L-1: thread-local in S1 (0 outside vpe_run threads), process-global in S2 */
+int  vpe_lane(void);                                    /* the lane of this vPE (= vpe_idx) */
+int  vpe_device(void);                                  /* the HIP device ordinal of this vPE: S1 the lane; S2 pe_geo's device (the lane with --gpu-bind=none, 0 with one visible device) */
+/* S2 (ECALC_PE_PER_GPU=1, off by default; implies the vPE view): ONE PROCESS PER PE, 4 per node (srun --ntasks-per-node = vpe_lanes(), block distribution, local id =
+ * SLURM_LOCALID), xshmem K = 1.  COMM_RANK / COMM_SIZE stay the NODE index / count (mnrun.sh sets them as for PPN).  vpe_lanes() = PEs per node (ppn: SLURM_NTASKS_PER_NODE,
+ * ECALC_VPE_LANES must agree if set); vpe_lpp() = lanes per process (S1: ppn, S2: 1).  vpe_run = vpe_adopt + fn on the caller, no threads. */
+int  vpe_ppg(void);                                     /* ECALC_PE_PER_GPU=1 (or vpe_set_ppg) */
+int  vpe_lpp(void);                                     /* lanes per process: 1 in S2, else vpe_lanes() */
+int  vpe_proc_leader(void);                             /* the PE that acts for the PROCESS's shared resources: S1 lane 0, S2 every PE (its own process); off: 1 */
+void vpe_ppg_init(void);                                /* re-reads ECALC_PE_PER_GPU / SLURM_LOCALID (done at process start; tests call it after setenv) */
+void vpe_set_ppg(int local);                            /* tests: process mode with this local id (>= 0), or -1 = back to the environment */
+void vpe_set_device(int dev);                           /* mn.c, after the engine start: pe_geo's device of this PE */
+void vpe_pe_affinity(const char *cpulist);              /* S2: restrict this process to the cpus of its NUMA node (cpulist ∩ the launch mask; unchanged if empty; prints the mask once) */
+#define VPE_NODE_SLOT 15                                /* the id slot of the node group (the PEs of one node: vpe_sub_slot(ppn node, ppn, VPE_NODE_SLOT)); non-power-of-two ppn: slot 3 */
 int  vpe_pe(void);                                      /* L * node + idx (off: the node) */
 int  vpe_npe(void);                                     /* L * nodes (off: the nodes) */
 int  vpe_node(void);                                    /* this process's node rank; vpe_nnodes: the node count */
@@ -48,12 +68,12 @@ void vpe_set_forced(int mask);                          /* tests: mask != 0 = vP
 int  vpe_in_run(void);
 void vpe_adopt(int idx);                                /* a helper thread of vPE idx: sets its vpe_idx, device and engine PE */
 void vpe_set_thread_hook(void (*fn)(int idx));          /* fn(idx) runs in every vPE thread at start (and in vpe_adopt) */
-void vpe_stages_check(void);                            /* fatal "ECALC_VPE: stages ... not merged" when on, not forced and a stage is missing */
+void vpe_stages_check(void);                            /* fatal "ECALC_VPE: stages ... not merged" when on, not forced and a stage is missing (S2: "ECALC_PE_PER_GPU: stages ...") */
 
 /* L pthreads, vPE i = thread i: hipSetDevice(i), thread hook (current PE), vpe_idx = i; joined before return.  Off: fn(arg) once on the caller.
  * fn may call collective operations; a fatal error in any thread ends the process (ec_fatal). */
 void vpe_run(void (*fn)(void *), void *arg);
-void vpe_node_barrier(void);                            /* barrier over the vPE threads of this process (inside vpe_run); off: nothing */
+void vpe_node_barrier(void);                            /* barrier over the PEs of this node: S1 the vPE threads (inside vpe_run), S2 the node group over the NIC (collective over the node's 4 processes); off: nothing */
 
 /* lane-indexed file-scope state: VPE_STATE(int, foo); ... VPE(foo) = 1;  In S2 (one lane per process) vpe_idx() is the constant 0. */
 #define VPE_STATE(T, name) static T name##_v[VPE_MAX]

@@ -45,7 +45,7 @@ void mn_comm_mark(const char *what)
 {
     static int on = -1; static double t0, b0, w0; static long n0;
     if (on < 0) { const char *e = getenv("MN_COMM_MARK"); on = e && atoi(e) > 0; w0 = mem_now(); }
-    if (!on || !mn_transport_shmem() || (vpe_on() && vpe_idx())) return;   /* (one set of counters per process: lane 0 of a vPE process) */
+    if (!on || !mn_transport_shmem() || (vpe_on() && vpe_lpp() > 1 && vpe_idx())) return;   /* (one set of counters per process: lane 0 of a vPE process; S2: every process is its own) */
     double t, b, w = mem_now(); long n;
 #ifdef XSHMEM_ENGINE
     if (g_xshmem) comm_xshmem_counters(&t, &n, &b); else
@@ -107,7 +107,7 @@ comm *vpe_sub_slot(int g0, int g, int slot)
     for (int i = 0; i < sl->n; i++) if (sl->e[i].g0 == g0 && sl->e[i].g == g && sl->e[i].slot == slot) return sl->e[i].c;
     if (sl->n >= 64) ec_fatal(EC_RC_FATAL, "vpe_sub: more than 64 sub-communicators on one vPE\n");
 #ifdef XSHMEM_ENGINE
-    { int dev = -1; HIP_CHECK(hipGetDevice(&dev)); if (dev != vpe_idx()) ec_fatal(EC_RC_FATAL, "vpe_sub: device %d is not this vPE's (%d)\n", dev, vpe_idx()); }
+    { int dev = -1; HIP_CHECK(hipGetDevice(&dev)); if (dev != vpe_device()) ec_fatal(EC_RC_FATAL, "vpe_sub: device %d is not this vPE's (%d)\n", dev, vpe_device()); }
     int id = sub_id(g, g0, slot);
     int ph_ = ec_ph(EC_PH_MESH_CREATE); comm *c = comm_xshmem_create_flat(g0, g, id); ec_ph(ph_);
     sl->e[sl->n].g0 = g0; sl->e[sl->n].g = g; sl->e[sl->n].slot = slot; sl->e[sl->n].c = c; sl->e[sl->n].id = id; sl->n++;
@@ -123,6 +123,36 @@ int mn_init(void) { int ph_ = ec_ph(EC_PH_MN_INIT); int r = mn_init_i(); ec_ph(p
 /* S1a (ECALC_VPE): the PE view.  xshmem with K = ECALC_VPE_LANES loopback PEs per node-process (XSHMEM_LOOPBACK_PES, make XSHMEM=ofi); the flat communicator
  * over all PEs (rank = PE = K node + lane) is created for every lane here, by this thread with that lane's device current (creation sends nothing); the vPE
  * threads (vpe_run) then use VPE(flat).  Single node (COMM_SIZE unset): the 4 PEs of the process still form a communicator (npe = K). */
+/* S2a (ECALC_PE_PER_GPU=1): one process per PE (srun, ppn tasks per node, block distribution); xshmem with K = 1.  COMM_RANK / COMM_SIZE stay the node index / count (mnrun.sh), g_rank / g_size
+ * the same; the PE is the engine's PE.  Identity cross-check (fatal): engine PE and PE count against the launch (SLURM_LOCALID, SLURM_NTASKS_PER_NODE, COMM_RANK, COMM_SIZE), so a wrong
+ * --distribution cannot silently cross the GPU and NIC maps.  The device, NUMA node and cpus are pe_geo's (engine topology); only that device is touched. */
+#ifdef XSHMEM_ENGINE
+static int mn_init_ppg(void)
+{
+    double tx = mem_now();
+    int np = comm_xshmem_init();
+    if (comm_xshmem_loopback_pes() != 1) ec_fatal(EC_RC_FATAL, "mn: ECALC_PE_PER_GPU=1: XSHMEM_LOOPBACK_PES=%d (one process per PE: 1)\n", comm_xshmem_loopback_pes());
+    int v[8]; char cpus[512] = "";
+    if (comm_xshmem_geo(v, cpus, sizeof cpus)) ec_fatal(EC_RC_FATAL, "mn: ECALC_PE_PER_GPU=1: the engine reports no topology\n");
+    int ppn = vpe_lanes(), local = vpe_idx(), pe = v[0], npe = v[1];
+    if (v[3] != ppn || v[2] != local || pe % ppn != local || npe % ppn || np != npe || comm_xshmem_rank() != pe)
+        ec_fatal(EC_RC_FATAL, "mn: ECALC_PE_PER_GPU=1: launch layout mismatch: engine pe %d of %d, local %d, %d per node; launch SLURM_LOCALID %d, %d tasks per node (block distribution, one task per GPU)\n", pe, npe, v[2], v[3], local, ppn);
+    int node = pe / ppn, nn = npe / ppn; const char *cr = getenv("COMM_RANK"), *cs = getenv("COMM_SIZE");
+    if ((cr && *cr && atoi(cr) != node) || (cs && *cs && atoi(cs) != nn))
+        ec_fatal(EC_RC_FATAL, "mn: ECALC_PE_PER_GPU=1: COMM_RANK=%s COMM_SIZE=%s (node units) but the engine places pe %d of %d at node %d of %d\n", cr ? cr : "-", cs ? cs : "-", pe, npe, node, nn);
+    g_rank = node; g_size = nn; vpe_set_nodes(node, nn); vpe_set_device(v[4]); vpe_set_thread_hook(comm_xshmem_select);
+    int ndev = mem_device_count();
+    if (ndev < 1 || v[4] >= ndev) ec_fatal(EC_RC_FATAL, "mn: ECALC_PE_PER_GPU=1: pe %d uses device %d, %d visible\n", pe, v[4], ndev);
+    HIP_CHECK(hipSetDevice(v[4]));
+    vpe_pe_affinity(cpus);
+    (void)mem_numa_node_of_device(v[4]);
+    int ph_ = ec_ph(EC_PH_MESH_CREATE); VPE(flat) = comm_xshmem_create_flat(0, npe, 0); ec_ph(ph_);
+    printf("mn: pe %d of %d (node %d of %d, local %d of %d): device %d of %d visible, numa %d, cxi%d (%d NIC%s), one flat communicator over %d PEs over xshmem (one process per PE): created in %.2f s\n",
+           pe, npe, node, nn, local, ppn, v[4], ndev, v[5], v[7], v[6], v[6] == 1 ? "" : "s", npe, mem_now() - tx);
+    mn_comm_mark("start (the meshes created)");
+    return npe;
+}
+#endif
 static int mn_init_vpe(void)
 {
     const char *et = getenv("COMM_TRANSPORT");
@@ -134,6 +164,7 @@ static int mn_init_vpe(void)
     if (!et || strcmp(et, "xshmem")) ec_fatal(EC_RC_FATAL, "mn: ECALC_VPE=1 needs COMM_TRANSPORT=xshmem (XSHMEM_LOOPBACK_PES=%d; make XSHMEM=ofi)\n", vpe_lanes());
     g_xshmem = g_shmem = 1;
     if (!comm_xshmem_available()) ec_fatal(EC_RC_FATAL, "mn: ECALC_VPE=1: the xshmem backend is not available (make XSHMEM=ofi)\n");
+    if (vpe_ppg()) return mn_init_ppg();
     double tx = mem_now();
     g_size = comm_xshmem_init(); g_rank = comm_xshmem_rank();
     int L = vpe_lanes();
@@ -204,11 +235,13 @@ static void sub_destroy_all(void)       /* vPE: the cached sub-communicators of 
 static void finalize_vpe_lane(void *unused)
 {
     (void)unused;
-    groups_finalize(); sub_destroy_all();
+    groups_finalize();
+    if (vpe_ppg()) vpe_node_barrier();                   /* S2: the node's processes agree before the destruction (the node group is one of the cached ones) */
+    sub_destroy_all();
     if (VPE(flat)) { comm_destroy(VPE(flat)); VPE(flat) = 0; }
-    vpe_node_barrier();
+    if (!vpe_ppg()) vpe_node_barrier();
 #ifdef XSHMEM_ENGINE
-    if (vpe_idx() == 0) comm_xshmem_finalize();
+    if (vpe_ppg() || vpe_idx() == 0) comm_xshmem_finalize();   /* S2: every process owns its engine */
 #endif
 }
 void mn_finalize(void)

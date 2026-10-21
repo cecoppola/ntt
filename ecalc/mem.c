@@ -28,7 +28,7 @@ void mem_set_numa_pci(int on) { g_numa_pci = on; }
 int mem_numa_node_of_device(int dev)
 {
     int pci = __atomic_load_n(&g_numa_pci, __ATOMIC_ACQUIRE);
-    if (pci < 0) { const char *e = getenv("ECALC_VPE"); pci = e && atoi(e) != 0; __atomic_store_n(&g_numa_pci, pci, __ATOMIC_RELEASE); }
+    if (pci < 0) { const char *e = getenv("ECALC_VPE"), *g = getenv("ECALC_PE_PER_GPU"); pci = (e && atoi(e) != 0) || (g && atoi(g) != 0); __atomic_store_n(&g_numa_pci, pci, __ATOMIC_RELEASE); }
     if (!pci || dev < 0 || dev >= 64) return dev;
     static int cache[64]; static int have[64];       /* published by a release store of have[], read with acquire (mn_init_vpe also primes every device single-threaded) */
     if (__atomic_load_n(&have[dev], __ATOMIC_ACQUIRE)) return cache[dev] - 1;

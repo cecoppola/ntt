@@ -30,6 +30,11 @@
 # SHMEM_OFI_NUM_NICS=4 x the value unless set, capped at the node's cxi count), the last one the node-process; <procs> is still the node count (one node-process per node), COMM_RANK
 # and COMM_SIZE count nodes, the proxies' stdout goes to /dev/null, every task may use all of the step's CPUs (--cpu-bind=none).
 # It needs COMM_OFI=0 (set here when unset; COMM_OFI=1 is refused).
+# S2a (TARGET12, ECALC_PE_PER_GPU=1, exported or a VAR=value word of the command; default off = this script is unchanged): ONE PROCESS PER GPU.  <procs> is the node count (one
+# group per node); each node runs PPN tasks (MNRUN_PPG_PPN; default the node's GPU count from scontrol Gres, else 4), --distribution=block, every task keeps its stdout, COMM_RANK / COMM_SIZE
+# count nodes (as for the proxy PPN), srun --kill-on-bad-exit=1 even on one node.  Needs COMM_TRANSPORT=xshmem (make XSHMEM=ofi); XSHMEM_LOOPBACK_PES=1 (K = 1; the engine refuses another value).
+# Launch arms (the S2a probe decides the default): MNRUN_PPG_GPUBIND=none (default: --gpus-per-node=4 --gpu-bind=none, the PE's device = pe_geo's: its local id) | task (--gpus-per-task=1, one
+# visible device 0); MNRUN_PPG_CPUBIND=none (default: --cpu-bind=none, the process restricts itself to its NUMA node's cpus, vpe_pe_affinity) | ldom (--cpu-bind=map_ldom:0..PPN-1 --mem-bind=local).
 set -e
 P=$1; shift
 PRINT_ENV=${MNRUN_PRINT_ENV:-0}
@@ -92,7 +97,7 @@ list=$(echo "$use" | paste -sd,)
 # Phase 16 A: COMM_TRANSPORT given as a leading VAR=value word of the command (`mnrun.sh 2 env COMM_TRANSPORT=shmem ... ./ecalc`, the
 # launch line's form) counts as well -- without this the non-SHMEM path launched it (no heap variable: the library's default heap);
 # the same for ECALC_LOG_CLOCKS, which the wrappers test before the command runs
-for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPORT=${a#*=};; ECALC_LOG_CLOCKS=*) export ECALC_LOG_CLOCKS=${a#*=};; COMM_SHMEM_PE_PER_APU=*) COMM_SHMEM_PE_PER_APU=${a#*=};; COMM_OFI=*) COMM_OFI=${a#*=};; XSHMEM_HEAP_MB=*) XSHMEM_HEAP_MB=${a#*=};; *=*) continue;; *) break;; esac; done   # (ECALC_LOG_CLOCKS: the wrapper reads it)
+for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPORT=${a#*=};; ECALC_LOG_CLOCKS=*) export ECALC_LOG_CLOCKS=${a#*=};; COMM_SHMEM_PE_PER_APU=*) COMM_SHMEM_PE_PER_APU=${a#*=};; COMM_OFI=*) COMM_OFI=${a#*=};; ECALC_PE_PER_GPU=*) ECALC_PE_PER_GPU=${a#*=};; XSHMEM_HEAP_MB=*) XSHMEM_HEAP_MB=${a#*=};; *=*) continue;; *) break;; esac; done   # (ECALC_LOG_CLOCKS: the wrapper reads it)
 # 2026-10-12 (TCP removed): SHMEM is the only multi-process transport -- the default for <procs> > 1; any other value is refused
 [ "$P" -gt 1 ] && COMM_TRANSPORT=${COMM_TRANSPORT:-shmem}
 if [ "$P" -gt 1 ] && [ "$COMM_TRANSPORT" != shmem ] && [ "$COMM_TRANSPORT" != xshmem ]; then echo "mnrun.sh: COMM_TRANSPORT=$COMM_TRANSPORT: only shmem (and xshmem, make XSHMEM=ofi) runs more than one process (the TCP transport was removed)" >&2; exit 1; fi
@@ -115,16 +120,36 @@ case "${COMM_SHMEM_PE_PER_APU:-0}" in 0|"") ;; 1)
         echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=$COMM_SHMEM_PE_PER_APU: $PPN PEs per node ($((PPN - 1)) proxies + the node-process), SHMEM_OFI_NIC_POLICY=$SHMEM_OFI_NIC_POLICY SHMEM_OFI_NUM_NICS=$SHMEM_OFI_NUM_NICS${MNRUN_NICS_AUTO:+ (the default; capped on the node at its cxi count)}"
     fi;;
   *) echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=$COMM_SHMEM_PE_PER_APU: 0 or 1" >&2; exit 1;; esac
+# S2a: one process per GPU (ECALC_PE_PER_GPU=1): PPN tasks per node, the tasks are the PEs
+MNRUN_PPG=0; gopt=(--gpus-per-node=4)
+case "${ECALC_PE_PER_GPU:-0}" in 0|"") ;; 1)
+    [ "${COMM_TRANSPORT:-}" = xshmem ] || { echo "mnrun.sh: ECALC_PE_PER_GPU=1 needs COMM_TRANSPORT=xshmem (make XSHMEM=ofi)" >&2; exit 1; }
+    [ "$PPN" = 1 ] || { echo "mnrun.sh: ECALC_PE_PER_GPU=1 and COMM_SHMEM_PE_PER_APU=1 do not combine" >&2; exit 1; }
+    [ "$per" = 1 ] || { echo "mnrun.sh: ECALC_PE_PER_GPU=1 needs <procs> = nodes (one group of tasks per node; here $per per node)" >&2; exit 1; }
+    MNRUN_PPG=1; export ECALC_PE_PER_GPU=1
+    PPN=${MNRUN_PPG_PPN:-}
+    if [ -z "$PPN" ] && [ "$PRINT_ENV" = 0 ]; then PPN=$(scontrol show node "$(echo "$use" | head -1)" -o 2>/dev/null | grep -o 'Gres=gpu[^ ]*' | head -1 | sed 's/(.*//; s/.*://'); fi
+    case "$PPN" in ""|*[!0-9]*|0) PPN=4;; esac
+    export XSHMEM_LOOPBACK_PES=${XSHMEM_LOOPBACK_PES:-1}
+    case "${MNRUN_PPG_GPUBIND:-none}" in none) gopt=(--gpus-per-node="$PPN" --gpu-bind=none);; task) gopt=(--gpus-per-task=1);; *) echo "mnrun.sh: MNRUN_PPG_GPUBIND=$MNRUN_PPG_GPUBIND: none or task" >&2; exit 1;; esac
+    case "${MNRUN_PPG_CPUBIND:-none}" in none|ldom) ;; *) echo "mnrun.sh: MNRUN_PPG_CPUBIND=$MNRUN_PPG_CPUBIND: none or ldom" >&2; exit 1;; esac
+    echo "mnrun.sh: ECALC_PE_PER_GPU=1: $PPN processes per node (one per GPU), gpu ${MNRUN_PPG_GPUBIND:-none}, cpu ${MNRUN_PPG_CPUBIND:-none}, XSHMEM_LOOPBACK_PES=$XSHMEM_LOOPBACK_PES";;
+  *) echo "mnrun.sh: ECALC_PE_PER_GPU=$ECALC_PE_PER_GPU: 0 or 1" >&2; exit 1;; esac
+export MNRUN_PPG
 export MNRUN_PPN=$PPN
 if [ "$PPN" -gt 1 ]; then   # the CPUs: -c the node's CPUs / PEs per node (auto) and no per-task binding, so the node-process's threads use the whole step
     for i in "${!copt[@]}"; do [ "${copt[$i]}" = -c ] && unset 'copt[i]' 'copt[i+1]'; done; copt=("${copt[@]}")
     ncpu=$(scontrol show node "$(echo "$use" | head -1)" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p'); [ -n "$ncpu" ] && copt+=(-c $((ncpu / PPN)))
     copt+=(--cpu-bind=none)
+    if [ "$MNRUN_PPG" = 1 ] && [ "${MNRUN_PPG_CPUBIND:-none}" = ldom ]; then
+        for i in "${!copt[@]}"; do [ "${copt[$i]}" = --cpu-bind=none ] && copt[$i]="--cpu-bind=map_ldom:$(seq -s, 0 $((PPN - 1)))"; done
+        copt+=(--mem-bind=local)
+    fi
 fi
 # COMM_TRANSPORT=xshmem (TARGET1 S3a, make XSHMEM=ofi): the placement, the FI_* block, the plan and the plain srun launch are the shmem block's; in addition
 # XSHMEM_LOOPBACK_PES (default = the GPUs per node-process, 4: one xshmem PE per APU thread, each on its own GPU and NIC) and XSHMEM_HEAP_MB (the plan's value
 # below, or the caller's) are exported.  The libsma heap below is still sized (the plan counts the pool conservatively; xshmem does not initialise libsma).
-[ "$COMM_TRANSPORT" = xshmem ] && export XSHMEM_LOOPBACK_PES=${XSHMEM_LOOPBACK_PES:-4}
+[ "$COMM_TRANSPORT" = xshmem ] && export XSHMEM_LOOPBACK_PES=${XSHMEM_LOOPBACK_PES:-4}   # (S2a: ECALC_PE_PER_GPU=1 set it to 1 above)
 if [ "$COMM_TRANSPORT" = shmem ] || [ "$COMM_TRANSPORT" = xshmem ]; then
     # s18-target Part 2 (TGTBENCH2 L2, internal target notes §4; the user: "use the flags that optimize performance but allow us to
     # adjust to a different system later"): two libfabric knobs, overridable per system by exporting them before the call.
@@ -134,7 +159,8 @@ if [ "$COMM_TRANSPORT" = shmem ] || [ "$COMM_TRANSPORT" = xshmem ]; then
     # user's L2). Both default with ${VAR:-...}, so a site's own exported value (or a different system's) is never shadowed.
     # MNRUN_FI_DEFAULTS=0 (default 1) leaves both unset -- the pre-s18 launch (S18AB: run (a) of 2026-10-06 segfaulted with them set).
     if [ "${MNRUN_FI_DEFAULTS:-1}" != 0 ]; then
-        export FI_UNIVERSE_SIZE=${FI_UNIVERSE_SIZE:-$((4 * P > 4096 ? 4 * P : 4096))}
+        fip=$P; [ "$MNRUN_PPG" = 1 ] && fip=$((P * PPN))   # (S2a: the tasks, not the nodes, are the PEs)
+        export FI_UNIVERSE_SIZE=${FI_UNIVERSE_SIZE:-$((4 * fip > 4096 ? 4 * fip : 4096))}
         export FI_LOG_LEVEL=${FI_LOG_LEVEL:-warn}
     fi
     # S46 (adopted 2026-10-11): FI_MR_CACHE_MONITOR=userfaultfd by default (memhooks deadlocks ROCr <-> libfabric: base 22/105 hangs vs uffd 0/104,
@@ -241,7 +267,7 @@ if [ "${MNRUN_FIT:-1}" != 0 ]; then
 fi
 # D34 (user 2026-10-15): multi-node runs launch with srun --kill-on-bad-exit=1 (a dead rank ends the step in seconds, not at the timeout);
 # COMM_KILL_ON_BAD_EXIT=0 is the only override.
-kopt=(); [ "$nn" -gt 1 ] && [ "${COMM_KILL_ON_BAD_EXIT:-1}" != 0 ] && kopt=(--kill-on-bad-exit=1)
+kopt=(); { [ "$nn" -gt 1 ] || [ "$MNRUN_PPG" = 1 ]; } && [ "${COMM_KILL_ON_BAD_EXIT:-1}" != 0 ] && kopt=(--kill-on-bad-exit=1)   # (S2a: also on one node: a dead PE must end the step)
 # the one launch of every path: the tasks block-placed on the listed nodes; each task loads the modules, sets its rank and runs the command
-exec srun --jobid="$SLURM_JOB_ID" "${kopt[@]}" "${mpi[@]}" -N "$nn" -w "$list" --ntasks="$((P * PPN))" --ntasks-per-node="$((per * PPN))" "${copt[@]}" --distribution=block --gpus-per-node=4 --overlap --export=ALL \
-     bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; if [ "${MNRUN_NICS_AUTO:-0}" = 1 ]; then n=$(ls -d /sys/class/cxi/cxi[0-9]* 2>/dev/null | wc -l); [ "$n" -gt 0 ] && [ "${SHMEM_OFI_NUM_NICS:-0}" -gt "$n" ] && export SHMEM_OFI_NUM_NICS=$n; fi; k=${MNRUN_PPN:-1}; export COMM_RANK=$((SLURM_PROCID / k)) COMM_SIZE=$((SLURM_NTASKS / k)); if [ "$k" -gt 1 ] && [ $((SLURM_PROCID % k)) -ne $((k - 1)) ]; then export COMM_SHMEM_PROXY=1 ECALC_LOG_CLOCKS=0; exec > /dev/null; fi; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec '"$pre"'"$@"' _ "$@"
+exec srun --jobid="$SLURM_JOB_ID" "${kopt[@]}" "${mpi[@]}" -N "$nn" -w "$list" --ntasks="$((P * PPN))" --ntasks-per-node="$((per * PPN))" "${copt[@]}" --distribution=block "${gopt[@]}" --overlap --export=ALL \
+     bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; if [ "${MNRUN_NICS_AUTO:-0}" = 1 ]; then n=$(ls -d /sys/class/cxi/cxi[0-9]* 2>/dev/null | wc -l); [ "$n" -gt 0 ] && [ "${SHMEM_OFI_NUM_NICS:-0}" -gt "$n" ] && export SHMEM_OFI_NUM_NICS=$n; fi; k=${MNRUN_PPN:-1}; export COMM_RANK=$((SLURM_PROCID / k)) COMM_SIZE=$((SLURM_NTASKS / k)); if [ "$k" -gt 1 ] && [ "${MNRUN_PPG:-0}" != 1 ] && [ $((SLURM_PROCID % k)) -ne $((k - 1)) ]; then export COMM_SHMEM_PROXY=1 ECALC_LOG_CLOCKS=0; exec > /dev/null; fi; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec '"$pre"'"$@"' _ "$@"

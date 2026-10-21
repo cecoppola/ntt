@@ -504,6 +504,7 @@ int comm_xshmem_init(void)
       if (X.rbytes && !X.thr) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_ROUND_MB needs the worker thread (ECALC_XEX_THREAD=1): the rounds run in it\n"); }
     int prov = 0; if (xshmem_init_thread(XSHMEM_THREAD_MULTIPLE, &prov)) ec_fatal(EC_RC_FATAL, "comm_xshmem: xshmem_init_thread failed\n");
     int K = XS_LPES(); if (K < 1 || K > MAXLPE) ec_fatal(EC_RC_FATAL, "comm_xshmem: %d loopback PEs per process (1..%d; XSHMEM_LOOPBACK_PES)\n", K, MAXLPE);
+    if (vpe_ppg() && K != 1) ec_fatal(EC_RC_FATAL, "comm_xshmem: ECALC_PE_PER_GPU=1 is one process per PE: XSHMEM_LOOPBACK_PES=%d, it must be 1\n", K);   /* S2a */
     X.K = K; XSHMEM_SELECT(0);
     int np = xshmem_n_pes(); if (np % K) ec_fatal(EC_RC_FATAL, "comm_xshmem: %d PEs are not whole processes of %d loopback PEs\n", np, K);
     X.nodes = np / K; X.q = xshmem_my_pe() / K;
@@ -568,7 +569,18 @@ comm *comm_xshmem_create_flat(int pe_start, int n, int id)
     if (my < pe_start || my >= pe_start + n) die(0, "this PE is not in the run");
     return make_comm(n, my - pe_start, id, lpe, dev, pe_start, 1, 1);
 }
-void comm_xshmem_select(int lpe) { XSHMEM_SELECT(lpe); }     /* the vPE thread hook (vpe.h): this thread's current loopback PE */
+void comm_xshmem_select(int lpe) { if (X.inited && X.K == 1) return; XSHMEM_SELECT(lpe); }     /* the vPE thread hook (vpe.h): this thread's current loopback PE (K = 1: the only one) */
+/* S2a (ECALC_PE_PER_GPU): this process's place as the backend's topology (pe_geo) reports it: v = { pe, npes, local, pes per node, gpu, numa, nics, nic[0] }, cpus = the NUMA node's cpu list.  0 = ok */
+int comm_xshmem_geo(int *v, char *cpus, int ncpus)
+{
+    xshmem_topo_t tt; if (!X.inited || xshmem_topo(&tt)) return -1;
+    const xshmem_topo_t *q = &tt;
+    v[0] = q->pe; v[1] = q->npes; v[2] = q->local; v[3] = q->pes_per_node; v[4] = q->gpu; v[5] = q->numa; v[6] = q->nics; v[7] = q->nics ? q->nic[0] : -1;
+    if (cpus && ncpus > 0) { strncpy(cpus, q->cpus, (size_t)ncpus - 1); cpus[ncpus - 1] = 0; }
+    return 0;
+}
+    return 0;
+}
 int comm_xshmem_loopback_pes(void) { return X.inited ? X.K : XS_LPES(); }
 int comm_xshmem_nodes(void) { return X.nodes; }
 void comm_xshmem_finalize(void)
