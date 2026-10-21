@@ -498,7 +498,7 @@ static long px_write(px_dev *x, int dst_pe, size_t roff, const void *src, size_t
 struct pxq { shmem_ctx_t *cx; pthread_mutex_t mu[PXNCTX]; struct px_hdr *h; struct px_ent *ring; long *dn; unsigned char *co, *tra; long tp, tl, nq; int stop; };
 static void *px_complete(void *a)
 {
-    struct pxq *q = a; static unsigned char fdl[PXRING]; long tl = 0; unsigned idle = 0;   /* fdl: stamped, completer-private (the poster reuses no slot of it) */
+    struct pxq *q = (struct pxq *)a; static unsigned char fdl[PXRING]; long tl = 0; unsigned idle = 0;   /* fdl: stamped, completer-private (the poster reuses no slot of it) */
     for (;;) {
         long tp = __atomic_load_n(&q->tp, __ATOMIC_ACQUIRE);
         if (tl < tp) {
@@ -531,7 +531,7 @@ static void px_serve2(void)
     while (nc < want && shmem_ctx_create(S.pxq ? SHMEM_CTX_SERIALIZED : SHMEM_CTX_PRIVATE, &cx[nc]) == 0) nc++;
     int own = nc; if (!nc) { cx[0] = SHMEM_CTX_DEFAULT; nc = 1; }
     static size_t posted[PXRING]; static unsigned char fp[PXRING], fd[PXRING], co[PXRING], tra[PXRING];   /* bytes posted, fully posted, done, context */
-    static struct pxq q; pthread_t qth; unsigned char *par = S.pxq ? calloc((size_t)S.npes, 1) : 0;   /* par: per peer node, which of its two contexts the next command takes */
+    static struct pxq q; pthread_t qth; unsigned char *par = S.pxq ? (unsigned char *)calloc((size_t)S.npes, 1) : 0;   /* par: per peer node, which of its two contexts the next command takes */
     if (S.pxq) { q = (struct pxq){ cx, {{0}}, h, ring, dn, co, tra, 0, 0, 0, 0 }; for (int i = 0; i < PXNCTX; i++) pthread_mutex_init(&q.mu[i], 0);
         if (pthread_create(&qth, 0, px_complete, &q)) ec_fatal(EC_RC_FATAL, "comm_shmem: proxy pe %d: COMM_SHMEM_PX_QTHREAD: pthread_create failed\n", S.pme); }
     long t = 0, tp = 0, tl = 0, nput = 0, nq = 0, nsig = 0; double bytes = 0, tchk = now_s(), tbusy = 0; unsigned idle = 0;
