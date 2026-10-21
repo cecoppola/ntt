@@ -24,6 +24,7 @@
 #include "../mem.h"
 
 int mn_groups_parse(int size, int *out, int max);
+comm *comm_xshmem_create_flat(int pe_start, int n, int id) __attribute__((weak));   /* (comm.h declares it only under XSHMEM_ENGINE) */
 static int g_fail, g_checks, g_skip_comm;
 #define CHK(c, ...) do { __atomic_fetch_add(&g_checks, 1, __ATOMIC_RELAXED); if (!(c)) { __atomic_fetch_add(&g_fail, 1, __ATOMIC_RELAXED); \
     printf("  FAILED %s:%d  %s  pe %d: ", __FILE__, __LINE__, #c, vpe_pe()); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -46,7 +47,7 @@ static int in_child(void (*fn)(void *), void *arg, char *buf, size_t n)
 static void sub_range_body(void *a) { (void)a; (void)vpe_sub(0, vpe_npe() + 1); }
 static void sub_slot_body(void *a) { (void)a; (void)vpe_sub_slot(0, 2, 16); }
 static void stages_body(void *a) { (void)a; vpe_stages_check(); }
-static void dup_body(void *a) { int g0 = ((int *)a)[0]; (void)comm_xshmem_create_flat(g0, 2, 2); }   /* the id of the aligned run of 2 that probe created */
+static void dup_body(void *a) { if (!comm_xshmem_create_flat) return; int g0 = ((int *)a)[0]; (void)comm_xshmem_create_flat(g0, 2, 2); }   /* the id of the aligned run of 2 that probe created */
 
 /* ---- host part ---- */
 VPE_STATE(int, cnt); static int g_barrier_sum;
