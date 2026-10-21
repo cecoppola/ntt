@@ -401,5 +401,5 @@ state per node count and why the rest stays open on aac7.
 - **3 n, 1.9323e11 digits** (item 9m5 on aac7, build eb0c5f0e, 14 runs, all VERIFY OK; m): SHMEM default (two in flight) 149.9 s (n 5, sd 2.1);
   SHMEM + `COMM_LAYER_INTER2=0` 143.2 s (n 3, sd 5.5); libfabric 140.2 s (n 3); libfabric + `COMM_LAYER_INTER2=0` 137.2 s (n 3). The layv summed
   wait fell from 264-266 s (SHMEM) to 183 s (SHMEM + INTER2=0). The earlier 4 n test (older build, items 98a-98o above) showed no gain; no 6 n measurement yet.
-- **Change**: `COMM_LAYER_INTER2` unset is now 0 under SHMEM and 1 under libfabric (`comm_layered_inter2_on()` reads `comm_ofi_planned()`, the same
-  hardware/env decision on every rank); an explicit 0/1 wins. The `config:` eff line shows `layer_inter2:N`. Digits unchanged (exchange order only).
+- **Change**: `COMM_LAYER_INTER2` unset is now 0 on both transports (user: libfabric with one in flight is the reference speed for SHMEM parity; no
+  transport logic); `=1` restores two in flight. The `config:` eff line shows `layer_inter2:N`. Digits unchanged (exchange order only).
