@@ -109,3 +109,4 @@ HEAPVMM_MIN_MB	test	ecalc/tests/heap_vmm_shim.c	2027-04-12	benchmark-only LD_PRE
 HEAPVMM_MODE	test	ecalc/tests/heap_vmm_shim.c	2027-04-12	benchmark-only LD_PRELOAD shim / probe setting (commit 6269111, 46bd056)
 HEAPVMM_SHIM	test	ecalc/tests/heap_vmm_shim.c	2027-04-12	benchmark-only LD_PRELOAD shim / probe setting (commit 6269111, 46bd056)
 HEAPVMM_VERBOSE	test	ecalc/tests/heap_vmm_shim.c	2027-04-12	benchmark-only LD_PRELOAD shim / probe setting (commit 6269111, 46bd056)
+COMM_SHMEM_DEVHEAP2	experiment	devsrc3 (D58/D59)	2026-11-20	default 0 (proxy mode, HIP build, needs the FI_HMEM shim and _SHMEM_OFI_USE_MR_HMEM=1): each proxy's symmetric heap is device memory handed to libsma (per-PE _SHMEM_SHEAP_BASE); the node-process maps it by HIP IPC; for the NIC target-side address-translation misses

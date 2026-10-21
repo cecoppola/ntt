@@ -249,6 +249,12 @@ static void pool_populate(char *p, size_t n, int nt); static int pool_collapse(c
  * through unmap = KFD queue evictions; compound pages are skipped).  The mapping itself is the library's own call (address, flags, fd kept; only an unhinted one is 2 MiB aligned). */
 static int g_np_mode, g_np_err, g_hp_mode, g_hp_err, g_hp_used; static size_t g_hp_need; static void *g_np_addr; static size_t g_np_len; static double g_np_t;
 #define THP_SZ ((size_t)2 << 20)
+/* DEVHEAP2 COMM_SHMEM_DEVHEAP2=1 (default 0 = off, nothing below runs): a proxy's symmetric heap is device memory (hipExtMallocWithFlags fine-grained, natural address, on its own APU) that heap_mmap hands to libsma
+ * (_SHMEM_SHEAP_BASE = that address; libsma 11.8 takes a different base per PE), so the NIC registers device pages (the target-side address-translation misses of the host pool go away).  The node-process reaches the
+ * heap through the HIP IPC handle the proxy writes to the heap's file name (px_attach).  Needs the FI_HMEM shim + _SHMEM_OFI_USE_MR_HMEM=1 (else off, one WARNING); an allocation failure falls back to the host heap. */
+static char *g_dh2_va; static size_t g_dh2_len; static int g_dh2_hit; static char g_dh2_h[64];
+struct dh2_file { long magic; char h[64]; long size; };
+#define DH2_MAGIC 0x32484448L
 #ifndef MAP_HUGE_2MB
 #define MAP_HUGE_2MB (21 << 26)
 #endif
@@ -283,6 +289,14 @@ static void *heap_mmap(void *a, size_t l, int prot, int fl, int fd, off_t o)
             r = !a && !(fl & MAP_FIXED) ? thp_mmap(l, prot, fl, fd, o) : (void *)syscall(SYS_mmap, a, l, prot, fl, fd, o);
             if (r != MAP_FAILED) { double tc = now_s(); g_np_addr = r; g_np_len = l; pool_populate((char *)r, l, g_thp_thr); g_np_err = pool_collapse((char *)r, l, g_thp_thr); g_np_t = now_s() - tc; }
             return r;
+        }
+    }
+    if (g_heap_arm && g_dh2_va && !g_heap_addr && (fl & MAP_SHARED) && l >= g_heap_min) {   /* DEVHEAP2: the device heap instead of the shared mapping */
+        int zero = (fl & MAP_ANONYMOUS) != 0;
+        if (!zero && fd >= 0) { struct stat st; zero = fstat(fd, &st) == 0 && S_ISCHR(st.st_mode) && major(st.st_rdev) == 1 && minor(st.st_rdev) == 5; }
+        if (zero) {
+            if (l > g_dh2_len) { fprintf(stderr, "comm_shmem: COMM_SHMEM_DEVHEAP2: the library maps a heap of %zu MiB, the device buffer has %zu MiB\n", l >> 20, g_dh2_len >> 20); _exit(1); }
+            g_heap_addr = g_dh2_va; g_dh2_hit = 1; return g_dh2_va;
         }
     }
     if (g_heap_arm && !g_heap_addr && (fl & MAP_SHARED) && l >= g_heap_min) {
@@ -415,7 +429,7 @@ static long *px_sigw(char *base, int w, long idx) { return (long *)base + (size_
 typedef struct px_hl { char *base; pthread_mutex_t lock; long retired; double tlast; long *cnt[PXRING]; } px_hl;   /* one helper: its heap's control, its ring's state */
 #define PXPQ 64                                /* PX_DEVSRC async: commands copied but not yet posted, per APU (one event each) */
 struct px_pend { long pe; size_t roff, soff, n, p0; long *cnt; long sigidx, sig; };
-typedef struct px_dev { char *base; size_t span; int pe, reg, d, he, nh; double treg; pthread_mutex_t lock; struct blk *blocks; size_t cur, peak; px_hl hl[1];
+typedef struct px_dev { char *base; size_t span; int pe, reg, d, he, nh, dh2; double treg; pthread_mutex_t lock; struct blk *blocks; size_t cur, peak; px_hl hl[1];
     char *dsrc; size_t dsz, dhp; pthread_mutex_t dlock; void *dstream; long dstart[PXRING], dn, dwait, dover, dasync; double dbytes, tcopy, tstall;   /* COMM_SHMEM_PX_DEVSRC (node-process side): the proxy's device buffer (IPC), bump position, per-command start, stats (tcopy: host time issuing / running the copies, tstall: time blocked on an event or a free slot) */
     struct px_zc { char *base; size_t size; char h[64]; int live; } zc[PXIPC]; pthread_mutex_t zlock; int zcok; long zc_exp, zc_chk, zc_ret, zc_cmds; double zc_bytes, tzc; struct { char *base; size_t size; } zbad[16]; int nzbad;   /* DEVSRC >= 3: the IPC-exported send allocations (slot 0 unused: the probe), checks, stats, allocations that cannot be exported */
     struct px_pend pq[PXPQ]; void *pev[PXPQ]; long pq_h, pq_t; int dasy;   /* the async copies in flight, FIFO: pq_h .. pq_t (monotonic counters), event pev[i % PXPQ] marks the copy of pq[i % PXPQ] */
@@ -1019,12 +1033,26 @@ static void px_attach(void)
             char path[160]; heap_path(path, sizeof path, x->pe);
             long off = shmem_long_g(mailbox(MAXID - 1, 1), x->pe);
             int fd = open(path, O_RDWR); struct stat st;
+            if (fd >= 0 && fstat(fd, &st) == 0 && st.st_size == (off_t)sizeof(struct dh2_file)) {   /* DEVHEAP2: the proxy's heap is device memory: its IPC handle instead of a file mapping */
+#ifndef COMM_HOST_ONLY
+                struct dh2_file f; hipIpcMemHandle_t ih; void *q = 0; int dv = 0; (void)hipGetDevice(&dv);
+                if (pread(fd, &f, sizeof f, 0) != (ssize_t)sizeof f || f.magic != DH2_MAGIC || off < 0 || (size_t)off + S.pool_bytes > (size_t)f.size) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: DEVHEAP2: bad heap handle file of proxy PE %d (%s)\n", S.me, x->pe, path);
+                close(fd); unlink(path); memcpy(&ih, f.h, sizeof ih);
+                hipError_t he = hipSetDevice(d); if (he == hipSuccess) he = hipIpcOpenMemHandle(&q, ih, hipIpcMemLazyEnablePeerAccess); (void)hipSetDevice(dv);
+                if (he != hipSuccess) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: DEVHEAP2: hipIpcOpenMemHandle of proxy PE %d's device heap: %s\n", S.me, x->pe, hipGetErrorString(he));
+                x->base = (char *)q + off; x->hl[0].base = x->base; x->dh2 = 1; fd = -1;
+#else
+                ec_fatal(EC_RC_FATAL, "comm_shmem: DEVHEAP2 needs a HIP build\n");
+#endif
+            }
+            if (!x->dh2) {
             if (fd < 0 || fstat(fd, &st) != 0 || off < 0 || (size_t)off + S.pool_bytes > (size_t)st.st_size)
                 ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU: the heap of proxy PE %d is not reachable (%s: %s; pool offset %ld)\n", S.me, x->pe, path, fd < 0 ? strerror(errno) : "too small", off);
             char *m = g_thp ? (char *)thp_mmap((size_t)st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)   /* N7G: PMD-mappable */
                             : (char *)mmap(0, (size_t)st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0); close(fd); unlink(path);
             if (m == MAP_FAILED) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: mmap of %s: %s\n", S.me, path, strerror(errno));
             x->base = m + off; x->hl[0].base = x->base;
+            }
         }
         for (int h = 0; h < x->nh; h++) {
             if (px_hdr_of(x->hl[h].base)->pad[0] != 0x4e374250) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU: the proxy PE %d's pool is not the memory mapped here (no mark)\n", S.me, x->pe + h);
@@ -1037,8 +1065,8 @@ static void px_attach(void)
     }
 #ifndef COMM_HOST_ONLY
     double t_reg = now_s();
-    for (int d = 0; d < 4; d++) { px_dev *x = g_px[d]; struct reg_job j = { x->base, x->span, hipSuccess, 0, 0 }; reg_thread(&j);
-        x->he = (int)j.he; x->reg = j.he == hipSuccess && j.dpok; x->treg = j.t; if (j.he == hipSuccess && !j.dpok) { (void)hipHostUnregister(x->base); (void)hipGetLastError(); } }
+    for (int d = 0; d < 4; d++) { px_dev *x = g_px[d]; struct reg_job j = { x->base, x->span, hipSuccess, 0, 0 }; if (x->dh2) { j.dpok = 1; j.t = 0; } else reg_thread(&j);
+        x->he = (int)j.he; x->reg = j.he == hipSuccess && j.dpok; x->treg = j.t; if (!x->dh2 && j.he == hipSuccess && !j.dpok) { (void)hipHostUnregister(x->base); (void)hipGetLastError(); } }
     if (S.verbose) printf("comm_shmem: pe %d: init timeline (s since entry): shmem_init %.2f, own pool pre-fault %.2f, proxy pools registered %s in %.2f s (pools %.2f %.2f %.2f %.2f; own pool %.2f %s), px_attach done at %.2f\n", S.me, g_t_shinit, g_t_pop, "one by one", now_s() - t_reg,
                           g_px[0]->treg, g_px[1]->treg, g_px[2]->treg, g_px[3]->treg, g_t_own, "before the barrier", now_s() - g_t0);
     for (int d = 0; d < 4; d++) { px_dev *x = g_px[d]; hipError_t he = (hipError_t)x->he;
@@ -1097,6 +1125,28 @@ void comm_shmem_counters(double *t, long *n, double *b) { pthread_mutex_lock(&S.
 static int env_int(const char *name, int def) { const char *e = getenv(name); return e ? atoi(e) : def; }
 static int comm_shmem_init_i(void);
 int comm_shmem_init(void) { int ph_ = ec_ph(EC_PH_SHMEM_INIT); int r = comm_shmem_init_i(); ec_ph(ph_); return r; }
+static const char *px_shim_missing(void);
+static void px_dh2_prepare(void)                       /* a proxy, before shmem_init (g_heap_min = SHMEM_SYMMETRIC_SIZE): the device heap, or a WARNING and the host heap */
+{
+#ifdef COMM_HOST_ONLY
+    fprintf(stderr, "comm_shmem: COMM_SHMEM_DEVHEAP2=1 needs a HIP build (host-only build): off\n");
+#else
+    const int d = (getenv("SLURM_LOCALID") ? atoi(getenv("SLURM_LOCALID")) : 0) / (S.ppa ? S.ppa : 1); const int first = d == 0;
+    const char *miss = px_shim_missing(); const char *why = 0;
+    if (miss) { if (first) fprintf(stderr, "comm_shmem: WARNING: COMM_SHMEM_DEVHEAP2=1 is off: %s\n", miss); return; }
+    size_t L = (g_heap_min + ((size_t)64 << 20) + ((size_t)2 << 20) - 1) & ~(((size_t)2 << 20) - 1); void *p = 0; hipIpcMemHandle_t ih; memset(&ih, 0, sizeof ih);
+    hipError_t he = hipSetDevice(d);
+    if (he == hipSuccess) he = hipExtMallocWithFlags(&p, L, hipDeviceMallocFinegrained);
+    if (he == hipSuccess && !p) he = hipErrorOutOfMemory;
+    if (he == hipSuccess) he = hipIpcGetMemHandle(&ih, p);
+    if (he == hipSuccess) he = hipMemset(p, 0, L);
+    if (he != hipSuccess) { why = hipGetErrorString(he); (void)hipGetLastError(); if (p) { (void)hipFree(p); (void)hipGetLastError(); }
+        fprintf(stderr, "comm_shmem: WARNING: COMM_SHMEM_DEVHEAP2=1: proxy on APU %d: the device heap (%zu MiB) failed (%s): the host heap is used\n", d, L >> 20, why); return; }
+    char b[40]; snprintf(b, sizeof b, "%llx", (unsigned long long)(uintptr_t)p); setenv("_SHMEM_SHEAP_BASE", b, 1);
+    g_dh2_va = (char *)p; g_dh2_len = L; memcpy(g_dh2_h, &ih, sizeof ih);
+    fprintf(stderr, "comm_shmem: COMM_SHMEM_DEVHEAP2=1: proxy on APU %d: device heap %p, %zu MiB (_SHMEM_SHEAP_BASE=%s)\n", d, p, L >> 20, b);
+#endif
+}
 static int comm_shmem_init_i(void)
 {
     if (S.inited) return S.npes;
@@ -1137,6 +1187,7 @@ static int comm_shmem_init_i(void)
         if (env_int("COMM_SHMEM_PX_NUMA", 1) > 0) {        /* D31: default 1 (proxy mode only). N7C: proxy d (local PE d, on cxi d) -> cxi d's NUMA node (that of APU d on aac7; checked in px_attach) */
             int d = (getenv("SLURM_LOCALID") ? atoi(getenv("SLURM_LOCALID")) : 0) / S.ppa; char p[96]; snprintf(p, sizeof p, "/sys/class/cxi/cxi%d/device/numa_node", d);
             FILE *f = fopen(p, "r"); g_heap_numa = d; if (f) { int n = -1; if (fscanf(f, "%d", &n) == 1 && n >= 0) g_heap_numa = n; fclose(f); } }
+        if (env_int("COMM_SHMEM_DEVHEAP2", 0) > 0) px_dh2_prepare();
         g_heap_arm = 1; } }
     g_np_mode = env_int("COMM_SHMEM_NP_HEAP_THP", 1);   /* NPHEAP (default 1, D48): node-process (every PE that is not a helper; mnrun.sh sets COMM_SHMEM_PROXY=1 for helpers only); the proxy path above wins */
     if (g_np_mode < 0 || g_np_mode > 1) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_NP_HEAP_THP=%d: 0 (off) or 1 (the node-process heap in 2 MiB pages)\n", g_np_mode);
@@ -1189,7 +1240,9 @@ static int comm_shmem_init_i(void)
         memset(S.pool + S.mb_bytes, 0, PXCTL); px_hdr_of(S.pool)->pad[0] = 0x4e374250;   /* the mark the node-process checks after mapping */
         *mailbox(MAXID - 1, 1) = (long)(S.pool - (char *)g_heap_addr);              /* the pool's offset in the heap file */
         if (g_heap_numa >= 0 && (S.verbose || S.pme < S.ppn)) fprintf(stderr, "comm_shmem: proxy pe %d: COMM_SHMEM_PX_NUMA=1: heap prefers NUMA node %d (mbind %s)\n", S.pme, g_heap_numa, g_heap_mbind ? strerror(g_heap_mbind) : "ok");
-        if (g_thp) { long pmd = smaps_kb(S.pool, "ShmemPmdMapped"); int ce = g_thp_err; double tc = g_thp_t;   /* N7G: done in heap_mmap */
+        if (g_dh2_hit) { struct dh2_file f; memset(&f, 0, sizeof f); f.magic = DH2_MAGIC; memcpy(f.h, g_dh2_h, sizeof f.h); f.size = (long)g_dh2_len;
+            int ffd = open(g_heap_path, O_RDWR | O_CREAT | O_TRUNC, 0600); if (ffd < 0 || write(ffd, &f, sizeof f) != (ssize_t)sizeof f) { fprintf(stderr, "comm_shmem: proxy pe %d: DEVHEAP2: cannot publish the heap handle (%s)\n", S.pme, g_heap_path); shmem_global_exit(1); } close(ffd); }
+        if (g_thp && !g_dh2_hit) { long pmd = smaps_kb(S.pool, "ShmemPmdMapped"); int ce = g_thp_err; double tc = g_thp_t;   /* N7G: done in heap_mmap */
             if (S.verbose || S.pme < S.ppn) fprintf(stderr, "comm_shmem: proxy pe %d: COMM_SHMEM_PX_THP=1: heap at %s2 MiB + %zu kB (library hint %p, flags 0x%x), pool %zu MiB; %ld MiB of the heap mapping in 2 MiB pages (heap collapse %s, %.2f s incl. pre-fault)\n",
                 S.pme, ((uintptr_t)g_heap_addr & (THP_SZ - 1)) ? "" : "a multiple of ", (size_t)((uintptr_t)g_heap_addr & (THP_SZ - 1)) >> 10, g_heap_hint, (unsigned)g_heap_fl, S.pool_bytes >> 20, pmd >> 10, ce ? strerror(ce > 0 ? ce : EINVAL) : "ok", tc); }
         if (S.verbose) fprintf(stderr, "comm_shmem: proxy pe %d: init timeline (s since entry): shmem_init %.2f, pool pre-fault %.2f, barrier next at %.2f\n", S.pme, g_t_shinit, g_t_pop, now_s() - g_t0);
