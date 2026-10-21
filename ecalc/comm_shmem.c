@@ -542,7 +542,7 @@ static int px_zc_prepare(px_dev *x, const void *sb, size_t span)
     if ((const char *)sb + span > (const char *)bd + sz) goto out;
     pthread_mutex_lock(&x->zlock);
     for (int i = 1; i < PXIPC; i++) if (x->zc[i].live) {
-        struct px_zc *e = &x->zc[i]; hipDeviceptr_t b2 = 0; size_t s2 = 0; hipIpcMemHandle_t h2; int ok = 0;
+        px_dev::px_zc *e = &x->zc[i]; hipDeviceptr_t b2 = 0; size_t s2 = 0; hipIpcMemHandle_t h2; int ok = 0;
         if (hipMemGetAddressRange(&b2, &s2, (hipDeviceptr_t)e->base) == hipSuccess && (char *)b2 == e->base && s2 == e->size && hipIpcGetMemHandle(&h2, (void *)e->base) == hipSuccess && !memcmp(&h2, e->h, sizeof h2)) ok = 1;
         else (void)hipGetLastError();
         x->zc_chk++;
@@ -560,7 +560,7 @@ static int px_zc_prepare(px_dev *x, const void *sb, size_t span)
         if (he != hipSuccess) { (void)hipGetLastError(); if (x->nzbad < 16) { x->zbad[x->nzbad].base = (char *)bd; x->zbad[x->nzbad++].size = sz; } goto unl; }
         memcpy(t[slot].h, &ih, sizeof ih); t[slot].size = (long)sz; __atomic_store_n(&t[slot].state, 1L, __ATOMIC_RELEASE); px_ipc_kick(x);
         long st = px_ipc_wait(x, slot, 30);
-        if (st == 2) { struct px_zc *e = &x->zc[slot]; e->base = (char *)bd; e->size = sz; memcpy(e->h, &ih, sizeof ih); e->live = 1; x->zc_exp++; ret = 1; }
+        if (st == 2) { px_dev::px_zc *e = &x->zc[slot]; e->base = (char *)bd; e->size = sz; memcpy(e->h, &ih, sizeof ih); e->live = 1; x->zc_exp++; ret = 1; }
         else if (st == 3) { __atomic_store_n(&t[slot].state, 0L, __ATOMIC_RELEASE); if (x->nzbad < 16) { x->zbad[x->nzbad].base = (char *)bd; x->zbad[x->nzbad++].size = sz; } }
         else px_zc_off(x, "the proxy did not answer an IPC open request in 30 s");
     }
@@ -575,7 +575,7 @@ out:
 static int px_zc_find(px_dev *x, const void *src, size_t n, size_t *soff)
 {
     int r = 0; pthread_mutex_lock(&x->zlock);
-    for (int i = 1; i < PXIPC && !r; i++) { const struct px_zc *e = &x->zc[i];
+    for (int i = 1; i < PXIPC && !r; i++) { const px_dev::px_zc *e = &x->zc[i];
         if (e->live && (const char *)src >= e->base && (const char *)src + n <= e->base + e->size) { *soff = PXIPCB | ((size_t)i << 40) | (size_t)((const char *)src - e->base); r = 1; } }
     pthread_mutex_unlock(&x->zlock);
     return r;
