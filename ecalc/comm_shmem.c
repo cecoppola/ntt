@@ -138,7 +138,7 @@ static struct {
     double bv;                             /* the bytes this PE received from the other PEs in those exchanges (the off-process traffic), summed */
     int sched_auto;                        /* COMM_SHMEM_PX_SCHED unset or =auto (S.sched is resolved at init) */
     int ppa, ppn, pme, pnpes, proxy;       /* N7b COMM_SHMEM_PE_PER_APU: proxies per APU (0 off), PEs per node (1 + 4 ppa), my physical PE and the count, 1 = this PE is a proxy */
-    int pxq;                               /* COMM_SHMEM_PX_QTHREAD=1: the proxy posts in one thread and quiets in another (px_complete), two contexts per peer node alternating per command */
+    int pxq;                               /* COMM_SHMEM_PX_QTHREAD=1: the proxy posts in one thread and quiets in another (px_complete), two contexts per peer node (up to 4 nodes) alternating per command */
     int sched;                             /* COMM_SHMEM_PX_SCHED = W (0 = off): PX3 command stream with whole put-with-signal commands, sent to the peers as a shifted ring with at most W senders per receiver (W >= n - 1: no window) */
     int pxsend;                            /* N7D COMM_SHMEM_PX_SEND: 1 (fallback; default only without PE_PER_APU=1 or OpenSHMEM 1.5) the proxy's batch-then-quiet, 3 (PX3, default since D53) plain chunks + one fence and signal word per command (px_serve2); 2 (chunked put-with-signal) was removed 2026-10-19 */
 } S;
@@ -343,8 +343,8 @@ static long *px_dn_of(char *base) { return (long *)(base + S.mb_bytes + sizeof(s
 static uint32_t *px_ts_of(char *base) { return (uint32_t *)(px_dn_of(base) + PXRING); }
 static uint32_t hs_us(void) { return (uint32_t)(uint64_t)(now_s() * 1e6); }
 /* ---- COMM_TRACE (comm_trace.h): the proxy's buffer (one thread), the flag the node-process hands a command (bit 0 of its post stamp), the clock-offset estimate and the file ---- */
-static tr_buf g_trpx; static __thread int g_tr_px_act;
-#define TRP(ev, rd, k, e, nb) tr_put(&g_trpx, (ev), 0, S.pxsend == 3 ? (uint32_t)((e)->sigidx / S.npes) : 0, S.pxsend == 3 ? (uint32_t)((e)->sig >> 40) : 0, 0, (uint32_t)(k), (uint32_t)(rd), S.me, (int)((e)->pe / S.ppn), (uint64_t)(nb))
+static tr_buf g_trpx; static __thread int g_tr_px_act; static pthread_mutex_t g_trpx_mu = PTHREAD_MUTEX_INITIALIZER;   /* QTHREAD: poster and completer both write g_trpx */
+#define TRP(ev, rd, k, e, nb) do { if (S.pxq) pthread_mutex_lock(&g_trpx_mu); tr_put(&g_trpx, (ev), 0, S.pxsend == 3 ? (uint32_t)((e)->sigidx / S.npes) : 0, S.pxsend == 3 ? (uint32_t)((e)->sig >> 40) : 0, 0, (uint32_t)(k), (uint32_t)(rd), S.me, (int)((e)->pe / S.ppn), (uint64_t)(nb)); if (S.pxq) pthread_mutex_unlock(&g_trpx_mu); } while (0)
 static void tr_jstr(FILE *f, const char *v) { fputc('"', f); for (; *v; v++) { if (*v == '"' || *v == '\\') fputc('\\', f); if ((unsigned char)*v >= 32) fputc(*v, f); } fputc('"', f); }
 /* node 0 against every node, over SHMEM: node 0 pings (a counter into the node's row MAXID - 2), the node answers with its CLOCK_MONOTONIC (row MAXID - 3) or, in a second series,
  * its CLOCK_REALTIME (row MAXID - 4) as one word each, so the two directions are symmetric; node 0 stamps the send and the observation of the answer.  offset = answer - (t0 + t1) / 2 of the
@@ -494,8 +494,8 @@ static long px_write(px_dev *x, int dst_pe, size_t roff, const void *src, size_t
 }
 /* COMM_SHMEM_PX_QTHREAD=1: the completer.  The poster (px_serve2) publishes tp = commands fully posted; this thread quiets the context of the oldest command not done
  * and stamps every command of that context below the tp it read before the quiet (all were posted before it began, so the quiet covers them), then advances done.
- * A context's mutex serialises a post and a quiet (SHMEM_CTX_SERIALIZED); consecutive commands to a peer sit on different contexts, so the poster is not held by the quiet. */
-struct pxq { shmem_ctx_t *cx; pthread_mutex_t mu[PXNCTX]; struct px_hdr *h; struct px_ent *ring; long *dn; unsigned char *co, *tra; long tp, tl, nq; int stop; };
+ * The contexts are plain (options 0: usable by several threads under SHMEM_THREAD_MULTIPLE), so a quiet never holds up a post; consecutive commands to a peer sit on different contexts. */
+struct pxq { shmem_ctx_t *cx; struct px_hdr *h; struct px_ent *ring; long *dn; unsigned char *co, *tra; long tp, tl, nq; int stop; };
 static void *px_complete(void *a)
 {
     struct pxq *q = (struct pxq *)a; static unsigned char fdl[PXRING]; long tl = 0; unsigned idle = 0;   /* fdl: stamped, completer-private (the poster reuses no slot of it) */
@@ -504,7 +504,7 @@ static void *px_complete(void *a)
         if (tl < tp) {
             int c = q->co[tl % PXRING]; struct px_ent *e0 = &q->ring[tl % PXRING]; int tr0 = q->tra[tl % PXRING];
             if (tr0) TRP(P_QUIET_BEG, c, tl, e0, 0);
-            pthread_mutex_lock(&q->mu[c]); shmem_ctx_quiet(q->cx[c]); pthread_mutex_unlock(&q->mu[c]); q->nq++;
+            shmem_ctx_quiet(q->cx[c]); q->nq++;
             if (tr0) TRP(P_QUIET_END, c, tl, e0, 0);
             for (long k = tl; k < tp; k++) { int s = (int)(k % PXRING); if (!fdl[s] && q->co[s] == c) { if (q->tra[s]) TRP(P_DONE, c, k, &q->ring[s], 0); fdl[s] = 1; __atomic_store_n(&q->dn[s], k + 1, __ATOMIC_RELEASE); } }
             while (tl < tp && fdl[tl % PXRING]) { fdl[tl % PXRING] = 0; tl++; }
@@ -527,12 +527,12 @@ static void px_serve2(void)
     struct px_hdr *h = px_hdr_of(S.pool); struct px_ent *ring = px_ring_of(S.pool); long *dn = px_dn_of(S.pool);
     __atomic_store_n(&h->ppid, (long)getpid(), __ATOMIC_RELEASE);
     shmem_ctx_t cx[PXNCTX]; int nc = 0, peers = S.npes - 1 < PXNCTX ? S.npes - 1 : PXNCTX;
-    int want = S.pxq ? (2 * (S.npes - 1) < PXNCTX ? 2 * (S.npes - 1) : PXNCTX) : peers;   /* QTHREAD: two per peer node (alternating), up to PXNCTX */
-    while (nc < want && shmem_ctx_create(S.pxq ? SHMEM_CTX_SERIALIZED : SHMEM_CTX_PRIVATE, &cx[nc]) == 0) nc++;
+    int want = S.pxq ? (2 * (S.npes - 1) < PXNCTX ? 2 * (S.npes - 1) : PXNCTX) : peers;   /* QTHREAD: two per peer node (alternating; from 5 nodes on the PXNCTX cap makes peers share) */
+    while (nc < want && shmem_ctx_create(S.pxq ? 0 : SHMEM_CTX_PRIVATE, &cx[nc]) == 0) nc++;
     int own = nc; if (!nc) { cx[0] = SHMEM_CTX_DEFAULT; nc = 1; }
     static size_t posted[PXRING]; static unsigned char fp[PXRING], fd[PXRING], co[PXRING], tra[PXRING];   /* bytes posted, fully posted, done, context */
     static struct pxq q; pthread_t qth; unsigned char *par = S.pxq ? (unsigned char *)calloc((size_t)S.npes, 1) : 0;   /* par: per peer node, which of its two contexts the next command takes */
-    if (S.pxq) { q = (struct pxq){ cx, {{0}}, h, ring, dn, co, tra, 0, 0, 0, 0 }; for (int i = 0; i < PXNCTX; i++) pthread_mutex_init(&q.mu[i], 0);
+    if (S.pxq) { q = (struct pxq){ cx, h, ring, dn, co, tra, 0, 0, 0, 0 };
         if (pthread_create(&qth, 0, px_complete, &q)) ec_fatal(EC_RC_FATAL, "comm_shmem: proxy pe %d: COMM_SHMEM_PX_QTHREAD: pthread_create failed\n", S.pme); }
     long t = 0, tp = 0, tl = 0, nput = 0, nq = 0, nsig = 0; double bytes = 0, tchk = now_s(), tbusy = 0; unsigned idle = 0;
     for (;;) {
@@ -543,22 +543,24 @@ static void px_serve2(void)
             double t0 = now_s();
             for (int more = 1; more;) { more = 0;
                 for (long k = tp; k < t; k++) { int s = (int)(k % PXRING); if (fp[s]) continue;
-                    struct px_ent *e = &ring[s]; shmem_ctx_t c = cx[co[s]]; pthread_mutex_t *mu = S.pxq ? &q.mu[co[s]] : 0; if (mu) pthread_mutex_lock(mu);   /* (QTHREAD: a post excludes the completer's quiet of this context) */
-                    if (!e->n) { shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); fp[s] = 1; if (tra[s]) TRP(P_SIGNAL, 0, k, e, 0); if (mu) pthread_mutex_unlock(mu); continue; }
+                    struct px_ent *e = &ring[s]; shmem_ctx_t c = cx[co[s]];
+                    if (!e->n) { shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); fp[s] = 1; if (tra[s]) TRP(P_SIGNAL, 0, k, e, 0); continue; }
                     if (S.sched) {                    /* COMM_SHMEM_PX_SCHED: the whole command as one put-with-signal (whole puts run at the wire rate; no fence, no second word) */
 #if HAVE_PUT_SIGNAL
                         shmem_ctx_putmem_signal_nbi(c, S.pool + e->roff, S.pool + e->soff, e->n, (uint64_t *)px_sigw(S.pool, 1, e->sigidx), (uint64_t)e->sig, SHMEM_SIGNAL_SET, (int)e->pe);
 #endif
                         if (tra[s]) { TRP(P_CHUNK, 0, k, e, e->n); TRP(P_SIGNAL, 0, k, e, e->n); }
-                        nsig++; nput++; bytes += (double)e->n; fp[s] = 1; posted[s] = e->n; if (mu) pthread_mutex_unlock(mu); continue;
+                        nsig++; nput++; bytes += (double)e->n; fp[s] = 1; posted[s] = e->n;
+                        if (S.pxq) { while (tp < t && fp[tp % PXRING]) tp++; __atomic_store_n(&q.tp, tp, __ATOMIC_RELEASE); }
+                        continue;
                     }
                     size_t o = posted[s], len = e->n - o < PXCH ? e->n - o : PXCH; int last = o + len == e->n;
                     shmem_ctx_putmem_nbi(c, S.pool + e->roff + o, S.pool + e->soff + o, len, (int)e->pe);   /* a plain chunk; the command's last chunk is followed by a fence and its signal word */
                     if (tra[s]) TRP(P_CHUNK, o / PXCH, k, e, len);
                     if (last) { shmem_ctx_fence(c); shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); nsig++; if (tra[s]) TRP(P_SIGNAL, 0, k, e, e->n); }
                     posted[s] = o + len; nput++; bytes += (double)len;
-                    if (mu) pthread_mutex_unlock(mu);
                     if (last) fp[s] = 1; else more = 1;
+                    if (S.pxq && fp[s]) { while (tp < t && fp[tp % PXRING]) tp++; __atomic_store_n(&q.tp, tp, __ATOMIC_RELEASE); }   /* (QTHREAD: the completer may quiet it now) */
                 }
             }
             while (tp < t && fp[tp % PXRING]) tp++;
@@ -587,7 +589,7 @@ static void px_serve2(void)
     if (S.pxq) { __atomic_store_n(&q.stop, 1, __ATOMIC_RELEASE); pthread_join(qth, 0); nq = q.nq; free(par); }
     for (int i = 0; i < own; i++) shmem_ctx_destroy(cx[i]);
     tr_flush(1);
-    if (S.pxq && (S.verbose || S.pme < S.ppn)) fprintf(stderr, "comm_shmem: proxy pe %d: COMM_SHMEM_PX_QTHREAD=1: poster + completer threads, %d contexts (two per peer node)\n", S.pme, own);
+    if (S.pxq && (S.verbose || S.pme < S.ppn)) fprintf(stderr, "comm_shmem: proxy pe %d: COMM_SHMEM_PX_QTHREAD=1: poster + completer threads, %d contexts (two per peer node up to 4 nodes)\n", S.pme, own);
     if (S.verbose || S.pme < S.ppn) fprintf(stderr, "comm_shmem: proxy pe %d (node %d, APU %d): COMM_SHMEM_PX_SEND=%d, %d contexts: %ld chunks, %.2f GB, %ld context quiets, %ld fence+signal, %.2f s posting + quiet = %.2f GB/s while busy\n",
                                            S.pme, S.pme / S.ppn, S.pme % S.ppn, S.pxsend, own, nput, bytes / 1e9, nq, nsig, tbusy, tbusy > 0 ? bytes / 1e9 / tbusy : 0);
 }
@@ -892,7 +894,7 @@ static int comm_shmem_init_i(void)
     if (S.verbose && S.ppa) printf("comm_shmem: pe %d: init timeline: shmem_init %.2f, pool alloc+pre-fault/registration done at %.2f, barrier took %.2f s, passed at %.2f\n", S.me, g_t_shinit, t_bar - g_t0, now_s() - t_bar, now_s() - g_t0);
     if (S.ppa) { int ph_ = ec_ph(EC_PH_PX_ATTACH); px_attach(); ec_ph(ph_); }                               /* N7b: (after the barrier: the proxies' control is zeroed) */
     if (S.me == 0 && S.sched_auto && S.ppa) printf("comm_shmem: COMM_SHMEM_PX_SCHED=auto resolved to %d (%d nodes; 99 up to 4 nodes, else 0 = PX3)\n", S.sched, S.npes);
-    if (S.me == 0 && S.pxq) printf("comm_shmem: COMM_SHMEM_PX_QTHREAD=1: each proxy posts in one thread and quiets in another (two contexts per peer node)\n");
+    if (S.me == 0 && S.pxq) printf("comm_shmem: COMM_SHMEM_PX_QTHREAD=1: each proxy posts in one thread and quiets in another (two contexts per peer node up to 4 nodes, PXNCTX=8 beyond)\n");
     if (S.me == 0 && S.sched) printf("comm_shmem: COMM_SHMEM_PX_SCHED=%d: whole put-with-signal commands, peers as a shifted ring, %s\n", S.sched, S.sched >= S.npes - 1 ? "no window" : "window W senders per receiver");
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);

@@ -99,7 +99,7 @@ COMM_TRACE_PH	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault
 COMM_TRACE_THR	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_TRACE_WD_MS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_SHMEM_PX_SCHED	experiment	T1 (D57)	2026-11-18	off by default (0 = today's PX3, code path unchanged); W >= 1: whole put-with-signal per command + shifted-ring peer walk, at most W senders per receiver (99: no window); auto: 99 up to 4 nodes else 0; 4 n -14 s, 2-3 n neutral, 6 n loses (results/SHMEM.md)
-COMM_SHMEM_PX_QTHREAD	experiment	NIGHT2 (LAYV1 C1)	2026-11-20	off by default (code path unchanged); 1: the proxy posts in one thread and quiets in another, two contexts per peer node alternating per command; digits unchanged; gate 1/2/3 n
+COMM_SHMEM_PX_QTHREAD	experiment	NIGHT2 (LAYV1 C1)	2026-11-19	off by default (code path unchanged); 1: the proxy posts in one thread and quiets in another, two contexts per peer node alternating per command; digits unchanged; gate 1/2/3 n
 COMM_SHMEM_HUGETLB	experiment	L5	2027-03-31	off by default; node-process heap from the 2 MiB hugetlb pool (aac7 has no pool: falls back to NP_HEAP_THP); review at the target session
 MN_NONPOW2_MIN	experiment	T2 (D57)	2026-11-19	the auto rule's threshold (digits per node, 4.5e10)
 MN_NONPOW2_CAP	experiment	T2 (D57)	2026-11-19	auto since Q58 (user 2026-10-20): on from MN_NONPOW2_MIN digits per node; 6 n -18 s libfabric, +41 GB/node planes; 1 = on, 0 = off
