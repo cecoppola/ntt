@@ -84,6 +84,7 @@ On both launch lines (`profiles/aac7.conf` (`LAUNCH_LINE_KEYS`) for aac7, `profi
 | lean division (built in; the `DM_MN_LEAN` switch is gone) | same digits, less division memory | m | archive RESULTS §104 |
 | `MN_T_CHUNK_MB=2048` | aac7: 24 paired rounds, mean -42.3 s, p ≈ 0.04; 4-node recheck inconclusive (+6.98 s [-10.3, +24.3]) | m | results/SESSIONS.md §S22, S47.md |
 | X2: `COMM_LAYER_INTER2=1`, `COMM_LAYER_VSLOT_POOL=1` (code default) | -31.7 s at 10 nodes (CI -55.7 .. -7.8) | m | results/SESSIONS.md §S31 |
+| aac7 Cray SHMEM phase closed (2026-10-21): 3 n gap = waiting in the layered variable-count exchange (SHMEM 157.0 vs libfabric 143.0 s, 9lr, 6 pairs; wait +12.7 s, non-wait -3.1 s per thread); 21 environment settings at 2 n none faster (IOTLB off +25 s); DEVHEAP2, DEVSRC (initiator misses 3.3e9 -> 1.4e6, +4.4 s slower), zero-copy, NUMA flush closed; PX_QTHREAD gated, never timed, unmerged; SHMEM about 4-5e9 NIC misses per node and run against about 1e4 for libfabric device pools | gap 9-14 s at 3 n (m) | m | results/SHMEM.md |
 | `COMM_LAYER_VSLOT_SHARE=1` (always on; switch removed 2026-10-19, task 4) | -8.4 GB per node at 4 nodes; -5.79 GB at 576 | m / mod | results/GRID_GROUPS.md §S36, S45.md |
 | `COMM_LAYER_VSLOT_RELEASE=1` (always on with the pool; switch removed 2026-10-19, task 4) | device peak -8.60 GB at 4 nodes; -8.59 GB at 576 | m / mod | results/GRID_GROUPS.md §C06, L1.md |
 | `COMM_SHMEM_ROUND_MB=1024` | SHMEM pool 45.0 → 9.8 GB per node | mod | results/SHMEM_ITEMS.md §V114 |

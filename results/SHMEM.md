@@ -403,3 +403,89 @@ state per node count and why the rest stays open on aac7.
   wait fell from 264-266 s (SHMEM) to 183 s (SHMEM + INTER2=0). The earlier 4 n test (older build, items 98a-98o above) showed no gain; no 6 n measurement yet.
 - **Change**: `COMM_LAYER_INTER2` unset is now 0 on both transports (user: libfabric with one in flight is the reference speed for SHMEM parity; no
   transport logic); `=1` restores two in flight. The `config:` eff line shows `layer_inter2:N`. Digits unchanged (exchange order only).
+
+## Closing record of the aac7 Cray SHMEM phase (2026-10-21)
+
+User order 2026-10-21 (about 01:30 EDT): the tuning of Cray SHMEM on aac7 ends here. The project turns to target-style communication (Cray SHMEM 12.1, eight
+Slingshot-400 NICs per node, GPU-memory buffers) emulated with libfabric. This section is the record of what the last night established and closed. Labels:
+m measured, mod modelled, d derived. Nothing here changes code or defaults.
+
+### 1. The 3 n gap, located (items 9lr, analysis GAP3N2)
+
+9lr: 3 n, 1.9323e11 digits, 6 ABBA pairs, all VERIFY OK, `COMM_XSTATS=1 MN_WAIT_STATS=1` (m). Libfabric 143.0 s (sd 5.3), SHMEM 157.0 s (sd 11.2; 152.5 s without the cold
+first run); paired difference -14.0 s, 95 % CI [-26.0, -2.0]. Per phase, SHMEM against libfabric (m): bs 54.1 vs 48.6, dm 63.0 vs 55.5, recip 18.5 vs 16.4, init 35.6 vs 34.8 s.
+
+| quantity per thread (d) | SHMEM (5 runs) | libfabric (6 runs) | difference |
+|---|---|---|---|
+| wall, bs+dm+recip | 113.66 s | 104.07 s | +9.6 s |
+| blocked in `comm_wait` | 52.75 s | 40.01 s | +12.7 s |
+| non-wait (wall minus wait) | 60.91 s | 64.06 s | -3.1 s |
+
+- The gap is waiting, not compute. Against the fast libfabric launches the wall gap is +12.1 s = wait +11.6 s, non-wait +0.5 s. The "compute stretch" explanation is not supported.
+- One exchange kind carries it: `layv` (layered inter stage, variable counts; 2 remote peers at 3 n) is 1.42 x libfabric per exchange in bs, dm and recip alike
+  (bs 55.0 vs 38.7 ms; 8.7 vs 12.4 GB/s per thread), +34-36 microseconds per MB in all three phases; it carries 61-66 % of the wait gap. The direct kinds (redist,
+  result, spill, addsh) have equal bytes and equal time (+0.5 s per thread in total). At 2 n the same path is within 5-7 % of libfabric.
+- ATU counters are constant across the SHMEM runs (CV < 1 %), so they cannot explain run-to-run spread; they differ categorically between the arms (section 6).
+- Libfabric has a launch lottery of about 11 s, in non-wait time, not in wait time.
+
+### 2. One exchange in flight (item 9m5) and its adoption
+
+Two layered exchanges in flight per thread were worse than serial on SHMEM: with `COMM_LAYER_INTER2=0` the 3 n total fell 149.9 -> 143.2 s and the layv summed wait 264-266 -> 183 s;
+libfabric 140.2 -> 137.2 s (m, section above). Adopted as the default on both transports; see the preceding section for numbers, gates and the change. Reading: the proxy serialises
+(one proxy thread per APU, per-context quiet, puts to the two peers strictly ordered), so two exchanges interfere (LAYV1, code reading, no run proves it). What is left after the adoption: SHMEM
+one in flight 143.2 s against libfabric one in flight 137.2 s (3 n, n 3 each, +6 s, m); no 6 n measurement.
+
+### 3. Environment screens at 2 n (items 9l3, 9lx, 9ly, 9m4; 1.2882e11 digits, build eb0c5f0e; m)
+
+21 settings against interleaved SHMEM controls (controls 109.5-113.0 s, dm 36.7-37.1 s; one cold control 129.6 s). None was faster; the ATU miss counters did not move
+(+-1 %) in any arm except K09. Names as in the screen registry:
+
+| result | settings |
+|---|---|
+| within noise (108.3-113.5 s, dm unchanged) | CQ size 512k, CQ fill 90 %, TX size 4096, no inject-DMA (IDC), LLRING always, EQ ack batch 256, CQ low-empty policy, MR cache count 0, HMEM P2P off, NBI block 16M, NBI pipeline 16M, target ordering relaxed, target ordering strict, WAW off, HRP, counter delay, counter spin, delivery-complete, max contexts 16, hybrid MR descriptors |
+| slower | K09 `FI_CXI_IOTLB=0`: 137.0 s (+25 s; dm 57.3 vs 37.0, recip 20.0 vs 13.2, bs 42.6 vs 36); miss0 6.0-6.2e9 vs 4.1-4.3e9 (+47 %), miss_ixe 1.37-1.45e9 vs 0.81-0.84e9 |
+| abort | R05 and R06 (TX size / NBI block combinations): `fi_cntr_wait` returns -22; R11 (put-signal with triggered command queue): abort at init, rc 134 |
+
+Reading: the screen cannot make the 4.1e9 default misses cheaper, but K09 shows S time is sensitive to the translation path when a miss gets dearer. The library's own reading of the hidden `_SHMEM_*`
+variables was not confirmed (no env display or ordering lines printed). Not run: K13-K16 (hidden libsma guesses), skipped for hang risk or absence: no-AP mode, kdreg2 (not present), OMR0.
+
+### 4. Closed approaches
+
+| approach | outcome (m) |
+|---|---|
+| DEVHEAP2 (`COMM_SHMEM_DEVHEAP2`: proxy symmetric heaps in fine-grained device memory, node process attaches by HIP IPC) | gate: node-process CPU read of the IPC-opened device heap faults (SEGV in both node processes, 5/5 timing runs died at 9 s). Without a CPU path the node process cannot reach the mailbox in that heap. Parked and closed (Q64). Enabling probes (9lk, 9lq): libsma accepts a different heap base per PE, and a device-backed heap with the FI_HMEM shim passed at 2 and 4 PEs per node; hip VMM (pinned) has no CPU mapping, CMA fails on all driver mappings |
+| DEVSRC (`COMM_SHMEM_PX_DEVSRC`: proxy puts from a device ring, async stream copy) | 7/7 gates PASS, digits identical. Initiator misses fall from 3.2-3.5e9 to 1.4e6 per node and run, but time does not: 2 n pooled S 113.0 s (n 4) vs DS async 117.4 s (n 5), +4.4 s (extra device-to-device copy contends with compute, bs +4-6 s); 3 n (9lg, synchronous copy) S 165.2, libfabric 162.3, device source 175.0 s. Removing initiator misses does not speed dm |
+| DEVSRC=3 zero-copy (proxy puts from compute buffers opened by HIP IPC) | first remote put from an IPC-opened device pointer crashes in the ROCr runtime (NULL deref at registration); with containment the proxies hang (9lo). Closed on this stack |
+| NUMA flush (pinned allocate-and-free before a run) | each flush added 3.4k-37k node-0 misses, a run adds at most about 70; no way to reach zero. Off for good; rule: a node is fine if node 0 has at least about 96 GB free at start (REBOOT1, 9ks) |
+| GEV (`COMM_XSTATS_GEV`, event pairs post to wait-start; diagnostic) | gates PASS with xstats_gev lines; the stream keeps up (gpu about host at gate scale). The 3 n GEV run was not needed: section 1 already rules out compute stretch |
+
+### 5. PX_QTHREAD (branch pxq, c8bb7f5d)
+
+Poster and completer thread per proxy, two plain contexts per peer node alternated; needs PX3 under `PE_PER_APU=1` and THREAD_MULTIPLE; fatal under `COMM_OFI=1` by design. Gates 1, 2 and 3 n PASS,
+digits identical (including the `PX_SCHED=0` chunked path, no hang). The paired timing was never run, so there is no speed claim. Not merged.
+
+### 6. The NIC miss picture
+
+Per node per run (m): SHMEM about 4-5e9 translation misses (3 n: miss0 5.3-5.5e9, of which the initiator side 4.2-4.4e9, about 80 %, and the target side about 1.1e9, about 20 %; 59 % of translated
+requests miss); libfabric with device-memory pools about 1e4 (miss ratio 1.6 %), the same requests (req_ixe 2.0-2.1e9, req_oxe 6.7-7.0e9). Libfabric with a host pool (item 9lc) misses 3.5-3.8e9 and
+runs about 17 s slower. Why (d, driver facts): host staging memory is mapped with 4 KiB ATU pages (no free hugetlb pages; THP does not reach the NIC mapping), while device memory registered by dmabuf is mapped
+with large entries (hit_d1_0 8.5-9.1e9). At 2 n the misses cost nothing visible (SHMEM within noise of libfabric); at 3 n the remaining gap was not closed by removing the initiator misses (section 4), so
+the cost of the misses on the gap is not shown. The target carries device buffers on both sides by construction.
+
+### 7. Unmerged branches kept for reference
+
+| branch | content |
+|---|---|
+| devsrc2 | first DEVSRC: device-source puts with a synchronous host-to-device copy |
+| devsrc3 | DEVSRC rebased on main with the async copy and DEVSRC=3 zero-copy, DEVHEAP2 and the heap/VMM shim, probes (`t_vmmprobe`, `t_basevar`), `fi_hmem_shim.so` |
+| gev | `COMM_XSTATS_GEV` event-pair diagnostic |
+| pxq | `COMM_SHMEM_PX_QTHREAD` (section 5) |
+| a2a | `t_comm --a2a`: benchmark-only probe of the library all-to-all calls against ours (e738c931; its 3 n item did not run to a result) |
+| r3plane | model-only 3*2^k grouped-plane tier (`MN_R3_PLANE=1`, off; f52a424): saves memory against the non-power-of-two cap but keeps only 56-60 % of its time gain (mod) |
+
+### 8. Node health note (REBOOT1)
+
+On aac7 every job end of ours ends in a node reboot (needs_reboot); 830 of 880 reboots since 2026-10-12 followed our job ends (45 % of our node-ends reboot against 13 % for others' jobs). Every one of the NIC
+losses found on 2026-10-20 appeared 3-35 min after one of those reboots (5 of 140 reboots that day, about 3.6 % per reboot, mod); further nodes were lost on 2026-10-21 and a rescreen found no lost node back. The data cannot
+separate "the reboot causes the loss" from "the traffic does" (no pre-reboot NIC count existed). Mitigation: fewer job ends, i.e. one long hold running many items, with a NIC count per node
+before each item (session hold, 2026-10-21). Three healthy nodes remained at the end of the phase.
