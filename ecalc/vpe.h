@@ -56,8 +56,9 @@ int  vpe_lpp(void);                                     /* lanes per process: 1 
 int  vpe_proc_leader(void);                             /* the PE that acts for the PROCESS's shared resources: S1 lane 0, S2 every PE (its own process); off: 1 */
 void vpe_ppg_init(void);                                /* re-reads ECALC_PE_PER_GPU / SLURM_LOCALID (done at process start; tests call it after setenv) */
 void vpe_set_ppg(int local);                            /* tests: process mode with this local id (>= 0), or -1 = back to the environment */
+int  vpe_early_device(void);                            /* S2: the device made current at process start (-1 if none); mn_init_ppg checks it against pe_geo's */
 void vpe_set_device(int dev);                           /* mn.c, after the engine start: pe_geo's device of this PE */
-void vpe_pe_affinity(const char *cpulist);              /* S2: restrict this process to the cpus of its NUMA node (cpulist ∩ the launch mask; unchanged if empty; prints the mask once) */
+void vpe_pe_affinity(const char *cpulist);              /* S2: restrict this process to the cpus of its NUMA node (cpulist AND the launch mask; unchanged if empty; prints the mask once) */
 #define VPE_NODE_SLOT 15                                /* the id slot of the node group (the PEs of one node: vpe_sub_slot(ppn node, ppn, VPE_NODE_SLOT)); non-power-of-two ppn: slot 3 */
 int  vpe_pe(void);                                      /* L * node + idx (off: the node) */
 int  vpe_npe(void);                                     /* L * nodes (off: the nodes) */

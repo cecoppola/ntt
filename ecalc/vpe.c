@@ -31,7 +31,19 @@ void vpe_ppg_init(void)
     if (vpe_g_idx >= 0) vpe_t_idx = vpe_g_idx;
     if (g_ppg) mem_set_numa_pci(1);                    /* (a plain store: the device -> NUMA node lookup by PCI bus id, mem.c) */
 }
-__attribute__((constructor)) static void vpe_ctor(void) { vpe_ppg_init(); }
+static int g_early_dev = -1;
+int vpe_early_device(void) { return g_early_dev; }
+/* S2: a process-per-PE launch makes this process's device current at process start (before any rns_init / pool of a harness or the flow runs on the main thread): its local id with all
+ * GPUs visible (--gpu-bind=none), device 0 with one visible.  mn_init_ppg checks it against the engine's (pe_geo) device: a mismatch is fatal. */
+__attribute__((constructor)) static void vpe_ctor(void)
+{
+    vpe_ppg_init();
+    if (!g_ppg || vpe_g_idx < 0) return;
+    const char *pg = getenv("XSHMEM_PES_PER_GPU"); int ppgpu = pg && atoi(pg) > 0 ? atoi(pg) : 1, n = 0;
+    if (hipGetDeviceCount(&n) != hipSuccess || n < 1) { (void)hipGetLastError(); return; }
+    int d = n == 1 ? 0 : (vpe_g_idx / ppgpu) % n;
+    if (hipSetDevice(d) == hipSuccess) { g_dev = d; g_early_dev = d; } else (void)hipGetLastError();
+}
 void vpe_set_ppg(int local)
 {
     if (local < 0) { vpe_ppg_init(); g_lanes = 0; return; }

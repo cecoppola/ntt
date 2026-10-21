@@ -140,6 +140,7 @@ static int mn_init_ppg(void)
     int node = pe / ppn, nn = npe / ppn; const char *cr = getenv("COMM_RANK"), *cs = getenv("COMM_SIZE");
     if ((cr && *cr && atoi(cr) != node) || (cs && *cs && atoi(cs) != nn))
         ec_fatal(EC_RC_FATAL, "mn: ECALC_PE_PER_GPU=1: COMM_RANK=%s COMM_SIZE=%s (node units) but the engine places pe %d of %d at node %d of %d\n", cr ? cr : "-", cs ? cs : "-", pe, npe, node, nn);
+    if (vpe_early_device() >= 0 && vpe_early_device() != v[4]) ec_fatal(EC_RC_FATAL, "mn: ECALC_PE_PER_GPU=1: pe %d started on device %d but the engine's topology gives device %d\n", pe, vpe_early_device(), v[4]);
     g_rank = node; g_size = nn; vpe_set_nodes(node, nn); vpe_set_device(v[4]); vpe_set_thread_hook(comm_xshmem_select);
     int ndev = mem_device_count();
     if (ndev < 1 || v[4] >= ndev) ec_fatal(EC_RC_FATAL, "mn: ECALC_PE_PER_GPU=1: pe %d uses device %d, %d visible\n", pe, v[4], ndev);

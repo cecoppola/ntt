@@ -231,6 +231,12 @@ static void kfd_vram(char *b, size_t n)      /* the process's VRAM per GPU (kfd 
     }
     closedir(d);
 }
+static long kb_of(const char *file, const char *key)    /* "VmRSS:   123 kB" -> 123 */
+{
+    FILE *f = fopen(file, "r"); char l[256]; long v = -1; size_t n = strlen(key);
+    if (f) { while (fgets(l, sizeof l, f)) if (!strncmp(l, key, n)) { v = atol(l + n); break; } fclose(f); }
+    return v;
+}
 static char g_launch_mask[256];
 static void ppg_info(void *unused)
 {
@@ -238,10 +244,11 @@ static void ppg_info(void *unused)
     int nd = 0, dev = -1; HIPC(hipGetDeviceCount(&nd)); HIPC(hipGetDevice(&dev));
     void *p; HIPC(hipMalloc(&p, (size_t)64 << 20)); HIPC(hipMemset(p, 1, (size_t)64 << 20)); HIPC(hipDeviceSynchronize());   /* make the context real */
     cpu_set_t m; char cb[256], kv[512], host[64] = ""; gethostname(host, sizeof host - 1); sched_getaffinity(0, sizeof m, &m); cpustr(&m, cb, sizeof cb); kfd_vram(kv, sizeof kv);
-    const char *hv = getenv("HIP_VISIBLE_DEVICES"), *rv = getenv("ROCR_VISIBLE_DEVICES"), *cv = getenv("CUDA_VISIBLE_DEVICES");
-    printf("PPG_INFO pe %d npe %d node %d local %d procid %s host %s | visible %d (HIP_VISIBLE %s ROCR_VISIBLE %s CUDA_VISIBLE %s) device %d numa(device) %d | cpus launch '%s' now '%s' (%d) | kfd vram: %s\n",
-           vpe_pe(), vpe_npe(), vpe_node(), vpe_idx(), getenv("SLURM_PROCID") ? getenv("SLURM_PROCID") : "-", host, nd, hv ? hv : "-", rv ? rv : "-", cv ? cv : "-", dev,
-           mem_numa_node_of_device(dev), g_launch_mask, cb, CPU_COUNT(&m), kv);
+    const char *hv = getenv("HIP_VISIBLE_DEVICES"), *rv = getenv("ROCR_VISIBLE_DEVICES");
+    printf("PPG_INFO pe %d npe %d node %d local %d procid %s host %s | visible %d (HIP_VISIBLE %s ROCR_VISIBLE %s) device %d numa(device) %d | cpus launch '%s' now '%s' (%d) | kfd vram: %s | rss %ld MiB hwm %ld MiB threads %ld memavail %ld GiB\n",
+           vpe_pe(), vpe_npe(), vpe_node(), vpe_idx(), getenv("SLURM_PROCID") ? getenv("SLURM_PROCID") : "-", host, nd, hv ? hv : "-", rv ? rv : "-", dev,
+           mem_numa_node_of_device(dev), g_launch_mask, cb, CPU_COUNT(&m), kv,
+           kb_of("/proc/self/status", "VmRSS:") >> 10, kb_of("/proc/self/status", "VmHWM:") >> 10, kb_of("/proc/self/status", "Threads:"), kb_of("/proc/meminfo", "MemAvailable:") >> 20);
     HIPC(hipFree(p));
 }
 /* die: PE 2 (the last when fewer) exits 7; the others sit in a barrier on the flat communicator (they hang unless the launcher ends the step) */

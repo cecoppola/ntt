@@ -101,6 +101,7 @@ static const char *const cfg_names[] = {
     "ECALC_OUT_MODE",
     "ECALC_OUT_ODIRECT",
     "ECALC_OUT_PACKED",
+    "ECALC_PE_PER_GPU",
     "ECALC_PLANE_CAP",
     "ECALC_PLANE_CAP_IDX",
     "ECALC_RECHECK",
@@ -174,4 +175,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_PES_PER_GPU",
     "XSHMEM_ROUND_MB",
 };
-#define CFG_NAMES_N 172
+#define CFG_NAMES_N 173
