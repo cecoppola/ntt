@@ -12,6 +12,7 @@
 #include <time.h>
 #include <stdarg.h>
 #include "p24.h"                                       /* a P24 product's spill decode (sparse_get) */
+#include "vpe.h"
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define CH 4096                                        /* limbs per carry chunk (256 threads x 16) */
@@ -19,6 +20,8 @@ static const uint64_t B10 = 1000000000000000000ULL;
 struct db_stats db_st;
 static double tnow(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 static int g_inited = 0;                               /*  */
+static inline int nq_(void) { return vpe_on() ? 1 : DB_NQ; }          /* S1b: quarters of a dbig (one under vPE) */
+static inline int dv_(int qi) { return vpe_on() ? vpe_lane() + qi : qi; }   /* the device of quarter qi (the vPE's own under vPE) */
 static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT]);
 static void par_init(void) { if (!g_inited) { g_inited = 1; mem_acct_register(db_acct); } }
 
@@ -551,7 +554,7 @@ void db_release_pools(void)
 }
 size_t db_pool_bytes(void) { return g_pool_bytes; }
 void db_init(dbig *x) { par_init(); memset(x, 0, sizeof *x); }
-void db_free(dbig *x) { if (x->cap) for (int d = 0; d < DB_NQ; d++) if (x->q[d]) q_free(d, x->q[d]); memset(x, 0, sizeof *x); }
+void db_free(dbig *x) { if (x->cap) for (int d = 0; d < nq_(); d++) if (x->q[d]) q_free(dv_(d), x->q[d]); memset(x, 0, sizeof *x); }
 void db_reserve(dbig *x, size_t limbs)
 {
     if (limbs <= x->cap) return;
@@ -559,21 +562,21 @@ void db_reserve(dbig *x, size_t limbs)
     if (x->off) { ec_fatal(EC_RC_FATAL, "db_reserve: a view\n"); }
     /* quarters of exactly ceil(limbs/4) rounded up to DB_ALIGN: no size classes (a 2^l / 3 2^l class wasted up to
      * 45 % of the dm phase's device memory at 4e10, RESULTS.md 70); the pool coalesces any sizes */
-    size_t need = (limbs + DB_NQ - 1) / DB_NQ, qc = (need + DB_ALIGN - 1) / DB_ALIGN * DB_ALIGN;
-    dbig y; db_init(&y); y.cap = qc * DB_NQ; y.qc = qc;
-    for (int d = 0; d < DB_NQ; d++) y.q[d] = q_alloc(d, qc * 8);
+    size_t need = (limbs + nq_() - 1) / nq_(), qc = (need + DB_ALIGN - 1) / DB_ALIGN * DB_ALIGN;
+    dbig y; db_init(&y); y.cap = qc * nq_(); y.qc = qc;
+    for (int d = 0; d < nq_(); d++) y.q[d] = q_alloc(dv_(d), qc * 8);
     if (x->n) {                                           /* keep the contents: quarter-wise DMA through the limb map */
         size_t n = x->n;
-        for (int d = 0; d < DB_NQ; d++) {
+        for (int d = 0; d < nq_(); d++) {
             size_t lo = (size_t)d * y.qc, hi = lo + y.qc; if (hi > n) hi = n;
             for (size_t i = lo; i < hi;) {                 /* the source run containing i */
                 size_t sd = hq(x, i), so = i - sd * x->qc, run = x->qc - so; if (i + run > hi) run = hi - i;
-                mem_dev_copy_on(d, y.q[d] + (i - lo), x->q[sd] + so, run * 8); i += run;
+                mem_dev_copy_on(dv_(d), y.q[d] + (i - lo), x->q[sd] + so, run * 8); i += run;
             }
         }
         y.n = n;
     }
-    for (int d = 0; d < DB_NQ; d++) if (x->q[d]) q_free(d, x->q[d]);
+    for (int d = 0; d < nq_(); d++) if (x->q[d]) q_free(dv_(d), x->q[d]);
     *x = y;
     db_st.t_reserve += tnow() - t0;
 }
@@ -617,26 +620,26 @@ void db_from_bi(dbig *x, const bigint *a)
 {
     pthread_mutex_lock(&g_bounce_mx);
     db_reserve(x, a->n ? a->n : 1); x->n = a->n;
-    for (int d = 0; d < DB_NQ; d++) {
+    for (int d = 0; d < nq_(); d++) {
         size_t lo = (size_t)d * x->qc; if (lo >= a->n) break;
         size_t len = a->n - lo < x->qc ? a->n - lo : x->qc;
         if (len <= SBOUNCE && small_bounce_on()) {                  /* O2: one chunk through the small pinned buffer */
-            uint64_t *sb = sbounce_get(d); HIP_CHECK(hipSetDevice(d));
+            uint64_t *sb = sbounce_get(dv_(d)); HIP_CHECK(hipSetDevice(dv_(d)));
             HIP_CHECK(hipStreamSynchronize(0));
             memcpy(sb, a->l + lo, len * 8);
-            HIP_CHECK(hipMemcpyAsync(x->q[d], sb, len * 8, hipMemcpyHostToDevice, g_bs[d]));
-            HIP_CHECK(hipStreamSynchronize(g_bs[d]));
+            HIP_CHECK(hipMemcpyAsync(x->q[d], sb, len * 8, hipMemcpyHostToDevice, g_bs[dv_(d)]));
+            HIP_CHECK(hipStreamSynchronize(g_bs[dv_(d)]));
             continue;
         }
-        bounce_init(d); HIP_CHECK(hipSetDevice(d)); int b = 0;
+        bounce_init(dv_(d)); HIP_CHECK(hipSetDevice(dv_(d))); int b = 0;
         HIP_CHECK(hipStreamSynchronize(0));                         /* nothing of ours still runs on the target */
         for (size_t i = 0; i < len; i += BOUNCE, b ^= 1) {
             size_t m = len - i < BOUNCE ? len - i : BOUNCE;
-            HIP_CHECK(hipStreamSynchronize(g_bs[d]));               /* the buffer's previous upload is done */
-            par_memcpy(g_bounce[d][b], a->l + lo + i, m);
-            HIP_CHECK(hipMemcpyAsync(x->q[d] + i, g_bounce[d][b], m * 8, hipMemcpyHostToDevice, g_bs[d]));
+            HIP_CHECK(hipStreamSynchronize(g_bs[dv_(d)]));               /* the buffer's previous upload is done */
+            par_memcpy(g_bounce[dv_(d)][b], a->l + lo + i, m);
+            HIP_CHECK(hipMemcpyAsync(x->q[d] + i, g_bounce[dv_(d)][b], m * 8, hipMemcpyHostToDevice, g_bs[dv_(d)]));
         }
-        HIP_CHECK(hipStreamSynchronize(g_bs[d]));
+        HIP_CHECK(hipStreamSynchronize(g_bs[dv_(d)]));
     }
     pthread_mutex_unlock(&g_bounce_mx);
 }
@@ -644,27 +647,27 @@ void db_to_bi(bigint *r, const dbig *x)
 {
     pthread_mutex_lock(&g_bounce_mx);
     bi_reserve(r, x->n ? x->n : 1); r->n = x->n;
-    for (int d = 0; d < DB_NQ; d++) {
+    for (int d = 0; d < nq_(); d++) {
         size_t lo = (size_t)d * x->qc; if (lo >= x->n) break;
         size_t len = x->n - lo < x->qc ? x->n - lo : x->qc;
         if (len <= SBOUNCE && small_bounce_on()) {                  /* O2: one chunk through the small pinned buffer */
-            uint64_t *sb = sbounce_get(d); HIP_CHECK(hipSetDevice(d));
+            uint64_t *sb = sbounce_get(dv_(d)); HIP_CHECK(hipSetDevice(dv_(d)));
             HIP_CHECK(hipStreamSynchronize(0));                     /* the source is complete */
-            HIP_CHECK(hipMemcpyAsync(sb, x->q[d], len * 8, hipMemcpyDeviceToHost, g_bs[d]));
-            HIP_CHECK(hipStreamSynchronize(g_bs[d]));
+            HIP_CHECK(hipMemcpyAsync(sb, x->q[d], len * 8, hipMemcpyDeviceToHost, g_bs[dv_(d)]));
+            HIP_CHECK(hipStreamSynchronize(g_bs[dv_(d)]));
             memcpy(r->l + lo, sb, len * 8);
             continue;
         }
-        bounce_init(d); HIP_CHECK(hipSetDevice(d)); int b = 0; size_t prev = 0, prevm = 0; int have = 0;
+        bounce_init(dv_(d)); HIP_CHECK(hipSetDevice(dv_(d))); int b = 0; size_t prev = 0, prevm = 0; int have = 0;
         HIP_CHECK(hipStreamSynchronize(0));                         /* the source is complete (its kernels ran on the null stream) */
         for (size_t i = 0; i < len; i += BOUNCE, b ^= 1) {
             size_t m = len - i < BOUNCE ? len - i : BOUNCE;
-            HIP_CHECK(hipMemcpyAsync(g_bounce[d][b], x->q[d] + i, m * 8, hipMemcpyDeviceToHost, g_bs[d]));
-            if (have) par_memcpy(r->l + lo + prev, g_bounce[d][b ^ 1], prevm);   /* the previous chunk, already landed */
-            HIP_CHECK(hipStreamSynchronize(g_bs[d]));
+            HIP_CHECK(hipMemcpyAsync(g_bounce[dv_(d)][b], x->q[d] + i, m * 8, hipMemcpyDeviceToHost, g_bs[dv_(d)]));
+            if (have) par_memcpy(r->l + lo + prev, g_bounce[dv_(d)][b ^ 1], prevm);   /* the previous chunk, already landed */
+            HIP_CHECK(hipStreamSynchronize(g_bs[dv_(d)]));
             prev = i; prevm = m; have = 1;
         }
-        if (have) par_memcpy(r->l + lo + prev, g_bounce[d][b ^ 1], prevm);
+        if (have) par_memcpy(r->l + lo + prev, g_bounce[dv_(d)][b ^ 1], prevm);
     }
     pthread_mutex_unlock(&g_bounce_mx);
 }
@@ -746,26 +749,26 @@ static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t
         for (int t = 0; t < MQ_T; t++) powtm[j * MQ_T + t] = (uint64_t)(((unsigned __int128)powt[j * MQ_T + t] << 64) % q);
     }
     uint64_t vq[DB_NQ][MQ_MAXQ]; size_t qlen[DB_NQ]; memset(vq, 0, sizeof vq); memset(qlen, 0, sizeof qlen);
-#pragma omp parallel for num_threads(DB_NQ)
-    for (int d = 0; d < DB_NQ; d++) {
+#pragma omp parallel for num_threads(nq_())
+    for (int d = 0; d < nq_(); d++) { int dv = dv_(d);
         size_t lo, hi; qrange(x, d, x->n, &lo, &hi); if (lo >= hi) continue;
         size_t first = x->off + lo - (size_t)d * x->qc, len = hi - lo, nc = (len + MQ_CH - 1) / MQ_CH; qlen[d] = len;
-        HIP_CHECK(hipSetDevice(d));
-        if (g_mq_cap[d] < nc * MQ_MAXQ) { if (g_mq_out[d]) HIP_CHECK(hipFree(g_mq_out[d])); HIP_CHECK(hipMalloc(&g_mq_out[d], (nc * MQ_MAXQ + 1024) * 8)); g_mq_cap[d] = nc * MQ_MAXQ + 1024; }
-        if (!g_mq_pow[d]) HIP_CHECK(hipMalloc(&g_mq_pow[d], (MQ_MAXQ * MQ_T + 2 * MQ_MAXQ) * 8));
-        uint64_t *dq = g_mq_pow[d] + MQ_MAXQ * MQ_T, *dbt = dq + MQ_MAXQ;
-        HIP_CHECK(hipMemcpy(g_mq_pow[d], mont ? powtm : powt, (size_t)nq * MQ_T * 8, hipMemcpyHostToDevice));
+        HIP_CHECK(hipSetDevice(dv));
+        if (g_mq_cap[dv] < nc * MQ_MAXQ) { if (g_mq_out[dv]) HIP_CHECK(hipFree(g_mq_out[dv])); HIP_CHECK(hipMalloc(&g_mq_out[dv], (nc * MQ_MAXQ + 1024) * 8)); g_mq_cap[dv] = nc * MQ_MAXQ + 1024; }
+        if (!g_mq_pow[dv]) HIP_CHECK(hipMalloc(&g_mq_pow[dv], (MQ_MAXQ * MQ_T + 2 * MQ_MAXQ) * 8));
+        uint64_t *dq = g_mq_pow[dv] + MQ_MAXQ * MQ_T, *dbt = dq + MQ_MAXQ;
+        HIP_CHECK(hipMemcpy(g_mq_pow[dv], mont ? powtm : powt, (size_t)nq * MQ_T * 8, hipMemcpyHostToDevice));
         HIP_CHECK(hipMemcpy(dq, qs, (size_t)nq * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dbt, mont ? Btm : Bt, (size_t)nq * 8, hipMemcpyHostToDevice));
 #pragma omp critical
-        if (mont) k_modq_m<<<(unsigned)nc, MQ_T>>>(x->q[d] + first, len, nq, dq, dbt, g_mq_pow[d], g_mq_out[d]); else
-        k_modq<<<(unsigned)nc, MQ_T>>>(x->q[d] + first, len, nq, dq, dbt, g_mq_pow[d], g_mq_out[d]);
+        if (mont) k_modq_m<<<(unsigned)nc, MQ_T>>>(x->q[d] + first, len, nq, dq, dbt, g_mq_pow[dv], g_mq_out[dv]); else
+        k_modq<<<(unsigned)nc, MQ_T>>>(x->q[d] + first, len, nq, dq, dbt, g_mq_pow[dv], g_mq_out[dv]);
         HIP_CHECK(hipStreamSynchronize(0));
         uint64_t *hv = (uint64_t *)malloc(nc * nq * 8);
-        HIP_CHECK(hipMemcpy(hv, g_mq_out[d], nc * nq * 8, hipMemcpyDeviceToHost));
+        HIP_CHECK(hipMemcpy(hv, g_mq_out[dv], nc * nq * 8, hipMemcpyDeviceToHost));
         for (int j = 0; j < nq; j++) { uint64_t v = 0; for (size_t c = nc; c-- > 0;) v = (uint64_t)(((unsigned __int128)v * Bch[j] + hv[c * nq + j]) % qs[j]); vq[d][j] = v; }
         free(hv);
     }
-    for (int j = 0; j < nq; j++) { uint64_t r = 0; for (int d = DB_NQ; d-- > 0;) if (qlen[d]) r = (uint64_t)(((unsigned __int128)r * db_powmod_h(Bq[j], qlen[d], qs[j]) + vq[d][j]) % qs[j]); res[j] = r; }
+    for (int j = 0; j < nq; j++) { uint64_t r = 0; for (int d = nq_(); d-- > 0;) if (qlen[d]) r = (uint64_t)(((unsigned __int128)r * db_powmod_h(Bq[j], qlen[d], qs[j]) + vq[d][j]) % qs[j]); res[j] = r; }
 }
 uint64_t db_mod_q(const dbig *x, uint64_t q) { uint64_t r; db_mod_qs(x, &q, 1, &r); return r; }
 /* ---- kernels: one per quarter, over the result's limbs [lo, hi) of that quarter ---- */
@@ -780,24 +783,24 @@ __global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a,
  * The b operand is either a dbig or a sparse set of 4-limb spills (sp != 0): spill j sits at limb
  * R j + row0 + rows for row0 in {0, rows, 2 rows, 3 rows} (four ranks' spill arrays). */
 struct sparse { const uint64_t *sp[4]; size_t R, rows, C; int single; size_t pos; uint64_t val;
-                size_t lo; int gt; const size_t *tab[4]; int p24; };   /* p24 (results/PRIMES_STRATEGY.md §P2415): the blocks at L(R j + a') of p24.h */   /* tab[d] (the exact spill exchange): sp[d] holds only the blocks that meet this share, per source node r the columns [tab[3r], tab[3r+1]) at block offset tab[3r+2]; 0 = the full [r][j][4] layout */   /* single: one limb val at pos.  gt > 0 (M3): the node's share [lo, ..) of a number whose product ran on 4 gt ranks,
+                size_t lo; int gt; const size_t *tab[4]; int p24; int vl; };   /* vl (S1b, vPE) = 1: gt counts PEs, one rank per PE -- one spill array per rank (sp[0], tab[0] only), rho = the PE's index, nr = gt */   /* p24 (results/PRIMES_STRATEGY.md §P2415): the blocks at L(R j + a') of p24.h */   /* tab[d] (the exact spill exchange): sp[d] holds only the blocks that meet this share, per source node r the columns [tab[3r], tab[3r+1]) at block offset tab[3r+2]; 0 = the full [r][j][4] layout */   /* single: one limb val at pos.  gt > 0 (M3): the node's share [lo, ..) of a number whose product ran on 4 gt ranks,
                                          * rank rho = gt d + r: sp[d] holds [r][j][4], spill (rho, j) at global limb R j + (rho + 1) rows -- or, when rows nr != R
                                          * (gt = g nodes of any count, rows = floor(R / nr)), at R j + R (rho + 1) / nr */
 __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
 {
     if (s.single) return i == s.pos ? s.val : 0;
     if (s.gt && s.p24) {                                      /* P24: the block meeting limb i + lo (p24_spill_at: at most one), then the lookup below */
-        int rho; size_t j, t; if (!p24_spill_at(i + s.lo, s.R, s.C, 4 * s.gt, &rho, &j, &t)) return 0;
-        int d = rho / s.gt, r = rho - d * s.gt;
+        int rho; size_t j, t; if (!p24_spill_at(i + s.lo, s.R, s.C, (s.vl ? s.vl : 4) * s.gt, &rho, &j, &t)) return 0;
+        int d = s.vl ? 0 : rho / s.gt, r = rho - d * s.gt;
         if (s.tab[d]) { const size_t *e = s.tab[d] + 3 * (size_t)r; if (j < e[0] || j >= e[1]) return 0; return s.sp[d][(e[2] + (j - e[0])) * 4 + t]; }
         return s.sp[d][((size_t)r * s.C + j) * 4 + t];
     }
     if (s.gt) {
-        size_t m = i + s.lo, j = m / s.R, rem = m - j * s.R, q, t; int nr = 4 * s.gt, rho;
+        size_t m = i + s.lo, j = m / s.R, rem = m - j * s.R, q, t; int nr = (s.vl ? s.vl : 4) * s.gt, rho;
         if (s.rows * (size_t)nr == s.R) { q = rem / s.rows; t = rem - q * s.rows; }
         else { q = ((rem + 1) * (size_t)nr + s.R - 1) / s.R - 1; t = rem - s.R * q / nr; }   /* unequal parts -- rank rho holds rows [R rho / nr, R (rho+1) / nr); q = the rank whose part starts at or below rem, i.e. rho + 1 of the spill's rank */
         if (t >= 4) return 0; if (q == 0) { if (j < 1 || j - 1 >= s.C) return 0; rho = nr - 1; j--; } else { rho = (int)q - 1; if (j >= s.C) return 0; }
-        int d = rho / s.gt, r = rho - d * s.gt;
+        int d = s.vl ? 0 : rho / s.gt, r = rho - d * s.gt;
         if (s.tab[d]) { const size_t *e = s.tab[d] + 3 * (size_t)r; if (j < e[0] || j >= e[1]) return 0; return s.sp[d][(e[2] + (j - e[0])) * 4 + t]; }   /* the compact form */
         return s.sp[d][((size_t)r * s.C + j) * 4 + t];
     }
@@ -936,10 +939,10 @@ static void shift_into(dbig *r, const dbig *a, long shift, size_t n)      /* r[i
     if (r == a) { ec_fatal(EC_RC_FATAL, "db shift: in place\n"); }
     need_owner(r, "shift"); db_reserve(r, n ? n : 1);
     struct dv v = view_of(a);
-#pragma omp parallel for num_threads(DB_NQ)
-    for (int d = 0; d < DB_NQ; d++) {
+#pragma omp parallel for num_threads(nq_())
+    for (int d = 0; d < nq_(); d++) { int dv = dv_(d);
         size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo >= hi) continue;
-        HIP_CHECK(hipSetDevice(d));
+        HIP_CHECK(hipSetDevice(dv));
 #pragma omp critical
         k_gather_shift<<<nblk(hi - lo), 256>>>(r->q[d], lo, hi, v, a->n, shift);
         HIP_CHECK(hipStreamSynchronize(0));
@@ -966,22 +969,22 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
     if (inplace && !same) { db_init(&tmp); out = &tmp; }
     need_owner(out, "add/sub"); db_reserve(out, n ? n : 1);
     struct dv va = view_of(a), vb = b ? view_of(b) : va; va.shift = ashift; struct sparse sp; memset(&sp, 0, sizeof sp); if (spx) sp = *spx;
-    size_t chunks[DB_NQ], lo[DB_NQ], hi[DB_NQ];
-#pragma omp parallel for num_threads(DB_NQ)
-    for (int d = 0; d < DB_NQ; d++) {
+    size_t chunks[DB_NQ] = {0}, lo[DB_NQ] = {0}, hi[DB_NQ] = {0};
+#pragma omp parallel for num_threads(nq_())
+    for (int d = 0; d < nq_(); d++) { int dv = dv_(d);
         qrange(out, d, n, &lo[d], &hi[d]); chunks[d] = (hi[d] - lo[d] + CH - 1) / CH;
         if (!chunks[d]) continue;
-        flags_reserve(d, chunks[d]);
-        HIP_CHECK(hipSetDevice(d));
+        flags_reserve(dv, chunks[d]);
+        HIP_CHECK(hipSetDevice(dv));
 #pragma omp critical
-        k_addsub3<<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, g_flags[d][0], g_flags[d][1]);
+        k_addsub3<<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, g_flags[dv][0], g_flags[dv][1]);
         HIP_CHECK(hipStreamSynchronize(0));
     }
     /* scan the chunk flags in order: carry-in of chunk = carry-out of the previous, or its carry-in if it propagates */
     uint8_t cy = 0; int allp = 1;
-    for (int d = 0; d < DB_NQ; d++) for (size_t c = 0; c < chunks[d]; c++) {
-        uint8_t co = g_flags[d][0][c], pr = g_flags[d][1][c];
-        g_flags[d][0][c] = cy;                          /* reuse as carry-in */
+    for (int d = 0; d < nq_(); d++) for (size_t c = 0; c < chunks[d]; c++) {
+        uint8_t co = g_flags[dv_(d)][0][c], pr = g_flags[dv_(d)][1][c];
+        g_flags[dv_(d)][0][c] = cy;                          /* reuse as carry-in */
         cy = co | (pr & cy); allp &= pr;
     }
     if (nfix) { if (cout) *cout = cy; if (prop) *prop = allp; }
@@ -989,12 +992,12 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
     if (cy && !sub) { ec_fatal(EC_RC_FATAL, "db_add: carry out of the top (n undersized)\n"); }
     if (cy && sub) { ec_fatal(EC_RC_FATAL, "db_sub: a < b\n"); }
     }
-#pragma omp parallel for num_threads(DB_NQ)
-    for (int d = 0; d < DB_NQ; d++) {
+#pragma omp parallel for num_threads(nq_())
+    for (int d = 0; d < nq_(); d++) { int dv = dv_(d);
         if (!chunks[d]) continue;
-        HIP_CHECK(hipSetDevice(d));
+        HIP_CHECK(hipSetDevice(dv));
 #pragma omp critical
-        k_carry<<<(unsigned)chunks[d], 1>>>(out->q[d], lo[d], hi[d], g_flags[d][0], sub);
+        k_carry<<<(unsigned)chunks[d], 1>>>(out->q[d], lo[d], hi[d], g_flags[dv][0], sub);
         HIP_CHECK(hipStreamSynchronize(0));
     }
     out->n = n; if (!nfix) db_norm(out);
@@ -1005,14 +1008,14 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
  * source node r in order, the 4-limb blocks of the columns [tab[d][3r], tab[d][3r+1]) at block offset tab[d][3r+2] (device tables) */
 void db_share_add_spills_x(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], const size_t *const tab[4], size_t R, size_t rows, size_t C, int gt, int *cout, int *prop)
 {
-    struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) { s.sp[q] = sp[q]; s.tab[q] = tab[q]; } s.R = R; s.rows = rows; s.C = C; s.lo = lo; s.gt = gt;
+    struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) { s.sp[q] = sp[q]; s.tab[q] = tab[q]; } s.R = R; s.rows = rows; s.C = C; s.lo = lo; s.gt = gt; s.vl = vpe_on() ? 1 : 0;
     addsub_core2(r, r, 0, 0, &s, n, 0, n, cout, prop);
 }
 /* the same for a P24 product -- the spill of (rank rho, column j) at limb L(R j + a'), a' the
  * next rank's first row (p24.h) */
 void db_share_add_spills_x24(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], const size_t *const tab[4], size_t R, size_t C, int gt, int *cout, int *prop)
 {
-    struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) { s.sp[q] = sp[q]; s.tab[q] = tab[q]; } s.R = R; s.rows = R / (4 * (size_t)gt); s.C = C; s.lo = lo; s.gt = gt; s.p24 = 1;
+    struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) { s.sp[q] = sp[q]; s.tab[q] = tab[q]; } s.R = R; s.rows = R / ((vpe_on() ? (size_t)1 : 4) * (size_t)gt); s.C = C; s.lo = lo; s.gt = gt; s.p24 = 1; s.vl = vpe_on() ? 1 : 0;
     addsub_core2(r, r, 0, 0, &s, n, 0, n, cout, prop);
 }
 /* M3: r (n limbs, in place) += 1 at limb 0; the carry out reported */
@@ -1059,10 +1062,10 @@ void db_pow_sub(dbig *r, size_t e, const dbig *a)
     if (r == a) { ec_fatal(EC_RC_FATAL, "db_pow_sub: in place\n"); }
     need_owner(r, "pow_sub"); db_reserve(r, e + 1);
     struct dv va = view_of(a); uint64_t top = B10 - 1;
-#pragma omp parallel for num_threads(DB_NQ)
-    for (int d = 0; d < DB_NQ; d++) {
+#pragma omp parallel for num_threads(nq_())
+    for (int d = 0; d < nq_(); d++) { int dv = dv_(d);
         size_t lo, hi; qrange(r, d, e, &lo, &hi); if (lo >= hi) continue;
-        HIP_CHECK(hipSetDevice(d));
+        HIP_CHECK(hipSetDevice(dv));
 #pragma omp critical
         k_complement<<<nblk(hi - lo), 256>>>(r->q[d], lo, hi, va, a->n, top);
         HIP_CHECK(hipStreamSynchronize(0));
@@ -1076,11 +1079,11 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
 {
     double t0 = tnow(); db_st.n_maxidx++;
     size_t best = 0; struct dv va = view_of(a), vb = b ? view_of(b) : va;
-#pragma omp parallel for num_threads(DB_NQ) reduction(max:best)
-    for (int d = 0; d < DB_NQ; d++) {
+#pragma omp parallel for num_threads(nq_()) reduction(max:best)
+    for (int d = 0; d < nq_(); d++) { int dv = dv_(d);
         size_t lo, hi; qrange(a, d, n, &lo, &hi); if (lo >= hi) continue;
-        flags_reserve(d, 1);
-        HIP_CHECK(hipSetDevice(d));
+        flags_reserve(dv, 1);
+        HIP_CHECK(hipSetDevice(dv));
         /* S40: scan windows from the top of the quarter (4096 limbs, then x16 wider), stop at the first window with a hit; the last
          * window reaches lo, so the answer is exactly that of the single full scan (the highest differing index is in the topmost window that has one) */
         size_t whi = hi, wsz = 4096; size_t m = 0; unsigned blocks;
@@ -1088,14 +1091,14 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
             size_t wlo = whi - lo <= wsz ? lo : whi - wsz;
             blocks = nblk(whi - wlo);
 #pragma omp critical
-            k_maxidx<<<blocks, 256>>>(va, vb, b != 0, wlo, whi, g_red[d]);
+            k_maxidx<<<blocks, 256>>>(va, vb, b != 0, wlo, whi, g_red[dv]);
         /* (results/CRASHES_HANGS.md §A114) the per-block results come to this thread's own
          * buffer.  They went to a process-wide malloc'd g_hred whose first-use allocation (`if (!g_hred) g_hred = malloc()`)
          * ran unguarded inside this four-thread region: two threads could allocate, and a thread whose hipMemcpy landed in
          * one buffer read the other, uninitialised one.  The first db_norm of a process is the leaf hand-over's db_copy at
          * size > 1 (binsplit.c), so it returned heap garbage as P's length once (mn e8 size 4, job 21222: 18385101070989787659) */
             size_t hred[228 * 8];
-            HIP_CHECK(hipMemcpy(hred, g_red[d], blocks * 8, hipMemcpyDeviceToHost));
+            HIP_CHECK(hipMemcpy(hred, g_red[dv], blocks * 8, hipMemcpyDeviceToHost));
             for (unsigned i = 0; i < blocks; i++) if (hred[i] > m) m = hred[i];
             if (m || wlo == lo) break;
             whi = wlo; wsz *= 16;
@@ -1107,7 +1110,7 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
     return best;
 }
 void db_norm(dbig *r) { r->n = maxidx(r, 0, r->n); }
-uint64_t db_limb(const dbig *a, size_t i) { uint64_t v; size_t g = a->off + i, d = hq(a, g); mem_dev_copy_on((int)d, &v, a->q[d] + (g - d * a->qc), 8); return v; }
+uint64_t db_limb(const dbig *a, size_t i) { uint64_t v; size_t g = a->off + i, d = hq(a, g); mem_dev_copy_on(dv_((int)d), &v, a->q[d] + (g - d * a->qc), 8); return v; }
 uint64_t db_top(const dbig *a) { return a->n ? db_limb(a, a->n - 1) : 0; }
 int db_cmp(const dbig *a, const dbig *b)
 {
@@ -1117,13 +1120,13 @@ int db_cmp(const dbig *a, const dbig *b)
     return x < y ? -1 : 1;
 }
 void db_set_zero(dbig *r) { r->n = 0; }
-void db_set_u64(dbig *r, uint64_t v) { db_reserve(r, 1); mem_dev_copy_on(0, r->q[0], &v, 8); r->n = v ? 1 : 0; }
+void db_set_u64(dbig *r, uint64_t v) { db_reserve(r, 1); mem_dev_copy_on(dv_(0), r->q[0], &v, 8); r->n = v ? 1 : 0; }
 void db_set_base_pow(dbig *r, size_t k)
 {
     db_reserve(r, k + 1);
-#pragma omp parallel for num_threads(DB_NQ)
-    for (int d = 0; d < DB_NQ; d++) { size_t lo, hi; qrange(r, d, k + 1, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemset(r->q[d], 0, (hi - lo) * 8)); HIP_CHECK(hipDeviceSynchronize()); } }
-    uint64_t one = 1; size_t d = hq(r, k); mem_dev_copy_on((int)d, r->q[d] + (k - d * r->qc), &one, 8);
+#pragma omp parallel for num_threads(nq_())
+    for (int d = 0; d < nq_(); d++) { int dv = dv_(d); size_t lo, hi; qrange(r, d, k + 1, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(dv)); HIP_CHECK(hipMemset(r->q[d], 0, (hi - lo) * 8)); HIP_CHECK(hipDeviceSynchronize()); } }
+    uint64_t one = 1; size_t d = hq(r, k); mem_dev_copy_on(dv_((int)d), r->q[d] + (k - d * r->qc), &one, 8);
     r->n = k + 1;
 }
 /* r = (the low m limbs of a) B^k, as an n-limb number: zeros plus a small copy (I3: the division's remainder window) */
@@ -1131,21 +1134,21 @@ __global__ void k_fill0(uint64_t *p, size_t n) { size_t i = (size_t)blockIdx.x *
 void db_set_shifted_low(dbig *r, const dbig *a, size_t m, size_t k, size_t n)
 {
     db_reserve(r, n);
-#pragma omp parallel for num_threads(DB_NQ)
-    for (int d = 0; d < DB_NQ; d++) { size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(d));
+#pragma omp parallel for num_threads(nq_())
+    for (int d = 0; d < nq_(); d++) { int dv = dv_(d); size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(dv));
 #pragma omp critical
         k_fill0<<<228 * 8, 256>>>(r->q[d], hi - lo);                  /* (hipMemset runs at ~10 GB/s here) */
         HIP_CHECK(hipStreamSynchronize(0)); } }
     if (m > a->n) m = a->n;
-    for (size_t i = 0; i < m && k + i < n; i++) { uint64_t v = db_limb(a, i); size_t g = k + i, d = hq(r, g); mem_dev_copy_on((int)d, r->q[d] + (g - d * r->qc), &v, 8); }
+    for (size_t i = 0; i < m && k + i < n; i++) { uint64_t v = db_limb(a, i); size_t g = k + i, d = hq(r, g); mem_dev_copy_on(dv_((int)d), r->q[d] + (g - d * r->qc), &v, 8); }
     r->n = n; db_norm(r);
 }
 /* M3: r = n zero limbs (r->n = n, not normalised: a share to be filled by a scatter) */
 void db_zero_fill(dbig *r, size_t n)
 {
     db_reserve(r, n ? n : 1);
-#pragma omp parallel for num_threads(DB_NQ)
-    for (int d = 0; d < DB_NQ; d++) { size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(d));
+#pragma omp parallel for num_threads(nq_())
+    for (int d = 0; d < nq_(); d++) { int dv = dv_(d); size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(dv));
 #pragma omp critical
         k_fill0<<<228 * 8, 256>>>(r->q[d], hi - lo);
         HIP_CHECK(hipStreamSynchronize(0)); } }

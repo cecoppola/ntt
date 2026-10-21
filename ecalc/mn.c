@@ -356,6 +356,7 @@ mn_group *mn_group_at(int level)
     G->gt = pow2_floor(G->g); G->me = mn_rank() - G->g0; G->lvl = level;
     if (vpe_on()) {                                      /* S1a: the group of 2^level PEs; all[0] = its PE communicator (the other fields stay unused; S1b's mn_group.pe) */
         if (G->g > 1) G->all[0] = vpe_sub(G->g0, G->g);
+        if (vpe_on()) G->pe = G->all[0];   /* S1b: the PE communicator (all[0] == pe; NULL for one PE) */
     } else
     if (G->g > 1) {
         double t0 = mem_now();
@@ -389,7 +390,7 @@ mn_group *mn_group_span(int l, int g0, int g)
     if (g_sched[l]) { if (g_sched[l]->g0 != g0 || g_sched[l]->g != g) { ec_fatal(EC_RC_FATAL, "mn_group_span: level %d group changed\n", l); } return g_sched[l]; }
     mn_group *G = (mn_group *)calloc(1, sizeof *G);
     G->g0 = g0; G->g = g; G->gt = pow2_floor(g); G->me = mn_rank() - g0; G->lvl = l; G->sched = 1;
-    if (vpe_on()) { G->all[0] = vpe_sub(g0, g); g_sched[l] = G; return G; }   /* S1a: the general map over PEs; all[0] = the PE run's communicator */
+    if (vpe_on()) { G->all[0] = G->pe = vpe_sub(g0, g); g_sched[l] = G; return G; }   /* S1a: the general map over PEs; all[0] = the PE run's communicator */
     double t0 = mem_now();
 #pragma omp parallel for num_threads(NA) schedule(static)
     for (int d = 0; d < NA; d++) {
