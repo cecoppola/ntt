@@ -116,3 +116,5 @@ ECALC_XEX_THREAD	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine arm (comm_xsh
 XSHMEM_ORDER	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine arm (comm_xshmem.c); review when the xshmem transport gate (S3a) closes
 XSHMEM_ROUND_MB	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine arm (comm_xshmem.c), off by default; review when the xshmem transport gate (S3a) closes
 TMPDIR	test-only	TARGET1 (B3)	2026-12-31	system temp directory read by tests/t_pe_geo
+ECALC_VPE	experiment	TARGET1 (S1)	2026-12-31	virtual PEs, off by default; review when S1a..S1e are merged
+ECALC_VPE_LANES	experiment	TARGET1 (S1)	2026-12-31	vPEs per process; review with ECALC_VPE
