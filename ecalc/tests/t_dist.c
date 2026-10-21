@@ -8,6 +8,9 @@
 #include "../ntt_dist.h"
 #include "../modarith.h"
 #include "../mn.h"
+#include "../dbig.h"
+#include "../rns_mul.h"
+#include "../vpe.h"
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
 static rng_t rg = { 12345 };
 static comm *tcp;            /* set when run as one process per rank over SHMEM (COMM_RANK and COMM_TRANSPORT=shmem; the name is WP6's) */
@@ -399,10 +402,55 @@ static void layered_bench(int logn, int reps)
     }
     HIP_CHECK(hipSetDevice(0));
 }
+/* S1b --vpe: form S (rns_local.c) on every lane concurrently against form C (the four-APU product, switch off): same operands, identical bigints,
+ * the forced-carry kinds (all-ones, sparse) included; low / band products against the truncated full product; the grid at a lowered plane cap */
+struct vcase { bigint A, B, C; };
+static struct vcase g_vc[24]; static int g_nvc; static int g_vbad[VPE_MAX]; static char g_vw[VPE_MAX][96];
+static int vbi_same(const bigint *x, const bigint *y) { return x->n == y->n && !memcmp(x->l, y->l, x->n * 8); }
+static void vlane(void *arg)
+{
+    (void)arg; int L = vpe_lane();
+    for (int pass = 0; pass < 2; pass++) for (int i = 0; i < g_nvc; i++) {     /* pass 1: the same through the grid (cap lowered by the caller's env) */
+        struct vcase *c = &g_vc[i]; dbig x, y, z; db_init(&x); db_init(&y); db_init(&z); bigint t; bi_init(&t);
+        db_from_bi(&x, &c->A); db_from_bi(&y, &c->B);
+        if (pass) rns_mul_local(&z, &x, &y, 0, (size_t)-1); else rns_mul_dist_db(&z, &x, &y);
+        db_to_bi(&t, &z); if (!vbi_same(&t, &c->C) && !g_vbad[L]) { g_vbad[L] = 1; snprintf(g_vw[L], sizeof g_vw[L], "case %d pass %d: %zu x %zu", i, pass, c->A.n, c->B.n); }
+        if (c->C.n > 3) {
+            size_t w = c->C.n / 2 + 1; bigint e; bi_init(&e); bi_reserve(&e, c->C.n); memcpy(e.l, c->C.l, w * 8); e.n = w; bi_norm(&e);
+            rns_mul_low_db(&z, &x, &y, w); db_to_bi(&t, &z); if (!vbi_same(&t, &e) && !g_vbad[L]) { g_vbad[L] = 1; snprintf(g_vw[L], sizeof g_vw[L], "low case %d", i); }
+            rns_mul_band_db(&z, &x, &y, c->C.n / 4, w); db_to_bi(&t, &z);   /* the band: A B mod B^w less the pieces under the low cut -- equal when the product is whole */
+            if (t.n > w && !g_vbad[L]) { g_vbad[L] = 1; snprintf(g_vw[L], sizeof g_vw[L], "band length case %d", i); }
+            bi_free(&e);
+        }
+        bi_free(&t); db_free(&x); db_free(&y); db_free(&z);
+    }
+}
+static void vpe_dist_test(void)
+{
+    size_t na[] = { 3000, 150000, 700000, 1100000, 3000000 }, nb[] = { 2900, 90000, 650000, 1048579, 2000001 };
+    rng_t r2 = { 4242 };
+    vpe_set_forced(0);
+    for (int kind = 0; kind < GEN_KINDS; kind++) for (int i = 0; i < 5; i++) {
+        if (kind == GEN_ZEROS && i > 0) continue;
+        struct vcase *c = &g_vc[g_nvc++]; bi_init(&c->A); bi_init(&c->B); bi_init(&c->C);
+        bi_random(&c->A, na[i], kind, &r2); bi_random(&c->B, nb[i], kind == GEN_ONES ? GEN_ONES : kind, &r2);
+        dbig x, y, z; db_init(&x); db_init(&y); db_init(&z); db_from_bi(&x, &c->A); db_from_bi(&y, &c->B); rns_mul_dist_db(&z, &x, &y); db_to_bi(&c->C, &z);
+        db_free(&x); db_free(&y); db_free(&z);
+        if (g_nvc >= 24) break;
+    }
+    db_release_pools();
+    vpe_set_forced(VPE_S_B);
+    vpe_run(vlane, 0);
+    setenv("DIST_LOGN_TEST", "21", 1); vpe_run(vlane, 0); unsetenv("DIST_LOGN_TEST");
+    for (int l = 0; l < vpe_lanes(); l++) VERIFY(!g_vbad[l], "lane %d: %s", l, g_vw[l]);
+    printf("t_dist --vpe: %d cases x %d lanes, form S == form C (whole, grid, low, band)\n", g_nvc, vpe_lanes());
+    db_release_pools(); vpe_set_forced(0);
+}
 int main(int argc, char **argv)
 {
     int logmax = argc > 1 ? atoi(argv[1]) : 24;
     harness_meta("t_dist");
+    for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--vpe")) { rns_init(31); vpe_dist_test(); return verify_done("t_dist --vpe"); }
     if (getenv("DIST_H4") && atoi(getenv("DIST_H4"))) { h4_bench(); return 0; }
     if (getenv("DIST_TBENCH")) {                        /* the layered exchange's block transpose, copies vs one kernel, one APU */
 
