@@ -1,6 +1,7 @@
 /* t_dbig - the device bigint against the host bigint: shifts, add, sub, cmp, norm, set_base_pow,
  * from/to host, across quarter boundaries (decimal limbs). */
 #include "harness.h"
+#include "vpe_bt.h"
 #include "tref.h"
 #include <hip/hip_runtime.h>
 #include "../dbig.h"

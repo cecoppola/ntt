@@ -8,6 +8,7 @@
  * SLURM_JOB_ID=<id> ./mnrun.sh 3 ./tests/t_mn_grid [scale] [pool_log]  (scale: the shapes' unit as a fraction of the
  * cap, default 1; 0.25 for a quick run).  Every node checks its own share and the length. */
 #include "harness.h"
+#include "vpe_bt.h"
 #include "tref.h"
 #include <hip/hip_runtime.h>
 #include "../dbig.h"

@@ -2,6 +2,7 @@
  * For each (logR, logC): random plane x, y; distributed fwd/pw/inv over 4
  * ranks must equal the single-rank ntt_fwd/ntt_pw/ntt_inv cyclic convolution. */
 #include "harness.h"
+#include "vpe_bt.h"
 #include <omp.h>
 #include <string.h>
 #include "../ntt.h"
