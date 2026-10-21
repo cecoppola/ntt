@@ -1217,8 +1217,9 @@ static void gen_fwd(const struct gplan *p, const dist_plan *pl, ntt_ctx *ctx, in
         k_twpack_gr<<<grid, blk, 0, s>>>(x + i0l * p->C, sb + p->regs[k], rk, p->row0 + i0l, p->logC, pl->twr, pl->twc, m);   /* Phase 15 G5 */
         if (st) gpk_end(s, dv, 0);
         comm_alltoallv(cl, sb, p->fsc + (size_t)k * nr, p->fsd + (size_t)k * nr, rb, p->frc + (size_t)k * nr, p->frd + (size_t)k * nr, s);   /* (posting k completes k - 1) */
+        if (vpe_on()) comm_wait(cl);                                                          /* S1b: the flat PE communicator holds one exchange at a time: each chunk is waited for at once */
     }
-    for (int k = 0; k < p->K; k++) comm_wait(cl);                                          /* one wait per post (the last completes the last chunk) */
+    for (int k = 0; k < p->K && !vpe_on(); k++) comm_wait(cl);                                          /* one wait per post (the last completes the last chunk) */
     for (int k = 0; k < p->K; k++) { size_t nm = gp_nmax(p, k); if (nm) k_unpack_g<<<dim3(nblk(p->cols * nm), nr), 256, 0, s>>>(rb + p->regr[k], x, p->dT + (size_t)k * nr, p->cols, p->R); }
     ntt_fwd(ctx, x, p->logR, p->cols, s);                                                 /* columns: length-R */
 }
@@ -1230,7 +1231,8 @@ static void gen_inv_pw(const struct gplan *p, const dist_plan *pl, ntt_ctx *ctx,
     for (int k = 0; k < K; k++) { size_t nm = gp_nmax(p, k); if (nm) k_pack_cols_g<<<dim3(nblk(p->cols * nm), nr), 256, 0, s>>>(x, sb + p->regr[k], p->dT + (size_t)k * nr, p->cols, p->R); }
     for (int k = 0; k <= K; k++) {
         if (k < K) comm_alltoallv(cl, sb, p->frc + (size_t)k * nr, p->frd + (size_t)k * nr, rb, p->fsc + (size_t)k * nr, p->fsd + (size_t)k * nr, s);
-        else for (int w = 0; w < K; w++) comm_wait(cl);                                  /* one wait per post */
+        if (k < K && vpe_on()) comm_wait(cl);                                              /* S1b: one exchange at a time on the flat communicator */
+        if (k == K) { for (int w = 0; w < K && !vpe_on(); w++) comm_wait(cl); }                                  /* one wait per post */
         if (k == 0) continue;
         int kk = k - 1; size_t i0l = p->rows * kk / K, rk = gp_rk(p, kk);                  /* chunk k - 1 has arrived: unpack, twiddle, row inverse under the wire of chunk k */
         dim3 grid((unsigned)(p->C / 32), (unsigned)((rk + 31) / 32)), blk(32, 8);
