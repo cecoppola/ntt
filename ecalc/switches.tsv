@@ -71,7 +71,7 @@ DIST_GATHER_RAW	int	2	2	0|1|2	built-in default	-	-	Y	ecalc	rns_dist.c	1	coordina
 DIST_GATHER_RAW_MARGIN_GB	float	2	2	-	built-in default	-	-	prose	ecalc	rns_dist.c	1	-	-	rns_dist.c; K1b, GB per APU kept free when DIST_GATHER_RAW=2 takes its plane
 DIST_GEN	bool	0	0	0|1	test-only	-	X13b.md+S36.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
 DIST_LOGN_TEST	int	derived	derived		test-only	-	G12.md+P13b.md	Y	ecalc	ecalc.c,rns_dist.c	2	diagnostics (TESTING.md)	2027-04-12	
-DIST_STATS	bool	derived	derived	0|1	test-only	-	G515.md+CX15.md	Y	ecalc	rns_dist.c	2	diagnostics (TESTING.md)	2027-04-12	
+DIST_STATS	bool	derived	derived	0|1	test-only	-	G515.md+CX15.md	Y	ecalc	rns_dist.c	3	diagnostics (TESTING.md)	2027-04-12	
 DM_MN_WRAP	int	auto (fit)	derived	0|1|20..62	built-in default	-	-	Y	ecalc	binsplit.c	1	P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF)	2026-11-11	binsplit.c binsplit_fit / binsplit_dm_wrap (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): unset = 1 when the device with the wrap fits ECALC_DEVICE_GB less ECALC_DEVICE_MARGIN_GB, else 0; =0/=1 explicit wins (a warning when 1 does not fit); the wrap itself P1/D22 (results/DIVISION.md §P1), dm_layout counts it (D19, results/LAUNCH_DEFAULTS.md §DEF)
 DM_TIGHT	int	derived	derived		built-in default	-	L114.md+T114.md	Y	ecalc	binsplit.c	2	-	-	
 ECALC_ARENA_GB	float	0	0		built-in default	-	M11.md+A-mem.md	Y	ecalc	binsplit.c	2	-	-	
