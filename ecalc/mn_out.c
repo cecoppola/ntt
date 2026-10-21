@@ -12,6 +12,7 @@
 #include <hip/hip_runtime.h>
 #include "mn_out.h"
 #include "mem.h"
+#include "vpe.h"                                        /* S1e: vPE (ECALC_VPE) -- rank = PE, the lane's own device */
 #include "spill.h"                                    /* ECALC_ODIRECT */
 #include <sys/stat.h>                                 /* the patch (fstat) */
 #include "packed_fmt.h"                               /* ECALC_OUT_PACKED */
@@ -21,7 +22,7 @@
 void mn_out_allgather_u64(comm *c, const uint64_t *v, int k, uint64_t *out)
 {
     if (!c || comm_size(c) == 1) { memcpy(out, v, (size_t)k * 8); return; }
-    int n = comm_size(c), dev0; HIP_CHECK(hipGetDevice(&dev0)); HIP_CHECK(hipSetDevice(0));
+    int n = comm_size(c), dev0; HIP_CHECK(hipGetDevice(&dev0)); HIP_CHECK(hipSetDevice(vpe_on() ? vpe_lane() : 0));   /* vPE (S1e): the PE's own device */
     uint64_t *ds, *dr; HIP_CHECK(hipMalloc(&ds, (size_t)k * 8)); HIP_CHECK(hipMalloc(&dr, (size_t)n * k * 8));
     HIP_CHECK(hipMemcpy(ds, v, (size_t)k * 8, hipMemcpyHostToDevice));
     comm_allgather(c, ds, dr, (size_t)k * 8);
@@ -91,12 +92,14 @@ static void dev_fetch(const dbig *x, size_t a, size_t cnt, uint64_t *host)
 {
     size_t g = x->off + a, ge = g + cnt; int dev0; HIP_CHECK(hipGetDevice(&dev0));
     pthread_once(&g_fs_once, fs_init);
-    for (int d = 0; d < DB_NQ; d++) {
+    const int nq = vpe_on() ? 1 : DB_NQ;                   /* S1e: under ECALC_VPE a dbig is ONE quarter, q[0] on the PE's own device (dbig.h) */
+    for (int d = 0; d < nq; d++) {
         size_t q0 = (size_t)d * x->qc, q1 = q0 + x->qc, s = g > q0 ? g : q0, e = ge < q1 ? ge : q1;
+        int dv = vpe_on() ? vpe_lane() : d;
         if (s >= e) continue;
-        HIP_CHECK(hipSetDevice(d));
-        HIP_CHECK(hipMemcpyAsync(host + (s - g), x->q[d] + (s - q0), (e - s) * 8, hipMemcpyDeviceToHost, g_fs[d]));
-        HIP_CHECK(hipStreamSynchronize(g_fs[d]));
+        HIP_CHECK(hipSetDevice(dv));
+        HIP_CHECK(hipMemcpyAsync(host + (s - g), x->q[d] + (s - q0), (e - s) * 8, hipMemcpyDeviceToHost, g_fs[dv]));
+        HIP_CHECK(hipStreamSynchronize(g_fs[dv]));
     }
     HIP_CHECK(hipSetDevice(dev0));
 }
@@ -500,18 +503,21 @@ void mn_out_finish(mn_out *o)
 }
 /* ---- MN_OUT_EARLY (mn_out.h) -- functions mn_out_early_start, early_run, mn_out_early_join, mn_out_early_free ---- */
 #include "mdb.h"
-struct mn_out_early { mn_out o; mn_out_src src; dbig sh; pthread_t th; int started; double t_run;
+static int g_bgt;                                      /* S1e: the background team of the writer threads (mn_out_bg_threads); 0 = ECALC_BG_THREADS, else 48 */
+void mn_out_bg_threads(int n) { g_bgt = n; }
+struct mn_out_early { mn_out o; mn_out_src src; dbig sh; pthread_t th; int started; int vidx; double t_run;
                       /* the X_hi part (o_hi over src_hi / sh_hi), the gate, the X_hi layer's last digits (the low layer's top head) */
                       int two; mn_out o_hi; mn_out_src src_hi; dbig sh_hi; sem_t go; char above[64]; size_t nabove; double t_hi, t_gate; };
 static void *early_run(void *a)
 {
     struct mn_out_early *e = (struct mn_out_early *)a;
-    omp_set_num_threads(getenv("ECALC_BG_THREADS") ? atoi(getenv("ECALC_BG_THREADS")) : 48);   /* the background team, as the one-node writer's */
+    vpe_adopt(e->vidx);                                /* S1e: a helper thread of this vPE (device, engine PE; a no-op with the switch off) */
+    omp_set_num_threads(g_bgt > 0 ? g_bgt : getenv("ECALC_BG_THREADS") ? atoi(getenv("ECALC_BG_THREADS")) : 48);   /* the background team, as the one-node writer's (vPE: ECALC_VPE_BG_THREADS per PE, ecalc.c) */
     double t0 = mem_now();
     if (e->two) {                                      /* the X_hi part now (finished here), then the X_lo part once released */
         mn_out_run(&e->o_hi, &e->src_hi); mn_out_finish(&e->o_hi); e->t_hi = mem_now() - t0;
         double tg = mem_now(); sem_wait(&e->go); e->t_gate = mem_now() - tg;
-        printf("mn: node %d: MN_OUT_DKM_HI: X_hi's part (%.2f GB) written in %.2f s from the division's step 1; the writer then waited %.2f s for X_lo\n", e->o.rank, e->o_hi.bytes / 1e9, e->t_hi, e->t_gate);
+        printf("mn: %s %d: MN_OUT_DKM_HI: X_hi's part (%.2f GB) written in %.2f s from the division's step 1; the writer then waited %.2f s for X_lo\n", vpe_on() ? "pe" : "node", e->o.rank, e->o_hi.bytes / 1e9, e->t_hi, e->t_gate);
     }
     mn_out_run(&e->o, &e->src); e->t_run = mem_now() - t0;
     return 0;
@@ -519,7 +525,7 @@ static void *early_run(void *a)
 /* the two layers of MN_OUT_DKM_HI at size > 1 */
 mn_out_early *mn_out_early_hi_start(const struct mdb_s *Xh, size_t s, unsigned long d, unsigned long d_out, const char *outfile, int rank, int size, int verbose, comm *c, size_t t2_defer)
 {
-    struct mn_out_early *e = (struct mn_out_early *)calloc(1, sizeof *e);
+    struct mn_out_early *e = (struct mn_out_early *)calloc(1, sizeof *e); e->vidx = vpe_idx();
     e->two = 1; sem_init(&e->go, 0, 0);
     e->sh_hi = Xh->sh;                                 /* the share's descriptor by value (the caller keeps the blocks until mn_out_early_free) */
     size_t lo, hi; mdb_share(Xh, rank, &lo, &hi);
@@ -546,7 +552,7 @@ void mn_out_early_lo_release(mn_out_early *e, const struct mdb_s *Xl, comm *c)
 mn_out *mn_out_early_hi(mn_out_early *e) { return e && e->two ? &e->o_hi : 0; }
 mn_out_early *mn_out_early_start(const struct mdb_s *X, unsigned long d, unsigned long d_out, const char *outfile, int rank, int size, int verbose, comm *c, size_t t2_defer)
 {
-    struct mn_out_early *e = (struct mn_out_early *)calloc(1, sizeof *e);
+    struct mn_out_early *e = (struct mn_out_early *)calloc(1, sizeof *e); e->vidx = vpe_idx();
     e->sh = X->sh;                                     /* the share's descriptor by value (the division moves its mdb; the blocks stay) */
     size_t lo, hi; mdb_share(X, rank, &lo, &hi);
     e->src.dev = &e->sh; e->src.lo = lo; e->src.cnt = hi > lo ? hi - lo : 0; if (e->src.cnt > e->sh.n) e->src.cnt = e->sh.n;
@@ -995,7 +1001,7 @@ int mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const 
             mdb_share(&P, rank, &lo, &hi); if (hi > P.n) hi = P.n; { dbig sv = P.sh; sv.n = hi > lo ? hi - lo : 0; if (sv.n > P.sh.n) sv.n = P.sh.n; if (sv.n) db_mod_qs(&sv, t1_q, T1_NQ, vp); else memset(vp, 0, sizeof vp); mn_out_res_combine(c, vp, lo, Pc); }
             mdb_share(&Q, rank, &lo, &hi); if (hi > Q.n) hi = Q.n; { dbig sv = Q.sh; sv.n = hi > lo ? hi - lo : 0; if (sv.n > Q.sh.n) sv.n = Q.sh.n; if (sv.n) db_mod_qs(&sv, t1_q, T1_NQ, vq); else memset(vq, 0, sizeof vq); mn_out_res_combine(c, vq, lo, Qc); }
             db_free(&ps); db_free(&qs); have_pq = 1;
-            if (multi) printf("mn: node %d: ", rank); printf("recheck: P (%zu limbs), Q (%zu limbs) from the tree level %d set in %s\n", P.n, Q.n, L, bs_ckpt_dir);
+            if (multi) printf("mn: %s %d: ", vpe_on() ? "pe" : "node", rank); printf("recheck: P (%zu limbs), Q (%zu limbs) from the tree level %d set in %s\n", P.n, Q.n, L, bs_ckpt_dir);
         } else printf("recheck: node %d: no tree level %d set for this run in %s (P, Q taken from the sidecar)\n", rank, L, bs_ckpt_dir);
     } else printf("recheck: node %d: no BS_CKPT_DIR and no %s.top (P, Q taken from the sidecar)\n", rank, outfile);
     if (!have_pq) { memcpy(Pc, sP, sizeof Pc); memcpy(Qc, sQ, sizeof Qc);
@@ -1013,12 +1019,12 @@ int mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const 
     int bad1 = tier1_res_pq(N, d, Pc, Qc, &none, &none, Pg, Qg, Xf, sR, verbose >= 2);
     int bad3 = tier1_digits_cmp(Xf, sX, verbose >= 2);
     int badPQ = 0; for (int i = 0; i < T1_NQ; i++) if (Pc[i] != sP[i] || Qc[i] != sQ[i]) badPQ++;
-    if (multi) printf("mn: node %d: ", rank);
+    if (multi) printf("mn: %s %d: ", vpe_on() ? "pe" : "node", rank);
     printf("recheck: %zu digits read from %s%s in %.1f s (one pass: residues and windows); windows %s (%d checked); digits -> X mod q %s the run's X residues; P, Q %s: %s the recurrence (%.1f s), %s the run's; T1 identity with the run's R residues %s\n",
            ndig_me, name[0], J > 1 ? " and its X_lo part" : "", t1 - t0, bad2 ? "FAILED" : "ok", nwin, bad3 ? "DIFFER from" : "==", have_pq ? "from the checkpoint" : "from the sidecar", bad1 ? "BAD at some prime vs" : "==", t4 - t3, badPQ ? "DIFFER from" : "==", bad1 ? "FAILED" : "ok");
     if (verbose >= 2) { printf("      recheck: the file pass %.1f s, checkpoint residues %.1f s\n", t1 - t0, t3 - t2); }
     fail = fail || bad1 || bad2 || bad3 || badPQ;
-    if (multi) printf("mn: node %d: ", rank); printf("%s\n", fail ? "RECHECK FAILED" : "RECHECK OK");
-    if (multi) { int any = mn_out_allreduce_or(c, fail); if (rank == 0) printf("mn: all %d nodes: %s\n", size, any ? "RECHECK FAILED" : "RECHECK OK"); fail = any; }
+    if (multi) printf("mn: %s %d: ", vpe_on() ? "pe" : "node", rank); printf("%s\n", fail ? "RECHECK FAILED" : "RECHECK OK");
+    if (multi) { int any = mn_out_allreduce_or(c, fail); if (rank == 0) printf("mn: all %d %s: %s\n", size, vpe_on() ? "PEs" : "nodes", any ? "RECHECK FAILED" : "RECHECK OK"); fail = any; }
     return fail;
 }
