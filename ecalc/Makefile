@@ -277,6 +277,8 @@ tests/t_xshmem: tests/t_xshmem.c xshmem.h xshmem_cray.h $(XOBJS) tests/harness.h
 ifeq ($(XSHMEM),ofi)
 tests/t_xshmem_ofi_smoke: tests/t_xshmem_ofi_smoke.c xshmem.h $(XOBJS)
 	$(HIPC) $(XSHMEM_CFLAGS) $< -x none $(XOBJS) -o $@ $(XSHMEM_LIBS)
+tests/t_xa2a: tests/t_xa2a.c xshmem.h $(XOBJS)
+	$(HIPC) $(XSHMEM_CFLAGS) $< -x none $(XOBJS) -o $@ $(XSHMEM_LIBS)
 # S3a (plan TARGET1): with XSHMEM=ofi every binary that links OBJS (ecalc and the tests) also links the xshmem engine (comm_xshmem.c:
 # COMM_TRANSPORT=xshmem) and the backend; mn.o is compiled with -DXSHMEM_ENGINE (without it COMM_TRANSPORT=xshmem is a fatal at start).
 # The object list and flags below are applied only under XSHMEM=ofi; rebuild with -B when switching (the default build is unchanged).
