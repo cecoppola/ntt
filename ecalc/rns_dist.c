@@ -1388,15 +1388,17 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         for (int p = 0; p < np; p++) xa[p] = pl + (size_t)p * q;
         if (comm_rank(cl) != rho || comm_size(cl) != nr) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: layered rank %d/%d, expected %d/%d\n", comm_rank(cl), comm_size(cl), rho, nr); }
         if (tmp) comm_layered_scratch(cl, tmp, q * 8);
+        double tpl0 = mem_now(); int npl = 0;
         for (int p = 0; p < np; p++) {
             if (!v->plan[p].built || v->plan[p].logR != logR || v->plan[p].logC != logC || v->plan[p].cm != cl || v->plan[p].sl != sl) {
+                npl++;
                 if (v->plan[p].built) dist_plan_free(&v->plan[p].pl);
                 { int ph_ = ec_ph(EC_PH_PLAN_CREATE); dist_plan_create_shared(&v->plan[p].pl, cl, v->ctx[p], p, logR, logC, sl, sl + q); ec_ph(ph_); }
                 v->plan[p].logR = logR; v->plan[p].logC = logC; v->plan[p].built = 1; v->plan[p].cm = cl; v->plan[p].sl = sl;
             }
         }
         struct gplan gp; if (gen) gplan_build(&gp, g, rho, logR, logC, dv);
-        double s0 = mem_now();
+        double s0 = mem_now(), tpl = s0 - tpl0, tfa = 0, tfb = 0, tiv = 0;
         /* A: every node packs and exchanges; every rank gathers its rows for the four primes */
         if (ha < 0 && p24) {                                /* P24: A's points from its in-runs; A's sequence freed before B's (the operands' peak max(A, B)) */
             redistribute(&X0, A, &oA, d, s);
@@ -1431,9 +1433,13 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
                 if (!bh) gen_fwd(&gp, &v->plan[p].pl, v->ctx[p], p, cl, yb, sl, sl + q, s);
                 gen_inv_pw(&gp, &v->plan[p].pl, v->ctx[p], p, cl, xa[p], yb, sl, sl + q, s);
             } else {
+                double u0 = mem_now();
                 if (!ah) { dist_fwd(&v->plan[p].pl, xa[p], s); if (ac) HIP_CHECK(hipMemcpyAsync(cache_pl(slA, d, p, q), xa[p], q * 8, hipMemcpyDeviceToDevice, s)); }
+                HIP_SYNC(s); double u1 = mem_now(); tfa += u1 - u0;
                 if (!bh) dist_fwd(&v->plan[p].pl, yb, s);
+                HIP_SYNC(s); double u2 = mem_now(); tfb += u2 - u1;
                 dist_inv_pw(&v->plan[p].pl, xa[p], yb, s);   /* A6 */
+                HIP_SYNC(s); tiv += mem_now() - u2;
             }
             HIP_SYNC(s);
         }
@@ -1441,6 +1447,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         if (oB.rb) { db_pool_free(dv, oB.rb); oB.rb = 0; }
         if (gen && !vpe_on()) comm_layered_release_vslots(cl);           /* M3 v-slot release (comm_layered.c): the v-exchanges of this product are all waited for; the pool's slots go before the staged result exchange (no-op otherwise) */
         double s2 = mem_now(); tf[d] = s2 - s1;
+        if (getenv("RNS_VERBOSE") && !gen) printf("   mn_core pe %d: plans created %d (%.3f s), per prime sums: fwd A %.3f fwd B %.3f inv %.3f s\n", rho, npl, tpl, tfa, tfb, tiv);
         int phc_ = ec_ph(EC_PH_RD_CRT);
         for (int p = 0; p < np; p++) {
             dim3 grid((unsigned)((C + 31) / 32), (unsigned)((rows + 31) / 32)), blk(32, 8);
