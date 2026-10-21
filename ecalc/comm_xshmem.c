@@ -70,13 +70,14 @@ typedef struct xpe {                       /* one loopback PE of this process */
     pthread_t th; int th_on, stop; volatile int busy; pthread_mutex_t qm; pthread_cond_t qcv; struct xpriv *queue[MAXPEND]; volatile int nq;
 } xpe;
 static struct {
-    double sp[8]; long nsp;               /* summed split of the whole-exchange path, see xex_wait */
+    int yield; double sp[8]; long nsp;               /* summed split of the whole-exchange path, see xex_wait */
     int inited, thr, rot, K, nodes, nw, maxid, q; long nev; double tv; double bv; size_t rbytes; long nrex, nrounds;
     pthread_mutex_t lock;                  /* init and the counters */
     uint64_t maxseq; size_t dbytes;
     xpe pe[MAXLPE]; unsigned char used[MAXLPE][MAXID];
-} X = { {0}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, PTHREAD_MUTEX_INITIALIZER, 0, 0, {}, {} };
+} X = { 1, {0}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, PTHREAD_MUTEX_INITIALIZER, 0, 0, {}, {} };
 
+#define YIELD() do { if (X.yield) sched_yield(); } while (0)
 static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 static int env_int(const char *name, int def) { const char *e = getenv(name); return e ? atoi(e) : def; }
 static inline uint64_t rd64(const uint64_t *p) { return *(volatile const uint64_t *)p; }
@@ -197,7 +198,7 @@ static void *worker(void *a)
         }
         if (prog) idle = 0;
         else {
-            if (++idle > 32) sched_yield();
+            if (++idle > 32) YIELD();
             if (!(idle & 4095)) { double t = now_s(); for (int i = 0; i < na; i++) if (t - act[i]->t0 > 900) xex_hang(act[i]); }   /* a pending exchange nobody waits for hangs too */
         }
     }
@@ -351,19 +352,20 @@ static int xex_rx(xpriv *p)    /* test the receive words; 1 when every slab is i
     return left == 0;
 }
 static double recv_bytes(const xpriv *p) { double b = 0; for (int r = 0; r < p->n; r++) if (r != p->me) b += (double)p->rcnt[r]; return b; }
+static void xsplit_print(void);
 static void xex_wait(xpriv *p)
 {
     int n = p->n, me = p->me; double t0 = now_s(); unsigned spins = 0; int rx = 0, rdone = p->rounds;
     p->t_w0 = t0;
     if (p->rounds) {                                      /* the worker ran every round, copies included: wait for it */
-        while (!__atomic_load_n(&p->flushed, __ATOMIC_ACQUIRE)) if (!(++spins & 4095)) { if (now_s() - p->t0 > 900) xex_hang(p); if (spins > 100000) sched_yield(); }
+        while (!__atomic_load_n(&p->flushed, __ATOMIC_ACQUIRE)) if (!(++spins & 4095)) { if (now_s() - p->t0 > 900) xex_hang(p); if (spins > 100000) YIELD(); }
         p->rounds = 0; rx = 1;
     } else
     for (;;) {
         if (!X.thr && !p->flushed && xex_send(p)) p->flushed = 1;
         if (!rx) { rx = xex_rx(p); if (rx) p->t_rx = now_s(); }
         if (rx && __atomic_load_n(&p->flushed, __ATOMIC_ACQUIRE)) break;
-        if (!(++spins & 4095)) { if (now_s() - t0 > 900) xex_hang(p); if (spins > 100000) sched_yield(); }
+        if (!(++spins & 4095)) { if (now_s() - t0 > 900) xex_hang(p); if (spins > 100000) YIELD(); }
     }
     if (!p->rin && !rdone) {
         for (int r = 0; r < n; r++) if (r != me && p->rcnt[r]) COPY((char *)p->rb + p->rdsp[r], p->rbase + p->rpre[r], p->rcnt[r], p->st);
@@ -377,10 +379,15 @@ static void xex_wait(xpriv *p)
     if (p->t_f > 0 && p->t_w > 0 && p->t_rx > 0) {   /* the whole-exchange path with the worker: the split */
         X.sp[0] += p->t_pe - p->t0; X.sp[1] += p->t_w - p->t_pe; X.sp[2] += p->t_a - p->t_w; X.sp[3] += p->t_p - p->t_a; X.sp[4] += p->t_f - p->t_p;
         X.sp[5] += p->t_w0 - p->t0; X.sp[6] += p->t_rx - p->t0; X.sp[7] += (p->t_f > p->t_rx ? p->t_f : p->t_rx) - p->t0; X.nsp++;
+        if (X.nsp % 4000 == 0) xsplit_print();   /* (the diagnostic runs are killed by a timeout: no finalize) */
     }
     pthread_mutex_unlock(&X.lock);
 }
 
+static void xsplit_print(void)   /* mean per exchange, ms; the caller holds X.lock or is alone */
+{
+    fprintf(stderr, "comm_xshmem: node-process %d: exchange split (mean ms over %ld PE-exchanges: post %.3f, worker wake %.3f, peers posted %.3f, payload quiet %.3f, signals quiet %.3f; wait entered at %.3f, receive done at %.3f, send+receive done at %.3f)\n", X.q, X.nsp, X.nsp ? 1e3 * X.sp[0] / X.nsp : 0, X.nsp ? 1e3 * X.sp[1] / X.nsp : 0, X.nsp ? 1e3 * X.sp[2] / X.nsp : 0, X.nsp ? 1e3 * X.sp[3] / X.nsp : 0, X.nsp ? 1e3 * X.sp[4] / X.nsp : 0, X.nsp ? 1e3 * X.sp[5] / X.nsp : 0, X.nsp ? 1e3 * X.sp[6] / X.nsp : 0, X.nsp ? 1e3 * X.sp[7] / X.nsp : 0);
+}
 /* ---- the ops ---- */
 static int x_rank(comm *c) { return c->rank; }
 static int x_size(comm *c) { return c->size; }
@@ -419,7 +426,7 @@ static void tiny_exchange(xpriv *p, uint64_t v, uint64_t *all)
     double w0 = comm_wst_t0(), t0 = now_s(); unsigned spins = 0;
     for (int r = 0; r < n; r++) if (r != me) {
         const uint64_t *w = WORD(p, W_VSEQ0 + par, r);
-        while (!sigge(w, seq)) if (!(++spins & 4095)) { if (now_s() - t0 > 900) die(p, "HANG (> 900 s) in a collective"); if (spins > 100000) sched_yield(); }
+        while (!sigge(w, seq)) if (!(++spins & 4095)) { if (now_s() - t0 > 900) die(p, "HANG (> 900 s) in a collective"); if (spins > 100000) YIELD(); }
         all[r] = rd64(WORD(p, W_VAL0 + par, r));
     }
     comm_wst_ready_end(w0);
@@ -470,7 +477,7 @@ static void x_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
     double w0 = comm_wst_t0(), t0 = now_s(); unsigned spins = 0;
     for (int r = 0; r < n; r++) if (r != me) {
         const uint64_t *w = WORD(p, W_VSEQ0 + par, r);
-        while (!sigge(w, seq)) if (!(++spins & 4095)) { if (now_s() - t0 > 900) die(p, "HANG (> 900 s) in allgather_host"); if (spins > 100000) sched_yield(); }
+        while (!sigge(w, seq)) if (!(++spins & 4095)) { if (now_s() - t0 > 900) die(p, "HANG (> 900 s) in allgather_host"); if (spins > 100000) YIELD(); }
         if (bytes) HIP_CHECK(hipMemcpy((char *)rb + (size_t)r * bytes, lp->data + p->gscr + ((size_t)par * n + r) * GBLK, bytes, hipMemcpyDefault));
     }
     comm_wst_ready_end(w0);
@@ -511,7 +518,7 @@ int comm_xshmem_init(void)
     xshmem_cfg_t cfg; xshmem_cfg_load(&cfg);
     const char *eo = getenv("XSHMEM_ORDER");
     if (eo && strcmp(eo, "seq") && strcmp(eo, "rot")) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_ORDER=%s: seq or rot\n", eo);
-    X.rot = !(eo && !strcmp(eo, "seq")); X.thr = env_int("ECALC_XEX_THREAD", 1) != 0;
+    X.rot = !(eo && !strcmp(eo, "seq")); X.thr = env_int("ECALC_XEX_THREAD", 1) != 0; { xshmem_cfg_t cf_; xshmem_cfg_load(&cf_); X.yield = !cf_.noyield; }
     { const char *er = getenv("XSHMEM_ROUND_MB"); double m = er ? atof(er) : 0; X.rbytes = m > 0 ? (size_t)(m * 1048576.0) : 0;
       if (X.rbytes && !X.thr) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_ROUND_MB needs the worker thread (ECALC_XEX_THREAD=1): the rounds run in it\n"); }
     int prov = 0; if (xshmem_init_thread(XSHMEM_THREAD_MULTIPLE, &prov)) ec_fatal(EC_RC_FATAL, "comm_xshmem: xshmem_init_thread failed\n");
@@ -597,7 +604,7 @@ void comm_xshmem_finalize(void)
     XSHMEM_SELECT(0); xshmem_barrier_all();
     if (X.q == 0) {
         size_t pk = 0; for (int l = 0; l < X.K; l++) if (X.pe[l].peak > pk) pk = X.pe[l].peak;
-        fprintf(stderr, "comm_xshmem: node-process %d: exchange split (mean ms over %ld exchanges per PE-exchange: post %.3f, worker wake %.3f, peers posted %.3f, payload quiet %.3f, signals quiet %.3f; wait entered at %.3f, receive done at %.3f, send+receive done at %.3f)\n", X.q, X.nsp, X.nsp ? 1e3 * X.sp[0] / X.nsp : 0, X.nsp ? 1e3 * X.sp[1] / X.nsp : 0, X.nsp ? 1e3 * X.sp[2] / X.nsp : 0, X.nsp ? 1e3 * X.sp[3] / X.nsp : 0, X.nsp ? 1e3 * X.sp[4] / X.nsp : 0, X.nsp ? 1e3 * X.sp[5] / X.nsp : 0, X.nsp ? 1e3 * X.sp[6] / X.nsp : 0, X.nsp ? 1e3 * X.sp[7] / X.nsp : 0);
+        xsplit_print();
         fprintf(stderr, "comm_xshmem: node-process %d: %ld exchanges, %.2f s post to completion (summed over the APU threads), %.2f GB received = %.2f GB/s per APU thread; DATA heap peak %zu MiB of %zu; largest exchange sequence %llu of %llu; %ld exchanges in rounds (%ld rounds)\n",
                 X.q, X.nev, X.tv, X.bv / 1e9, X.tv > 0 ? X.bv / 1e9 / X.tv : 0.0, pk >> 20, X.dbytes >> 20, (unsigned long long)X.maxseq, (unsigned long long)SEQ_LIMIT, X.nrex, X.nrounds);
     }

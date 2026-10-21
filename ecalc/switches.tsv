@@ -66,7 +66,7 @@ DB_POOL_VMM	bool	derived	derived	0|1	built-in default	-	R114.md	Y	ecalc	dbig.c	1
 DB_POOL_VMM_CHUNK_GB	float	2	2		built-in default	-	S46.md+R114.md	Y	ecalc	dbig.c	1	-	-	
 DB_POOL_VMM_RESERVE	float	3	3		built-in default	-	R114.md	Y	ecalc	dbig.c	1	-	-	
 DC_STATS	int	0	0		test-only	-	S21.md	Y	ecalc	mn_out.c	2	diagnostics (TESTING.md)	2027-04-12	
-DIST_CHUNKS	int	8	8		built-in default	-	S19B.md+A-comm.md	Y	ecalc	ntt_dist.c,rns_dist.c	6	-	-	
+DIST_CHUNKS	int	derived	derived		built-in default	-	S19B.md+A-comm.md	Y	ecalc	ntt_dist.c,rns_dist.c	6	-	-	
 DIST_GATHER_RAW	int	2	2	0|1|2	built-in default	-	-	Y	ecalc	rns_dist.c	1	coordinator (TASKS S)	2026-11-11	rns_dist.c; K1b+CAND, user-adopted 2026-10-12; 0 = old gather
 DIST_GATHER_RAW_MARGIN_GB	float	2	2	-	built-in default	-	-	prose	ecalc	rns_dist.c	1	-	-	rns_dist.c; K1b, GB per APU kept free when DIST_GATHER_RAW=2 takes its plane
 DIST_GEN	bool	0	0	0|1	test-only	-	X13b.md+S36.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
@@ -160,7 +160,7 @@ RNS_POOL_GROW	int	0	0		test-only	-	B16.md+R.md	Y	ecalc	binsplit.c,rns_mul.c	6	di
 RNS_R3	int	derived	derived		experiment	-	P.md	Y	ecalc	rns_mul.c	2	coordinator (TASKS S)	2026-11-11	
 RNS_STRATEGY	bool	derived	derived	0|1	built-in default	-	B13b.md+G13d.md	Y	ecalc	rns_dist.c	1	-	-	
 RNS_STRATEGY_CHECK	int	0	0		test-only	-	B13b.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
-RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	30	-	-	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
+RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	32	-	-	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
 XSHMEM_CTRL	str	heap	unset	heap|host	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h xshmem_cfg_load; host = control words in a host region (design 1.3 b)
 XSHMEM_HEAP_MB	int	0	0	MiB per PE	experiment	-	-	Y	ecalc	binsplit.c,xshmem.h	4	TARGET1 (B1)	2026-12-31	xshmem.h; 0 = backend default; binsplit.c sets it under COMM_TRANSPORT=xshmem
 XSHMEM_IPC	int	0	0	0|1	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h; ofi backend maps node-local heaps with hipIpc (xshmem_ptr)
@@ -172,6 +172,7 @@ XSHMEM_OFI_SIG	str	dc	derived	dc|flush|waw	experiment	-	-	Y	ecalc	xshmem.h,xshme
 XSHMEM_ORDER	str	rot	derived	rot|seq	experiment	-	-	Y	ecalc	comm_xshmem.c	1	TARGET1 (S3a)	2026-12-31	comm_xshmem.c; peer order of the offset words, puts and signals: rot = (me+q)%n (default, no incast on member 0), seq = rank order (the reference's)
 XSHMEM_PES_PER_GPU	int	1	1	>=1	experiment	-	-	Y	ecalc	pe_geo.c	2	TARGET1 (B1)	2026-12-31	pe_geo.c; PEs per GPU (target fallback 2)
 XSHMEM_ROUND_MB	float	0	0	>= 0	experiment	-	-	Y	ecalc	comm_xshmem.c	1	TARGET1 (S3a)	2026-12-31	comm_xshmem.c; 0 = off, whole-exchange staging; m > 0: an all-to-all whose pair exceeds m/(n-1) MiB goes in rounds staging at most m MiB each way (needs ECALC_XEX_THREAD=1); the planner sizes XSHMEM_HEAP_MB from it
+XSHMEM_YIELD	int	1	unset	0|1	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (S1b)	2026-12-31	xshmem.h; 0 = the xshmem waits and the exchange worker never sched_yield (diagnostic for the vPE exchange latency, S1b); 1 = they do
 DIST_BIG	int	derived	derived		test-only	-	-	Y	tests	t_dist.c,t_mul.c	3	ecalc/tests/t_dist.c	2027-04-12	
 DIST_BIG_K	int	64	64		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
 DIST_BIG_PRIMES	str	0,2	0,2		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	

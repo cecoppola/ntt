@@ -108,6 +108,7 @@ XSHMEM_IPC	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off b
 XSHMEM_LANES	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
 XSHMEM_LOCAL	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
 XSHMEM_LOOPBACK_PES	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
+XSHMEM_YIELD	experiment	TARGET1 (S1b)	2026-12-31	diagnostic arm, off by default; review when the vPE exchange latency is closed
 XSHMEM_MRMODE	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
 XSHMEM_OFI_SIG	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
 XSHMEM_PES_PER_GPU	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
