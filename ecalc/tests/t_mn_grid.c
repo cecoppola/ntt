@@ -72,9 +72,10 @@ static void body(void *unused)
         make_mdb(&B, &b, nb + 2, sub ? half : 0, sub ? g_size - half : g_size);
         make_mdb(&X, &x, nb, sub ? half : 0, sub ? g_size - half : g_size);
         double t0 = now();
-        rns_mul_dist_mn(&C, &A, &B, 0, G); tref_mul(&r, &a, &b);
+        rns_mul_dist_mn(&C, &A, &B, 0, G); double t1 = now(); tref_mul(&r, &a, &b); double t2 = now();
         VERIFY(check(&C, &r, "product"), "%s %zu x %zu %s", sh[si].name, na, nb, gen_name[kind]);
-        if (g_me == 0 && kind == 0) printf("   %s %zu x %zu: %.2f s\n", sh[si].name, na, nb, now() - t0);
+        if (g_me == 0 && kind == 0) printf("   %s %zu x %zu: %.2f s (mn product %.2f, reference %.2f, check %.2f)\n", sh[si].name, na, nb, now() - t0, t1 - t0, t2 - t1, now() - t2);
+        if (g_vpe && si < 2 && kind == 0) { double t3 = now(); rns_mul_dist_mn(&C, &A, &B, 0, G); if (g_me == 0) printf("   (second mn product of the same operands: %.2f s)\n", now() - t3); }
         rns_mul_dist_mn(&C, &A, &B, &X, G); bi_add(&t, &r, &x);
         VERIFY(check(&C, &t, "product + x"), "%s %zu x %zu + x %s", sh[si].name, na, nb, gen_name[kind]);
         for (int wv = 0; wv < 3; wv++) {                      /* low products: pieces above w skipped, the result truncated (A5: in basis w) */

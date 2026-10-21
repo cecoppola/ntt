@@ -175,5 +175,6 @@ static const char *const cfg_names[] = {
     "XSHMEM_ORDER",
     "XSHMEM_PES_PER_GPU",
     "XSHMEM_ROUND_MB",
+    "XSHMEM_YIELD",
 };
-#define CFG_NAMES_N 174
+#define CFG_NAMES_N 175

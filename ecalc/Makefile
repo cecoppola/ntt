@@ -161,7 +161,7 @@ tests/t_trace: tests/t_trace.c comm_trace.h comm_phase.h
 tests/t_comm: tests/t_comm.c comm_shmem.c comm_ofi.c comm_util.c fatal.c comm.h comm_ofi.h comm_trace.h fatal.h
 	$(CC) -O2 -DCOMM_HOST_ONLY -DEC_FATAL_NO_HIP $(SHMEM_CFLAGS) $(OFI_CFLAGS) -I. $< comm_shmem.c comm_ofi.c comm_util.c fatal.c -lpthread $(SHMEM_LIBS) -o $@
 
-ntt_dist.o: ntt_dist.c ntt_dist.h ntt.h comm.h modarith.h
+ntt_dist.o: ntt_dist.c ntt_dist.h vpe.h ntt.h comm.h modarith.h
 	$(HIPC) -c $< -o $@
 crt.o: crt.c crt.h modarith.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
