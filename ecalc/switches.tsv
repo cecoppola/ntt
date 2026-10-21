@@ -15,7 +15,7 @@ BS_SEED_FILL	bool	unset	unset	0|1	built-in default	-	T215.md+DOC15.md	Y	ecalc	bi
 BS_SEED_PULL	int	1	1	0|1	built-in default	-	-	Y	ecalc	dbig.c	2	coordinator (TASKS S)	2026-11-11	dbig.c; K8b+CAND, user-adopted 2026-10-12 (acts with DB_POOL_VMM); 0 = old path
 BS_SEED_TERMS	int	derived	derived		built-in default	-	T215.md+WP7.md	Y	ecalc	binsplit.c	5	-	-	
 BS_SEED_THREADS	int	all	all		built-in default	-	I.md+S22.md	Y	ecalc	binsplit.c	6	-	-	
-COMM_LAYER_INTER2	bool	1	1	0|1	built-in default	-	XEFF.md+S47.md	Y	ecalc	comm_layered.c	1	coordinator (TASKS S)	2026-11-11	comm_layered.c; default since 2026-10-12 (TASKS 27): 1
+COMM_LAYER_INTER2	bool	auto	derived	0|1	built-in default	-	XEFF.md+S47.md	Y	ecalc	comm_layered.c	1	coordinator (TASKS S)	2026-11-11	comm_layered.c: unset = comm_ofi_planned() (1 libfabric, 0 SHMEM; SHMEM 0 since 2026-10-21); libfabric 1 since 2026-10-12 (TASKS 27)
 COMM_LAYER_VSLOT_MB	bool	derived	derived	0|1	built-in default	-	-	prose	ecalc	comm_layered.c	1	-	-	
 COMM_OFI	bool	auto	derived	0|1	launch-line	aac7	OFI17.md	Y	ecalc	comm_ofi.c	3	-	-	comm_ofi.c:98 default = a cxi NIC is present (cxi_present())
 COMM_OFI_CHUNK_MB	float	unset	unset		built-in default	-	TUNE17.md+OFI17.md	Y	ecalc	comm_ofi.c	2	-	-	

@@ -8,7 +8,7 @@
 BS_ARENA_TRIM_GB	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
 BS_CKPT_BG_MBS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 BS_SEED_PULL	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback, also the aac6 CPX workaround (profiles/aac6.conf); default since 2026-10-12 (CAND)
-COMM_LAYER_INTER2	fallback	coordinator (TASKS S)	2026-11-11	=0 restores the pre-X2 exchange; default since 2026-10-12 (TASKS 27, W2B D1e)
+COMM_LAYER_INTER2	fallback	coordinator (TASKS S)	2026-11-11	=0 restores the pre-X2 exchange; libfabric default 1 since 2026-10-12 (TASKS 27, W2B D1e); SHMEM default 0 since 2026-10-21
 COMM_OFI_DEV	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_OFI_VERBOSE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_SHMEM_POOL_NEED_MB	internal	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	internal channel from the planner to the library; do not set by hand
