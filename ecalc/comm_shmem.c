@@ -1433,7 +1433,7 @@ static int alltoallv_rounds(comm *c, const void *sb, const size_t *scnt, const s
     tr_cev_beg(p, s);
     if (scnt[me] && (const char *)sb + sdsp[me] != (char *)rb + rdsp[me]) COPY((char *)rb + rdsp[me], (const char *)sb + sdsp[me], scnt[me], s);
     TR(p, E_COPY_ISS, 0, -1, p->tr_xs, 0, 0); tr_cev_end(p, s);
-    SYNC(s); TR(p, E_COPY_DONE, 0, -1, p->tr_xs, tr_cev_ns(p), 0);   /* the caller's stream is done with sb and rb */
+    SYNC(s); TR(p, E_COPY_DONE, 0, -1, p->tr_xs, tr_cev_ns(p), 0); if (S.xgev) xg_post(p, s);   /* the caller's stream is done with sb and rb */
     if (pthread_create(&p->th, 0, rounder, p)) die("pthread_create");
     p->thread = 1;
     TR(p, E_POSTED, 0, -1, p->tr_xs, 0, K);
