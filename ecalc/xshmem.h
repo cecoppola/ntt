@@ -70,6 +70,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(XSHMEM_CRAY) && defined(USE_HIP)
+#include <hip/hip_runtime_api.h>   /* xshmem_cray.h registers the host heap; C++ headers must come before extern "C" */
+#endif
 #ifdef __cplusplus
 extern "C" {
 #endif
