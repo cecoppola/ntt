@@ -70,12 +70,12 @@ typedef struct xpe {                       /* one loopback PE of this process */
     pthread_t th; int th_on, stop; volatile int busy; pthread_mutex_t qm; pthread_cond_t qcv; struct xpriv *queue[MAXPEND]; volatile int nq;
 } xpe;
 static struct {
-    int yield; double sp[8]; long nsp;               /* summed split of the whole-exchange path, see xex_wait */
+    int yield, thr_set; double sp[8]; long nsp;               /* summed split of the whole-exchange path, see xex_wait */
     int inited, thr, rot, K, nodes, nw, maxid, q; long nev; double tv; double bv; size_t rbytes; long nrex, nrounds;
     pthread_mutex_t lock;                  /* init and the counters */
     uint64_t maxseq; size_t dbytes;
     xpe pe[MAXLPE]; unsigned char used[MAXLPE][MAXID];
-} X = { 1, {0}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, PTHREAD_MUTEX_INITIALIZER, 0, 0, {}, {} };
+} X = { 1, 0, {0}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, PTHREAD_MUTEX_INITIALIZER, 0, 0, {}, {} };
 
 #define YIELD() do { if (X.yield) sched_yield(); } while (0)
 static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
@@ -177,7 +177,7 @@ static void xex_hang(xpriv *p);
 static int xex_round(xpriv *p);
 static void *worker(void *a)
 {
-    xpe *lp = (xpe *)a; struct xpriv *act[MAXPEND]; int na = 0; unsigned idle = 0;
+    xpe *lp = (xpe *)a; struct xpriv *act[MAXPEND]; int na = 0; unsigned idle = 0, wdev_ = (unsigned)-1;
     XSHMEM_SELECT(lp->lpe);
     for (;;) {
         if (lp->nq > 0 || na == 0) {
@@ -194,6 +194,7 @@ static void *worker(void *a)
         int prog = 0;
         for (int i = 0; i < na; i++) {
             xpriv *p = act[i];
+            if (!p->rounds && wdev_ != (unsigned)p->dev) { HIP_CHECK(hipSetDevice(p->dev)); wdev_ = (unsigned)p->dev; }   /* S1b: the worker works on its PE's device (it was device 0 for every PE: under vPE four workers on one device) */
             if (p->rounds ? xex_round(p) : xex_send(p)) { act[i] = act[--na]; i--; lp->busy = na; __atomic_store_n(&p->flushed, 1, __ATOMIC_RELEASE); prog = 1; }
         }
         if (prog) idle = 0;
@@ -518,8 +519,9 @@ int comm_xshmem_init(void)
     xshmem_cfg_t cfg; xshmem_cfg_load(&cfg);
     const char *eo = getenv("XSHMEM_ORDER");
     if (eo && strcmp(eo, "seq") && strcmp(eo, "rot")) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_ORDER=%s: seq or rot\n", eo);
-    X.rot = !(eo && !strcmp(eo, "seq")); X.thr = env_int("ECALC_XEX_THREAD", 1) != 0; { xshmem_cfg_t cf_; xshmem_cfg_load(&cf_); X.yield = !cf_.noyield; }
+    X.rot = !(eo && !strcmp(eo, "seq")); { const char *et_ = getenv("ECALC_XEX_THREAD"); X.thr = et_ ? atoi(et_) != 0 : !vpe_on(); X.thr_set = et_ != 0; }   /* S1b: vPE polls by default (measured 9q6g: the worker threads cost 35x per exchange) */ { xshmem_cfg_t cf_; xshmem_cfg_load(&cf_); X.yield = !cf_.noyield; }
     { const char *er = getenv("XSHMEM_ROUND_MB"); double m = er ? atof(er) : 0; X.rbytes = m > 0 ? (size_t)(m * 1048576.0) : 0;
+      if (X.rbytes && !X.thr && !X.thr_set) X.thr = 1;   /* vPE with an explicit XSHMEM_ROUND_MB: the rounds run in the worker */
       if (X.rbytes && !X.thr) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_ROUND_MB needs the worker thread (ECALC_XEX_THREAD=1): the rounds run in it\n"); }
     int prov = 0; if (xshmem_init_thread(XSHMEM_THREAD_MULTIPLE, &prov)) ec_fatal(EC_RC_FATAL, "comm_xshmem: xshmem_init_thread failed\n");
     int K = XS_LPES(); if (K < 1 || K > MAXLPE) ec_fatal(EC_RC_FATAL, "comm_xshmem: %d loopback PEs per process (1..%d; XSHMEM_LOOPBACK_PES)\n", K, MAXLPE);

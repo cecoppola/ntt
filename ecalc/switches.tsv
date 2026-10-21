@@ -113,7 +113,7 @@ ECALC_VMM_BG	bool	unset	unset	0|1	built-in default	-	S34.md	Y	ecalc	dbig.c	1	-	-
 ECALC_VPE	bool	0	unset	0/1	experiment	-	-	Y	ecalc	vpe.c	1	TARGET1 (S1)	2026-12-31	vpe.c; 1 = one pthread per GPU (vPE), PE = L*node+lane; needs COMM_TRANSPORT=xshmem; aborts "stages not merged" until S1a..S1e are all in
 ECALC_VPE_LANES	int	4	4	1..8	experiment	-	-	Y	ecalc	vpe.c	1	TARGET1 (S1)	2026-12-31	vpe.c; vPEs per process (= XSHMEM_LOOPBACK_PES); only with ECALC_VPE=1
 ECALC_WINDOWS	bool	derived	derived	0|1	test-only	-	A-out.md+H.md	Y	ecalc	verify.c	1	diagnostics (TESTING.md)	2027-04-12	
-ECALC_XEX_THREAD	int	1	1	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	TARGET1 (S3a)	2026-12-31	comm_xshmem.c; one persistent worker thread per loopback PE owns the sender half of the exchanges (1, default); 0 = poll-only, the APU thread does it in post and wait
+ECALC_XEX_THREAD	int	1 (0 under ECALC_VPE=1)	derived	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	TARGET1 (S3a)	2026-12-31	comm_xshmem.c; one persistent worker thread per loopback PE owns the sender half of the exchanges (1, default; under ECALC_VPE=1 the default is 0: measured 9q6g, 4 workers + 4 PE threads cost 35x per exchange); 0 = poll-only, the APU thread does it in post and wait
 MDB_SHIFT_CHUNK_MB	float	1024	1024		built-in default	-	P214.md	Y	ecalc	binsplit.c,newton_db.c	4	-	-	
 MEM_DPOOL_FILL	int	0	0		test-only	-	V.md+R.md	Y	ecalc	mem.c	2	diagnostics (TESTING.md)	2027-04-12	
 MEM_REPORT_DEVS	bool	0	unset	0|1	launch-line	aac7	B7ACCT.md+TC15.md	Y	ecalc	ecalc.c,mem.c	2	-	-	ecalc.c:372/537 (presence test)
