@@ -11,6 +11,10 @@
  * Usage: ecalc <digits> [outfile]      env: POOL_LOG (31), RNS_CRT_LAYOUT (0), ECALC_VERBOSE (1)
  * Prints META/RESULT lines (phase seconds, VmHWM) as the benchmarks do.
  */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE                                    /* CPU_COUNT (the per-process background team, ECALC_PE_PER_GPU) */
+#endif
+#include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -328,10 +332,11 @@ static void budget_check(unsigned long N, int verbose)
 {
     const char *sw = getenv("ECALC_BUDGET_CHECK"); if (sw && !atoi(sw)) return;   /* default on; =0 off */
     int me = mn_rank(), sz = mn_size(); if (sz < 1) sz = 1;
-    const int L = vpe_on() ? vpe_lanes() : 1, gn = vpe_on() ? vpe_nnodes() : sz;   /* ECALC_VPE (S1e): the model and the process figures are per NODE; every PE of a node reports 1/L of them, so a node's PEs sum to the node and the rule below is unchanged */
+    int L = vpe_on() ? vpe_lanes() : 1; const int gn = vpe_on() ? vpe_nnodes() : sz;   /* ECALC_VPE (S1e): the model and the process figures are per NODE; every PE of a node reports 1/L of them, so a node's PEs sum to the node and the rule below is unchanged */
     double node_gb = getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0;
     int cap = rns_pool_log() >= 31 ? 1 : 0;
     size_t pb = 0, ab = 0, hb = 0; binsplit_node_bytes(N, gn, cap, ec_np_init(), &pb, &ab, &hb);
+    if (vpe_ppg()) { pb /= L; ab /= L; hb /= L; L = 1; }   /* S2 (one process per PE): the model is per node, so each PE takes 1/ppn of it; the measured device bytes and VmRSS are this process's own (its device, its runtime): already one PE's, not divided again */
     size_t dev = mem_report_dev_total(), rss = mem_vmrss();
     size_t dpk = (dev > pb + ab ? dev : pb + ab), hpk = rss > hb ? rss : hb, peak = dpk + hpk, now = dev + rss;
     struct meminfo mi; memset(&mi, 0, sizeof mi); mem_meminfo(&mi);
@@ -425,8 +430,13 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
  * PE, bs_a0 / bs_b1 = its term range, its own recurrence thread (pq_bg_run) and writer (mn_out_early); the output parts are two per PE (D3: X_hi's part npe-1-pe,
  * X_lo's 2 npe-1-pe), the .top set per PE (binsplit.c).  Process-wide things are done once in main, before the threads (the division's hooks, newton_x_defer,
  * bs_ckpt_dir, the thread counts) or by lane 0 (node-level reports); everything the flow keeps is a local of the thread function. */
-#define MEMREP(x) do { if (vpe_node_leader()) mem_report(x); } while (0)
+#define MEMREP(x) do { if (vpe_proc_leader()) mem_report(x); } while (0)   /* S2: every PE reports its own process (device pools, host items); S1: lane 0 for the shared process */
 VPE_STATE(int, g_flow_rc);
+static int flow_rc_all(void)                           /* the OR of the flow's results: S1 over the lanes' slots; S2 this process's slot (the only one written) */
+{
+    if (vpe_ppg()) return VPE(g_flow_rc);
+    int f = 0; for (int i = 0; i < vpe_lanes(); i++) f |= g_flow_rc_v[i]; return f;
+}
 struct flow_ctx { unsigned long N, d, d_out; const char *outfile; int verbose, pool_log, mn_size; double t00, t_ri; };
 static int ckpt_top_mode(void)
 {
@@ -441,6 +451,10 @@ static void vpe_set_range(unsigned long N)            /* this PE's terms: [1 + N
 static int env_vpe_bg_threads(void)                    /* ECALC_VPE_BG_THREADS = the background team of one PE (recurrence, writer): default CPUs / PEs per node (192 / 4 = 48 on aac7, where the off path's 48 is per node) */
 {
     const char *e = getenv("ECALC_VPE_BG_THREADS"); int n = e && *e ? atoi(e) : 0;
+    if (n < 1 && vpe_ppg()) {                           /* S2: this process's own CPUs: its affinity mask (vpe_pe_affinity restricted it to the PE's NUMA node), not the node's */
+        cpu_set_t m; CPU_ZERO(&m); n = sched_getaffinity(0, sizeof m, &m) == 0 ? CPU_COUNT(&m) : 0;
+        if (n < 1) n = omp_get_num_procs();
+    }
     if (n < 1) { n = omp_get_num_procs() / vpe_lanes(); if (n < 1) n = 1; }
     return n;
 }
@@ -460,7 +474,7 @@ static void flow_end(int f, int rank0)
     mn_ckpt_top_finish();                             /* (size > 1, node 0: the top tree set's writer) */
     if (vpe_on()) {
         vpe_node_barrier();                           /* every lane is past its output stage */
-        if (vpe_node_leader()) { db_release_pools(); mem_report_host_item(MEM_HOST_X, 0); mem_report("end"); mem_report_summary(); }   /* B1: X's block (device / sharded) was in use until here */
+        if (vpe_proc_leader()) { db_release_pools(); mem_report_host_item(MEM_HOST_X, 0); mem_report("end"); mem_report_summary(); }   /* S2: each process releases its own pools */   /* B1: X's block (device / sharded) was in use until here */
         vpe_node_barrier();
         mn_barrier(); mn_finalize();                  /* (collective: every PE; rns_shutdown once, in main) */
     } else if (rank0) {
@@ -541,7 +555,7 @@ int main(int argc, char **argv)
             struct flow_ctx fc; memset(&fc, 0, sizeof fc); fc.N = N; fc.d = d; fc.d_out = d_out; fc.outfile = outfile; fc.verbose = verbose; fc.mn_size = sz;
             if (!bs_ckpt_dir) { const char *dd = mn_out_ckpt_default(outfile); struct stat st; if (dd && stat(dd, &st) == 0 && S_ISDIR(st.st_mode)) bs_ckpt_dir = dd; }
             vpe_run(recheck_run, &fc);
-            int f = 0; for (int i = 0; i < vpe_lanes(); i++) f |= g_flow_rc_v[i];
+            int f = flow_rc_all();
             rns_shutdown(); return f;
         }
         int f = mn_out_recheck(N, d, d_out, outfile, mn_comm(0), mn_rank(), sz, bs_a0, bs_b1 ? bs_b1 : N + 1, verbose);
@@ -568,6 +582,7 @@ int main(int argc, char **argv)
     if (vpe_on()) {                                  /* S1e: the process-wide settings of the vPE flow, once, before the threads */
         if (mn_size_ < 2) ec_fatal(EC_RC_FATAL, "ecalc: ECALC_VPE=1 needs at least 2 PEs (%d): run on 2+ nodes or ECALC_VPE_LANES >= 2\n", mn_size_);
         g_bg_threads = env_vpe_bg_threads(); mn_out_bg_threads(g_bg_threads);
+        if (vpe_ppg()) printf("ppg: %s: background team %d threads (ECALC_VPE_BG_THREADS, default = this process's affinity mask of %d CPUs; OMP max %d), device %d\n", ec_log_prefix(), g_bg_threads, g_bg_threads, omp_get_max_threads(), vpe_device());   /* S2: one line per process (the mask is the PE's own) */
         if (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0)
             printf("vpe: %d PEs = %d per node x %d node%s; background team %d threads per PE (ECALC_VPE_BG_THREADS, default %d CPUs / %d PEs per node; OMP max %d); two part files per PE\n",
                    vpe_npe(), vpe_lanes(), vpe_nnodes(), vpe_nnodes() > 1 ? "s" : "", g_bg_threads, omp_get_num_procs(), vpe_lanes(), omp_get_max_threads());
@@ -579,7 +594,7 @@ int main(int argc, char **argv)
     struct flow_ctx fc; memset(&fc, 0, sizeof fc);
     fc.N = N; fc.d = d; fc.d_out = d_out; fc.outfile = outfile; fc.verbose = verbose; fc.pool_log = pool_log; fc.mn_size = mn_size_; fc.t00 = t00; fc.t_ri = t_ri;
     vpe_run(flow_run, &fc);                          /* off: once on this thread (the off path's flow, as before); on: one thread per vPE */
-    int rc = 0; for (int i = 0; i < vpe_lanes(); i++) rc |= g_flow_rc_v[i];
+    int rc = flow_rc_all();
     if (vpe_on()) rns_shutdown();                    /* (off: the flow's end did it) */
     return rc;
 }
@@ -596,9 +611,10 @@ static void flow_run(void *a)
     if (getenv("ECALC_INIT_ONLY") && atoi(getenv("ECALC_INIT_ONLY"))) { vpe_node_barrier(); MEMREP("init"); if (vpe_node_leader()) printf("ECALC_INIT_ONLY: the pools and the arena of %lu digits are mapped (%.1f s); stopping\n", d, mem_now() - t00); fflush(stdout); _exit(0); }   /* the ceiling probe (the allocation edge in seconds) */
     double t_init = mem_now() - t00;
     if (verbose >= 2 && vpe_node_leader()) printf("      init: rns_init %.2f s, region pools %.2f s, the rest %.2f s\n", t_ri, t_pg, t_init - t_ri - t_pg);   /* A-mem */
-    if (vpe_node_leader()) { RESULT("init", "s", t_init);
+    if (vpe_node_leader()) RESULT("init", "s", t_init);   /* one per node (a global figure) */
+    if (vpe_proc_leader()) {                         /* S2: each PE's own process line */
     printf("      VmRSS %.1f GB after init (staging %.1f GB pinned + device regions %.0f GB); init %.1f s\n", mem_vmrss() / 1e9, rns_staging_bytes() * 4 / 1e9, mem_dev_pool_bytes() / 1e9, t_init); }
-    if (getenv("MEM_REPORT_DEVS") && mn_size_ > 1 && vpe_node_leader()) {   /* B7ACCT: the layout's terms outside "in use" on the per-APU lines (a report only) */
+    if (getenv("MEM_REPORT_DEVS") && mn_size_ > 1 && vpe_proc_leader()) {   /* B7ACCT: the layout's terms outside "in use" on the per-APU lines (a report only) */
         const char *eo = getenv("COMM_OFI_POOL_MB"); size_t ofi = eo && comm_ofi_planned() ? (size_t)atol(eo) << 20 : 0;
         mem_report_outside(0, ofi, comm_layered_vbytes);   /* X2: the v-slots are in the comm pool (ofi) */ }
     MEMREP("init");                               /* device and host bytes by category at each phase boundary (vPE: lane 0) */
@@ -626,6 +642,8 @@ static void flow_run(void *a)
 
     comm_wst_set_phase(WST_BS);   /* D3: MN_WAIT_STATS phase */
     t = mem_now(); binsplit_e(&P, &Q, N); double t_bs = mem_now() - t;
+    if (getenv("ECALC_TEST_DIE_PE") && atoi(getenv("ECALC_TEST_DIE_PE")) == vpe_pe() && vpe_on())   /* test hook (S2 kill test; off unless set): this PE dies at a fixed phase, after bs, with its peers about to enter the tree's collectives */
+        ec_fatal(EC_RC_FATAL, "ecalc: ECALC_TEST_DIE_PE=%d: this PE stops here on purpose (kill test)\n", vpe_pe());
     /* the top-level P, Q on disk for ECALC_RECHECK -- default on above 10^10 digits with an outfile
      * (ECALC_CKPT_TOP=0: off; =1: on at any size), into BS_CKPT_DIR or, unset, <outfile>.top.  Size 1: the level-0 tree set,
      * written in the background by bs_ckpt_bg_* (binsplit.c); size > 1: mn_tree's top tree set.  No other checkpoint exists
@@ -656,7 +674,7 @@ static void flow_run(void *a)
             t_bs += tt - tg; mn_pn = Pm.n; mn_qn = Qm.n;
             MEMREP("tree");                     /* the tree's slabs and shares should show under the pool's donated bytes, not hipMalloc */
             P.n = Q.n = 0; binsplit_free_pools();
-            if (vpe_node_leader()) { memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st); }   /* (vPE: the shared stat blocks are lane 0's) */
+            if (vpe_proc_leader()) { memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st); }   /* (S1: the shared stat blocks are lane 0's; S2: each process resets its own) */
             int L = 0; while ((1 << L) < mn_size_) L++;
             mn_group *G = mn_group_at(L);
             double td = mem_now(); comm_wst_set_phase(WST_DM);   /* D3 */
@@ -665,7 +683,7 @@ static void flow_run(void *a)
             if (!vpe_on()) { newton_mn_x_hook = 0; newton_mn_xhi_hook = 0; newton_mn_xlo_hook = 0; }
             if (oc.hi && !oc.hi_rel) { mn_out_early_lo_release(oc.early, &Xm, mn_comm(0)); oc.hi_rel = 1; }   /* X_lo0 >= B^s -- X_lo now corrected (every rank: collective) */
             t_dm = mem_now() - td; mn_xn = Xm.n;
-            if (vpe_node_leader()) mn_wait_stats_print(); comm_wst_set_phase(WST_OTHER);   /* D3: one line per node, then the rest of the run is 'other' */
+            if (vpe_proc_leader()) mn_wait_stats_print(); comm_wst_set_phase(WST_OTHER);   /* D3: one line per process (S1: per node), then the rest of the run is 'other' */
             newton_db_free_scratch(); oc.Xm = &Xm;   /* B1 (H): X stays sharded; the output stage reads this node's share in place (the block pool is released after it) */
             memcpy(oc.Pres, Pres, sizeof Pres); memcpy(oc.Qres, Qres, sizeof Qres); memcpy(oc.Rres, Rres, sizeof Rres);   /* every node's own residues (the sharded kernels) -- the non-zero ranks go to the output stage from here */
             oc.ncorr = (int)(newton_st.down_corr + newton_st.up_corr); oc.t_bs = t_bs; oc.t_dm = t_dm;

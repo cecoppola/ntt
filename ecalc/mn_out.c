@@ -22,7 +22,7 @@
 void mn_out_allgather_u64(comm *c, const uint64_t *v, int k, uint64_t *out)
 {
     if (!c || comm_size(c) == 1) { memcpy(out, v, (size_t)k * 8); return; }
-    int n = comm_size(c), dev0; HIP_CHECK(hipGetDevice(&dev0)); HIP_CHECK(hipSetDevice(vpe_on() ? vpe_lane() : 0));   /* vPE (S1e): the PE's own device */
+    int n = comm_size(c), dev0; HIP_CHECK(hipGetDevice(&dev0)); HIP_CHECK(hipSetDevice(vpe_on() ? vpe_device() : 0));   /* vPE (S1e): the PE's own device (S2: pe_geo's ordinal) */
     uint64_t *ds, *dr; HIP_CHECK(hipMalloc(&ds, (size_t)k * 8)); HIP_CHECK(hipMalloc(&dr, (size_t)n * k * 8));
     HIP_CHECK(hipMemcpy(ds, v, (size_t)k * 8, hipMemcpyHostToDevice));
     comm_allgather(c, ds, dr, (size_t)k * 8);
@@ -87,7 +87,8 @@ static void fmt_limbs(char *dst, const uint64_t *l, size_t cnt)
  * writer reads X on the device while the low product runs on the GPUs -- the copies go on a non-blocking stream per APU
  * (a null-stream hipMemcpy would serialise with every kernel of the product) */
 static hipStream_t g_fs[DB_NQ]; static pthread_once_t g_fs_once = PTHREAD_ONCE_INIT;
-static void fs_init(void) { int dev0; HIP_CHECK(hipGetDevice(&dev0)); for (int d = 0; d < DB_NQ; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipStreamCreateWithFlags(&g_fs[d], hipStreamNonBlocking)); } HIP_CHECK(hipSetDevice(dev0)); }
+static void fs_init(void)   /* (S2, ECALC_PE_PER_GPU: ONLY this PE's device gets a stream: a HIP context on another GPU would cost memory in every process) */
+{ int dev0; HIP_CHECK(hipGetDevice(&dev0)); for (int d = 0; d < DB_NQ; d++) { if (vpe_ppg() && d != vpe_device()) continue; HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipStreamCreateWithFlags(&g_fs[d], hipStreamNonBlocking)); } HIP_CHECK(hipSetDevice(dev0)); }
 static void dev_fetch(const dbig *x, size_t a, size_t cnt, uint64_t *host)
 {
     size_t g = x->off + a, ge = g + cnt; int dev0; HIP_CHECK(hipGetDevice(&dev0));
@@ -95,7 +96,7 @@ static void dev_fetch(const dbig *x, size_t a, size_t cnt, uint64_t *host)
     const int nq = vpe_on() ? 1 : DB_NQ;                   /* S1e: under ECALC_VPE a dbig is ONE quarter, q[0] on the PE's own device (dbig.h) */
     for (int d = 0; d < nq; d++) {
         size_t q0 = (size_t)d * x->qc, q1 = q0 + x->qc, s = g > q0 ? g : q0, e = ge < q1 ? ge : q1;
-        int dv = vpe_on() ? vpe_lane() : d;
+        int dv = vpe_on() ? vpe_device() : d;
         if (s >= e) continue;
         HIP_CHECK(hipSetDevice(dv));
         HIP_CHECK(hipMemcpyAsync(host + (s - g), x->q[d] + (s - q0), (e - s) * 8, hipMemcpyDeviceToHost, g_fs[dv]));

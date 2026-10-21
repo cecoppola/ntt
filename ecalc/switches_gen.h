@@ -108,6 +108,7 @@ static const char *const cfg_names[] = {
     "ECALC_SEGV_TEST",
     "ECALC_SEGV_TRACE",
     "ECALC_TEST_CORR",
+    "ECALC_TEST_DIE_PE",
     "ECALC_VERBOSE",
     "ECALC_VMM_BG",
     "ECALC_VPE",
@@ -175,4 +176,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_PES_PER_GPU",
     "XSHMEM_ROUND_MB",
 };
-#define CFG_NAMES_N 173
+#define CFG_NAMES_N 174
