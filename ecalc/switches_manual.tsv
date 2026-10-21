@@ -73,3 +73,4 @@ XSHMEM_ROUND_MB	0	float	>= 0	experiment	comm_xshmem.c; 0 = off, whole-exchange s
 TMPDIR		str	path	test-only	t_pe_geo.c; the system temp directory for the mock sysfs tree; unset = /tmp
 ECALC_VPE	0	bool	0/1	experiment	vpe.c; 1 = one pthread per GPU (vPE), PE = L*node+lane; needs COMM_TRANSPORT=xshmem; aborts "stages not merged" until S1a..S1e are all in
 ECALC_VPE_LANES	4	int	1..8	experiment	vpe.c; vPEs per process (= XSHMEM_LOOPBACK_PES); only with ECALC_VPE=1
+ECALC_VPE_CHAIN	own	str	own|leader	experiment	newton_db.c; the vPE reciprocal chain: own = every PE computes it (default), leader = lane 0 of each node, r0 by a node-group all-gather

@@ -32,7 +32,7 @@ extern "C" {
 #define VPE_S_D 0x08                                    /* binary splitting, checkpoint, planner */
 #define VPE_S_E 0x10                                    /* flow, writer threads, parts */
 #define VPE_S_ALL 0x1f
-#define VPE_STAGES_MERGED (VPE_S_A | VPE_S_B)
+#define VPE_STAGES_MERGED (VPE_S_A | VPE_S_B | VPE_S_C)
 
 int  vpe_on(void);                                      /* ECALC_VPE=1 (or vpe_set_forced) */
 int  vpe_lanes(void);                                   /* L: vPEs of this process (1 when off); ECALC_VPE_LANES, never a literal 4 */
