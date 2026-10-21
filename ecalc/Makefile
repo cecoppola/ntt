@@ -282,20 +282,20 @@ tests/t_xshmem: tests/t_xshmem.c xshmem.h xshmem_cray.h $(XOBJS) tests/harness.h
 ifeq ($(XSHMEM),ofi)
 tests/t_xshmem_ofi_smoke: tests/t_xshmem_ofi_smoke.c xshmem.h $(XOBJS)
 	$(HIPC) $(XSHMEM_CFLAGS) $< -x none $(XOBJS) -o $@ $(XSHMEM_LIBS)
-# S3a (plan TARGET1): with XSHMEM=ofi every binary that links OBJS (ecalc and the tests) also links the xshmem engine (comm_xshmem.c:
+tests/t_pe_geo: tests/t_pe_geo.c pe_geo.c pe_geo.h xshmem_boot.o
+	$(HIPC) $(XSHMEM_CFLAGS) -I. $< pe_geo.c -x none xshmem_boot.o -o $@ $(XSHMEM_LIBS)
+tests/t_pe_geo_live: tests/t_pe_geo_live.c pe_geo.c pe_geo.h xshmem_boot.o xshmem_boot.h
+	$(HIPC) $(XSHMEM_CFLAGS) -I. $< pe_geo.c -x none xshmem_boot.o -o $@ $(XSHMEM_LIBS)
+endif
+# S3a (plan TARGET1): with XSHMEM=ofi or cray every binary that links OBJS (ecalc and the tests) also links the xshmem engine (comm_xshmem.c:
 # COMM_TRANSPORT=xshmem) and the backend; mn.o is compiled with -DXSHMEM_ENGINE (without it COMM_TRANSPORT=xshmem is a fatal at start).
-# The object list and flags below are applied only under XSHMEM=ofi; rebuild with -B when switching (the default build is unchanged).
+# (P5: XSHMEM=cray builds the SAME engine, XOBJS empty: the backend is the inline xshmem_cray.h and -lsma.)  The object list and flags below are applied only under XSHMEM=ofi|cray; rebuild with -B when switching (the default build is unchanged).
 comm_xshmem.o: comm_xshmem.c comm.h vpe.h xshmem.h xshmem_boot.h pe_geo.h comm_trace.h comm_phase.h
 	$(HIPC) $(XSHMEM_CFLAGS) -DXSHMEM_ENGINE -c $< -o $@
 OBJS += comm_xshmem.o $(XOBJS)
 SHMEM_LIBS += $(XSHMEM_LIBS)
 mn.o: comm_xshmem.o $(XOBJS)
 mn.o: HIPFLAGS += -DXSHMEM_ENGINE
-tests/t_pe_geo: tests/t_pe_geo.c pe_geo.c pe_geo.h xshmem_boot.o
-	$(HIPC) $(XSHMEM_CFLAGS) -I. $< pe_geo.c -x none xshmem_boot.o -o $@ $(XSHMEM_LIBS)
-tests/t_pe_geo_live: tests/t_pe_geo_live.c pe_geo.c pe_geo.h xshmem_boot.o xshmem_boot.h
-	$(HIPC) $(XSHMEM_CFLAGS) -I. $< pe_geo.c -x none xshmem_boot.o -o $@ $(XSHMEM_LIBS)
-endif
 else
 tests/t_xshmem tests/t_pe_geo tests/t_pe_geo_live:
 	@echo "set XSHMEM=ofi or XSHMEM=cray (XSHMEM is off by default)"; false
