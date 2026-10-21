@@ -409,9 +409,9 @@ static void y_destroy(comm *c)
 static void *y_sym_alloc(comm *c, size_t bytes) { return comm_sym_alloc(PRIV(c)->inter, bytes); }
 static void y_sym_free(comm *c, void *p) { comm_sym_free(PRIV(c)->inter, p); }
 static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_barrier, y_modq, y_max, y_destroy, 0, 0, y_allgather, y_allgather_host, y_alltoallv, y_alltoallv_host, y_sym_alloc, y_sym_free };
-/* COMM_LAYER_INTER2 is on by default (1); =0 gives one inter mesh.  The v-slots always come from the comm pool; the shared v-slot pair (S36) and the
+/* COMM_LAYER_INTER2: unset = 0 (one inter stage in flight, both transports; user 2026-10-21, results/SHMEM.md); =1 gives the second inter mesh (two in flight).  The v-slots always come from the comm pool; the shared v-slot pair (S36) and the
  * release after each product (M3) are always on.  binsplit.c's sizing, mn.c and rns_dist.c read the same function. */
-int comm_layered_inter2_on(void) { const char *e = getenv("COMM_LAYER_INTER2"); return e ? atoi(e) != 0 : 1; }
+int comm_layered_inter2_on(void) { const char *e = getenv("COMM_LAYER_INTER2"); return e ? atoi(e) != 0 : 0; }
 static void lay_opts(lay_priv *p) {
     p->i2 = comm_layered_inter2_on(); vslot_attach(p);   /* S36: the shared pair */
 }

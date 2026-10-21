@@ -3,7 +3,7 @@
 # default read at the site named in note (file:line as of main a1569d5); launch-line switches that have a plain literal default are listed too so that a change of the literal is caught.
 BS_CKPT_DIR	unset	str	path		ecalc.c; the top-level set's directory (ECALC_CKPT_TOP); unset or empty = <outfile>.top
 BS_LAYOUT_ONLY	unset	str	D[:g],...		ecalc.c:440; layout printer, exits before rns_init
-COMM_LAYER_INTER2	1	bool	0|1	built-in default	comm_layered.c; default since 2026-10-12 (TASKS 27): 1
+COMM_LAYER_INTER2	0	bool	0|1	built-in default	comm_layered.c; default 0 since 2026-10-21 (both transports); 1 from 2026-10-12 (TASKS 27)
 COMM_OFI	auto	bool	0|1		comm_ofi.c:98 default = a cxi NIC is present (cxi_present())
 COMM_OFI_NICS	unset	str	NIC list, ; between devices		comm_ofi.c:123; unset = automatic
 COMM_OFI_PLAN_CXI	0	bool	0|1		comm_ofi.c:92 (cxi_present() || set)

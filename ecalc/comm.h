@@ -134,7 +134,7 @@ int   comm_shmem_pool_in_heap(void);
 int   comm_shmem_pe_per_apu(void);           /* N7b: COMM_SHMEM_PE_PER_APU (0 off, 1 one proxy PE per APU; checked); 0 without SHMEM */           /* 1 when the pool is carved from the library's heap (a host heap, or a device heap sized by the launch line) */
 void  comm_layered_scratch(comm *c, void *p, size_t bytes);
 void  comm_layered_set_inter2(comm *c, comm *inter2);   /* X2: COMM_LAYER_INTER2=1 -- a second inter communicator over the same PE set (the v-exchanges alternate) */
-int   comm_layered_inter2_on(void);          /* COMM_LAYER_INTER2, default 1 */
+int   comm_layered_inter2_on(void);          /* COMM_LAYER_INTER2; default 0 (both transports) */
 void  comm_layered_release_vslots(comm *c);   /* M3: free the pool v-slots after a product's v-exchanges  */
 size_t comm_layered_vbytes(int dev);   /* B7ACCT: the v-exchange scratch hipMalloc'd now on device dev (all layered communicators) */
 

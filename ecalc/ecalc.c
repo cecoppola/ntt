@@ -454,8 +454,8 @@ int main(int argc, char **argv)
     if (!plan && !fit.fits && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0))
         fprintf(stderr, "ecalc: WARNING: this run does not fit the modelled memory (device %.2f / %.2f GB, node %.2f / %.0f GB); launchers refuse it (mnrun.sh, tools/plan_values.py --fit)\n",
                 fit.device * 1e-9, fit.limit * 1e-9, fit.node * 1e-9, fit.budget * 1e-9);
-    { char eff[320]; const char *np = getenv("ECALC_NP"), *pc = getenv("ECALC_PLANE_CAP_IDX"), *cs = getenv("COMM_SIZE");   /* L5: the resolved values (print-only) */
-      snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,plane_cap:%s,comm_size:%s,batch_pipe:%d,crt_scan:%d,dm_mn_wrap:%d(%s),p24_crt_scan:%d,chain_guard:%d", pool_log, np ? np : "-", "10^18", verbose, pc ? pc : "-", cs ? cs : "1", rns_batch_pipe_on(), rns_crt_scan_on(), newton_dm_wrap(), binsplit_dm_wrap_src(), p24_crt_scan_on(), newton_chain_guard());
+    { char eff[360]; const char *np = getenv("ECALC_NP"), *pc = getenv("ECALC_PLANE_CAP_IDX"), *cs = getenv("COMM_SIZE");   /* L5: the resolved values (print-only) */
+      snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,plane_cap:%s,comm_size:%s,batch_pipe:%d,crt_scan:%d,dm_mn_wrap:%d(%s),p24_crt_scan:%d,chain_guard:%d,layer_inter2:%d", pool_log, np ? np : "-", "10^18", verbose, pc ? pc : "-", cs ? cs : "1", rns_batch_pipe_on(), rns_crt_scan_on(), newton_dm_wrap(), binsplit_dm_wrap_src(), p24_crt_scan_on(), newton_chain_guard(), comm_layered_inter2_on());
       cfg_print(eff); }
     { /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them.
                                                                                  * the seeds stream through their own two 2 GiB buffers (binsplit.c) -- the staging is the checkpoints' 1 GiB chunk per APU */
