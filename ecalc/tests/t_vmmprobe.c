@@ -162,8 +162,8 @@ int main(int argc, char **argv)
         if (vi == 5 && cpu) {   /* design 2b: move the fine-grained mapping to the wished VA */
             void *q = mremap(p, v.len, v.len, MREMAP_MAYMOVE | MREMAP_FIXED, want); int er = errno;
             if (q == MAP_FAILED) printf("VMMPROBE ext-fine mremap to %p FAILED: %s\n", want, strerror(er));
-            else { int s2; int c2 = cpu_touch((volatile char *)q, v.len, &s2); char pi2[300]; int p2 = ptrinfo(q, v.len, pi2, sizeof pi2); int rc2; int d2 = dmabuf(q, v.len, &rc2); int so; int oldok = cpu_touch((volatile char *)p, 4096, &so);
-                printf("VMMPROBE ext-fine mremap to %p -> %p: CPU touch %s, pointer_info %s [%s], dmabuf rc %d, old VA CPU touch %s (HIP still knows the old VA: %s)\n", want, q, c2 ? "ok" : "FAIL", p2 ? "HSA" : "not HSA", pi2, rc2, oldok ? "ok" : "fails", (int)ptrinfo(p, v.len, pi2, sizeof pi2) ? "yes" : "no");
+            else { int s2; int c2 = cpu_touch((volatile char *)q, v.len, &s2); char pi2[300]; int p2 = ptrinfo(q, v.len, pi2, sizeof pi2); int rc2; int d2 = dmabuf(q, v.len, &rc2); int so; int oldok = cpu_touch((volatile char *)p, 4096, &so); char pi3[300]; int p3 = ptrinfo(p, v.len, pi3, sizeof pi3);
+                printf("VMMPROBE ext-fine mremap to %p -> %p: CPU touch %s, pointer_info %s [%s], dmabuf rc %d, old VA CPU touch %s (HIP still knows the old VA: %s)\n", want, q, c2 ? "ok" : "FAIL", p2 ? "HSA" : "not HSA", pi2, rc2, oldok ? "ok" : "fails", p3 ? "yes" : "no");
                 mremap(q, v.len, v.len, MREMAP_MAYMOVE | MREMAP_FIXED, p); }
         }
         snprintf(rows[vi], sizeof rows[vi], "VMMPROBE MATRIX %-12s cpu=%s gpu=%s ptr=%s dmabuf=%s cma=%s va=%s", nm, cpu ? "PASS" : "FAIL", gpuok < 0 ? "n/a" : gpuok ? "PASS" : "FAIL", ptr ? "PASS" : "FAIL", dm ? "PASS" : "FAIL", cma < 0 ? "n/a" : cma ? "PASS" : "FAIL", p == want ? "fixed-ok" : "natural");
