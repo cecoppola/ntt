@@ -16,8 +16,15 @@
 #include "memsample.h"                                       /* Phase 14 S1 (E1) */
 #include "mn_plan.h"                                         /* Phase 13d L: the chain and the X1 group, asked by the plan printer too */
 #include "binsplit.h"                                        /* Phase 14 L1: dm_tight (DM_TIGHT), read once with the layout's switches */
+#include "vpe.h"                                            /* S1c: virtual PEs (ECALC_VPE=1): the chain and the mdb helpers per PE */
 static int nv = -1;
-static dbig g_r, g_r2, g_qt, g_t1, g_t2;
+/* S1c: the reciprocal chain's scratch is per vPE (one set per PE thread; idx 0 only when the switch is off, so the off path is unchanged) */
+VPE_STATE(dbig, g_r); VPE_STATE(dbig, g_r2); VPE_STATE(dbig, g_qt); VPE_STATE(dbig, g_t1); VPE_STATE(dbig, g_t2);
+#define g_r VPE(g_r)
+#define g_r2 VPE(g_r2)
+#define g_qt VPE(g_qt)
+#define g_t1 VPE(g_t1)
+#define g_t2 VPE(g_t2)
 void newton_db_free_scratch(void) { db_free(&g_r); db_free(&g_r2); db_free(&g_qt); db_free(&g_t1); db_free(&g_t2); }
 
 /* the seed is small: the host version, copied in */
@@ -106,6 +113,7 @@ static void recip_db(dbig *mu, const dbig *Qd, const bigint *Q, size_t k) { reci
 /* Phase 15 R4: C = A B mod B^w with the low cut (w = (size_t)-1: the whole product, rns_mul_high_db as before) */
 static void mul_band_db(dbig *C, const dbig *A, const dbig *B, size_t lowcut, size_t w)
 {
+    if (vpe_on()) { rns_mul_local(C, A, B, lowcut, w); return; }   /* S1c: the chain on the PE's own device (form S; the same products and cuts) */
     if (w == (size_t)-1) rns_mul_high_db(C, A, B, lowcut);
     else rns_mul_band_db(C, A, B, lowcut, w);
 }
@@ -420,15 +428,28 @@ __global__ void k_mn_scatter(struct sacc dst, size_t lo2, const uint64_t *rb, co
     size_t total = (size_t)g * SL, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
     for (; t < total; t += stride) { size_t r = t / SL, k = t - r * SL; if (k < pc[r].len) *sacc_p(dst, pc[r].a + k - lo2) = rb[pc[r].off + k]; }
 }
+/* S1c: the process-wide counters (newton_st, newton_mid_st, newton_x_dx) are written by vPE lane 0 only -- every PE computes the same values, and the
+ * readers (the output stage) run after the division's last collective, which lane 0 enters after these writes */
+#define NST(stmt) do { if (!vpe_on() || !vpe_idx()) { stmt; } } while (0)
 static unsigned mn_nblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 8 ? 228 * 8 : b); }
-static hipStream_t g_ms[4]; static int g_ms_init;
-static void ms_init(void) { if (g_ms_init) return; for (int d = 0; d < 4; d++) { MN_HIP(hipSetDevice(d)); MN_HIP(hipStreamCreateWithFlags(&g_ms[d], hipStreamNonBlocking)); } MN_HIP(hipSetDevice(0)); g_ms_init = 1; }
-static struct { size_t n_shift, n_addsub, n_small; double t_shift, t_addsub, t_small, t_prod; size_t shift_max; } mn_st;   /* shift_max: Phase 13a M, the largest sb + rb of one mdb_shift (bytes per node-process, measured) */
+/* S1c (vPE): the mdb helpers run on the PE's single device (vpe_lane()) and its flat communicator G->pe; nl = APU threads of one exchange (4 per node, 1 per PE),
+ * ldev(d) = the device of thread d.  The streams are per device (a vPE creates its own); mn_st is per vPE. */
+#define NLANES() (vpe_on() ? 1 : 4)
+static inline int ldev(int d) { return vpe_on() ? vpe_lane() + d : d; }
+static hipStream_t g_ms[VPE_MAX]; static int g_ms_init; static int g_ms_lane[VPE_MAX];
+static void ms_init(void)
+{
+    if (vpe_on()) { int l = vpe_lane(); if (!g_ms_lane[l]) { MN_HIP(hipSetDevice(l)); MN_HIP(hipStreamCreateWithFlags(&g_ms[l], hipStreamNonBlocking)); g_ms_lane[l] = 1; } return; }
+    if (g_ms_init) return; for (int d = 0; d < 4; d++) { MN_HIP(hipSetDevice(d)); MN_HIP(hipStreamCreateWithFlags(&g_ms[d], hipStreamNonBlocking)); } MN_HIP(hipSetDevice(0)); g_ms_init = 1;
+}
+typedef struct { size_t n_shift, n_addsub, n_small; double t_shift, t_addsub, t_small, t_prod; size_t shift_max; } mn_st_t;   /* shift_max: Phase 13a M, the largest sb + rb of one mdb_shift (bytes per node-process, measured) */
+VPE_STATE(mn_st_t, mn_st);
+#define mn_st VPE(mn_st)
 extern size_t rns_dist_tscratch_max;                                 /* rns_dist.c (Phase 13a M): the largest T + rbO of a product or shifted add */
 static void mfree(mdb *x) { if (x->sh.cap) db_free(&x->sh); memset(x, 0, sizeof *x); }
 static size_t mshare_max(const mdb *x) { return x->g ? (x->N + x->g - 1) / x->g : 0; }
 /* the piece (source node r, target node rt): target indices [a, b); APU d's quarter of it */
-static int piece_of(const mdb *X, long s, const mdb *Y, size_t n2, int r, int rt, int d, struct piece *pc)
+static int piece_of(const mdb *X, long s, const mdb *Y, size_t n2, int r, int rt, int d, int nd, struct piece *pc)
 {
     size_t lo1, hi1, lo2, hi2; mdb_share(X, r, &lo1, &hi1); mdb_share(Y, rt, &lo2, &hi2);
     if (hi1 > X->n) hi1 = X->n; if (hi2 > n2) hi2 = n2;
@@ -436,8 +457,47 @@ static int piece_of(const mdb *X, long s, const mdb *Y, size_t n2, int r, int rt
     if (hi1 <= lo1 || hi2 <= lo2) return 0;
     long a = (long)lo2, b = (long)hi2; if ((long)lo1 - s > a) a = (long)lo1 - s; if ((long)hi1 - s < b) b = (long)hi1 - s;
     if (b <= a) return 0;
-    size_t len = (size_t)(b - a), a0 = (size_t)a + len * d / 4, a1 = (size_t)a + len * (d + 1) / 4;
+    size_t len = (size_t)(b - a), a0 = (size_t)a + len * d / nd, a1 = (size_t)a + len * (d + 1) / nd;
     pc->a = a0; pc->len = a1 - a0; return 1;
+}
+/* the omp-over-APUs body of mdb_shift_gt as a lane function (S1c): thread d of nd works on the d-th part of every piece, on device ldev(d) with its stream and
+ * communicator (the node's mesh d, or under vPE the PE communicator of the group) */
+struct shift_ctx { const mdb *X; mdb *Yn; long s; size_t n2, lo1, lo2, cn, SL, SLk; int K, g, node, nd; mn_group *G; size_t shift_bytes; };
+static void shift_lane(struct shift_ctx *C, int d)
+{
+    const mdb *X = C->X; mdb *Yn = C->Yn; long s = C->s; size_t n2 = C->n2, lo1 = C->lo1, lo2 = C->lo2, cn = C->cn, SLk = C->SLk; int K = C->K, g = C->g, node = C->node, nd = C->nd; mn_group *G = C->G;
+    int dev = ldev(d); hipStream_t st = g_ms[dev]; comm *cm = vpe_on() ? G->pe : G->all[d];
+    MN_HIP(hipSetDevice(dev));
+    struct piece *hp = (struct piece *)malloc(4 * g * sizeof *hp), *hq = hp + g, *hpk = hp + 2 * g, *hqk = hp + 3 * g, *dp = (struct piece *)db_pool_alloc(dev, g * sizeof *hp + 64);
+    size_t *cnt = (size_t *)malloc(4 * (size_t)g * sizeof *cnt), *scnt = cnt, *sdsp = cnt + g, *rcnt = cnt + 2 * g, *rdsp = cnt + 3 * g, ts = 0, tr = 0, tsm = 0, trm = 0;
+    int any = 0, anyr = 0;
+    for (int r = 0; r < g; r++) { any |= piece_of(X, s, Yn, n2, node, G->g0 + r, d, nd, &hp[r]); }
+    for (int r = 0; r < g; r++) { anyr |= piece_of(X, s, Yn, n2, G->g0 + r, node, d, nd, &hq[r]); }
+    for (int c = 0; c < K; c++) {                     /* the largest round's totals size the slabs */
+        size_t a = 0, b = 0;
+        for (int r = 0; r < g; r++) a += hp[r].len * (c + 1) / K - hp[r].len * c / K;
+        for (int r = 0; r < g; r++) b += hq[r].len * (c + 1) / K - hq[r].len * c / K;
+        if (a > tsm) tsm = a; if (b > trm) trm = b;
+    }
+    uint64_t *sb = db_pool_alloc(dev, (tsm + 16) * 8), *rb = db_pool_alloc(dev, (trm + 16) * 8);
+    __atomic_fetch_add(&C->shift_bytes, (tsm + trm + 32) * 8, __ATOMIC_RELAXED);
+    for (int c = 0; c < K; c++) {
+        ts = tr = 0;
+        for (int r = 0; r < g; r++) { size_t l0 = hp[r].len * c / K, l1 = hp[r].len * (c + 1) / K; hpk[r].a = hp[r].a + l0; hpk[r].len = l1 - l0; hpk[r].off = ts; scnt[r] = hpk[r].len * 8; sdsp[r] = ts * 8; ts += hpk[r].len; }
+        for (int r = 0; r < g; r++) { size_t l0 = hq[r].len * c / K, l1 = hq[r].len * (c + 1) / K; hqk[r].a = hq[r].a + l0; hqk[r].len = l1 - l0; hqk[r].off = tr; rcnt[r] = hqk[r].len * 8; rdsp[r] = tr * 8; tr += hqk[r].len; }
+        if (any) {
+            MN_HIP(hipMemcpyAsync(dp, hpk, g * sizeof *hp, hipMemcpyHostToDevice, st));
+            k_mn_pack<<<mn_nblk((size_t)g * SLk), 256, 0, st>>>(sb, sacc_of(&X->sh), s - (long)lo1, dp, g, SLk);
+        }
+        MN_HIP(hipStreamSynchronize(st));
+        { int xk_ = comm_xtag_set(XK_ADDSH); comm_alltoallv(cm, sb, scnt, sdsp, rb, rcnt, rdsp, st); comm_xtag_set(xk_); } comm_wait(cm);
+        if (anyr && cn) {
+            MN_HIP(hipMemcpyAsync(dp, hqk, g * sizeof *hq, hipMemcpyHostToDevice, st));
+            k_mn_scatter<<<mn_nblk((size_t)g * SLk), 256, 0, st>>>(sacc_of(&Yn->sh), lo2, rb, dp, g, SLk);
+        }
+        MN_HIP(hipStreamSynchronize(st));
+    }
+    db_pool_free(dev, sb); db_pool_free(dev, rb); db_pool_free(dev, (uint64_t *)dp); free(hp); free(cnt);
 }
 /* Y = X >> s (s < 0: X << -s) in basis N2 over G; if N2 is below the shifted length the result is truncated to N2
  * limbs (mod B^N2) and re-normalised.  Y is a fresh number (its share zero-filled, fixed length) */
@@ -458,7 +518,7 @@ static void mdb_shift_gt(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, i
     size_t lo1, hi1; mdb_share(X, node, &lo1, &hi1);
     /* Phase 11 L (agent L, B7): the slabs at their exact lengths (an alltoallv; the buffers hold my pieces' limbs, at most my
      * share / 4 per APU each, instead of g x the longest piece).  SL (the longest piece part) bounds the kernels' iteration only */
-    size_t pm = mshare_max(X) < mshare_max(&Yn) ? mshare_max(X) : mshare_max(&Yn), SL = (pm + 3) / 4 + 1; SL = (SL + 15) / 16 * 16;
+    size_t pm = mshare_max(X) < mshare_max(&Yn) ? mshare_max(X) : mshare_max(&Yn), SL = (pm + NLANES() - 1) / NLANES() + 1; SL = (SL + 15) / 16 * 16;
     /* Phase 13a M (TASKS 1.2): MDB_SHIFT_CHUNK_MB=m > 0 exchanges the pieces in K rounds, round c carrying the sub-range
      * [a + len c / K, a + len (c + 1) / K) of every piece part, so sb and rb hold about SL / K limbs per APU (m MB each)
      * instead of my share / 4 (71 GB per node at 576 x 8e10).  K = ceil(SL / chunk) from the group's share bound, the same
@@ -467,46 +527,16 @@ static void mdb_shift_gt(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, i
     static long shift_chunk = -1; if (shift_chunk < 0) { const char *e = getenv("MDB_SHIFT_CHUNK_MB"); shift_chunk = (long)((e ? atof(e) : 1024.0) * 1048576.0 / 8);   /* default 1024 MB since Phase 13c; =0 exchanges in one round */ if (shift_chunk < 0) shift_chunk = 0; }
     int K = shift_chunk > 0 && SL > (size_t)shift_chunk ? (int)((SL + shift_chunk - 1) / shift_chunk) : 1;
     size_t SLk = K > 1 ? ((SL + K - 1) / K + 1 + 15) / 16 * 16 : SL;
-    size_t shift_bytes = 0;
+    struct shift_ctx C = { X, &Yn, s, n2, lo1, lo2, cn, SL, SLk, K, g, node, NLANES(), G, 0 };
     if (X->n && n2) {
+        if (vpe_on()) shift_lane(&C, 0);                  /* the vPE thread is its own APU thread: no omp region */
+        else {
 #pragma omp parallel num_threads(4)
-    {
-        int d = omp_get_thread_num(); hipStream_t st = g_ms[d];
-        MN_HIP(hipSetDevice(d));
-        struct piece *hp = (struct piece *)malloc(4 * g * sizeof *hp), *hq = hp + g, *hpk = hp + 2 * g, *hqk = hp + 3 * g, *dp = (struct piece *)db_pool_alloc(d, g * sizeof *hp + 64);
-        size_t *cnt = (size_t *)malloc(4 * (size_t)g * sizeof *cnt), *scnt = cnt, *sdsp = cnt + g, *rcnt = cnt + 2 * g, *rdsp = cnt + 3 * g, ts = 0, tr = 0, tsm = 0, trm = 0;
-        int any = 0, anyr = 0;
-        for (int r = 0; r < g; r++) { any |= piece_of(X, s, &Yn, n2, node, G->g0 + r, d, &hp[r]); }
-        for (int r = 0; r < g; r++) { anyr |= piece_of(X, s, &Yn, n2, G->g0 + r, node, d, &hq[r]); }
-        for (int c = 0; c < K; c++) {                     /* the largest round's totals size the slabs */
-            size_t a = 0, b = 0;
-            for (int r = 0; r < g; r++) a += hp[r].len * (c + 1) / K - hp[r].len * c / K;
-            for (int r = 0; r < g; r++) b += hq[r].len * (c + 1) / K - hq[r].len * c / K;
-            if (a > tsm) tsm = a; if (b > trm) trm = b;
+            shift_lane(&C, omp_get_thread_num());
+            MN_HIP(hipSetDevice(0));
         }
-        uint64_t *sb = db_pool_alloc(d, (tsm + 16) * 8), *rb = db_pool_alloc(d, (trm + 16) * 8);
-#pragma omp atomic
-        shift_bytes += (tsm + trm + 32) * 8;
-        for (int c = 0; c < K; c++) {
-            ts = tr = 0;
-            for (int r = 0; r < g; r++) { size_t l0 = hp[r].len * c / K, l1 = hp[r].len * (c + 1) / K; hpk[r].a = hp[r].a + l0; hpk[r].len = l1 - l0; hpk[r].off = ts; scnt[r] = hpk[r].len * 8; sdsp[r] = ts * 8; ts += hpk[r].len; }
-            for (int r = 0; r < g; r++) { size_t l0 = hq[r].len * c / K, l1 = hq[r].len * (c + 1) / K; hqk[r].a = hq[r].a + l0; hqk[r].len = l1 - l0; hqk[r].off = tr; rcnt[r] = hqk[r].len * 8; rdsp[r] = tr * 8; tr += hqk[r].len; }
-            if (any) {
-                MN_HIP(hipMemcpyAsync(dp, hpk, g * sizeof *hp, hipMemcpyHostToDevice, st));
-                k_mn_pack<<<mn_nblk((size_t)g * SLk), 256, 0, st>>>(sb, sacc_of(&X->sh), s - (long)lo1, dp, g, SLk);
-            }
-            MN_HIP(hipStreamSynchronize(st));
-            { int xk_ = comm_xtag_set(XK_ADDSH); comm_alltoallv(G->all[d], sb, scnt, sdsp, rb, rcnt, rdsp, st); comm_xtag_set(xk_); } comm_wait(G->all[d]);
-            if (anyr && cn) {
-                MN_HIP(hipMemcpyAsync(dp, hqk, g * sizeof *hq, hipMemcpyHostToDevice, st));
-                k_mn_scatter<<<mn_nblk((size_t)g * SLk), 256, 0, st>>>(sacc_of(&Yn.sh), lo2, rb, dp, g, SLk);
-            }
-            MN_HIP(hipStreamSynchronize(st));
-        }
-        db_pool_free(d, sb); db_pool_free(d, rb); db_pool_free(d, (uint64_t *)dp); free(hp); free(cnt);
     }
-    MN_HIP(hipSetDevice(0));
-    }
+    size_t shift_bytes = C.shift_bytes;
     Yn.sh.n = cn;
     if (trunc) { size_t top = 0; if (cn) { dbig t = Yn.sh; db_norm(&t); top = t.n ? lo2 + t.n : 0; } Yn.n = comm_allreduce_max(G->all[0], top); }
     if (Y->sh.cap) db_free(&Y->sh);
@@ -569,7 +599,7 @@ static void mdb_pow(mdb *Y, size_t e, size_t N2, mn_group *G)
     int node = G->g0 + G->me; size_t lo, hi; mdb_share(&Yn, node, &lo, &hi); size_t cn = hi - lo;
     if (e >= N2) { ec_fatal(EC_RC_FATAL, "mdb_pow: B^%zu in basis %zu\n", e, N2); }
     db_zero_fill(&Yn.sh, cn);
-    if (e >= lo && e < hi) { uint64_t one = 1; size_t gg = e - lo, d = (gg >= Yn.sh.qc) + (gg >= 2 * Yn.sh.qc) + (gg >= 3 * Yn.sh.qc); mem_dev_copy_on((int)d, Yn.sh.q[d] + (gg - d * Yn.sh.qc), &one, 8); }
+    if (e >= lo && e < hi) { uint64_t one = 1; size_t gg = e - lo, d = (gg >= Yn.sh.qc) + (gg >= 2 * Yn.sh.qc) + (gg >= 3 * Yn.sh.qc); mem_dev_copy_on(ldev((int)d), Yn.sh.q[d] + (gg - d * Yn.sh.qc), &one, 8); }
     Yn.sh.n = cn;
     if (Y->sh.cap) db_free(&Y->sh);
     *Y = Yn;
@@ -621,11 +651,12 @@ static void mdb_to_host_all(bigint *out, const mdb *X, mn_group *G)
     uint64_t *buf = (uint64_t *)calloc(ms, 8), *all = (uint64_t *)malloc((size_t)g * ms * 8);
     if (hi > lo) { bigint h; bi_init(&h); dbig v = X->sh; v.n = hi - lo; db_to_bi(&h, &v); memcpy(buf, h.l, (hi - lo) * 8); bi_free(&h); }
     {   /* an all-gather over mesh 0 (device blocks; Phase 11 L (agent L, B7): one copy of the block instead of g) */
-        MN_HIP(hipSetDevice(0)); uint64_t *sb = db_pool_alloc(0, ms * 8), *rb = db_pool_alloc(0, (size_t)g * ms * 8);
+        const int dv = ldev(0);   /* (S1c: under vPE the PE's own device) */
+        MN_HIP(hipSetDevice(dv)); uint64_t *sb = db_pool_alloc(dv, ms * 8), *rb = db_pool_alloc(dv, (size_t)g * ms * 8);
         MN_HIP(hipMemcpy(sb, buf, ms * 8, hipMemcpyHostToDevice));
         comm_allgather(G->all[0], sb, rb, ms * 8);
         MN_HIP(hipMemcpy(all, rb, (size_t)g * ms * 8, hipMemcpyDeviceToHost));
-        db_pool_free(0, sb); db_pool_free(0, rb);
+        db_pool_free(dv, sb); db_pool_free(dv, rb);
     }
     bi_reserve(out, X->N + 1);
     for (int r = 0; r < g; r++) { mdb_share(X, G->g0 + r, &lo, &hi); if (hi > lo) memcpy(out->l + lo, all + (size_t)r * ms, (hi - lo) * 8); }
@@ -663,12 +694,13 @@ static double x1_cost(size_t na, size_t nb, int gp, size_t reshard_limbs)
 {
     int lgt = 0; while ((1 << lgt) < gp) lgt++;
     size_t nc = na + nb, cap = (size_t)1 << (31 + lgt), logmin = 2 * (7 + lgt) < 20 ? 20 : 2 * (7 + lgt);
+    if (vpe_on()) { cap = (size_t)1 << rns_mul_dist_mn_logcap_g(gp); logmin = (size_t)rns_mul_dist_mn_logmin_g(gp); if (logmin < 20) logmin = 20; }   /* S1c: per-PE planes (one rank per PE) */
     double pieces = 1; size_t pts;
     if (nc > cap) { double ka = ceil((double)na / (cap / 2)), kb = ceil((double)nb / (cap / 2)); pieces = ka * kb; pts = cap; }
     else { pts = (size_t)1 << 20; while (pts < nc) pts <<= 1; if (pts < ((size_t)1 << logmin)) pts = (size_t)1 << logmin; }
-    double q = (double)pts / (4.0 * gp), t_loc = 1.11 * q / (double)(1 << 29) + 0.005;
-    double t_x = gp > 1 ? 15 * (8 * q * (gp - 1) / gp / (X1_BW * 1e9) + 4 * (gp - 1) * X1_LAT) : 0;
-    double t_re = gp > 1 && reshard_limbs ? 3 * (8.0 * reshard_limbs / (4.0 * gp) / (X1_BW * 1e9) + (gp - 1) * X1_LAT) : 0;
+    double q = (double)pts / ((double)NLANES() * gp), t_loc = 1.11 * q / (double)(1 << 29) + 0.005;
+    double t_x = gp > 1 ? 15 * (8 * q * (gp - 1) / gp / (X1_BW * 1e9) + NLANES() * (gp - 1) * X1_LAT) : 0;
+    double t_re = gp > 1 && reshard_limbs ? 3 * (8.0 * reshard_limbs / ((double)NLANES() * gp) / (X1_BW * 1e9) + (gp - 1) * X1_LAT) : 0;
     return pieces * (t_loc + t_x) + t_re;
 }
 /* the level whose group [0, 2^L) the product should run on (0: the full group G); every node computes the same answer */
@@ -716,6 +748,25 @@ static void mn_prod_cut_x1(mdb *C, const mdb *A, const mdb *B, mn_group *G, size
     *C = Cs;
 }
 static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G);
+/* S1c: ECALC_VPE_CHAIN = own (default; every PE runs the chain on its own GPU, no communication) | leader (lane 0 of each node runs it, the node's PEs get r0 by one
+ * node-group all-gather; the removed NEWTON_MN_CHAIN_BCAST measured no gain at one PE per node, so this is an arm) */
+static int vpe_chain_leader(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *e = getenv("ECALC_VPE_CHAIN"); v = e && !strcmp(e, "leader");
+                 if (e && strcmp(e, "own") && strcmp(e, "leader")) { ec_fatal(EC_RC_FATAL, "ECALC_VPE_CHAIN=%s: own or leader\n", e); } }
+    return v;
+}
+/* r0 (kp + 1 limbs) from the node's lane 0 to the other PEs of the node (an all-gather over the node's PEs through the host; the chain's result is small) */
+static void recip_chain_share(dbig *r0, size_t kp, int mine)
+{
+    comm *c = vpe_sub(vpe_node() * vpe_lanes(), vpe_lanes()); size_t cap = kp + 4, row = cap + 1;
+    uint64_t *buf = (uint64_t *)calloc(row, 8), *all = (uint64_t *)malloc((size_t)vpe_lanes() * row * 8);
+    if (mine) { bigint h; bi_init(&h); db_to_bi(&h, r0); if (h.n > cap) { ec_fatal(EC_RC_FATAL, "recip_chain_share: r0 has %zu limbs (kp %zu)\n", h.n, kp); } buf[0] = h.n; memcpy(buf + 1, h.l, h.n * 8); bi_free(&h); }
+    mn_allgather(c, buf, (int)row, all);                                 /* (lane 0 of the node is rank 0 of the node group) */
+    if (!mine) { bigint h; bi_init(&h); bi_reserve(&h, all[0] + 1); memcpy(h.l, all + 1, all[0] * 8); h.n = all[0]; db_from_bi(r0, &h); bi_free(&h); }
+    free(buf); free(all);
+}
 /* D3: the reciprocal's waits are their own phase (MN_WAIT_STATS) */
 static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G) { int pp = comm_wst_set_phase(WST_RECIP); recip_mn_body(mu, Q, k, G); comm_wst_set_phase(pp); }
 /* the reciprocal mu of Q (k + 1 limbs) over G: the single-node chain up to the split precision, then the sharded steps */
@@ -733,6 +784,7 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     static int rts = -1;
     if (rts < 0) rts = getenv("NEWTON_MN_RECIP_TS") ? atoi(getenv("NEWTON_MN_RECIP_TS")) : 0;
     double tsa = mem_now(), tsb, tsc, tsd;
+    const int lead = vpe_on() && vpe_chain_leader() && vpe_lanes() > 1, mine = !lead || vpe_lane() == 0;   /* S1c: who runs the chain (own: every PE; leader: lane 0 of each node) */
     mdb Qt; memset(&Qt, 0, sizeof Qt); mdb_shift(&Qt, Q, (long)(nq - T), T, G);
     tsb = mem_now();
     bigint hq; bi_init(&hq);
@@ -740,16 +792,20 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     tsc = mem_now();
     dbig Qtop, r0; double tsi0 = mem_now(), tsi1 = 0, tsi2 = 0, tsi3 = 0;
     db_init(&Qtop); db_init(&r0);
+    if (mine) {
     if (rts >= 2) { tsi1 = mem_now(); db_reserve(&Qtop, hq.n ? hq.n : 1); tsi2 = mem_now(); }   /* S32: NEWTON_MN_RECIP_TS=2: db_init / the first pool get (db_from_bi's own reserve is then a no-op) / the upload, timed apart */
     db_from_bi(&Qtop, &hq); tsi3 = mem_now(); bi_free(&hq);
     if (rts >= 2) { char hn[64] = "?"; gethostname(hn, sizeof hn);
-        printf("recip ts2 node %d host %s: at run %.3f s: db_init +%.4f first_pool_get(db_reserve) +%.3f db_from_bi(upload) +%.3f total +%.3f\n", me, hn, tsi0, tsi1 - tsi0, tsi2 - tsi1, tsi3 - tsi2, tsi3 - tsi0); fflush(stdout); }
+        printf("%srecip ts2 node %d host %s: at run %.3f s: db_init +%.4f first_pool_get(db_reserve) +%.3f db_from_bi(upload) +%.3f total +%.3f\n", ec_log_prefix(), me, hn, tsi0, tsi1 - tsi0, tsi2 - tsi1, tsi3 - tsi2, tsi3 - tsi0); fflush(stdout); }
     recip_db2(&r0, &Qtop, 0, kp, nq);                                  /* on every node: r ~ B^(nq + kp) / Q, kp + 1 limbs */
+    }
+    else bi_free(&hq);
+    if (lead) recip_chain_share(&r0, kp, mine);                        /* leader arm: lane 0's r0 to the node's other PEs */
     tsd = mem_now();
-    db_free(&Qtop);
+    if (mine) db_free(&Qtop);
     double t1 = mem_now();
     if (rts) { struct timespec rt; clock_gettime(CLOCK_REALTIME, &rt);
-        printf("recip ts node %d: wall %.3f; at run %.3f s: shift +%.3f gather +%.3f chain +%.3f (since this node entered recip_mn)\n", me, (double)(rt.tv_sec % 1000) + rt.tv_nsec * 1e-9, tsa, tsb - tsa, tsc - tsb, tsd - tsc); fflush(stdout); }
+        printf("%srecip ts node %d: wall %.3f; at run %.3f s: shift +%.3f gather +%.3f chain +%.3f (since this node entered recip_mn)\n", ec_log_prefix(), me, (double)(rt.tv_sec % 1000) + rt.tv_nsec * 1e-9, tsa, tsb - tsa, tsc - tsb, tsd - tsc); fflush(stdout); }
     size_t j = kp;
     /* X1: the step's group.  r lives on the group of the current step (Gs, a prefix [0, 2^L) of G or G itself); Q stays
      * on G, so Q_t is cut out of Q by an exchange over G into Gs (every node takes part), the step itself runs on Gs's
@@ -757,7 +813,7 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     mn_group *Gs = 0; int member = 0, mid_ok = 0;                     /* R4: the first sharded round forms the whole product (the chain's last |d| is not carried over) */
     mdb r; memset(&r, 0, sizeof r);
     mdb qt, t, u, pw, d, corr, rs; memset(&qt, 0, sizeof qt); memset(&t, 0, sizeof t); memset(&u, 0, sizeof u); memset(&pw, 0, sizeof pw); memset(&d, 0, sizeof d); memset(&corr, 0, sizeof corr); memset(&rs, 0, sizeof rs);
-    if (me == 0) printf("recip(mn): the single-node chain to %zu limbs (%.2f s), then the sharded steps to %zu over %d nodes\n", kp, t1 - t0, k, G->g);
+    if (me == 0) printf("recip(mn): the single-node chain to %zu limbs (%.2f s), then the sharded steps to %zu over %d nodes%s\n", kp, t1 - t0, k, G->g, vpe_on() ? (lead ? " (vPE chain: leader per node)" : " (vPE chain: own per PE)") : "");
     while (j < k) {
         size_t jn = newton_chain_next(j, k);                           /* Phase 13d L: extracted (unchanged) */
         size_t take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
@@ -772,7 +828,7 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
         }
         if (take == nq && Gs == G) ;                                   /* Q_t = Q itself (no shift copy) */
         else mdb_shift_g(&qt, Q, (long)(nq - take), take, G, 0, Ln ? 1 << Ln : G->g);   /* Q_t: the top limbs of Q, onto the step's group [0, 2^L) (once per step: a repeat reuses it) */
-        if (!member) { j = jn; newton_st.iters++; continue; }
+        if (!member) { j = jn; NST(newton_st.iters++); continue; }
         for (;;) {
             double s0 = mem_now();
             size_t c1 = j <= take ? newton_recip_cut(take - j) : 0;   /* Phase 14 R1 (E7): the same cut over shares (R114.md 1.7) */
@@ -785,13 +841,13 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
                 if (u.n <= j + 3) { neg = u.n != 0; d = u; memset(&u, 0, sizeof u); }
                 else { neg = 0; mdb_pow(&pw, j + 4, j + 5, Gs); mdb_addsub(&d, &pw, &u, 1, Gs); }
                 if (d.n > j + 3) { ec_fatal(EC_RC_FATAL, "newton_mn: the middle product's bound failed at j %zu (|e| has %zu limbs)\n", j, d.n); }
-                newton_mid_st.mid++;
+                NST(newton_mid_st.mid++);
             } else {
             mdb_shift(&u, &t, (long)take - (long)j, 2 * j + 2, Gs);    /* u ~ B^(2j) */
             neg = u.n > 2 * j + 1 || (u.n == 2 * j + 1 && (mdb_limb(&u, u.n - 1, Gs) > 1 || mdb_nonzero_below(&u, 2 * j, Gs)));
             mdb_pow(&pw, 2 * j, 2 * j + 2, Gs);
             if (neg) mdb_addsub(&d, &u, &pw, 1, Gs); else mdb_addsub(&d, &pw, &u, 1, Gs);   /* d = |B^(2j) - u| */
-            newton_mid_st.whole++;
+            NST(newton_mid_st.whole++);
             }
             mfree(&u); mfree(&pw);
             mid_ok = d.n <= j + 1;                                     /* R4: as in recip_db2 */
@@ -807,7 +863,7 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
                 if (!over && rs.n == corr.n) {             /* E7 (R114.md 1.4): rs <= corr + 1 -- rs - corr == 1 also overshoots */
                     mdb df; memset(&df, 0, sizeof df); mdb_addsub(&df, &rs, &corr, 1, Gs); over = df.n == 1 && mdb_limb(&df, 0, Gs) == 1; mfree(&df); }
                 if (over) {                                             /* overshoot: r -= r / 16, through the host (rare) */
-                    newton_st.overshoots++; bigint h, dd; bi_init(&h); bi_init(&dd); mdb_to_host_all(&h, &r, Gs);
+                    NST(newton_st.overshoots++); bigint h, dd; bi_init(&h); bi_init(&dd); mdb_to_host_all(&h, &r, Gs);
                     bi_divmod_u64(&dd, &h, 16); bi_sub(&h, &h, &dd); mdb_from_bi(&r, &h, r.N, Gs); bi_free(&h); bi_free(&dd);
                     mfree(&corr); mfree(&rs); mid_ok = 0; continue;
                 }
@@ -818,12 +874,12 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
             else { mdb_shift(&r, &rs, (long)j, rs.n > j ? rs.n - j : 1, Gs); mfree(&rs); }
             if (nv && me == 0) printf("newton(mn) j %zu -> %zu (k %zu): take %zu, r %zu limbs%s   %.2f s%s\n", j, jn, k, take, r.n, converged ? "" : " (repeat)", mem_now() - s0, Gs != G ? " (subgroup)" : "");
             if (mem_live_on() && me == 0) { char w_[64]; snprintf(w_, sizeof w_, "recip(mn) j %zu -> %zu", j, jn); mem_live_line(w_); }   /* Phase 14 S1 (E1) */
-            if (!converged) { newton_st.repeats++; continue; }
+            if (!converged) { NST(newton_st.repeats++); continue; }
             break;
         }
         if (jn < 2 * j) { mdb_shift(&rs, &r, (long)(2 * j - jn), r.n - (2 * j - jn), Gs); mfree(&r); r = rs; memset(&rs, 0, sizeof rs); }
         j = jn;
-        newton_st.iters++;
+        NST(newton_st.iters++);
     }
     if (!Gs) { Gs = G; member = 1; mdb_from_db(&r, &r0, r0.n, G); }   /* (no sharded step: kp == k) */
     db_free(&r0);
@@ -832,7 +888,7 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     mfree(&qt); mfree(&t);
     if (mu->sh.cap) db_free(&mu->sh);
     *mu = r;
-    newton_st.t_recip += mem_now() - t0;
+    NST(newton_st.t_recip += mem_now() - t0);
     mn_comm_mark("reciprocal");   /* Phase 16 D */
     if (verbose && me == 0) printf("recip(mn) %.2f s: single-node part %.2f, products %.2f, shifts %zu/%.2f, addsub %zu/%.2f, small %zu/%.2f\n", mem_now() - t0, t1 - t0, mn_st.t_prod, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub, mn_st.n_small, mn_st.t_small);
 }
@@ -1048,7 +1104,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
         dx1 = mn_dkm_corr(&R1, &Aw, &xql, &Qw, G, "step 1");
     }
     mn_dkm_add(&Xh, dx1, G);                                           /* X_hi exact (no one has seen it) */
-    newton_st.dkm_corr += (size_t)(dx1 < 0 ? -dx1 : dx1);
+    NST(newton_st.dkm_corr += (size_t)(dx1 < 0 ? -dx1 : dx1));
     /* Phase 15 EW (MN_OUT_DKM_HI, results/DIVISION.md §EW15 1.3) -- the X_hi hook (every rank, the same point: the hook runs a collective): X_hi is
      * final here; the hook takes it and starts the part files of X_hi's shares.  No X0 below: the division returns X_lo */
     int xhi = newton_mn_xhi_hook && newton_mn_xlo_hook && newton_x_defer;
@@ -1065,7 +1121,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     if (xhi) {   /* Phase 15 EW -- the X_lo hook (every rank; carry = X_lo0 >= B^s is the group's): released onto X_lo0 unless carry, then the
                   * corrections deferred as today; else added to X_lo0 in place.  X_lo is kept (the division's result) */
         int carry = Xl.n > s;
-        newton_x_dx = 0;
+        NST(newton_x_dx = 0);
         int rel = newton_mn_xlo_hook(&Xl, s, carry, newton_mn_x_arg);
         double td = mem_now();
         long dx = 0;
@@ -1075,8 +1131,8 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
         rns_dist_cache_release();
         double te = mem_now();
         if (!Pw) dx = mn_dkm_corr(&Rd, &Aw, &xql, &Qw, G, "step 2");
-        if (dx < 0) newton_st.down_corr += (size_t)(-dx); else newton_st.up_corr += (size_t)dx;
-        if (dx && rel) newton_x_dx = dx; else mn_dkm_add(&Xl, dx, G);
+        if (dx < 0) NST(newton_st.down_corr += (size_t)(-dx)); else NST(newton_st.up_corr += (size_t)dx);
+        if (dx && rel) NST(newton_x_dx = dx); else mn_dkm_add(&Xl, dx, G);
         mfree(&Qw); mfree(&Qpp);
         double tf = mem_now();
         if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) end");
@@ -1084,7 +1140,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
         mfree(&Rd);
         if (X->sh.cap) db_free(&X->sh);
         *X = Xl;
-        newton_st.t_div += mem_now() - ta;
+        NST(newton_st.t_div += mem_now() - ta);
         mn_comm_mark("division (after the reciprocal)");   /* Phase 16 D */
         if (me == 0) printf("divmod(mn, DKM, X_hi writer) %.2f s: k %zu = %zu + %zu (s), h %zu; reciprocal %.2f (products %.2f), S = P + Q %.2f, step 1 (A mu, X_hi Q, corrections %ld) %.2f, step 2 A mu %.2f, X_lo Q %.2f, corrections %.2f (%ld, %s), R residues %.2f; X_lo0 %s B^s; division products %.2f s; shifts %zu/%.2f s, addsub %zu/%.2f s\n",
                             mem_now() - t0, k, k1, s, h, ta - t0, p_rec, tb - ta, dx1, tc - tb, td - tc, te - td, tf - te, dx, rel ? "deferred" : "in place", mem_now() - tf, carry ? ">=" : "<", mn_st.t_prod - p_rec, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub);
@@ -1098,7 +1154,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
         mdb_shift(&Xn, &Xs, 0, Xs.n ? Xs.n : 1, G); mfree(&Xs);
     }
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 2 assembly");
-    newton_x_dx = 0;
+    NST(newton_x_dx = 0);
     if (newton_mn_x_hook) newton_mn_x_hook(&Xn, newton_mn_x_arg);     /* Phase 15 IO (W5d): the writer starts on X0, before step 2's low product */
     double td = mem_now();
     long dx = 0;
@@ -1109,8 +1165,8 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     rns_dist_cache_release();
     double te = mem_now();
     if (!Pw) dx = mn_dkm_corr(&Rd, &Aw, &xql, &Qw, G, "step 2");
-    if (dx < 0) newton_st.down_corr += (size_t)(-dx); else newton_st.up_corr += (size_t)dx;
-    if (dx && newton_x_defer) newton_x_dx = dx;                       /* Phase 15 K (ECALC_CORR_PATCH=2) */
+    if (dx < 0) NST(newton_st.down_corr += (size_t)(-dx)); else NST(newton_st.up_corr += (size_t)dx);
+    if (dx && newton_x_defer) NST(newton_x_dx = dx);                       /* Phase 15 K (ECALC_CORR_PATCH=2) */
     else if (dx) mdb_add_val(&Xn, 0, (uint64_t)(dx < 0 ? -dx : dx), dx < 0, G);
     mfree(&Qw); mfree(&Qpp);
     double tf = mem_now();
@@ -1119,7 +1175,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     mfree(&Rd);
     if (X->sh.cap) db_free(&X->sh);
     *X = Xn;
-    newton_st.t_div += mem_now() - ta;
+    NST(newton_st.t_div += mem_now() - ta);
     mn_comm_mark("division (after the reciprocal)");   /* Phase 16 D */
     if (me == 0) printf("divmod(mn, DKM) %.2f s: k %zu = %zu + %zu (s), h %zu; reciprocal %.2f (products %.2f), S = P + Q %.2f, step 1 (A mu, X_hi Q, corrections %ld) %.2f, step 2 A mu + assembly %.2f, X_lo Q %.2f, corrections %.2f (%ld), R residues %.2f; division products %.2f s; shifts %zu/%.2f s, addsub %zu/%.2f s\n",
                         mem_now() - t0, k, k1, s, h, ta - t0, p_rec, tb - ta, dx1, tc - tb, td - tc, te - td, tf - te, dx, mem_now() - tf, mn_st.t_prod - p_rec, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub);

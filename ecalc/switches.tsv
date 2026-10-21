@@ -111,6 +111,7 @@ ECALC_TEST_CORR	int	0	0		test-only	-	DKM15.md+KP15.md	prose	ecalc	newton_db.c	1	
 ECALC_VERBOSE	int	1	1	0|1|2	launch-line	aac7	PC15.md+M13.md	Y	ecalc	binsplit.c,comm_shmem.c,ecalc.c,memsample.c,mn.c,newton_db.c,rns_dist.c	20	-	-	ecalc.c
 ECALC_VMM_BG	bool	unset	unset	0|1	built-in default	-	S34.md	Y	ecalc	dbig.c	1	-	-	
 ECALC_VPE	bool	0	unset	0/1	experiment	-	-	Y	ecalc	vpe.c	1	TARGET1 (S1)	2026-12-31	vpe.c; 1 = one pthread per GPU (vPE), PE = L*node+lane; needs COMM_TRANSPORT=xshmem; aborts "stages not merged" until S1a..S1e are all in
+ECALC_VPE_CHAIN	str	own	unset	own|leader	experiment	-	-	Y	ecalc	newton_db.c	1	TARGET1 (S1)	2026-12-31	newton_db.c; the vPE reciprocal chain: own = every PE computes it (default), leader = lane 0 of each node, r0 by a node-group all-gather
 ECALC_VPE_LANES	int	4	4	1..8	experiment	-	-	Y	ecalc	vpe.c	1	TARGET1 (S1)	2026-12-31	vpe.c; vPEs per process (= XSHMEM_LOOPBACK_PES); only with ECALC_VPE=1
 ECALC_WINDOWS	bool	derived	derived	0|1	test-only	-	A-out.md+H.md	Y	ecalc	verify.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_XEX_THREAD	int	1	1	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	TARGET1 (S3a)	2026-12-31	comm_xshmem.c; one persistent worker thread per loopback PE owns the sender half of the exchanges (1, default); 0 = poll-only, the APU thread does it in post and wait
