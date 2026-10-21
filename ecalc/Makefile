@@ -45,11 +45,13 @@ OFI_LIBS   = -L$(LIBFABRIC)/lib64 -lfabric -Wl,-rpath,$(LIBFABRIC)/lib64
 SHMEM_LIBS += $(OFI_LIBS)
 endif
 
+# COMM_SHMEM_PX_DEVSRC: the LD_PRELOAD shim that adds FI_HMEM to libsma's fi_getinfo hints (needs the libfabric headers; no HIP)
+SHIMS = $(if $(filter 1,$(OFI)),tests/fi_hmem_shim.so)
 TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_kbench tests/t_strategy tests/t_cap tests/t_primes tests/t_seed tests/t_patch tests/t_p24 tests/t_crtk tests/t_crt24k
 OBJS  = ntt.o ntt3.o mem.o crt.o comm_local.o comm_sim4.o comm_xgmi.o comm_copy.o comm_shmem.o comm_ofi.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o config_line.o
 REF   = ref/gen_e
 
-all: $(REF) $(OBJS) $(TESTS) ecalc tools
+all: $(REF) $(OBJS) $(TESTS) $(SHIMS) ecalc tools
 
 # Phase 15: the packed digit converter / checker (default output since Phase 15) is part of every build
 tools:
@@ -229,8 +231,11 @@ tests/t_roots: tests/t_roots.c fatal.c fatal.h modarith.h
 tests/t_modarith: tests/t_modarith.c bigint.o fatal.o modarith.h tests/harness.h bigint.h
 	$(HIPC) $< -x none bigint.o fatal.o -o $@ $(GMP_LIBS)
 
+tests/fi_hmem_shim.so: tests/fi_hmem_shim.c
+	$(CC) -shared -fPIC -O1 -Wall -I$(LIBFABRIC)/include -o $@ $< -ldl
+
 clean:
-	rm -f $(REF) $(TESTS) $(OBJS) ecalc
+	rm -f $(REF) $(TESTS) $(SHIMS) $(OBJS) ecalc
 
 .PHONY: all clean tools
 tests/t_ofi_alloc: tests/t_ofi_alloc.c comm_ofi.c comm_ofi.h fatal.c fatal.h

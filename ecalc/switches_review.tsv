@@ -98,6 +98,9 @@ COMM_TRACE_PH	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault
 COMM_TRACE_THR	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_TRACE_WD_MS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_SHMEM_PX_SCHED	experiment	T1 (D57)	2026-11-18	off by default (0 = today's PX3, code path unchanged); W >= 1: whole put-with-signal per command + shifted-ring peer walk, at most W senders per receiver (99: no window); auto: 99 up to 4 nodes else 0; 4 n -14 s, 2-3 n neutral, 6 n loses (results/SHMEM.md)
+COMM_SHMEM_PX_DEVSRC	experiment	devsrc3 (D58/D59)	2026-11-20	off by default; the PX3 proxies put from a HIP device bump ring (1 fine-grained, 2 coarse; IPC to the node-process), startup self-test with verdict, falls back to host staging with one warning; needs tests/fi_hmem_shim.so (LD_PRELOAD, FI_SHIM_MODE=B) and _SHMEM_OFI_USE_MR_HMEM=1; ported from devsrc2, async copy untested until the 2 n A/B
+COMM_SHMEM_PX_DEVSRC_MB	experiment	devsrc3 (D58/D59)	2026-11-20	size of the PX_DEVSRC device buffer per proxy in MiB (0 = half the pool)
+COMM_SHMEM_PX_DEVSRC_ASYNC	experiment	devsrc3 (D58/D59)	2026-11-20	default 1 (only with PX_DEVSRC): host->device copy on a stream per APU with an event per slot, posted when the event completes; 0 = the synchronous copy, for the A/B
 COMM_SHMEM_HUGETLB	experiment	L5	2027-03-31	off by default; node-process heap from the 2 MiB hugetlb pool (aac7 has no pool: falls back to NP_HEAP_THP); review at the target session
 MN_NONPOW2_MIN	experiment	T2 (D57)	2026-11-19	the auto rule's threshold (digits per node, 4.5e10)
 MN_NONPOW2_CAP	experiment	T2 (D57)	2026-11-19	auto since Q58 (user 2026-10-20): on from MN_NONPOW2_MIN digits per node; 6 n -18 s libfabric, +41 GB/node planes; 1 = on, 0 = off

@@ -138,6 +138,7 @@ static struct {
     double bv;                             /* the bytes this PE received from the other PEs in those exchanges (the off-process traffic), summed */
     int sched_auto;                        /* COMM_SHMEM_PX_SCHED unset or =auto (S.sched is resolved at init) */
     int ppa, ppn, pme, pnpes, proxy;       /* N7b COMM_SHMEM_PE_PER_APU: proxies per APU (0 off), PEs per node (1 + 4 ppa), my physical PE and the count, 1 = this PE is a proxy */
+    int devsrc, devsrc_mb, devsrc_async;   /* COMM_SHMEM_PX_DEVSRC (0 = off, 1 fine-grained, 2 coarse HIP device buffer as the proxies' put source), _MB its size per proxy (0 = half the pool), _ASYNC (default 1) the host->device copy on a stream with an event per slot, 0 = synchronous */
     int sched;                             /* COMM_SHMEM_PX_SCHED = W (0 = off): PX3 command stream with whole put-with-signal commands, sent to the peers as a shifted ring with at most W senders per receiver (W >= n - 1: no window) */
     int pxsend;                            /* N7D COMM_SHMEM_PX_SEND: 1 (fallback; default only without PE_PER_APU=1 or OpenSHMEM 1.5) the proxy's batch-then-quiet, 3 (PX3, default since D53) plain chunks + one fence and signal word per command (px_serve2); 2 (chunked put-with-signal) was removed 2026-10-19 */
 } S;
@@ -405,7 +406,12 @@ static void tr_flush(int proxy)
 }
 static long *px_sigw(char *base, int w, long idx) { return (long *)base + (size_t)w * MAXID * S.npes + (size_t)idx; }
 typedef struct px_hl { char *base; pthread_mutex_t lock; long retired; double tlast; long *cnt[PXRING]; } px_hl;   /* one helper: its heap's control, its ring's state */
-typedef struct px_dev { char *base; size_t span; int pe, reg, d, he, nh; double treg; pthread_mutex_t lock; struct blk *blocks; size_t cur, peak; px_hl hl[1]; } px_dev;   /* lock: the allocator */
+#define PXPQ 64                                /* PX_DEVSRC async: commands copied but not yet posted, per APU (one event each) */
+struct px_pend { long pe; size_t roff, soff, n, p0; long *cnt; long sigidx, sig; };
+typedef struct px_dev { char *base; size_t span; int pe, reg, d, he, nh; double treg; pthread_mutex_t lock; struct blk *blocks; size_t cur, peak; px_hl hl[1];
+    char *dsrc; size_t dsz, dhp; pthread_mutex_t dlock; void *dstream; long dstart[PXRING], dn, dwait, dover, dasync; double dbytes, tcopy, tstall;   /* COMM_SHMEM_PX_DEVSRC (node-process side): the proxy's device buffer (IPC), bump position, per-command start, stats (tcopy: host time issuing / running the copies, tstall: time blocked on an event or a free slot) */
+    struct px_pend pq[PXPQ]; void *pev[PXPQ]; long pq_h, pq_t; int dasy;   /* the async copies in flight, FIFO: pq_h .. pq_t (monotonic counters), event pev[i % PXPQ] marks the copy of pq[i % PXPQ] */
+} px_dev;   /* lock: the allocator; dlock: the device buffer, its position and the pending queue */
 static px_dev *g_px[4];
 static int px_in(const px_dev *x, const void *q);
 #ifndef COMM_HOST_ONLY
@@ -470,26 +476,101 @@ static void px_progress_hl(px_dev *x, px_hl *l)
     }
     pthread_mutex_unlock(&l->lock);
 }
-static void px_progress(px_dev *x) { for (int h = 0; h < x->nh; h++) px_progress_hl(x, &x->hl[h]); }
+#ifndef COMM_HOST_ONLY
+static void px_dev_drain(px_dev *x, int block);          /* (below) */
+#endif
+static void px_progress(px_dev *x)
+{
+#ifndef COMM_HOST_ONLY
+    if (x->dsrc && __atomic_load_n(&x->pq_h, __ATOMIC_ACQUIRE) != __atomic_load_n(&x->pq_t, __ATOMIC_ACQUIRE) && !pthread_mutex_trylock(&x->dlock)) { px_dev_drain(x, 0); pthread_mutex_unlock(&x->dlock); }   /* PX_DEVSRC async: post the commands whose copy is done */
+#endif
+    for (int h = 0; h < x->nh; h++) px_progress_hl(x, &x->hl[h]);
+}
 /* post n bytes from src (inside proxy x's pool) to the pool offset roff of PE dst_pe (another node's proxy of the same APU);
  * under COMM_SHMEM_PX_SEND=3 also the receiver's signal word (sigidx = id * npes + my rank) and the final value sig (n may be 0) */
-static long px_post(px_dev *x, int hh, int dst_pe, size_t roff, size_t soff, size_t n, long *cnt, long sigidx, long sig)   /* one command to helper hh's ring (offsets local to the heap) */
+static long px_post(px_dev *x, int hh, int dst_pe, size_t roff, size_t soff, size_t n, long *cnt, long sigidx, long sig, int pre)   /* one command to helper hh's ring (offsets local to the heap); pre: *cnt was raised already (PX_DEVSRC async) */
 {
     px_hl *l = &x->hl[hh]; struct px_hdr *h = px_hdr_of(l->base); struct px_ent *ring = px_ring_of(l->base);
     pthread_mutex_lock(&l->lock);
     while (h->head - l->retired >= PXRING) { pthread_mutex_unlock(&l->lock); px_progress_hl(x, l); sched_yield(); pthread_mutex_lock(&l->lock); }
     long k = h->head; struct px_ent *e = &ring[k % PXRING];
     e->pe = dst_pe; e->roff = roff; e->soff = soff; e->n = n; e->sigidx = sigidx; e->sig = sig;
-    l->cnt[k % PXRING] = cnt; __atomic_add_fetch(cnt, 1, __ATOMIC_RELAXED);
+    l->cnt[k % PXRING] = cnt; if (!pre) __atomic_add_fetch(cnt, 1, __ATOMIC_RELAXED);
     if (g_tr.on) px_ts_of(l->base)[k % PXRING] = (hs_us() & ~1u) | (g_tr.on && g_tr_px_act ? 1u : 0u);   /* (COMM_TRACE: bit 0 = this command is traced) */
     __atomic_store_n(&h->head, k + 1, __ATOMIC_RELEASE);
     pthread_mutex_unlock(&l->lock);
     return k;
 }
+#define PXDEV ((size_t)1 << 62)                /* PX_DEVSRC: bit of a command's soff = the source is at this offset of the proxy's device buffer (not of its pool) */
+#ifndef COMM_HOST_ONLY
+/* post the pending commands whose copy is complete (block: wait for each one); dlock held.  The commands go to the ring in the order of their copies. */
+static void px_dev_drain(px_dev *x, int block)
+{
+    while (x->pq_h < x->pq_t) {
+        int i = (int)(x->pq_h % PXPQ); struct px_pend *q = &x->pq[i];
+        hipError_t he = hipEventQuery((hipEvent_t)x->pev[i]);
+        if (he == hipErrorNotReady) {
+            (void)hipGetLastError(); if (!block) return;
+            double t = now_s(); HIP_CHECK(hipEventSynchronize((hipEvent_t)x->pev[i])); x->tstall += now_s() - t;
+        } else HIP_CHECK(he);
+        long k = px_post(x, 0, (int)q->pe, q->roff, q->soff, q->n, q->cnt, q->sigidx, q->sig, 1); x->dstart[k % PXRING] = q->p0;
+        __atomic_store_n(&x->pq_h, x->pq_h + 1, __ATOMIC_RELEASE);
+    }
+}
+/* COMM_SHMEM_PX_DEVSRC: the command's data is first copied from src in the proxy pool into the next slot of the proxy's device buffer (a bump ring of positions: a slot is free
+ * again when every command before it has retired and posted), and the command names that slot as its source.  A command larger than the buffer goes from the pool as before.
+ * Synchronous (COMM_SHMEM_PX_DEVSRC_ASYNC=0): the copy kernel runs to the end, then the command is posted.  Asynchronous (default): the copy goes on the APU's own stream with an
+ * event; the command waits in a FIFO (its counter already raised, so the exchange's flush waits for it) and is posted once its event is complete -- by a later px_write or by
+ * px_progress -- so the copy of the next command overlaps the put of the previous one.  The source (pool) is untouched by the caller until the counter drops, as for pool puts. */
+static long px_write_dev(px_dev *x, int dst_pe, size_t roff, const void *src, size_t n, long *cnt, long sigidx, long sig)
+{
+    px_hl *l = &x->hl[0]; struct px_hdr *h = px_hdr_of(l->base); const size_t D = x->dsz, A = 4096;
+    pthread_mutex_lock(&x->dlock);
+    if (!n || n > D) {                                    /* straight from the pool; its start must stay between the in-flight slots' (monotone in the ring order) */
+        if (n) x->dover++;
+        size_t p0 = x->pq_h < x->pq_t ? x->pq[x->pq_h % PXPQ].p0 : x->dhp;
+        long k = px_post(x, 0, dst_pe, roff, n ? (size_t)((const char *)src - x->base) : 0, n, cnt, sigidx, sig, 0); x->dstart[k % PXRING] = p0;
+        pthread_mutex_unlock(&x->dlock); return k;
+    }
+    size_t p0, need = (n + A - 1) & ~(A - 1);
+    if (x->dasy && x->pq_t - x->pq_h >= PXPQ) px_dev_drain(x, 1);
+    for (int waited = 0;; waited = 1) {
+        p0 = x->dhp; if (p0 % D + n > D) p0 = (p0 + D - 1) / D * D;   /* a slot does not wrap: skip to the buffer's start */
+        px_dev_drain(x, 0); px_progress_hl(x, l);
+        long hd = __atomic_load_n(&h->head, __ATOMIC_ACQUIRE);
+        size_t tail = l->retired < hd ? x->dstart[l->retired % PXRING] : x->pq_h < x->pq_t ? x->pq[x->pq_h % PXPQ].p0 : p0;   /* (nothing in flight: the whole buffer is free) */
+        if (p0 + need - tail <= D) break;
+        if (!waited) x->dwait++;
+        double t = now_s(); sched_yield(); x->tstall += now_s() - t;
+    }
+    int cur = -1; (void)hipGetDevice(&cur); if (cur != x->d) HIP_CHECK(hipSetDevice(x->d));
+    double t0 = now_s();
+    HIP_CHECK(pcopy(x->dsrc + p0 % D, src, n, (hipStream_t)x->dstream));
+    long k = -1;
+    if (x->dasy) {
+        int i = (int)(x->pq_t % PXPQ); HIP_CHECK(hipEventRecord((hipEvent_t)x->pev[i], (hipStream_t)x->dstream));
+        x->pq[i] = (struct px_pend){ dst_pe, roff, PXDEV | (size_t)(p0 % D), n, p0, cnt, sigidx, sig };
+        __atomic_add_fetch(cnt, 1, __ATOMIC_RELAXED); __atomic_store_n(&x->pq_t, x->pq_t + 1, __ATOMIC_RELEASE); x->dasync++;
+        x->tcopy += now_s() - t0;
+        if (cur >= 0 && cur != x->d) (void)hipSetDevice(cur);
+        px_dev_drain(x, 0);                               /* (the earlier copies are likely done now: post them while this one runs) */
+    } else {
+        HIP_CHECK(hipStreamSynchronize((hipStream_t)x->dstream)); x->tcopy += now_s() - t0;
+        if (cur >= 0 && cur != x->d) (void)hipSetDevice(cur);
+        k = px_post(x, 0, dst_pe, roff, PXDEV | (size_t)(p0 % D), n, cnt, sigidx, sig, 0); x->dstart[k % PXRING] = p0;
+    }
+    x->dhp = p0 + need; x->dn++; x->dbytes += (double)n;
+    pthread_mutex_unlock(&x->dlock);
+    return k;                                             /* (the ring index is only used by COMM_TRACE; -1 for a command still pending) */
+}
+#endif
 static long px_write(px_dev *x, int dst_pe, size_t roff, const void *src, size_t n, long *cnt, long sigidx, long sig)
 {
     if (n && (!px_in(x, src) || !px_in(x, (const char *)src + n - 1))) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: a proxy put's source is outside the proxy pool\n", S.me);
-    return px_post(x, 0, dst_pe, roff, n ? (size_t)((const char *)src - x->base) : 0, n, cnt, sigidx, sig);
+#ifndef COMM_HOST_ONLY
+    if (x->dsrc) return px_write_dev(x, dst_pe, roff, src, n, cnt, sigidx, sig);
+#endif
+    return px_post(x, 0, dst_pe, roff, n ? (size_t)((const char *)src - x->base) : 0, n, cnt, sigidx, sig, 0);
 }
 /* N7D COMM_SHMEM_PX_SEND=3 (PX3): a proxy's life without batch-then-quiet.  Every command is cut into PXCH (4 MiB) chunks, posted round robin over the
  * commands in the ring (so the peers' transfers interleave) on the context of its destination node (up to PXNCTX contexts: a slow peer's
@@ -498,6 +579,61 @@ static long px_write(px_dev *x, int dst_pe, size_t roff, const void *src, size_t
  * no second hop through the sending node-process.  A command is reported done (its stamp) after the quiet of its own context; between two
  * contexts' quiets new commands are taken and posted.  (The former PX_SEND=2, 4 MiB put-with-signal chunks, posted at 14.8-14.9 GB/s per NIC
  * against 19-20 for whole puts: ecalc mpss4, t_comm 72b; removed 2026-10-19.) */
+#ifndef COMM_HOST_ONLY
+static char *g_dev;                                     /* PX_DEVSRC: this proxy's device buffer (64 MiB aligned inside its allocation) */
+#define PXDS(e) (((e)->soff & PXDEV) ? g_dev + ((e)->soff & ~PXDEV) : S.pool + (e)->soff)
+static size_t px_devsrc_size(void) { size_t D = S.devsrc_mb > 0 ? (size_t)S.devsrc_mb << 20 : S.pool_bytes / 2; return D & ~(((size_t)64 << 20) - 1); }
+/* PX_DEVSRC, a proxy's half, at init after the barrier: allocate the device buffer (=1 fine-grained, =2 coarse, 64 MiB aligned), export its IPC handle in the control area, and run the
+ * self-test -- every proxy puts 8 MiB from its device buffer to the same-APU proxy of the next node, verifies what the previous node's proxy put into its own pool, and answers with a
+ * verdict word (row MAXID - 6, put to the previous node); a flag word (row MAXID - 5, put after a quiet) says "sent" or "no buffer"; a last word (row MAXID - 7) says that the sender's puts into the receiver's pool are over, so no put of the test lands in a pool already in use.  This proxy's device sources are used only if
+ * its own put was verified by the next node (the verdict) and it could allocate.  The result (pad[1] = 1 ok, 2 not) is what the node-process waits for in px_attach.  A library that
+ * cannot take a device source (no FI_HMEM: see tests/fi_hmem_shim.c) may still abort here: that cannot be caught. */
+static void px_devsrc_proxy(void)
+{
+    struct px_hdr *h = px_hdr_of(S.pool); const size_t AL = (size_t)64 << 20, D = px_devsrc_size(), TS = (size_t)8 << 20; const int d = S.pme % S.ppn;
+    char *raw = 0; hipIpcMemHandle_t ih; memset(&ih, 0, sizeof ih); int okl = 0; const char *why = "";
+    if (S.pme == 0) { const char *lp = getenv("LD_PRELOAD"); if (!getenv("FI_SHIM_MODE") || !lp || !strstr(lp, "fi_hmem_shim")) fprintf(stderr, "comm_shmem: COMM_SHMEM_PX_DEVSRC=%d: warning: LD_PRELOAD has no fi_hmem_shim / FI_SHIM_MODE is unset: the self-test decides whether the library can put from device memory\n", S.devsrc); }
+    hipError_t he = hipSetDevice(d);
+    if (he == hipSuccess && D >= TS) he = S.devsrc == 1 ? hipExtMallocWithFlags((void **)&raw, D + AL, hipDeviceMallocFinegrained) : hipMalloc((void **)&raw, D + AL);
+    else if (he == hipSuccess) { he = hipErrorInvalidValue; why = "buffer smaller than 8 MiB"; }
+    if (he == hipSuccess) { g_dev = (char *)(((uintptr_t)raw + AL - 1) & ~(uintptr_t)(AL - 1)); he = hipIpcGetMemHandle(&ih, raw); }
+    if (he == hipSuccess) okl = 1; else { if (!*why) why = hipGetErrorString(he); (void)hipGetLastError(); }
+    char *tdst = S.pool + S.mb_bytes + PXCTL; long *fl = mailbox(MAXID - 5, 0), *vd = mailbox(MAXID - 6, 0), *td_ = mailbox(MAXID - 7, 0);
+    const int dst = (S.pme + S.ppn) % S.pnpes, srcpe = (S.pme - S.ppn + S.pnpes) % S.pnpes;
+    if (okl) {
+        char *pat = (char *)malloc(TS); for (size_t i = 0; i < TS; i++) pat[i] = (char)(S.pme * 31 + (int)(i * 7) + 5);
+        he = hipMemcpy(g_dev, pat, TS, hipMemcpyHostToDevice); free(pat);
+        if (he != hipSuccess) { okl = 0; why = hipGetErrorString(he); (void)hipGetLastError(); }
+    }
+    if (okl) { shmem_putmem(tdst, g_dev, TS, dst); shmem_quiet(); }
+    shmem_long_p(fl, okl ? 1 : 2, dst); shmem_quiet();
+    double t0 = now_s(); long fv = 0;
+    while (!(fv = __atomic_load_n(fl, __ATOMIC_ACQUIRE))) { if (now_s() - t0 > 60) break; struct timespec ts = { 0, 200000 }; nanosleep(&ts, 0); }
+    int okv = 0;
+    if (fv == 1) { okv = 1; for (size_t i = 0; i < TS; i++) if (tdst[i] != (char)(srcpe * 31 + (int)(i * 7) + 5)) { okv = 0; break; } }
+    shmem_long_p(vd, okv ? 1 : 2, srcpe); shmem_quiet();   /* the verdict on the previous node's put */
+    t0 = now_s(); long vv = 0;
+    while (!(vv = __atomic_load_n(vd, __ATOMIC_ACQUIRE))) { if (now_s() - t0 > 60) break; struct timespec ts = { 0, 200000 }; nanosleep(&ts, 0); }
+    int ok = okl && vv == 1;
+    if (!ok && okl) why = vv == 0 ? "the next node's verdict never arrived (60 s)" : fv == 0 ? "the previous node's flag never arrived (60 s)" : "the next node found the data put from this device buffer wrong (or its own receive failed)";
+    __atomic_store_n(fl, 0, __ATOMIC_RELEASE); __atomic_store_n(vd, 0, __ATOMIC_RELEASE);
+    char tm[160] = "";   /* the timing: a 64 MiB put from the device buffer vs from the host pool, same target (a scratch area of the peer's pool, past the 8 MiB verified one) */
+    if (ok && D >= AL && S.pool_bytes >= S.mb_bytes + PXCTL + 3 * AL) {
+        char *ts2 = tdst + AL, *hs = tdst + 2 * AL; double td[2] = { 0, 0 };
+        for (int rep = 0; rep < 3; rep++) for (int w = 0; w < 2; w++) { double t1 = now_s(); shmem_putmem(ts2, w ? (const void *)hs : (const void *)g_dev, AL, dst); shmem_quiet(); double dt = now_s() - t1; if (!rep || dt < td[w]) td[w] = dt; }
+        snprintf(tm, sizeof tm, "; 64 MiB put (best of 3): device %.2f ms (%.1f GB/s), host pool %.2f ms (%.1f GB/s)", td[0] * 1e3, AL / td[0] / 1e9, td[1] * 1e3, AL / td[1] / 1e9);
+    }
+    shmem_long_p(td_, 1, dst); shmem_quiet();             /* my puts into the next node's pool are over: it may use its pool */
+    t0 = now_s(); while (!__atomic_load_n(td_, __ATOMIC_ACQUIRE)) { if (now_s() - t0 > 60) break; struct timespec ts = { 0, 200000 }; nanosleep(&ts, 0); }   /* (and the previous node's are over before I publish) */
+    __atomic_store_n(td_, 0, __ATOMIC_RELEASE);
+    fprintf(stderr, "comm_shmem: proxy pe %d: COMM_SHMEM_PX_DEVSRC=%d: device buffer %zu MiB (%s), put-from-device self-test %s%s%s%s\n", S.pme, S.devsrc, D >> 20, S.devsrc == 1 ? "fine-grained" : "coarse", ok ? "PASSED" : "FAILED (", ok ? "" : why, ok ? "" : "): the node-process falls back to pool sources", tm);
+    if (ok) { memcpy(&h->pad[2], &ih, sizeof ih); h->pad[10] = (long)(g_dev - raw); h->pad[11] = (long)D; }
+    __atomic_store_n(&h->pad[1], ok ? 1L : 2L, __ATOMIC_RELEASE);
+}
+_Static_assert(sizeof(hipIpcMemHandle_t) <= 8 * sizeof(long), "the IPC handle fits the control area's pad");
+#else
+#define PXDS(e) (S.pool + (e)->soff)
+#endif
 static void px_serve2(void)
 {
     struct px_hdr *h = px_hdr_of(S.pool); struct px_ent *ring = px_ring_of(S.pool); long *dn = px_dn_of(S.pool);
@@ -519,13 +655,13 @@ static void px_serve2(void)
                     if (!e->n) { shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); fp[s] = 1; if (tra[s]) TRP(P_SIGNAL, 0, k, e, 0); continue; }
                     if (S.sched) {                    /* COMM_SHMEM_PX_SCHED: the whole command as one put-with-signal (whole puts run at the wire rate; no fence, no second word) */
 #if HAVE_PUT_SIGNAL
-                        shmem_ctx_putmem_signal_nbi(c, S.pool + e->roff, S.pool + e->soff, e->n, (uint64_t *)px_sigw(S.pool, 1, e->sigidx), (uint64_t)e->sig, SHMEM_SIGNAL_SET, (int)e->pe);
+                        shmem_ctx_putmem_signal_nbi(c, S.pool + e->roff, PXDS(e), e->n, (uint64_t *)px_sigw(S.pool, 1, e->sigidx), (uint64_t)e->sig, SHMEM_SIGNAL_SET, (int)e->pe);
 #endif
                         if (tra[s]) { TRP(P_CHUNK, 0, k, e, e->n); TRP(P_SIGNAL, 0, k, e, e->n); }
                         nsig++; nput++; bytes += (double)e->n; fp[s] = 1; posted[s] = e->n; continue;
                     }
                     size_t o = posted[s], len = e->n - o < PXCH ? e->n - o : PXCH; int last = o + len == e->n;
-                    shmem_ctx_putmem_nbi(c, S.pool + e->roff + o, S.pool + e->soff + o, len, (int)e->pe);   /* a plain chunk; the command's last chunk is followed by a fence and its signal word */
+                    shmem_ctx_putmem_nbi(c, S.pool + e->roff + o, PXDS(e) + o, len, (int)e->pe);   /* a plain chunk; the command's last chunk is followed by a fence and its signal word */
                     if (tra[s]) TRP(P_CHUNK, o / PXCH, k, e, len);
                     if (last) { shmem_ctx_fence(c); shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); nsig++; if (tra[s]) TRP(P_SIGNAL, 0, k, e, e->n); }
                     posted[s] = o + len; nput++; bytes += (double)len;
@@ -647,6 +783,51 @@ static void *reg_thread(void *a) { struct reg_job *j = (struct reg_job *)a; doub
     j->t = now_s() - t; return 0; }
 #endif
 /* the node-process: attach the proxies' pools (shmem_ptr: Cray's on-node XPMEM), register them with HIP, start the allocators */
+#ifndef COMM_HOST_ONLY
+/* COMM_SHMEM_PX_DEVSRC, the node-process's half (end of px_attach): wait for each proxy's self-test result, open its device buffer through the IPC handle it exported, make the copy
+ * stream and (async) the slot events; any failure leaves that APU on pool sources (x->dsrc stays 0), with one warning line per node-process at the end */
+static void px_devsrc_attach(void)
+{
+    int cur = -1; (void)hipGetDevice(&cur); char bad[160] = ""; int nbad = 0;
+    for (int d = 0; d < 4; d++) {
+        px_dev *x = g_px[d]; struct px_hdr *h = px_hdr_of(x->base); const char *msg = "active"; double t0 = now_s();
+        while (!__atomic_load_n(&h->pad[1], __ATOMIC_ACQUIRE) && now_s() - t0 < 180) { struct timespec ts = { 0, 1000000 }; nanosleep(&ts, 0); }
+        long st = __atomic_load_n(&h->pad[1], __ATOMIC_ACQUIRE);
+        if (st != 1) msg = st ? "the proxy's self-test failed: pool sources" : "no answer from the proxy in 180 s: pool sources";
+        else {
+            void *p = 0; hipIpcMemHandle_t ih; memcpy(&ih, &h->pad[2], sizeof ih); hipStream_t strm = 0; hipEvent_t ev[PXPQ]; int ne = 0;
+            hipError_t he = hipSetDevice(d);
+            if (he == hipSuccess) he = hipIpcOpenMemHandle(&p, ih, hipIpcMemLazyEnablePeerAccess);
+            if (he == hipSuccess) he = hipStreamCreateWithFlags(&strm, hipStreamNonBlocking);
+            if (he == hipSuccess && S.devsrc_async) for (; ne < PXPQ && he == hipSuccess; ne++) he = hipEventCreateWithFlags(&ev[ne], hipEventDisableTiming);
+            if (he != hipSuccess) { (void)hipGetLastError(); for (int i = 0; i < ne; i++) (void)hipEventDestroy(ev[i]); if (strm) (void)hipStreamDestroy(strm); msg = "hipIpcOpenMemHandle / stream / events failed in the node-process: pool sources"; }
+            else { x->dsrc = (char *)p + h->pad[10]; x->dsz = (size_t)h->pad[11]; x->dstream = strm; x->dasy = S.devsrc_async; for (int i = 0; i < ne; i++) x->pev[i] = ev[i]; pthread_mutex_init(&x->dlock, 0); }
+        }
+        if (!x->dsrc && strlen(bad) < sizeof bad - 24) { char b[24]; snprintf(b, sizeof b, " APU %d: %.12s;", d, msg); strcat(bad, b); nbad++; }
+        if (S.me == 0 || S.verbose) printf("comm_shmem: pe %d: COMM_SHMEM_PX_DEVSRC=%d: APU %d: %s%s\n", S.me, S.devsrc, d, msg, x->dsrc ? (S.devsrc == 1 ? " (fine-grained device buffer, 64 MiB aligned)" : " (coarse device buffer, 64 MiB aligned)") : "");
+        if (x->dsrc && (S.me == 0 || S.verbose)) printf("comm_shmem: pe %d: COMM_SHMEM_PX_DEVSRC: APU %d: device buffer %zu MiB per proxy, copy %s, %zu MiB per node over the 4 APUs (host pool %zu MiB unchanged)\n", S.me, d, x->dsz >> 20, x->dasy ? "asynchronous (stream + event per slot)" : "synchronous", (x->dsz * 4) >> 20, S.pool_bytes >> 20);
+    }
+    if (nbad) fprintf(stderr, "comm_shmem: pe %d: WARNING: COMM_SHMEM_PX_DEVSRC is off on %d of 4 APUs (host staging is used there):%s\n", S.me, nbad, bad);
+    if (cur >= 0) (void)hipSetDevice(cur);
+}
+/* at shutdown (after the proxies' commands are done): the copy stream is idle; destroy the events and the stream; print the per-APU copy timer */
+static void px_devsrc_report(px_dev *x, int d)
+{
+    if (!x->dsrc) return;
+    pthread_mutex_lock(&x->dlock); px_dev_drain(x, 1); pthread_mutex_unlock(&x->dlock);
+    if (S.verbose || S.me == 0) printf("comm_shmem: pe %d: PX_DEVSRC APU %d: %ld commands (%ld async), %.2f GB through the device buffer, copy %s: %.3f s host time in the copies, %.3f s blocked (events, free slots), %ld waits for a free slot, %ld commands over the buffer's size sent from the pool\n",
+        S.me, d, x->dn, x->dasync, x->dbytes / 1e9, x->dasy ? "async" : "sync", x->tcopy, x->tstall, x->dwait, x->dover);
+}
+static void px_devsrc_free(px_dev *x)
+{
+    if (!x->dsrc) return;
+    int cur = -1; (void)hipGetDevice(&cur); (void)hipSetDevice(x->d);
+    if (x->dstream) (void)hipStreamSynchronize((hipStream_t)x->dstream);
+    for (int i = 0; i < PXPQ; i++) if (x->pev[i]) { (void)hipEventDestroy((hipEvent_t)x->pev[i]); x->pev[i] = 0; }
+    if (x->dstream) { (void)hipStreamDestroy((hipStream_t)x->dstream); x->dstream = 0; }
+    if (cur >= 0) (void)hipSetDevice(cur);
+}
+#endif
 static void px_attach(void)
 {
     for (int d = 0; d < 4; d++) {
@@ -698,16 +879,28 @@ static void px_attach(void)
         }
     }
 #endif
+#ifndef COMM_HOST_ONLY
+    if (S.devsrc) px_devsrc_attach();
+#endif
     for (int d = 0; d < 4; d++) for (int h = 0; h < g_px[d]->nh; h++) __atomic_store_n(&px_hdr_of(g_px[d]->hl[h].base)->pid, (long)getpid(), __ATOMIC_RELEASE);
 }
 static void px_shutdown(void)
 {
     for (int d = 0; d < 4; d++) { px_dev *x = g_px[d]; if (!x) continue;
+#ifndef COMM_HOST_ONLY
+        if (x->dsrc) { pthread_mutex_lock(&x->dlock); px_dev_drain(x, 1); pthread_mutex_unlock(&x->dlock); }   /* PX_DEVSRC async: post what is still waiting for its copy */
+#endif
         for (int hh = 0; hh < x->nh; hh++) { struct px_hdr *h = px_hdr_of(x->hl[hh].base);
             while (__atomic_load_n(&h->done, __ATOMIC_ACQUIRE) < __atomic_load_n(&h->head, __ATOMIC_ACQUIRE)) { px_progress(x); sched_yield(); } }
         px_progress(x);
+#ifndef COMM_HOST_ONLY
+        px_devsrc_report(x, d);
+#endif
         if (S.verbose || S.me == 0) printf("comm_shmem: pe %d: proxy pool of APU %d: peak %zu MiB of %zu\n", S.me, d, x->peak >> 20, x->span >> 20);
         for (int hh = 0; hh < x->nh; hh++) __atomic_store_n(&px_hdr_of(x->hl[hh].base)->quit, 1, __ATOMIC_RELEASE);
+#ifndef COMM_HOST_ONLY
+        px_devsrc_free(x);
+#endif
     }
 }
 int comm_shmem_pe_per_apu(void)
@@ -746,6 +939,12 @@ static int comm_shmem_init_i(void)
     S.pxsend = env_int("COMM_SHMEM_PX_SEND", S.ppa == 1 && HAVE_PUT_SIGNAL ? 3 : 1);
     if (S.pxsend != 1 && S.pxsend != 3) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d: 1 (batch then quiet) or 3 (chunked puts, one fence + signal per command); 2 (chunked put-with-signal) was removed 2026-10-19\n", S.pxsend);
     if (S.pxsend == 3 && (!S.ppa || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d (resolved value; PX3 is the default) needs an OpenSHMEM 1.5 build with COMM_SHMEM_PE_PER_APU=1 (the proxy's context code is compiled only with 1.5 headers; PX_SEND=3 itself uses plain puts, not put-with-signal)\n", S.pxsend);
+    S.devsrc = env_int("COMM_SHMEM_PX_DEVSRC", 0); S.devsrc_mb = env_int("COMM_SHMEM_PX_DEVSRC_MB", 0); S.devsrc_async = env_int("COMM_SHMEM_PX_DEVSRC_ASYNC", 1);
+    if (S.devsrc < 0 || S.devsrc > 2 || S.devsrc_mb < 0 || S.devsrc_async < 0 || S.devsrc_async > 1) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_DEVSRC=%d (0 off, 1 fine-grained, 2 coarse), COMM_SHMEM_PX_DEVSRC_MB=%d (0 = half the pool), COMM_SHMEM_PX_DEVSRC_ASYNC=%d (0 or 1)\n", S.devsrc, S.devsrc_mb, S.devsrc_async);
+#ifdef COMM_HOST_ONLY
+    if (S.devsrc) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_DEVSRC needs a HIP build (this one is host-only)\n");
+#endif
+    if (S.devsrc && (S.pxsend != 3 || S.ppa != 1)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_DEVSRC needs PX3 (COMM_SHMEM_PX_SEND=3, the default) under COMM_SHMEM_PE_PER_APU=1\n");
     S.sched = env_int("COMM_SHMEM_PX_SCHED", 0);
     { const char *sv = getenv("COMM_SHMEM_PX_SCHED"); S.sched_auto = !sv || !*sv || !strcmp(sv, "auto"); }   /* unset or "auto" (the default, Q59): resolved below, once the node count is known (<= 4 nodes: 99, else 0); =0 restores PX3 */
     if (S.sched < 0) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SCHED=%d: 0 (off) or the window W >= 1 (99: no window)\n", S.sched);
@@ -815,6 +1014,9 @@ static int comm_shmem_init_i(void)
                 S.pme, ((uintptr_t)g_heap_addr & (THP_SZ - 1)) ? "" : "a multiple of ", (size_t)((uintptr_t)g_heap_addr & (THP_SZ - 1)) >> 10, g_heap_hint, (unsigned)g_heap_fl, S.pool_bytes >> 20, pmd >> 10, ce ? strerror(ce > 0 ? ce : EINVAL) : "ok", tc); }
         if (S.verbose) fprintf(stderr, "comm_shmem: proxy pe %d: init timeline (s since entry): shmem_init %.2f, pool pre-fault %.2f, barrier next at %.2f\n", S.pme, g_t_shinit, g_t_pop, now_s() - g_t0);
         shmem_barrier_all(); S.inited = 1;
+#ifndef COMM_HOST_ONLY
+        if (S.devsrc) px_devsrc_proxy();                  /* PX_DEVSRC: the device buffer, its IPC handle and the self-test (the node-process waits for pad[1]) */
+#endif
         if (S.verbose) fprintf(stderr, "comm_shmem: proxy pe %d: init timeline: barrier passed at %.2f\n", S.pme, now_s() - g_t0);
         px_hdr_of(S.pool)->pid = shmem_long_g(mailbox(MAXID - 1, 0), phys_pe(S.me));   /* (the liveness check: no shared memory needed) */
         px_serve();
@@ -1601,7 +1803,7 @@ static const struct comm_ops shm_ops = { s_rank, s_size, s_alltoall, s_wait, s_b
 comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id)
 {
     if (!S.inited) comm_shmem_init();
-    if (n < 1 || pe_stride < 1 || pe_start < 0 || pe_start + (n - 1) * pe_stride >= S.npes || id < 0 || id >= MAXID - (S.ppa ? 1 : 0) - (g_tr.on ? 4 : 0)) die("bad PE set");   /* (N7b reserves the last row; COMM_TRACE the three before it, for the clock estimate) */
+    if (n < 1 || pe_stride < 1 || pe_start < 0 || pe_start + (n - 1) * pe_stride >= S.npes || id < 0 || id >= MAXID - (S.ppa ? 1 : 0) - (g_tr.on ? 4 : 0) || (S.devsrc && id >= MAXID - 7)) die("bad PE set");   /* (N7b reserves the last row; COMM_TRACE the three before it, for the clock estimate) */
     int me = -1; for (int r = 0; r < n; r++) if (pe_start + r * pe_stride == S.me) me = r;   /* (logical PEs = nodes; p->pe[] physical) */
     if (me < 0) die("this PE is not in the set");
     comm *c = (comm *)calloc(1, sizeof *c); shm_priv *p = (shm_priv *)calloc(1, sizeof *p);

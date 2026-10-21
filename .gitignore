@@ -2,6 +2,7 @@
 *.o
 ecalc/ecalc
 ecalc/tests/t_*
+ecalc/tests/*.so
 !ecalc/tests/*.c
 !ecalc/tests/*.h
 ecalc/ref/gen_e
