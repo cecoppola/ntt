@@ -153,7 +153,7 @@ int main(int argc, char **argv)
     int k = 1; for (int i = 1; i < argc; i++) { if (!strcmp(argv[i], "--vpe")) g_vpe = 1; else argv[k++] = argv[i]; } argc = k;
     g_scale = argc > 1 ? atof(argv[1]) : 1.0; g_argc = argc; g_argv = argv;
     harness_meta(g_vpe ? "t_mn_grid --vpe" : "t_mn_grid"); rns_init(argc > 2 ? atoi(argv[2]) : 31);
-    setenv("DIST_LOGN_TEST", g_vpe ? "22" : "24", 1);
+    setenv("DIST_LOGN_TEST", g_vpe ? "21" : "24", 1);
     if (g_vpe) {
         vpe_set_forced(VPE_S_B);
         mn_init();                                            /* the process-level init (the flat communicators); the lanes do not call it again */
