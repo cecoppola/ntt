@@ -519,7 +519,7 @@ int comm_xshmem_init(void)
     xshmem_cfg_t cfg; xshmem_cfg_load(&cfg);
     const char *eo = getenv("XSHMEM_ORDER");
     if (eo && strcmp(eo, "seq") && strcmp(eo, "rot")) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_ORDER=%s: seq or rot\n", eo);
-    X.rot = !(eo && !strcmp(eo, "seq")); { const char *et_ = getenv("ECALC_XEX_THREAD"); X.thr = et_ ? atoi(et_) != 0 : !vpe_on(); X.thr_set = et_ != 0; }   /* S1b: vPE polls by default (measured 9q6g: the worker threads cost 35x per exchange) */ { xshmem_cfg_t cf_; xshmem_cfg_load(&cf_); X.yield = !cf_.noyield; }
+    X.rot = !(eo && !strcmp(eo, "seq")); { const char *et_ = getenv("ECALC_XEX_THREAD"); X.thr = et_ ? atoi(et_) != 0 : !vpe_on(); X.thr_set = et_ != 0; }   /* S1b: vPE polls by default.  Measured 9q6g/9q6h (1 n, 4 PEs): with the worker 35 ms per exchange (quiets ~20 ms each), polling 3 ms; the worker still costs 2.4-2.8 s per product after it was given its PE's device, so the cause is the worker design under 4 PE threads in one process, not the device */ { xshmem_cfg_t cf_; xshmem_cfg_load(&cf_); X.yield = !cf_.noyield; }
     { const char *er = getenv("XSHMEM_ROUND_MB"); double m = er ? atof(er) : 0; X.rbytes = m > 0 ? (size_t)(m * 1048576.0) : 0;
       if (X.rbytes && !X.thr && !X.thr_set) X.thr = 1;   /* vPE with an explicit XSHMEM_ROUND_MB: the rounds run in the worker */
       if (X.rbytes && !X.thr) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_ROUND_MB needs the worker thread (ECALC_XEX_THREAD=1): the rounds run in it\n"); }
