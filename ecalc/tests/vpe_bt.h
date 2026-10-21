@@ -2,7 +2,9 @@
  * addr2line on them), then die with the same signal.  A crash with stdout redirected loses the buffered lines; this keeps the place. */
 #ifndef EC_VPE_BT_H
 #define EC_VPE_BT_H
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <execinfo.h>
 #include <dlfcn.h>
 #include <signal.h>
