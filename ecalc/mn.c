@@ -22,6 +22,7 @@ typedef struct { subent e[64]; int n; } sublist;
 typedef struct { struct mn_group *grp[16], *sch[16]; } grplist;
 VPE_STATE(comm *, flat); VPE_STATE(sublist, subl); VPE_STATE(grplist, gl);
 static const char *mn_who(void) { return vpe_on() ? "pe" : "node"; }
+static comm *cm0(void);
 static int g_shmem;                                   /* COMM_TRANSPORT=shmem or xshmem -- the meshes are strided PE sets over SHMEM (comm_shmem.c) or over xshmem (comm_xshmem.c) */
 static int g_xshmem;                                  /* COMM_TRANSPORT=xshmem (make XSHMEM=ofi; the target-shaped engine, loopback PEs): the meshes come from comm_xshmem_create_at */
 #ifdef XSHMEM_ENGINE
