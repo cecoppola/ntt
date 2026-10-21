@@ -70,11 +70,12 @@ typedef struct xpe {                       /* one loopback PE of this process */
     pthread_t th; int th_on, stop; volatile int busy; pthread_mutex_t qm; pthread_cond_t qcv; struct xpriv *queue[MAXPEND]; volatile int nq;
 } xpe;
 static struct {
+    double sp[8]; long nsp;               /* summed split of the whole-exchange path, see xex_wait */
     int inited, thr, rot, K, nodes, nw, maxid, q; long nev; double tv; double bv; size_t rbytes; long nrex, nrounds;
     pthread_mutex_t lock;                  /* init and the counters */
     uint64_t maxseq; size_t dbytes;
     xpe pe[MAXLPE]; unsigned char used[MAXLPE][MAXID];
-} X = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, PTHREAD_MUTEX_INITIALIZER, 0, 0, {}, {} };
+} X = { {0}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, PTHREAD_MUTEX_INITIALIZER, 0, 0, {}, {} };
 
 static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 static int env_int(const char *name, int def) { const char *e = getenv(name); return e ? atoi(e) : def; }
@@ -130,7 +131,8 @@ typedef struct xpriv {
     int n, me, id, lpe, dev, phk; xpe *lp; int *pe;       /* pe[r]: the xshmem PE of member r */
     uint64_t seq, tseq; volatile int inuse;
     /* the pending exchange */
-    int pending, v, rin, sin; size_t bytes, sst, rst; double t0; hipStream_t st; void *rb;
+    int pending, v, rin, sin; size_t bytes, sst, rst; double t0, t_pe, t_w, t_a, t_p, t_f, t_w0, t_rx;   /* t_*: the exchange's split (post end, worker first visit, all peers posted, payload quiet, signals quiet, wait entry, receive done) */
+    hipStream_t st; void *rb;
     size_t *scnt, *rcnt, *sdsp, *rdsp, *spre, *rpre;    /* per member: send / receive counts; offsets in the caller's buffers; offsets in the staging */
     const char *sbase; const size_t *soff;              /* where the slabs are sent from: base + soff[r] (the caller's sb or my staging) */
     char *rbase; const size_t *roff;                    /* where they land: base + roff[r] (the caller's rb or my staging) */
@@ -152,6 +154,7 @@ static void leave(xpriv *p) { __atomic_store_n(&p->inuse, 0, __ATOMIC_RELEASE); 
 static int xex_send(xpriv *p)
 {
     int n = p->n; uint64_t seq = p->seq;
+    if (p->t_w == 0) p->t_w = now_s();
     for (int q = 0; q < n; q++) { int i = ORD(p, q); if (p->posted[i]) continue;
         const uint64_t *w = WORD(p, W_ROFF, i);
         if (!sigge(w, PACK(seq, 0))) continue;
@@ -161,9 +164,12 @@ static int xex_send(xpriv *p)
         p->posted[i] = 1; p->nposted++;
     }
     if (p->nposted < n) return 0;
+    p->t_a = now_s();
     if (p->touched) xshmem_ctx_quiet(p->lp->lane);                                   /* the batched flush: every payload visible */
+    p->t_p = now_s();
     for (int q = 0; q < n; q++) { int i = ORD(p, q); if (i != p->me) xshmem_ctx_signal_set(p->lp->lane, WORD(p, W_SIG, p->me), PACK(seq, p->scnt[i]), p->pe[i]); }
     xshmem_ctx_quiet(p->lp->lane);                                                   /* the signals are out too: sb reusable */
+    p->t_f = now_s();
     return 1;
 }
 static void xex_hang(xpriv *p);
@@ -312,6 +318,7 @@ static void xex_post(xpriv *p, const void *sb, void *rb, hipStream_t s)
     if (p->scnt[me] && (const char *)sb + p->sdsp[me] != (char *)rb + p->rdsp[me]) COPY((char *)rb + p->rdsp[me], (const char *)sb + p->sdsp[me], p->scnt[me], s);
     SYNC(s);                                              /* the stream is done with sb and rb: publish only after */
     xshmem_ctx_quiet(XSHMEM_CTX_DEFAULT);                 /* older word writes (ROFF, collectives) */
+    p->t_w = p->t_a = p->t_p = p->t_f = p->t_rx = 0;
     memset(p->posted, 0, (size_t)n); memset(p->rxdone, 0, (size_t)n); p->posted[me] = 1; p->nposted = 1; p->touched = 0; p->flushed = 0;
     for (int q = 0; q < n; q++) { int i = ORD(p, q); if (i != me)
         xshmem_ctx_signal_set(XSHMEM_CTX_DEFAULT, WORD(p, W_ROFF, me), PACK(p->seq, xshmem_off(p->rbase + (p->rcnt[i] ? p->roff[i] : 0))), p->pe[i]); }
@@ -322,6 +329,7 @@ static void xex_post(xpriv *p, const void *sb, void *rb, hipStream_t s)
         lp->queue[lp->nq++] = p; pthread_cond_signal(&lp->qcv);
         pthread_mutex_unlock(&lp->qm);
     } else if (xex_send(p)) p->flushed = 1;
+    p->t_pe = now_s();
 }
 static void xex_hang(xpriv *p)
 {
@@ -346,13 +354,14 @@ static double recv_bytes(const xpriv *p) { double b = 0; for (int r = 0; r < p->
 static void xex_wait(xpriv *p)
 {
     int n = p->n, me = p->me; double t0 = now_s(); unsigned spins = 0; int rx = 0, rdone = p->rounds;
+    p->t_w0 = t0;
     if (p->rounds) {                                      /* the worker ran every round, copies included: wait for it */
         while (!__atomic_load_n(&p->flushed, __ATOMIC_ACQUIRE)) if (!(++spins & 4095)) { if (now_s() - p->t0 > 900) xex_hang(p); if (spins > 100000) sched_yield(); }
         p->rounds = 0; rx = 1;
     } else
     for (;;) {
         if (!X.thr && !p->flushed && xex_send(p)) p->flushed = 1;
-        if (!rx) rx = xex_rx(p);
+        if (!rx) { rx = xex_rx(p); if (rx) p->t_rx = now_s(); }
         if (rx && __atomic_load_n(&p->flushed, __ATOMIC_ACQUIRE)) break;
         if (!(++spins & 4095)) { if (now_s() - t0 > 900) xex_hang(p); if (spins > 100000) sched_yield(); }
     }
@@ -364,7 +373,12 @@ static void xex_wait(xpriv *p)
     if (p->rst) xfree(p->lp, p->rst);
     p->sst = p->rst = 0; p->pending = 0;
     double t = now_s() - p->t0, b = recv_bytes(p);
-    pthread_mutex_lock(&X.lock); X.tv += t; X.nev++; X.bv += b; pthread_mutex_unlock(&X.lock);
+    pthread_mutex_lock(&X.lock); X.tv += t; X.nev++; X.bv += b;
+    if (p->t_f > 0 && p->t_w > 0 && p->t_rx > 0) {   /* the whole-exchange path with the worker: the split */
+        X.sp[0] += p->t_pe - p->t0; X.sp[1] += p->t_w - p->t_pe; X.sp[2] += p->t_a - p->t_w; X.sp[3] += p->t_p - p->t_a; X.sp[4] += p->t_f - p->t_p;
+        X.sp[5] += p->t_w0 - p->t0; X.sp[6] += p->t_rx - p->t0; X.sp[7] += (p->t_f > p->t_rx ? p->t_f : p->t_rx) - p->t0; X.nsp++;
+    }
+    pthread_mutex_unlock(&X.lock);
 }
 
 /* ---- the ops ---- */
@@ -583,6 +597,7 @@ void comm_xshmem_finalize(void)
     XSHMEM_SELECT(0); xshmem_barrier_all();
     if (X.q == 0) {
         size_t pk = 0; for (int l = 0; l < X.K; l++) if (X.pe[l].peak > pk) pk = X.pe[l].peak;
+        fprintf(stderr, "comm_xshmem: node-process %d: exchange split (mean ms over %ld exchanges per PE-exchange: post %.3f, worker wake %.3f, peers posted %.3f, payload quiet %.3f, signals quiet %.3f; wait entered at %.3f, receive done at %.3f, send+receive done at %.3f)\n", X.q, X.nsp, X.nsp ? 1e3 * X.sp[0] / X.nsp : 0, X.nsp ? 1e3 * X.sp[1] / X.nsp : 0, X.nsp ? 1e3 * X.sp[2] / X.nsp : 0, X.nsp ? 1e3 * X.sp[3] / X.nsp : 0, X.nsp ? 1e3 * X.sp[4] / X.nsp : 0, X.nsp ? 1e3 * X.sp[5] / X.nsp : 0, X.nsp ? 1e3 * X.sp[6] / X.nsp : 0, X.nsp ? 1e3 * X.sp[7] / X.nsp : 0);
         fprintf(stderr, "comm_xshmem: node-process %d: %ld exchanges, %.2f s post to completion (summed over the APU threads), %.2f GB received = %.2f GB/s per APU thread; DATA heap peak %zu MiB of %zu; largest exchange sequence %llu of %llu; %ld exchanges in rounds (%ld rounds)\n",
                 X.q, X.nev, X.tv, X.bv / 1e9, X.tv > 0 ? X.bv / 1e9 / X.tv : 0.0, pk >> 20, X.dbytes >> 20, (unsigned long long)X.maxseq, (unsigned long long)SEQ_LIMIT, X.nrex, X.nrounds);
     }
