@@ -11,6 +11,7 @@
 #include "harness.h"
 #include "sha256.h"
 #include "vpe.h"
+#include "binsplit.h"
 _Static_assert(BS_VMAX == VPE_MAX, "binsplit.h BS_VMAX must equal vpe.h VPE_MAX");   /* S1d */
 #include "../binsplit.h"
 #include "../rns_mul.h"
