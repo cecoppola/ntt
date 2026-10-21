@@ -435,11 +435,11 @@ static unsigned mn_nblk(size_t total) { size_t b = (total + 255) / 256; return (
 /* S1c (vPE): the mdb helpers run on the PE's single device (vpe_lane()) and its flat communicator G->pe; nl = APU threads of one exchange (4 per node, 1 per PE),
  * ldev(d) = the device of thread d.  The streams are per device (a vPE creates its own); mn_st is per vPE. */
 #define NLANES() (vpe_on() ? 1 : 4)
-static inline int ldev(int d) { return vpe_on() ? vpe_lane() + d : d; }
+static inline int ldev(int d) { return vpe_on() ? vpe_device() + d : d; }
 static hipStream_t g_ms[VPE_MAX]; static int g_ms_init; static int g_ms_lane[VPE_MAX];
 static void ms_init(void)
 {
-    if (vpe_on()) { int l = vpe_lane(); if (!g_ms_lane[l]) { MN_HIP(hipSetDevice(l)); MN_HIP(hipStreamCreateWithFlags(&g_ms[l], hipStreamNonBlocking)); g_ms_lane[l] = 1; } return; }
+    if (vpe_on()) { int l = vpe_device(); if (!g_ms_lane[l]) { MN_HIP(hipSetDevice(l)); MN_HIP(hipStreamCreateWithFlags(&g_ms[l], hipStreamNonBlocking)); g_ms_lane[l] = 1; } return; }
     if (g_ms_init) return; for (int d = 0; d < 4; d++) { MN_HIP(hipSetDevice(d)); MN_HIP(hipStreamCreateWithFlags(&g_ms[d], hipStreamNonBlocking)); } MN_HIP(hipSetDevice(0)); g_ms_init = 1;
 }
 typedef struct { size_t n_shift, n_addsub, n_small; double t_shift, t_addsub, t_small, t_prod; size_t shift_max; } mn_st_t;   /* shift_max: Phase 13a M, the largest sb + rb of one mdb_shift (bytes per node-process, measured) */

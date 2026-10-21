@@ -67,6 +67,7 @@ void binsplit_layout_comm_size(int g);   /* MS: BS_LAYOUT_ONLY sets COMM_SIZE to
 /* the node's bytes at plane cap `cap` (0 2^30, 1 2^31) and np primes
  * for N terms over g node-processes (the caller sets rank 0's range): plane pools + tables, the arena, the host init constants;
  * before rns_init only (it switches rns_pool_log per cap) */
+int binsplit_ppn_proc(void);                       /* S2c: processes per node that carry their own runtime/comm host terms (ECALC_PE_PER_GPU: PEs per node; else 1) */
 size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *planes, size_t *arena, size_t *host);
 extern const char *const bs_cap_name[2];
 void binsplit_seeds_begin(unsigned long N);

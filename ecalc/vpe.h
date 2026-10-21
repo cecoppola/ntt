@@ -39,7 +39,9 @@ extern "C" {
 #define VPE_P_C 0x04                                    /* planner, host budget, pools */
 #define VPE_P_D 0x08                                    /* gate, measurements */
 #define VPE_P_ALL 0x0f
-#define VPE_PSTAGES_MERGED (VPE_P_A | VPE_P_B | VPE_P_C)
+/* S2d is gate + measurements + docs, no code the flow runs: with a, b, c in and the integration review done (ppg-int) the abort is lifted so the end-to-end gate item (day/multi gen_ppgint3.sh) can run;
+ * the merge to main waits for that gate */
+#define VPE_PSTAGES_MERGED (VPE_P_A | VPE_P_B | VPE_P_C | VPE_P_D)
 
 int  vpe_on(void);                                      /* ECALC_VPE=1 (or vpe_set_forced) */
 int  vpe_lanes(void);                                   /* L: vPEs of this process (1 when off); ECALC_VPE_LANES, never a literal 4 */

@@ -91,6 +91,7 @@ static int bs_lanes(void) { return vpe_on() ? vpe_lanes() : 1; }
  * multiplied by the processes per node (mem_model.py PPN_PROC, in lockstep); 1 with the switch off or in threads (ECALC_VPE), where the PEs share one process. */
 int vpe_ppg(void);
 static size_t bs_ppn_proc(void) { return vpe_ppg() ? (size_t)vpe_lanes() : 1; }
+int binsplit_ppn_proc(void) { return (int)bs_ppn_proc(); }   /* S2: ecalc.c budget_check divides the node model by the same term, so planner and budget agree */
 #define BS_HOST_INIT_BYTES_P() ((size_t)7000000000 * bs_ppn_proc() + ((size_t)8 << 30))   /* BS_HOST_INIT_BYTES with the runtime per process */
 static size_t bs_staging(void) { return vpe_on() ? (size_t)vpe_lanes() << 30 : (size_t)4 << 30; }   /* the checkpoint staging: 1 GiB per APU thread / PE */
 static unsigned long bs_pe_b1(unsigned long N, int g)   /* the end of rank 0's (PE 0's) term range [1, b1): b1 = 0 = all terms */

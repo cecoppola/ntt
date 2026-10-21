@@ -43,7 +43,7 @@ static unsigned lblk(size_t total) { size_t b = (total + 255) / 256; return (uns
 void rns_local_core(dbig *Cd, const dbig *A, const dbig *B, size_t nc)
 {
     if (!vpe_on()) { ec_fatal(EC_RC_FATAL, "rns_local_core: form S exists under ECALC_VPE=1 only\n"); }
-    struct lstate *v = &VPE(LS); const int dev = vpe_lane();
+    struct lstate *v = &VPE(LS); const int dev = vpe_device();   /* S2: pe_geo's ordinal (= the lane in S1) */
     HIP_CHECK(hipSetDevice(dev));
     if (!v->init) {
         for (int p = 0; p < EC_NP; p++) v->ctx[p] = ntt_ctx_create(p);

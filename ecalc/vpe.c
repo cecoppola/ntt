@@ -29,7 +29,7 @@ void vpe_ppg_init(void)
     g_ppg = e && atoi(e) != 0; g_ppg_local = l && *l ? atoi(l) : -1;
     vpe_g_idx = g_ppg && g_ppg_local >= 0 ? g_ppg_local : -1;
     if (vpe_g_idx >= 0) vpe_t_idx = vpe_g_idx;
-    if (g_ppg) mem_set_numa_pci(1);                    /* (a plain store: the device -> NUMA node lookup by PCI bus id, mem.c) */
+    if (g_ppg) { mem_set_own_device_fn(vpe_device); mem_set_numa_pci(1); }                    /* (a plain store: the device -> NUMA node lookup by PCI bus id, mem.c) */
 }
 static int g_early_dev = -1;
 int vpe_early_device(void) { return g_early_dev; }
@@ -47,7 +47,7 @@ __attribute__((constructor)) static void vpe_ctor(void)
 void vpe_set_ppg(int local)
 {
     if (local < 0) { vpe_ppg_init(); g_lanes = 0; return; }
-    g_ppg = 1; g_ppg_local = local; vpe_g_idx = local; vpe_t_idx = local; g_lanes = 0; mem_set_numa_pci(1);
+    g_ppg = 1; g_ppg_local = local; vpe_g_idx = local; vpe_t_idx = local; g_lanes = 0; mem_set_own_device_fn(vpe_device); mem_set_numa_pci(1);
 }
 int vpe_ppg(void) { return g_ppg; }
 int vpe_lpp(void) { return vpe_ppg() ? 1 : vpe_lanes(); }

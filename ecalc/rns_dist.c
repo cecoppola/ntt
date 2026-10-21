@@ -34,7 +34,7 @@
 /* S1b (vPE, ECALC_VPE=1): the mn tier counts PEs as its nodes -- one APU (this PE's device vpe_lane()) per node, so a group of g PEs has nr = g ranks (rho = me) and
  * one mesh (d = 0); off, the four APU threads of a node: NL() = 4, LD(d) = d.  d below is always the MESH index, LD(d) the DEVICE. */
 #define NL() (vpe_on() ? 1 : NR)
-#define LD(d) (vpe_on() ? vpe_lane() + (d) : (d))
+#define LD(d) (vpe_on() ? vpe_device() + (d) : (d))
 #define DIST_LOGN_MAX 31
 /* the plane cap; DIST_LOGN_TEST lowers it (tests only) so the grid split runs at small sizes */
 static int g_cap_test;                                        /* Phase 12 G: rns_dist_cap_test -- the tree's own forced cap (MN_TREE_LOGN_TEST), 0 = DIST_LOGN_TEST / the default */
@@ -86,7 +86,7 @@ static void rank_init(int r);
 /* the rank states this process needs: all four devices (off), or this PE's own (vPE) */
 static void ranks_ready(void)
 {
-    if (vpe_on()) { if (!RS[vpe_lane()].s) { rank_init(vpe_lane()); dist_st.on = getenv("DIST_STATS") != 0; } return; }
+    if (vpe_on()) { if (!RS[vpe_device()].s) { rank_init(vpe_device()); dist_st.on = getenv("DIST_STATS") != 0; } return; }
     if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
 }
 static void rank_init(int r)

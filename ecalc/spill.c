@@ -70,7 +70,7 @@ void sp_drop_cache(int fd)
 void sp_dev_sync_all(void)
 {
     int cur, n = 0; SP_HIP(hipGetDevice(&cur)); SP_HIP(hipGetDeviceCount(&n)); if (n > 8) n = 8;
-    for (int d = 0; d < n; d++) { SP_HIP(hipSetDevice(d)); SP_HIP(hipDeviceSynchronize()); }
+    for (int d = 0; d < n; d++) { if (mem_own_device() >= 0 && d != mem_own_device()) continue; SP_HIP(hipSetDevice(d));   /* S2: process mode syncs only the own device */ SP_HIP(hipDeviceSynchronize()); }
     SP_HIP(hipSetDevice(cur));
 }
 void sp_drop_cache_path(const char *path)

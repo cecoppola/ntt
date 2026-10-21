@@ -21,7 +21,7 @@ struct db_stats db_st;
 static double tnow(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 static int g_inited = 0;                               /*  */
 static inline int nq_(void) { return vpe_on() ? 1 : DB_NQ; }          /* S1b: quarters of a dbig (one under vPE) */
-static inline int dv_(int qi) { return vpe_on() ? vpe_lane() + qi : qi; }   /* the device of quarter qi (the vPE's own under vPE) */
+static inline int dv_(int qi) { return vpe_on() ? vpe_device() + qi : qi; }   /* the device of quarter qi (the vPE's own under vPE) */
 static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT]);
 static void par_init(void) { if (!g_inited) { g_inited = 1; mem_acct_register(db_acct); } }
 
@@ -110,7 +110,7 @@ void db_pull_start_all(void)                             /* idempotent; the laun
 {
     pthread_mutex_lock(&g_pull_mx);
     int nd = mem_device_count(), cur; HIP_CHECK(hipGetDevice(&cur)); double t0 = mem_now(); int n = 0;
-    for (int d = 0; d < nd && d < DB_NQ; d++) if (!g_pull_on[d]) {
+    for (int d = 0; d < nd && d < DB_NQ; d++) if (!g_pull_on[d] && !(vpe_ppg() && d != vpe_device())) {   /* S2: a process starts the pull only on its own device (no context on the other GPUs) */
         HIP_CHECK(hipSetDevice(d));
         HIP_CHECK(hipStreamCreateWithFlags(&g_pull_s[d], hipStreamNonBlocking));
         HIP_CHECK(hipHostMalloc((void **)&g_pull[d], sizeof *g_pull[d], hipHostMallocCoherent)); memset(g_pull[d], 0, sizeof *g_pull[d]);

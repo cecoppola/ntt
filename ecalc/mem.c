@@ -25,6 +25,9 @@ double mem_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); re
  * PE's pinning follows its GPU wherever the node numbers it; off: node == device (unchanged).  Unknown (no sysfs value): the device index. */
 static int g_numa_pci = -1;                      /* -1: not decided yet (decided from ECALC_VPE here, so no pinning can run before it is set) */
 void mem_set_numa_pci(int on) { g_numa_pci = on; }
+static int (*g_own_fn)(void);
+void mem_set_own_device_fn(int (*fn)(void)) { g_own_fn = fn; }
+int mem_own_device(void) { return g_own_fn ? g_own_fn() : -1; }
 int mem_numa_node_of_device(int dev)
 {
     int pci = __atomic_load_n(&g_numa_pci, __ATOMIC_ACQUIRE);
@@ -372,7 +375,7 @@ void mem_report(const char *phase)
     if (getenv("MEM_REPORT_DEVS")) for (int d = 0; d < ndev; d++) {
         printf("%s[%s]   APU%d: in use %.1f GB:", pf, phase, d, dev_in_use(dev[d]) / 1e9);
         for (int c = 0; c < MEM_DEV_NCAT; c++) if (dev[d][c]) printf(" %s %.2f", dev_cat_name[c], dev[d][c] / 1e9);
-        size_t f = 0, t = 0; int cur; if (hipGetDevice(&cur) == hipSuccess && hipSetDevice(d) == hipSuccess) { if (hipMemGetInfo(&f, &t) != hipSuccess) f = t = 0; (void)hipSetDevice(cur); }
+        size_t f = 0, t = 0; int cur; if ((mem_own_device() < 0 || d == mem_own_device()) && hipGetDevice(&cur) == hipSuccess && hipSetDevice(d) == hipSuccess)   /* S2: process mode: no context on a foreign GPU (that line then has no driver figure) */ { if (hipMemGetInfo(&f, &t) != hipSuccess) f = t = 0; (void)hipSetDevice(cur); }
         if (t) printf("  (driver: %.1f of %.1f GB used)", (t - f) / 1e9, t / 1e9);
         if (g_out_set) {                          /* B7ACCT: driver used ~ in use + v-slots + comm pool + the runtime (~0.4 GB, STD17 4) */
             size_t lv = g_out_live ? g_out_live(d) : 0, u = dev_in_use(dev[d]);

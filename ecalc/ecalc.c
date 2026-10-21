@@ -336,7 +336,7 @@ static void budget_check(unsigned long N, int verbose)
     double node_gb = getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0;
     int cap = rns_pool_log() >= 31 ? 1 : 0;
     size_t pb = 0, ab = 0, hb = 0; binsplit_node_bytes(N, gn, cap, ec_np_init(), &pb, &ab, &hb);
-    if (vpe_ppg()) { pb /= L; ab /= L; hb /= L; L = 1; }   /* S2 (one process per PE): the model is per node, so each PE takes 1/ppn of it; the measured device bytes and VmRSS are this process's own (its device, its runtime): already one PE's, not divided again */
+    if (vpe_ppg()) { const size_t pp = (size_t)binsplit_ppn_proc(); pb /= pp; ab /= pp; hb /= pp; L = 1; }   /* (S2c's PPN_PROC: the host model already counts a runtime and a comm pool per process, so the per-process share is node / ppn_proc, the planner's own term) */   /* S2 (one process per PE): the model is per node, so each PE takes 1/ppn of it; the measured device bytes and VmRSS are this process's own (its device, its runtime): already one PE's, not divided again */
     size_t dev = mem_report_dev_total(), rss = mem_vmrss();
     size_t dpk = (dev > pb + ab ? dev : pb + ab), hpk = rss > hb ? rss : hb, peak = dpk + hpk, now = dev + rss;
     struct meminfo mi; memset(&mi, 0, sizeof mi); mem_meminfo(&mi);
