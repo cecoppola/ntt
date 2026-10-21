@@ -71,7 +71,7 @@
 typedef struct xshmem_cray_state {
     char *base[2];            /* per space */
     size_t size[2];
-    char *reg_base;           /* hipHostRegister'ed by us (page-aligned range), else NULL; never set when libsma already owns the mapping */
+    char *reg_base;           /* hipHostRegister'ed by us (page range enclosing the heap), else NULL; never set when libsma already owns the mapping */
     int prov;
 } xshmem_cray_state_t;
 extern xshmem_cray_state_t xshmem_cray_st;
@@ -108,10 +108,10 @@ static inline void *xshmem_heap_alloc(size_t bytes, int space)
 #if defined(USE_HIP) && XSHMEM_CRAY_HOSTREG
     /* host heap (11.8 has no device heap): register it so GPU kernels / hipMemcpyAsync of the engine reach it at memory speed (the 12.1 device heap needs none) */
     if (host && space == XSHMEM_SPACE_DATA) {
-        const uintptr_t pg = 4096; uintptr_t a = (uintptr_t)p, lo = (a + pg - 1) & ~(pg - 1), hi = (a + n) & ~(pg - 1);
+        const uintptr_t pg = 4096; uintptr_t a = (uintptr_t)p, lo = a & ~(pg - 1), hi = (a + n + pg - 1) & ~(pg - 1); /* the enclosing pages: the heap's partial first/last page must be GPU-reachable too (the engine touches the tail; an inside range faulted) */
         static int warned;
         if (a & (pg - 1) && !warned) { warned = 1; fprintf(stderr, "xshmem_cray: warning: DATA heap base %p is not page aligned\n", p); }
-        if (hi <= lo) fprintf(stderr, "xshmem_cray: warning: no page-aligned range inside the DATA heap: not registered (pageable access)\n");
+        if (hi <= lo) fprintf(stderr, "xshmem_cray: warning: empty DATA heap range: not registered (pageable access)\n");
         else {
             hipError_t he = hipHostRegister((void *)lo, hi - lo, hipHostRegisterPortable);
             if (he == hipSuccess) xshmem_cray_st.reg_base = (char *)lo;
