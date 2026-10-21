@@ -21,7 +21,8 @@
  * tiny_exchange).  send / recv / allreduce_modq / alltoallv_host / allgather (device) are 0: comm_util.c's fallbacks apply.
  *
  * CTRL layout (words, per communicator id < MAXID, a pure function of the id, so no exchange at create):
- *   ctrl + id * 7 * nodes : ROFF[n] SIG[n] VAL0[n] VAL1[n] VSEQ0[n] VSEQ1[n] SOFF[n]   (n = nodes: the largest member count)
+ *   ctrl + id * 7 * nw : ROFF[n] SIG[n] VAL0[n] VAL1[n] VSEQ0[n] VSEQ1[n] SOFF[n]   (n = nw: the largest member count = the nodes; with ECALC_VPE
+ *   (S1a) the PEs, K * nodes, and only XS_MAXID_VPE ids)
  * Threads: mesh d is driven by APU thread d (device d current at create; the main thread is thread 0).  Every entry selects the loopback
  * PE of the comm (XSHMEM_SELECT); a debug flag catches two threads inside one comm. */
 #ifndef _GNU_SOURCE
@@ -37,6 +38,7 @@
 #include <time.h>
 #include "comm.h"
 #include "xshmem.h"
+#include "vpe.h"
 #ifdef XSHMEM_OFI
 #define XS_LPES() xshmem_ofi_loopback_pes()
 #else
@@ -48,6 +50,7 @@
 #define COPY(d, s, n, st) HIP_CHECK(comm_copy_async(d, s, n, st))
 #define SYNC(st) do { int ph_ = ec_ph(EC_PH_HIP_SYNC); HIP_CHECK(hipStreamSynchronize(st)); ec_ph(ph_); } while (0)
 #define MAXID 1024                         /* communicator ids (control blocks) */
+#define MAXID_VPE 512                      /* ... with ECALC_VPE (flat PE communicators: the control block grows with the PE count) */
 #define MAXLPE 8                           /* loopback PEs per process */
 #define MAXPEND 256                        /* exchanges one worker can hold */
 #define ALIGN 256
@@ -67,11 +70,11 @@ typedef struct xpe {                       /* one loopback PE of this process */
     pthread_t th; int th_on, stop; volatile int busy; pthread_mutex_t qm; pthread_cond_t qcv; struct xpriv *queue[MAXPEND]; volatile int nq;
 } xpe;
 static struct {
-    int inited, thr, rot, K, nodes, q; long nev; double tv; double bv; size_t rbytes; long nrex, nrounds;
+    int inited, thr, rot, K, nodes, nw, maxid, q; long nev; double tv; double bv; size_t rbytes; long nrex, nrounds;
     pthread_mutex_t lock;                  /* init and the counters */
     uint64_t maxseq; size_t dbytes;
     xpe pe[MAXLPE]; unsigned char used[MAXLPE][MAXID];
-} X = { 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, PTHREAD_MUTEX_INITIALIZER, 0, 0, {}, {} };
+} X = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, PTHREAD_MUTEX_INITIALIZER, 0, 0, {}, {} };
 
 static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 static int env_int(const char *name, int def) { const char *e = getenv(name); return e ? atoi(e) : def; }
@@ -140,7 +143,7 @@ typedef struct xpriv {
 #define PRIV(c) ((xpriv *)(c)->priv)
 #define ORD(p, q) (X.rot ? ((p)->me + (q)) % (p)->n : (q))
 static void die(const xpriv *p, const char *m) { ec_fatal(EC_RC_FATAL, "comm_xshmem: pe %d: %s\n", X.K * X.q + (p ? p->lpe : 0), m); }
-#define WORD(p, w, i) ((p)->lp->ctrl + ((size_t)(p)->id * W_N + (w)) * (size_t)X.nodes + (i))
+#define WORD(p, w, i) ((p)->lp->ctrl + ((size_t)(p)->id * W_N + (w)) * (size_t)X.nw + (i))
 static void enter(xpriv *p) { if (__atomic_exchange_n(&p->inuse, 1, __ATOMIC_ACQUIRE)) die(p, "two threads inside one communicator"); XSHMEM_SELECT(p->lpe); }
 static void leave(xpriv *p) { __atomic_store_n(&p->inuse, 0, __ATOMIC_RELEASE); }
 
@@ -508,7 +511,8 @@ int comm_xshmem_init(void)
     }
     size_t db = cfg.heap_mb > 0 ? (size_t)cfg.heap_mb << 20 : ((getenv("COMM_OFI_POOL_MB") ? (size_t)atol(getenv("COMM_OFI_POOL_MB")) : (getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : 8192) / 4 + 256) << 20);
     db = round_up(db); X.dbytes = db;
-    size_t cb = (size_t)MAXID * W_N * (size_t)X.nodes * 8;
+    X.nw = vpe_on() ? K * X.nodes : X.nodes; X.maxid = vpe_on() ? MAXID_VPE : MAXID;
+    size_t cb = (size_t)X.maxid * W_N * (size_t)X.nw * 8;
     for (int l = 0; l < K; l++) { XSHMEM_SELECT(l); X.pe[l].ctrl = (uint64_t *)xshmem_heap_alloc(cb, XSHMEM_SPACE_CTRL); }   /* one space at a time, PEs in order 0..K-1 (collective) */
     for (int l = 0; l < K; l++) {
         XSHMEM_SELECT(l); xpe *lp = &X.pe[l];
@@ -524,24 +528,47 @@ int comm_xshmem_init(void)
     pthread_mutex_unlock(&X.lock);
     return X.nodes;
 }
-comm *comm_xshmem_create_at(int pe_start, int pe_stride, int n, int id)
+static comm *make_comm(int n, int me, int id, int lpe, int dev, int pe_start, int pe_stride, int flat)
 {
-    if (!X.inited) comm_xshmem_init();
-    if (n < 1 || pe_stride < 1 || pe_start < 0 || pe_start + (n - 1) * pe_stride >= X.nodes || id < 0 || id >= MAXID) die(0, "bad PE set");
-    int me = -1; for (int r = 0; r < n; r++) if (pe_start + r * pe_stride == X.q) me = r;
-    if (me < 0) die(0, "this PE is not in the set");
-    int dev = 0; HIP_CHECK(hipGetDevice(&dev));
-    int lpe = X.K > 1 ? dev : 0; if (lpe >= X.K) ec_fatal(EC_RC_FATAL, "comm_xshmem: device %d has no loopback PE (%d per process)\n", dev, X.K);
     if (__atomic_exchange_n(&X.used[lpe][id], 1, __ATOMIC_ACQ_REL)) ec_fatal(EC_RC_FATAL, "comm_xshmem: communicator id %d used twice\n", id);
     comm *c = (comm *)calloc(1, sizeof *c); xpriv *p = (xpriv *)calloc(1, sizeof *p);
     c->ops = &xsh_ops; c->priv = p; c->rank = me; c->size = n; c->inflight = 1;
     p->n = n; p->me = me; p->id = id; p->lpe = lpe; p->dev = dev; p->lp = &X.pe[lpe];
-    p->pe = (int *)malloc((size_t)n * sizeof(int)); for (int r = 0; r < n; r++) p->pe[r] = X.K * (pe_start + r * pe_stride) + lpe;
+    p->pe = (int *)malloc((size_t)n * sizeof(int)); for (int r = 0; r < n; r++) p->pe[r] = flat ? pe_start + r : X.K * (pe_start + r * pe_stride) + lpe;
     p->scnt = (size_t *)calloc(6 * (size_t)n, sizeof(size_t)); p->rcnt = p->scnt + n; p->sdsp = p->scnt + 2 * n; p->rdsp = p->scnt + 3 * n; p->spre = p->scnt + 4 * n; p->rpre = p->scnt + 5 * n;
     p->oseq = (size_t *)calloc(2 * (size_t)n, sizeof(size_t)); p->iseq = p->oseq + n;
     p->posted = (char *)calloc(2 * (size_t)n, 1); p->rxdone = p->posted + n;
     return c;
 }
+static int cur_lpe(int *dev)
+{
+    HIP_CHECK(hipGetDevice(dev));
+    int lpe = X.K > 1 ? *dev : 0; if (lpe >= X.K) ec_fatal(EC_RC_FATAL, "comm_xshmem: device %d has no loopback PE (%d per process)\n", *dev, X.K);
+    return lpe;
+}
+comm *comm_xshmem_create_at(int pe_start, int pe_stride, int n, int id)
+{
+    if (!X.inited) comm_xshmem_init();
+    if (n < 1 || pe_stride < 1 || pe_start < 0 || pe_start + (n - 1) * pe_stride >= X.nodes || id < 0 || id >= X.maxid) die(0, "bad PE set");
+    int me = -1; for (int r = 0; r < n; r++) if (pe_start + r * pe_stride == X.q) me = r;
+    if (me < 0) die(0, "this PE is not in the set");
+    int dev = 0, lpe = cur_lpe(&dev);
+    return make_comm(n, me, id, lpe, dev, pe_start, pe_stride, 0);
+}
+/* S1a (ECALC_VPE): the communicator over the contiguous PE run [pe_start, pe_start + n) in PE units (PE = K * node + loopback PE), rank = PE - pe_start.
+ * Created by the vPE thread of the calling device (device = loopback PE) that is a member; local, like create_at.  Ids as create_at's (< X.maxid). */
+comm *comm_xshmem_create_flat(int pe_start, int n, int id)
+{
+    if (!X.inited) comm_xshmem_init();
+    if (!vpe_on()) die(0, "create_flat without ECALC_VPE");
+    if (n < 1 || pe_start < 0 || pe_start + n > X.K * X.nodes || id < 0 || id >= X.maxid) die(0, "bad PE run");
+    int dev = 0, lpe = cur_lpe(&dev), my = X.K * X.q + lpe;
+    if (my < pe_start || my >= pe_start + n) die(0, "this PE is not in the run");
+    return make_comm(n, my - pe_start, id, lpe, dev, pe_start, 1, 1);
+}
+void comm_xshmem_select(int lpe) { XSHMEM_SELECT(lpe); }     /* the vPE thread hook (vpe.h): this thread's current loopback PE */
+int comm_xshmem_loopback_pes(void) { return X.inited ? X.K : XS_LPES(); }
+int comm_xshmem_nodes(void) { return X.nodes; }
 void comm_xshmem_finalize(void)
 {
     if (!X.inited) return;

@@ -21,7 +21,26 @@
 
 double mem_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 
-int mem_numa_node_of_device(int dev) { return dev; }
+/* S1a: with ECALC_VPE the device's NUMA node comes from its PCI function (hipDeviceGetPCIBusId, sysfs numa_node: the pe_geo.c chain), so a
+ * PE's pinning follows its GPU wherever the node numbers it; off: node == device (unchanged).  Unknown (no sysfs value): the device index. */
+static int g_numa_pci;
+void mem_set_numa_pci(int on) { g_numa_pci = on; }
+int mem_numa_node_of_device(int dev)
+{
+    if (!g_numa_pci || dev < 0 || dev >= 64) return dev;
+    static int cache[64]; static int have[64];
+    if (have[dev]) return cache[dev] - 1;
+    int node = dev; char bus[32], path[96];
+    if (hipDeviceGetPCIBusId(bus, sizeof bus, dev) == hipSuccess) {
+        for (char *c = bus; *c; c++) if (*c >= 'A' && *c <= 'F') *c += 'a' - 'A';
+        snprintf(path, sizeof path, "/sys/bus/pci/devices/%s/numa_node", bus);
+        FILE *f = fopen(path, "r"); int v = -1;
+        if (f) { if (fscanf(f, "%d", &v) != 1) v = -1; fclose(f); }
+        if (v >= 0) node = v;
+    }
+    cache[dev] = node + 1; have[dev] = 1;
+    return node;
+}
 
 static int node_cpuset(int node, cpu_set_t *set)
 {
