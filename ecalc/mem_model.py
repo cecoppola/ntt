@@ -154,6 +154,15 @@ def arena_of(base, want, chunk=0):
     ex = max(0, want - base); a = base + (ex + (2 << 20) - 1) // (2 << 20) * (2 << 20)
     return (a + chunk - 1) // chunk * chunk if chunk else a
 
+def arena_trim(L, scratch=0, trim_gb=None):
+    """binsplit.c dm_layout's BS_ARENA_TRIM_GB (env when trim_gb is None; 0 = off): the dm need with the tree's top scratch added (the C adds it
+    inside dm_layout) less the trim, never below the largest live set max(v2, v3); sets L['need_dev'] and L['trim'] (bytes) and returns the need"""
+    L['need_dev'] += scratch
+    t = float(os.environ.get('BS_ARENA_TRIM_GB', '0') or 0) if trim_gb is None else trim_gb
+    L['trim'] = min(int(t * 1e9), max(0, L['need_dev'] - max(L['v2'], L['v3']))) if t > 0 else 0
+    L['need_dev'] -= L['trim']
+    return L['need_dev']
+
 def dm_mn_wrap(env=None):
     """P1 / D19 (results/LAUNCH_DEFAULTS.md §DEF): DM_MN_WRAP's value (newton_db.c dm_wrap: 0 off, the fallback; 1 the cap's plane, the default since D22; k >= 20 a plane of 2^k)"""
     v = (env if env is not None else os.environ).get('DM_MN_WRAP', '1') or '1'
@@ -985,7 +994,7 @@ def _mem_per_node(D, g=1, opts=None):
     L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], room=aroom, dkm=o.get('dkm', False), mdev_logl=o.get('mdev_logl', 30), lean=o.get('lean', False), wrap=o.get('wrap'))   # dkm: NEWTON_DKM (Phase 15 DL: built -- binsplit.c dm_layout follows it; the code's default since Batch 3); lean: DM_MN_LEAN (int15k)
     p24 = (o.get('p24', 0), o['np'], g) if o.get('p24', 0) else None   # MS: MN_P24 (0 = off, the default)
     sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta'], o['form'], o['pool_log'], o['groups'], o['t_chunk_mb'], o['early_free'], p24) if g > 1 else 0
-    if g > 1: L['need_dev'] += sc[0]                                       # the sharded division's products: the same slabs and spills
+    arena_trim(L, sc[0] if g > 1 else 0)                                   # (BS_ARENA_TRIM_GB after the scratch) the sharded division's products: the same slabs and spills
     vs = vslot_resident(L['nq'], g, o['groups'], o['pool_log'], p24, o['depth'])   # B7ACCT: the general map's v-slots per APU (hipMalloc'd beside the arena)
     vb = 0                                                                 # the v-slots are in the comm pool (X2), not in the code's node budget (room, cache fit)
     want = max(L['need_dev'], tree)
@@ -1032,7 +1041,7 @@ def _mem_per_node(D, g=1, opts=None):
         room_node = planes + sum(arena) + VMM_BS_GROW + rh
         if not as_room_fits(planes, sum(arena), rh + vb, o.get('node_gb', 480.0)):   # (B7ACCT: + the v-slots under ECALC_VSLOT_BUDGET=1)
             aroom = 0.0; L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], room=0.0, dkm=o.get('dkm', False), mdev_logl=o.get('mdev_logl', 30), lean=o.get('lean', False), wrap=o.get('wrap'))
-            if g > 1: L['need_dev'] += sc[0]
+            arena_trim(L, sc[0] if g > 1 else 0)
             want = max(L['need_dev'], tree); arena = [arena_of(b, want, VMM_CHUNK) for b in bs]; arena_mapped = list(arena); pool_total = sum(arena)
     if g > 1 and sc[1] > (1 << o['pool_log']) // 4:                       # (never with the mn tier's cap: kept for a lowered cap)
         planes = NR * (npp * sc[1] * 8 + (3 * sc[1] + 16) * 8) + int(0.61 * GB)
@@ -1211,7 +1220,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
                 p24m = int(os.environ.get('MN_P24', '2') or 0)                 # (DL: '2', the code's default since Batch 3)  MS: the run's MN_P24 (the layout line does not print them)
                 p24 = (p24m, np_mode if np_mode is not None else EC_NP, g) if p24m else None
                 tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, 0, 'grid', pool_log, None, t_chunk_mb, ef, p24) if g > 1 else 0
-                need = L['need_dev'] + (sc[0] if g > 1 else 0); want = max(need, tree)
+                need = arena_trim(L, sc[0] if g > 1 else 0); want = max(need, tree)
                 ar = sum(arena_of(b, want, ch) for b in bs)
                 if rm > 0: ar_room = ar
                 if rm == 0 or as_room_fits(room_planes, ar, rh + vb, float(env.get('ECALC_NODE_GB', '480'))): break   # (B7ACCT: the budget the C reads -- was 480 always)

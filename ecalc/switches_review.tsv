@@ -5,6 +5,7 @@
 # Seed rule: experiments and fallbacks 30 days (2026-11-11); diagnostics and test harness 6 months (2027-04-12).
 # At review: remove the switch (or its fallback value), or move the date with a reason in the note.
 # columns (tab separated): name, class (experiment|fallback|diagnostic|test|internal|launch-line), owner, review (YYYY-MM-DD), note
+BS_ARENA_TRIM_GB	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
 BS_CKPT_BG_MBS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 BS_SEED_PULL	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback, also the aac6 CPX workaround (profiles/aac6.conf); default since 2026-10-12 (CAND)
 COMM_LAYER_INTER2	fallback	coordinator (TASKS S)	2026-11-11	=0 restores the pre-X2 exchange; default since 2026-10-12 (TASKS 27, W2B D1e)

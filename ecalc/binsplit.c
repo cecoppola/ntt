@@ -305,7 +305,7 @@ static void region_need(unsigned long N, size_t need[NR])
  * at 4 / 7 / 8e10, exactly the in-phase hipMalloc) -- reserved as the arena's tail; thresh is what the pool treats as "large"
  * (5/8 of the hole: r, r2 at ~ half of it stay out of the tail, t1 takes it).  At size > 1 the shares are 1/size of it
  * (the sharded division, A-div) and the tree's products add their slabs (tree_need_dev). */
-struct dm_layout { size_t nq, k, tcap, hole, thresh, need_dev, tree_dev; size_t jl, v2, v3, div; int tight; size_t room; int dkm, lean; size_t wrap; };   /* DL: dkm = the layout follows the DKM division; lean = the lean division set */   /* room = BS_ARENA_ROOM's term (in need_dev) */   /* jl = the last doubling's start, v2 / v3 / div = the terms per device, the switches */
+struct dm_layout { size_t nq, k, tcap, hole, thresh, need_dev, tree_dev; size_t jl, v2, v3, div; int tight; size_t room; int dkm, lean; size_t wrap, trim; };   /* DL: dkm = the layout follows the DKM division; lean = the lean division set */   /* room = BS_ARENA_ROOM's term (in need_dev) */   /* jl = the last doubling's start, v2 / v3 / div = the terms per device, the switches */
 static size_t quarter_bytes(size_t limbs) { return ((limbs + 3) / 4 + 4095) / 4096 * 4096 * 8; }
 /* DM_TIGHT=1 -- the reciprocal reserves r2 only when d is first written (2j + 4 limbs, freed whenever
  * its content is dead) and t1 per doubling at Q_t (take) + r (j + 1) + 8, and the device tier's top levels free each input pair as it is
@@ -408,6 +408,11 @@ int binsplit_vslot_budget_on(void) { return 1; }   /* always 1; kept for the `vs
  * remaps); (2) the dm need gains f x the hole (the division's largest block), so the blocks that spill around the tail leave it
  * whole.  f from the pool replays of measured traces (tests/as_pool_replay.py). */
 static double bs_arena_room(void) { static double f = -1; if (f < 0) { const char *e = getenv("BS_ARENA_ROOM"); f = e ? atof(e) : 0.16; if (f < 0) f = 0; } return f; }   /* default 0.16 */
+/* BS_ARENA_TRIM_GB=<GB per APU> (0 = off, the default) -- trim the dm need by this much (before the arenas are rounded to chunks): the model's
+ * need sits above the measured live peak (2 n 1.2882e11: arena 66.57 GB, peak 55.47 GB) and every chunk is mapped (the extra by the background
+ * mapper, which slows the GPU while it runs).  dm_layout clamps the trim so the need stays at the largest live set max(v2, v3) (and the
+ * tree's, via want); the decision is printed once on rank 0.  Experiment: the remaps (DB_POOL_VERBOSE=1) say whether the cut is safe. */
+static double bs_arena_trim_gb(void) { static double f = -1; if (f < 0) { const char *e = getenv("BS_ARENA_TRIM_GB"); f = e ? atof(e) : 0; if (f < 0) f = 0; } return f; }
 static size_t as_arena(size_t bytes)                  /* an arena's bytes as BS_ARENA_ROOM lays it out: whole VMM chunks */
 {
     if (!(bs_arena_room() > 0) || !db_pool_vmm_on()) return bytes;
@@ -582,6 +587,13 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     L->room = bs_arena_room() > 0 && db_pool_vmm_on() ? (size_t)(bs_arena_room() * (double)L->hole) : 0;
     if (L->room && !g_room_probe && !as_room_fits(N, size, L->room)) L->room = 0;                              /* (over the node budget: dropped) */
     L->need_dev += L->room;
+    if (bs_arena_trim_gb() > 0) {                                              /* BS_ARENA_TRIM_GB: never below the largest live set (mem_model.arena_trim is the twin) */
+        size_t want_t = (size_t)(bs_arena_trim_gb() * 1e9), floor_ = L->v2 > L->v3 ? L->v2 : L->v3, room_ = L->need_dev > floor_ ? L->need_dev - floor_ : 0;
+        L->trim = want_t < room_ ? want_t : room_; L->need_dev -= L->trim;
+        static int said; const char *er = getenv("COMM_RANK");
+        if (!g_room_probe && !said && (!er || atoi(er) == 0)) { said = 1;
+            printf("bs: BS_ARENA_TRIM_GB: dm need %.2f -> %.2f GB per APU (trim %.2f of the %.2f asked; the largest live set %.2f GB%s)\n", (L->need_dev + L->trim) * 1e-9, L->need_dev * 1e-9,
+                   L->trim * 1e-9, bs_arena_trim_gb(), floor_ * 1e-9, L->trim < want_t ? "; clamped" : ""); } }
 }
 /* the SHMEM transport's symmetric pool this run needs per node-process, in bytes (mem_model.py
  * shmem_pool is the same law): 4 APU threads x the largest staged exchange's send + receive over the run's products (the tree's
