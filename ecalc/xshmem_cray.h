@@ -12,6 +12,7 @@
  *                        3 zero-length putmem_signal_nbi on the signal word
  *   XSHMEM_CRAY_WAIT     0 shmem_signal_wait_until (default)  1 shmem_uint64_wait_until
  *   XSHMEM_CRAY_TEST     0 shmem_signal_fetch + compare (default)  1 shmem_uint64_test
+ *   XSHMEM_CRAY_HOSTREG  1 (default): HEAP=0 registers the DATA heap with hipHostRegister (needs -DUSE_HIP, set by the Makefile); 0 = no
  *   XSHMEM_CRAY_PUTSIG_SPLIT  1: putmem_signal_nbi = putmem_nbi + ctx_fence + signal_set (design 1.3 c); default 0 = the library call
  * The XSHMEM_CTRL=host switch (design 1.3 b) puts the CTRL space in a second host shmem_malloc when HEAP is a device heap.
  */
@@ -55,8 +56,11 @@
 #if XSHMEM_CRAY_SIGSET < 0 || XSHMEM_CRAY_SIGSET > 3
 #error "xshmem_cray.h: XSHMEM_CRAY_SIGSET must be 0..3"
 #endif
-#if XSHMEM_CRAY_HEAP == 1 || XSHMEM_CRAY_HEAP == 3
-#include <hip/hip_runtime_api.h>      /* zeroing a device heap from the host */
+#ifndef XSHMEM_CRAY_HOSTREG
+#define XSHMEM_CRAY_HOSTREG 1       /* HEAP=0: hipHostRegister the DATA heap (the engine's copy kernels and hipMemcpy touch it from the GPU) */
+#endif
+#if XSHMEM_CRAY_HEAP == 1 || XSHMEM_CRAY_HEAP == 3 || (defined(USE_HIP) && XSHMEM_CRAY_HOSTREG)
+#include <hip/hip_runtime_api.h>      /* zeroing a device heap from the host; registering the host heap */
 #endif
 
 #define XSHMEM_CTX_DEFAULT ((xshmem_ctx_t)SHMEM_CTX_DEFAULT)
@@ -97,6 +101,12 @@ static inline void *xshmem_heap_alloc(size_t bytes, int space)
     if (!host) hipMemset(p, 0, n); else
 #endif
     memset(p, 0, n);
+#if defined(USE_HIP) && XSHMEM_CRAY_HOSTREG
+    /* host heap (11.8 has no device heap): register it so GPU kernels / hipMemcpyAsync of the engine reach it at memory speed (the 12.1 device heap needs none) */
+    if (host && space == XSHMEM_SPACE_DATA && hipHostRegister(p, n, hipHostRegisterPortable) != hipSuccess) {
+        (void)hipGetLastError(); fprintf(stderr, "xshmem_cray: hipHostRegister of the DATA heap (%zu MiB) failed: pageable access\n", n >> 20);
+    }
+#endif
     xshmem_cray_st.base[space] = (char *)p; xshmem_cray_st.size[space] = n;
     shmem_barrier_all();
     return p;
@@ -104,6 +114,10 @@ static inline void *xshmem_heap_alloc(size_t bytes, int space)
 static inline void xshmem_heap_free(void *base)
 {
     shmem_barrier_all();
+#if defined(USE_HIP) && XSHMEM_CRAY_HOSTREG
+    if (base == xshmem_cray_st.base[0] && XSHMEM_CRAY_HEAP == 0) (void)hipHostUnregister(base);
+    (void)hipGetLastError();
+#endif
     shmem_free(base);
     if (base == xshmem_cray_st.base[0]) xshmem_cray_st.base[0] = NULL;
     if (base == xshmem_cray_st.base[1]) xshmem_cray_st.base[1] = NULL;
