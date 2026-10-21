@@ -3,6 +3,7 @@
 #include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
+#include "vpe.h"
 #include "ntt_dist.h"
 #include "modarith.h"
 #include <time.h>
@@ -64,7 +65,7 @@ static void plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int log
         else { if (p->sbuf) comm_sym_free(cm, p->sbuf); HIP_CHECK(hipMalloc(&p->sbuf, bytes)); HIP_CHECK(hipMalloc(&p->rbuf, bytes)); }
     }
     /* M7: K chunks of rows/K >= 32 rows (a power of two; DIST_CHUNKS, default 8); 1 over the synthetic communicator */
-    int K = getenv("DIST_CHUNKS") ? atoi(getenv("DIST_CHUNKS")) : 8;
+    int K = getenv("DIST_CHUNKS") ? atoi(getenv("DIST_CHUNKS")) : vpe_on() ? 1 : 8;   /* S1b: vPE (flat xshmem communicator, one exchange at a time, 64 KiB messages at 8 chunks) = one exchange per transform unless DIST_CHUNKS says otherwise */
     if (K < 1 || cm->inflight == 0) K = 1;
     while (K > 1 && (K & (K - 1))) K--;
     while (K > 1 && p->rows / K < 32) K >>= 1;

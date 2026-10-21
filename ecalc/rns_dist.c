@@ -1102,7 +1102,7 @@ static void gplan_build(struct gplan *p, int g, int rho, int logR, int logC, int
     p->nr = nr; p->logR = logR; p->logC = logC; p->R = R; p->C = C;
     p->rows = partn(R, nr, rho); p->row0 = part0(R, nr, rho); p->cols = partn(C, nr, rho);
     p->qs = p->rows * C; p->qr = p->cols * R;
-    size_t rmin = R / nr; int K = getenv("DIST_CHUNKS") ? atoi(getenv("DIST_CHUNKS")) : 8; if (K < 1) K = 1; if (K > 16) K = 16;
+    size_t rmin = R / nr; int K = getenv("DIST_CHUNKS") ? atoi(getenv("DIST_CHUNKS")) : vpe_on() ? 1 : 8; if (K < 1) K = 1; if (K > 16) K = 16;
     while (K > 1 && rmin / K < 32) K--;
     p->K = K;
     p->hT = (struct rkt *)malloc((size_t)K * nr * sizeof *p->hT);
@@ -1899,7 +1899,7 @@ size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t sh
 static size_t vslot_shape(int logR, int logC, int g)
 {
     int nr = NL() * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rmin = R / nr;
-    int K = getenv("DIST_CHUNKS") ? atoi(getenv("DIST_CHUNKS")) : 8; if (K < 1) K = 1; if (K > 16) K = 16;   /* gplan_build's K */
+    int K = getenv("DIST_CHUNKS") ? atoi(getenv("DIST_CHUNKS")) : vpe_on() ? 1 : 8; if (K < 1) K = 1; if (K > 16) K = 16;   /* gplan_build's K */
     while (K > 1 && rmin / K < 32) K--;
     size_t *rk = (size_t *)malloc((size_t)nr * sizeof(size_t)), colcol[NR] = { 0 }, need = 0;
     for (int d = 0; d < NL(); d++) for (int r = 0; r < g; r++) colcol[d] += partn(C, nr, g * d + r);
