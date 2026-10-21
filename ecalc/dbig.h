@@ -15,6 +15,7 @@ extern "C" {
 #endif
 #define DB_NQ 4
 typedef struct dbig_s { uint64_t *q[DB_NQ]; size_t n, cap, qc, off; } dbig;   /* qc: limbs per quarter (exact, a multiple of 4096); off: a view's first limb (cap 0: not owning) */
+/* S1b (vPE): with ECALC_VPE=1 a dbig is ONE quarter, q[0] on device vpe_lane() of the calling PE thread, qc = cap; q[1..3] are NULL. */
 void db_init(dbig *x);
 void db_free(dbig *x);
 struct db_stats { size_t n_shift, n_addsub, n_maxidx, n_reserve; double t_shift, t_addsub, t_maxidx, t_reserve; };
