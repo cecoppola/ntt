@@ -528,7 +528,7 @@ static int dm_wrap_req(void);
 static __thread unsigned long g_room_cN; static int g_room_cfit = -1;   /* as_room_fits' cache (FIT: file scope, keyed also by the term range and the wrap) */
 static int as_room_fits(unsigned long N, int size, size_t room)
 {
-    static int cs, cpl = -1, cw = -1; static unsigned long ca0, cb1; int pl = rns_pool_log() > 0 ? rns_pool_log() : 31, w = dm_wrap_req();
+    static __thread int cs, cpl = -1, cw = -1; static __thread unsigned long ca0, cb1; int pl = rns_pool_log() > 0 ? rns_pool_log() : 31, w = dm_wrap_req();
     if (g_room_cfit >= 0 && g_room_cN == N && cs == size && cpl == pl && cw == w && ca0 == bs_a0 && cb1 == bs_b1) return g_room_cfit;   /* FIT: the fit lays out both wraps on rank 0's range */
     int np = ec_np_init(); if (np == 3 && ec_np_auto) np = ec_np_planes(pl, size);   /* DL: pool 0's planes under ECALC_NP=auto (as binsplit_node_bytes) */
     size_t planes = (size_t)bs_nrn() * rns_plane_pool_bytes(pl, np, 0, 0) + ((size_t)610000000);   /* BS_TABLES_BYTES */
@@ -974,11 +974,11 @@ static void binsplit_layout_only(const char *spec)
 }
 void binsplit_pregrow(unsigned long N)
 {
-    static unsigned long done_N; if (done_N == N) return; done_N = N;   /* once per run -- binsplit_seeds_begin calls it inside rns_init (the seeds stream into the regions), the driver again after */
+    static __thread unsigned long done_N; if (done_N == N) return; done_N = N;   /* once per run -- binsplit_seeds_begin calls it inside rns_init (the seeds stream into the regions), the driver again after */
     if (getenv("BS_LAYOUT_ONLY")) { binsplit_layout_only(getenv("BS_LAYOUT_ONLY")); exit(0); }   /* the arena request without the arena */
     if (getenv("BS_BALANCE_N")) bs_balance_n = atoi(getenv("BS_BALANCE_N"));
     double t_pg = mem_now();
-    size_t need[NRMAX]; region_need(N, need);   /* C4: regions from the simulated layout */
+    size_t need[NRMAX] = {0}; region_need(N, need);   /* C4: regions from the simulated layout */
     /* the arena also serves the dm phase as the block pool (the regions are donated to it); its size is the bs need alone
      *.
      * ECALC_ARENA_GB sets the arena per APU outright. */
