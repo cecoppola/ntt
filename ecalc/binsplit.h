@@ -103,6 +103,9 @@ extern int bs_keep_dev_v[BS_VMAX]; struct dbig_s *bs_Pd_ptr(void), *bs_Qd_ptr(vo
 #define bs_Qd (*bs_Qd_ptr())                          /* release the two level pools */
 /* reference: the same recursion on the CPU with schoolbook products, any N */
 void binsplit_ref(bigint *P, bigint *Q, unsigned long a, unsigned long b);
+/* S1d: the planner's PE terms (ECALC_VPE=1; with the switch off 4 devices per node, 1 PE per node, and the node's range as before) */
+unsigned long binsplit_pe_b1(unsigned long N, int g);   /* end of rank 0's (PE 0's) term range [1, b1) on g node-processes; 0 = all terms */
+int binsplit_nrn(void); int binsplit_lanes(void);        /* devices (PEs) per node; PEs per node */
 #ifdef __cplusplus
 }
 #endif

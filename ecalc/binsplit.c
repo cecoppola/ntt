@@ -82,11 +82,27 @@ void binsplit_ref(bigint *P, bigint *Q, unsigned long a, unsigned long b)
 extern __thread int vpe_t_idx;
 static int bs_nreg(void) { return vpe_on() ? 1 : 4; }   /* regions of one binary splitting: 4 per node (one per APU), or ONE per vPE (its own device) */
 #define NR bs_nreg()
+/* the planner's per-node counts.  Switch off: 4 devices per node and the node range is split into 4 regions.  ECALC_VPE=1: L = vpe_lanes() PEs per node (one device each), each
+ * holding ONE region over its own range; a node is L identical PEs, so the per-node figures (planes, arena, v-slots, the shares of the dm numbers) are the one PE's times L.
+ * bs_nrn() = devices (PEs) per node, bs_lanes() = PEs per node (1 off).  The tree's group schedule stays node-based (MN_GROUPS over the nodes; the groups below a node
+ * are not modelled until S1b/S1c's *_pe functions exist) -- with L = 4 the PE model equals the node model up to rounding. */
+static int bs_nrn(void) { return vpe_on() ? vpe_lanes() : 4; }
+static int bs_lanes(void) { return vpe_on() ? vpe_lanes() : 1; }
+static size_t bs_staging(void) { return vpe_on() ? (size_t)vpe_lanes() << 30 : (size_t)4 << 30; }   /* the checkpoint staging: 1 GiB per APU thread / PE */
+static unsigned long bs_pe_b1(unsigned long N, int g)   /* the end of rank 0's (PE 0's) term range [1, b1): b1 = 0 = all terms */
+{
+    unsigned __int128 G = (unsigned __int128)g * (unsigned)bs_lanes(), nn = N;
+    return G > 1 ? 1 + (unsigned long)(nn / G) : 0;
+}
 struct node { size_t po, pn, qo, qn; int r; dbig *pd, *qd; };   /* pd/qd: the node as device numbers (top levels on the device tier, WP5) */
 struct level { uint64_t *pool[NRMAX]; struct node *nd; size_t n; };
 #define NODE_P(lv, nd) ((lv).pool[(nd)->r] + (nd)->po)
 #define NODE_Q(lv, nd) ((lv).pool[(nd)->r] + (nd)->qo)
 int bs_mdev_logl = RNS_BATCH_LOGL_MAX;                /* BS_MDEV_LOGL: products above 2^this go to the mdev tier (lower it to test at 10^9) */
+/* the planner's PE terms for mn_plan.c (binsplit.h) */
+unsigned long binsplit_pe_b1(unsigned long N, int g) { return bs_pe_b1(N, g); }
+int binsplit_nrn(void) { return bs_nrn(); }
+int binsplit_lanes(void) { return bs_lanes(); }
 /* the region pools, the arenas: per vPE (index vpe_t_idx; [0] only when the switch is off) */
 static uint64_t *g_pool_v[BS_VMAX][2][NRMAX]; static size_t g_cap_v[BS_VMAX][2][NRMAX];
 #define g_pool (g_pool_v[vpe_t_idx])
@@ -335,7 +351,7 @@ static void region_need(unsigned long N, size_t need[NRMAX])
  * (5/8 of the hole: r, r2 at ~ half of it stay out of the tail, t1 takes it).  At size > 1 the shares are 1/size of it
  * (the sharded division, A-div) and the tree's products add their slabs (tree_need_dev). */
 struct dm_layout { size_t nq, k, tcap, hole, thresh, need_dev, tree_dev; size_t jl, v2, v3, div; int tight; size_t room; int dkm, lean; size_t wrap, trim; };   /* DL: dkm = the layout follows the DKM division; lean = the lean division set */   /* room = BS_ARENA_ROOM's term (in need_dev) */   /* jl = the last doubling's start, v2 / v3 / div = the terms per device, the switches */
-static size_t quarter_bytes(size_t limbs) { return ((limbs + 3) / 4 + 4095) / 4096 * 4096 * 8; }
+static size_t quarter_bytes(size_t limbs) { size_t q = (size_t)bs_nrn(); return ((limbs + q - 1) / q + 4095) / 4096 * 4096 * 8; }   /* the share of one device (a quarter on the 4-APU node; one PE's with ECALC_VPE) */
 /* DM_TIGHT=1 -- the reciprocal reserves r2 only when d is first written (2j + 4 limbs, freed whenever
  * its content is dead) and t1 per doubling at Q_t (take) + r (j + 1) + 8, and the device tier's top levels free each input pair as it is
  * consumed; dm_layout's v2 / v3 follow (E2: -1 n_Q of arena).  */
@@ -493,18 +509,18 @@ static size_t as_shmem_pool(unsigned long N, int size, size_t *ofi)
     if (size < 2 || !(tr && (!strcmp(tr, "shmem") || !strcmp(tr, "xshmem")))) return 0;
     size_t need = binsplit_shmem_pool_need(N, size, 0, 0), mb = (need + ((size_t)1 << 20) - 1) >> 20; mb = (mb + 255) / 256 * 256;
     size_t have = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : g_ofi_dev_mb ? mb : 8192;   /* OFIMEM: unset under OFI = the need (the rule sets it) */
-    if (ofi) *ofi = 4 * (ofi_pool_mb() << 20);
-    if (g_px_dev_mb && ofi) *ofi = 4 * (size_t)comm_shmem_pe_per_apu() * ((mb > have ? mb : have) << 20);   /* N7b: the 4 x value proxies' pools, each as large as the node-process's (symmetric heaps) */
+    if (ofi) *ofi = (size_t)bs_nrn() * (ofi_pool_mb() << 20);
+    if (g_px_dev_mb && ofi) *ofi = (size_t)bs_nrn() * (size_t)comm_shmem_pe_per_apu() * ((mb > have ? mb : have) << 20);   /* N7b: the 4 x value proxies' pools, each as large as the node-process's (symmetric heaps) */
     return (mb > have ? mb : have) << 20;   /* the pool rule always raises the pool to the need */
 }
 /* the host term of the node (bytes) as the room decision counts it (FIT: also the fit report's host; see the comment above) */
 static size_t as_host_bytes(unsigned long N, int size, size_t pool, size_t ofi, size_t *sb_)
 {
-    size_t sb = size > 1 ? as_seedbuf(N) : 0, host;
+    size_t sb = size > 1 ? as_seedbuf(N) * (size_t)bs_lanes() : 0, host;
     if (size == 1) { double D = lgamma((double)N + 1.0) / log(10.0) / 1e9 - 40.0; host = (size_t)((25.85 + 0.0208 * (D > 0 ? D : 0.0)) * 1e9); }
-    else { size_t base = (size_t)7000000000 + ((size_t)4 << 30) + (size_t)6000000000 + pool + ofi;   /* OFIMEM: + the comm_ofi pools */
+    else { size_t base = (size_t)7000000000 + bs_staging() + (size_t)6000000000 + pool + ofi;   /* OFIMEM: + the comm_ofi pools */
            int early = getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) != 0 : 1;
-           size_t hi = base + sb, hd = base + (size_t)650000000 + (early ? (size_t)900000000 : 0); host = hi > hd ? hi : hd; }
+           size_t hi = base + sb, hd = base + (size_t)bs_lanes() * ((size_t)650000000 + (early ? (size_t)900000000 : 0)); host = hi > hd ? hi : hd; }
     if (sb_) *sb_ = sb;
     return host;
 }
@@ -515,7 +531,7 @@ static int as_room_fits(unsigned long N, int size, size_t room)
     static int cs, cpl = -1, cw = -1; static unsigned long ca0, cb1; int pl = rns_pool_log() > 0 ? rns_pool_log() : 31, w = dm_wrap_req();
     if (g_room_cfit >= 0 && g_room_cN == N && cs == size && cpl == pl && cw == w && ca0 == bs_a0 && cb1 == bs_b1) return g_room_cfit;   /* FIT: the fit lays out both wraps on rank 0's range */
     int np = ec_np_init(); if (np == 3 && ec_np_auto) np = ec_np_planes(pl, size);   /* DL: pool 0's planes under ECALC_NP=auto (as binsplit_node_bytes) */
-    size_t planes = NR * rns_plane_pool_bytes(pl, np, 0, 0) + ((size_t)610000000);   /* BS_TABLES_BYTES */
+    size_t planes = (size_t)bs_nrn() * rns_plane_pool_bytes(pl, np, 0, 0) + ((size_t)610000000);   /* BS_TABLES_BYTES */
     size_t ofi = 0; g_room_probe = 1; size_t ar = layout_arena(N, size, 0), pool = as_shmem_pool(N, size, &ofi); g_room_probe = 0;
     size_t sb, host = as_host_bytes(N, size, pool, ofi, &sb);
     size_t node = planes + ar + AS_VMM_BS_GROW + host;
@@ -658,13 +674,13 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     g_stage_apu = best * 8;
     int ofi = comm_ofi_planned() || xsh_on();                         /* under COMM_OFI the device staging and the symmetric slabs are in the comm_ofi pools */
     int px = !ofi && comm_shmem_pe_per_apu() > 0;         /* N7b: under COMM_SHMEM_PE_PER_APU they are in the proxies' pools -- the comm_ofi law, one pool per APU */
-    size_t staging = ofi || px ? 0 : 4 * best * 8, ring = (getenv("COMM_SHMEM_RING_KB") ? (size_t)atol(getenv("COMM_SHMEM_RING_KB")) : 256) << 10, members = (size_t)size;
+    size_t staging = ofi || px ? 0 : (size_t)bs_nrn() * best * 8, ring = (getenv("COMM_SHMEM_RING_KB") ? (size_t)atol(getenv("COMM_SHMEM_RING_KB")) : 256) << 10, members = (size_t)size;
     if (ring < 4096) ring = 4096;
     for (int l = 0; l < nl; l++) if (gs[l] < size) members += (size_t)gs[l];
-    size_t control = 4 * members * (ring + 64), mailbox = (size_t)1024 * size * 8;
+    size_t control = (size_t)bs_nrn() * members * (ring + 64), mailbox = (size_t)1024 * size * 8;
     if (inter2_on()) {   /* X2 COMM_LAYER_INTER2: a second mesh (control blocks) for every general-map group the layered communicator runs over (non-power-of-two S; lay_get) */
         size_t extra = 0; for (int l = 0; l < nl; l++) { int S = gs[l] < size ? gs[l] : size; if (S > 1 && (S & (S - 1))) extra += (size_t)S; }
-        control += 4 * extra * (ring + 64);
+        control += (size_t)bs_nrn() * extra * (ring + 64);
     }
     size_t vsp = binsplit_vslot_bytes(N, size, 0, 0, 0);   /* X2: the v-slots per APU thread, resident to the run's end */
     size_t sym = 0;
@@ -679,7 +695,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     else if (by && px) snprintf(by, bylen, "COMM_SHMEM_PE_PER_APU: per PE (1 + 4 x value per node, all alike): the node-process's control %.1f MiB + 128 MiB host staging; a proxy's %zu MiB = one APU's staging %.1f MiB by %s, v-slots %.1f MiB, margin", control / 1048576.0, g_px_dev_mb, best * 8 / 1048576.0, who, vsp / 1048576.0);
     else if (by) snprintf(by, bylen, "staging %.0f MiB = 4 x %.1f MiB by %s, control %.1f MiB, v-slots %.0f MiB = 4 x %.1f MiB", staging / 1048576.0, best * 8 / 1048576.0, who, control / 1048576.0, 4 * vsp / 1048576.0, vsp / 1048576.0);   /* SHM: the slots named */
     size_t stg0 = staging > ((size_t)128 << 20) ? staging : ((size_t)128 << 20);
-    if (!ofi && !px) sym += 4 * vsp;   /* (no comm_ofi: the slots are in the SHMEM pool, 4 APU threads).  SHM (results/SHMEM_ITEMS.md §SHM): always the sum, also under M3's release --
+    if (!ofi && !px) sym += (size_t)bs_nrn() * vsp;   /* (no comm_ofi: the slots are in the SHMEM pool, 4 APU threads).  SHM (results/SHMEM_ITEMS.md §SHM): always the sum, also under M3's release --
                                   * comm_shmem carves the staging into one region per APU at the pool's end (COMM_SHMEM_STAGE_SLOT_MB) and the slots (K_SYM) come only
                                   * from the general area, so the two never share space; M3's max(staging, slots) left the general area at control + margin
                                   * (6 nodes, 1e10, COMM_OFI=0: 452 MiB for 8 slots of 87 MiB, rc 3 after init) */
@@ -745,6 +761,7 @@ static size_t layout_arena(unsigned long N, int g, size_t *bs2_)
         size_t base = 2 * cap * 8, extra = want > base ? want - base : 0; extra = (extra + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
         arena += as_arena(base + extra); bs2 += base;   /* whole chunks under BS_ARENA_ROOM */
     }
+    arena *= (size_t)bs_lanes(); bs2 *= (size_t)bs_lanes();   /* ECALC_VPE: the node's L PEs are alike */
     if (bs2_) *bs2_ = bs2;
     return arena;
 }
@@ -767,14 +784,14 @@ size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *plan
     int pl0 = rns_pool_log(), pl = 30 + cap;
     if (np == 3 && ec_np_auto) np = ec_np_planes(pl, g);                /* pool 0 holds four planes where a product of g nodes may need them */
     rns_preinit_pool_log(pl);
-    size_t arena = layout_arena(N, g, 0), planes = NR * rns_plane_pool_bytes(pl, np, 0, 0) + BS_TABLES_BYTES;
+    size_t arena = layout_arena(N, g, 0), planes = (size_t)bs_nrn() * rns_plane_pool_bytes(pl, np, 0, 0) + BS_TABLES_BYTES;
     rns_preinit_pool_log(pl0);
     size_t host;
     if (g > 1) {
-        size_t ofi = 0, pool = as_shmem_pool(N, g, &ofi), sb = as_seedbuf(N);
-        size_t base = (size_t)7000000000 + ((size_t)4 << 30) + (size_t)6000000000 + pool + ofi;   /* OFIMEM: + the comm_ofi pools */
+        size_t ofi = 0, pool = as_shmem_pool(N, g, &ofi), sb = as_seedbuf(N) * (size_t)bs_lanes();
+        size_t base = (size_t)7000000000 + bs_staging() + (size_t)6000000000 + pool + ofi;   /* OFIMEM: + the comm_ofi pools */
         int early = getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) != 0 : 1;
-        size_t hd = base + (size_t)650000000 + (early ? (size_t)900000000 : 0), hi = base + sb;
+        size_t hd = base + (size_t)bs_lanes() * ((size_t)650000000 + (early ? (size_t)900000000 : 0)), hi = base + sb;
         host = hi > hd ? hi : hd;
     } else host = BS_HOST_INIT_BYTES;
     if (planes_) *planes_ = planes;
@@ -826,17 +843,17 @@ static void fit_arm(unsigned long N, int g, int wrap, struct bs_fit *F)
     g_wrap_force = wrap; g_fit_probe = 1;
     int pl = rns_pool_log() > 0 ? rns_pool_log() : 31, np = ec_np_init(); if (np == 3 && ec_np_auto) np = ec_np_planes(pl, g);
     struct dm_layout L; memset(&L, 0, sizeof L); dm_layout(N, g, &L);
-    F->planes = NR * rns_plane_pool_bytes(pl, np, 0, 0) + BS_TABLES_BYTES;
+    F->planes = (size_t)bs_nrn() * rns_plane_pool_bytes(pl, np, 0, 0) + BS_TABLES_BYTES;
     F->arena = layout_arena(N, g, &F->bs2);
     size_t ofi = 0; F->pool = as_shmem_pool(N, g, &ofi);
     const char *op = getenv("COMM_OFI_POOL"); F->ofi = op && !strcmp(op, "host") ? 0 : ofi; F->ofi_all = ofi;
     F->host = as_host_bytes(N, g, F->pool, ofi, &F->seedbuf);
     F->vslot = g > 1 ? binsplit_vslot_bytes(N, g, &F->vslot_top, 0, 0) : 0; if (g < 2) F->vslot_top = 0;
     F->grow = db_pool_vmm_on() ? AS_VMM_BS_GROW : 0;
-    F->dev_dm = F->planes + F->arena + F->ofi + NR * F->vslot;
-    F->dev_bs = F->planes + F->arena + F->ofi + F->grow + NR * F->vslot_top;
+    F->dev_dm = F->planes + F->arena + F->ofi + (size_t)bs_nrn() * F->vslot;
+    F->dev_bs = F->planes + F->arena + F->ofi + F->grow + (size_t)bs_nrn() * F->vslot_top;
     F->device = F->dev_dm > F->dev_bs ? F->dev_dm : F->dev_bs;
-    F->node = F->planes + F->arena + F->grow + F->host + NR * F->vslot;
+    F->node = F->planes + F->arena + F->grow + F->host + (size_t)bs_nrn() * F->vslot;
     F->need_dev = L.need_dev; F->tree_dev = L.tree_dev; F->v2 = L.v2; F->v3 = L.v3; F->div = L.div; F->room = L.room; F->wrapb = L.wrap; F->hole = L.hole;
     g_wrap_force = -1; g_fit_probe = 0;
 }
@@ -847,7 +864,7 @@ int binsplit_fit(unsigned long N, int g, struct bs_fit *F)
     int v, env = dm_wrap_env(&v);
     if (have && cN == N && cg == g && cF.wrap_env == env && (!env || cF.wrap == v)) { *F = cF; if (!env) g_wrap_run = F->wrap; return F->fits; }
     unsigned long a0 = bs_a0, b1 = bs_b1;
-    if (g > 1) { unsigned __int128 nn = N; bs_a0 = 1; bs_b1 = 1 + (unsigned long)(nn / g); } else { bs_a0 = 1; bs_b1 = 0; }   /* rank 0's range (BS_LAYOUT_ONLY's) */
+    bs_a0 = 1; bs_b1 = bs_pe_b1(N, g);   /* rank 0's range (BS_LAYOUT_ONLY's) */
     double limit = (getenv("ECALC_DEVICE_GB") ? atof(getenv("ECALC_DEVICE_GB")) : 373.44) * 1e9;            /* the device edge per node (the target's, m) */
     double margin = (getenv("ECALC_DEVICE_MARGIN_GB") ? atof(getenv("ECALC_DEVICE_MARGIN_GB")) : 5.0) * 1e9;  /* the wrap's safety margin per node */
     double budget = (getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0) * 1e9;
@@ -873,17 +890,17 @@ void binsplit_fit_print(const struct bs_fit *F, double D, int g, const char *pre
     const double G = 1e-9;
     printf("%s%.4g digits on %d node-process%s (rank 0's layout): device %.2f GB per node = %.2f GB per APU vs the device limit %.2f GB (ECALC_DEVICE_GB): margin %+.2f GB; "
            "node %.2f GB vs the node budget %.0f GB (ECALC_NODE_GB): margin %+.2f GB; host %.2f GB\n",
-           pre, D, g, g > 1 ? "es" : "", F->device * G, F->device * G / NR, F->limit * G, (F->limit - F->device) * G, F->node * G, F->budget * G, (F->budget - F->node) * G, F->host * G);
+           pre, D, g, g > 1 ? "es" : "", F->device * G, F->device * G / bs_nrn(), F->limit * G, (F->limit - F->device) * G, F->node * G, F->budget * G, (F->budget - F->node) * G, F->host * G);
     int bs = F->dev_bs > F->dev_dm;
     printf("%sdevice at the %s phase (the peak; the %s phase %.2f GB) = planes %.2f + arena %.2f + comm_ofi pools %.2f%s + v-slots %.2f GB\n",
            pre, bs ? "bs" : "dm", bs ? "dm" : "bs", (bs ? F->dev_dm : F->dev_bs) * G, F->planes * G, F->arena * G, F->ofi * G, bs && F->grow ? " + the bs growth 6.00" : "",
-           (bs ? NR * F->vslot_top : NR * F->vslot) * G);
+           (bs ? (size_t)bs_nrn() * F->vslot_top : (size_t)bs_nrn() * F->vslot) * G);
     if (g > 1) printf("%shost %.2f GB = runtime 7.00 + staging 4.29 + transport 6.00 + SHMEM pool %.2f + comm_ofi pools %.2f + the larger of the seed buffers %.2f and the writer's 0.65 (+ 0.90 MN_OUT_EARLY) GB\n",
                       pre, F->host * G, F->pool * G, F->ofi_all * G, F->seedbuf * G);
     else printf("%shost %.2f GB (the measured size-1 host high-water mark, mem_model host_size1_vmm)\n", pre, F->host * G);
     printf("%sthe consumers per APU (largest first): arena %.2f GB (the dm need %.2f: reciprocal set v2 %.2f, division %.2f%s, the bs top levels v3 %.2f, the hole %.2f, the room %.2f; the tree %.2f; "
            "the bs regions %.2f), plane pools %.2f, v-slots %.2f, comm_ofi pool %.2f\n",
-           pre, F->arena * G / NR, F->need_dev * G, F->v2 * G, F->div * G, F->wrapb ? "" : "", F->v3 * G, F->hole * G, F->room * G, F->tree_dev * G, F->bs2 * G / NR, F->planes * G / NR, F->vslot * G, F->ofi * G / NR);
+           pre, F->arena * G / bs_nrn(), F->need_dev * G, F->v2 * G, F->div * G, F->wrapb ? "" : "", F->v3 * G, F->hole * G, F->room * G, F->tree_dev * G, F->bs2 * G / bs_nrn(), F->planes * G / bs_nrn(), F->vslot * G, F->ofi * G / bs_nrn());
     if (g > 1)
         printf("%sDM_MN_WRAP=%d (%s): device with the wrap %.2f GB, without %.2f GB (the wrap's term %.2f GB per APU); %s\n", pre, F->wrap, F->wrap_env ? "set" : "automatic",
                F->dev_wrap1 * G, F->dev_wrap0 * G, F->wrapb1 * G,
@@ -901,9 +918,9 @@ static void binsplit_layout_only(const char *spec)
         char *e; double D = strtod(s, &e); int g = 1; if (*e == ':') g = (int)strtol(e + 1, &e, 10); if (g < 1) g = 1;
         s = *e ? e + 1 : e;
         unsigned long d = (unsigned long)(D * g + 0.5); d = (d + 17) / 18 * 18; unsigned long N = e_terms(d);
-        if (g > 1) { unsigned __int128 nn = N; bs_a0 = 1; bs_b1 = 1 + (unsigned long)(nn / g); } else { bs_a0 = 1; bs_b1 = 0; }
+        bs_a0 = 1; bs_b1 = bs_pe_b1(N, g);
         binsplit_layout_comm_size(g);                                   /* MS: COMM_SIZE = g for this point (restored below) */
-        struct bs_fit F; binsplit_fit(N, g, &F); bs_a0 = 1; bs_b1 = g > 1 ? 1 + (unsigned long)((unsigned __int128)N / g) : 0;   /* FIT: the point's wrap decided first (its layout follows it) */
+        struct bs_fit F; binsplit_fit(N, g, &F); bs_a0 = 1; bs_b1 = bs_pe_b1(N, g);   /* FIT: the point's wrap decided first (its layout follows it) */
         size_t need[NRMAX]; region_need(N, need);
         struct dm_layout L; memset(&L, 0, sizeof L); dm_layout(N, g, &L);
         size_t top = 0; if (g > 1) { size_t nq_s = (L.nq + g - 1) / g; tree_need_dev(nq_s, g, rns_pool_log() > 0 ? rns_pool_log() : 31, &top); }
@@ -914,6 +931,8 @@ static void binsplit_layout_only(const char *spec)
             size_t base = 2 * cap * 8, extra = want > base ? want - base : 0; extra = (extra + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
             arena += as_arena(base + extra); bs2 += base;
         }
+        arena *= (size_t)bs_lanes(); bs2 *= (size_t)bs_lanes();
+        if (vpe_on()) printf("pe: D %.4g g %d | lanes %d npe %d regions_per_pe 1 b1 %lu | pe_region_need %zu pe_arena %zu\n", D, g, vpe_lanes(), g * vpe_lanes(), bs_b1, need[0], arena / (size_t)vpe_lanes());   /* S1d: additive, only with ECALC_VPE */
         char wrapb[40] = ""; if (L.wrap) snprintf(wrapb, sizeof wrapb, " wrap %zu", L.wrap);
         printf("layout: D %.4g g %d d %lu N %lu nq %zu k %zu tcap %zu | hole %zu dm_need %zu (top scratch %zu) tree_need %zu want %zu | bs regions %zu arena %zu (node, bytes) | tight %d jl %zu v2 %zu v3 %zu div %zu early_free %d room %zu chunk %zu room_planes %zu%s%s\n",
                D, g, d, N, L.nq, L.k, L.tcap, L.hole, L.need_dev, top, L.tree_dev, want, bs2, arena, L.tight, L.jl, L.v2, L.v3, L.div, 1,
@@ -944,7 +963,7 @@ static void binsplit_layout_only(const char *spec)
               if (vroom) { dev0 = vdev0; node0 = vnode0; }
               else { size_t pb, ab, hb, tot = binsplit_node_bytes(N, g, cur, np, &pb, &ab, &hb); dev0 = pb + ab; node0 = tot; }
               printf("vslot: D %.4g g %d | per_apu %zu tree_top %zu node_vslot %zu | device %zu device_with %zu node %zu node_with %zu | budget %d | %s\n",
-                     D, g, v, tt, NR * v, dev0, dev0 + NR * v, node0, node0 + NR * v, binsplit_vslot_budget_on(), by);
+                     D, g, v, tt, (size_t)bs_nrn() * v, dev0, dev0 + (size_t)bs_nrn() * v, node0, node0 + (size_t)bs_nrn() * v, binsplit_vslot_budget_on(), by);
           } }
         printf("fit: D %.4g g %d | wrap %d set %d | device_wrap1 %zu device_wrap0 %zu | planes %zu arena %zu ofi %zu grow %zu vslot %zu vslot_top %zu host %zu | dev_dm %zu dev_bs %zu device %zu node %zu | limit %.0f margin %.0f budget %.0f | fits %d\n",
                D, g, F.wrap, F.wrap_env, F.dev_wrap1, F.dev_wrap0, F.planes, F.arena, F.ofi, F.grow, F.vslot, F.vslot_top, F.host, F.dev_dm, F.dev_bs, F.device, F.node, F.limit, F.margin, F.budget, F.fits);   /* FIT: mem_model.py --check-c compares it */
