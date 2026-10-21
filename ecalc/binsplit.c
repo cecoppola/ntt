@@ -901,9 +901,11 @@ void binsplit_fit_print(const struct bs_fit *F, double D, int g, const char *pre
     printf("%sdevice at the %s phase (the peak; the %s phase %.2f GB) = planes %.2f + arena %.2f + comm_ofi pools %.2f%s + v-slots %.2f GB\n",
            pre, bs ? "bs" : "dm", bs ? "dm" : "bs", (bs ? F->dev_dm : F->dev_bs) * G, F->planes * G, F->arena * G, F->ofi * G, bs && F->grow ? " + the bs growth 6.00" : "",
            (bs ? (size_t)bs_nrn() * F->vslot_top : (size_t)bs_nrn() * F->vslot) * G);
-    if (g > 1) printf("%shost %.2f GB = runtime 7.00 + staging 4.29 + transport 6.00 + SHMEM pool %.2f + comm_ofi pools %.2f + the larger of the seed buffers %.2f and the writer's 0.65 (+ 0.90 MN_OUT_EARLY) GB\n",
-                      pre, F->host * G, F->pool * G, F->ofi_all * G, F->seedbuf * G);
-    else printf("%shost %.2f GB (the measured size-1 host high-water mark, mem_model host_size1_vmm)\n", pre, F->host * G);
+    if (g > 1) { char rt[24] = "7.00", tr[24] = "6.00";   /* S2c: one process per PE: runtime and transport once per process of the node */
+                 if (bs_ppn_proc() > 1) { snprintf(rt, sizeof rt, "7.00 x %zu", bs_ppn_proc()); snprintf(tr, sizeof tr, "6.00 x %zu", bs_ppn_proc()); }
+                 printf("%shost %.2f GB = runtime %s + staging 4.29 + transport %s + SHMEM pool %.2f + comm_ofi pools %.2f + the larger of the seed buffers %.2f and the writer's 0.65 (+ 0.90 MN_OUT_EARLY) GB\n",
+                      pre, F->host * G, rt, tr, F->pool * G, F->ofi_all * G, F->seedbuf * G); }
+    else printf("%shost %.2f GB (the measured size-1 host high-water mark, mem_model host_size1_vmm%s)\n", pre, F->host * G, bs_ppn_proc() > 1 ? " + a runtime per further process" : "");
     printf("%sthe consumers per APU (largest first): arena %.2f GB (the dm need %.2f: reciprocal set v2 %.2f, division %.2f%s, the bs top levels v3 %.2f, the hole %.2f, the room %.2f; the tree %.2f; "
            "the bs regions %.2f), plane pools %.2f, v-slots %.2f, comm_ofi pool %.2f\n",
            pre, F->arena * G / bs_nrn(), F->need_dev * G, F->v2 * G, F->div * G, F->wrapb ? "" : "", F->v3 * G, F->hole * G, F->room * G, F->tree_dev * G, F->bs2 * G / bs_nrn(), F->planes * G / bs_nrn(), F->vslot * G, F->ofi * G / bs_nrn());
