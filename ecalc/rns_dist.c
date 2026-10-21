@@ -26,6 +26,7 @@
 #include "mdb.h"
 #include "mem.h"
 #include "mn_plan.h"                                        /* Phase 13d L: the plan printer asks this file's decisions */
+#include "vpe.h"                                            /* S1b: ECALC_VPE */
 #include "p24.h"                                            /* Phase 15 Batch 3 P24 (results/PRIMES_STRATEGY.md §P2415): 24 digits per point in the mn tier (P24) */
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
@@ -142,6 +143,8 @@ __global__ void k_scatter_runs(const uint64_t *loc, struct acc c, size_t R, size
  * pathological on long carry chains */
 
 static size_t dist_cap(void) { return (size_t)1 << dist_logn_max(); }   /* plane points */
+#define VPE_LOCAL_LOGN 29                                       /* S1b form S: one PE's plane cap (np + 1 planes of 2^29 points = 21 GB at 4 primes) unless DIST_LOGN_TEST is lower */
+static size_t local_cap(void) { int v = dist_logn_max(); return (size_t)1 << (v < VPE_LOCAL_LOGN ? v : VPE_LOCAL_LOGN); }
 __device__ static inline unsigned brev3(unsigned v, int bits) { return __brev(v) >> (32 - bits); }
 /* ---- Phase 10 A1 (archive:PLAN §20, I4; results/DIVISION.md §A-div "B2"): the transform cache ---------------------------------------
  * A slot holds the forward transform of one device operand (a dbig view, identified by its quarters, offset and length)
@@ -191,6 +194,7 @@ static void cache_acct(int ndev, size_t b[][MEM_DEV_NCAT])   /* the memory repor
  * over shares (default 2: the planes are 1/gt the size and a hit also skips the operand's all-to-all redistribution) */
 static int cache_slots_of(int mn)
 {
+    if (vpe_on()) return 0;                                   /* S1b: the transform cache is one process-wide singleton; off under vPE (digits do not depend on it) */
     if (!g_cache.init) {
         const char *m = getenv("RNS_DIST_CACHE_MN"); int w = m ? atoi(m) : 2;
         if (w < 0) w = 0; if (w > DIST_CACHE_MAX) w = DIST_CACHE_MAX;
@@ -308,7 +312,7 @@ static void cache_plan(int *sa, int *sb, int ha, int hb, const void *ka, size_t 
  * Held slots (the cache fit) are not allocated by the mn tier under the switch. */
 static size_t grp_max(mn_group *G, size_t v);
 static int g_node_of(mn_group *G);
-static int pc_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("RNS_DIST_CACHE_PARTIAL"); v = e ? atoi(e) != 0 : 1; } return v; }   /* default 1 since 2026-10-12 (TASKS 27; on both launch lines since 2026-09-29) */
+static int pc_on(void) { if (vpe_on()) return 0; static int v = -1; if (v < 0) { const char *e = getenv("RNS_DIST_CACHE_PARTIAL"); v = e ? atoi(e) != 0 : 1; } return v; }   /* default 1 since 2026-10-12 (TASKS 27; on both launch lines since 2026-09-29) */
 static int cache_slot_k(int si, int np) { if (si < 0) return 0; int k = g_cache.s[si].k; return k > 0 && k < np ? k : np; }   /* the primes slot si holds for an np-prime product */
 static uint64_t *cache_pl(int si, int d, int p, size_t q) { const struct dist_slot *s = &g_cache.s[si]; return g_cache.pc ? s->pp[d][p] : s->pl[d] + (size_t)p * q; }   /* slot si's plane of prime p on APU d */
 static struct { size_t products, taken, planes_max, bytes_max, planes_sum, grown; } g_pcst;   /* PC: the run's partial slots (printed at the release) */
@@ -710,6 +714,12 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
                       dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_a2a = 0; }
 }
 
+/* the one-plane product of the single-node tier: form S under vPE (rns_local.c; the operands and the result are whole dbigs), else dist_core */
+static void prod_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int sa, int sb)
+{
+    if (vpe_on()) { rns_local_core(Cw.owner, A.owner, B.owner, nc); return; }
+    dist_core(A, B, Cw, nc, sa, sb);
+}
 /* the low w limbs of A B (device operands): the grid below with the pieces above w skipped, then truncated
  * (the earlier halving recursion is no cheaper than the grid: for decimal's X Q at 4e10 both need 6 planes,
  * the skip makes it 5) */
@@ -753,6 +763,7 @@ enum { GP_LIMBS, GP_P24 };
 struct grid_form { size_t cap, minpts; int pts, bcost; };
 static size_t plane_pts(size_t nc)                          /* plane points for a product of nc limbs (dist_core rounds to 2^logn, at least 2^20) */
 {
+    if (vpe_on()) { int T, lk; return rns_local_pts(nc, &T, &lk); }
     size_t n = (size_t)1 << 20; while (n < nc) n <<= 1;
     return n;
 }
@@ -785,7 +796,7 @@ static int grid_shape(size_t na, size_t nb, const struct grid_form *f, int *ka, 
 /* the single-node tier's grid (mul_grid and the plan printer) */
 static int db_grid_shape(size_t na, size_t nb, int *ka, int *kb)
 {
-    struct grid_form f = { dist_cap(), 0, GP_LIMBS, b_grid_on() };
+    struct grid_form f = { vpe_on() ? local_cap() : dist_cap(), 0, GP_LIMBS, vpe_on() ? 0 : b_grid_on() };
     return grid_shape(na, nb, &f, ka, kb);
 }
 /* ---- the grid's piece loop (mul_grid, mn_grid and the plan printer; AUD3 item 4) ---------------------------------------------------
@@ -821,6 +832,12 @@ void rns_mul_high_db(dbig *Cd, const dbig *A, const dbig *B, size_t cut) { mul_g
 /* Phase 15 R4 (the reciprocal's middle product, results/DIVISION.md §R415): both cuts, the result mod B^w -- the formed pieces are added whole, a
  * skipped piece at oa + ob >= w is a multiple of B^w, so the low w limbs are those of A B less the low cut's pieces; truncated to w */
 void rns_mul_band_db(dbig *Cd, const dbig *A, const dbig *B, size_t lowcut, size_t w) { mul_grid(Cd, A, B, lowcut, w); if (Cd->n > w) { Cd->n = w; db_norm(Cd); } }
+/* S1b: the one-PE product (rns_mul.h) -- the band's two cuts, the grid of form S pieces when over the plane cap; lowcut 0, w -1: the full product */
+void rns_mul_local(dbig *Cd, const dbig *A, const dbig *B, size_t lowcut, size_t w)
+{
+    if (!vpe_on()) { ec_fatal(EC_RC_FATAL, "rns_mul_local: ECALC_VPE=1 only\n"); }
+    mul_grid(Cd, A, B, lowcut, w); if (w != (size_t)-1 && Cd->n > w) { Cd->n = w; db_norm(Cd); }
+}
 /* mul_grid's piece: views of A and B (normalised: an all-zero piece is empty), the cuts, and the first formed piece straight into C
  * (shifted up if not at (0,0)), the others through the temporary t and a shifted in-place add */
 struct db_piece { const dbig *A, *B; dbig *C, *t; size_t na, nb, pa, pb, lowcut, w; };
@@ -833,8 +850,8 @@ static int db_piece_form(void *ctx, int i, int j, int sa, int sb, int formed)
     if (!ai.n || !bj.n) return -1;
     if (grid_piece_skipped(oa, ob, ai.n, bj.n, c->lowcut, c->w)) return 0;            /* nothing of it below w, or all of it below the low cut */
     size_t pn = ai.n + bj.n;
-    if (!formed && !(oa + ob)) { dist_core(acc_db(&ai, 0, ai.n), acc_db(&bj, 0, bj.n), acc_db(c->C, 0, pn), pn, sa, sb); c->C->n = pn; db_norm(c->C); return 1; }
-    db_reserve(c->t, pn + 8); dist_core(acc_db(&ai, 0, ai.n), acc_db(&bj, 0, bj.n), acc_db(c->t, 0, pn), pn, sa, sb); c->t->n = pn; db_norm(c->t);
+    if (!formed && !(oa + ob)) { prod_core(acc_db(&ai, 0, ai.n), acc_db(&bj, 0, bj.n), acc_db(c->C, 0, pn), pn, sa, sb); c->C->n = pn; db_norm(c->C); return 1; }
+    db_reserve(c->t, pn + 8); prod_core(acc_db(&ai, 0, ai.n), acc_db(&bj, 0, bj.n), acc_db(c->t, 0, pn), pn, sa, sb); c->t->n = pn; db_norm(c->t);
     if (!formed) db_shl_limbs(c->C, c->t, oa + ob); else db_add_shifted(c->C, c->t, oa + ob, c->C);   /* in place */
     return 1;
 }
@@ -853,7 +870,7 @@ static void mul_grid(dbig *Cd, const dbig *A, const dbig *B, size_t lowcut, size
     if (cache_slots() && !one) { N = cache_avail(); for (int i = 0; i < N; i++) fs[nf++] = i; }   /* the free slots */
     if (one) {
         struct db_stats s0 = db_st; double t0 = mem_now();
-        dist_core(acc_db(A, 0, na), acc_db(B, 0, nb), acc_db(Cd, 0, nc), nc, -1, -1);   /* one plane: nothing kept */
+        prod_core(acc_db(A, 0, na), acc_db(B, 0, nb), acc_db(Cd, 0, nc), nc, -1, -1);   /* one plane: nothing kept */
         Cd->n = nc; db_norm(Cd);
         if (verbose) printf("   dist_db %zu limbs: %.3f s (dbig: shift %.3f addsub %.3f maxidx %.3f reserve %.3f)\n", nc, mem_now() - t0,
                             db_st.t_shift - s0.t_shift, db_st.t_addsub - s0.t_addsub, db_st.t_maxidx - s0.t_maxidx, db_st.t_reserve - s0.t_reserve);

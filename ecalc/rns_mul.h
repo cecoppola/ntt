@@ -74,6 +74,8 @@ void rns_mul_band_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig
 /* S1b (vPE, rns_local.c): the one-PE product by form S (the np primes in turn on the PE's own device); the rns_mul_*_db entries go here when vpe_on().
  * band: C = (A B mod B^w) with the pieces ending at or below lowcut skipped; lowcut 0, w = SIZE_MAX: the full product */
 void rns_mul_local(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t lowcut, size_t w);
+void rns_local_core(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t nc);   /* form S, one plane (rns_local.c): C = A B, nc >= na + nb limbs of room reserved, nc limbs written */
+size_t rns_local_pts(size_t nc, int *T, int *logk);   /* its transform length */
 void rns_dist_cache_stats(size_t *hits, size_t *misses);
 void rns_dist_cache_release(void);                     /* the cache's planes freed (the end of the dm phase) */
 void rns_dist_cache_budget(double room_bytes, int ranks_on_node);   /* ECALC_BUDGET_CHECK's room for this rank and its node's rank count (the transform-cache fit rule) */
