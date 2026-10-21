@@ -25,6 +25,7 @@
 
 #include <shmem.h>
 #include <shmemx.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -65,10 +66,12 @@
 
 #define XSHMEM_CTX_DEFAULT ((xshmem_ctx_t)SHMEM_CTX_DEFAULT)
 
-/* heap bookkeeping shared by all translation units (one weak definition) */
+/* heap bookkeeping shared by all translation units (one weak definition).
+ * ASSUMES K=1 (one heap slot per space: comm_xshmem.c forces K=1 for cray): a second DATA heap while one is registered is fatal. */
 typedef struct xshmem_cray_state {
     char *base[2];            /* per space */
     size_t size[2];
+    char *reg_base;           /* hipHostRegister'ed by us (page-aligned range), else NULL; never set when libsma already owns the mapping */
     int prov;
 } xshmem_cray_state_t;
 extern xshmem_cray_state_t xshmem_cray_st;
@@ -85,6 +88,7 @@ static inline void *xshmem_heap_alloc(size_t bytes, int space)
     xshmem_cfg_t cfg; void *p; int host;
     size_t n = (bytes + (2u << 20) - 1) & ~(size_t)((2u << 20) - 1);
     xshmem_cfg_load(&cfg);
+    if (xshmem_cray_st.base[space]) { fprintf(stderr, "xshmem_cray: second heap allocation in space %d while one is registered (single-slot bookkeeping assumes K=1)\n", space); shmem_global_exit(1); }
     host = (XSHMEM_CRAY_HEAP == 0) || (space == XSHMEM_SPACE_CTRL && cfg.ctrl_host);
     if (host) p = shmem_malloc(n);
 #if XSHMEM_CRAY_HEAP == 1
@@ -103,8 +107,17 @@ static inline void *xshmem_heap_alloc(size_t bytes, int space)
     memset(p, 0, n);
 #if defined(USE_HIP) && XSHMEM_CRAY_HOSTREG
     /* host heap (11.8 has no device heap): register it so GPU kernels / hipMemcpyAsync of the engine reach it at memory speed (the 12.1 device heap needs none) */
-    if (host && space == XSHMEM_SPACE_DATA && hipHostRegister(p, n, hipHostRegisterPortable) != hipSuccess) {
-        (void)hipGetLastError(); fprintf(stderr, "xshmem_cray: hipHostRegister of the DATA heap (%zu MiB) failed: pageable access\n", n >> 20);
+    if (host && space == XSHMEM_SPACE_DATA) {
+        const uintptr_t pg = 4096; uintptr_t a = (uintptr_t)p, lo = (a + pg - 1) & ~(pg - 1), hi = (a + n) & ~(pg - 1);
+        static int warned;
+        if (a & (pg - 1) && !warned) { warned = 1; fprintf(stderr, "xshmem_cray: warning: DATA heap base %p is not page aligned\n", p); }
+        if (hi <= lo) fprintf(stderr, "xshmem_cray: warning: no page-aligned range inside the DATA heap: not registered (pageable access)\n");
+        else {
+            hipError_t he = hipHostRegister((void *)lo, hi - lo, hipHostRegisterPortable);
+            if (he == hipSuccess) xshmem_cray_st.reg_base = (char *)lo;
+            else if (he == hipErrorHostMemoryAlreadyRegistered) (void)hipGetLastError(); /* libsma owns it: never unregister */
+            else { (void)hipGetLastError(); fprintf(stderr, "xshmem_cray: hipHostRegister of the DATA heap (%zu MiB) failed: pageable access\n", n >> 20); }
+        }
     }
 #endif
     xshmem_cray_st.base[space] = (char *)p; xshmem_cray_st.size[space] = n;
@@ -115,7 +128,7 @@ static inline void xshmem_heap_free(void *base)
 {
     shmem_barrier_all();
 #if defined(USE_HIP) && XSHMEM_CRAY_HOSTREG
-    if (base == xshmem_cray_st.base[0] && XSHMEM_CRAY_HEAP == 0) (void)hipHostUnregister(base);
+    if (base == xshmem_cray_st.base[0] && xshmem_cray_st.reg_base) { (void)hipHostUnregister(xshmem_cray_st.reg_base); xshmem_cray_st.reg_base = NULL; }
     (void)hipGetLastError();
 #endif
     shmem_free(base);
