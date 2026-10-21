@@ -64,7 +64,7 @@ the cluster. Where a number comes from a single run or a small set, the text say
 - **Layered exchange.** The all-to-all is done per node group in two stages: an intra-node stage over xGMI (the
   in-package GPU interconnect) and an inter-node stage over the NICs. `layeq` is the form for equal-sized blocks (power-of-two
   node counts, used at 2 and 4 nodes); `layv` ("variable") is the form for unequal blocks (3, 5, 6, 192, 576 nodes). `layv`
-  uses "v-slots" (staging buffers for the variable exchange). `COMM_LAYER_INTER2` (default 1) keeps two inter-node exchanges in flight.
+  uses "v-slots" (staging buffers for the variable exchange). `COMM_LAYER_INTER2=1` keeps two inter-node exchanges in flight (the default until 2026-10-21; now 0, results/SHMEM.md).
   Source: ecalc/comm_layered.c, v-slot code around lines 500-660.
 - **Phases of a run** (names in the logs): `init` (number-system setup and transport open), `bs` (binary splitting, the bulk of
   the compute, includes `recip`, the reciprocal), `dm` (the final distributed multiplication), `dc` (digit conversion).
@@ -204,7 +204,7 @@ Phases, what was believed, and what each test showed. Dates 2026-10.
   the signal word, per command: effectively one flow per NIC at about 15 GB/s. The "done" stamp and the quiet are taken only when the
   command ring is empty, so the first exchange's completion waits for the second's puts too: both finish together, and the NIC idles
   about 5 ms between rounds. `COMM_LAYER_INTER2=0` removes the idle (modelled 10.3 against 14.2 ms per layv exchange; measured layv rate 14.4 against 3.95
-  GB/s per APU). It is **not** the default (the default stays 1, comm_layered.c `comm_layered_inter2_on`); the application totals did not separate because
+  GB/s per APU). It was **not** the default then (the default was 1 until 2026-10-21, when 0 became the default on both transports, results/SHMEM.md); the application totals did not separate because
   stalls hit those runs too. Re-test now that stalls are gone.
 - NIC address-translation (ATU) cache misses at 6 nodes, same bytes moved (cxi counters, m): libfabric 17-18 %, SHMEM default 24 %, T64 (64 MiB blocks) 62 %.
   The libfabric arm with its pool in host memory (LH) missed 15 %, so host memory itself is not the problem; the SHMEM access pattern is. The NIC driver uses large
@@ -411,7 +411,7 @@ check the printed line, and compare stall counts and the heap's `Shared_Hugetlb`
 | `COMM_SHMEM_PX_SEND` | 3 under `PE_PER_APU=1` (else 1) | PX3 is the default since D53 (user 2026-10-19), `=1` the fallback; 2 (SS) was removed |
 | `COMM_SHMEM_PEER_ORDER` | rank | `shift` is in the DT/T6 set |
 | `COMM_SHMEM_PX_BLOCK_MB` | 4 | 64 in the DT/T6 set |
-| `COMM_LAYER_INTER2` | 1 | 0 is the candidate for SHMEM (section 4.5) |
+| `COMM_LAYER_INTER2` | 0 (since 2026-10-21) | adopted for both transports (results/SHMEM.md) |
 | `COMM_LAYER_VSLOT_RELEASE` | removed 2026-10-19 (task 4); was 1 (follows VSLOT_POOL) | 0 tested, not useful |
 | `COMM_SHMEM_PX_PIN` | 0 | not significant |
 | `COMM_SHMEM_PX_INIT` (removed 2026-10-19, task 4), `_INIT_THREADS`, `MESH_PAR` (removed 2026-10-19, task 4), `OFFS_WITH_DATA` (removed 2026-10-18, D49) | 0 / 4 / 0 / 0 | no gain; INIT_THREADS also sets the collapse threads of the fix |

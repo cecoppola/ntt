@@ -31,7 +31,7 @@ from measured numbers, **mod** modelled, **a** assumed. Times Eastern.
 - **Where the rate is still lost.** Layered (inter-stage) exchanges run at 78-82 % of the NIC at 4 nodes but 10-11 GB/s per APU thread
   at 10 nodes against 23.3 raw; direct exchanges (redistribution, results, spills) run near 1.9 GB/s and absorb skew (§XEFF, §C02).
   Of the items proposed in §XEFF: peer order (`rot`, now spelled `shift` in `COMM_SHMEM_PEER_ORDER`; wall-neutral, SHMEM_ITEMS),
-  `COMM_XSTATS` (built), VSLOT_POOL + INTER2 (built, default on); item 4 (OFI-native signalling) was shown NOT worth building (X3).
+  `COMM_XSTATS` (built), VSLOT_POOL + INTER2 (built; INTER2 default on until 2026-10-21, now 0, results/SHMEM.md); item 4 (OFI-native signalling) was shown NOT worth building (X3).
   §C02's `rr`/`winK` schedules were designed and a probe queued; the engine switch was not built.
 - **Four PEs per node** (§P16) wins at 4 nodes / 10^10 (26 s vs 35-45 s, m) but loses 3.7x at 8 nodes, 2.4x at 4 x 10^10, does not
   fit memory at the target and needs per-PE plumbing; superseded by the proxy-PE work (`COMM_SHMEM_PE_PER_APU`, results/SHMEM_ITEMS.md,

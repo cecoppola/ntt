@@ -528,7 +528,7 @@ def _env_on(env, key, dflt):
 
 def inter2_on(env=None):
     env = os.environ if env is None else env
-    return _env_on(env, 'COMM_LAYER_INTER2', True)
+    return _env_on(env, 'COMM_LAYER_INTER2', False)   # default 0 since 2026-10-21 (comm_layered.c comm_layered_inter2_on)
 
 # ---------------------------------------------------------------- the other pools (measured constants where the code has them)
 def planes_3q30(pool_log=31, digits=0):
