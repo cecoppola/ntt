@@ -25,6 +25,7 @@
 #include <gmp.h>
 #ifdef _OPENMP
 #include <omp.h>
+#include <pthread.h>
 #endif
 #include "../bigint.h"
 #pragma GCC diagnostic ignored "-Wunused-function"   /* each test uses a subset of these helpers */
@@ -102,12 +103,17 @@ static size_t mpz_to_limbs_str(uint64_t *a, size_t cap, const mpz_t z)
 #define HV_TREE_LEAF 16
 #define HV_TASK_MIN 8192
 static mpz_t hv_pw[48]; static int hv_npw = 0;
+static pthread_mutex_t hv_pw_mx = PTHREAD_MUTEX_INITIALIZER;   /* (the vPE tests convert on several threads at once: the table grows under a lock, published with release) */
 static const mpz_t *hv_pow2k(int k)                       /* B^(2^k) */
 {
-    while (hv_npw <= k) {
-        mpz_init(hv_pw[hv_npw]);
-        if (!hv_npw) mpz_set_ui(hv_pw[0], BI_B10); else mpz_mul(hv_pw[hv_npw], hv_pw[hv_npw - 1], hv_pw[hv_npw - 1]);
-        hv_npw++;
+    if (__atomic_load_n(&hv_npw, __ATOMIC_ACQUIRE) <= k) {
+        pthread_mutex_lock(&hv_pw_mx);
+        for (int n = hv_npw; n <= k; n++) {
+            mpz_init(hv_pw[n]);
+            if (!n) mpz_set_ui(hv_pw[0], BI_B10); else mpz_mul(hv_pw[n], hv_pw[n - 1], hv_pw[n - 1]);
+            __atomic_store_n(&hv_npw, n + 1, __ATOMIC_RELEASE);
+        }
+        pthread_mutex_unlock(&hv_pw_mx);
     }
     return (const mpz_t *)&hv_pw[k];
 }
