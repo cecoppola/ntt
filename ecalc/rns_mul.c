@@ -11,6 +11,7 @@
 #include "ntt.h"
 #include "mem.h"
 #include "crt.h"
+#include "vpe.h"
 
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
@@ -32,6 +33,9 @@ int rns_crt_scan_on(void) { static int sc = -1; if (sc < 0) { const char *e = ge
 static struct bdesc *g_hdp[EC_NP][2]; static size_t g_hdp_cap[EC_NP];   /* N3: the pinned descriptor slots per device */
 
 static int g_nd = 0, g_pool_log = 31;
+/* S2c (ECALC_PE_PER_GPU=1, one process per PE): this process opens, allocates for, registers and tears down ONLY its own device (vpe_device(): the local id with --gpu-bind=none,
+ * 0 with one visible device); the devices [g_d0, g_d1) are the ones rns_init set up.  Off / threads (ECALC_VPE): all g_nd devices, unchanged.  D[], g_tables[] stay indexed by the device ordinal. */
+static int g_d0 = 0, g_d1 = 0;
 static struct dev {
     ntt_ctx *ctx;
     hipStream_t s;
@@ -111,7 +115,7 @@ void rns_preinit_pool_log(int pool_log) { if (!g_nd) g_pool_log = pool_log ? poo
 size_t rns_plane_limbs(void)                                       /* plane pool 0's capacity in limbs: 2^pool_log */
 {
     int pl = g_pool_log ? g_pool_log : 31;
-    if (g_nd && D[0].da.p) return ec_np_auto && ec_np == 3 && D[0].da.cap > pool0_np3_bytes() ? pool0_np3_bytes() / 8 : D[0].da.cap / 8;   /* NP: the one-node tiers' view under auto */
+    if (g_nd && D[g_d0].da.p) return ec_np_auto && ec_np == 3 && D[g_d0].da.cap > pool0_np3_bytes() ? pool0_np3_bytes() / 8 : D[g_d0].da.cap / 8;   /* NP: the one-node tiers' view under auto */
     if (ec_np_init() == 3) return pool0_np3_bytes() / 8;
     return (size_t)1 << pl;
 }
@@ -135,7 +139,14 @@ int rns_init(int pool_log)
     db_tl_start(); db_tl("rns_init begins");   /* ECALC_INIT_TL=1 (print only) */
     HIP_CHECK(hipGetDeviceCount(&g_nd));
     if (g_nd > EC_NP) g_nd = EC_NP;
-    if (g_nd < EC_NP) { ec_fatal(EC_RC_FATAL, "rns_init: need %d devices, have %d\n", EC_NP, g_nd); }
+    if (vpe_ppg()) {   /* S2c: one device, this PE's */
+        int dv = vpe_device();
+        if (dv < 0 || dv >= g_nd || dv >= EC_NP) { ec_fatal(EC_RC_FATAL, "rns_init: ECALC_PE_PER_GPU=1: this PE's device %d, %d visible\n", dv, g_nd); }
+        g_d0 = dv; g_d1 = dv + 1;
+    } else {
+        if (g_nd < EC_NP) { ec_fatal(EC_RC_FATAL, "rns_init: need %d devices, have %d\n", EC_NP, g_nd); }
+        g_d0 = 0; g_d1 = g_nd;
+    }
     g_pool_log = pool_log ? pool_log : 31;
     omp_set_max_active_levels(2);
     if (getenv("RNS_BATCH_TILE_GB")) rns_batch_tile_bytes = (size_t)(atof(getenv("RNS_BATCH_TILE_GB")) * 1e9);   /* the batch tiers' plane budget per device (a + b planes; 15 GB = the default), capped by the pools */
@@ -145,8 +156,8 @@ int rns_init(int pool_log)
     size_t bytes = (size_t)8 << g_pool_log, sbytes = rns_staging_bytes_req ? rns_staging_bytes_req : bytes; g_staging_bytes = sbytes;
     mem_par_init = 1;                             /* one thread per device */
     double ti0 = mem_now();
-#pragma omp parallel for num_threads(g_nd) schedule(static)
-    for (int d = 0; d < g_nd; d++) {
+#pragma omp parallel for num_threads(g_d1 - g_d0) schedule(static)
+    for (int d = g_d0; d < g_d1; d++) {
         double tt, tr, x0 = mem_now(), x1, x2, x3;
         HIP_CHECK(hipSetDevice(d));
         size_t u0 = dev_used(d); x1 = mem_now();
@@ -166,8 +177,8 @@ int rns_init(int pool_log)
     size_t b1 = rns_pool1_bytes_req ? rns_pool1_bytes_req : bytes;
     if (!rns_pool1_bytes_req && rns_np2cap()) { size_t p1; rns_plane_pool_bytes(g_pool_log, ec_np_init(), 0, &p1); if (p1 > b1) b1 = p1; }   /* MN_NONPOW2_CAP: 3 q + 16 (4 q at four one-node primes) of the larger q exceeds 4 q of 2^(pool_log-2) */   /* C4: pool 1 sized to the dist tier's 3 q when the flow is all-device (the removed host mdev tier needed the full 2^pool_log; TREF) */
     if (getenv("RNS_POOL1_GB")) b1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);
-#pragma omp parallel for num_threads(g_nd) schedule(static)
-    for (int d = 0; d < g_nd; d++) {
+#pragma omp parallel for num_threads(g_d1 - g_d0) schedule(static)
+    for (int d = g_d0; d < g_d1; d++) {
         HIP_CHECK(hipSetDevice(d));
         if (ec_np == 3 && rns_pool0_np() == 4) { size_t p0; rns_plane_pool_bytes(g_pool_log, 4, &p0, 0); dpool_get_exact(&D[d].da, d, p0); }   /* NP (ECALC_NP=auto): four planes where a product may need them */
         else if (ec_np == 3) dpool_get_exact(&D[d].da, d, pool0_np3_bytes());   /* P3: the dist tier's 3 q (3/4 of the four-prime pool) */
@@ -176,22 +187,22 @@ int rns_init(int pool_log)
         dpool_get_exact(&D[d].db, d, b1);
     }
     db_tl("plane pools done (%.2f s)", mem_now() - ti1);
-    if (rns_after_staging_hook) { HIP_CHECK(hipSetDevice(0)); rns_after_staging_hook(rns_hook_arg); db_tl("the hook (region arenas, the seed thread started) done"); }   /* N4: the region arenas and the seeds after the plane pools */
+    if (rns_after_staging_hook) { HIP_CHECK(hipSetDevice(g_d0)); rns_after_staging_hook(rns_hook_arg); db_tl("the hook (region arenas, the seed thread started) done"); }   /* N4: the region arenas and the seeds after the plane pools */
     mem_par_init = 0;
     mem_acct_register(rns_acct);
     double ti2 = mem_now();
-    for (int d = 0; d < g_nd; d++) {
+    for (int d = g_d0; d < g_d1; d++) {   /* (S2c: a PE process opens no peer: the other devices are other processes') */
         HIP_CHECK(hipSetDevice(d));
-        for (int c = 0; c < g_nd; c++) if (c != d) {
+        for (int c = 0; c < g_nd; c++) if (c != d && !vpe_ppg()) {
             hipError_t e = hipDeviceEnablePeerAccess(c, 0);
             if (e != hipSuccess && e != hipErrorPeerAccessAlreadyEnabled) { ec_fatal(EC_RC_FATAL, "peer access %d->%d: %s\n", d, c, hipGetErrorString(e)); }
             (void)hipGetLastError();
         }
     }
-    HIP_CHECK(hipSetDevice(0));
+    HIP_CHECK(hipSetDevice(g_d0));
     db_tl("peer access done (%.2f s)", mem_now() - ti2);
     db_pool_vmm_on() ? db_vmm_bg_release() : (void)0;   /* the arenas' second halves map from here, after the plane pools */
-    if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB (%s), staging %.2f GiB, tables %.3f GB; staging+contexts %.2f s, pools %.2f s, peer access %.2f s\n", D[0].da.cap / 1073741824.0, b1 / 1073741824.0, "hipMalloc", sbytes / 1073741824.0, g_tables[0] / 1e9, ti1 - ti0, ti2 - ti1, mem_now() - ti2);
+    if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB (%s), staging %.2f GiB, tables %.3f GB; staging+contexts %.2f s, pools %.2f s, peer access %.2f s\n", D[g_d0].da.cap / 1073741824.0, b1 / 1073741824.0, "hipMalloc", sbytes / 1073741824.0, g_tables[g_d0] / 1e9, ti1 - ti0, ti2 - ti1, mem_now() - ti2);
     return g_nd;
 }
 int rns_pool_log(void) { return g_pool_log; }
@@ -199,7 +210,7 @@ uint64_t *rns_hstage(int dev) { return D[dev].hstage; }
 /* WP5: the pinned staging (64 GB) is idle while the dm phase runs on device: release it, re-create for dc */
 void rns_release_staging(void)
 {
-    for (int d = 0; d < g_nd; d++) if (D[d].hstage) { mem_hstage_free(D[d].hstage); D[d].hstage = 0; }
+    for (int d = g_d0; d < g_d1; d++) if (D[d].hstage) { mem_hstage_free(D[d].hstage); D[d].hstage = 0; }
 }
 /* WP5: device dev's plane pools (da: which 0, db: which 1), grown to bytes if needed; the tiers share them */
 int rns_pool_grow = -1;                                            /* RNS_POOL_GROW: 1 lets a plane pool grow inside a phase (the stress recipe); 0 (default) aborts */
@@ -234,7 +245,7 @@ int rns_ndev(void) { return g_nd; }
 void rns_shutdown(void)
 {
     if (rns_shutdown_hook) rns_shutdown_hook();
-    for (int d = 0; d < g_nd; d++) {
+    for (int d = g_d0; d < g_d1; d++) {
         HIP_CHECK(hipSetDevice(d));
         dpool_free(&D[d].da); dpool_free(&D[d].db);
         mem_hstage_free(D[d].hstage);
@@ -532,7 +543,7 @@ static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t
      * phase.  A no-op whenever pool 1 holds the plane cap (three primes: 3 q + 16 >= 3 q; four: 4 q).  Not with RNS_POOL_GROW=1
      * (mnaccept.sh --stress grows pool 1 here on purpose). */
     if (rns_pool_grow < 0) rns_pool_grow = getenv("RNS_POOL_GROW") ? atoi(getenv("RNS_POOL_GROW")) : 0;
-    if (!rns_pool_grow) { size_t lim = D[0].db.cap / 8 / ((size_t)ec_np * L), mb = pair ? 2 * lim : lim;   /* the tile's products pool 1 holds (paired: two per B plane) */
+    if (!rns_pool_grow) { size_t lim = D[g_d0].db.cap / 8 / ((size_t)ec_np * L), mb = pair ? 2 * lim : lim;   /* the tile's products pool 1 holds (paired: two per B plane) */
       if (!grpB && Mmax > mb) Mmax = mb;
       if (grpB ? lim < 1 : Mmax < (size_t)(pair ? 2 : 1)) {
           if (getenv("RNS_VERBOSE")) printf("batch-local N=%zu L=%s2^%d: the B planes (%d x %zu limbs) exceed plane pool 1 (%zu limbs): the striped tier\n", N, r3 ? "3*" : "", logk, ec_np, L, D[0].db.cap / 8);
@@ -559,9 +570,9 @@ static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t
       for (size_t i = 0; i < N; i++) idx[fill[mem_dev_of(P[i].c)]++] = i; }
     }
     double tsc = 0, tnt = 0, tcr = 0, tmg = 0;
-#pragma omp parallel num_threads(g_nd)
+#pragma omp parallel num_threads(g_d1 - g_d0)
     {
-        int d = omp_get_thread_num(); struct dev *v = &D[d];
+        int d = g_d0 + omp_get_thread_num(); struct dev *v = &D[d];   /* (S2c: a PE process runs its own device's list only) */
         HIP_CHECK(hipSetDevice(d));
         for (int p = 0; p < ec_np; p++) if (!v->ctxp[p]) v->ctxp[p] = p == d ? v->ctx : ntt_ctx_create(p);
         rns_dpool(d, 0, (size_t)ec_np * Mmax * L * 8); rns_dpool(d, 1, (grpB ? (size_t)ec_np * L : (size_t)ec_np * (pair ? Mmax / 2 : Mmax) * L) * 8);   /* A-mem C4: pool 1 is 3 q by default; grown here if a tile needs more (rare: L = 2^28, 2^29 at 2^31 pools). P: in pair mode pool 1 holds M/2 B planes per prime.  grpB holds EC_NP B planes (db + p L below), not one -- the request said L (reached only with RNS_BATCH_LOCAL_MIN <= 2) */
@@ -728,6 +739,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
         }
     }
     free(dv); dv = 0;
+    if (vpe_ppg()) { ec_fatal(EC_RC_FATAL, "rns_mul_batch: the striped tier needs all %d devices; with ECALC_PE_PER_GPU=1 this process has device %d only (N %zu, 2^%d points)\n", EC_NP, g_d0, N, logL); }   /* S2c */
     /* the striped path pairs products 2j, 2j+1 sharing B (the tree's P1 Q2 + P2, Q1 Q2 -- at 4e10 the
      * level of 8 products at 2^30 points, which the batch-local tier cannot hold) and takes the 3 2^k length when nc fits it:
      * per pair 5 transforms of 3 2^28 points instead of 6 of 2^30.  Both need the GPU CRT (the host CRT path reads 2^logL

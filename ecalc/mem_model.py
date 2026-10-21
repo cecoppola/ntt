@@ -39,18 +39,20 @@ LN10 = math.log(10.0)
 NR = 4                                   # regions of one binary splitting (4 per node, one per APU; ONE per PE with ECALC_VPE)
 NRN = 4                                  # devices (APUs / PEs) per node: the per-node multipliers (planes, v-slots, comm pools, the dm numbers' share)
 PE_LANES = 0                             # ECALC_VPE=1: PEs per node (ECALC_VPE_LANES, default 4); 0 = off
+PPN_PROC = 1                             # S2c (ECALC_PE_PER_GPU=1): processes per node, each with its own runtime + comm (binsplit.c bs_ppn_proc); 1 = one process per node
 def lanes(): return PE_LANES or 1        # PEs per node (binsplit.c bs_lanes)
-def set_pe(L):
+def set_pe(L, ppn_proc=1):
     """S1d (TARGET1): the PE planner, in lockstep with binsplit.c.  ECALC_VPE=1 with L lanes: a node is L identical PEs of one device each; every PE runs
     its own binary splitting over its term range with ONE region, so the per-node figures are the one PE's times L (arena, seed buffers, writer);
     the devices per node are L (planes, v-slots, comm pools, the quarter of the dm numbers); the checkpoint staging is L GiB.  The tree's group
     schedule stays over the nodes (the groups below a node are not modelled until the PE-level products exist).  L = 0: off (the code before S1d)."""
-    global NR, NRN, PE_LANES, HOST_STAGING, HOST_WRITER, HOST_EARLY
-    PE_LANES = int(L); NR = 1 if L else 4; NRN = int(L) if L else 4
+    global NR, NRN, PE_LANES, PPN_PROC, HOST_STAGING, HOST_WRITER, HOST_EARLY
+    PE_LANES = int(L); PPN_PROC = int(ppn_proc) if L else 1; NR = 1 if L else 4; NRN = int(L) if L else 4
     HOST_STAGING = (int(L) if L else 4) * (1 << 30); HOST_WRITER = int(0.65 * GB) * lanes(); HOST_EARLY = int(0.9 * GB) * lanes()
 def _pe_from_env():
-    e = os.environ.get('ECALC_VPE', '')
-    if e and e != '0': set_pe(int(os.environ.get('ECALC_VPE_LANES') or 4))
+    e = os.environ.get('ECALC_VPE', ''); g = os.environ.get('ECALC_PE_PER_GPU', '')
+    if g and g != '0': L = int(os.environ.get('ECALC_VPE_LANES') or 4); set_pe(L, L)   # S2c: one process per PE: the host terms x PEs per node
+    elif e and e != '0': set_pe(int(os.environ.get('ECALC_VPE_LANES') or 4))
 GB = 1e9
 
 # ---------------------------------------------------------------- the code's sizing formulas (binsplit.c)
@@ -150,14 +152,14 @@ def arena_bs_bytes(N, nterms, decimal=True, S=256):
 
 def quarter_bytes(limbs): return ((limbs + NRN - 1) // NRN + 4095) // 4096 * 4096 * 8   # one device's share (a quarter on the 4-APU node)
 VMM_CHUNK = 2 << 30                      # dbig.c db_pool_vmm_chunk: DB_POOL_VMM_CHUNK_GB (2 GiB)
-AS_HOST = 7000000000 + (8 << 30)         # binsplit.c binsplit_node_bytes: BS_HOST_INIT_BYTES, size 1 only (size > 1: room_host, B5 fix -- see layout_node)
+def as_host(): return 7000000000 * PPN_PROC + (8 << 30)         # binsplit.c binsplit_node_bytes: bs_host_init_bytes (BS_HOST_INIT_BYTES, the runtime x processes per node), size 1 only (size > 1: room_host, B5 fix -- see layout_node)
 def room_host(N, g, pool, seedbuf, out_early=True):
     """Phase 15 DL: binsplit.c as_room_fits's host (bytes) -- this model's host HWM: size 1 host_size1_vmm with the digits as log10 N!; size > 1
     max(host_init, host_dm) = the runtime + the staging + the transport + the SHMEM pool + max(the two VMM seed buffers, the writer + MN_OUT_EARLY)"""
     if g == 1:
         D = math.lgamma(N + 1.0) / LN10 / 1e9 - 40.0
-        return int((25.85 + 0.0208 * (D if D > 0 else 0.0)) * 1e9)
-    base = int(HOST_RUNTIME) + HOST_STAGING + int(HOST_COMM_PER_PROC) + pool
+        return int((25.85 + 0.0208 * (D if D > 0 else 0.0)) * 1e9) + (PPN_PROC - 1) * 7000000000   # S2c: one more runtime per further process
+    base = PPN_PROC * (int(HOST_RUNTIME) + int(HOST_COMM_PER_PROC)) + HOST_STAGING + pool
     return max(base + seedbuf, base + HOST_WRITER + (HOST_EARLY if out_early else 0))
 def as_room_fits(planes, arena_with_room, host, node_gb=480.0):
     """binsplit.c as_room_fits (Phase 15 AS; DL: the node as this model counts it): BS_ARENA_ROOM's room only if the node with it -- the planes
@@ -1043,12 +1045,12 @@ def _mem_per_node(D, g=1, opts=None):
     else:                                                                 # the hypotheses before Phase 14 (resident: 0 staging, the pool flat at 8 GiB)
         stg = shmem_staging(L['nq'], g, o['groups'], o['pool_log'], o['staging']) if (g > 1 and o['transport'] == 'shmem') else 0
         pool = max(o['pool_mb'] << 20, stg + (100 << 20)) if (g > 1 and o['transport'] == 'shmem') else 0
-    comm = (HOST_COMM_PER_PROC + pool) if g > 1 else 0
+    comm = (PPN_PROC * HOST_COMM_PER_PROC + pool) if g > 1 else 0
     seedbuf = seedbuf_vmm(N, nterms, S) if o['vmm'] else HOST_SEEDBUF          # Phase 15: DB_POOL_VMM's two 8 GiB pinned seed buffers (at init)
-    host_init = HOST_RUNTIME + HOST_STAGING + seedbuf + comm
-    host_dm = HOST_RUNTIME + HOST_STAGING + HOST_WRITER + comm + (HOST_EARLY if (g > 1 and o['out_early']) else 0)
+    host_init = PPN_PROC * HOST_RUNTIME + HOST_STAGING + seedbuf + comm
+    host_dm = PPN_PROC * HOST_RUNTIME + HOST_STAGING + HOST_WRITER + comm + (HOST_EARLY if (g > 1 and o['out_early']) else 0)
     if g == 1 and o['host_fit']:                                          # Phase 13b D: size 1, the measured host (mem summary):
-        host_init = host_size1_vmm(D_total) if o['vmm'] else host_size1(D_total)   # the HWM is at init (staging pinned + other), and grows
+        host_init = (host_size1_vmm(D_total) if o['vmm'] else host_size1(D_total)) + (PPN_PROC - 1) * HOST_RUNTIME   # (S2c: + a runtime per further process) the HWM is at init (staging pinned + other), and grows
         host_dm = min(host_dm, host_init)                                 # slowly with D (seeds); the dm phase stays below it at >= 2e10
     room_node = None
     if aroom > 0 and o['tail']:                                           # Phase 15 AS: the room dropped over the budget (the arenas stay in whole chunks); DL: the node
@@ -1080,7 +1082,7 @@ def _mem_per_node(D, g=1, opts=None):
     # formula since the B5 fix: runtime + staging + transport + the SHMEM pool + max(the VMM seed buffers, the writer + MN_OUT_EARLY)) less
     # the reserve (32 GB per node), over one slot per node; the run's own check takes its measured init peak where larger (not modelled).
     # cache_fit_room_model: against this model's peak
-    layout_node = planes + sum(arena) + (room_host(N, g, pool, seedbuf, o['out_early']) if g > 1 else AS_HOST) + vb   # B7ACCT: vb = the v-slots under ECALC_VSLOT_BUDGET=1
+    layout_node = planes + sum(arena) + (room_host(N, g, pool, seedbuf, o['out_early']) if g > 1 else as_host()) + vb   # B7ACCT: vb = the v-slots under ECALC_VSLOT_BUDGET=1
     fit_room = o.get('node_gb', 480) * GB - layout_node - CACHE_FIT_RESERVE
     fit_slots = min(CACHE_MN_SLOTS_CODE, max(0, int(fit_room // slot_fit))) if slot_fit and fit_room > 0 else 0
     return dict(D=D, g=g, N=N, digits=d, nq=L['nq'], t1_quarter=L['t1_quarter'], hole=L['hole'],
