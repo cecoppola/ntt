@@ -318,7 +318,10 @@ static int plan_run_in(unsigned long d, unsigned long N, int size, int pool_log,
     }
 
     /* the leaf (node 0's range) */
-    plan_leaf(1, size > 1 ? term0(N, 1, size) : N + 1);
+    { unsigned long lb1 = binsplit_lanes() > 1 ? binsplit_pe_b1(N, size) : 0;   /* ECALC_VPE: PE 0's range (the L PEs of a node split the node's) */
+      plan_leaf(1, binsplit_lanes() > 1 ? (lb1 ? lb1 : N + 1) : size > 1 ? term0(N, 1, size) : N + 1); }
+    if (binsplit_lanes() > 1 && !silent) printf("plan pe     ECALC_VPE: %d PEs per node, %d PEs in all; the leaf is PE 0's range [1, %lu) of one region; the tree, the reciprocal and the division are planned over the %d node%s (the groups below a node are not modelled until the PE-level products exist)\n",
+           binsplit_lanes(), size * binsplit_lanes(), binsplit_pe_b1(N, size) ? binsplit_pe_b1(N, size) : N + 1, size, size > 1 ? "s" : "");
     long tree_max = 0;
     size_t k_mu = pn + 1 + dl - nq + 1;   /* k from S's largest possible length */
     if (size > 1) plan_tree(N, size, &tree_max);
@@ -333,7 +336,7 @@ static int plan_run_in(unsigned long d, unsigned long N, int size, int pool_log,
         printf("plan p24   %.4g digits g %d: pieces at 24 digits per point (four primes) tree %ld of %ld, recip %ld of %ld, div %ld of %ld\n",
                (double)d, size, g_pieces24[PH_TREE], g_pieces[PH_TREE], g_pieces24[PH_RECIP], g_pieces[PH_RECIP], g_pieces24[PH_DIV], g_pieces[PH_DIV]);
     if (size > 1) {                                               /* the mn transform cache against the layout's node (rank 0's range, as BS_LAYOUT_ONLY) */
-        unsigned long a0 = bs_a0, b1 = bs_b1; unsigned __int128 nn = N; bs_a0 = 1; bs_b1 = 1 + (unsigned long)(nn / size);
+        unsigned long a0 = bs_a0, b1 = bs_b1; bs_a0 = 1; bs_b1 = binsplit_pe_b1(N, size);
         int cap = pool_log >= 31 ? 1 : 0;
         double nb = (double)binsplit_node_bytes(N, size, cap, np, 0, 0, 0);
         bs_a0 = a0; bs_b1 = b1; rns_preinit_pool_log(pool_log);
@@ -341,7 +344,7 @@ static int plan_run_in(unsigned long d, unsigned long N, int size, int pool_log,
         if (!silent) {                                            /* B7ACCT: the general map's v-exchange slots beside the layout (binsplit_vslot_bytes) */
             char by[512]; size_t tt = 0, v = binsplit_vslot_bytes(N, size, &tt, by, sizeof by); double n0 = nb;
             printf("plan vslot  the general map's v-exchange slots (comm_layered.c, hipMalloc'd outside the layout, alive to the run's end): %.3f GB per APU from the dm phase (%.3f during the tree's top level) = %.2f GB per node [%s]; the layout's node %.2f -> %.2f GB with them (ECALC_VSLOT_BUDGET=%d: %s)\n",
-                   v * 1e-9, tt * 1e-9, 4 * v * 1e-9, by, n0 * 1e-9, (n0 + 4.0 * v) * 1e-9, binsplit_vslot_budget_on(), binsplit_vslot_budget_on() ? "counted in the budget" : "reported only");
+                   v * 1e-9, tt * 1e-9, binsplit_nrn() * v * 1e-9, by, n0 * 1e-9, (n0 + (double)binsplit_nrn() * v) * 1e-9, binsplit_vslot_budget_on(), binsplit_vslot_budget_on() ? "counted in the budget" : "reported only");
         }
     }
     if (!g_quiet) printf("plan note   pieces = products formed (a one-plane product is 1 piece), in mn_model.py's categories (run()['pieces'] = tree + recip + div);"
