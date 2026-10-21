@@ -1447,6 +1447,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         if (oB.rb) { db_pool_free(dv, oB.rb); oB.rb = 0; }
         if (gen && !vpe_on()) comm_layered_release_vslots(cl);           /* M3 v-slot release (comm_layered.c): the v-exchanges of this product are all waited for; the pool's slots go before the staged result exchange (no-op otherwise) */
         double s2 = mem_now(); tf[d] = s2 - s1;
+        if (getenv("RNS_VERBOSE") && !gen) dist_phase_dump(rho);
         if (getenv("RNS_VERBOSE") && !gen) printf("   mn_core pe %d: plans created %d (%.3f s), per prime sums: fwd A %.3f fwd B %.3f inv %.3f s\n", rho, npl, tpl, tfa, tfb, tiv);
         int phc_ = ec_ph(EC_PH_RD_CRT);
         for (int p = 0; p < np; p++) {

@@ -62,6 +62,7 @@ extern struct dist_stats dist_st;
 void dist_plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC);
 void dist_plan_create_shared(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC, uint64_t *sbuf, uint64_t *rbuf);   /* caller's slab buffers (rows x C each) */
 void dist_plan_free(dist_plan *p);
+void dist_phase_dump(int pe);   /* DIST_STATS=1 diagnostic: this thread's per-phase host times of the transforms, printed and zeroed */
 /* x: this rank's rows (rows x C, canonical); result in column layout in x (cols x R) */
 void dist_fwd(dist_plan *p, uint64_t *x, hipStream_t s);
 /* x, y in column layout: x <- x y pointwise */

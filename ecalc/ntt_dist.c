@@ -184,13 +184,26 @@ template <int BY> __global__ void k_unpacktw_r(const uint64_t *rb, uint64_t *x, 
  * coalesced along il, writes coalesced along i = r rows + il -- both contiguous, no tile needed */
 /* ---- the chunk pipeline (M7) ---- */
 #define TSK(kind, stmt) TS(kind, stmt)
+/* DIST_STATS=1 (diagnostic, off by default): host time per phase of the dist transforms with the compute stream drained around each
+ * phase (so it distorts overlap, never digits); per thread, printed and zeroed by dist_phase_dump (mn_core, RNS_VERBOSE) */
+static __thread double dph[16]; static __thread int dph_dir; static __thread int dph_on;
+static inline int dph_chk(void) { dph_on = dist_st.on; return dph_on; }
+#define PH(i, s_, stmt) do { if (dph_chk()) { HIP_CHECK(hipStreamSynchronize(s_)); double t_ = tnow(); stmt; HIP_CHECK(hipStreamSynchronize(s_)); dph[dph_dir * 8 + (i)] += tnow() - t_; } else { stmt; } } while (0)
+void dist_phase_dump(int pe)
+{
+    if (!dph_chk()) return;
+    static const char *nm[8] = { "prod", "post", "wait", "cons", "cols", "rbfree", "colinv", "pack" };
+    printf("   dist phases pe %d (s, drained):", pe);
+    for (int d = 0; d < 2; d++) { printf(" %s{", d ? "inv" : "fwd"); for (int i = 0; i < 8; i++) { if (dph[d * 8 + i] != 0) printf(" %s %.3f", nm[i], dph[d * 8 + i]); dph[d * 8 + i] = 0; } printf(" }"); }
+    printf("\n");
+}
 /* chunk k: rows [k rows_k, (k+1) rows_k) of this rank; its region of the slab buffers */
 static inline size_t chunk_rows(const dist_plan *p) { return p->rows / p->K; }
 static inline size_t chunk_limbs(const dist_plan *p) { return p->cols * chunk_rows(p); }      /* per slab */
 static inline uint64_t *chunk_sb(const dist_plan *p, int k) { return p->sbuf + (size_t)k * comm_size(p->cm) * chunk_limbs(p); }
 static inline uint64_t *chunk_rb(const dist_plan *p, int k) { return p->rbuf + (size_t)k * comm_size(p->cm) * chunk_limbs(p); }
 /* post chunk k's exchange on the transfer stream once the compute stream has produced it (event ev) */
-static void chunk_post(dist_plan *p, int k)
+static void chunk_post_(dist_plan *p, int k)
 {
     HIP_CHECK(hipStreamWaitEvent(p->ts, p->ev, 0));
     st_mark(p, p->ts, ST_XFER);
@@ -200,7 +213,7 @@ static void chunk_post(dist_plan *p, int k)
     st_mark(p, p->ts, ST_XFER | ST_END);
 }
 /* wait for chunk k (the k-th wait) and make the compute stream follow the transfer stream */
-static void chunk_wait(dist_plan *p, hipStream_t s)
+static void chunk_wait_(dist_plan *p, hipStream_t s)
 {
     double t0 = dist_st.on ? tnow() : 0;
     comm_wait(p->cm);
@@ -217,7 +230,10 @@ static void chunk_wait(dist_plan *p, hipStream_t s)
  * and the exchange's barrier then holds every sender until every receiver has passed that point.  The later posts of the same
  * transform need nothing (each chunk has its own region of rbuf, written once per transform).  The wait is for work queued
  * before the row pass that follows it, so the GPU never idles on it; digits identical (an ordering, no arithmetic). */
-static void rb_free_wait(dist_plan *p) { HIP_CHECK(hipEventSynchronize(p->evr)); }
+static void rb_free_wait_(dist_plan *p) { HIP_CHECK(hipEventSynchronize(p->evr)); }
+static void chunk_post(dist_plan *p, int k) { PH(1, p->ts, chunk_post_(p, k)); }
+static void chunk_wait(dist_plan *p, hipStream_t s) { PH(2, s, chunk_wait_(p, s)); }
+static void rb_free_wait(dist_plan *p) { double t_ = dph_chk() ? tnow() : 0; rb_free_wait_(p); if (dph_on) dph[dph_dir * 8 + 5] += tnow() - t_; }
 static inline int depth(const dist_plan *p) { int D = p->cm->inflight; if (D < 1) D = 1; if (D > p->K) D = p->K; return D; }
 /* forward, chunk k: the row pass of its rows, twiddle and pack into its slab region */
 static void fwd_prod(dist_plan *p, uint64_t *x, int k, hipStream_t s)
@@ -242,17 +258,19 @@ void dist_fwd_pre(dist_plan *p, uint64_t *x, hipStream_t s)
 {
     ntt_ss_tagger ss_tag_(p->logR, p->logC);   /* S22 NTT_SIZE_STATS: the logical size */
     int K = p->K, D = depth(p);
+    dph_dir = 0;
     HIP_CHECK(hipEventRecord(p->evr, s));                /* WM15 H1: the previous transform's reads of rbuf */
-    fwd_prod(p, x, 0, s); rb_free_wait(p); chunk_post(p, 0);
-    for (int k = 1; k < K; k++) { fwd_prod(p, x, k, s); if (D < 2) chunk_wait(p, s); chunk_post(p, k); }
-    for (int k = 0; k < K - 1; k++) { if (D >= 2) chunk_wait(p, s); fwd_cons(p, x, k, s); }
+    PH(0, s, fwd_prod(p, x, 0, s)); rb_free_wait(p); chunk_post(p, 0);
+    for (int k = 1; k < K; k++) { PH(0, s, fwd_prod(p, x, k, s)); if (D < 2) chunk_wait(p, s); chunk_post(p, k); }
+    for (int k = 0; k < K - 1; k++) { if (D >= 2) chunk_wait(p, s); PH(3, s, fwd_cons(p, x, k, s)); }
 }
 void dist_fwd_post(dist_plan *p, uint64_t *x, hipStream_t s)
 {
     ntt_ss_tagger ss_tag_(p->logR, p->logC);   /* S22 NTT_SIZE_STATS: the logical size */
+    dph_dir = 0;
     chunk_wait(p, s);
-    fwd_cons(p, x, p->K - 1, s);
-    TS(ST_COLS, ntt_fwd(p->ctx, x, p->logR, p->cols, s));                          /* columns: length-R */
+    PH(3, s, fwd_cons(p, x, p->K - 1, s));
+    PH(4, s, TS(ST_COLS, ntt_fwd(p->ctx, x, p->logR, p->cols, s)));                          /* columns: length-R */
     st_flush(p);
 }
 void dist_fwd(dist_plan *p, uint64_t *x, hipStream_t s) { dist_fwd_pre(p, x, s); dist_fwd_post(p, x, s); }
@@ -280,8 +298,9 @@ static void inv_prod(dist_plan *p, const uint64_t *x, int k, hipStream_t s)
 static void inv_loop(dist_plan *p, uint64_t *x, hipStream_t s, int kend)
 {
     int K = p->K, D = depth(p);
+    dph_dir = 1;
     for (int k = p->k_resume; k < kend; k++) {
-        chunk_wait(p, s); inv_cons(p, x, k, s);
+        chunk_wait(p, s); PH(3, s, inv_cons(p, x, k, s));
         if (k + D < K) chunk_post(p, k + D);
     }
     p->k_resume = kend;
@@ -294,10 +313,11 @@ static void inv_pre_y(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t 
     ntt_ss_tagger ss_tag_(p->logR, p->logC);   /* S22 NTT_SIZE_STATS: the logical size */
     int size = comm_size(p->cm), K = p->K, D = depth(p);
     size_t rk = chunk_rows(p);
+    dph_dir = 1;
     HIP_CHECK(hipEventRecord(p->evr, s));                /* WM15 H1: the previous transform's reads of rbuf */
-    if (y) TS(ST_COLS, ntt_inv_pw_y(p->ctx, x, y, NTT_Y_FULL, p->logR, p->cols, s));   /* columns: pointwise + length-R inverse, x R^-1, natural */
-    else TS(ST_COLS, ntt_inv(p->ctx, x, p->logR, p->cols, s));                         /* columns: length-R inverse, x R^-1, natural */
-    for (int k = 0; k < K; k++) inv_prod(p, x, k, s);
+    if (y) PH(6, s, TS(ST_COLS, ntt_inv_pw_y(p->ctx, x, y, NTT_Y_FULL, p->logR, p->cols, s)));   /* columns: pointwise + length-R inverse, x R^-1, natural */
+    else PH(6, s, TS(ST_COLS, ntt_inv(p->ctx, x, p->logR, p->cols, s)));                         /* columns: length-R inverse, x R^-1, natural */
+    for (int k = 0; k < K; k++) PH(7, s, inv_prod(p, x, k, s));
     HIP_CHECK(hipEventRecord(p->ev, s));
     rb_free_wait(p);
     for (int k = 0; k < D; k++) chunk_post(p, k);
