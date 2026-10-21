@@ -8,14 +8,69 @@
 #include <string.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <pthread.h>
 #include "../mn_out.h"
 #include "harness.h"
 static uint64_t rnd(void) { static uint64_t s = 0x9E3779B97F4A7C15ull; s ^= s << 13; s ^= s >> 7; s ^= s << 17; return s; }
-int main(void)
+/* --vpe (S1e): the PEs of one process write their parts at once (one thread per PE, the writer threads and the T2 windows shared): the
+ * ranks first run in turn for their ranges and heads, then again concurrently; every part equals its range of the reference file, the
+ * digit residues join to the whole string's */
+struct vjob { mn_out o; const uint64_t *src; size_t lo, n; };
+static void *vjob_run(void *a) { struct vjob *j = (struct vjob *)a; mn_out_src src = { j->src + j->lo, 0, j->lo, j->n }; mn_out_run(&j->o, &src); mn_out_finish(&j->o); return 0; }
+static void t_vpe_parts(int *fails, int *checks)
+{
+    for (int it = 0; it < 12; it++) {
+        unsigned long d_out = 200 + rnd() % 3000, d = ((d_out + 17) / 18) * 18;
+        size_t nl = (d + 1 + 17) / 18; uint64_t *X = (uint64_t *)malloc(nl * 8);
+        for (size_t i = 0; i < nl; i++) X[i] = rnd() % 1000000000000000000ULL;
+        X[nl - 1] = 2;
+        char *ref = (char *)malloc(d + 2); digits_format(ref, X, nl, d);
+        char fn[64]; snprintf(fn, sizeof fn, "/tmp/t_out_%d.vref", getpid());
+        FILE *f = fopen(fn, "w"); fputc(ref[0], f); fputc('.', f); fwrite(ref + 1, 1, d_out, f); fputc('\n', f); fclose(f);
+        char wf[64]; snprintf(wf, sizeof wf, "/tmp/t_out_%d.vwin", getpid()); FILE *w = fopen(wf, "w");
+        for (int k = 0; k < 12; k++) { unsigned long o = 1 + rnd() % (d_out + 1 - 50); fprintf(w, "%lu %.50s\n", o, ref + o); }
+        fclose(w); setenv("ECALC_WINDOWS", wf, 1);
+        uint64_t Dref[T1_NQ]; vf_digits_mods(ref, d + 1, t1_q, T1_NQ, Dref);
+        int size = 2 + (int)(rnd() % 4); size_t L = 1 + rnd() % 9;
+        char out[64]; snprintf(out, sizeof out, "/tmp/t_out_%d.vout", getpid());
+        struct vjob job[8]; size_t k0s[8]; pthread_t th[8]; char cmd[256];
+        /* pass 0: in turn from the top: the ranges (k0) */
+        tier2_windows_reset(); { char tail[64]; size_t ntail = 0;
+            for (int r = size - 1; r >= 0; r--) {
+                struct vjob *j = &job[r]; size_t lo, hi; comm_shard(nl, r, size, &lo, &hi); memset(j, 0, sizeof *j);
+                j->o.d = d; j->o.d_out = d_out; j->o.outfile = out; j->o.rank = r; j->o.size = size; j->o.chunk_limbs = L; j->src = X; j->lo = lo; j->n = hi - lo;
+                memcpy(j->o.head, tail, ntail); j->o.nhead = ntail; vjob_run(j); k0s[r] = j->o.k0;
+                if (j->o.k1 > j->o.k0) { size_t n = j->o.k1 - j->o.k0, t = n < 49 ? n : 49; size_t keep = 49 - t < ntail ? 49 - t : ntail; memmove(tail, tail + ntail - keep, keep); memcpy(tail + keep, ref + j->o.k1 - t, t); ntail = keep + t; }
+            } }
+        snprintf(cmd, sizeof cmd, "rm -f %s.part*", out); system(cmd);
+        /* pass 1: all ranks at once, heads from the reference */
+        tier2_windows_reset();
+        for (int r = 0; r < size; r++) {
+            struct vjob *j = &job[r]; size_t lo, hi; comm_shard(nl, r, size, &lo, &hi); memset(j, 0, sizeof *j);
+            j->o.d = d; j->o.d_out = d_out; j->o.outfile = out; j->o.rank = r; j->o.size = size; j->o.chunk_limbs = L; j->src = X; j->lo = lo; j->n = hi - lo;
+            size_t t = k0s[r] < 49 ? k0s[r] : 49; memcpy(j->o.head, ref + k0s[r] - t, t); j->o.nhead = t;
+            pthread_create(&th[r], 0, vjob_run, j);
+        }
+        for (int r = 0; r < size; r++) pthread_join(th[r], 0);
+        uint64_t D[T1_NQ] = {0}; int nwin = 0, bad2 = 0; size_t nd = 0;
+        for (int r = size - 1; r >= 0; r--) {
+            mn_out *o = &job[r].o; nwin += o->nwin; bad2 += o->bad2; nd += o->ndig;
+            for (int i = 0; i < T1_NQ; i++) D[i] = vf_digits_join(D[i], o->ndig, o->dres[i], t1_q[i]);
+        }
+        (*checks)++; if (nd != d + 1 || memcmp(D, Dref, sizeof D)) { (*fails)++; printf("vpe it %d size %d: digit residue / count mismatch\n", it, size); }
+        (*checks)++; if (nwin != 13 || bad2 != 1) { (*fails)++; printf("vpe it %d size %d: %d windows (13 = 12 + the built-in), %d bad (1)\n", it, size, nwin, bad2); }
+        snprintf(cmd, sizeof cmd, "cat %s.part* | cmp -s - %s", out, fn);
+        (*checks)++; if (system(cmd)) { (*fails)++; printf("vpe it %d size %d: cat of the parts differs (d_out %lu)\n", it, size, d_out); }
+        snprintf(cmd, sizeof cmd, "rm -f %s.part*", out); system(cmd);
+        free(X); free(ref); unlink(wf); unlink(fn);
+    }
+}
+int main(int argc, char **argv)
 {
     printf("== t_out ==\n"); harness_meta("t_out");
     setenv("ECALC_OUT_PACKED", "0", 0);   /* this test checks the ASCII part files byte by byte; the packed form (the default) is checked by mnaccept's e9 / mn / full steps (digcmp.sh) and tools/test_unpack.py */
     int fails = 0, checks = 0;
+    if (argc > 1 && !strcmp(argv[1], "--vpe")) { t_vpe_parts(&fails, &checks); printf("%d checks, %d failures\n", checks, fails); VERIFY(fails == 0, "t_out --vpe: %d of %d checks failed", fails, checks); return verify_done("t_out"); }
     for (int it = 0; it < 60; it++) {
         unsigned long d_out = 1 + rnd() % 3000, d = ((d_out + 17) / 18) * 18;
         size_t nl = (d + 1 + 17) / 18; uint64_t *X = (uint64_t *)malloc(nl * 8);

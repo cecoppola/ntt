@@ -110,6 +110,7 @@ static const char *const cfg_names[] = {
     "ECALC_VERBOSE",
     "ECALC_VMM_BG",
     "ECALC_VPE",
+    "ECALC_VPE_BG_THREADS",
     "ECALC_VPE_CHAIN",
     "ECALC_VPE_LANES",
     "ECALC_WINDOWS",
@@ -173,4 +174,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_PES_PER_GPU",
     "XSHMEM_ROUND_MB",
 };
-#define CFG_NAMES_N 171
+#define CFG_NAMES_N 172

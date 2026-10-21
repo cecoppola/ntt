@@ -119,3 +119,4 @@ TMPDIR	test-only	TARGET1 (B3)	2026-12-31	system temp directory read by tests/t_p
 ECALC_VPE	experiment	TARGET1 (S1)	2026-12-31	virtual PEs, off by default; review when S1a..S1e are merged
 ECALC_VPE_LANES	experiment	TARGET1 (S1)	2026-12-31	vPEs per process; review with ECALC_VPE
 ECALC_VPE_CHAIN	experiment	TARGET1 (S1)	2026-12-31	vPE chain arm, own by default; review with ECALC_VPE
+ECALC_VPE_BG_THREADS	experiment	TARGET1 (S1)	2026-12-31	background team per PE; review with ECALC_VPE
