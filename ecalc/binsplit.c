@@ -1351,6 +1351,7 @@ void bs_ckpt_tree_clear(int level) { if (bs_ckpt_dir) for (int l = level + 1; l 
 static void seeds_compute(struct level *cur, size_t per, unsigned long S, unsigned long N, const size_t *r0, uint64_t **stage)
 {
     int nt = getenv("BS_SEED_THREADS") ? atoi(getenv("BS_SEED_THREADS")) : bs_nthreads();   /* I2: fewer than all leaves cores to init's allocations */
+    const unsigned long a0_ = bs_a0, b1_ = bs_b1;   /* (omp workers read vPE 0's range otherwise, as in seed_spans) */
 #pragma omp parallel num_threads(nt)
     {
         bigint p, q; bi_init(&p); bi_init(&q);
@@ -1359,7 +1360,7 @@ static void seeds_compute(struct level *cur, size_t per, unsigned long S, unsign
             if (home >= 0 && r % NR != home % NR) continue;               /* (home < 0: threads not pinned, every thread does everything by rank) */
             size_t lo = r0[r], hi = r0[r + 1];
             for (size_t i = lo + (size_t)rk; i < hi; i += (size_t)cnt) {
-                unsigned long a = bs_a0 + i * S, b = a + S, bend = bs_b1 ? bs_b1 : N + 1; if (b > bend) b = bend;
+                unsigned long a = a0_ + i * S, b = a + S, bend = b1_ ? b1_ : N + 1; if (b > bend) b = bend;
                 span(&p, &q, a, b);
                 struct node *nd = &cur->nd[i];
                 nd->r = r; nd->po = 2 * per * (i - lo); nd->pn = p.n; nd->qo = nd->po + per; nd->qn = q.n;
@@ -1397,12 +1398,13 @@ static int seed_pools_ready(struct seed_stream *ss) { pthread_mutex_lock(&ss->mx
  * slack after p and q -- the device regions are zeroed at their allocation, a buffer is not) */
 static void seed_spans(struct level *cur, size_t per, unsigned long S, unsigned long N, int r, size_t lo, size_t c0, size_t c1, uint64_t *dst_c0, int pad, int nt)
 {
+const unsigned long a0_ = bs_a0, b1_ = bs_b1;   /* (the omp workers are not vPE threads: vpe_t_idx = 0 there, so bs_a0 / bs_b1 read in the region gave PE 0's range: 9u8 leaves of PEs 1..3 wrong and varying) */
 #pragma omp parallel num_threads(nt)
     {
         bigint p, q; bi_init(&p); bi_init(&q);
 #pragma omp for schedule(dynamic, 16)
         for (size_t i = c0; i < c1; i++) {
-            unsigned long a = bs_a0 + i * S, bb = a + S, bend = bs_b1 ? bs_b1 : N + 1; if (bb > bend) bb = bend;
+            unsigned long a = a0_ + i * S, bb = a + S, bend = b1_ ? b1_ : N + 1; if (bb > bend) bb = bend;
             span(&p, &q, a, bb);
             struct node *nd_ = &cur->nd[i];
             nd_->r = r; nd_->po = 2 * per * (i - lo); nd_->pn = p.n; nd_->qo = nd_->po + per; nd_->qn = q.n;
