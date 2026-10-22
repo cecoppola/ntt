@@ -112,7 +112,9 @@ static const char *const cfg_names[] = {
     "ECALC_VPE",
     "ECALC_VPE_BG_THREADS",
     "ECALC_VPE_CHAIN",
+    "ECALC_VPE_CHECK",
     "ECALC_VPE_LANES",
+    "ECALC_VPE_SYNC",
     "ECALC_WINDOWS",
     "ECALC_XEX_THREAD",
     "MDB_SHIFT_CHUNK_MB",
@@ -175,4 +177,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_ROUND_MB",
     "XSHMEM_YIELD",
 };
-#define CFG_NAMES_N 173
+#define CFG_NAMES_N 175

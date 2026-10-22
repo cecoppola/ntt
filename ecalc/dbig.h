@@ -55,6 +55,8 @@ void db_pull_stop_all(void);                            /* the kernels leave (be
 void db_vmm_arena_release(int dev);
 void db_reserve(dbig *x, size_t limbs);               /* grow-only; contents kept up to min(old n, new cap) */
 void db_from_bi(dbig *x, const bigint *a);            /* DMA in */
+void db_read(const dbig *a, size_t i, size_t n, uint64_t *out);   /* limbs [i, i + n) to the host (debug checks) */
+void db_vsync(void);                                  /* vPE debug: ECALC_VPE_SYNC=1 device sync (no-op otherwise) */
 void db_to_bi(bigint *r, const dbig *x);              /* DMA out */
 void db_copy(dbig *r, const dbig *a);
 void db_set_zero(dbig *r);

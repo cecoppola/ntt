@@ -22,6 +22,19 @@ static double tnow(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t)
 static int g_inited = 0;                               /*  */
 static inline int nq_(void) { return vpe_on() ? 1 : DB_NQ; }          /* S1b: quarters of a dbig (one under vPE) */
 static inline int dv_(int qi) { return vpe_on() ? vpe_lane() + qi : qi; }   /* the device of quarter qi (the vPE's own under vPE) */
+/* ECALC_VPE_SYNC=1 (debug, vPE only): before every host read or stream-0 launch of the carry / norm path (addsub_core2, maxidx, db_zero_fill) the vPE's own device is made
+ * current and fully synchronised (all its streams), and a wrong current device is reported once.  Tests the hypothesis of a missing stream or device sync before a host read (9v3/9v6). */
+static void vsync(void)
+{
+    static int on = -1; static volatile int warned;
+    if (!vpe_on()) return;
+    if (on < 0) { const char *e = getenv("ECALC_VPE_SYNC"); on = e && atoi(e) ? 1 : 0; }
+    if (!on) return;
+    int cur = -1; HIP_CHECK(hipGetDevice(&cur));
+    if (cur != dv_(0) && !__atomic_exchange_n(&warned, 1, __ATOMIC_RELAXED)) fprintf(stderr, "vpe-sync: pe %d: current device %d is not its own (%d)\n", vpe_pe(), cur, dv_(0));
+    HIP_CHECK(hipSetDevice(dv_(0))); HIP_CHECK(hipDeviceSynchronize());
+}
+void db_vsync(void) { vsync(); }
 static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT]);
 static void par_init(void) { if (!g_inited) { g_inited = 1; mem_acct_register(db_acct); } }
 
@@ -960,6 +973,7 @@ static void addsub_core(dbig *r, const dbig *a, size_t ashift, const dbig *b, co
  * *prop tells whether a carry-in at limb 0 would ripple through every limb (the node-level carry scan of a sharded number) */
 static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, const struct sparse *spx, size_t bn, int sub, size_t nfix, int *cout, int *prop)
 {
+    vsync();
     double t0 = tnow(); db_st.n_addsub++;
     size_t an = a->n ? a->n + ashift : 0, n = an > bn ? an : bn; if (!sub) n++;
     if (nfix) n = nfix;
@@ -1077,6 +1091,7 @@ void db_pow_sub(dbig *r, size_t e, const dbig *a)
 
 static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest index i < n with a[i] != b[i] (b null: != 0), or 0 */
 {
+    vsync();
     double t0 = tnow(); db_st.n_maxidx++;
     size_t best = 0; struct dv va = view_of(a), vb = b ? view_of(b) : va;
 #pragma omp parallel for num_threads(nq_()) reduction(max:best)
@@ -1111,6 +1126,11 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
 }
 void db_norm(dbig *r) { r->n = maxidx(r, 0, r->n); }
 uint64_t db_limb(const dbig *a, size_t i) { uint64_t v; size_t g = a->off + i, d = hq(a, g); mem_dev_copy_on(dv_((int)d), &v, a->q[d] + (g - d * a->qc), 8); return v; }
+void db_read(const dbig *a, size_t i, size_t n, uint64_t *out)   /* limbs [i, i + n) to the host (debug checks; the caller has synchronised) */
+{
+    while (n) { size_t g = a->off + i, d = hq(a, g), room = (d + 1) * a->qc - g, k = n < room ? n : room;
+        mem_dev_copy_on(dv_((int)d), out, a->q[d] + (g - d * a->qc), k * 8); out += k; i += k; n -= k; }
+}
 uint64_t db_top(const dbig *a) { return a->n ? db_limb(a, a->n - 1) : 0; }
 int db_cmp(const dbig *a, const dbig *b)
 {
@@ -1146,6 +1166,7 @@ void db_set_shifted_low(dbig *r, const dbig *a, size_t m, size_t k, size_t n)
 /* M3: r = n zero limbs (r->n = n, not normalised: a share to be filled by a scatter) */
 void db_zero_fill(dbig *r, size_t n)
 {
+    vsync();
     db_reserve(r, n ? n : 1);
 #pragma omp parallel for num_threads(nq_())
     for (int d = 0; d < nq_(); d++) { int dv = dv_(d); size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(dv));

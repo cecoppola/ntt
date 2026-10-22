@@ -548,6 +548,34 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
     }
     if (captest) rns_dist_cap_test(0);
 }
+/* vPE consistency check of a tree level (RNS_VERBOSE under ECALC_VPE=1, shares up to 2^28 limbs in all; ECALC_VPE_CHECK=1 forces it, 0 turns it off): the value of a sharded number
+ * mod the word prime 2^61 - 1 (sum of limb[g] B^g over every share, B = 10^18), taken on the host after a full device synchronisation, must satisfy
+ * P_n = P_A Q_B + P_B and Q_n = Q_A Q_B at each level; one line per level per PE with the verdicts, the normalised length again after the synchronisation, and the top limbs
+ * of my share.  A MISMATCH names the level and the number that left the product wrong (9v3, 9v6: P one or two limbs too long at level 1, intermittent). */
+#define VCK_P 0x1fffffffffffffffULL
+static uint64_t vck_mul(uint64_t a, uint64_t b) { unsigned __int128 t = (unsigned __int128)a * b; uint64_t r = (uint64_t)(t & VCK_P) + (uint64_t)(t >> 61); r = (r & VCK_P) + (r >> 61); return r >= VCK_P ? r - VCK_P : r; }
+static uint64_t vck_powB(size_t e) { uint64_t r = 1, b = 1000000000000000000ULL % VCK_P; while (e) { if (e & 1) r = vck_mul(r, b); b = vck_mul(b, b); e >>= 1; } return r; }
+static uint64_t vck_share(const mdb *x, uint64_t *top)       /* my share's residue (limbs [lo, hi) at their global index) and a fold of its top 3 limbs */
+{
+    size_t lo, hi; mdb_share(x, mn_rank(), &lo, &hi); size_t n = hi > lo ? hi - lo : 0; uint64_t res = 0, w = vck_powB(lo), b = 1000000000000000000ULL % VCK_P, *buf = (uint64_t *)malloc((size_t)8 << 16);
+    if (n > x->sh.n) n = x->sh.n;
+    for (size_t i = 0; i < n; i += 1 << 16) { size_t k = n - i < (1 << 16) ? n - i : (1 << 16); db_read(&x->sh, i, k, buf);
+        for (size_t j = 0; j < k; j++) { res += vck_mul(buf[j] % VCK_P, w); if (res >= VCK_P) res -= VCK_P; w = vck_mul(w, b); } }
+    free(buf); *top = 0; if (n >= 3) { uint64_t t[3]; db_read(&x->sh, n - 3, 3, t); *top = t[2]; }
+    return res;
+}
+static int vck_on(size_t basis_sum)
+{
+    static int env = -2; if (env == -2) { const char *e = getenv("ECALC_VPE_CHECK"); env = e ? atoi(e) : -1; }
+    if (!vpe_on() || env == 0) return 0;
+    return env == 1 || (getenv("RNS_VERBOSE") && basis_sum <= ((size_t)1 << 28));
+}
+static uint64_t vck_sum(comm *c, int g, uint64_t v, int lo, int hi)     /* sum over the members [lo, hi) of every member's v (host all-gather over the group) */
+{
+    uint64_t *all = (uint64_t *)malloc((size_t)g * 8), r = 0; mn_allgather(c, &v, 1, all);
+    for (int i = lo; i < hi; i++) { r += all[i]; if (r >= VCK_P) r -= VCK_P; }
+    free(all); return r;
+}
 /* one tree level: the product over the group [g0, g0+g) whose halves A = [g0, g0+half), B = the rest hold the operands */
 static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
 {
@@ -562,11 +590,22 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
     if (inA) { PA.sh = P->sh; QA.sh = Q->sh; } else { PB.sh = P->sh; QB.sh = Q->sh; }
     free(all);
     mdb Pn, Qn; memset(&Pn, 0, sizeof Pn); memset(&Qn, 0, sizeof Qn);
+    int vck = vck_on(PA.N + PB.N + QA.N + QB.N); uint64_t rPA = 0, rQA = 0, rPB = 0, rQB = 0, tp = 0;   /* vPE check: the operands' residues before the products */
+    if (vck) { db_vsync(); HIP_CHECK(hipDeviceSynchronize());
+        uint64_t mp = vck_share(P, &tp), mq = vck_share(Q, &tp);   /* my child's shares (zero on the other side's members: sum over each side only) */
+        rPA = vck_sum(G->all[0], g, mp, 0, half); rPB = vck_sum(G->all[0], g, mp, half, g); rQA = vck_sum(G->all[0], g, mq, 0, half); rQB = vck_sum(G->all[0], g, mq, half, g); }
     rns_mul_dist_mn(&Pn, &PA, &QB, &PB, G);
     db_free(&P->sh);                                       /* my child's P (PA or PB) is dead once P_n is formed */
     if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d mul1", mn_rank(), l); mem_live_line(w); }   /* the first product's window; the level's line then covers the second */
     rns_mul_dist_mn(&Qn, &QA, &QB, 0, G);
     db_free(&P->sh); db_free(&Q->sh); *P = Pn; *Q = Qn;
+    if (vck) { HIP_CHECK(hipDeviceSynchronize());
+        uint64_t tP = 0, tQ = 0, mp = vck_share(P, &tP), mq = vck_share(Q, &tQ);
+        uint64_t rP = vck_sum(G->all[0], g, mp, 0, g), rQ = vck_sum(G->all[0], g, mq, 0, g), wP = vck_mul(rPA, rQB) + rPB, wQ = vck_mul(rQA, rQB);
+        if (wP >= VCK_P) wP -= VCK_P;
+        mdb tn = *P; mdb_norm(&tn, G, tn.N); mdb tq = *Q; mdb_norm(&tq, G, tq.N);
+        printf("%smn: %s %d level %d [%d, %d) vpe-check: P %s Q %s; n after sync P %zu (%zu) Q %zu (%zu); res P %016llx want %016llx, Q %016llx want %016llx; my top limb P %llu Q %llu\n", ec_log_prefix(), mn_who(), mn_rank(), l, g0, g0 + g,
+               rP == wP ? "ok" : "MISMATCH", rQ == wQ ? "ok" : "MISMATCH", tn.n, P->n, tq.n, Q->n, (unsigned long long)rP, (unsigned long long)wP, (unsigned long long)rQ, (unsigned long long)wQ, (unsigned long long)tP, (unsigned long long)tQ); }
     size_t lo, hi; mdb_share(P, mn_rank(), &lo, &hi);
     printf("%smn: %s %d level %d [%d, %d): P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", ec_log_prefix(), mn_who(), mn_rank(), l, g0, g0 + g, P->n, Q->n, lo, hi, mem_now() - t0);
     { char w[48]; snprintf(w, sizeof w, "tree level %d", l); mn_comm_mark(w); }
