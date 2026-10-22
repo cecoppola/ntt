@@ -719,6 +719,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
 size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
 {
     const char *tr = getenv("COMM_TRANSPORT");
+    if (size < 2 && vpe_ppg() && xsh_on()) size = vpe_lanes();   /* S2fix: one node under ECALC_PE_PER_GPU=1 still exchanges among its PEs (the lanes): the model of that group, so the plan prints `plan pool` and mnrun sizes the heap (the default path: size < 2 = 0, as before) */
     if (size < 2 || (!plan && !(tr && (!strcmp(tr, "shmem") || !strcmp(tr, "xshmem"))))) return 0;
     vslot_prealloc_env(N, size);                          /* S31 */
     char by[256]; size_t need = binsplit_shmem_pool_need(N, size, by, sizeof by), mb = (need + ((size_t)1 << 20) - 1) >> 20;
@@ -1024,7 +1025,8 @@ void binsplit_pregrow(unsigned long N)
         for (int r = 0; r < NR; r++) arena_get(r, cap[r], extra[r], hole[r], dml.thresh);
         if (bs_arena_room() > 0 && db_pool_vmm_on()) for (int r = 0; r < NR; r++)   /* the layout's promise (whole chunks, the tail at the last chunk's end) */
             if (g_arena[r].base && g_arena[r].bytes % db_pool_vmm_chunk()) fprintf(stderr, "bs: BS_ARENA_ROOM: WARNING: region %d's arena %zu bytes is not whole chunks (the tail is not at the arena's end)\n", r, g_arena[r].bytes);
-        if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("bs: arenas %.1f GB allocated in %.2f s (layout pass %.2f s; dm extra %.1f GB, tails %.1f GB)\n", (g_arena[0].bytes + g_arena[1].bytes + g_arena[2].bytes + g_arena[3].bytes) / 1e9, mem_now() - ta, ta - t_pg, (extra[0] + extra[1] + extra[2] + extra[3]) / 1e9, (hole[0] + hole[1] + hole[2] + hole[3]) / 1e9);
+        size_t ar_sum = 0, ex_sum = 0, ho_sum = 0; for (int r = 0; r < NR; r++) { ar_sum += g_arena[r].bytes; ex_sum += extra[r]; ho_sum += hole[r]; }   /* S2fix: the process's own regions only (one under ECALC_PE_PER_GPU: extra[1..3] were never set -- tails 1.4e6 GB in the log) */
+        if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("bs: arenas %.1f GB allocated in %.2f s (layout pass %.2f s; dm extra %.1f GB, tails %.1f GB)\n", ar_sum / 1e9, mem_now() - ta, ta - t_pg, ex_sum / 1e9, ho_sum / 1e9);
     }
     g_in_pregrow = 1;
 #pragma omp parallel for num_threads(NR) schedule(static)
