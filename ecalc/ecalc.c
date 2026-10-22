@@ -546,7 +546,7 @@ int main(int argc, char **argv)
     if (plan) { int f = mn_plan_run(d, N, plan_g, pool_log); binsplit_shmem_pool_rule(N, plan_g, 1);
                 binsplit_fit_print(&fit, (double)d_out, plan_g, "plan fit    ");   /* FIT (D26): the memory fit; a run that does not fit is refused (the last plan line) */
                 if (vpe_ppg()) {   /* S2fix: ECALC_PE_PER_GPU=1 has no striped tier (rns_mul_batch dies there): every batch-tier product of a PE's leaf must fit its one device's plane pool */
-                    size_t nc = 0, pl_limbs = rns_plane_limbs(); int lg = binsplit_ppg_batch_logl(N, plan_g, &nc), np = ec_np_init();
+                    int pl0 = rns_pool_log(); rns_preinit_pool_log(pool_log); size_t nc = 0, pl_limbs = rns_plane_limbs(); rns_preinit_pool_log(pl0); int lg = binsplit_ppg_batch_logl(N, plan_g, &nc), np = ec_np_init();
                     int ok = !lg || (size_t)np * ((size_t)1 << lg) <= pl_limbs;
                     printf("plan fit    batch tier (ECALC_PE_PER_GPU=1, PE 0's leaf of %d nodes x %d PEs): the largest product %zu limbs = 2^%d points x %d primes = %.3g limbs vs the plane pool's %.3g (cap 2^%d): %s\n",
                            plan_g, vpe_lanes(), nc, lg, np, (double)np * ((size_t)1 << lg), (double)pl_limbs, pool_log, ok ? "local tier OK" : "the striped tier would be needed (it needs all 4 devices)");
