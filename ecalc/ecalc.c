@@ -481,6 +481,7 @@ static void recheck_run(void *a)                       /* ECALC_RECHECK under EC
 }
 int main(int argc, char **argv)
 {
+    { const char *v = getenv("ECALC_VPE"); if (v && atoi(v)) setenv("HIP_FORCE_DEV_KERNARG", "0", 0); }   /* vPE: kernel arguments in host memory (a user setting wins).  With the device-memory default (ROCm 7.0.3) threads launching concurrently gave intermittent wrong results (about 8 % of 1 node 1e8 runs; 0 of 50 with =0, measured) */
     cfg_snapshot();                                   /* L5: record the registered switches set in the environment, before ecalc sets any itself (print-only) */
     /* MN_PLAN_ONLY=<total digits>:<g> -- the plan of a run of that size on g node-processes (mn_plan.c): every
      * large product's grid, pieces and planes from the code's own decisions, no device, no communicator; exits after the knobs
