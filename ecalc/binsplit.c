@@ -350,6 +350,30 @@ static void region_need(unsigned long N, size_t need[NRMAX])
     mm->N = N; mm->a0 = a0; mm->nterms = nterms; mm->S = S; mm->nspan = nspan; mm->per = per; mm->logl = bs_mdev_logl; mm->bal = bs_balance_n;
     memcpy(mm->need, need, sizeof mm->need); mm->ok = 1;
 }
+/* S2fix (ECALC_PE_PER_GPU=1): the largest batch-tier product of this process's leaf -- rns_mul_batch's local tier needs np x 2^logL limbs in the one device's plane pool
+ * (rns_mul.c: `rns_plane_limbs() / (ec_np * L) >= 1`); a product that does not fit goes to the striped tier, which needs all 4 devices and is fatal here.  Walks region_need's levels
+ * (batch while the lower bound of the level's Q is within 2^BS_MDEV_LOGL), the level's largest product P1 Q2 = min(2 m, span) x per limbs (+3 %: per is an estimate); the caller
+ * sets the term range.  *nc = that product's limbs; returns its logL (0: no batch level). */
+static int bs_batch_logl(unsigned long N, size_t *nc)
+{
+    size_t per; unsigned long nspan; seed_limbs(N, &per, &nspan);
+    unsigned long S = bs_seed_terms, a0 = bs_b1 ? bs_a0 : 1, nterms = bs_b1 ? bs_b1 - bs_a0 : N; size_t best = 0;
+    for (int l = 0; ; l++) {
+        size_t n_in = (nspan + ((size_t)1 << l) - 1) >> l; if (n_in <= 1) break;
+        size_t m_full = (size_t)1 << l;
+        if (2 * level_q_lower(a0, nterms, S, m_full, nspan) + 1 > ((size_t)1 << bs_mdev_logl)) break;
+        size_t span = 2 * m_full < nspan ? 2 * m_full : nspan, c = (size_t)((double)span * (double)per * 1.03) + (size_t)l + 2;
+        if (c > best) best = c;
+    }
+    if (nc) *nc = best;
+    int lg = 0; while (((size_t)1 << lg) < best) lg++;
+    return best ? (lg < 10 ? 10 : lg) : 0;
+}
+int binsplit_ppg_batch_logl(unsigned long N, int g, size_t *nc)   /* rank 0's (PE 0's) range, restored after */
+{
+    unsigned long a0 = bs_a0, b1 = bs_b1; bs_a0 = 1; bs_b1 = bs_pe_b1(N, g);
+    int lg = bs_batch_logl(N, nc); bs_a0 = a0; bs_b1 = b1; return lg;
+}
 /* the dm phase's block-pool need per device from N alone, the way the driver's formulas
  * size it (ecalc.c: n_Q = Q's limbs, Q = N! in the chosen base; dl = the limbs of 10^d; k_mu = P.n + 1 + dl - n_Q + 1;
  * newton_db_recip: r, r2 of k + 4 limbs, t1 of max(n_Q + k, 2k) + 8; rns_dist's piece temporary of at most 2^pool_log + 8
@@ -719,9 +743,13 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
 size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
 {
     const char *tr = getenv("COMM_TRANSPORT");
+    if (size < 2 && vpe_ppg() && xsh_on()) size = vpe_lanes();   /* S2fix: one node under ECALC_PE_PER_GPU=1 still exchanges among its PEs (the lanes): the model of that group, so the plan prints `plan pool` and mnrun sizes the heap (the default path: size < 2 = 0, as before) */
     if (size < 2 || (!plan && !(tr && (!strcmp(tr, "shmem") || !strcmp(tr, "xshmem"))))) return 0;
     vslot_prealloc_env(N, size);                          /* S31 */
-    char by[256]; size_t need = binsplit_shmem_pool_need(N, size, by, sizeof by), mb = (need + ((size_t)1 << 20) - 1) >> 20;
+    char by[256]; unsigned long ra0 = bs_a0, rb1 = bs_b1; int rset = vpe_on() && !rb1 && size > 1;
+    if (rset) { bs_a0 = 1; bs_b1 = bs_pe_b1(N, size); }   /* S2fix: a vPE / one-process-per-GPU run has no term range here yet (vpe_set_range comes later): the model of PE 0's, as the fit lays it out -- with the whole range the room probe saw a 1726 GB arena and printed a bogus `BS_ARENA_ROOM ... is dropped` */
+    size_t need = binsplit_shmem_pool_need(N, size, by, sizeof by), mb = (need + ((size_t)1 << 20) - 1) >> 20;
+    if (rset) { bs_a0 = ra0; bs_b1 = rb1; }
     mb = (mb + 255) / 256 * 256;                          /* whole 256 MiB */
     size_t have = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : g_ofi_dev_mb ? mb : 8192;   /* OFIMEM: under COMM_OFI unset = the need */
     const char *er = getenv("COMM_RANK"); int rank0 = !er || atoi(er) == 0;
@@ -1024,7 +1052,8 @@ void binsplit_pregrow(unsigned long N)
         for (int r = 0; r < NR; r++) arena_get(r, cap[r], extra[r], hole[r], dml.thresh);
         if (bs_arena_room() > 0 && db_pool_vmm_on()) for (int r = 0; r < NR; r++)   /* the layout's promise (whole chunks, the tail at the last chunk's end) */
             if (g_arena[r].base && g_arena[r].bytes % db_pool_vmm_chunk()) fprintf(stderr, "bs: BS_ARENA_ROOM: WARNING: region %d's arena %zu bytes is not whole chunks (the tail is not at the arena's end)\n", r, g_arena[r].bytes);
-        if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("bs: arenas %.1f GB allocated in %.2f s (layout pass %.2f s; dm extra %.1f GB, tails %.1f GB)\n", (g_arena[0].bytes + g_arena[1].bytes + g_arena[2].bytes + g_arena[3].bytes) / 1e9, mem_now() - ta, ta - t_pg, (extra[0] + extra[1] + extra[2] + extra[3]) / 1e9, (hole[0] + hole[1] + hole[2] + hole[3]) / 1e9);
+        size_t ar_sum = 0, ex_sum = 0, ho_sum = 0; for (int r = 0; r < NR; r++) { ar_sum += g_arena[r].bytes; ex_sum += extra[r]; ho_sum += hole[r]; }   /* S2fix: the process's own regions only (one under ECALC_PE_PER_GPU: extra[1..3] were never set -- tails 1.4e6 GB in the log) */
+        if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("bs: arenas %.1f GB allocated in %.2f s (layout pass %.2f s; dm extra %.1f GB, tails %.1f GB)\n", ar_sum / 1e9, mem_now() - ta, ta - t_pg, ex_sum / 1e9, ho_sum / 1e9);
     }
     g_in_pregrow = 1;
 #pragma omp parallel for num_threads(NR) schedule(static)
