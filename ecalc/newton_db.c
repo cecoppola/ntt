@@ -430,7 +430,7 @@ __global__ void k_mn_scatter(struct sacc dst, size_t lo2, const uint64_t *rb, co
 }
 /* S1c: the process-wide counters (newton_st, newton_mid_st, newton_x_dx) are written by vPE lane 0 only -- every PE computes the same values, and the
  * readers (the output stage) run after the division's last collective, which lane 0 enters after these writes */
-#define NST(stmt) do { if (!vpe_on() || !vpe_idx()) { stmt; } } while (0)
+#define NST(stmt) do { if (!vpe_on() || vpe_ppg() || !vpe_idx()) { stmt; } } while (0)   /* (ECALC_PE_PER_GPU=1: the PEs are processes, each has its own counters -- lane 0 only left every PE but 0 with newton_x_dx = 0: the deferred tail patch then ran on PE 0 alone and the other PEs' digits-vs-X check failed, 1 n 3e10) */
 static unsigned mn_nblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 8 ? 228 * 8 : b); }
 /* S1c (vPE): the mdb helpers run on the PE's single device (vpe_lane()) and its flat communicator G->pe; nl = APU threads of one exchange (4 per node, 1 per PE),
  * ldev(d) = the device of thread d.  The streams are per device (a vPE creates its own); mn_st is per vPE. */
