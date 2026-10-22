@@ -22,8 +22,10 @@ Bugs found and fixed on the way: `rns_init` set up all 4 devices per process (OO
 
 Launcher fixes (branch `fitppg`, gates 9w2x/9w2w on f212a9e/6aab0bc, 2026-10-22, measured): mnrun's FIT pre-check planned `ECALC_PE_PER_GPU=1` runs without the per-node PE count, so the plan died and a run that does not fit launched (9w2_s2dfeas3: P 1.9323e11 3 n killed after 16 s); now refused before launch (no node time). On one node, P now picks `COMM_TRANSPORT=xshmem` as for more than one process. Gate 9w2w: P full REFUSED before launch; 1e9 D vs P digits identical at 1 / 2 / 3 n (single runs D / P: 10.86 / 8.28, 15.21 / 6.64, 16.07 / 6.41 s).
 
+Pool plan (branch `poolppg`, gate 9w2u on 5b4ec8a, 2026-10-22, measured): the launcher's pool-sizing plan had the same gap, so P runs kept `COMM_SHMEM_POOL_MB=8192` and no `XSHMEM_HEAP_MB` from the plan; now the plan sizes them at 2 / 3 n (pool 512 MiB from the plan; digits identical at 1 / 2 / 3 n). On one node the engine's pool rule still returns no pool line (TASKS Proposed).
+
 ## S2d timing
-pending (paired ABBA off vs on at 1 n and 3 n).
+3 n 1e10 (item 9x0_s2d1e10_3n on s2dtest c96cb09e, 2026-10-22, measured): D 21.97 s (n 10, sd 0.43), P 14.99 s (n 8, sd 0.52); P - D over 8 ABBA pairs -6.92 s, 95 % CI [-7.57, -6.28]; A/A D2 - D +0.60 s (n 2). Phases D / P: init 13.23 / 4.53, bs 3.68 / 4.97, dm 4.11 / 4.96 s: the gain is all start-up; bs and dm are each ~1 s slower. Pending: 1 n pairs and 3 n 1.9323e11 (P needs a smaller layout to fit the real ~420 GB per node: arm PG, item 9x1_s2dfull3b).
 
 **Verdict.** Gate passed: merge as off by default. Adoption needs S2d.
 **Open issues.** S2d. An omp team left PEs on device 0 (`vpe_rebind`) and per-vPE macros read inside omp regions: both fixed on `vpe-int`, not here. `vpe-int` must later merge main, re-enable the S1e bit and restore the `ECALC_VPE` README text.

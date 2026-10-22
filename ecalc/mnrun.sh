@@ -202,7 +202,8 @@ if [ "$COMM_TRANSPORT" = shmem ] || [ "$COMM_TRANSPORT" = xshmem ]; then
                 if timeout 120 srun --jobid="$SLURM_JOB_ID" -N 1 -n 1 -w "$(echo "$use" | head -1)" --overlap test -e /sys/class/cxi/cxi0 2>/dev/null; then export COMM_OFI_PLAN_CXI=1; else export COMM_OFI_PLAN_CXI=0; fi
                 echo "mnrun.sh: COMM_OFI_PLAN_CXI=$COMM_OFI_PLAN_CXI (a cxi NIC on the compute node: comm_ofi's default; the plan counts its pools)"
             fi
-            pline=$(bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES > /dev/null 2>&1; exec "$@"' _ env "${pas[@]}" COMM_TRANSPORT="$COMM_TRANSPORT" MN_PLAN_ONLY="$pd:$P" "$pbin" 2>/dev/null | grep '^plan pool' || true)
+            pppg=(); [ "$MNRUN_PPG" = 1 ] && pppg=(SLURM_NTASKS_PER_NODE="$PPN")   # (S2a: as in the FIT plan below; without it the plan dies and the pool stays at 8192)
+            pline=$(bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES > /dev/null 2>&1; exec "$@"' _ env "${pas[@]}" "${pppg[@]}" COMM_TRANSPORT="$COMM_TRANSPORT" MN_PLAN_ONLY="$pd:$P" "$pbin" 2>/dev/null | grep '^plan pool' || true)
             pmb=$(echo "$pline" | sed -n 's/.*COMM_SHMEM_POOL_MB=\([0-9][0-9]*\).*/\1/p')
             xmb=$(echo "$pline" | sed -n 's/.*XSHMEM_HEAP_MB=\([0-9][0-9]*\).*/\1/p')
             if [ "$COMM_TRANSPORT" = xshmem ] && [ -n "$xmb" ] && [ -z "${XSHMEM_HEAP_MB:-}" ]; then export XSHMEM_HEAP_MB=$xmb; echo "mnrun.sh: XSHMEM_HEAP_MB=$xmb (the plan's DATA heap per loopback PE)"; fi
