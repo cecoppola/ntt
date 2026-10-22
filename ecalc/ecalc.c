@@ -621,7 +621,7 @@ static void flow_run(void *a)
     oc.pqb = &pqb; oc.xb = &xb; oc.t00 = t00; oc.t_init = t_init;
     if (mn_dist) bs_keep_dev = 1;                     /* M3: the leaf's P_r, Q_r stay on the device when the top leaf level ran there */
     if (ovl) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; bs_keep_dev = 1; }
-    else if (mn_size_ > 1) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; }   /* M5: every node runs its range's recurrence during its leaf levels */
+    else if (mn_size_ > 1 && !(vpe_on() && getenv("ECALC_VPE_NOPQBG") && atoi(getenv("ECALC_VPE_NOPQBG")))) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; }   /* ECALC_VPE_NOPQBG=1 (debug, vPE): no overlapped recurrence thread (T1 computes it at the output stage) */   /* M5: every node runs its range's recurrence during its leaf levels */
 
 
     comm_wst_set_phase(WST_BS);   /* D3: MN_WAIT_STATS phase */
