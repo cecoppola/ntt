@@ -5,7 +5,7 @@
 #ifndef XSHMEM_ROUND_H
 #define XSHMEM_ROUND_H
 #include <stdlib.h>
-#include "vpe.h"
+int vpe_on(void);   /* vpe.c (not vpe.h: this header is included before the HIP platform macros are set) */
 /* S2d (s2heap): the default depends on the exchange mode, as the engine decides it (comm_xshmem_init): the rounds run in the worker thread, and poll mode (vPE or ECALC_PE_PER_GPU
  * default, or ECALC_XEX_THREAD=0) has none, so an unset XSHMEM_ROUND_MB there means whole exchanges ("0").  Before this the planners assumed 128 MiB rounds for a poll-mode run, while
  * the engine staged whole exchanges: the XSHMEM_HEAP_MB it sized was too small whenever the v-slots did not dominate (e.g. ECALC_PE_PER_GPU=1 DIST_CHUNKS=8). */
