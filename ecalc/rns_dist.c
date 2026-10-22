@@ -18,6 +18,7 @@
 #include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <omp.h>
 #include "rns_mul.h"
 #include "rns_int.h"
@@ -1030,6 +1031,15 @@ static void redistribute_i(const struct mn_ctx *X, const mdbv *op, struct rdst *
 /* the (carry, propagate) flags of the g nodes' shares, all-gathered over the group's mesh 0 (one byte per node, host
  * point-to-point: write to all, then read from all), and the scan: carry into node r = c_{r-1} | (p_{r-1} & carry into r-1);
  * returns the carry into this node, and aborts on a carry out of the last node (the fixed-length sum overflowed) */
+/* debug (ECALC_VPE_DLY_AT = bit mask of points 1..6, ECALC_VPE_DLY_MS = ms; vPE only, off by default): a host sleep inside mn_core to localise the window of the intermittent wrong P.
+ * 1 after the operands are in (before the NTTs), 2 after the NTTs (before the CRT), 3 after the CRT (before the result exchange), 4 after the result exchange + scatter (before the spill exchange),
+ * 5 after the spill exchange (before the spill add), 6 after the carry fix (end of the product) */
+static void vpe_dly(int pt)
+{
+    static int at = -1, ms = 0;
+    if (at < 0) { const char *e = getenv("ECALC_VPE_DLY_AT"), *m = getenv("ECALC_VPE_DLY_MS"); ms = m ? atoi(m) : 0; at = vpe_on() && e ? atoi(e) : 0; }
+    if (at & (1 << (pt - 1))) usleep((useconds_t)ms * 1000);
+}
 VPE_STATE(int, top_ok);
 #define g_top_ok VPE(top_ok)               /* S1b: per vPE (the truncated product's flag is set by mn_grid on the PE's own thread) */
 /* Phase 10 A5: a truncated product (basis w): the carry out of the top node is dropped (mod B^w) */
@@ -1419,7 +1429,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         } else for (int p = 0; p < np; p++) HIP_CHECK(hipMemcpyAsync(xa[p], cache_pl(slA, d, p, q), q * 8, hipMemcpyDeviceToDevice, s));   /* A hit: the product forms over a copy */
         if (!bfull) redistribute(&X0, B, &oB, d, s);
         if (X) { redistribute(&X0, &Xv, &oX, d, s); k_gather_mn<<<nblk(qs), 256, 0, s>>>(cx, oX.rb, oX.tend, rows, C, ec_mod_get(0), 0, 0); }
-        HIP_SYNC(s);
+        HIP_SYNC(s); vpe_dly(1);
         if (oA.rb) { db_pool_free(dv, oA.rb); oA.rb = 0; } if (oX.rb) { db_pool_free(dv, oX.rb); oX.rb = 0; }
         double s1 = mem_now(); tr[d] = s1 - s0;
         int phf_ = ec_ph(EC_PH_RD_FWD);
@@ -1449,6 +1459,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         double s2 = mem_now(); tf[d] = s2 - s1;
         if (getenv("RNS_VERBOSE") && !gen) dist_phase_dump(rho);
         if (getenv("RNS_VERBOSE") && !gen) printf("   mn_core pe %d: plans created %d (%.3f s), per prime sums: fwd A %.3f fwd B %.3f inv %.3f s\n", rho, npl, tpl, tfa, tfb, tiv);
+        vpe_dly(2);
         int phc_ = ec_ph(EC_PH_RD_CRT);
         for (int p = 0; p < np; p++) {
             dim3 grid((unsigned)((C + 31) / 32), (unsigned)((rows + 31) / 32)), blk(32, 8);
@@ -1468,7 +1479,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         } else
         k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, qs, gc, v->spill);
         HIP_SYNC(s);
-        tc[d] = mem_now() - s2; ec_ph(phc_);
+        tc[d] = mem_now() - s2; ec_ph(phc_); vpe_dly(3);
         /* the result's rows -> the nodes' windows: the segments of every node's window in my sequence are sent straight from
          * the CRT output (back to back in node order); the received segments of my window from the ranks (r, d) at prefix offsets.
          * Phase 13a M: in Kt rounds when chunked (each round = every node's chunk rc of its window, then this node's chunk added
@@ -1515,8 +1526,9 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
                                           htab[3 * r] = j0; htab[3 * r + 1] = j1; htab[3 * r + 2] = blocks; rcnt2[r] = (j1 - j0) * 4 * 8; rdsp2[r] = blocks * 4 * 8; blocks += j1 - j0; }
             spill_rb[d] = db_pool_alloc(dv, (blocks * 4 + 16) * 8); sptab_d[d] = (size_t *)db_pool_alloc(dv, 3 * (size_t)g * 8 + 64);
             HIP_CHECK(hipMemcpyAsync(sptab_d[d], htab, 3 * (size_t)g * 8, hipMemcpyHostToDevice, s)); HIP_SYNC(s);
+            vpe_dly(4);
             { int xk_ = comm_xtag_set(XK_SPILL); comm_alltoallv(G->all[d], v->spill, scnt2, sdsp2, spill_rb[d], rcnt2, rdsp2, s); comm_xtag_set(xk_); } comm_wait(G->all[d]);
-            HIP_SYNC(s);
+            HIP_SYNC(s); vpe_dly(5);
             sp[d] = spill_rb[d]; sptab[d] = sptab_d[d]; }
           to[d] += mem_now() - s3;
           db_pool_free(dv, rbO); ec_ph(phq_); }
@@ -1553,7 +1565,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         share_carry_fix(G, &Cn->sh, cn, co, pr);
         db_free(&T);
     }
-    ec_ph(phk_);
+    ec_ph(phk_); vpe_dly(6);
     Cn->sh.n = cn;                                            /* the fixed-length adds set sh.n to their length */
     double mr = 0, mf = 0, mc = 0, mo = 0; for (int d = 0; d < NL(); d++) { if (tr[d] > mr) mr = tr[d]; if (tf[d] > mf) mf = tf[d]; if (tc[d] > mc) mc = tc[d]; if (to[d] > mo) mo = to[d]; }
     double tcar = mem_now() - t4, tt = mem_now() - t0;
