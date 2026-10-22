@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include "fatal.h"
 #include "comm_ofi.h"
+#include "xshmem_round.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -623,7 +624,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     { size_t st = rns_mul_dist_mn_stage(nq, nq / 2 + 1, size, sh, (nq / 2 + size - 1) / size, (3 * nq / 2 + size - 1) / size, &q); if (q > qmax) qmax = q; if (st > best) { best = st; who = "the reciprocal's Q_t r"; } }
     { const char *e = getenv("MDB_SHIFT_CHUNK_MB"); size_t ch = (size_t)((e ? atof(e) : 1024.0) * 1048576.0 / 8), so = (2 * nq + size - 1) / size / 4, si = sh / 4;   /* the division's mdb_shift: t (2 nq) >> (k + 1) -> X (nq) */
       size_t sl = so < si ? so : si, K = ch && sl > ch ? (sl + ch - 1) / ch : 1, st = (so + si + K - 1) / K;   /* newton_db.c: K rounds from the shorter side's part */
-      const char *er = getenv(xsh_on() ? "XSHMEM_ROUND_MB" : "COMM_SHMEM_ROUND_MB"); size_t Rl = er && atof(er) > 0 ? (size_t)(atof(er) * 1048576.0) / 8 : 0;   /* the transport's rounds bound each side */
+      const char *er = (xsh_on() ? xshmem_round_env() : getenv("COMM_SHMEM_ROUND_MB")); size_t Rl = er && atof(er) > 0 ? (size_t)(atof(er) * 1048576.0) / 8 : 0;   /* the transport's rounds bound each side */
       if (Rl) { size_t a = (so + K - 1) / K / size * (size - 1), b = (si + K - 1) / K / size * (size - 1); st = (a > Rl ? Rl : a) + (b > Rl ? Rl : b); }   /* (the peers' part: no self slab) */
       if (st > best) { best = st; who = "the division's mdb_shift"; } }
     g_stage_apu = best * 8;

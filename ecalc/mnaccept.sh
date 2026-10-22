@@ -112,9 +112,9 @@ if want unit || want grid; then
   done
   log=$OUT/unit_t_mn_grid_2.log
   if [ "$NOGRID" = 1 ]; then echo "SKIP unit t_mn_grid (2 procs): --skip-grid / MNACCEPT_SKIP_GRID=1" | tee -a "$SUM"; else
-  # A01 (measured): without COMM_TRANSPORT the TCP mesh runs over bond0 (1 Gb/s) on aac7 and overruns every timeout; shmem: 127 s on 2 nodes
-  GT=; [ -d /opt/cray/pe/sma ] && GT=COMM_TRANSPORT=shmem
-  M 1200 2 $GT ./tests/t_mn_grid 1 28 > "$log" 2>&1; rc=$?
+  # A01 (measured): the TCP mesh over bond0 (1 Gb/s) overran every timeout (removed 2026-10-12); shmem: 127 s on 2 nodes.  Since Q73 (2026-10-21) mnrun.sh picks
+  # the transport (xshmem where the engine is linked, else shmem): the grid test runs on the default; MNACCEPT_ENV="COMM_TRANSPORT=shmem" runs it on the fallback.
+  M 1200 2 ${MNACCEPT_ENV:-} ./tests/t_mn_grid 1 28 > "$log" 2>&1; rc=$?
   ok=$(grep -ac 'VERIFY OK' "$log")
   if [ $rc -eq 0 ] && [ "$ok" -ge 1 ] && ! grep -aq 'VERIFY FAILED' "$log"; then pass "unit t_mn_grid (2 procs)" "$ok VERIFY OK: $(grep -a 'VERIFY OK' "$log" | head -1)"
   else fail "unit t_mn_grid (2 procs)" "rc $rc, $ok VERIFY OK; $(grep -a 'VERIFY FAILED\|error\|abort' "$log" | head -1)"; fi
