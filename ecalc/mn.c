@@ -595,11 +595,11 @@ static int vpe_dbg_knob(const char *name)
     if (!vpe_on()) return 0;
     const char *e = getenv(name); return e ? atoi(e) : 0;
 }
-static void vpe_mid(mn_group *G)
+static void vpe_mid(mn_group *G, int pos)   /* pos 1 = before the level's first product, 2 = before its second; ECALC_VPE_DELAY_POS (default 3 = both) selects where the sleep goes; MIDSYNC acts at pos 2 only */
 {
-    static int ms = -1, dl = -1; if (ms < 0) { ms = vpe_dbg_knob("ECALC_VPE_MIDSYNC") != 0; dl = vpe_dbg_knob("ECALC_VPE_DELAY_US"); }
-    if (ms) { HIP_CHECK(hipDeviceSynchronize()); if (G->g > 1) comm_barrier(G->all[0]); }
-    if (dl > 0) usleep((useconds_t)dl);
+    static int ms = -1, dl = -1, dp = 3; if (ms < 0) { ms = vpe_dbg_knob("ECALC_VPE_MIDSYNC") != 0; dl = vpe_dbg_knob("ECALC_VPE_DELAY_US"); const char *e = vpe_on() ? getenv("ECALC_VPE_DELAY_POS") : 0; if (e) dp = atoi(e); }
+    if (ms && pos == 2) { HIP_CHECK(hipDeviceSynchronize()); if (G->g > 1) comm_barrier(G->all[0]); }
+    if (dl > 0 && (dp & pos)) usleep((useconds_t)dl);
 }
 /* one tree level: the product over the group [g0, g0+g) whose halves A = [g0, g0+half), B = the rest hold the operands */
 static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
@@ -620,11 +620,11 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
     if (vck) { db_vsync(); HIP_CHECK(hipDeviceSynchronize());
         uint64_t mp = vck_share(P, &tp), mq = vck_share(Q, &tp);   /* my child's shares (zero on the other side's members: sum over each side only) */
         rPA = vck_sum(G->all[0], g, mp, 0, half); rPB = vck_sum(G->all[0], g, mp, half, g); rQA = vck_sum(G->all[0], g, mq, 0, half); rQB = vck_sum(G->all[0], g, mq, half, g); }
-    vpe_mid(G);
+    vpe_mid(G, 1);
     rns_mul_dist_mn(&Pn, &PA, &QB, &PB, G);
     if (!vpe_dbg_knob("ECALC_VPE_NOEARLY")) db_free(&P->sh);   /* my child's P (PA or PB) is dead once P_n is formed */
     if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d mul1", mn_rank(), l); mem_live_line(w); }   /* the first product's window; the level's line then covers the second */
-    vpe_mid(G);
+    vpe_mid(G, 2);
     rns_mul_dist_mn(&Qn, &QA, &QB, 0, G);
     db_free(&P->sh); db_free(&Q->sh); *P = Pn; *Q = Qn;
     vpe_level_sync(G);
