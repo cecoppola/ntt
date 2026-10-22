@@ -81,7 +81,7 @@ target session (section 4).
 The code defaults are the tested configuration; nothing has to be set for a one-node run. The full list, with the date
 and evidence of each, is the switch table in `ecalc/README.md`.
 
-The multi-node launch line sets, in addition: the transport (`COMM_TRANSPORT=shmem`, Cray contexts per thread, the
+The multi-node launch line sets, in addition: the transport (`COMM_TRANSPORT=xshmem` since Q73, 2026-10-21, with `XSHMEM_ROUND_MB=128` and `XSHMEM_ORDER=rot`; the fallback `COMM_TRANSPORT=shmem`: Cray contexts per thread, the
 symmetric heap in device memory, SHMEM rounds of 1 GiB), `ECALC_NP=auto`, `MN_T_CHUNK_MB=2048`, the memory guard, the
 crash-trace handler and the verbose memory lines. Every multi-node product runs the four-prime 24-digit form P24 (user decision
 D18, 2026-10-12: the code default at every size > 1, as the target always had from 32 nodes; `results/PRIMES_STRATEGY.md §MEAS-P24`: −8.9 s

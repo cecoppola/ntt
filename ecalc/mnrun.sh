@@ -1,6 +1,6 @@
 #!/bin/bash
 # mnrun.sh - run <procs> node-processes of ecalc (or any command) connected by the inter-node
-# communicator (Phase 11 S: SHMEM, COMM_TRANSPORT=shmem -- the default for <procs> > 1; the Phase 8 TCP transport was removed
+# communicator (Phase 11 S: SHMEM, COMM_TRANSPORT=shmem; xshmem is the default for <procs> > 1 where the engine is linked, Q73 2026-10-21; the Phase 8 TCP transport was removed
 # 2026-10-12, so a build without SHMEM runs one process only).  The processes are spread over the nodes of the allocation, several per node when there are
 # fewer nodes (they share the node's four APUs); the node count used is the largest that divides
 # <procs> (Slurm places tasks by blocks otherwise), listed explicitly.
@@ -99,7 +99,17 @@ list=$(echo "$use" | paste -sd,)
 # the same for ECALC_LOG_CLOCKS, which the wrappers test before the command runs
 for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPORT=${a#*=};; ECALC_LOG_CLOCKS=*) export ECALC_LOG_CLOCKS=${a#*=};; COMM_SHMEM_PE_PER_APU=*) COMM_SHMEM_PE_PER_APU=${a#*=};; COMM_OFI=*) COMM_OFI=${a#*=};; ECALC_PE_PER_GPU=*) ECALC_PE_PER_GPU=${a#*=};; XSHMEM_HEAP_MB=*) XSHMEM_HEAP_MB=${a#*=};; *=*) continue;; *) break;; esac; done   # (ECALC_LOG_CLOCKS: the wrapper reads it)
 # 2026-10-12 (TCP removed): SHMEM is the only multi-process transport -- the default for <procs> > 1; any other value is refused
-[ "$P" -gt 1 ] && COMM_TRANSPORT=${COMM_TRANSPORT:-shmem}
+# 2026-10-21 (Q73): the default transport for <procs> > 1 is xshmem (XSHMEM_ROUND_MB=128 and XSHMEM_ORDER=rot are its defaults, in the engine and the planner)
+# when the launched executable has the engine linked (make XSHMEM=ofi, the default build where libfabric is found); otherwise (another command, a build
+# without libfabric) shmem as before.  An explicit COMM_TRANSPORT=shmem (with or without COMM_OFI=1) is the fallback and the reference, unchanged.
+if [ "$P" -gt 1 ] && [ -z "${COMM_TRANSPORT:-}" ]; then
+    COMM_TRANSPORT=shmem
+    for a in "$@"; do case "$a" in env|-*|*=*) continue;; esac
+        f=$(command -v -- "$a" 2>/dev/null) || continue; [ -f "$f" ] && [ -x "$f" ] || continue
+        head -c 4 "$f" 2>/dev/null | grep -q ELF || continue
+        grep -aq comm_xshmem_init "$f" 2>/dev/null && COMM_TRANSPORT=xshmem; break
+    done
+fi
 if [ "$P" -gt 1 ] && [ "$COMM_TRANSPORT" != shmem ] && [ "$COMM_TRANSPORT" != xshmem ]; then echo "mnrun.sh: COMM_TRANSPORT=$COMM_TRANSPORT: only shmem (and xshmem, make XSHMEM=ofi) runs more than one process (the TCP transport was removed)" >&2; exit 1; fi
 [ -n "${COMM_TRANSPORT:-}" ] && export COMM_TRANSPORT
 PPN=1   # N7b: PEs per node (1 + 4 COMM_SHMEM_PE_PER_APU under SHMEM)

@@ -37,6 +37,7 @@
 #include <sched.h>
 #include <time.h>
 #include "comm.h"
+#include "xshmem_round.h"
 #include "xshmem.h"
 #include "vpe.h"
 #ifdef XSHMEM_OFI
@@ -522,8 +523,9 @@ int comm_xshmem_init(void)
     const char *eo = getenv("XSHMEM_ORDER");
     if (eo && strcmp(eo, "seq") && strcmp(eo, "rot")) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_ORDER=%s: seq or rot\n", eo);
     X.rot = !(eo && !strcmp(eo, "seq")); { const char *et_ = getenv("ECALC_XEX_THREAD"); X.thr = et_ ? atoi(et_) != 0 : !vpe_on(); X.thr_set = et_ != 0; }   /* S1b: vPE polls by default.  Measured 9q6g/9q6h (1 n, 4 PEs): with the worker 35 ms per exchange (quiets ~20 ms each), polling 3 ms; the worker still costs 2.4-2.8 s per product after it was given its PE's device, so the cause is the worker design under 4 PE threads in one process, not the device */ { xshmem_cfg_t cf_; xshmem_cfg_load(&cf_); X.yield = !cf_.noyield; }
-    { const char *er = getenv("XSHMEM_ROUND_MB"); double m = er ? atof(er) : 0; X.rbytes = m > 0 ? (size_t)(m * 1048576.0) : 0;
-      if (X.rbytes && !X.thr && !X.thr_set) X.thr = 1;   /* vPE with an explicit XSHMEM_ROUND_MB: the rounds run in the worker */
+    { const char *er = xshmem_round_env(); double m = er ? atof(er) : 0; X.rbytes = m > 0 ? (size_t)(m * 1048576.0) : 0;
+      if (X.rbytes && !X.thr && !X.thr_set && getenv("XSHMEM_ROUND_MB")) X.thr = 1;   /* vPE with an explicit XSHMEM_ROUND_MB: the rounds run in the worker */
+      if (X.rbytes && !X.thr && !getenv("XSHMEM_ROUND_MB")) X.rbytes = 0;   /* the default rounds (Q73) need the worker: poll-only (vPE default or ECALC_XEX_THREAD=0) runs whole exchanges */
       if (X.rbytes && !X.thr) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_ROUND_MB needs the worker thread (ECALC_XEX_THREAD=1): the rounds run in it\n"); }
     int prov = 0; if (xshmem_init_thread(XSHMEM_THREAD_MULTIPLE, &prov)) ec_fatal(EC_RC_FATAL, "comm_xshmem: xshmem_init_thread failed\n");
     int K = XS_LPES(); if (K < 1 || K > MAXLPE) ec_fatal(EC_RC_FATAL, "comm_xshmem: %d loopback PEs per process (1..%d; XSHMEM_LOOPBACK_PES)\n", K, MAXLPE);
@@ -549,8 +551,9 @@ int comm_xshmem_init(void)
     if (X.thr) for (int l = 0; l < K; l++) { if (pthread_create(&X.pe[l].th, 0, worker, &X.pe[l])) ec_fatal(EC_RC_FATAL, "comm_xshmem: pthread_create\n"); X.pe[l].th_on = 1; }
     XSHMEM_SELECT(0);
     X.inited = 1;
+    char rbuf[40]; if (X.rbytes) snprintf(rbuf, sizeof rbuf, "%zu MiB", X.rbytes >> 20); else snprintf(rbuf, sizeof rbuf, "off (whole exchange)");
     if (X.q == 0) fprintf(stderr, "comm_xshmem: %d node-processes x %d loopback PEs, DATA heap %zu MiB + CTRL %zu KiB per PE, order %s, worker thread %s, rounds %s, thread level %d\n",
-                          X.nodes, K, db >> 20, cb >> 10, X.rot ? "rot" : "seq", X.thr ? "on" : "off (poll-only)", X.rbytes ? "XSHMEM_ROUND_MB on" : "off (whole exchange)", prov);
+                          X.nodes, K, db >> 20, cb >> 10, X.rot ? "rot" : "seq", X.thr ? "on" : "off (poll-only)", rbuf, prov);
     pthread_mutex_unlock(&X.lock);
     return X.nodes;
 }

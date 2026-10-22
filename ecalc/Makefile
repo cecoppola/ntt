@@ -76,7 +76,7 @@ rns_mul.o: rns_mul.c rns_mul.h rns_int.h ntt.h mem.h crt.h bigint.h modarith.h
 
 rns_local.o: rns_local.c rns_mul.h rns_int.h ntt.h dbig.h mem.h vpe.h
 	$(HIPC) -c -o $@ $<
-rns_dist.o: rns_dist.c rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h dbig.h mdb.h mn_plan.h p24.h p24_mn.h
+rns_dist.o: rns_dist.c xshmem_round.h rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h dbig.h mdb.h mn_plan.h p24.h p24_mn.h
 	$(HIPC) -c -o $@ $<
 # Phase 15 Batch 3 P24 (results/PRIMES_STRATEGY.md §P2415): the 24-digit CRT of the mn tier
 p24_crt.o: p24_crt.c p24.h rns_int.h modarith.h
@@ -167,7 +167,7 @@ crt.o: crt.c crt.h modarith.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
 verify.o: verify.c verify.h bigint.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
-binsplit.o: binsplit.c binsplit.h bigint.h rns_mul.h mem.h spill.h memsample.h
+binsplit.o: binsplit.c xshmem_round.h binsplit.h bigint.h rns_mul.h mem.h spill.h memsample.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
 newton.o: newton.c newton.h bigint.h rns_mul.h mem.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
@@ -243,14 +243,16 @@ clean:
 tests/t_ofi_alloc: tests/t_ofi_alloc.c comm_ofi.c comm_ofi.h fatal.c fatal.h
 	$(CC) -O2 -DCOMM_HOST_ONLY -DEC_FATAL_NO_HIP $(OFI_CFLAGS) -I. $< fatal.c -lpthread -L$(LIBFABRIC)/lib64 -lfabric -o $@
 
-# ---- XSHMEM (plan TARGET1, design TARGET12_DESIGN; B1): the target-shaped communication layer behind xshmem.h.  Off by default: with
-# XSHMEM unset or 0 nothing below adds a prerequisite, object or flag to OBJS / `all` / ecalc (the default build is unchanged).
+# ---- XSHMEM (plan TARGET1, design TARGET12_DESIGN; B1): the target-shaped communication layer behind xshmem.h.  On by default
+# (Q73, 2026-10-21): XSHMEM=ofi wherever libfabric (OFI=1) and the PMI2 header are found, else 0 (the build without the engine: it still builds,
+# COMM_TRANSPORT=xshmem is then a fatal at start).  With XSHMEM=0 nothing below adds a prerequisite, object or flag to OBJS / `all` / ecalc.
 #   make XSHMEM=ofi  tests/t_xshmem tests/t_pe_geo   libfabric cxi backend (xshmem_ofi.c, xshmem_boot.c PMI2, pe_geo.c); aac7, needs OFI=1
 #   make XSHMEM=ofi ecalc                            + the engine comm_xshmem.c (COMM_TRANSPORT=xshmem; S3a)
 #   make XSHMEM=cray tests/t_xshmem                  Cray SHMEM backend (xshmem_cray.h, static inline); 11.8 on aac7, 12.1 on the target
 # XSHMEM_CRAY_DEFS = -D selectors of
 # xshmem_cray.h (XSHMEM_CRAY_HEAP, _SIGSET, _WAIT, _TEST, _PUTSIG_SPLIT).  XTEST_OBJS = extra objects for tests/t_xshmem (e.g. comm_ofi.o).
-XSHMEM ?= 0
+PMI_HOME ?= /opt/cray/pe/pmi/default
+XSHMEM ?= $(if $(and $(filter 1,$(OFI)),$(wildcard $(PMI_HOME)/include/pmi2.h)),ofi,0)
 XSHMEM_CRAY_DEFS ?=
 XTEST_OBJS ?=
 XTEST_RUN_DEPS =
@@ -258,7 +260,6 @@ ifeq ($(XSHMEM),ofi)
 ifneq ($(OFI),1)
 $(error XSHMEM=ofi needs libfabric headers: OFI=1 (LIBFABRIC=$(LIBFABRIC)))
 endif
-PMI_HOME     ?= /opt/cray/pe/pmi/default
 XSHMEM_CFLAGS = -DXSHMEM_OFI -DUSE_HIP $(OFI_CFLAGS) -I$(PMI_HOME)/include
 XSHMEM_LIBS   = $(OFI_LIBS) -L/opt/cray/pe/lib64 -lpmi2 -Wl,-rpath,/opt/cray/pe/lib64 -lpthread
 XOBJS         = xshmem_ofi.o xshmem_boot.o pe_geo.o
@@ -291,8 +292,8 @@ tests/t_pe_geo_live: tests/t_pe_geo_live.c pe_geo.c pe_geo.h xshmem_boot.o xshme
 endif
 # S3a (plan TARGET1): with XSHMEM=ofi or cray every binary that links OBJS (ecalc and the tests) also links the xshmem engine (comm_xshmem.c:
 # COMM_TRANSPORT=xshmem) and the backend; mn.o is compiled with -DXSHMEM_ENGINE (without it COMM_TRANSPORT=xshmem is a fatal at start).
-# (P5: XSHMEM=cray builds the SAME engine, XOBJS empty: the backend is the inline xshmem_cray.h and -lsma.)  The object list and flags below are applied only under XSHMEM=ofi|cray; rebuild with -B when switching (the default build is unchanged).
-comm_xshmem.o: comm_xshmem.c comm.h vpe.h xshmem.h xshmem_boot.h pe_geo.h comm_trace.h comm_phase.h
+# (P5: XSHMEM=cray builds the SAME engine, XOBJS empty: the backend is the inline xshmem_cray.h and -lsma.)  The object list and flags below are applied only under XSHMEM=ofi|cray; rebuild with -B when switching.
+comm_xshmem.o: comm_xshmem.c xshmem_round.h comm.h vpe.h xshmem.h xshmem_boot.h pe_geo.h comm_trace.h comm_phase.h
 	$(HIPC) $(XSHMEM_CFLAGS) -DXSHMEM_ENGINE -c $< -o $@
 OBJS += comm_xshmem.o $(XOBJS)
 SHMEM_LIBS += $(XSHMEM_LIBS)
@@ -300,5 +301,5 @@ mn.o: comm_xshmem.o $(XOBJS)
 mn.o: HIPFLAGS += -DXSHMEM_ENGINE
 else
 tests/t_xshmem tests/t_pe_geo tests/t_pe_geo_live:
-	@echo "set XSHMEM=ofi or XSHMEM=cray (XSHMEM is off by default)"; false
+	@echo "set XSHMEM=ofi or XSHMEM=cray (XSHMEM=0 here: libfabric or PMI2 not found)"; false
 endif

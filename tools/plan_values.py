@@ -167,7 +167,7 @@ def main(argv):
     penv = dict(env)
     penv.update({k: v for k, v in ex.items() if k in ("COMM_TRANSPORT", "COMM_SHMEM_POOL_MB", "COMM_OFI_PLAN_CXI", "MNRUN_MODULES", "MNRUN_UNLOAD")})
     if g > 1:
-        penv["COMM_TRANSPORT"] = "shmem"
+        penv.setdefault("COMM_TRANSPORT", "shmem")   # (mnrun.sh's print-env gave the transport it picks: xshmem with the engine, Q73)
     penv["MN_PLAN_ONLY"] = "%d:%d" % (d, g)
     r = subprocess.run(["bash", "-lc", PRE, "_", "env", ecalc], env=penv, capture_output=True, text=True)
     out = r.stdout

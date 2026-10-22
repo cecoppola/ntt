@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include "fatal.h"
 #include <stdlib.h>
+#include "xshmem_round.h"
 #include <string.h>
 #include <omp.h>
 #include "rns_mul.h"
@@ -1939,7 +1940,7 @@ size_t rns_mul_dist_mn_vslot(size_t na, size_t nb, int g)
  * piece RT(nc), and my window's part win / NL()), the redistribution of A or B (my share's part va / NL() + 2 g rows out, my rows RT(pa)
  * in), the transform's inter-node stage (q / NL() each way).  mem_model.py mn_stage is the same formula; measured to the MiB at 1e8 -
  * 1e10 on 2 nodes and 1e9 - 1e10 on 4 processes.  *qmax = the product's plane q (DIST_MN_SYM_SLABS keeps 3 q per APU). */
-static const char *round_env(void) { const char *t = getenv("COMM_TRANSPORT"); return getenv(t && !strcmp(t, "xshmem") ? "XSHMEM_ROUND_MB" : "COMM_SHMEM_ROUND_MB"); }   /* the planner: the round size of the transport (xshmem: XSHMEM_ROUND_MB, 0 = whole-exchange staging) */
+static const char *round_env(void) { const char *t = getenv("COMM_TRANSPORT"); return t && !strcmp(t, "xshmem") ? xshmem_round_env() : getenv("COMM_SHMEM_ROUND_MB"); }   /* the planner: the round size of the transport (xshmem: XSHMEM_ROUND_MB, 0 = whole-exchange staging) */
 size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t share_b, size_t share_c, size_t *qmax)
 {
     if (qmax) *qmax = 0;
