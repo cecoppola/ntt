@@ -1065,6 +1065,7 @@ static void vtr_raw(int tag, const uint64_t *p, size_t cn, hipStream_t st, int s
     HIP_CHECK(hipMemcpyAsync(e, p + cn - 8, 64, hipMemcpyDeviceToDevice, st)); HIP_CHECK(hipMemsetAsync(e + 8, 0, (size_t)(1 + VTR_SEG) * 8, st));
     k_vtr_hash<<<256, 256, 0, st>>>(p, cn, (unsigned long long *)(e + 8));
 }
+void rns_dist_vtr_hook(int tag, const uint64_t *p, size_t n, hipStream_t st) { if (vtr_on() && g_vtr[vpe_lane()].np <= 2) vtr_raw(tag, p, n, st, 0); }   /* ntt_dist.c: sub-stage hashes of the first products */
 static void vtr_snap(int tag, const dbig *sh, size_t cn, hipStream_t st, int sync) { if (sh->q[0]) vtr_raw(tag, sh->q[0] + sh->off, cn, st, sync); }
 void rns_dist_vtr_entry(const dbig *P, const dbig *Q) { if (vtr_on()) { vtr_snap(6, P, P->n, 0, 1); vtr_snap(7, Q, Q->n, 0, 0); } }   /* mn.c tree_level, after the entry sync: the operands' hashes (tags 6, 7) */
 void rns_dist_vtr_flush(const dbig *P, const dbig *Q)    /* mn.c tree_level, after the level sync */

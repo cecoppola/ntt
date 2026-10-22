@@ -237,6 +237,7 @@ static void chunk_wait(dist_plan *p, hipStream_t s) { PH(2, s, chunk_wait_(p, s)
 static void rb_free_wait(dist_plan *p) { double t_ = dph_chk() ? tnow() : 0; rb_free_wait_(p); if (dph_on) dph[dph_dir * 8 + 5] += tnow() - t_; }
 static inline int depth(const dist_plan *p) { int D = p->cm->inflight; if (D < 1) D = 1; if (D > p->K) D = p->K; return D; }
 /* forward, chunk k: the row pass of its rows, twiddle and pack into its slab region */
+extern void rns_dist_vtr_hook(int tag, const uint64_t *p, size_t n, hipStream_t st);
 static void fwd_prod(dist_plan *p, uint64_t *x, int k, hipStream_t s)
 {
     int size = comm_size(p->cm), r = comm_rank(p->cm);
@@ -247,6 +248,7 @@ static void fwd_prod(dist_plan *p, uint64_t *x, int k, hipStream_t s)
     TSK(ST_PACK, (k_twpack_r<8><<<grid, blk, 0, s>>>(x + i0 * C, chunk_sb(p, k), rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr, p->twc, m)));
     HIP_CHECK(hipGetLastError());   /* B8: a bad grid (rk or C/32 rounding to 0 blocks) launches silently -- no HIP error, just no work -- so a launch check alone would not have caught it; mn.c's logR growth is the real fix, this catches any other mis-sized launch */
     HIP_CHECK(hipEventRecord(p->ev, s));
+    if (dph_dir == 0) rns_dist_vtr_hook(80 + (int)k, chunk_sb(p, k), (size_t)size * chunk_limbs(p), s);   /* debug: the packed slabs */
 }
 static void fwd_cons(dist_plan *p, uint64_t *x, int k, hipStream_t s)
 {
@@ -270,6 +272,7 @@ void dist_fwd_post(dist_plan *p, uint64_t *x, hipStream_t s)
     ntt_ss_tagger ss_tag_(p->logR, p->logC);   /* S22 NTT_SIZE_STATS: the logical size */
     dph_dir = 0;
     chunk_wait(p, s);
+    rns_dist_vtr_hook(90 + p->K - 1, chunk_rb(p, p->K - 1), (size_t)comm_size(p->cm) * chunk_limbs(p), s);   /* debug: the received slabs */
     PH(3, s, fwd_cons(p, x, p->K - 1, s));
     PH(4, s, TS(ST_COLS, ntt_fwd(p->ctx, x, p->logR, p->cols, s)));                          /* columns: length-R */
     st_flush(p);
