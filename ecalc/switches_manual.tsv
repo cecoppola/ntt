@@ -72,7 +72,7 @@ ECALC_XEX_THREAD	1 (0 under ECALC_VPE=1)	int	0|1	experiment	comm_xshmem.c; one p
 XSHMEM_ORDER	rot	str	rot|seq	experiment	comm_xshmem.c; peer order of the offset words, puts and signals: rot = (me+q)%n (default, no incast on member 0), seq = rank order (the reference's)
 XSHMEM_ROUND_MB	128	float	>= 0	experiment	comm_xshmem.c, xshmem_round.h; unset = 128 (Q73 2026-10-21); 0 = off, whole-exchange staging; m > 0: an all-to-all whose pair exceeds m/(n-1) MiB goes in rounds staging at most m MiB each way (needs ECALC_XEX_THREAD=1); the planner sizes XSHMEM_HEAP_MB from it
 TMPDIR		str	path	test-only	t_pe_geo.c; the system temp directory for the mock sysfs tree; unset = /tmp
-ECALC_VPE	0	bool	0/1	experiment	vpe.c; 1 = one pthread per GPU (vPE), PE = L*node+lane; needs COMM_TRANSPORT=xshmem; aborts "stages not merged" until S1a..S1e are all in
+ECALC_VPE	0	bool	0/1	experiment	vpe.c; 1 = one pthread per GPU (vPE), PE = L*node+lane; needs COMM_TRANSPORT=xshmem; aborts "stages e not merged" in a thread-mode full run (not yet gated: the S1e flow gives wrong digits at 1e8; the --vpe component tests use vpe_set_forced); ECALC_PE_PER_GPU=1 is not affected
 ECALC_VPE_LANES	4	int	1..8	experiment	vpe.c; vPEs per process (= XSHMEM_LOOPBACK_PES); only with ECALC_VPE=1
 ECALC_VPE_CHAIN	own	str	own|leader	experiment	newton_db.c; the vPE reciprocal chain: own = every PE computes it (default), leader = lane 0 of each node, r0 by a node-group all-gather
 ECALC_VPE_BG_THREADS	0	int	0..	experiment	ecalc.c; background OpenMP team of one PE (recurrence, writer) with ECALC_VPE=1; 0 = CPUs / lanes (48 on aac7; with ECALC_PE_PER_GPU the process's affinity mask); only with ECALC_VPE=1

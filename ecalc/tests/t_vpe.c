@@ -282,8 +282,8 @@ int main(int argc, char **argv)
             rc = in_child(stages_body, 0, b, sizeof b); want = (VPE_S_ALL & ~VPE_STAGES_MERGED) ? 3 : 0;
             CHK(rc == want, "stages: rc %d want %d (text '%s')", rc, want, b);
             CHK(!want || strstr(b, "ECALC_VPE: stages") && strstr(b, "not merged"), "stages text '%s'", b);
-        } else {                                         /* ECALC_PE_PER_GPU alone: aborts "stages ... not merged" while an S2 (or S1) stage is missing */
-            rc = in_child(stages_body, 0, b, sizeof b); want = ((VPE_S_ALL & ~VPE_STAGES_MERGED) || (VPE_P_ALL & ~VPE_PSTAGES_MERGED)) ? 3 : 0;
+        } else {                                         /* ECALC_PE_PER_GPU alone: aborts "stages ... not merged" while an S2 stage is missing */
+            rc = in_child(stages_body, 0, b, sizeof b); want = (VPE_P_ALL & ~VPE_PSTAGES_MERGED) ? 3 : 0;   /* process mode depends on the S2 stages only */
             CHK(rc == want, "ppg stages: rc %d want %d (text '%s')", rc, want, b);
             CHK(!want || strstr(b, "stages") && strstr(b, "not merged"), "ppg stages text '%s'", b);
         }

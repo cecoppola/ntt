@@ -32,7 +32,7 @@ extern "C" {
 #define VPE_S_D 0x08                                    /* binary splitting, checkpoint, planner */
 #define VPE_S_E 0x10                                    /* flow, writer threads, parts */
 #define VPE_S_ALL 0x1f
-#define VPE_STAGES_MERGED VPE_S_ALL
+#define VPE_STAGES_MERGED (VPE_S_ALL & ~VPE_S_E)   /* ppg-int: the S1e flow (thread mode) is NOT end-to-end correct yet (wrong digits at 1e8, vpe-int); a thread-mode full run aborts.  Process mode (ECALC_PE_PER_GPU) does not use this mask.  vpe-int keeps VPE_S_ALL */
 /* S2 (ECALC_PE_PER_GPU=1, one process per PE): its stages; the switch aborts with "stages ... not merged" until all are in (unit tests use vpe_set_forced) */
 #define VPE_P_A 0x01                                    /* identity, launch, bootstrap (vpe.c, mn.c, comm_xshmem.c, mnrun.sh) */
 #define VPE_P_B 0x02                                    /* node-level state in the flow (leader audit, bg threads, budget) */

@@ -132,6 +132,7 @@ void vpe_stages_check(void)
             b[k] = 0;
             ec_fatal(EC_RC_FATAL, "ECALC_PE_PER_GPU: stages %s not merged (the switch runs only when S2a..S2d are all in; unit tests use vpe_set_forced)\n", b);
         }
+        return;                                          /* process mode does not depend on the thread-mode (S1) stages */
     }
     int miss = VPE_S_ALL & ~VPE_STAGES_MERGED;
     if (!miss) return;
