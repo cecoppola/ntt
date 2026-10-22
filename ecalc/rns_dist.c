@@ -1065,7 +1065,12 @@ static void vtr_raw(int tag, const uint64_t *p, size_t cn, hipStream_t st, int s
     HIP_CHECK(hipMemcpyAsync(e, p + cn - 8, 64, hipMemcpyDeviceToDevice, st)); HIP_CHECK(hipMemsetAsync(e + 8, 0, (size_t)(1 + VTR_SEG) * 8, st));
     k_vtr_hash<<<256, 256, 0, st>>>(p, cn, (unsigned long long *)(e + 8));
 }
-void rns_dist_vtr_hook(int tag, const uint64_t *p, size_t n, hipStream_t st) { if (vtr_on() && g_vtr[vpe_lane()].np <= 2) vtr_raw(tag, p, n, st, 0); }   /* ntt_dist.c: sub-stage hashes of the first products */
+static struct { const uint64_t *p; size_t n; } g_vtw[VPE_MAX];   /* a watched buffer (xb): hashed at every hook call */
+void rns_dist_vtr_watch(const uint64_t *p, size_t n) { g_vtw[vpe_lane()].p = p; g_vtw[vpe_lane()].n = n; }
+void rns_dist_vtr_hook(int tag, const uint64_t *p, size_t n, hipStream_t st)
+{
+    if (vtr_on() && g_vtr[vpe_lane()].np <= 2) { vtr_raw(tag, p, n, st, 0); if (g_vtw[vpe_lane()].p) vtr_raw(100 + tag, g_vtw[vpe_lane()].p, g_vtw[vpe_lane()].n, st, 0); }
+}   /* ntt_dist.c: sub-stage hashes of the first products */
 static void vtr_snap(int tag, const dbig *sh, size_t cn, hipStream_t st, int sync) { if (sh->q[0]) vtr_raw(tag, sh->q[0] + sh->off, cn, st, sync); }
 void rns_dist_vtr_entry(const dbig *P, const dbig *Q) { if (vtr_on()) { vtr_snap(6, P, P->n, 0, 1); vtr_snap(7, Q, Q->n, 0, 0); } }   /* mn.c tree_level, after the entry sync: the operands' hashes (tags 6, 7) */
 void rns_dist_vtr_flush(const dbig *P, const dbig *Q)    /* mn.c tree_level, after the level sync */
@@ -1470,14 +1475,14 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         } else for (int p = 0; p < np; p++) HIP_CHECK(hipMemcpyAsync(xa[p], cache_pl(slA, d, p, q), q * 8, hipMemcpyDeviceToDevice, s));   /* A hit: the product forms over a copy */
         if (!bfull) redistribute(&X0, B, &oB, d, s);
         if (X) { redistribute(&X0, &Xv, &oX, d, s); k_gather_mn<<<nblk(qs), 256, 0, s>>>(cx, oX.rb, oX.tend, rows, C, ec_mod_get(0), 0, 0); }
-        HIP_SYNC(s); vpe_dly(1); if (vtr_on()) { g_vtr[vpe_lane()].np++; for (int p = 0; p < np; p++) vtr_raw(10 + p, xa[p], qs, s, 0); if (cx) vtr_raw(19, cx, qs, s, 0); if (oB.rb) vtr_raw(20, oB.rb, oB.tend, s, 0); if (!getenv("VTR_NOFILL")) HIP_CHECK(hipMemsetAsync(xb, 0xA5, qs * 8, s)); }   /* debug: xb (B's plane, written only by the gather) is filled; tag 25 checks it before the gather */
+        HIP_SYNC(s); vpe_dly(1); if (vtr_on()) { g_vtr[vpe_lane()].np++; for (int p = 0; p < np; p++) vtr_raw(10 + p, xa[p], qs, s, 0); if (cx) vtr_raw(19, cx, qs, s, 0); if (oB.rb) vtr_raw(20, oB.rb, oB.tend, s, 0); if (getenv("VTR_FILL")) HIP_CHECK(hipMemsetAsync(xb, 0xA5, qs * 8, s)); rns_dist_vtr_watch(xb, qs); vtr_raw(26, xb, qs, s, 0); }   /* debug: xb (B's plane, written only by the gather) is filled; tag 25 checks it before the gather */
         if (oA.rb) { db_pool_free(dv, oA.rb); oA.rb = 0; } if (oX.rb) { db_pool_free(dv, oX.rb); oX.rb = 0; }
         double s1 = mem_now(); tr[d] = s1 - s0;
         int phf_ = ec_ph(EC_PH_RD_FWD);
         for (int p = 0; p < np; p++) {
             const int ah = ha >= 0 && p < kA, bh = hb >= 0 && p < kB, ac = slA >= 0 && p < kA;   /* Phase 15 PC: prime p's hit / A's plane to cache (full slots: every p) */
             uint64_t *yb = slB >= 0 && p < kB ? cache_pl(slB, d, p, q) : xb;
-            if (p == 0 && yb == xb && vtr_on()) vtr_raw(25, xb, qs, s, 0);
+            if (p == 0 && yb == xb && vtr_on()) { vtr_raw(25, xb, qs, s, 0); rns_dist_vtr_watch(0, 0); }
             if (!bh && p24) k_gather_mn24<<<nblk(qs), 256, 0, s>>>(yb, oB.rb, oB.tend, R, C, a0, rows, ec_mod_get(p), c18[p][0], c18[p][1], c18[p][2]);   /* P24 */
             else if (!bh) k_gather_mn<<<nblk(qs), 256, 0, s>>>(yb, oB.rb, oB.tend, rows, C, ec_mod_get(p), 1, 1);
             if (!bh && vtr_on()) { vtr_raw(21, oB.rb, oB.tend, s, 0); vtr_raw(22 + p, yb, qs, s, 0); }   /* debug: B's landing buffer again, the gathered plane */
