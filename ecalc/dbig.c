@@ -467,7 +467,9 @@ static int vmm_make_room(int d, size_t need)           /* (the pool lock held) a
     free(fr); free(hs); return 1;
 }
 static uint64_t *q_alloc_locked(int d, size_t need);
-static uint64_t *q_alloc(int d, size_t need) { pthread_mutex_lock(&g_pool_mx); uint64_t *p = q_alloc_locked(d, need); pthread_mutex_unlock(&g_pool_mx); return p; }
+static int pool_poison(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_POOL_POISON"); v = e ? atoi(e) : 0; } return v; }   /* debug (default 0): 1 = fill every block taken from the pool with 0xA5, 2 = fill every block returned to it (after a device sync: no false hits); stale reads become deterministic */
+static void poison_fill(int d, void *p, size_t bytes) { int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipDeviceSynchronize()); HIP_CHECK(hipMemset(p, 0xA5, bytes)); HIP_CHECK(hipDeviceSynchronize()); HIP_CHECK(hipSetDevice(cur)); }
+static uint64_t *q_alloc(int d, size_t need) { pthread_mutex_lock(&g_pool_mx); uint64_t *p = q_alloc_locked(d, need); pthread_mutex_unlock(&g_pool_mx); if (p && pool_poison() == 1) poison_fill(d, p, need); return p; }
 static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: bytes, a multiple of DB_ALIGN limbs */
 {
     int reg;
@@ -490,6 +492,7 @@ static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: byt
 static void q_release(int d, uint64_t *p) { int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipFree(p)); HIP_CHECK(hipSetDevice(cur)); }
 static void q_free(int d, uint64_t *p)
 {
+    if (pool_poison() == 2) { size_t pb = 0; int pd = d; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_nlive; i++) if (g_live[i].p == p) { pb = g_live[i].bytes; pd = g_live[i].dev; } pthread_mutex_unlock(&g_pool_mx); if (pb) poison_fill(pd, p, pb); }
     pthread_mutex_lock(&g_pool_mx);
     int reg; size_t bytes = live_take(p, &reg); if (!bytes) { ec_fatal(EC_RC_FATAL, "dbig: freeing an unknown block\n"); }
     if (vpe_on() && g_live_dev_last != d) {                  /* vPE (ECALC_VPE_FREEDEV, default 1): a block goes back to the free list of the device it was allocated on, whichever vPE or helper thread frees it (a helper thread is lane 0: it returned PE 1..3 blocks to device 0's list, where PE 0 then took them) */
