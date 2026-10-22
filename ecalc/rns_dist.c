@@ -1044,27 +1044,35 @@ static void vpe_dly(int pt)
  * changes afterwards.  Tag 0 after the result scatter (async on the lane stream), 1 after the spill add, 2 at the end of mn_core (1 and 2 after a device sync), 4 / 5 = P / Q at the end
  * of the tree level (rns_dist_vtr_flush, after the level sync).  The log is read and printed at the flush. */
 #define VTR_MAX 256
+__global__ void k_vtr_hash(const uint64_t *p, size_t n, unsigned long long *out)
+{
+    unsigned long long h = 0; for (size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x; i < n; i += (size_t)gridDim.x * blockDim.x) h += (p[i] + 0x9E3779B97F4A7C15ULL) * (2 * (i % 1000003ULL) + 1);
+    atomicAdd(out, h);
+}
 static struct { uint64_t *dev; int n; int tag[VTR_MAX]; long prod[VTR_MAX]; size_t cn[VTR_MAX]; long np; } g_vtr[VPE_MAX];
 static int vtr_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_VPE_TRACE"); v = vpe_on() && e ? atoi(e) : 0; } return v; }
 static void vtr_snap(int tag, const dbig *sh, size_t cn, hipStream_t st, int sync)
 {
     if (!vtr_on() || cn < 8 || !sh->q[0]) return;
     int l = vpe_lane(); if (g_vtr[l].n >= VTR_MAX) return;
-    if (!g_vtr[l].dev) HIP_CHECK(hipMalloc(&g_vtr[l].dev, (size_t)VTR_MAX * 64));
+    if (!g_vtr[l].dev) HIP_CHECK(hipMalloc(&g_vtr[l].dev, (size_t)VTR_MAX * 72));
     if (sync) HIP_CHECK(hipDeviceSynchronize());
     int i = g_vtr[l].n++; g_vtr[l].tag[i] = tag; g_vtr[l].prod[i] = g_vtr[l].np; g_vtr[l].cn[i] = cn;
-    HIP_CHECK(hipMemcpyAsync(g_vtr[l].dev + 8 * (size_t)i, sh->q[0] + sh->off + cn - 8, 64, hipMemcpyDeviceToDevice, st));
+    uint64_t *e = g_vtr[l].dev + 9 * (size_t)i;
+    HIP_CHECK(hipMemcpyAsync(e, sh->q[0] + sh->off + cn - 8, 64, hipMemcpyDeviceToDevice, st)); HIP_CHECK(hipMemsetAsync(e + 8, 0, 8, st));
+    k_vtr_hash<<<256, 256, 0, st>>>(sh->q[0] + sh->off, cn, (unsigned long long *)(e + 8));
 }
+void rns_dist_vtr_entry(const dbig *P, const dbig *Q) { if (vtr_on()) { vtr_snap(6, P, P->n, 0, 1); vtr_snap(7, Q, Q->n, 0, 0); } }   /* mn.c tree_level, after the entry sync: the operands' hashes (tags 6, 7) */
 void rns_dist_vtr_flush(const dbig *P, const dbig *Q)    /* mn.c tree_level, after the level sync */
 {
     if (!vtr_on()) return;
     int l = vpe_lane(); vtr_snap(4, P, P->n, 0, 1); vtr_snap(5, Q, Q->n, 0, 0);
     HIP_CHECK(hipDeviceSynchronize());
-    int n = g_vtr[l].n; uint64_t h[VTR_MAX * 8];
-    if (n) HIP_CHECK(hipMemcpy(h, g_vtr[l].dev, (size_t)n * 64, hipMemcpyDeviceToHost));
-    for (int i = 0; i < n; i++) printf("vtr pe %d prod %ld tag %d cn %zu top: %llu %llu %llu %llu | %llu %llu %llu %llu\n", vpe_pe(), g_vtr[l].prod[i], g_vtr[l].tag[i], g_vtr[l].cn[i],
-        (unsigned long long)h[8 * i], (unsigned long long)h[8 * i + 1], (unsigned long long)h[8 * i + 2], (unsigned long long)h[8 * i + 3],
-        (unsigned long long)h[8 * i + 4], (unsigned long long)h[8 * i + 5], (unsigned long long)h[8 * i + 6], (unsigned long long)h[8 * i + 7]);
+    int n = g_vtr[l].n; uint64_t h[VTR_MAX * 9];
+    if (n) HIP_CHECK(hipMemcpy(h, g_vtr[l].dev, (size_t)n * 72, hipMemcpyDeviceToHost));
+    for (int i = 0; i < n; i++) printf("vtr pe %d prod %ld tag %d cn %zu hash %016llx top: %llu %llu %llu %llu | %llu %llu %llu %llu\n", vpe_pe(), g_vtr[l].prod[i], g_vtr[l].tag[i], g_vtr[l].cn[i], (unsigned long long)h[9 * i + 8],
+        (unsigned long long)h[9 * i], (unsigned long long)h[9 * i + 1], (unsigned long long)h[9 * i + 2], (unsigned long long)h[9 * i + 3],
+        (unsigned long long)h[9 * i + 4], (unsigned long long)h[9 * i + 5], (unsigned long long)h[9 * i + 6], (unsigned long long)h[9 * i + 7]);
     g_vtr[l].n = 0;
 }
 VPE_STATE(int, top_ok);

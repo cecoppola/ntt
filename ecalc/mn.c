@@ -582,7 +582,7 @@ static uint64_t vck_sum(comm *c, int g, uint64_t v, int lo, int hi)     /* sum o
 /* The tree-level boundary under vPE (9v3/9v6: P wrong at a level, intermittent; the per-level check, whose device sync and collectives sit at the boundary, hid it):
  * this PE's device is fully synchronised (every stream: the products' kernels, the spill / carry adds, the transport's copies) and the group meets at a barrier, at the entry
  * of a level (before its shares are packed for the next product) and at its exit.  ECALC_VPE_LVSYNC=0 turns it off (debug: reproduces the failure).  Off without vPE. */
-void rns_dist_vtr_flush(const dbig *P, const dbig *Q);   /* rns_dist.c: ECALC_VPE_TRACE */
+void rns_dist_vtr_flush(const dbig *P, const dbig *Q); void rns_dist_vtr_entry(const dbig *P, const dbig *Q);   /* rns_dist.c: ECALC_VPE_TRACE */
 static void vpe_level_sync(mn_group *G)
 {
     static int on = -1;
@@ -611,6 +611,7 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
     double t0 = mem_now();
     mn_group *G = mn_group_span(l, g0, g);                   /* (= mn_group_at(l) for the binary schedule) */
     vpe_level_sync(G);
+    rns_dist_vtr_entry(&P->sh, &Q->sh);
     uint64_t v[8] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g }, *all = (uint64_t *)malloc((size_t)g * 8 * 8);
     mn_allgather(G->all[0], v, 8, all);
     int inA = G->me < half; const uint64_t *da = all, *dbb = all + (size_t)half * 8;   /* member 0 describes A, member `half` describes B */
