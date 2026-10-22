@@ -1481,9 +1481,9 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             } else {
                 double u0 = mem_now();
                 if (!ah) { dist_fwd(&v->plan[p].pl, xa[p], s); if (ac) HIP_CHECK(hipMemcpyAsync(cache_pl(slA, d, p, q), xa[p], q * 8, hipMemcpyDeviceToDevice, s)); }
-                HIP_SYNC(s); double u1 = mem_now(); tfa += u1 - u0;
+                HIP_SYNC(s); double u1 = mem_now(); tfa += u1 - u0; vtr_raw(60 + p, xa[p], qs, s, 0);
                 if (!bh) dist_fwd(&v->plan[p].pl, yb, s);
-                HIP_SYNC(s); double u2 = mem_now(); tfb += u2 - u1;
+                HIP_SYNC(s); double u2 = mem_now(); tfb += u2 - u1; vtr_raw(70 + p, yb, qs, s, 0);
                 dist_inv_pw(&v->plan[p].pl, xa[p], yb, s);   /* A6 */
                 HIP_SYNC(s); tiv += mem_now() - u2;
             }
