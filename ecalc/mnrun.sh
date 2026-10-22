@@ -262,10 +262,12 @@ if [ "${MNRUN_FIT:-1}" != 0 ]; then
             echo "mnrun.sh: FIT: COMM_OFI_PLAN_CXI=$COMM_OFI_PLAN_CXI (a cxi NIC on the compute node: the plan counts the comm_ofi pools)"
         fi
         ftr=(); [ "$P" -gt 1 ] && ftr=(COMM_TRANSPORT="$COMM_TRANSPORT")
+        [ "$MNRUN_PPG" = 1 ] && ftr+=(SLURM_NTASKS_PER_NODE="$PPN")   # (S2a: the engine reads the PEs per node from srun; the plan has no srun)
         fout=$(bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES > /dev/null 2>&1; exec "$@"' _ env "${fas[@]}" "${ftr[@]}" MN_PLAN_ONLY="$fd:$P" "$fbin" 2>&1) || true
         flines=$(echo "$fout" | grep -aE '^plan (fit|REFUSED)' || true)
         if [ -z "$flines" ]; then
             echo "mnrun.sh: FIT: MN_PLAN_ONLY=$fd:$P of $fbin printed no fit report (a binary before FIT?): the memory fit is not checked" >&2
+            echo "$fout" | grep -a -m1 FATAL | cut -c1-240 | sed 's/^/mnrun.sh: FIT: /' >&2
         else
             echo "$flines" | sed 's/^/mnrun.sh: /'
             if echo "$flines" | grep -q '^plan REFUSED'; then
