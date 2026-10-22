@@ -576,11 +576,24 @@ static uint64_t vck_sum(comm *c, int g, uint64_t v, int lo, int hi)     /* sum o
     for (int i = lo; i < hi; i++) { r += all[i]; if (r >= VCK_P) r -= VCK_P; }
     free(all); return r;
 }
+/* The tree-level boundary under vPE (9v3/9v6: P wrong at a level, intermittent; the per-level check, whose device sync and collectives sit at the boundary, hid it):
+ * this PE's device is fully synchronised (every stream: the products' kernels, the spill / carry adds, the transport's copies) and the group meets at a barrier, at the entry
+ * of a level (before its shares are packed for the next product) and at its exit.  ECALC_VPE_LVSYNC=0 turns it off (debug: reproduces the failure).  Off without vPE. */
+static void vpe_level_sync(mn_group *G)
+{
+    static int on = -1;
+    if (!vpe_on()) return;
+    if (on < 0) { const char *e = getenv("ECALC_VPE_LVSYNC"); on = e ? atoi(e) != 0 : 1; }
+    if (!on) return;
+    HIP_CHECK(hipDeviceSynchronize());
+    if (G->g > 1) comm_barrier(G->all[0]);
+}
 /* one tree level: the product over the group [g0, g0+g) whose halves A = [g0, g0+half), B = the rest hold the operands */
 static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
 {
     double t0 = mem_now();
     mn_group *G = mn_group_span(l, g0, g);                   /* (= mn_group_at(l) for the binary schedule) */
+    vpe_level_sync(G);
     uint64_t v[8] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g }, *all = (uint64_t *)malloc((size_t)g * 8 * 8);
     mn_allgather(G->all[0], v, 8, all);
     int inA = G->me < half; const uint64_t *da = all, *dbb = all + (size_t)half * 8;   /* member 0 describes A, member `half` describes B */
@@ -599,6 +612,7 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
     if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d mul1", mn_rank(), l); mem_live_line(w); }   /* the first product's window; the level's line then covers the second */
     rns_mul_dist_mn(&Qn, &QA, &QB, 0, G);
     db_free(&P->sh); db_free(&Q->sh); *P = Pn; *Q = Qn;
+    vpe_level_sync(G);
     if (vck) { HIP_CHECK(hipDeviceSynchronize());
         uint64_t tP = 0, tQ = 0, mp = vck_share(P, &tP), mq = vck_share(Q, &tQ);
         uint64_t rP = vck_sum(G->all[0], g, mp, 0, g), rQ = vck_sum(G->all[0], g, mq, 0, g), wP = vck_mul(rPA, rQB) + rPB, wQ = vck_mul(rQA, rQB);
@@ -622,6 +636,7 @@ static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch)
 {
     double t0 = mem_now();
     mn_group *G = mn_group_span(l, g0, g);
+    vpe_level_sync(G);
     uint64_t v[8] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g }, *all = (uint64_t *)malloc((size_t)g * 8 * 8);
     mn_allgather(G->all[0], v, 8, all);
     int ci = G->me / gp;                                     /* my child */
@@ -652,6 +667,7 @@ static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch)
     free(all);
     if (P->sh.cap) db_free(&P->sh); if (Q->sh.cap) db_free(&Q->sh);
     *P = Pr; *Q = Qr;
+    vpe_level_sync(G);
     size_t lo, hi; mdb_share(P, mn_rank(), &lo, &hi);
     printf("%smn: %s %d level %d [%d, %d) (%d children of %d): P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", ec_log_prefix(), mn_who(), mn_rank(), l, g0, g0 + g, nch, gp, P->n, Q->n, lo, hi, mem_now() - t0);
     { char w[48]; snprintf(w, sizeof w, "tree level %d", l); mn_comm_mark(w); }

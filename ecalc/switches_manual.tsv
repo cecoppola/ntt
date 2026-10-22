@@ -78,3 +78,4 @@ ECALC_VPE_CHAIN	own	str	own|leader	experiment	newton_db.c; the vPE reciprocal ch
 ECALC_VPE_BG_THREADS	0	int	0..	experiment	ecalc.c; background OpenMP team of one PE (recurrence, writer) with ECALC_VPE=1; 0 = CPUs / lanes (48 on aac7); only with ECALC_VPE=1
 ECALC_VPE_SYNC	0	bool	0/1	diagnostic	dbig.c; 1 = under ECALC_VPE=1 a full device synchronisation (and a current-device check) before every host read and stream-0 launch of the carry / norm path (debug: tests a missing sync, 9v3/9v6)
 ECALC_VPE_CHECK	-1	int	0|1	diagnostic	mn.c; under ECALC_VPE=1 the tree levels check P_n = P_A Q_B + P_B and Q_n = Q_A Q_B mod 2^61-1 on the host and print one vpe-check line per level per PE: -1 (unset) = auto: with RNS_VERBOSE up to 2^28 limbs, 1 = always, 0 = never
+ECALC_VPE_LVSYNC	1	bool	0/1	diagnostic	mn.c; under ECALC_VPE=1 a full device synchronisation and a group barrier at the entry and exit of every tree level (default 1; 0 = off, debug: reproduces the 9v3/9v6 failure)
