@@ -102,7 +102,8 @@ for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPO
 # 2026-10-21 (Q73): the default transport for <procs> > 1 is xshmem (XSHMEM_ROUND_MB=128 and XSHMEM_ORDER=rot are its defaults, in the engine and the planner)
 # when the launched executable has the engine linked (make XSHMEM=ofi, the default build where libfabric is found); otherwise (another command, a build
 # without libfabric) shmem as before.  An explicit COMM_TRANSPORT=shmem (with or without COMM_OFI=1) is the fallback and the reference, unchanged.
-if [ "$P" -gt 1 ] && [ -z "${COMM_TRANSPORT:-}" ]; then
+# (S2a: ECALC_PE_PER_GPU=1 runs one process per GPU, so it picks the transport the same way on one node.)
+if { [ "$P" -gt 1 ] || [ "${ECALC_PE_PER_GPU:-0}" = 1 ]; } && [ -z "${COMM_TRANSPORT:-}" ]; then
     COMM_TRANSPORT=shmem
     for a in "$@"; do case "$a" in env|-*|*=*) continue;; esac
         f=$(command -v -- "$a" 2>/dev/null) || continue; [ -f "$f" ] && [ -x "$f" ] || continue
@@ -261,7 +262,7 @@ if [ "${MNRUN_FIT:-1}" != 0 ]; then
             if timeout 120 srun --jobid="$SLURM_JOB_ID" -N 1 -n 1 -w "$(echo "$use" | head -1)" --overlap test -e /sys/class/cxi/cxi0 2>/dev/null; then export COMM_OFI_PLAN_CXI=1; else export COMM_OFI_PLAN_CXI=0; fi
             echo "mnrun.sh: FIT: COMM_OFI_PLAN_CXI=$COMM_OFI_PLAN_CXI (a cxi NIC on the compute node: the plan counts the comm_ofi pools)"
         fi
-        ftr=(); [ "$P" -gt 1 ] && ftr=(COMM_TRANSPORT="$COMM_TRANSPORT")
+        ftr=(); { [ "$P" -gt 1 ] || [ "$MNRUN_PPG" = 1 ]; } && ftr=(COMM_TRANSPORT="$COMM_TRANSPORT")
         [ "$MNRUN_PPG" = 1 ] && ftr+=(SLURM_NTASKS_PER_NODE="$PPN")   # (S2a: the engine reads the PEs per node from srun; the plan has no srun)
         fout=$(bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES > /dev/null 2>&1; exec "$@"' _ env "${fas[@]}" "${ftr[@]}" MN_PLAN_ONLY="$fd:$P" "$fbin" 2>&1) || true
         flines=$(echo "$fout" | grep -aE '^plan (fit|REFUSED)' || true)
