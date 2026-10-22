@@ -52,6 +52,7 @@
 /* ECALC_XEX_DEVSYNC=1 (debug): before publishing a buffer, wait for the whole device, not just the caller's stream (other streams may still use a pool block that is reused as an exchange buffer) */
 static int xs_dev(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_XEX_DEVSYNC"); v = e ? atoi(e) : 0; } return v; }
 #define XSYNC(st) do { if (xs_dev()) { HIP_CHECK(hipDeviceSynchronize()); } SYNC(st); } while (0)
+static int xex_acq(void) { static int v = -1; if (v < 0) { const char *e = getenv("XEX_ACQ"); v = e ? atoi(e) : 0; } return v; }   /* debug: system-scope fences around every exchange */
 #define MAXID 1024                         /* communicator ids (control blocks) */
 #define MAXID_VPE 512                      /* ... with ECALC_VPE (flat PE communicators: the control block grows with the PE count) */
 #define MAXLPE 8                           /* loopback PEs per process */
@@ -321,6 +322,7 @@ static void xex_post(xpriv *p, const void *sb, void *rb, hipStream_t s)
         else for (int r = 0; r < n; r++) if (r != me && p->scnt[r]) COPY(lp->data + p->sst + p->spre[r], (const char *)sb + p->sdsp[r], p->scnt[r], s);
     }
     if (p->scnt[me] && (const char *)sb + p->sdsp[me] != (char *)rb + p->rdsp[me]) COPY((char *)rb + p->rdsp[me], (const char *)sb + p->sdsp[me], p->scnt[me], s);
+    if (xex_acq()) HIP_CHECK(comm_fence_sys(s));
     XSYNC(s);                                              /* the stream is done with sb and rb: publish only after */
     xshmem_ctx_quiet(XSHMEM_CTX_DEFAULT);                 /* older word writes (ROFF, collectives) */
     p->t_w = p->t_a = p->t_p = p->t_f = p->t_rx = 0;
@@ -375,6 +377,7 @@ static void xex_wait(xpriv *p)
         for (int r = 0; r < n; r++) if (r != me && p->rcnt[r]) COPY((char *)p->rb + p->rdsp[r], p->rbase + p->rpre[r], p->rcnt[r], p->st);
         SYNC(p->st);
     }
+    if (xex_acq()) HIP_CHECK(comm_fence_sys(p->st));       /* the payload is in: the GPU must not read stale lines of it */
     if (p->sst) xfree(p->lp, p->sst);
     if (p->rst) xfree(p->lp, p->rst);
     p->sst = p->rst = 0; p->pending = 0;

@@ -112,6 +112,7 @@ static inline void comm_sym_free(comm *c, void *p) { if (p && c->ops->sym_free) 
 comm *comm_local_create(void);                 /* size 1 */
 comm *comm_sim4_create(int rank_of_this_apu);  /* WP5: four synthetic ranks sharing one APU (created four times, one per simulated rank) */
 #ifndef COMM_HOST_ONLY
+hipError_t comm_fence_sys(hipStream_t st);   /* comm_copy.c: a system-scope acquire+release fence kernel on st (XEX_ACQ) */
 hipError_t comm_copy_async(void *d, const void *s, size_t n, hipStream_t st);   /* N7D: copy kernel (comm_copy.c) for copies that touch host-registered pools */
 #endif
 comm *comm_xgmi_create(int rank);              /* WP5: four real ranks = four APUs of one node, driven by four host threads; safe to create concurrently */

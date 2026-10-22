@@ -29,3 +29,7 @@ hipError_t comm_copy_async(void *d, const void *s, size_t n, hipStream_t st)
     else { size_t m = n / 8; launch<uint64_t>(d, s, m, st); if (n & 7) hipLaunchKernelGGL(k_ccopy_tail, dim3(1), dim3(64), 0, st, (unsigned char *)d + m * 8, (const unsigned char *)s + m * 8, n & 7); }
     return hipGetLastError();
 }
+
+/* XEX_ACQ (comm_xshmem.c, debug, default off): a system-scope acquire+release fence kernel: the L2 lines the GPU may hold of memory a NIC wrote (acquire: invalidate) or will read (release: write back). */
+__global__ void k_fence_sys(void) { __builtin_amdgcn_fence(__ATOMIC_ACQ_REL, ""); }
+hipError_t comm_fence_sys(hipStream_t st) { hipLaunchKernelGGL(k_fence_sys, dim3(1), dim3(64), 0, st); return hipGetLastError(); }
