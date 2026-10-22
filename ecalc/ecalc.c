@@ -545,6 +545,13 @@ int main(int argc, char **argv)
       rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
     if (plan) { int f = mn_plan_run(d, N, plan_g, pool_log); binsplit_shmem_pool_rule(N, plan_g, 1);
                 binsplit_fit_print(&fit, (double)d_out, plan_g, "plan fit    ");   /* FIT (D26): the memory fit; a run that does not fit is refused (the last plan line) */
+                if (vpe_ppg()) {   /* S2fix: ECALC_PE_PER_GPU=1 has no striped tier (rns_mul_batch dies there): every batch-tier product of a PE's leaf must fit its one device's plane pool */
+                    size_t nc = 0, pl_limbs = rns_plane_limbs(); int lg = binsplit_ppg_batch_logl(N, plan_g, &nc), np = ec_np_init();
+                    int ok = !lg || (size_t)np * ((size_t)1 << lg) <= pl_limbs;
+                    printf("plan fit    batch tier (ECALC_PE_PER_GPU=1, PE 0's leaf of %d nodes x %d PEs): the largest product %zu limbs = 2^%d points x %d primes = %.3g limbs vs the plane pool's %.3g (cap 2^%d): %s\n",
+                           plan_g, vpe_lanes(), nc, lg, np, (double)np * ((size_t)1 << lg), (double)pl_limbs, pool_log, ok ? "local tier OK" : "the striped tier would be needed (it needs all 4 devices)");
+                    if (!ok) { printf("plan REFUSED %.4g digits g %d: ECALC_PE_PER_GPU=1 cannot run the leaf's largest batch product (2^%d points x %d primes > the plane pool %.3g limbs at ECALC_PLANE_CAP=2^%d; the striped tier needs all 4 devices): use ECALC_PLANE_CAP=2^31 (a 2^29-point product fits), or more nodes / fewer digits so a PE's leaf stays within 2^29 points, or run without ECALC_PE_PER_GPU\n",
+                                      (double)d_out, plan_g, lg, np, (double)pl_limbs, pool_log); if (!f) f = EC_RC_BUDGET; } }
                 if (!fit.fits) { printf("plan REFUSED %.4g digits g %d: the memory does not fit (device %.2f GB vs ECALC_DEVICE_GB %.2f, node %.2f GB vs ECALC_NODE_GB %.0f): see the plan fit lines\n",
                                         (double)d_out, plan_g, fit.device * 1e-9, fit.limit * 1e-9, fit.node * 1e-9, fit.budget * 1e-9); if (!f) f = EC_RC_BUDGET; }
                 fflush(stdout); _exit(f); }   /* + the SHMEM pool line */   /* MN_PLAN_ONLY (no device was touched; _exit: no atexit reports) */
