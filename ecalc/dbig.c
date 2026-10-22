@@ -192,7 +192,8 @@ void db_tl(const char *fmt, ...)
     printf("tl %7.2f  %s\n", db_tl_now(), b);
 }
 static void live_add(uint64_t *p, int d, size_t bytes, int reg) { if (g_nlive < 8192) { g_live[g_nlive].p = p; g_live[g_nlive].dev = d; g_live[g_nlive].bytes = bytes; g_live[g_nlive].reg = reg; g_nlive++; g_live_bytes[d] += bytes; if (g_live_bytes[d] > g_peak_live[d]) g_peak_live[d] = g_live_bytes[d]; if (g_live_bytes[d] > g_win_peak[d]) g_win_peak[d] = g_live_bytes[d]; } else { ec_fatal(EC_RC_FATAL, "dbig: live table full\n"); } }
-static size_t live_take(uint64_t *p, int *reg) { for (int i = 0; i < g_nlive; i++) if (g_live[i].p == p) { size_t b = g_live[i].bytes; *reg = g_live[i].reg; g_live_bytes[g_live[i].dev] -= b; g_live[i] = g_live[--g_nlive]; return b; } return 0; }
+static int g_live_dev_last;                                  /* the device the last live_take block was allocated on (q_free, vPE) */
+static size_t live_take(uint64_t *p, int *reg) { for (int i = 0; i < g_nlive; i++) if (g_live[i].p == p) { size_t b = g_live[i].bytes; g_live_dev_last = g_live[i].dev; *reg = g_live[i].reg; g_live_bytes[g_live[i].dev] -= b; g_live[i] = g_live[--g_nlive]; return b; } return 0; }
 static void ext_insert(int d, char *p, size_t bytes, int reg)
 {
     struct ext *e = g_ext[d].e; int n = g_ext[d].n, i = 0;
@@ -491,6 +492,11 @@ static void q_free(int d, uint64_t *p)
 {
     pthread_mutex_lock(&g_pool_mx);
     int reg; size_t bytes = live_take(p, &reg); if (!bytes) { ec_fatal(EC_RC_FATAL, "dbig: freeing an unknown block\n"); }
+    if (vpe_on() && g_live_dev_last != d) {                  /* vPE (ECALC_VPE_FREEDEV, default 1): a block goes back to the free list of the device it was allocated on, whichever vPE or helper thread frees it (a helper thread is lane 0: it returned PE 1..3 blocks to device 0's list, where PE 0 then took them) */
+        static int on = -1, said; if (on < 0) { const char *e = getenv("ECALC_VPE_FREEDEV"); on = e ? atoi(e) != 0 : 1; }
+        if (!__atomic_exchange_n(&said, 1, __ATOMIC_RELAXED)) fprintf(stderr, "vpe-freedev: pe %d: a block of device %d freed as device %d%s\n", vpe_pe(), g_live_dev_last, d, on ? " (returned to its own device)" : " (ECALC_VPE_FREEDEV=0: as before)");
+        if (on) d = g_live_dev_last;
+    }
     ext_insert(d, (char *)p, bytes, reg);
     pthread_mutex_unlock(&g_pool_mx);
 }
