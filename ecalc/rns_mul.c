@@ -725,8 +725,8 @@ void rns_mul_batch(rns_prod *P, size_t N)
         grpB = ok;
     }
     for (size_t i = 1; i < N && grpB && !dv; i++) if (P[i].b != P[0].b || P[i].nb != P[0].nb) grpB = 0;
-    if (!staged && N >= (size_t)rns_batch_local_min && (rns_plane_limbs() / (ec_np * L)) >= 1) {
-        int local = 1;                                  /* few or huge products: the prime-per-device path balances the four APUs */
+    if (!staged && N >= (vpe_ppg() ? (size_t)1 : (size_t)rns_batch_local_min) && (rns_plane_limbs() / (ec_np * L)) >= 1) {
+        int local = 1;                                  /* (S2c: ECALC_PE_PER_GPU=1 has no striped tier, one device: the local tier takes every N, 9u6) few or huge products: the prime-per-device path balances the four APUs */
         if (dv) local = dv_local;
         for (size_t i = 0; i < N && local && !dv; i++) if (mem_dev_of(P[i].c) < 0) local = 0;
         if (local) {
