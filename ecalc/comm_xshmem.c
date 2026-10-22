@@ -49,6 +49,9 @@
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define COPY(d, s, n, st) HIP_CHECK(comm_copy_async(d, s, n, st))
 #define SYNC(st) do { int ph_ = ec_ph(EC_PH_HIP_SYNC); HIP_CHECK(hipStreamSynchronize(st)); ec_ph(ph_); } while (0)
+/* ECALC_XEX_DEVSYNC=1 (debug): before publishing a buffer, wait for the whole device, not just the caller's stream (other streams may still use a pool block that is reused as an exchange buffer) */
+static int xs_dev(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_XEX_DEVSYNC"); v = e ? atoi(e) : 0; } return v; }
+#define XSYNC(st) do { if (xs_dev()) { HIP_CHECK(hipDeviceSynchronize()); } SYNC(st); } while (0)
 #define MAXID 1024                         /* communicator ids (control blocks) */
 #define MAXID_VPE 512                      /* ... with ECALC_VPE (flat PE communicators: the control block grows with the PE count) */
 #define MAXLPE 8                           /* loopback PEs per process */
@@ -287,7 +290,7 @@ static void xex_post_rounds(xpriv *p, const void *sb, void *rb, hipStream_t s)
     if (!p->rs_made) { HIP_CHECK(hipGetDevice(&p->dev)); HIP_CHECK(hipStreamCreateWithFlags(&p->rs, hipStreamNonBlocking)); p->rs_made = 1; }
     p->rounds = 1; p->rch = c; p->rK = K; p->rj = 0; p->rph = 0; p->vsb = (const char *)sb; p->vrb = (char *)rb; p->rb = rb; p->st = s; p->pending = 1; p->flushed = 0;
     if (p->scnt[me] && (const char *)sb + p->sdsp[me] != (char *)rb + p->rdsp[me]) COPY((char *)rb + p->rdsp[me], (const char *)sb + p->sdsp[me], p->scnt[me], s);
-    SYNC(s);                                              /* the caller's stream is done with sb and rb: publish only after */
+    XSYNC(s);                                              /* the caller's stream is done with sb and rb: publish only after */
     xshmem_ctx_quiet(XSHMEM_CTX_DEFAULT);
     pthread_mutex_lock(&X.lock); X.nrex++; X.nrounds += K; pthread_mutex_unlock(&X.lock);
     pthread_mutex_lock(&lp->qm);
@@ -318,7 +321,7 @@ static void xex_post(xpriv *p, const void *sb, void *rb, hipStream_t s)
         else for (int r = 0; r < n; r++) if (r != me && p->scnt[r]) COPY(lp->data + p->sst + p->spre[r], (const char *)sb + p->sdsp[r], p->scnt[r], s);
     }
     if (p->scnt[me] && (const char *)sb + p->sdsp[me] != (char *)rb + p->rdsp[me]) COPY((char *)rb + p->rdsp[me], (const char *)sb + p->sdsp[me], p->scnt[me], s);
-    SYNC(s);                                              /* the stream is done with sb and rb: publish only after */
+    XSYNC(s);                                              /* the stream is done with sb and rb: publish only after */
     xshmem_ctx_quiet(XSHMEM_CTX_DEFAULT);                 /* older word writes (ROFF, collectives) */
     p->t_w = p->t_a = p->t_p = p->t_f = p->t_rx = 0;
     memset(p->posted, 0, (size_t)n); memset(p->rxdone, 0, (size_t)n); p->posted[me] = 1; p->nposted = 1; p->touched = 0; p->flushed = 0;
