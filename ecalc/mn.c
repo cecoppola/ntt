@@ -468,22 +468,27 @@ int mn_selftest_layered(int logR, int logC, int verbose)
     while (((size_t)1 << logR) / ((size_t)NA * gt) < 32) logR++;
     int ok = 1, nr = NA * gt, logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
     if (rr < 32) { fprintf(stderr, "mn_selftest_layered: R / ranks < 32\n"); return 0; }
+    int quick = getenv("MN_SELFTEST") && atoi(getenv("MN_SELFTEST")) == 2;   /* MN_SELFTEST=2: the layered all-to-all pattern alone (no one-rank reference, no plan, no convolution) */
     double t0 = mem_now();
 #pragma omp parallel for num_threads(NA) schedule(static) reduction(&&:ok)
     for (int d = 0; d < NA; d++) {
         HIP_CHECK(hipSetDevice(d));
         int prime = (logR + logC) & 3, r = gt * d + mn_rank(); uint64_t p = ec_P[prime], seed = 0x9E3779B97F4A7C15ull + prime;   /* one plane (one prime) over all 4 gt ranks, as the product tier runs it */
         uint64_t *hx = (uint64_t *)malloc(n * 8), *hy = (uint64_t *)malloc(n * 8), *ref = (uint64_t *)malloc(n * 8), *tmp = (uint64_t *)malloc(rows * 8);
+        ntt_ctx *ctx = NULL; hipStream_t s; HIP_CHECK(hipStreamCreate(&s));
+        uint64_t *dx = NULL, *dy = NULL;
+        if (!quick) {
         for (size_t i = 0; i < n; i++) { hx[i] = xs(&seed) % p; hy[i] = xs(&seed) % p; }
-        ntt_ctx *ctx = ntt_ctx_create(prime); hipStream_t s; HIP_CHECK(hipStreamCreate(&s));
-        uint64_t *dx, *dy; HIP_CHECK(hipMalloc(&dx, n * 8)); HIP_CHECK(hipMalloc(&dy, n * 8));
+        ctx = ntt_ctx_create(prime);
+        HIP_CHECK(hipMalloc(&dx, n * 8)); HIP_CHECK(hipMalloc(&dy, n * 8));
         HIP_CHECK(hipMemcpy(dx, hx, n * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dy, hy, n * 8, hipMemcpyHostToDevice));
         ntt_fwd(ctx, dx, logn, 1, s); ntt_fwd(ctx, dy, logn, 1, s); ntt_pw(ctx, dx, dy, n, s); ntt_inv(ctx, dx, logn, 1, s);
         HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(ref, dx, n * 8, hipMemcpyDeviceToHost));
+        }
         comm *xg = comm_xgmi_create(d), *cm = comm_layered_create(xg, G->tr[d], d);
         if (comm_layered_inter2_on()) comm_layered_set_inter2(cm, mn_mesh2(G, d, G->tr[d] != G->all[d]));   /* X2 */
         if (comm_rank(cm) != r || comm_size(cm) != nr) { ec_fatal(EC_RC_FATAL, "mn_selftest_layered: rank %d/%d, expected %d/%d\n", comm_rank(cm), comm_size(cm), r, nr); }
-        dist_plan pl; dist_plan_create(&pl, cm, ctx, prime, logR, logC);
+        dist_plan pl; if (!quick) dist_plan_create(&pl, cm, ctx, prime, logR, logC);
         uint64_t *rx, *ry; HIP_CHECK(hipMalloc(&rx, rows * 8)); HIP_CHECK(hipMalloc(&ry, rows * 8));
         {   /* the all-to-all alone: slab sigma of rank rho tagged (rho, sigma, i) must arrive as slab rho of rank sigma */
             size_t sl = rows / nr; uint64_t *pat = (uint64_t *)malloc(rows * 8);
@@ -496,6 +501,7 @@ int mn_selftest_layered(int logR, int logC, int verbose)
             if (bad) { printf("%smn: %s %d rank %d: layered all-to-all pattern: %zu of %zu words wrong\n", ec_log_prefix(), mn_who(), mn_rank(), r, bad, rows); ok = 0; }
             free(pat);
         }
+        if (!quick) {
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hx[(r * rr + il) + R * j];
         HIP_CHECK(hipMemcpy(rx, tmp, rows * 8, hipMemcpyHostToDevice));
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hy[(r * rr + il) + R * j];
@@ -506,12 +512,14 @@ int mn_selftest_layered(int logR, int logC, int verbose)
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) if (tmp[il * C + j] != ref[(r * rr + il) + R * j]) bad++;
         if (bad || verbose) printf("%smn: %s %d layered rank %d of %d, 2^%d points: %zu of %zu differ\n", ec_log_prefix(), mn_who(), mn_rank(), r, nr, logn, bad, rows);
         if (bad) ok = 0;
-        dist_plan_free(&pl); comm_destroy(cm); comm_destroy(xg);
-        HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy)); HIP_CHECK(hipStreamDestroy(s)); ntt_ctx_free(ctx);
+        dist_plan_free(&pl);
+        }
+        comm_destroy(cm); comm_destroy(xg);
+        HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); if (!quick) { HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy)); } HIP_CHECK(hipStreamDestroy(s)); if (!quick) ntt_ctx_free(ctx);
         free(hx); free(hy); free(ref); free(tmp);
     }
     HIP_CHECK(hipSetDevice(0));
-    printf("mn: layered self-test, %d x 4 ranks at 2^%d points: %s (%.2f s)\n", gt, logn, ok ? "ok" : "FAILED", mem_now() - t0);
+    printf("mn: layered self-test%s, %d x 4 ranks at 2^%d points: %s (%.2f s)\n", quick ? " (quick: all-to-all pattern only)" : "", gt, logn, ok ? "ok" : "FAILED", mem_now() - t0);
     return ok;
 }
 /* the top log2(size) levels of the binary-splitting tree as distributed products: level l pairs the groups A (lower

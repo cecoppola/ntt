@@ -133,6 +133,7 @@ static const char *const cfg_names[] = {
     "MN_OUT_THREADS",
     "MN_PLAN_ONLY",
     "MN_PLAN_QUIET",
+    "MN_SELFTEST",
     "MN_SELFTEST_LOGR",
     "MN_TREE_LOGN_TEST",
     "MN_T_CHUNK_MB",
@@ -177,4 +178,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_ROUND_MB",
     "XSHMEM_YIELD",
 };
-#define CFG_NAMES_N 175
+#define CFG_NAMES_N 176

@@ -134,6 +134,7 @@ MN_OUT_STRIPE_FORCE	int	derived	derived		test-only	-	IO15.md	prose	ecalc	mn_out.
 MN_OUT_THREADS	int	8	8		built-in default	-	IO15.md+TARGET_HW_REVIEW.md	Y	ecalc	mn_out.c	3	-	-	
 MN_PLAN_ONLY	str	unset	derived	D:g	launch-line	-	P15.md+T215.md	Y	ecalc	binsplit.c,ecalc.c,vpe.c	3	-	-	ecalc.c:451; prints the plan and exits
 MN_PLAN_QUIET	int	unset	unset		test-only	-	L13d.md	Y	ecalc	mn_plan.c	2	diagnostics (TESTING.md)	2027-04-12	
+MN_SELFTEST	int	1	1	0|1|2	experiment	-	-	Y	ecalc	ecalc.c,mn.c	4	coordinator (TASKS S)	2026-11-11	ecalc.c, mn.c; start-up self-tests (task selftest, S-A): 1 both, 2 quick (layered all-to-all pattern only), 0 none
 MN_SELFTEST_LOGR	int	unset	unset		test-only	-	FIX117.md	Y	ecalc	mn.c	2	diagnostics (TESTING.md)	2027-04-12	
 MN_TREE_LOGN_TEST	int	0	0		test-only	-	G12.md+M13.md	Y	ecalc	mn.c,mn_plan.c	4	diagnostics (TESTING.md)	2027-04-12	
 MN_T_CHUNK_MB	float	1024	1024	MiB	launch-line	aac7	P214.md+S22.md	Y	ecalc	newton_db.c,rns_dist.c	3	-	-	rns_dist.c:1608

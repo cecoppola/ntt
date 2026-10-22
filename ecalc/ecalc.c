@@ -582,9 +582,12 @@ int main(int argc, char **argv)
     }
     mem_sampler_start();                            /* ECALC_MEM_SAMPLE=<seconds> */
     double t_ri = mem_now(); rns_init(pool_log); t_ri = mem_now() - t_ri;
-    if (mn_size_ > 1 && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
+    /* MN_SELFTEST: 1 = both start-up self-tests (default), 2 = quick (the layered all-to-all pattern alone; none of the plain-mesh test), 0 = none.  vPE runs run the full tests at 1 and 2 (the quick form is not built over PE communicators), none at 0. */
+    int st_mode = getenv("MN_SELFTEST") ? atoi(getenv("MN_SELFTEST")) : 1;
+    if (st_mode != 1 && mn_size_ > 1 && verbose >= 1) printf("mn: self-test mode MN_SELFTEST=%d (%s)\n", st_mode, st_mode == 0 ? "skipped" : "quick");
+    if (mn_size_ > 1 && (st_mode == 1 || (vpe_on() && st_mode != 0)) && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
     int mn_dist = mn_size_ > 1;                      /* M3: the top levels as distributed products */
-    if (mn_dist && !mn_selftest_layered(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
+    if (mn_dist && st_mode != 0 && !mn_selftest_layered(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
     if (getenv("ECALC_BG_THREADS")) g_bg_threads = atoi(getenv("ECALC_BG_THREADS"));
     if (vpe_on()) {                                  /* S1e: the process-wide settings of the vPE flow, once, before the threads */
         if (mn_size_ < 2) ec_fatal(EC_RC_FATAL, "ecalc: ECALC_VPE=1 needs at least 2 PEs (%d): run on 2+ nodes or ECALC_VPE_LANES >= 2\n", mn_size_);
