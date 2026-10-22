@@ -582,6 +582,7 @@ static uint64_t vck_sum(comm *c, int g, uint64_t v, int lo, int hi)     /* sum o
 /* The tree-level boundary under vPE (9v3/9v6: P wrong at a level, intermittent; the per-level check, whose device sync and collectives sit at the boundary, hid it):
  * this PE's device is fully synchronised (every stream: the products' kernels, the spill / carry adds, the transport's copies) and the group meets at a barrier, at the entry
  * of a level (before its shares are packed for the next product) and at its exit.  ECALC_VPE_LVSYNC=0 turns it off (debug: reproduces the failure).  Off without vPE. */
+void rns_dist_vtr_flush(const dbig *P, const dbig *Q);   /* rns_dist.c: ECALC_VPE_TRACE */
 static void vpe_level_sync(mn_group *G)
 {
     static int on = -1;
@@ -631,6 +632,7 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
     rns_mul_dist_mn(&Qn, &QA, &QB, 0, G);
     db_free(&P->sh); db_free(&Q->sh); *P = Pn; *Q = Qn;
     vpe_level_sync(G);
+    rns_dist_vtr_flush(&P->sh, &Q->sh);
     if (vck && !vck_part(2)) { HIP_CHECK(hipDeviceSynchronize());
         uint64_t tP = 0, tQ = 0, mp = vck_share(P, &tP), mq = vck_share(Q, &tQ);
         uint64_t rP = vck_sum(G->all[0], g, mp, 0, g), rQ = vck_sum(G->all[0], g, mq, 0, g), wP = vck_mul(rPA, rQB) + rPB, wQ = vck_mul(rQA, rQB);

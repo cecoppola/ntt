@@ -1040,6 +1040,33 @@ static void vpe_dly(int pt)
     if (at < 0) { const char *e = getenv("ECALC_VPE_DLY_AT"), *m = getenv("ECALC_VPE_DLY_MS"); ms = m ? atoi(m) : 0; at = vpe_on() && e ? atoi(e) : 0; }
     if (at & (1 << (pt - 1))) usleep((useconds_t)ms * 1000);
 }
+/* debug (ECALC_VPE_TRACE=1, vPE only, off by default): the top 8 limbs of the product's share at four moments, to find where the intermittent extra limb of P appears and whether it
+ * changes afterwards.  Tag 0 after the result scatter (async on the lane stream), 1 after the spill add, 2 at the end of mn_core (1 and 2 after a device sync), 4 / 5 = P / Q at the end
+ * of the tree level (rns_dist_vtr_flush, after the level sync).  The log is read and printed at the flush. */
+#define VTR_MAX 256
+static struct { uint64_t *dev; int n; int tag[VTR_MAX]; long prod[VTR_MAX]; size_t cn[VTR_MAX]; long np; } g_vtr[VPE_MAX];
+static int vtr_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_VPE_TRACE"); v = vpe_on() && e ? atoi(e) : 0; } return v; }
+static void vtr_snap(int tag, const dbig *sh, size_t cn, hipStream_t st, int sync)
+{
+    if (!vtr_on() || cn < 8 || !sh->q[0]) return;
+    int l = vpe_lane(); if (g_vtr[l].n >= VTR_MAX) return;
+    if (!g_vtr[l].dev) HIP_CHECK(hipMalloc(&g_vtr[l].dev, (size_t)VTR_MAX * 64));
+    if (sync) HIP_CHECK(hipDeviceSynchronize());
+    int i = g_vtr[l].n++; g_vtr[l].tag[i] = tag; g_vtr[l].prod[i] = g_vtr[l].np; g_vtr[l].cn[i] = cn;
+    HIP_CHECK(hipMemcpyAsync(g_vtr[l].dev + 8 * (size_t)i, sh->q[0] + sh->off + cn - 8, 64, hipMemcpyDeviceToDevice, st));
+}
+void rns_dist_vtr_flush(const dbig *P, const dbig *Q)    /* mn.c tree_level, after the level sync */
+{
+    if (!vtr_on()) return;
+    int l = vpe_lane(); vtr_snap(4, P, P->n, 0, 1); vtr_snap(5, Q, Q->n, 0, 0);
+    HIP_CHECK(hipDeviceSynchronize());
+    int n = g_vtr[l].n; uint64_t h[VTR_MAX * 8];
+    if (n) HIP_CHECK(hipMemcpy(h, g_vtr[l].dev, (size_t)n * 64, hipMemcpyDeviceToHost));
+    for (int i = 0; i < n; i++) printf("vtr pe %d prod %ld tag %d cn %zu top: %llu %llu %llu %llu | %llu %llu %llu %llu\n", vpe_pe(), g_vtr[l].prod[i], g_vtr[l].tag[i], g_vtr[l].cn[i],
+        (unsigned long long)h[8 * i], (unsigned long long)h[8 * i + 1], (unsigned long long)h[8 * i + 2], (unsigned long long)h[8 * i + 3],
+        (unsigned long long)h[8 * i + 4], (unsigned long long)h[8 * i + 5], (unsigned long long)h[8 * i + 6], (unsigned long long)h[8 * i + 7]);
+    g_vtr[l].n = 0;
+}
 VPE_STATE(int, top_ok);
 #define g_top_ok VPE(top_ok)               /* S1b: per vPE (the truncated product's flag is set by mn_grid on the PE's own thread) */
 /* Phase 10 A5: a truncated product (basis w): the carry out of the top node is dropped (mod B^w) */
@@ -1429,7 +1456,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         } else for (int p = 0; p < np; p++) HIP_CHECK(hipMemcpyAsync(xa[p], cache_pl(slA, d, p, q), q * 8, hipMemcpyDeviceToDevice, s));   /* A hit: the product forms over a copy */
         if (!bfull) redistribute(&X0, B, &oB, d, s);
         if (X) { redistribute(&X0, &Xv, &oX, d, s); k_gather_mn<<<nblk(qs), 256, 0, s>>>(cx, oX.rb, oX.tend, rows, C, ec_mod_get(0), 0, 0); }
-        HIP_SYNC(s); vpe_dly(1);
+        HIP_SYNC(s); vpe_dly(1); if (vtr_on()) g_vtr[vpe_lane()].np++;
         if (oA.rb) { db_pool_free(dv, oA.rb); oA.rb = 0; } if (oX.rb) { db_pool_free(dv, oX.rb); oX.rb = 0; }
         double s1 = mem_now(); tr[d] = s1 - s0;
         int phf_ = ec_ph(EC_PH_RD_FWD);
@@ -1511,7 +1538,8 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
           if (wn && rtot) { HIP_CHECK(hipMemcpyAsync(dsI, hsI, g * sizeof *hsI, hipMemcpyHostToDevice, s));
                             struct acc c = acc_db(dst, 0, wn);
                             if (p24) k_scatter_mn24<<<nblk((size_t)g * S), 256, 0, s>>>(c, wlo, rbO, dsI, g, S, R, C, nr, d);   /* P24: the out-runs */
-                            else k_scatter_mn<<<nblk((size_t)g * S), 256, 0, s>>>(c, wlo, rbO, dsI, g, S, R, nr, d); }
+                            else k_scatter_mn<<<nblk((size_t)g * S), 256, 0, s>>>(c, wlo, rbO, dsI, g, S, R, nr, d);
+                            if (!chunked) vtr_snap(0, dst, tn, s, 0); }
           /* Phase 12 G: the spills exchanged exactly (was an all-gather of every rank's 4 C limbs: g x 4 C per APU, 77 GB per node at
            * 576 nodes).  My stripe j spills into limbs [R j + a, +4) of the piece, a = the first row of the next rank: node r gets the
            * blocks of the columns [j0, j1) that meet its window (spill_cols; adjacent windows share at most one block, added on each
@@ -1556,6 +1584,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     } else {
     if (tn && p24) db_share_add_spills_x24(dst, tn, tlo, sp, sptab, R, C, g, &co, &pr);   /* P24: the blocks at L(R j + a) */
     else if (tn) db_share_add_spills_x(dst, tn, tlo, sp, sptab, R, R / nr, C, g, &co, &pr);   /* (rows = R / nr: dbig.c decodes the unequal parts when it does not divide) */
+    if (!chunked) vtr_snap(1, dst, tn, 0, 1);
     share_carry_fix(G, dst, tn, co, pr);
     for (int d = 0; d < NL(); d++) { db_pool_free(LD(d), spill_rb[d]); db_pool_free(LD(d), sptab_d[d]); }
     }
@@ -1566,6 +1595,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         db_free(&T);
     }
     ec_ph(phk_); vpe_dly(6);
+    if (!chunked) vtr_snap(2, &Cn->sh, cn, 0, 1);
     Cn->sh.n = cn;                                            /* the fixed-length adds set sh.n to their length */
     double mr = 0, mf = 0, mc = 0, mo = 0; for (int d = 0; d < NL(); d++) { if (tr[d] > mr) mr = tr[d]; if (tf[d] > mf) mf = tf[d]; if (tc[d] > mc) mc = tc[d]; if (to[d] > mo) mo = to[d]; }
     double tcar = mem_now() - t4, tt = mem_now() - t0;
