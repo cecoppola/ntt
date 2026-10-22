@@ -27,7 +27,7 @@ int mn_rank(void); int mn_size(void);
 /* S1d (TARGET1): the vPE identity from vpe.h (vpe.h includes comm.h, which needs HIP's headers; this file is plain C).  With ECALC_VPE=1 a vPE is one pthread per lane;
  * its binary splitting has ONE region (its device, storage index vpe_idx()), its own term range and its own state (the per-vPE arrays below); switch off: vpe_on() = 0,
  * vpe_t_idx = 0 and every line below behaves as before. */
-void vpe_adopt(int idx); int vpe_on(void); int vpe_lanes(void); int vpe_lane(void); int vpe_pe(void); int vpe_npe(void);
+void vpe_adopt(int idx); void vpe_rebind(void); int vpe_on(void); int vpe_lanes(void); int vpe_lane(void); int vpe_pe(void); int vpe_npe(void);
 int mn_groups_parse(int size, int *out, int max); size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces);
 size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t share_b, size_t share_c, size_t *qmax);
 int rns_mul_dist_mn_logcap_g(int g); int rns_mul_dist_mn_logmin_g(int g);   /* D19 (rns_dist.c): DM_MN_WRAP's plane in dm_layout */
@@ -1632,7 +1632,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             tl1 = mem_now();
             if (vpe_on()) pthread_mutex_lock(&g_batch_mx);   /* rns_mul.c's batch tier is node-wide state (one device set, one stat block): one vPE at a time until a per-vPE batch exists (S1 is correctness, not speed) */
             rns_mul_batch(pr, 2 * npairs);
-            if (vpe_on()) pthread_mutex_unlock(&g_batch_mx);
+            if (vpe_on()) { vpe_rebind(); pthread_mutex_unlock(&g_batch_mx); }   /* (its omp team's thread 0 is this thread and ends on device 0: vpe_sub fataled on PEs 1..3, 9u4) */
             tl2 = mem_now();
             normed = 1;
             if (pipe) {                              /* N3: all lengths, then the flag (a missing one: node_norm below redoes them all) */

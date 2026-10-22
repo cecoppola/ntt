@@ -63,6 +63,11 @@ void vpe_adopt(int idx)
     vpe_t_idx = idx; HIP_CHECK(hipSetDevice(idx));
     if (g_hook) g_hook(idx);
 }
+void vpe_rebind(void)
+{
+    if (!vpe_on()) return;
+    HIP_CHECK(hipSetDevice(vpe_t_idx));
+}
 void vpe_stages_check(void)
 {
     if (!vpe_on() || g_forced) return;

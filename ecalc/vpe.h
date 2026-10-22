@@ -47,6 +47,7 @@ void vpe_set_nodes(int node, int nnodes);
 void vpe_set_forced(int mask);                          /* tests: mask != 0 = vPE mode on (bits = stages the test exercises), 0 = back to the environment */
 int  vpe_in_run(void);
 void vpe_adopt(int idx);                                /* a helper thread of vPE idx: sets its vpe_idx, device and engine PE */
+void vpe_rebind(void);                                  /* this vPE thread's device current again (a no-op off): after code that walks every device (rns_mul_batch's omp team leaves the calling thread on device 0) */
 void vpe_set_thread_hook(void (*fn)(int idx));          /* fn(idx) runs in every vPE thread at start (and in vpe_adopt) */
 void vpe_stages_check(void);                            /* fatal "ECALC_VPE: stages ... not merged" when on, not forced and a stage is missing */
 

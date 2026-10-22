@@ -83,6 +83,8 @@ copt=()
 # S32: MNRUN_LABEL=1 adds srun --label (every output line prefixed "<rank>: ").  (MNRUN_ARBITRARY, unused, was removed 2026-10-12.)
 [ "${MNRUN_ARBITRARY:-0}" = 0 ] || { echo "mnrun.sh: MNRUN_ARBITRARY was removed (2026-10-12, unused); unset it" >&2; exit 1; }
 [ "${MNRUN_LABEL:-0}" != 0 ] && copt+=(--label)
+# ECALC_VPE=1 (env or a leading VAR=value word): ONE process per node runs the four PEs as threads, so it needs all of the node's CPUs (srun confines a task to 2 CPUs otherwise)
+if [ -z "${MNRUN_CPUS_PER_TASK:-}" ]; then v_=${ECALC_VPE:-0}; for a in "$@"; do case "$a" in ECALC_VPE=*) v_=${a#*=};; esac; done; [ "$v_" = 1 ] && MNRUN_CPUS_PER_TASK=auto; fi
 case "${MNRUN_CPUS_PER_TASK:-}" in
     "") ;;
     auto) ncpu=$(scontrol show node "$(echo "$use" | head -1)" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p'); [ -n "$ncpu" ] && [ "$ncpu" -ge "$per" ] && copt+=(-c $((ncpu / per)));;
