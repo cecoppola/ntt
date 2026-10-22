@@ -1470,7 +1470,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         } else for (int p = 0; p < np; p++) HIP_CHECK(hipMemcpyAsync(xa[p], cache_pl(slA, d, p, q), q * 8, hipMemcpyDeviceToDevice, s));   /* A hit: the product forms over a copy */
         if (!bfull) redistribute(&X0, B, &oB, d, s);
         if (X) { redistribute(&X0, &Xv, &oX, d, s); k_gather_mn<<<nblk(qs), 256, 0, s>>>(cx, oX.rb, oX.tend, rows, C, ec_mod_get(0), 0, 0); }
-        HIP_SYNC(s); vpe_dly(1); if (vtr_on()) { g_vtr[vpe_lane()].np++; for (int p = 0; p < np; p++) vtr_raw(10 + p, xa[p], qs, s, 0); if (cx) vtr_raw(19, cx, qs, s, 0); if (oB.rb) vtr_raw(20, oB.rb, oB.tend, s, 0); }
+        HIP_SYNC(s); vpe_dly(1); if (vtr_on()) { g_vtr[vpe_lane()].np++; for (int p = 0; p < np; p++) vtr_raw(10 + p, xa[p], qs, s, 0); if (cx) vtr_raw(19, cx, qs, s, 0); if (oB.rb) vtr_raw(20, oB.rb, oB.tend, s, 0); if (!getenv("VTR_NOFILL")) HIP_CHECK(hipMemsetAsync(xb, 0xA5, qs * 8, s)); }   /* debug: xb (B's plane, written only by the gather) is filled; tag 25 checks it before the gather */
         if (oA.rb) { db_pool_free(dv, oA.rb); oA.rb = 0; } if (oX.rb) { db_pool_free(dv, oX.rb); oX.rb = 0; }
         double s1 = mem_now(); tr[d] = s1 - s0;
         int phf_ = ec_ph(EC_PH_RD_FWD);
@@ -1478,6 +1478,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             const int ah = ha >= 0 && p < kA, bh = hb >= 0 && p < kB, ac = slA >= 0 && p < kA;   /* Phase 15 PC: prime p's hit / A's plane to cache (full slots: every p) */
             uint64_t *yb = slB >= 0 && p < kB ? cache_pl(slB, d, p, q) : xb;
             if (!bh && p24) k_gather_mn24<<<nblk(qs), 256, 0, s>>>(yb, oB.rb, oB.tend, R, C, a0, rows, ec_mod_get(p), c18[p][0], c18[p][1], c18[p][2]);   /* P24 */
+            if (p == 0 && yb == xb && vtr_on()) vtr_raw(25, xb, qs, s, 0);
             else if (!bh) k_gather_mn<<<nblk(qs), 256, 0, s>>>(yb, oB.rb, oB.tend, rows, C, ec_mod_get(p), 1, 1);
             if (!bh && vtr_on()) { vtr_raw(21, oB.rb, oB.tend, s, 0); vtr_raw(22 + p, yb, qs, s, 0); }   /* debug: B's landing buffer again, the gathered plane */
             if (gen) {
