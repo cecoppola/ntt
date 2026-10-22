@@ -1051,17 +1051,18 @@ __global__ void k_vtr_hash(const uint64_t *p, size_t n, unsigned long long *out)
 }
 static struct { uint64_t *dev; int n; int tag[VTR_MAX]; long prod[VTR_MAX]; size_t cn[VTR_MAX]; long np; } g_vtr[VPE_MAX];
 static int vtr_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_VPE_TRACE"); v = vpe_on() && e ? atoi(e) : 0; } return v; }
-static void vtr_snap(int tag, const dbig *sh, size_t cn, hipStream_t st, int sync)
+static void vtr_raw(int tag, const uint64_t *p, size_t cn, hipStream_t st, int sync)
 {
-    if (!vtr_on() || cn < 8 || !sh->q[0]) return;
+    if (!vtr_on() || cn < 8 || !p) return;
     int l = vpe_lane(); if (g_vtr[l].n >= VTR_MAX) return;
     if (!g_vtr[l].dev) HIP_CHECK(hipMalloc(&g_vtr[l].dev, (size_t)VTR_MAX * 72));
     if (sync) HIP_CHECK(hipDeviceSynchronize());
     int i = g_vtr[l].n++; g_vtr[l].tag[i] = tag; g_vtr[l].prod[i] = g_vtr[l].np; g_vtr[l].cn[i] = cn;
     uint64_t *e = g_vtr[l].dev + 9 * (size_t)i;
-    HIP_CHECK(hipMemcpyAsync(e, sh->q[0] + sh->off + cn - 8, 64, hipMemcpyDeviceToDevice, st)); HIP_CHECK(hipMemsetAsync(e + 8, 0, 8, st));
-    k_vtr_hash<<<256, 256, 0, st>>>(sh->q[0] + sh->off, cn, (unsigned long long *)(e + 8));
+    HIP_CHECK(hipMemcpyAsync(e, p + cn - 8, 64, hipMemcpyDeviceToDevice, st)); HIP_CHECK(hipMemsetAsync(e + 8, 0, 8, st));
+    k_vtr_hash<<<256, 256, 0, st>>>(p, cn, (unsigned long long *)(e + 8));
 }
+static void vtr_snap(int tag, const dbig *sh, size_t cn, hipStream_t st, int sync) { if (sh->q[0]) vtr_raw(tag, sh->q[0] + sh->off, cn, st, sync); }
 void rns_dist_vtr_entry(const dbig *P, const dbig *Q) { if (vtr_on()) { vtr_snap(6, P, P->n, 0, 1); vtr_snap(7, Q, Q->n, 0, 0); } }   /* mn.c tree_level, after the entry sync: the operands' hashes (tags 6, 7) */
 void rns_dist_vtr_flush(const dbig *P, const dbig *Q)    /* mn.c tree_level, after the level sync */
 {
@@ -1464,7 +1465,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         } else for (int p = 0; p < np; p++) HIP_CHECK(hipMemcpyAsync(xa[p], cache_pl(slA, d, p, q), q * 8, hipMemcpyDeviceToDevice, s));   /* A hit: the product forms over a copy */
         if (!bfull) redistribute(&X0, B, &oB, d, s);
         if (X) { redistribute(&X0, &Xv, &oX, d, s); k_gather_mn<<<nblk(qs), 256, 0, s>>>(cx, oX.rb, oX.tend, rows, C, ec_mod_get(0), 0, 0); }
-        HIP_SYNC(s); vpe_dly(1); if (vtr_on()) g_vtr[vpe_lane()].np++;
+        HIP_SYNC(s); vpe_dly(1); if (vtr_on()) { g_vtr[vpe_lane()].np++; for (int p = 0; p < np; p++) vtr_raw(10 + p, xa[p], qs, s, 0); if (cx) vtr_raw(19, cx, qs, s, 0); }
         if (oA.rb) { db_pool_free(dv, oA.rb); oA.rb = 0; } if (oX.rb) { db_pool_free(dv, oX.rb); oX.rb = 0; }
         double s1 = mem_now(); tr[d] = s1 - s0;
         int phf_ = ec_ph(EC_PH_RD_FWD);
@@ -1487,6 +1488,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
                 HIP_SYNC(s); tiv += mem_now() - u2;
             }
             HIP_SYNC(s);
+            vtr_raw(30 + p, xa[p], qs, s, 0);
         }
         ec_ph(phf_);
         if (oB.rb) { db_pool_free(dv, oB.rb); oB.rb = 0; }
@@ -1513,7 +1515,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             if (fl) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 CRT flag %u (a coefficient past 10^60: the piece's bound)\n", fl); }
         } else
         k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, qs, gc, v->spill);
-        HIP_SYNC(s);
+        HIP_SYNC(s); vtr_raw(40, xb, qs, s, 0); vtr_raw(41, xa[0], qs, s, 0);
         tc[d] = mem_now() - s2; ec_ph(phc_); vpe_dly(3);
         /* the result's rows -> the nodes' windows: the segments of every node's window in my sequence are sent straight from
          * the CRT output (back to back in node order); the received segments of my window from the ranks (r, d) at prefix offsets.
@@ -1543,6 +1545,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
           uint64_t *rbO = db_pool_alloc(dv, (rtot + 16) * 8); if ((rtot + 16) * 8 > rbo_max[d]) rbo_max[d] = (rtot + 16) * 8;
           double s3 = mem_now();
           { int xk_ = comm_xtag_set(XK_RESULT); comm_alltoallv(G->all[d], xb, scnt, sdsp, rbO, rcnt, rdsp, s); comm_xtag_set(xk_); } comm_wait(G->all[d]);
+          vtr_raw(50, rbO, rtot, s, 0);
           if (wn && rtot) { HIP_CHECK(hipMemcpyAsync(dsI, hsI, g * sizeof *hsI, hipMemcpyHostToDevice, s));
                             struct acc c = acc_db(dst, 0, wn);
                             if (p24) k_scatter_mn24<<<nblk((size_t)g * S), 256, 0, s>>>(c, wlo, rbO, dsI, g, S, R, C, nr, d);   /* P24: the out-runs */
