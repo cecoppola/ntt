@@ -16,7 +16,7 @@ rows are in the order to do them.
 |---|---|---|---|
 | 4 | SHMEM exchange gap against libfabric | closed, superseded 2026-10-21: the aac7 Cray SHMEM tuning phase ended by user order; the project builds target-style communication (cray-shmem 12.1, 8 NICs per node, GPU-memory buffers) emulated with libfabric; record: results/SHMEM.md closing section | results/SHMEM.md |
 | 4 | Residual GPU-queue evictions | closed, superseded 2026-10-21 with the aac7 SHMEM phase (no measurable wall-clock cost at 4 n, m) | results/SHMEM_STALLS.md §6.5 |
-| 4 | TARGET1 S2d: paired timing of one process per GPU | open: ABBA off vs `ECALC_PE_PER_GPU=1` at 1 n and 3 n (1e9, 1e10), then decide the default; S2a-S2c closed 2026-10-21 (gate 9v8, digits identical) | results/PPG.md |
+| 4 | TARGET1 S2d: paired timing of one process per GPU | measured 2026-10-22 (results/PPG.md S2d): faster at 1e9 (1 n -4.2 s, 3 n -9 s) and 3 n 1e10 (-6.9 s), equal at 1 n 1e10 and 3 n 1e11 (start-up gain lost in bs/dm); 1.9323e11 at 3 n refused (decision Q75); default stays off | results/PPG.md |
 | 5 | Docs | central docs in line with main (this rewrite); keep them so | the central docs |
 
 ## Proposed (needs the user's priority)
