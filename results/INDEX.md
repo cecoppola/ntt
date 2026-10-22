@@ -4,7 +4,7 @@ Scope: lookup of the former `results/<ID>.md` reports (merged 2026-10-19) into t
 
 Reports older than the 2026-10-12 clean-up are in `archive:results/`; the raw data, logs and one-off drivers of all items are in
 `archive:results_raw_2026-10-19/`, the original per-item files in `archive:results_merged_2026-10-19/`. `A11.md` (switch
-inventory, read by tools), `DESIGN_TABLE.md` (generated), `SHMEM.md`, `SHMEM_STALLS.md` and `XSHMEM.md` keep their own files.
+inventory, read by tools), `DESIGN_TABLE.md` (generated), `SHMEM.md`, `SHMEM_STALLS.md`, `XSHMEM.md` and `PPG.md` keep their own files.
 
 | ID | what | topic file |
 |---|---|---|
@@ -261,4 +261,5 @@ Topic files:
 | APUMULT.md | the apumult study (internal reference multiplier) against ecalc: spec comparison and the apumult measurements |
 | SESSIONS.md | aac7 measurement sessions of September/October: profile analysis 2 to 10 nodes, T2048 A/B, XSTATS decomposition, X2 and VMM_SAFE soak |
 | XSHMEM.md | target-shaped communication: xshmem.h (Cray SHMEM 12.1 style over libfabric on aac7), backends, 11.8 and cxi facts, t_xshmem, the engine `COMM_TRANSPORT=xshmem`, gates, first timing, target port checklist (merges the former XSHMEM_B1-B4, XSHMEM_S3A_A1/A2) |
+| PPG.md | TARGET1 stage S2, one process per GPU (`ECALC_PE_PER_GPU`): gate 9v8, digits identical off vs on, single-run timings, S2d paired timing pending |
 | ATRIM.md | BS_ARENA_TRIM_GB: the opt-in arena trim, measured at 2 n and 3 n |

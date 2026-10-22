@@ -101,15 +101,19 @@ static const char *const cfg_names[] = {
     "ECALC_OUT_MODE",
     "ECALC_OUT_ODIRECT",
     "ECALC_OUT_PACKED",
+    "ECALC_PE_PER_GPU",
     "ECALC_PLANE_CAP",
     "ECALC_PLANE_CAP_IDX",
     "ECALC_RECHECK",
     "ECALC_SEGV_TEST",
     "ECALC_SEGV_TRACE",
     "ECALC_TEST_CORR",
+    "ECALC_TEST_DIE_PE",
     "ECALC_VERBOSE",
     "ECALC_VMM_BG",
     "ECALC_VPE",
+    "ECALC_VPE_BG_THREADS",
+    "ECALC_VPE_CHAIN",
     "ECALC_VPE_LANES",
     "ECALC_WINDOWS",
     "ECALC_XEX_THREAD",
@@ -171,5 +175,6 @@ static const char *const cfg_names[] = {
     "XSHMEM_ORDER",
     "XSHMEM_PES_PER_GPU",
     "XSHMEM_ROUND_MB",
+    "XSHMEM_YIELD",
 };
-#define CFG_NAMES_N 170
+#define CFG_NAMES_N 175

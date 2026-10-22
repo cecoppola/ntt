@@ -133,6 +133,7 @@ typedef struct xshmem_cfg {
     int ctrl_host;    /* XSHMEM_CTRL      heap|host               (default heap) */
     int local;        /* XSHMEM_LOCAL     0|1  engine uses xshmem_ptr paths (default 0) */
     int ipc;          /* XSHMEM_IPC       0|1  ofi backend maps node-local heaps with hipIpc (default 0) */
+    int noyield;      /* XSHMEM_YIELD     0 = the waits and the worker never sched_yield (default 1: they do) */
     int loopback_pes; /* XSHMEM_LOOPBACK_PES  PEs hosted by one process (ofi backend; default 1 = one PE per process) */
 } xshmem_cfg_t;
 
@@ -148,6 +149,7 @@ static inline void xshmem_cfg_load(xshmem_cfg_t *c)
     e = getenv("XSHMEM_CTRL");     c->ctrl_host = (e && !strcmp(e, "host")) ? 1 : 0;
     e = getenv("XSHMEM_LOCAL");    c->local = e ? atoi(e) : 0;
     e = getenv("XSHMEM_IPC");      c->ipc = e ? atoi(e) : 0;
+    e = getenv("XSHMEM_YIELD");    c->noyield = e && atoi(e) == 0;
     e = getenv("XSHMEM_LOOPBACK_PES"); c->loopback_pes = e ? atoi(e) : 1;
 }
 

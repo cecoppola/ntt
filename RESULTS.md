@@ -157,3 +157,4 @@ Add one short section per merged experiment below this line: date, what changed,
 ### 2026-10-21
 
 - XSHMEM, target-shaped communication (plan TARGET1): `xshmem.h` with a libfabric backend (aac7) and a Cray SHMEM forwarding header (target), the engine `COMM_TRANSPORT=xshmem` (opt-in, default `shmem`): digits identical at 1, 2 and 3 n; 3 n 1.9323e11 149.3 s against the reference 157.3 s, paired -8.5 s [-14.0, -3.0] (m); adoption and the open items are the user's; `results/XSHMEM.md`.
+- PPG, one process per GPU (plan TARGET1 stage S2, `ECALC_PE_PER_GPU`, off by default; xshmem K=1): gate 9v8 on aac7 (3 nodes): component tests and off path PASS, digits identical off vs on; single runs off / on: 1 n 1e9 9.73 / 8.94 s, 3 n 1e9 14.27 / 5.42 s, 3 n 1e10 32.83 / 24.68 s (m, one run each, not a speed claim; S2d paired timing pending); the vPE stages S1b-S1e are carried, thread-mode full runs abort (`stages e not merged`); `results/PPG.md`.

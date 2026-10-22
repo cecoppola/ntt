@@ -8,8 +8,12 @@
  * Usage: t_bs [long]
  */
 #include <stdlib.h>
+#include <string.h>
 #include "harness.h"
 #include "sha256.h"
+#include "vpe.h"
+#include "binsplit.h"
+_Static_assert(BS_VMAX == VPE_MAX, "binsplit.h BS_VMAX must equal vpe.h VPE_MAX");   /* S1d */
 #include "../binsplit.h"
 #include "../rns_mul.h"
 #include "../mem.h"
@@ -64,6 +68,21 @@ int main(int argc, char **argv)
         VERIFY(!strcmp(hex, want), "e %lu: SHA-256 %s vs ref %s", d, hex, want);
         printf("   e to %lu digits: N %lu, bs %.2f s, sha256 %s %s\n", d, N, bs_st.t_total, hex, strcmp(hex, want) ? "MISMATCH" : "== ref");
         free(s); mpz_clears(p, q, x, NULL); bi_free(&P); bi_free(&Q);
+    }
+    printf("-- 3. planner host terms per process (S2c): ECALC_PE_PER_GPU=1 adds a runtime (7 GB) and a comm (6 GB) per further process of the node; off / threads unchanged\n");
+    {
+        setenv("ECALC_VPE_LANES", "4", 1); const char *sv = getenv("SLURM_NTASKS_PER_NODE"); char *svs = sv ? strdup(sv) : 0; setenv("SLURM_NTASKS_PER_NODE", "4", 1);
+        unsigned long Np = e_terms(100000000000UL), N1 = e_terms(10000000000UL);
+        size_t h3off, h3v, h3p, h1off, h1v, h1p, h3off2;
+        binsplit_node_bytes(Np, 3, 1, 3, 0, 0, &h3off); binsplit_node_bytes(N1, 1, 1, 3, 0, 0, &h1off);
+        vpe_set_forced(1); binsplit_node_bytes(Np, 3, 1, 3, 0, 0, &h3v); binsplit_node_bytes(N1, 1, 1, 3, 0, 0, &h1v); vpe_set_forced(0);
+        vpe_set_ppg(0); binsplit_node_bytes(Np, 3, 1, 3, 0, 0, &h3p); binsplit_node_bytes(N1, 1, 1, 3, 0, 0, &h1p); vpe_set_ppg(-1);
+        binsplit_node_bytes(Np, 3, 1, 3, 0, 0, &h3off2);
+        VERIFY(h3p == h3v + 3 * (size_t)13000000000, "host g 3: process mode %zu, threads %zu: want + 3 x 13 GB", h3p, h3v);
+        VERIFY(h1p == h1v + 3 * (size_t)7000000000, "host g 1: process mode %zu, threads %zu: want + 3 x 7 GB", h1p, h1v);
+        VERIFY(h3off2 == h3off && h1off > 0, "host with the switch off unchanged after the process-mode calls: %zu vs %zu", h3off2, h3off);
+        printf("   host per node, g 3 at 1e11: off %.1f, threads %.1f, processes %.1f GB; g 1 at 1e10: off %.1f, threads %.1f, processes %.1f GB\n", h3off / 1e9, h3v / 1e9, h3p / 1e9, h1off / 1e9, h1v / 1e9, h1p / 1e9);
+        if (svs) { setenv("SLURM_NTASKS_PER_NODE", svs, 1); free(svs); } else unsetenv("SLURM_NTASKS_PER_NODE");
     }
     printf("VmHWM %.1f GB\n", mem_vmhwm() / 1e9);
     rns_shutdown();

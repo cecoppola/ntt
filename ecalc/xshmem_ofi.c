@@ -58,6 +58,8 @@ static void xfatal(const char *fmt, ...)
     fprintf(stderr, "xshmem_ofi: pe %d: %s\n", g->mype, b); fflush(stderr); boot_abort(b); abort();
 }
 #define CK(x) do { int r_ = (int)(x); if (r_) xfatal("%s = %d (%s) at line %d", #x, r_, fi_strerror(-r_), __LINE__); } while (0)
+static int g_yield = 1;
+#define YIELD() do { if (g_yield) sched_yield(); } while (0)
 static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (double)t.tv_sec + 1e-9 * (double)t.tv_nsec; }
 
 /* ---- completion bookkeeping (under g->lock) ---- */
@@ -117,7 +119,7 @@ static void post1(lane_t *L, int pe, int space, size_t off, const void *src, siz
         if (!rc) break;
         if (rc == -FI_EAGAIN) {
             drain_locked(L);
-            if (spins > 64) { pthread_mutex_unlock(&g->lock); sched_yield(); pthread_mutex_lock(&g->lock); }
+            if (spins > 64) { pthread_mutex_unlock(&g->lock); YIELD(); pthread_mutex_lock(&g->lock); }
             continue;
         }
         xfatal("fi_writemsg of %zu B to pe %d (space %d off %#zx): %zd (%s)", n, pe, space, off, rc, fi_strerror((int)-rc));
@@ -164,7 +166,7 @@ static void wait_cntr(lane_t *L, uint64_t target, const char *what)
         pthread_mutex_unlock(&g->lock);
         if (done >= target) return;
         __atomic_add_fetch(&g->cnt.wait_spins, 1, __ATOMIC_RELAXED);
-        if (++spins > 200) { sched_yield(); if (now_s() - t0 > g->quiet_s) xfatal("quiet (%s) on lane %d: %llu of %llu operations complete after %.0f s (deadline)", what, L->e, (unsigned long long)done, (unsigned long long)target, g->quiet_s); }
+        if (++spins > 200) { YIELD(); if (now_s() - t0 > g->quiet_s) xfatal("quiet (%s) on lane %d: %llu of %llu operations complete after %.0f s (deadline)", what, L->e, (unsigned long long)done, (unsigned long long)target, g->quiet_s); }
     }
 }
 /* flush mode, as libsma 11.8 measured (RB 8.4): per touched target one 8 B fi_writemsg FI_MORE|FI_DELIVERY_COMPLETE to the target's flush slot, then a 0 B fi_inject_write
@@ -187,14 +189,14 @@ static void flush_targets(lane_t *L)
             ssize_t rc = fi_writemsg(L->ep, &m, FI_MORE | FI_DELIVERY_COMPLETE | (8 <= g->inject ? FI_INJECT : 0));
             if (!rc) break;
             if (rc != -FI_EAGAIN) xfatal("flush fi_writemsg to pe %d: %zd (%s)", pe, rc, fi_strerror((int)-rc));
-            drain_locked(L); if (spins > 64) { pthread_mutex_unlock(&g->lock); sched_yield(); pthread_mutex_lock(&g->lock); }
+            drain_locked(L); if (spins > 64) { pthread_mutex_unlock(&g->lock); YIELD(); pthread_mutex_lock(&g->lock); }
         }
         L->issued++;
         for (unsigned spins = 0;; spins++) {
             ssize_t rc = fi_inject_write(L->ep, srcw, 0, L->fa[pe], raddr, key);
             if (!rc) break;
             if (rc != -FI_EAGAIN) xfatal("flush fi_inject_write to pe %d: %zd (%s)", pe, rc, fi_strerror((int)-rc));
-            drain_locked(L); if (spins > 64) { pthread_mutex_unlock(&g->lock); sched_yield(); pthread_mutex_lock(&g->lock); }
+            drain_locked(L); if (spins > 64) { pthread_mutex_unlock(&g->lock); YIELD(); pthread_mutex_lock(&g->lock); }
         }
         L->issued++; g->cnt.flush_chains++;
     }
@@ -255,7 +257,7 @@ uint64_t xshmem_signal_wait_until(uint64_t *sig, int cmp, uint64_t v)
         if (cmp_ge(w, v)) return w;
         __atomic_add_fetch(&g->cnt.wait_spins, 1, __ATOMIC_RELAXED);
         progress_try();
-        if (++spins > 1000) { sched_yield(); spins = 0; if (now_s() - t0 > g->quiet_s) xfatal("signal_wait_until: word %p still %llu < %llu after %.0f s (deadline)", (void *)sig, (unsigned long long)w, (unsigned long long)v, g->quiet_s); }
+        if (++spins > 1000) { YIELD(); spins = 0; if (now_s() - t0 > g->quiet_s) xfatal("signal_wait_until: word %p still %llu < %llu after %.0f s (deadline)", (void *)sig, (unsigned long long)w, (unsigned long long)v, g->quiet_s); }
     }
 }
 
@@ -327,7 +329,7 @@ int xshmem_init_thread(int req, int *prov)
 {
     (void)req;
     if (W.init) xfatal("xshmem_init_thread called twice");
-    xshmem_cfg_t cfg; xshmem_cfg_load(&cfg);
+    xshmem_cfg_t cfg; xshmem_cfg_load(&cfg); g_yield = !cfg.noyield;
     { const char *e = getenv("XSHMEM_OFI_SIG"); if (e && *e && strcmp(e, "dc") && strcmp(e, "flush") && strcmp(e, "waw")) { fprintf(stderr, "xshmem_ofi: XSHMEM_OFI_SIG=%s: use dc, flush or waw\n", e); abort(); } }
     if (cfg.sig == XSHMEM_SIG_WAW) { fprintf(stderr, "xshmem_ofi: XSHMEM_OFI_SIG=waw is not yet implemented (dc and flush)\n"); abort(); }
     int K = cfg.loopback_pes;

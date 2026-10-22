@@ -26,6 +26,7 @@
 #ifndef TREF_NO_DEVICE
 #include "../dbig.h"
 #include "../rns_mul.h"
+#include "../vpe.h"
 #endif
 
 #define TREF_EXACT_LIMBS ((size_t)1 << 21)
@@ -134,7 +135,8 @@ static void tref_mul(bigint *C, const bigint *A, const bigint *B)
         mpz_from_limbs(x, A->l, na); mpz_from_limbs(y, B->l, nb); mpz_mul(z, x, y); bi_from_mpz(C, z);
         mpz_clears(x, y, z, NULL); return;
     }
-    const char *e = getenv("DIST_LOGN_TEST"); char save[32] = ""; if (e) { snprintf(save, sizeof save, "%s", e); unsetenv("DIST_LOGN_TEST"); }
+    const char *e = getenv("DIST_LOGN_TEST"); char save[32] = ""; if (e && !vpe_in_run()) {   /* (not inside the vPE threads: setenv races with the other PEs' cap, which must agree for the collective grids; the grid reference is exact too) */
+         snprintf(save, sizeof save, "%s", e); unsetenv("DIST_LOGN_TEST"); }
     bigint a = { A->l, na, 0 }, b = { B->l, nb, 0 };
     dbig x, y, z; db_init(&x); db_init(&y); db_init(&z);
     db_from_bi(&x, &a); db_from_bi(&y, &b); rns_mul_dist_db(&z, &x, &y); db_to_bi(C, &z);

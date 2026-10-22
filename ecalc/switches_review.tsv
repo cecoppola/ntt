@@ -108,6 +108,7 @@ XSHMEM_IPC	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off b
 XSHMEM_LANES	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
 XSHMEM_LOCAL	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
 XSHMEM_LOOPBACK_PES	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
+XSHMEM_YIELD	experiment	TARGET1 (S1b)	2026-12-31	diagnostic arm, off by default; review when the vPE exchange latency is closed
 XSHMEM_MRMODE	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
 XSHMEM_OFI_SIG	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
 XSHMEM_PES_PER_GPU	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
@@ -118,3 +119,7 @@ XSHMEM_ROUND_MB	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine arm (comm_xshm
 TMPDIR	test-only	TARGET1 (B3)	2026-12-31	system temp directory read by tests/t_pe_geo
 ECALC_VPE	experiment	TARGET1 (S1)	2026-12-31	virtual PEs, off by default; review when S1a..S1e are merged
 ECALC_VPE_LANES	experiment	TARGET1 (S1)	2026-12-31	vPEs per process; review with ECALC_VPE
+ECALC_VPE_CHAIN	experiment	TARGET1 (S1)	2026-12-31	vPE chain arm, own by default; review with ECALC_VPE
+ECALC_VPE_BG_THREADS	experiment	TARGET1 (S1)	2026-12-31	background team per PE; review with ECALC_VPE
+ECALC_PE_PER_GPU	experiment	TARGET12 (S2)	2026-12-31	one process per GPU (PE); off by default; review when S2a..S2d are merged
+ECALC_TEST_DIE_PE	diagnostic	TARGET12 (S2)	2027-04-12	fault-injection setting for the process-per-GPU kill test; changes no digit
