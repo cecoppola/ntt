@@ -20,6 +20,8 @@
 One run each: not a speed claim. Earlier gate 9v5 (4e32c99): same result plus XRD 3 n 1.9323e11 VERIFY OK 160.1 s (m).
 Bugs found and fixed on the way: `rns_init` set up all 4 devices per process (OOM); the seed copy device was `region % nd` (device 0 for every PE, SEGV); the batch tier chose striped over 4 devices on a one-device process; the vPE exchange worker cost about 35x the poll mode, so poll is the default under vPE and process mode.
 
+Launcher fixes (branch `fitppg`, gates 9w2x/9w2w on f212a9e/6aab0bc, 2026-10-22, measured): mnrun's FIT pre-check planned `ECALC_PE_PER_GPU=1` runs without the per-node PE count, so the plan died and a run that does not fit launched (9w2_s2dfeas3: P 1.9323e11 3 n killed after 16 s); now refused before launch (no node time). On one node, P now picks `COMM_TRANSPORT=xshmem` as for more than one process. Gate 9w2w: P full REFUSED before launch; 1e9 D vs P digits identical at 1 / 2 / 3 n (single runs D / P: 10.86 / 8.28, 15.21 / 6.64, 16.07 / 6.41 s).
+
 ## S2d timing
 pending (paired ABBA off vs on at 1 n and 3 n).
 
