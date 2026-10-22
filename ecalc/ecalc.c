@@ -647,6 +647,14 @@ static void flow_run(void *a)
         if (bs_Pd.n) { Pl = bs_Pd; Ql = bs_Qd; memset(&bs_Pd, 0, sizeof bs_Pd); memset(&bs_Qd, 0, sizeof bs_Qd); }
         else { db_from_bi(&Pl, &P); db_from_bi(&Ql, &Q); }
         printf("mn: %s %d leaf P %zu limbs, Q %zu limbs (%s)\n", who(), mn_rank(), Pl.n, Ql.n, P.n ? "host, copied in" : "device");
+        if (vpe_on() && getenv("ECALC_VPE_LEAFCK") && atoi(getenv("ECALC_VPE_LEAFCK"))) {   /* debug (9w): the leaf P, Q against the recurrence over this PE's terms (same residues T1 uses) */
+            uint64_t pr[T1_NQ], qr[T1_NQ], lp[T1_NQ], lq[T1_NQ];
+            if (pqb.started) { if (!pqb.joined) pthread_join(pqb.th, 0); pqb.joined = 1; memcpy(pr, pqb.p, sizeof pr); memcpy(qr, pqb.qq, sizeof qr); }
+            else for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(pqb.a0, pqb.b1, t1_q[i], &pr[i], &qr[i]);
+            db_mod_qs(&Pl, t1_q, T1_NQ, lp); db_mod_qs(&Ql, t1_q, T1_NQ, lq);
+            int pb = 0, qb = 0; for (int i = 0; i < T1_NQ; i++) { pb += lp[i] != pr[i]; qb += lq[i] != qr[i]; }
+            printf("mn: %s %d leafck: P %s (%d of %d primes differ) Q %s (%d)\n", who(), mn_rank(), pb ? "BAD" : "ok", pb, T1_NQ, qb ? "BAD" : "ok", qb);
+        }
         if (ckpt_top && !bs_ckpt_dir && outfile) { bs_ckpt_dir = mn_out_ckpt_default(outfile); printf("mn: %s %d: the top tree set -> %s (ECALC_CKPT_TOP)\n", who(), mn_rank(), bs_ckpt_dir); }
         mn_ckpt_bg_mode = !ckpt_top ? 0 : ckpt_top == 2 ? 2 : 1; mn_ckpt_slack = ckpt_slack;   /* the top tree set in the background */
         mdb Pm, Qm; mn_tree(&Pm, &Qm, &Pl, &Ql);
