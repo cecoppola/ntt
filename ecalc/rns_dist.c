@@ -1044,9 +1044,12 @@ static void vpe_dly(int pt)
  * changes afterwards.  Tag 0 after the result scatter (async on the lane stream), 1 after the spill add, 2 at the end of mn_core (1 and 2 after a device sync), 4 / 5 = P / Q at the end
  * of the tree level (rns_dist_vtr_flush, after the level sync).  The log is read and printed at the flush. */
 #define VTR_MAX 256
+#define VTR_SEG 64
+#define VTR_W (8 + 1 + VTR_SEG)      /* words per entry: the top 8 limbs, the total hash, VTR_SEG segment hashes (the buffer in VTR_SEG equal parts) */
 __global__ void k_vtr_hash(const uint64_t *p, size_t n, unsigned long long *out)
 {
-    unsigned long long h = 0; for (size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x; i < n; i += (size_t)gridDim.x * blockDim.x) h += (p[i] + 0x9E3779B97F4A7C15ULL) * (2 * (i % 1000003ULL) + 1);
+    size_t per = (n + VTR_SEG - 1) / VTR_SEG;
+    unsigned long long h = 0; for (size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x; i < n; i += (size_t)gridDim.x * blockDim.x) { unsigned long long v = (p[i] + 0x9E3779B97F4A7C15ULL) * (2 * (i % 1000003ULL) + 1); atomicAdd(out + 1 + i / per, v); h += v; }
     atomicAdd(out, h);
 }
 static struct { uint64_t *dev; int n; int tag[VTR_MAX]; long prod[VTR_MAX]; size_t cn[VTR_MAX]; long np; } g_vtr[VPE_MAX];
@@ -1055,11 +1058,11 @@ static void vtr_raw(int tag, const uint64_t *p, size_t cn, hipStream_t st, int s
 {
     if (!vtr_on() || cn < 8 || !p) return;
     int l = vpe_lane(); if (g_vtr[l].n >= VTR_MAX) return;
-    if (!g_vtr[l].dev) HIP_CHECK(hipMalloc(&g_vtr[l].dev, (size_t)VTR_MAX * 72));
+    if (!g_vtr[l].dev) HIP_CHECK(hipMalloc(&g_vtr[l].dev, (size_t)VTR_MAX * VTR_W * 8));
     if (sync) HIP_CHECK(hipDeviceSynchronize());
     int i = g_vtr[l].n++; g_vtr[l].tag[i] = tag; g_vtr[l].prod[i] = g_vtr[l].np; g_vtr[l].cn[i] = cn;
-    uint64_t *e = g_vtr[l].dev + 9 * (size_t)i;
-    HIP_CHECK(hipMemcpyAsync(e, p + cn - 8, 64, hipMemcpyDeviceToDevice, st)); HIP_CHECK(hipMemsetAsync(e + 8, 0, 8, st));
+    uint64_t *e = g_vtr[l].dev + VTR_W * (size_t)i;
+    HIP_CHECK(hipMemcpyAsync(e, p + cn - 8, 64, hipMemcpyDeviceToDevice, st)); HIP_CHECK(hipMemsetAsync(e + 8, 0, (size_t)(1 + VTR_SEG) * 8, st));
     k_vtr_hash<<<256, 256, 0, st>>>(p, cn, (unsigned long long *)(e + 8));
 }
 static void vtr_snap(int tag, const dbig *sh, size_t cn, hipStream_t st, int sync) { if (sh->q[0]) vtr_raw(tag, sh->q[0] + sh->off, cn, st, sync); }
@@ -1069,11 +1072,12 @@ void rns_dist_vtr_flush(const dbig *P, const dbig *Q)    /* mn.c tree_level, aft
     if (!vtr_on()) return;
     int l = vpe_lane(); vtr_snap(4, P, P->n, 0, 1); vtr_snap(5, Q, Q->n, 0, 0);
     HIP_CHECK(hipDeviceSynchronize());
-    int n = g_vtr[l].n; uint64_t h[VTR_MAX * 9];
-    if (n) HIP_CHECK(hipMemcpy(h, g_vtr[l].dev, (size_t)n * 72, hipMemcpyDeviceToHost));
-    for (int i = 0; i < n; i++) printf("vtr pe %d prod %ld tag %d cn %zu hash %016llx top: %llu %llu %llu %llu | %llu %llu %llu %llu\n", vpe_pe(), g_vtr[l].prod[i], g_vtr[l].tag[i], g_vtr[l].cn[i], (unsigned long long)h[9 * i + 8],
-        (unsigned long long)h[9 * i], (unsigned long long)h[9 * i + 1], (unsigned long long)h[9 * i + 2], (unsigned long long)h[9 * i + 3],
-        (unsigned long long)h[9 * i + 4], (unsigned long long)h[9 * i + 5], (unsigned long long)h[9 * i + 6], (unsigned long long)h[9 * i + 7]);
+    int n = g_vtr[l].n; static uint64_t h[VTR_MAX * VTR_W];
+    if (n) HIP_CHECK(hipMemcpy(h, g_vtr[l].dev, (size_t)n * VTR_W * 8, hipMemcpyDeviceToHost));
+    for (int i = 0; i < n; i++) { const uint64_t *e = h + (size_t)VTR_W * i;
+        printf("vtr pe %d prod %ld tag %d cn %zu hash %016llx top: %llu %llu %llu %llu | %llu %llu %llu %llu seg:", vpe_pe(), g_vtr[l].prod[i], g_vtr[l].tag[i], g_vtr[l].cn[i], (unsigned long long)e[8],
+               (unsigned long long)e[0], (unsigned long long)e[1], (unsigned long long)e[2], (unsigned long long)e[3], (unsigned long long)e[4], (unsigned long long)e[5], (unsigned long long)e[6], (unsigned long long)e[7]);
+        for (int k = 0; k < VTR_SEG; k++) printf(" %x", (unsigned)(e[9 + k] & 0xffff)); printf("\n"); }
     g_vtr[l].n = 0;
 }
 VPE_STATE(int, top_ok);
