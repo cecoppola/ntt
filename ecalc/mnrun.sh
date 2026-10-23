@@ -79,7 +79,9 @@ nn=$(echo "$nodes" | wc -l); [ "$nn" -gt "$P" ] && nn=$P
 [ -n "${MNRUN_NODES:-}" ] && [ "$nn" -gt "$MNRUN_NODES" ] && nn=$MNRUN_NODES   # Phase 16 P: at most this many nodes of the allocation (unset: all)
 while [ $((P % nn)) -ne 0 ]; do nn=$((nn - 1)); done
 per=$((P / nn))
-use=$(echo "$nodes" | head -n "$nn")
+case "${MNRUN_NODE_SKIP:-0}" in ''|*[!0-9]*) echo "mnrun.sh: MNRUN_NODE_SKIP=${MNRUN_NODE_SKIP}: a non-negative integer" >&2; exit 1;; esac
+[ $((nn + ${MNRUN_NODE_SKIP:-0})) -le "$(echo "$nodes" | wc -l)" ] || { echo "mnrun.sh: MNRUN_NODE_SKIP=${MNRUN_NODE_SKIP}: nodes ($nn) + skip exceed the allocation ($(echo "$nodes" | wc -l))" >&2; exit 1; }
+use=$(echo "$nodes" | tail -n +$((${MNRUN_NODE_SKIP:-0} + 1)) | head -n "$nn")   # MNRUN_NODE_SKIP=k: leave the first k nodes of the allocation out (diagnosis: which node a stall follows)
 copt=()
 # S32: MNRUN_LABEL=1 adds srun --label (every output line prefixed "<rank>: ").  (MNRUN_ARBITRARY, unused, was removed 2026-10-12.)
 [ "${MNRUN_ARBITRARY:-0}" = 0 ] || { echo "mnrun.sh: MNRUN_ARBITRARY was removed (2026-10-12, unused); unset it" >&2; exit 1; }
@@ -125,6 +127,17 @@ case "${ECALC_PE_PER_GPU:-0}" in 0|"") ;; 1)
     if [ $((PPN % PPG2)) != 0 ] || [ $((PPN / PPG2)) -lt 1 ]; then echo "mnrun.sh: $PPN processes per node are not a multiple of XSHMEM_PES_PER_GPU=$PPG2" >&2; exit 1; fi
     case "${MNRUN_PPG_GPUBIND:-none}" in none) gopt=(--gpus-per-node="$((PPN / PPG2))" --gpu-bind=none);;   # (XSHMEM_PES_PER_GPU=2: PPN PEs share PPN/2 GPUs)
     task) gopt=(--gpus-per-task=1);; *) echo "mnrun.sh: MNRUN_PPG_GPUBIND=$MNRUN_PPG_GPUBIND: none or task" >&2; exit 1;; esac
+    # Cray build (an ELF in the command carrying the XSHMEM=cray engine), one process per GPU: NUMA placement is the default (measured: stall-free, -4 s at 3 n 1e10; the Cray topo has no cpu list, so
+    # without it every process runs on all cpus and first-touches its heap anywhere): srun map_ldom + mem-bind local, and the process pins itself (XSHMEM_CRAY_NUMA=1).  Explicit values win; ofi builds unchanged.
+    if [ -z "${MNRUN_PPG_CPUBIND:-}" ] || [ -z "${XSHMEM_CRAY_NUMA+x}" ]; then
+        for a in "$@"; do case "$a" in -*|[A-Za-z_]*=*) continue;; esac
+            f=$(command -v -- "$a" 2>/dev/null) || continue; [ -f "$f" ] && [ -x "$f" ] || continue
+            head -c 4 "$f" 2>/dev/null | grep -q ELF || continue
+            if grep -qa 'xshmem_cray: ' "$f"; then   # the XSHMEM=cray engine only (an ofi build made with SHMEM_CRAY=1 also links libsma: unchanged)
+                [ -n "${MNRUN_PPG_CPUBIND:-}" ] || MNRUN_PPG_CPUBIND=ldom; [ -n "${XSHMEM_CRAY_NUMA+x}" ] || export XSHMEM_CRAY_NUMA=1
+                echo "mnrun.sh: Cray build under ECALC_PE_PER_GPU=1: MNRUN_PPG_CPUBIND=$MNRUN_PPG_CPUBIND XSHMEM_CRAY_NUMA=$XSHMEM_CRAY_NUMA (defaults for the Cray build)"; break; fi
+        done
+    fi
     case "${MNRUN_PPG_CPUBIND:-none}" in none|ldom) ;; *) echo "mnrun.sh: MNRUN_PPG_CPUBIND=$MNRUN_PPG_CPUBIND: none or ldom" >&2; exit 1;; esac
     echo "mnrun.sh: ECALC_PE_PER_GPU=1: $PPN processes per node ($([ "$PPG2" = 1 ] && echo "one per GPU" || echo "$PPG2 per GPU")), gpu ${MNRUN_PPG_GPUBIND:-none}, cpu ${MNRUN_PPG_CPUBIND:-none}, XSHMEM_LOOPBACK_PES=$XSHMEM_LOOPBACK_PES";;
   *) echo "mnrun.sh: ECALC_PE_PER_GPU=$ECALC_PE_PER_GPU: 0 or 1" >&2; exit 1;; esac

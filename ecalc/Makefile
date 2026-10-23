@@ -268,7 +268,7 @@ CRAY_SMA   ?= $(if $(CRAY_OPENSHMEMX_PREFIX),$(CRAY_OPENSHMEMX_PREFIX),/opt/cray
 CRAY_DSMML ?= $(if $(CRAY_DSMML_PREFIX),$(CRAY_DSMML_PREFIX),/opt/cray/pe/dsmml/0.3.1/dsmml)
 XSHMEM_CFLAGS = -DXSHMEM_CRAY -DUSE_HIP $(XSHMEM_CRAY_DEFS) -I$(CRAY_SMA)/include -I$(CRAY_DSMML)/include
 XSHMEM_LIBS   = -L$(CRAY_SMA)/lib64 -L$(CRAY_DSMML)/lib -L/opt/cray/pe/lib64 -lsma -lpmi -lpmi2 -ldsmml -Wl,-rpath,$(CRAY_SMA)/lib64 -Wl,-rpath,$(CRAY_DSMML)/lib -Wl,-rpath,/opt/cray/pe/lib64 -lpthread
-XOBJS         =
+XOBJS         = pe_geo_nb.o
 else ifneq ($(XSHMEM),0)
 $(error XSHMEM must be 0, ofi or cray)
 endif
@@ -280,6 +280,8 @@ xshmem_boot.o: xshmem_boot.c xshmem_boot.h
 	$(HIPC) $(XSHMEM_CFLAGS) -c $< -o $@
 pe_geo.o: pe_geo.c pe_geo.h
 	$(HIPC) $(XSHMEM_CFLAGS) -c $< -o $@
+pe_geo_nb.o: pe_geo.c pe_geo.h
+	$(HIPC) $(XSHMEM_CFLAGS) -DPE_GEO_NOBOOT -c $< -o $@
 tests/t_xshmem: tests/t_xshmem.c xshmem.h xshmem_cray.h $(XOBJS) tests/harness.h
 	$(HIPC) $(XSHMEM_CFLAGS) $< -x none $(XOBJS) $(XTEST_OBJS) -o $@ $(XSHMEM_LIBS) $(SHMEM_LIBS)
 ifeq ($(XSHMEM),ofi)

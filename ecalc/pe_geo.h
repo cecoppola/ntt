@@ -7,6 +7,9 @@
 #define PE_GEO_H
 #define PE_GEO_MAXNIC 16
 #define PE_GEO_CPUS 512
+#ifdef __cplusplus
+extern "C" {
+#endif
 typedef struct {
     int pe, npes;             /* rank in the job, size */
     int node, nnodes;         /* node = pe / pes_per_node (block launch) */
@@ -34,5 +37,8 @@ void pe_geo_str(const pe_topo *t, char *buf, int n);
  * SLURM_STEP_TASKS_PER_NODE (single number) or else counted from a node-identity allgather; GPU count and bus id from HIP
  * under USE_HIP. Aborts on failure. */
 void pe_geo_init(pe_topo *t);
+#endif
+#ifdef __cplusplus
+}
 #endif
 #endif

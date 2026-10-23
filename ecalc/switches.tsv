@@ -158,19 +158,32 @@ RNS_R3	int	derived	derived		experiment	-	P.md	Y	ecalc	rns_mul.c	2	coordinator (T
 RNS_STRATEGY	bool	derived	derived	0|1	built-in default	-	B13b.md+G13d.md	Y	ecalc	rns_dist.c	1	-	-	
 RNS_STRATEGY_CHECK	int	0	0		test-only	-	B13b.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
 RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	32	-	-	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
+XSHMEM_CRAY_GPU_PRETOUCH	int	0	0	0|1	experiment	-	-	Y	ecalc	xshmem_cray.h	1	craylane	2026-12-31	xshmem_cray.h; 1 = a GPU kernel reads one byte per 4 KiB page of the registered DATA heap at init (GPU page-table population)
+XSHMEM_CRAY_HEAP_THP	int	0	0	0|1|2	experiment	-	-	Y	ecalc	xshmem_cray.h	1	craylane	2026-12-31	xshmem_cray.h; XSHMEM_CRAY=cray DATA heap: 1 = MADV_HUGEPAGE before zeroing + MADV_COLLAPSE after, 2 = only report the backing (smaps line per PE)
+XSHMEM_CRAY_NOMEMSET	int	0	unset	0|1	experiment	-	-	Y	ecalc	xshmem_cray.h	1	craylane	2026-12-31	xshmem_cray.h; diagnosis: skip our zeroing of the DATA heap (libsma heap is a fresh zero mapping)
+XSHMEM_CRAY_NUMA	int	0	derived	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c,xshmem_cray.h	2	craylane	2026-12-31	comm_xshmem.c; Cray backend: pin the process to its NUMA node's cpus before libsma init (pe_geo; the Cray topo has no cpu list otherwise)
+XSHMEM_CRAY_PUTSIG_SPLIT	int	0	derived	0|1	experiment	-	-	Y	ecalc	xshmem_cray.h	1	craylane	2026-12-31	xshmem_cray.h; runtime override: 1 = putmem_nbi + fence + signal_set instead of the library putmem_signal_nbi
+XSHMEM_CRAY_SIGSET	int	0	derived	0|1|2|3	experiment	-	-	Y	ecalc	xshmem_cray.h	1	craylane	2026-12-31	xshmem_cray.h; runtime override of the compiled signal-set selector (0 shmemx_ctx_signal_set, 2 uint64_p, 3 zero-length putsig; 1 only if compiled with it)
+XSHMEM_CRAY_TEST	int	0	derived	0|1	experiment	-	-	Y	ecalc	xshmem_cray.h	1	craylane	2026-12-31	xshmem_cray.h; runtime override of the signal-test selector (1 = shmem_uint64_test)
 XSHMEM_CTRL	str	heap	unset	heap|host	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h xshmem_cfg_load; host = control words in a host region (design 1.3 b)
 XSHMEM_HEAP_MB	int	0	0	MiB per PE	experiment	-	-	Y	ecalc	binsplit.c,xshmem.h	4	TARGET1 (B1)	2026-12-31	xshmem.h; 0 = backend default; binsplit.c sets it under COMM_TRANSPORT=xshmem
 XSHMEM_HEAP_SLACK_MB	int	0	unset	MiB	experiment	-	-	Y	ecalc	comm_xshmem.c	2	TGTSHAPE	2026-12-31	comm_xshmem.c; MiB added to each loopback PE's DATA heap (default 0 = the plan's figure exactly); the Cray backend needs a few MiB more than the planner's heap (control and alignment come out of the same heap)
 XSHMEM_IPC	int	0	0	0|1	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h; ofi backend maps node-local heaps with hipIpc (xshmem_ptr)
 XSHMEM_LANES	int	1	1	1..4	experiment	-	-	Y	ecalc	pe_geo.c,xshmem.h	2	TARGET1 (B1)	2026-12-31	xshmem.h, pe_geo.c; lanes (contexts) per PE; may exceed the NICs (virtual lanes); the engine clamps above 4
+XSHMEM_LANE_CTX	str	serialized	unset	serialized|private|none	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; the options of the lane contexts (SHMEM_CTX_SERIALIZED / PRIVATE / none)
 XSHMEM_LANE_MIN_KB	int	256	unset	>=1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	TARGET1 (B1)	2026-12-31	comm_xshmem.c; smallest chunk per lane when XSHMEM_LANES > 1
+XSHMEM_LANE_POLL	int	0	unset	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; a waiting PE also polls its extra lanes (quiet on a lane with nothing outstanding)
+XSHMEM_LANE_TRACE	float	0	unset	>=0	experiment	-	-	Y	ecalc	comm_xshmem.c,xshmem_cray.h	3	craylane	2026-12-31	comm_xshmem.c; seconds: describe exchanges slower than this (per-lane quiet times) and time every lane quiet; 0 off
 XSHMEM_LOCAL	int	0	0	0|1	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h; engine uses xshmem_ptr node-local copies
 XSHMEM_LOOPBACK_PES	int	1	1	1..8	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (S3a)	2026-12-31	xshmem.h; PEs one process hosts in the ofi backend (PE = K*rank + l, own GPU/NIC/heap each); 1 = one PE per process
 XSHMEM_MRMODE	str	libsma	unset	libsma|ofi	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h; ofi backend memory-registration mode
 XSHMEM_OFI_SIG	str	dc	derived	dc|flush|waw	experiment	-	-	Y	ecalc	xshmem.h,xshmem_ofi.c	2	TARGET1 (B1)	2026-12-31	xshmem.h; ofi backend signal-after-data mode (design 1.4)
 XSHMEM_ORDER	str	rot	derived	rot|seq	experiment	-	-	Y	ecalc	comm_xshmem.c	1	TARGET1 (S3a)	2026-12-31	comm_xshmem.c; peer order of the offset words, puts and signals: rot = (me+q)%n (default, no incast on member 0), seq = rank order (the reference's)
-XSHMEM_PES_PER_GPU	int	1	1	>=1	experiment	-	-	Y	ecalc	ecalc.c,pe_geo.c,vpe.c,xshmem_cray.h	5	TARGET1 (B1)	2026-12-31	pe_geo.c; PEs per GPU (target fallback 2)
+XSHMEM_PES_PER_GPU	int	1	1	>=1	experiment	-	-	Y	ecalc	comm_xshmem.c,ecalc.c,pe_geo.c,vpe.c,xshmem_cray.h	7	TARGET1 (B1)	2026-12-31	pe_geo.c; PEs per GPU (target fallback 2)
 XSHMEM_ROUND_MB	float	128	derived	>= 0	experiment	-	-	Y	ecalc	comm_xshmem.c,xshmem_round.h	3	TARGET1 (S3a)	2026-12-31	comm_xshmem.c, xshmem_round.h; unset = 128 (Q73 2026-10-21; 0 where the engine polls: vPE, ECALC_PE_PER_GPU, ECALC_XEX_THREAD=0, planner and engine alike); 0 = off, whole-exchange staging; m > 0: an all-to-all whose pair exceeds m/(n-1) MiB goes in rounds staging at most m MiB each way (needs ECALC_XEX_THREAD=1); the planner sizes XSHMEM_HEAP_MB from it
+XSHMEM_SIG_LANES	int	0	unset	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; signals to member i go on lane i mod N (after every payload lane is quiet)
+XSHMEM_THP_DISABLE	int	0	derived	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; 1 = prctl(PR_SET_THP_DISABLE) at engine init (no THP faults in this process: avoids direct compaction stalls)
+XSHMEM_THREAD_LEVEL	int	3	unset	0|1|2|3	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; thread level of xshmem_init_thread (3 MULTIPLE default; 2 SERIALIZED as the ofi backend)
 XSHMEM_YIELD	int	1	unset	0|1	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (S1b)	2026-12-31	xshmem.h; 0 = the xshmem waits and the exchange worker never sched_yield (diagnostic for the vPE exchange latency, S1b); 1 = they do
 DIST_BIG	int	derived	derived		test-only	-	-	Y	tests	t_dist.c,t_mul.c	3	ecalc/tests/t_dist.c	2027-04-12	
 DIST_BIG_K	int	64	64		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	

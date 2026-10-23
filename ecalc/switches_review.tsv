@@ -118,3 +118,16 @@ ECALC_PE_PER_GPU	experiment	TARGET12 (S2)	2026-12-31	one process per GPU (PE); o
 ECALC_TEST_DIE_PE	diagnostic	TARGET12 (S2)	2027-04-12	fault-injection setting for the process-per-GPU kill test; changes no digit
 XSHMEM_HEAP_SLACK_MB	experiment	TGTSHAPE	2026-12-31	diagnostic for XSHMEM=cray runs, off by default
 RNS_BATCH_SPLIT	experiment	TARGET12 (S2)	2026-12-31	own-device split of oversized batch products under one process per GPU (Q75 a); off by default; review when adopted
+XSHMEM_LANE_TRACE	experiment	craylane	2026-12-31	Cray multi-lane stall diagnosis; review with XSHMEM_LANES
+XSHMEM_LANE_POLL	experiment	craylane	2026-12-31	Cray multi-lane stall diagnosis; review with XSHMEM_LANES
+XSHMEM_SIG_LANES	experiment	craylane	2026-12-31	Cray multi-lane stall diagnosis; review with XSHMEM_LANES
+XSHMEM_LANE_CTX	experiment	craylane	2026-12-31	Cray multi-lane stall diagnosis; review with XSHMEM_LANES
+XSHMEM_CRAY_HEAP_THP	experiment	craylane	2026-12-31	Cray stream-sync stall diagnosis (4 KiB pinned heap hypothesis)
+XSHMEM_THP_DISABLE	experiment	craylane	2026-12-31	Cray stall (direct compaction on a fragmented node)
+XSHMEM_CRAY_NUMA	experiment	craylane	2026-12-31	Cray speed work (gap to ofi)
+XSHMEM_THREAD_LEVEL	experiment	craylane	2026-12-31	Cray speed work (gap to ofi)
+XSHMEM_CRAY_SIGSET	experiment	craylane	2026-12-31	Cray speed work (gap to ofi)
+XSHMEM_CRAY_TEST	experiment	craylane	2026-12-31	Cray speed work (gap to ofi)
+XSHMEM_CRAY_PUTSIG_SPLIT	experiment	craylane	2026-12-31	Cray speed work (gap to ofi)
+XSHMEM_CRAY_NOMEMSET	experiment	craylane	2026-12-31	Cray init time
+XSHMEM_CRAY_GPU_PRETOUCH	experiment	craylane	2026-12-31	Cray first-exchange stream sync

@@ -77,3 +77,16 @@ ECALC_PE_PER_GPU	0	bool	0/1	experiment	vpe.c, mem.c; 1 = one process per GPU (PE
 ECALC_TEST_DIE_PE	-1	int	-1..	test-only	ecalc.c; kill test (ECALC_PE_PER_GPU gate): PE <n> dies by ec_fatal after the bs phase; unset = off
 XSHMEM_HEAP_SLACK_MB	0	int	MiB	experiment	comm_xshmem.c; MiB added to each loopback PE's DATA heap (default 0 = the plan's figure exactly); the Cray backend needs a few MiB more than the planner's heap (control and alignment come out of the same heap)
 RNS_BATCH_SPLIT	0	int	0|1|20..29	experiment	rns_mul.c; Q75 a: 0 = off (default, byte-identical); 1 = on under ECALC_PE_PER_GPU=1: a batch product too large for the one device's plane pool is cut into operand pieces (a ka x kb grid, each piece product through the local tier, summed into C with carries; temporaries in the pinned staging, 2 GiB per PE when the switch is 1); k in 20..29 = forced in any mode, pieces of at most 2^k limbs (tests); the planner prints the split lines instead of REFUSED
+XSHMEM_LANE_TRACE	0	float	>=0	experiment	comm_xshmem.c; seconds: describe exchanges slower than this (per-lane quiet times) and time every lane quiet; 0 off
+XSHMEM_LANE_POLL	0	int	0|1	experiment	comm_xshmem.c; a waiting PE also polls its extra lanes (quiet on a lane with nothing outstanding)
+XSHMEM_SIG_LANES	0	int	0|1	experiment	comm_xshmem.c; signals to member i go on lane i mod N (after every payload lane is quiet)
+XSHMEM_LANE_CTX	serialized	str	serialized|private|none	experiment	comm_xshmem.c; the options of the lane contexts (SHMEM_CTX_SERIALIZED / PRIVATE / none)
+XSHMEM_CRAY_HEAP_THP	0	int	0|1|2	experiment	xshmem_cray.h; XSHMEM_CRAY=cray DATA heap: 1 = MADV_HUGEPAGE before zeroing + MADV_COLLAPSE after, 2 = only report the backing (smaps line per PE)
+XSHMEM_THP_DISABLE	0	int	0|1	experiment	comm_xshmem.c; 1 = prctl(PR_SET_THP_DISABLE) at engine init (no THP faults in this process: avoids direct compaction stalls)
+XSHMEM_CRAY_NUMA	0	int	0|1	experiment	comm_xshmem.c; Cray backend: pin the process to its NUMA node's cpus before libsma init (pe_geo; the Cray topo has no cpu list otherwise)
+XSHMEM_THREAD_LEVEL	3	int	0|1|2|3	experiment	comm_xshmem.c; thread level of xshmem_init_thread (3 MULTIPLE default; 2 SERIALIZED as the ofi backend)
+XSHMEM_CRAY_SIGSET	0	int	0|1|2|3	experiment	xshmem_cray.h; runtime override of the compiled signal-set selector (0 shmemx_ctx_signal_set, 2 uint64_p, 3 zero-length putsig; 1 only if compiled with it)
+XSHMEM_CRAY_TEST	0	int	0|1	experiment	xshmem_cray.h; runtime override of the signal-test selector (1 = shmem_uint64_test)
+XSHMEM_CRAY_PUTSIG_SPLIT	0	int	0|1	experiment	xshmem_cray.h; runtime override: 1 = putmem_nbi + fence + signal_set instead of the library putmem_signal_nbi
+XSHMEM_CRAY_NOMEMSET	0	int	0|1	experiment	xshmem_cray.h; diagnosis: skip our zeroing of the DATA heap (libsma heap is a fresh zero mapping)
+XSHMEM_CRAY_GPU_PRETOUCH	0	int	0|1	experiment	xshmem_cray.h; 1 = a GPU kernel reads one byte per 4 KiB page of the registered DATA heap at init (GPU page-table population)
