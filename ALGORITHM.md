@@ -193,8 +193,9 @@ piece products:
   or above w (low products, the band of the reciprocal) or ends at or below `lowcut` (high products whose low limbs are
   discarded). Entry points: `rns_mul_dist_db`, `rns_mul_low_db` (A·B mod B^w), `rns_mul_high_db` (only C ≫ cut used),
   `rns_mul_band_db` (both cuts), and the `_mn` counterparts;
-- a **transform cache** keeps the forward transform of an operand reused by several pieces (or by the reciprocal's last
-  doubling and the division's X·Q), sized to the cap and counted in the memory budget (built in).
+- a **transform cache** keeps the forward transform of an operand reused by several pieces of one grid product (entries
+  never outlive the product: two products sharing an operand transform it twice), sized to the cap and counted in the
+  memory budget (built in).
 
 ## 5. Reciprocal and division
 

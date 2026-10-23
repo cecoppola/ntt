@@ -10,6 +10,7 @@ Owner of the items below (condensed 2026-10-19; full originals in `archive:resul
 | apumult_F2 | categories B (madvise), C (in-place), E (instrumentation), F (kernel variants) against ntt/ |
 | apumult_M | disk and APU memory measurements (aac6) |
 | apumult_R | research: spilling to SSD and releasing memory on MI300A |
+| AP34 | the later apumult optimization list (items A1-A34) against ecalc `main` 4b5bb14 (2026-10-23) |
 
 ## Topic summary
 
@@ -184,3 +185,34 @@ madvise(DONTNEED): on malloc/mmap anonymous memory returns pages to the buddy al
 **Implications.** (a) Spill rules: O_DIRECT for every write and read-back (never buffered, never `/tmp`); pinned hipHostMalloc bounce ring (hipMalloc pointer cannot be the O_DIRECT buffer); buffered output followed by `fdatasync` + `fadvise(DONTNEED)`; release device memory by `hipFree` of chunks or VMM, not madvise; watchdogs must count TTM-pool pages as reclaimable. (b) aac6 about 165 s per 200 GB round trip, not hideable behind a 112 s run at 4e10: test correctness there, not performance; target likely 50-100 s per 200 GB (L). apumult's own figures fit: 3.4x digits at 3.2x slower at 4e10 (234.8 against 73.1 s). (c) Release is cheap; the expensive part is the SSD round trip. Recommendation: chunked device allocations behind the block pool; VMM only if a flat contiguous VA is needed.
 
 **Tests to run on aac6 (1 minute each; several were later covered by agent M or the VMM probe).** VMM support and granularity attributes plus a 64 x 1 GiB create/map/unmap timing; O_DIRECT pread into hipMalloc (EFAULT expected) / hipHostMalloc / posix_memalign; madvise on a hipMalloc pointer (EINVAL expected); fio write/read bandwidth curve with `nvme id-ctrl` (repeat on `/ssd0`); page-cache effect on an NTT pass after a 100 GB buffered write, with and without `fadvise(DONTNEED)`.
+
+## AP34 — the apumult A1-A34 optimization list against ecalc (2026-10-23)
+
+Read-only review of a later apumult list (34 items, "optimizations not present in ntt") against `main` 4b5bb14 and the
+verdicts above. No code run; numbers are quoted with their labels. Verdicts: **new** (a TASKS "Proposed" row),
+**have** (ecalc already does it), **closed** (measured or rejected before), **n/a** (does not apply to ecalc's design).
+
+| item | apumult technique | verdict | why |
+|---|---|---|---|
+| A1 | GPU seed kernel (512 products per leaf) | new (re-gate) | A37-R1 closed NO-GO because mapping bound init under the node-process layout (S22, +0.55 s); one process per GPU maps about 7x faster, so the seed may bind now: TASKS row |
+| A2 | Stirling-balanced leaf boundaries | closed | rejected in A37CMP (#20); `BS_SEED_FILL` already sizes spans from `lgammal` per run |
+| A3, A7, A10, A32 | M-2 extent recurrence, d-scaled margin, per-level extent probes, single-pass helper | n/a | regions are laid out by an exact model (`mem_model.py --check-c`, within 0.6 GB measured) on VMM arenas that remap; the open margin lever is TASKS `BS_ARENA_ROOM` |
+| A4 | ping-pong dual arena | have | two level pools of alternating parity (ALGORITHM §3, §8) |
+| A5 | Newton truncation 2j+3 | n/a | ecalc's correction form takes 2j+2 limbs with the guarded anchored chain (error ≤ 8 units, results/DIVISION.md §RECIP); wider is not faster |
+| A6 | Barrett tail high product with skipped sub-products | have | high products skip pieces below the cut (`rns_mul_high_db`, `grid_piece_skipped`), the reciprocal's products are band/high cuts |
+| A8 | budget-gated background checkpoint | n/a | the only checkpoint (`ECALC_CKPT_TOP`) is off by default; the output writer is already hidden under the division |
+| A9, A18, A19, A20, A33 | adversarial kernel harness, gate ladder with fault grep, soak, T2 windows, gate-removal audit | n/a (method) | not performance items; ecalc has TESTING.md gates, T1 residues on 8 primes plus T2 windows, the switch registry audit; the soak gap is TASKS "G2 soak" |
+| A11 | P and Q arenas split over dies | closed | rejected (#24: local HBM 3.8 TB/s against 93 GB/s remote, m); ecalc already spreads numbers over the four APUs (`dbig` quarters, regions) |
+| A12, A13 | zero-copy root P, Q and A as arena views | have | P, Q pass to the block pool without copy; A = S·B^dl is never formed |
+| A14 | asynchronous pinned-staging pre-grow | closed | init reorderings K8 each lost 2.0-11.5 s (m); remaining start-up items are TASKS "Default start-up time" and "Start-up shortening" |
+| A15 | three-tier dispatch thresholds | new (probe) | school tier measured and removed (loss 42-59 s, m); the batch/device boundary (`BS_MDEV_LOGL`) was never timed: TASKS row |
+| A16 | shared operand's forward transform reused by the second product | new | the batch tier pairs products that share an operand, but the device top levels and the tree levels transform Q_B twice (the transform cache empties after each product): TASKS row |
+| A17 | two-term reciprocal modmul, one correction | have | `mm_lazy` (ALGORITHM §4.2); apumult's g3r3 is the slower form |
+| A21-A24 | per-node leaf ranges, log2 P reduction tree, β-transpose and c_top·log2 P models | have | node ranges and `MN_GROUPS` tree (ALGORITHM §3, §6.5); `estimate.py` / `mn_model.py`; ecalc's measured multi-node cost is the exchange, not c_top |
+| A25, A26, A27 | fused CRT + carry, added operand fused into the CRT, CRT writes the result in place | have | `k_crt_batch` / `k_crt24` with LDS carry-lookahead, P₂ as the added operand, results written into the destination `dbig` |
+| A28, A30, A31 | `HSA_XNACK=1` hipMalloc arena; SDMA and GPU-write hazards under XNACK | closed / n/a | XNACK=1 was 2x slower (1e10 80 -> 159 s, m); with XNACK off the two hazards do not arise (GPU writes go to device memory or registered pinned pools) |
+| A29 | 101 GB usable per die | have | measured device edge 93.36 GB per APU, `ECALC_DEVICE_GB` budget and the memory fit (ALGORITHM §8) |
+| A34 | ω derived from an order-2^44 root | have | `ec_root` derives any 2^logn up to v2(p - 1) = 44 from the generator; `tests/t_roots` checks order and the root chain |
+
+Side finding: ALGORITHM §4.5 still said the transform cache served the reciprocal's last doubling and the division's X·Q
+(stale since the held slots were removed 2026-10-11); corrected in the same merge.

@@ -30,6 +30,7 @@ inventory, read by tools), `DESIGN_TABLE.md` (generated), `SHMEM.md`, `SHMEM_STA
 | apumult_M | apumult spill study: disk and APU memory measurements (agent M) | APUMULT.md |
 | apumult_R | spilling to SSD and releasing memory on MI300A (research findings) | APUMULT.md |
 | apumult_summary |  | APUMULT.md |
+| AP34 | the apumult A1-A34 optimization list against ecalc (2026-10-23) | APUMULT.md |
 | AS15 | Phase 15 Batch 2, row 2: arena sizing for `BS_SEED_FILL=128` (the division's VMM remaps) | MEMORY.md |
 | AUD2 | removal / consolidation audit of C/HIP sources, tests and Makefile (read-only, 2026-10-12) | CODE_REDUCTION.md |
 | AUD3 | where ecalc's algorithms and code structure can be simpler and smaller (read-only audit, 2026-10-12) | CODE_REDUCTION.md |
