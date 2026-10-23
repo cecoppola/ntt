@@ -216,3 +216,13 @@ verdicts above. No code run; numbers are quoted with their labels. Verdicts: **n
 
 Side finding: ALGORITHM §4.5 still said the transform cache served the reciprocal's last doubling and the division's X·Q
 (stale since the held slots were removed 2026-10-11); corrected in the same merge.
+
+**Measured follow-ups (2026-10-23, aac7 item 9zu4, main 53778c7, 1 node, 1e11 digits, every run VERIFY OK).**
+- A1, start-up timeline (`ECALC_INIT_TL=1`), layout D, 2 runs: plane pools done 7.5 / 6.2 s, last background mapping 37.4 / 37.9 s,
+  seed thread ends 51.5 / 52.0 s (seed − mapping +14.1 s both), bs level 1 starts 52.0 / 52.4 s; totals 142.3 / 139.2 s (init 38.5 / 38.9,
+  bs 61.6 / 56.5, dm 42.2 / 43.7). Layout P (`ECALC_PE_PER_GPU=1 RNS_BATCH_SPLIT=1`): seed threads end 21.7 / 19.9 s, mappings 24.0 / 13.5 s,
+  but both runs stopped at the host budget check (rc 8) before bs, so P has no full run. Without `RNS_BATCH_SPLIT=1` the planner refuses
+  P at 1 n at both 1e11 and 5e10 (item 9zu3).
+- A15, `BS_MDEV_LOGL` 28 / 29 / 30 / 30 (layout D, one run each): totals 135.07 / 127.45 / 136.89 / 131.62 s; bs 61.3 / 57.0 / 57.1 / 56.5 s.
+  The batch tier is faster than the device tier at the levels that move (level 22: batch 1.80 s vs device 3.87 s; level 23: 2.86 vs 3.83 s),
+  so 28 loses about 4 s of bs and 29 equals 30 within noise; the default stays (OPPORTUNITIES, rejected).
