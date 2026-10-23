@@ -119,7 +119,7 @@ void k_crt24(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const u
         const long long xl = (long long)x1 - 3, xh = (long long)x1 - 1;
         for (int u = 0; u < 4; u++) {
             size_t l = L1 + (size_t)u; uint64_t sm = cy;
-            long long xa = (long long)p24_xceil(l - 3), xb = (long long)p24_xfl(l);
+            long long xa = (long long)p24_xceil(l >= 3 ? l - 3 : 0), xb = (long long)p24_xfl(l);
             if (xa < xl) xa = xl; if (xa < 0) xa = 0; if (xb > xh) xb = xh;
             for (long long x = xa; x <= xb; x++) sm += E[x - xl][l - p24_L((size_t)x)];
             cy = sm / BB; spill[4 * j + u] = sm - cy * BB;
