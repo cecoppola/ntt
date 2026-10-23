@@ -169,6 +169,8 @@ def main(argv):
     if g > 1:
         penv.setdefault("COMM_TRANSPORT", "shmem")   # (mnrun.sh's print-env gave the transport it picks: xshmem with the engine, Q73)
     penv["MN_PLAN_ONLY"] = "%d:%d" % (d, g)
+    if env.get("ECALC_PE_PER_GPU") == "1":                          # one process per GPU: the engine reads the PEs per node from srun, which a plan-only call has not (as mnrun.sh gives its own plan call)
+        penv["SLURM_NTASKS_PER_NODE"] = env.get("MNRUN_PPG_PPN") if (env.get("MNRUN_PPG_PPN") or "").isdigit() else "4"
     r = subprocess.run(["bash", "-lc", PRE, "_", "env", ecalc], env=penv, capture_output=True, text=True)
     out = r.stdout
     head = re.search(r"^== MN_PLAN_ONLY: .*?pool_log (\d+),.*?MN_GROUPS (.*?) ==$", out, re.M)

@@ -57,7 +57,8 @@ PE_GEO_SYSFS_ROOT		str	path prefix	test-only	pe_geo.c; prefix of every /sys path
 XSHMEM_CTRL	heap	str	heap|host	experiment	xshmem.h xshmem_cfg_load; host = control words in a host region (design 1.3 b)
 XSHMEM_HEAP_MB	0	int	MiB per PE	experiment	xshmem.h; 0 = backend default; binsplit.c sets it under COMM_TRANSPORT=xshmem
 XSHMEM_IPC	0	int	0|1	experiment	xshmem.h; ofi backend maps node-local heaps with hipIpc (xshmem_ptr)
-XSHMEM_LANES	1	int	>=1	experiment	xshmem.h, pe_geo.c; lanes (contexts) per PE; may exceed the NICs (virtual lanes)
+XSHMEM_LANES	1	int	1..4	experiment	xshmem.h, pe_geo.c; lanes (contexts) per PE; may exceed the NICs (virtual lanes); the engine clamps above 4
+XSHMEM_LANE_MIN_KB	256	int	>=1	experiment	comm_xshmem.c; smallest chunk per lane when XSHMEM_LANES > 1
 XSHMEM_LOCAL	0	int	0|1	experiment	xshmem.h; engine uses xshmem_ptr node-local copies
 XSHMEM_LOOPBACK_PES	1	int	1..8	experiment	xshmem.h; PEs one process hosts in the ofi backend (PE = K*rank + l, own GPU/NIC/heap each); 1 = one PE per process
 XSHMEM_YIELD	1	int	0|1	experiment	xshmem.h; 0 = the xshmem waits and the exchange worker never sched_yield (diagnostic for the vPE exchange latency, S1b); 1 = they do
@@ -74,4 +75,5 @@ ECALC_VPE_CHAIN	own	str	own|leader	experiment	newton_db.c; the vPE reciprocal ch
 ECALC_VPE_BG_THREADS	0	int	0..	experiment	ecalc.c; background OpenMP team of one PE (recurrence, writer) with ECALC_VPE=1; 0 = CPUs / lanes (48 on aac7; with ECALC_PE_PER_GPU the process's affinity mask); only with ECALC_VPE=1
 ECALC_PE_PER_GPU	0	bool	0/1	experiment	vpe.c, mem.c; 1 = one process per GPU (PE; srun 4 tasks per node, SLURM_LOCALID, xshmem K = 1, implies the vPE view); needs COMM_TRANSPORT=xshmem and make XSHMEM=ofi; launch by mnrun.sh; aborts "stages not merged" until S2a..S2d are all in
 ECALC_TEST_DIE_PE	-1	int	-1..	test-only	ecalc.c; kill test (ECALC_PE_PER_GPU gate): PE <n> dies by ec_fatal after the bs phase; unset = off
+XSHMEM_HEAP_SLACK_MB	0	int	MiB	experiment	comm_xshmem.c; MiB added to each loopback PE's DATA heap (default 0 = the plan's figure exactly); the Cray backend needs a few MiB more than the planner's heap (control and alignment come out of the same heap)
 RNS_BATCH_SPLIT	0	int	0|1|20..29	experiment	rns_mul.c; Q75 a: 0 = off (default, byte-identical); 1 = on under ECALC_PE_PER_GPU=1: a batch product too large for the one device's plane pool is cut into operand pieces (a ka x kb grid, each piece product through the local tier, summed into C with carries; temporaries in the pinned staging, 2 GiB per PE when the switch is 1); k in 20..29 = forced in any mode, pieces of at most 2^k limbs (tests); the planner prints the split lines instead of REFUSED

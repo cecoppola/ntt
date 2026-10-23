@@ -52,6 +52,7 @@
 #define SYNC(st) do { int ph_ = ec_ph(EC_PH_HIP_SYNC); HIP_CHECK(hipStreamSynchronize(st)); ec_ph(ph_); } while (0)
 #define MAXID 1024                         /* communicator ids (control blocks) */
 #define MAXID_VPE 512                      /* ... with ECALC_VPE (flat PE communicators: the control block grows with the PE count) */
+#define MAXL 4                             /* lane contexts per PE (XSHMEM_LANES) */
 #define MAXLPE 8                           /* loopback PEs per process */
 #define MAXPEND 256                        /* exchanges one worker can hold */
 #define ALIGN 256
@@ -65,7 +66,7 @@ enum { W_ROFF, W_SIG, W_VAL0, W_VAL1, W_VSEQ0, W_VSEQ1, W_SOFF, W_N };
 struct xblk { size_t off, len; int used; struct xblk *next; };
 struct xpriv;
 typedef struct xpe {                       /* one loopback PE of this process */
-    int lpe; xshmem_ctx_t lane;
+    int lpe; xshmem_ctx_t lane; xshmem_ctx_t lanes[MAXL];   /* lane = lanes[0] */
     char *data; size_t dlen; uint64_t *ctrl;
     pthread_mutex_t alock; struct xblk *blocks; size_t cur, peak, symcur, sympeak;
     pthread_t th; int th_on, stop; volatile int busy; pthread_mutex_t qm; pthread_cond_t qcv; struct xpriv *queue[MAXPEND]; volatile int nq;
@@ -76,6 +77,7 @@ static struct {
     pthread_mutex_t lock;                  /* init and the counters */
     uint64_t maxseq; size_t dbytes;
     xpe pe[MAXLPE]; unsigned char used[MAXLPE][MAXID];
+    int nl; size_t lmin; unsigned long long lb[MAXL];   /* XSHMEM_LANES > 1: lanes in use, the smallest chunk per lane, payload bytes put per lane */
 } X = { 1, 0, {0}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, PTHREAD_MUTEX_INITIALIZER, 0, 0, {}, {} };
 
 #define YIELD() do { if (X.yield) sched_yield(); } while (0)
@@ -150,6 +152,21 @@ static void die(const xpriv *p, const char *m) { ec_fatal(EC_RC_FATAL, "comm_xsh
 #define WORD(p, w, i) ((p)->lp->ctrl + ((size_t)(p)->id * W_N + (w)) * (size_t)X.nw + (i))
 static void enter(xpriv *p) { if (__atomic_exchange_n(&p->inuse, 1, __ATOMIC_ACQUIRE)) die(p, "two threads inside one communicator"); XSHMEM_SELECT(p->lpe); }
 static void leave(xpriv *p) { __atomic_store_n(&p->inuse, 0, __ATOMIC_RELEASE); }
+/* Lane striping (XSHMEM_LANES = N > 1; N = 1 is the unchanged single-context path).  A payload put of len bytes goes as N contiguous chunks, chunk k on
+ * lane k (a 256 B multiple), when len >= N x XSHMEM_LANE_MIN_KB (default 256 KiB); a smaller one stays whole on lane 0.  The returned mask names the lanes used:
+ * the caller quiets every lane of the mask (lane_quiet) BEFORE any signal_set, and the signals all go on lane 0, so each signal follows the completion
+ * (at the target) of every payload chunk, whatever lane carried it (xshmem.h: quiet returns when the puts are complete at their targets). */
+static unsigned lane_put(xpe *lp, void *dst, const void *src, size_t len, int pe)
+{
+    int N = X.nl;
+    if (N <= 1) { xshmem_ctx_putmem_nbi(lp->lane, dst, src, len, pe); return 1; }
+    if (len < (size_t)N * X.lmin) { xshmem_ctx_putmem_nbi(lp->lanes[0], dst, src, len, pe); __atomic_add_fetch(&X.lb[0], len, __ATOMIC_RELAXED); return 1; }
+    size_t ch = (((len + (size_t)N - 1) / (size_t)N) + 255) & ~(size_t)255; unsigned m = 0;
+    for (int k = 0; k < N; k++) { size_t o = (size_t)k * ch; if (o >= len) break; size_t l = len - o < ch ? len - o : ch;
+        xshmem_ctx_putmem_nbi(lp->lanes[k], (char *)dst + o, (const char *)src + o, l, pe); __atomic_add_fetch(&X.lb[k], l, __ATOMIC_RELAXED); m |= 1u << k; }
+    return m;
+}
+static void lane_quiet(xpe *lp, unsigned m) { for (int k = 0; k < (X.nl > 1 ? X.nl : 1); k++) if (m >> k & 1) xshmem_ctx_quiet(lp->lanes[k]); }
 
 /* the sender's half of the pending exchange (worker, or the APU thread in poll-only mode).  Returns 1 when done (every slab put, signalled,
  * quieted); the caller then publishes flushed.  Touches only the exchange's constant fields and `posted` / `nposted` / `touched`. */
@@ -162,12 +179,12 @@ static int xex_send(xpriv *p)
         if (!sigge(w, PACK(seq, 0))) continue;
         uint64_t v = rd64(w);
         if ((v >> 40) != seq) die(p, "offset sequence mismatch");
-        if (p->scnt[i]) { xshmem_ctx_putmem_nbi(p->lp->lane, xshmem_at((ptrdiff_t)(v & VMASK)), p->sbase + p->soff[i], p->scnt[i], p->pe[i]); p->touched = 1; }
+        if (p->scnt[i]) p->touched |= (int)lane_put(p->lp, xshmem_at((ptrdiff_t)(v & VMASK)), p->sbase + p->soff[i], p->scnt[i], p->pe[i]);
         p->posted[i] = 1; p->nposted++;
     }
     if (p->nposted < n) return 0;
     p->t_a = now_s();
-    if (p->touched) xshmem_ctx_quiet(p->lp->lane);                                   /* the batched flush: every payload visible */
+    if (p->touched) lane_quiet(p->lp, (unsigned)p->touched);                         /* the batched flush: every payload visible (every lane used) */
     p->t_p = now_s();
     for (int q = 0; q < n; q++) { int i = ORD(p, q); if (i != p->me) xshmem_ctx_signal_set(p->lp->lane, WORD(p, W_SIG, p->me), PACK(seq, p->scnt[i]), p->pe[i]); }
     xshmem_ctx_quiet(p->lp->lane);                                                   /* the signals are out too: sb reusable */
@@ -241,11 +258,11 @@ static int xex_round(xpriv *p)    /* one step; 1 when every round is done (the p
                 if (!sigge(w, PACK(seq, 0))) continue;
                 uint64_t v = rd64(w); if ((v >> 40) != seq) die(p, "round sequence mismatch");
                 size_t len = rlen(p->scnt[i], c, j);
-                if (len) { xshmem_ctx_putmem_nbi(lp->lane, xshmem_at((ptrdiff_t)(v & VMASK)), p->sin ? p->vsb + p->sdsp[i] + o : lp->data + p->sst + p->spre[i], len, p->pe[i]); p->touched = 1; }
+                if (len) p->touched |= (int)lane_put(lp, xshmem_at((ptrdiff_t)(v & VMASK)), p->sin ? p->vsb + p->sdsp[i] + o : lp->data + p->sst + p->spre[i], len, p->pe[i]);
                 p->posted[i] = 1; p->rdone++;
             }
             if (p->rdone < p->rneed) return 0;
-            if (p->touched) xshmem_ctx_quiet(lp->lane);
+            if (p->touched) lane_quiet(lp, (unsigned)p->touched);
             for (int q = 0; q < n; q++) { int i = ORD(p, q); if (i != me && j < rcount(p->scnt[i], c))
                 xshmem_ctx_signal_set(lp->lane, WORD(p, W_SIG, me), PACK(p->oseq[i] + 1 + j, rlen(p->scnt[i], c, j)), p->pe[i]); }
             p->rdone = 0; p->rneed = 0;
@@ -533,11 +550,16 @@ int comm_xshmem_init(void)
     X.K = K; XSHMEM_SELECT(0);
     int np = xshmem_n_pes(); if (np % K) ec_fatal(EC_RC_FATAL, "comm_xshmem: %d PEs are not whole processes of %d loopback PEs\n", np, K);
     X.nodes = np / K; X.q = xshmem_my_pe() / K;
+    int nlw = cfg.lanes > 1 ? (cfg.lanes > MAXL ? MAXL : cfg.lanes) : 1; X.nl = nlw; if (cfg.lanes > MAXL && xshmem_my_pe() == 0) fprintf(stderr, "comm_xshmem: XSHMEM_LANES=%d clamped to %d (the limit)\n", cfg.lanes, MAXL);
+    { const char *em = getenv("XSHMEM_LANE_MIN_KB"); X.lmin = (em && atol(em) > 0 ? (size_t)atol(em) : 256) << 10; }
     for (int l = 0; l < K; l++) {                                     /* lane contexts first, in order, before any heap (xshmem.h: lane order) */
         XSHMEM_SELECT(l); xpe *lp = &X.pe[l]; lp->lpe = l;
-        if (xshmem_ctx_create(XSHMEM_CTX_SERIALIZED, &lp->lane)) ec_fatal(EC_RC_FATAL, "comm_xshmem: PE %d: no context for the lane\n", K * X.q + l);
+        if (xshmem_ctx_create(XSHMEM_CTX_SERIALIZED, &lp->lanes[0])) ec_fatal(EC_RC_FATAL, "comm_xshmem: PE %d: no context for the lane\n", K * X.q + l);
+        lp->lane = lp->lanes[0];
+        for (int k = 1; k < nlw; k++) if (xshmem_ctx_create(XSHMEM_CTX_SERIALIZED, &lp->lanes[k])) ec_fatal(EC_RC_FATAL, "comm_xshmem: PE %d: no context for lane %d (XSHMEM_LANES=%d: the backend serves fewer)\n", K * X.q + l, k, nlw);
     }
     size_t db = cfg.heap_mb > 0 ? (size_t)cfg.heap_mb << 20 : ((getenv("COMM_OFI_POOL_MB") ? (size_t)atol(getenv("COMM_OFI_POOL_MB")) : (getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : 8192) / 4 + 256) << 20);
+    if (getenv("XSHMEM_HEAP_SLACK_MB")) db += (size_t)atol(getenv("XSHMEM_HEAP_SLACK_MB")) << 20;   /* (default off: the Cray backend takes the control and alignment out of the same heap: the plan's figure is exact, a few MiB more are needed there) */
     db = round_up(db); X.dbytes = db;
     X.nw = vpe_on() ? K * X.nodes : X.nodes; X.maxid = vpe_on() ? MAXID_VPE : MAXID;
     size_t cb = (size_t)X.maxid * W_N * (size_t)X.nw * 8;
@@ -617,11 +639,12 @@ void comm_xshmem_finalize(void)
         else pthread_join(X.pe[l].th, 0);
         X.pe[l].th_on = 0;
     }
-    for (int l = 0; l < X.K; l++) { XSHMEM_SELECT(l); xshmem_ctx_quiet(X.pe[l].lane); }
+    for (int l = 0; l < X.K; l++) { XSHMEM_SELECT(l); lane_quiet(&X.pe[l], (1u << (X.nl > 1 ? X.nl : 1)) - 1); }
     XSHMEM_SELECT(0); xshmem_barrier_all();
     if (X.q == 0) {
         size_t pk = 0; for (int l = 0; l < X.K; l++) if (X.pe[l].peak > pk) pk = X.pe[l].peak;
         xsplit_print();
+        if (X.nl > 1) { fprintf(stderr, "comm_xshmem: node-process %d: lanes %d (chunk >= %zu KiB), payload GB put per lane (this process):", X.q, X.nl, X.lmin >> 10); for (int k = 0; k < X.nl; k++) fprintf(stderr, " %.2f", X.lb[k] / 1e9); fprintf(stderr, "\n"); }
         fprintf(stderr, "comm_xshmem: node-process %d: %ld exchanges, %.2f s post to completion (summed over the APU threads), %.2f GB received = %.2f GB/s per APU thread; DATA heap peak %zu MiB of %zu; largest exchange sequence %llu of %llu; %ld exchanges in rounds (%ld rounds)\n",
                 X.q, X.nev, X.tv, X.bv / 1e9, X.tv > 0 ? X.bv / 1e9 / X.tv : 0.0, pk >> 20, X.dbytes >> 20, (unsigned long long)X.maxseq, (unsigned long long)SEQ_LIMIT, X.nrex, X.nrounds);
     }

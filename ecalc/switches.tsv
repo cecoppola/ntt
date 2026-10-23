@@ -94,7 +94,7 @@ ECALC_ODIRECT	int	1	1		built-in default	-	S114.md+KP15.md	Y	ecalc	spill.c	3	-	-
 ECALC_OUT_MODE	bool	derived	derived	0|1	built-in default	-	IO15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_ODIRECT	int	derived	derived		built-in default	-	S114.md+KP15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_PACKED	int	2	2		built-in default	-	KP15.md+IO15.md	Y	ecalc	mn_out.c	1	coordinator (TASKS S)	2026-11-11	
-ECALC_PE_PER_GPU	bool	0	derived	0/1	experiment	-	-	Y	ecalc	mem.c,vpe.c	2	TARGET12 (S2)	2026-12-31	vpe.c, mem.c; 1 = one process per GPU (PE; srun 4 tasks per node, SLURM_LOCALID, xshmem K = 1, implies the vPE view); needs COMM_TRANSPORT=xshmem and make XSHMEM=ofi; launch by mnrun.sh; aborts "stages not merged" until S2a..S2d are all in
+ECALC_PE_PER_GPU	bool	0	derived	0/1	experiment	-	-	Y	ecalc	ecalc.c,mem.c,vpe.c	3	TARGET12 (S2)	2026-12-31	vpe.c, mem.c; 1 = one process per GPU (PE; srun 4 tasks per node, SLURM_LOCALID, xshmem K = 1, implies the vPE view); needs COMM_TRANSPORT=xshmem and make XSHMEM=ofi; launch by mnrun.sh; aborts "stages not merged" until S2a..S2d are all in
 ECALC_PLANE_CAP	bool	derived	derived	0|1	experiment	-	P13b.md+CAP17.md	Y	ecalc	ecalc.c	1	coordinator (TASKS S)	2026-11-11	
 ECALC_PLANE_CAP_IDX	int	derived	derived		test-only	-	-	Y	ecalc	binsplit.c,ecalc.c	3	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	
 ECALC_RECHECK	bool	0	unset	0|1	launch-line	-	V.md+KP15.md	Y	ecalc	ecalc.c	2	-	-	ecalc.c: standalone recheck of a finished run
@@ -160,14 +160,16 @@ RNS_STRATEGY_CHECK	int	0	0		test-only	-	B13b.md	Y	ecalc	rns_dist.c	1	diagnostics
 RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	32	-	-	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
 XSHMEM_CTRL	str	heap	unset	heap|host	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h xshmem_cfg_load; host = control words in a host region (design 1.3 b)
 XSHMEM_HEAP_MB	int	0	0	MiB per PE	experiment	-	-	Y	ecalc	binsplit.c,xshmem.h	4	TARGET1 (B1)	2026-12-31	xshmem.h; 0 = backend default; binsplit.c sets it under COMM_TRANSPORT=xshmem
+XSHMEM_HEAP_SLACK_MB	int	0	unset	MiB	experiment	-	-	Y	ecalc	comm_xshmem.c	2	TGTSHAPE	2026-12-31	comm_xshmem.c; MiB added to each loopback PE's DATA heap (default 0 = the plan's figure exactly); the Cray backend needs a few MiB more than the planner's heap (control and alignment come out of the same heap)
 XSHMEM_IPC	int	0	0	0|1	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h; ofi backend maps node-local heaps with hipIpc (xshmem_ptr)
-XSHMEM_LANES	int	1	1	>=1	experiment	-	-	Y	ecalc	pe_geo.c,xshmem.h	2	TARGET1 (B1)	2026-12-31	xshmem.h, pe_geo.c; lanes (contexts) per PE; may exceed the NICs (virtual lanes)
+XSHMEM_LANES	int	1	1	1..4	experiment	-	-	Y	ecalc	pe_geo.c,xshmem.h	2	TARGET1 (B1)	2026-12-31	xshmem.h, pe_geo.c; lanes (contexts) per PE; may exceed the NICs (virtual lanes); the engine clamps above 4
+XSHMEM_LANE_MIN_KB	int	256	unset	>=1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	TARGET1 (B1)	2026-12-31	comm_xshmem.c; smallest chunk per lane when XSHMEM_LANES > 1
 XSHMEM_LOCAL	int	0	0	0|1	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h; engine uses xshmem_ptr node-local copies
 XSHMEM_LOOPBACK_PES	int	1	1	1..8	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (S3a)	2026-12-31	xshmem.h; PEs one process hosts in the ofi backend (PE = K*rank + l, own GPU/NIC/heap each); 1 = one PE per process
 XSHMEM_MRMODE	str	libsma	unset	libsma|ofi	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h; ofi backend memory-registration mode
 XSHMEM_OFI_SIG	str	dc	derived	dc|flush|waw	experiment	-	-	Y	ecalc	xshmem.h,xshmem_ofi.c	2	TARGET1 (B1)	2026-12-31	xshmem.h; ofi backend signal-after-data mode (design 1.4)
 XSHMEM_ORDER	str	rot	derived	rot|seq	experiment	-	-	Y	ecalc	comm_xshmem.c	1	TARGET1 (S3a)	2026-12-31	comm_xshmem.c; peer order of the offset words, puts and signals: rot = (me+q)%n (default, no incast on member 0), seq = rank order (the reference's)
-XSHMEM_PES_PER_GPU	int	1	1	>=1	experiment	-	-	Y	ecalc	pe_geo.c,vpe.c	3	TARGET1 (B1)	2026-12-31	pe_geo.c; PEs per GPU (target fallback 2)
+XSHMEM_PES_PER_GPU	int	1	1	>=1	experiment	-	-	Y	ecalc	ecalc.c,pe_geo.c,vpe.c,xshmem_cray.h	5	TARGET1 (B1)	2026-12-31	pe_geo.c; PEs per GPU (target fallback 2)
 XSHMEM_ROUND_MB	float	128	derived	>= 0	experiment	-	-	Y	ecalc	comm_xshmem.c,xshmem_round.h	3	TARGET1 (S3a)	2026-12-31	comm_xshmem.c, xshmem_round.h; unset = 128 (Q73 2026-10-21; 0 where the engine polls: vPE, ECALC_PE_PER_GPU, ECALC_XEX_THREAD=0, planner and engine alike); 0 = off, whole-exchange staging; m > 0: an all-to-all whose pair exceeds m/(n-1) MiB goes in rounds staging at most m MiB each way (needs ECALC_XEX_THREAD=1); the planner sizes XSHMEM_HEAP_MB from it
 XSHMEM_YIELD	int	1	unset	0|1	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (S1b)	2026-12-31	xshmem.h; 0 = the xshmem waits and the exchange worker never sched_yield (diagnostic for the vPE exchange latency, S1b); 1 = they do
 DIST_BIG	int	derived	derived		test-only	-	-	Y	tests	t_dist.c,t_mul.c	3	ecalc/tests/t_dist.c	2027-04-12	

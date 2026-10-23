@@ -385,7 +385,10 @@ static void layout_refused_exit(void) { fflush(stdout); _exit(EC_RC_FATAL); }
 static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
 {
     const char *e = getenv("ECALC_PLANE_CAP"); int c = -1;
-    if (!e) { if (!getenv("POOL_LOG") && !getenv("DIST_LOGN_TEST")) e = "2^31"; }   /* default 2^31, unless a knob it sets is given */
+    if (!e) { if (!getenv("POOL_LOG") && !getenv("DIST_LOGN_TEST")) {   /* default 2^31, unless a knob it sets is given */
+            const char *pg = getenv("ECALC_PE_PER_GPU"), *pp = getenv("XSHMEM_PES_PER_GPU");
+            e = pg && atoi(pg) == 1 && pp && atoi(pp) > 1 ? "fit" : "2^31";   /* 2 PEs share one GPU: every PE's plane pool is a full cap, so take the larger cap whose node total fits ECALC_NODE_GB (the plan then models the shared device) */
+        } }
     else if (!strcmp(e, "off")) e = NULL;                                  /* ECALC_PLANE_CAP=off: POOL_LOG and DIST_LOGN_TEST as given */
     if (e && *e) {
         static const char *nm[2][3] = { { "2^30", "30", "1073741824" }, { "2^31", "31", "2147483648" } };

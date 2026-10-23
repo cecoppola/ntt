@@ -93,7 +93,7 @@ list=$(echo "$use" | paste -sd,)
 # Phase 16 A: COMM_TRANSPORT given as a leading VAR=value word of the command (`mnrun.sh 2 env COMM_TRANSPORT=shmem ... ./ecalc`, the
 # launch line's form) counts as well -- without this the non-SHMEM path launched it (no heap variable: the library's default heap);
 # the same for ECALC_LOG_CLOCKS, which the wrappers test before the command runs
-for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPORT=${a#*=};; ECALC_LOG_CLOCKS=*) export ECALC_LOG_CLOCKS=${a#*=};; COMM_OFI=*) COMM_OFI=${a#*=};; ECALC_PE_PER_GPU=*) ECALC_PE_PER_GPU=${a#*=};; XSHMEM_HEAP_MB=*) XSHMEM_HEAP_MB=${a#*=};; *=*) continue;; *) break;; esac; done   # (ECALC_LOG_CLOCKS: the wrapper reads it)
+for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPORT=${a#*=};; ECALC_LOG_CLOCKS=*) export ECALC_LOG_CLOCKS=${a#*=};; COMM_OFI=*) COMM_OFI=${a#*=};; ECALC_PE_PER_GPU=*) ECALC_PE_PER_GPU=${a#*=};; XSHMEM_HEAP_MB=*) XSHMEM_HEAP_MB=${a#*=};; MNRUN_SYMHEAP_XSHMEM=*) MNRUN_SYMHEAP_XSHMEM=${a#*=};; XSHMEM_HEAP_SLACK_MB=*) XSHMEM_HEAP_SLACK_MB=${a#*=};; XSHMEM_PES_PER_GPU=*) XSHMEM_PES_PER_GPU=${a#*=};; *=*) continue;; *) break;; esac; done   # (ECALC_LOG_CLOCKS: the wrapper reads it)
 # 2026-10-12 (TCP removed): SHMEM is the only multi-process transport -- the default for <procs> > 1; any other value is refused
 # 2026-10-21 (Q73): the default transport for <procs> > 1 is xshmem (XSHMEM_ROUND_MB=128 and XSHMEM_ORDER=rot are its defaults, in the engine and the planner)
 # when the launched executable has the engine linked (make XSHMEM=ofi, the default build where libfabric is found); otherwise (another command, a build
@@ -120,9 +120,13 @@ case "${ECALC_PE_PER_GPU:-0}" in 0|"") ;; 1)
     if [ -z "$PPN" ] && [ "$PRINT_ENV" = 0 ]; then PPN=$(scontrol show node "$(echo "$use" | head -1)" -o 2>/dev/null | grep -o 'Gres=gpu[^ ]*' | head -1 | sed 's/(.*//; s/.*://'); fi
     case "$PPN" in ""|*[!0-9]*|0) PPN=4;; esac
     export XSHMEM_LOOPBACK_PES=${XSHMEM_LOOPBACK_PES:-1}
-    case "${MNRUN_PPG_GPUBIND:-none}" in none) gopt=(--gpus-per-node="$PPN" --gpu-bind=none);; task) gopt=(--gpus-per-task=1);; *) echo "mnrun.sh: MNRUN_PPG_GPUBIND=$MNRUN_PPG_GPUBIND: none or task" >&2; exit 1;; esac
+    PPG2=${XSHMEM_PES_PER_GPU:-1}
+    case "$PPG2" in ""|*[!0-9]*|0) echo "mnrun.sh: XSHMEM_PES_PER_GPU=$PPG2: a positive integer" >&2; exit 1;; esac
+    if [ $((PPN % PPG2)) != 0 ] || [ $((PPN / PPG2)) -lt 1 ]; then echo "mnrun.sh: $PPN processes per node are not a multiple of XSHMEM_PES_PER_GPU=$PPG2" >&2; exit 1; fi
+    case "${MNRUN_PPG_GPUBIND:-none}" in none) gopt=(--gpus-per-node="$((PPN / PPG2))" --gpu-bind=none);;   # (XSHMEM_PES_PER_GPU=2: PPN PEs share PPN/2 GPUs)
+    task) gopt=(--gpus-per-task=1);; *) echo "mnrun.sh: MNRUN_PPG_GPUBIND=$MNRUN_PPG_GPUBIND: none or task" >&2; exit 1;; esac
     case "${MNRUN_PPG_CPUBIND:-none}" in none|ldom) ;; *) echo "mnrun.sh: MNRUN_PPG_CPUBIND=$MNRUN_PPG_CPUBIND: none or ldom" >&2; exit 1;; esac
-    echo "mnrun.sh: ECALC_PE_PER_GPU=1: $PPN processes per node (one per GPU), gpu ${MNRUN_PPG_GPUBIND:-none}, cpu ${MNRUN_PPG_CPUBIND:-none}, XSHMEM_LOOPBACK_PES=$XSHMEM_LOOPBACK_PES";;
+    echo "mnrun.sh: ECALC_PE_PER_GPU=1: $PPN processes per node ($([ "$PPG2" = 1 ] && echo "one per GPU" || echo "$PPG2 per GPU")), gpu ${MNRUN_PPG_GPUBIND:-none}, cpu ${MNRUN_PPG_CPUBIND:-none}, XSHMEM_LOOPBACK_PES=$XSHMEM_LOOPBACK_PES";;
   *) echo "mnrun.sh: ECALC_PE_PER_GPU=$ECALC_PE_PER_GPU: 0 or 1" >&2; exit 1;; esac
 export MNRUN_PPG
 export MNRUN_PPN=$PPN
@@ -185,6 +189,16 @@ if [ "$COMM_TRANSPORT" = shmem ] || [ "$COMM_TRANSPORT" = xshmem ]; then
             pmb=$(echo "$pline" | sed -n 's/.*COMM_SHMEM_POOL_MB=\([0-9][0-9]*\).*/\1/p')
             xmb=$(echo "$pline" | sed -n 's/.*XSHMEM_HEAP_MB=\([0-9][0-9]*\).*/\1/p')
             if [ "$COMM_TRANSPORT" = xshmem ] && [ -n "$xmb" ] && [ -z "${XSHMEM_HEAP_MB:-}" ]; then export XSHMEM_HEAP_MB=$xmb; echo "mnrun.sh: XSHMEM_HEAP_MB=$xmb (the plan's DATA heap per loopback PE)"; fi
+            # The Cray backend of the xshmem engine (make XSHMEM=cray; the binary carries the string "xshmem_cray:") has ONE DATA heap per process (K = 1), inside the libsma heap:
+            # the plan's figure is for one PE, so a process of 4 APU threads (no ECALC_PE_PER_GPU) needs 4 x it, one PE per process 1 x it; + XSHMEM_HEAP_SLACK_MB (192) for
+            # the control area and alignment.  Automatic when MNRUN_SYMHEAP_XSHMEM is unset and XSHMEM_HEAP_MB is not given (results/XSHMEM.md, target shape); MNRUN_SYMHEAP_XSHMEM=0 leaves it off.
+            if [ "$COMM_TRANSPORT" = xshmem ] && [ -n "$xmb" ] && [ -z "${MNRUN_SYMHEAP_XSHMEM:-}" ] && grep -q -a 'xshmem_cray: ' "$pbin" 2>/dev/null; then
+                export MNRUN_SYMHEAP_XSHMEM=1 MNRUN_SYMHEAP_PES=1 XSHMEM_HEAP_SLACK_MB=${XSHMEM_HEAP_SLACK_MB:-192}
+                if [ -z "${XSHMEM_HEAP_MB:-}" ] || [ "${XSHMEM_HEAP_MB:-}" = "$xmb" ]; then
+                    hm=$xmb; [ "$MNRUN_PPG" = 1 ] || hm=$((xmb * ${XSHMEM_LOOPBACK_PES:-4})); export XSHMEM_HEAP_MB=$hm
+                    echo "mnrun.sh: Cray backend: XSHMEM_HEAP_MB=$hm (the plan's $xmb x $([ "$MNRUN_PPG" = 1 ] && echo 1 || echo "${XSHMEM_LOOPBACK_PES:-4} APU threads sharing the one heap")) + XSHMEM_HEAP_SLACK_MB=$XSHMEM_HEAP_SLACK_MB; libsma heap sized to match"
+                fi
+            fi
             if [ -n "$pmb" ]; then export COMM_SHMEM_POOL_MB=$pmb; echo "mnrun.sh: COMM_SHMEM_POOL_MB=$pmb from MN_PLAN_ONLY=$pd:$P ($(echo "$pline" | sed 's/^plan pool *//'))"
             else echo "mnrun.sh: MN_PLAN_ONLY=$pd:$P of $pbin gave no 'plan pool' line: the pool stays at COMM_SHMEM_POOL_MB=8192" >&2; fi
         fi
@@ -216,6 +230,8 @@ if [ "$COMM_TRANSPORT" = shmem ] || [ "$COMM_TRANSPORT" = xshmem ]; then
     mpi=(); pre=                                                              # the srun --mpi option and the exec prefix (none for Cray)
     # Cray OpenSHMEMX: srun's PMI (no --mpi option), the host hugepage heap at pool + 512 MiB under both of its names;
     # the libfabric provider is cxi on aac7 (nothing to set); SHMEM_OFI_* knobs (NIC policy, progress) are the caller's.
+    # MNRUN_SYMHEAP_XSHMEM=1 (default off): the Cray backend of the xshmem engine (make XSHMEM=cray) keeps its DATA heaps in this heap too: + XSHMEM_LOOPBACK_PES x (XSHMEM_HEAP_MB + XSHMEM_HEAP_SLACK_MB)
+    [ "${MNRUN_SYMHEAP_XSHMEM:-0}" = 1 ] && [ "${COMM_TRANSPORT:-}" = xshmem ] && case "${XSHMEM_HEAP_MB:-0}" in *[!0-9]*|"") false;; *) [ "${XSHMEM_HEAP_MB:-0}" -gt 0 ];; esac && POOL=$((POOL + ${MNRUN_SYMHEAP_PES:-${XSHMEM_LOOPBACK_PES:-1}} * (XSHMEM_HEAP_MB + ${XSHMEM_HEAP_SLACK_MB:-0})))
     export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-$((POOL + 512))M}
     export XT_SYMMETRIC_HEAP_SIZE=${XT_SYMMETRIC_HEAP_SIZE:-$SHMEM_SYMMETRIC_SIZE}
     echo "mnrun.sh: SHMEM_SYMMETRIC_SIZE=$SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE=$XT_SYMMETRIC_HEAP_SIZE (pool $POOL MiB + 512)"

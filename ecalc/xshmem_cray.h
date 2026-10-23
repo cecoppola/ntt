@@ -217,8 +217,9 @@ static inline int xshmem_topo(xshmem_topo_t *t)
     e = getenv("SLURM_NTASKS_PER_NODE"); t->pes_per_node = e ? atoi(e) : 1; if (t->pes_per_node < 1) t->pes_per_node = 1;
     e = getenv("SLURM_LOCALID"); t->local = e ? atoi(e) : t->pe % t->pes_per_node;
     t->node = t->pe / t->pes_per_node; t->nnodes = (t->npes + t->pes_per_node - 1) / t->pes_per_node;
-    t->gpu = t->local; t->gpu_node = t->local; t->pes_per_gpu = 1;
-    t->nlanes = cfg.lanes > 0 ? cfg.lanes : 1; t->nics = t->nlanes; t->numa = t->local;
+    e = getenv("XSHMEM_PES_PER_GPU"); t->pes_per_gpu = e && atoi(e) > 0 ? atoi(e) : 1;   /* as pe_geo: 2 PEs per GPU = device local / 2 */
+    t->gpu = t->local / t->pes_per_gpu; t->gpu_node = t->gpu;
+    t->nlanes = cfg.lanes > 0 ? cfg.lanes : 1; t->nics = t->nlanes; t->numa = t->gpu_node;
     return 0;
 }
 static inline void xshmem_caps_query(xshmem_caps_t *c)

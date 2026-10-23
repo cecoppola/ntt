@@ -159,8 +159,10 @@ static const char *const cfg_names[] = {
     "RNS_VERBOSE",
     "XSHMEM_CTRL",
     "XSHMEM_HEAP_MB",
+    "XSHMEM_HEAP_SLACK_MB",
     "XSHMEM_IPC",
     "XSHMEM_LANES",
+    "XSHMEM_LANE_MIN_KB",
     "XSHMEM_LOCAL",
     "XSHMEM_LOOPBACK_PES",
     "XSHMEM_MRMODE",
@@ -170,4 +172,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_ROUND_MB",
     "XSHMEM_YIELD",
 };
-#define CFG_NAMES_N 168
+#define CFG_NAMES_N 170
