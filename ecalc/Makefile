@@ -45,7 +45,7 @@ OFI_LIBS   = -L$(LIBFABRIC)/lib64 -lfabric -Wl,-rpath,$(LIBFABRIC)/lib64
 SHMEM_LIBS += $(OFI_LIBS)
 endif
 
-TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_kbench tests/t_strategy tests/t_cap tests/t_primes tests/t_seed tests/t_patch tests/t_p24 tests/t_crtk tests/t_crt24k tests/t_vpe
+TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_kbench tests/t_strategy tests/t_cap tests/t_primes tests/t_seed tests/t_patch tests/t_p24 tests/t_crtk tests/t_vpe
 OBJS  = ntt.o ntt3.o mem.o crt.o comm_local.o comm_sim4.o comm_xgmi.o comm_copy.o comm_shmem.o comm_ofi.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o rns_local.o dbig.o newton_db.o newton.o binsplit.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o config_line.o vpe.o
 REF   = ref/gen_e
 
@@ -60,7 +60,7 @@ ecalc: ecalc.c $(OBJS) rns_mul.h newton.h binsplit.h verify.h mem.h ntt.h mn.h m
 
 # The identical rules, once: LINK_TESTS = tests linked with OBJS, OBJ_* = objects by compile line (hipcc -x hip with -o first, with -o last,
 # and the host-C objects); the per-file lines below carry only the extra prerequisites (headers).
-LINK_TESTS = tests/t_p24 tests/t_crtk tests/t_crt24k tests/t_dbig tests/t_out tests/t_patch tests/t_mn_grid tests/t_vpe tests/t_mul tests/t_newton tests/t_strategy tests/t_ntt3 tests/t_verify
+LINK_TESTS = tests/t_p24 tests/t_crtk tests/t_dbig tests/t_out tests/t_patch tests/t_mn_grid tests/t_vpe tests/t_mul tests/t_newton tests/t_strategy tests/t_ntt3 tests/t_verify
 OBJ_HIP1 = config_line.o ntt.o ntt3.o rns_mul.o rns_local.o rns_dist.o p24_crt.o mn_plan.o dbig.o spill.o fatal.o segv_trace.o newton_db.o mem.o vpe.o
 OBJ_HIP2 = comm_local.o comm_sim4.o comm_layered.o mn.o mn_out.o comm_copy.o comm_util.o comm_xgmi.o ntt_dist.o
 OBJ_C = memsample.o crt.o verify.o binsplit.o newton.o bigint.o
@@ -91,10 +91,8 @@ rns_dist.o: xshmem_round.h rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h 
 # Phase 15 Batch 3 P24 (results/PRIMES_STRATEGY.md §P2415): the 24-digit CRT of the mn tier
 p24_crt.o: p24.h rns_int.h modarith.h
 tests/t_p24: p24.h
-# K4b (results/KERNELS.md §K4b): k_crt_batch's parallel carry (RNS_CRT_SCAN) against the serial chain, and the C-form timing
-tests/t_crtk: rns_int.h tests/harness.h
-# K4c (results/KERNELS.md §K4c): k_crt24's parallel carry (P24_CRT_SCAN) against the serial chain, and its timing
-tests/t_crt24k: rns_int.h p24.h tests/harness.h
+# K4b / K4c (results/KERNELS.md): k_crt_batch's and k_crt24's carry-lookahead against the host sum
+tests/t_crtk: rns_int.h p24.h tests/harness.h
 # Phase 13d L: the plan printer (MN_PLAN_ONLY; ecalc.c calls it before rns_init)
 mn_plan.o: mn_plan.h mdb.h bigint.h binsplit.h rns_mul.h modarith.h
 
@@ -113,7 +111,7 @@ tests/t_out: mn_out.h verify.h tests/harness.h
 tests/t_patch: mn_out.h verify.h tests/harness.h
 tests/t_mn_grid: dbig.h mdb.h mn.h tests/harness.h
 mem.o: mem.h
-# S1a (plan TARGET1): the virtual PEs (vpe.h; ECALC_VPE=1 at run time, off by default: the object is always linked, never called with the switch off)
+# PE identity (vpe.h; ECALC_PE_PER_GPU=1 at run time, off by default: the object is always linked, never called with the switch off)
 vpe.o: vpe.h mem.h fatal.h comm.h
 tests/t_vpe: vpe.h mn.h comm.h
 comm_local.o: comm.h

@@ -5,7 +5,7 @@ Owner of items B01, L1, T08, ADOPT2, DEF, FIT, S47 (old IDs resolve through `res
 ## Topic summary
 
 What is current (see `ecalc/README.md` Switches table, which wins on any difference):
-- Target launch line (B01, L1): `MN_T_CHUNK_MB=2048`, X2 (`COMM_LAYER_INTER2=1 COMM_LAYER_VSLOT_POOL=1`), `COMM_LAYER_VSLOT_RELEASE=1`, `ECALC_SEGV_TRACE=1`, `RNS_DIST_CACHE_FIT=1`. `COMM_LAYER_VSLOT_RELEASE` is now a built-in default (since 2026-10-12; follows `COMM_LAYER_VSLOT_POOL`), not only a launch-line setting.
+- Target launch line (B01, L1): `MN_T_CHUNK_MB=2048`, `COMM_LAYER_VSLOT_POOL=1` (X2's `COMM_LAYER_INTER2=1` left the line with Q65, 2026-10-21; the switch was removed 2026-10-23), `COMM_LAYER_VSLOT_RELEASE=1`, `ECALC_SEGV_TRACE=1`, `RNS_DIST_CACHE_FIT=1`. `COMM_LAYER_VSLOT_RELEASE` is now a built-in default (since 2026-10-12; follows `COMM_LAYER_VSLOT_POOL`), not only a launch-line setting.
 - K2 + K3 (`DBIG_ADDSUB3`, `DBIG_MODQ_MONT`) default 1 (T08); `=0` is the fallback. K4 `RNS_CRT_SUB` stays off.
 - `P24_CRT_SCAN=1` (D24) and `NEWTON_CHAIN_GUARD=1` (D25) are code defaults (ADOPT2); the guard costs +0.25 s [-1.00, +1.50] (n.s.) at 1 node.
 - P24 (four primes, 24 digits per point) is the default for every multi-node product (D18, DEF); `ECALC_NP_MN3=1` kept the three-prime path as a fallback (removed 2026-10-19, D56). P24 costs +17.18 GB planes per node at 6.441 × 10¹⁰ digits per node (m).
@@ -22,7 +22,7 @@ Changes (no code default changed):
 - `ECALC_SEGV_TRACE` (`segv_trace.c`): off = one getenv; on = installs SIGSEGV/SIGBUS/SIGABRT handlers that print and re-raise. Nothing else.
 - `mn_model.py` `aac7` is now an alias of `aac7_s48` (previous profile `aac7_c16`); 4 nodes, 1.6e11: aac7 107.5 s = aac7_s48, aac7_c16 232.3 s (mod). `estimate.py` default is still `target`. `--spares N` kept, documented "not used".
 
-Memory at 576 nodes (mod unless noted; `estimate.py --fabric target-m --g 576`, `COMM_LAYER_VSLOT_SHARE=1`, only `MN_T_CHUNK_MB=2048`, `MDB_SHIFT_CHUNK_MB=1024`; plain `--chunk-mb 2048` overstates by ~4 GB). X2 = +0.5 GB (user's figure), rank 0 = +2.1 GB (S52). GB:
+Memory at 576 nodes (mod unless noted; `mn_model.py estimate --fabric target-m --g 576`, `COMM_LAYER_VSLOT_SHARE=1`, only `MN_T_CHUNK_MB=2048`, `MDB_SHIFT_CHUNK_MB=1024`; plain `--chunk-mb 2048` overstates by ~4 GB). X2 = +0.5 GB (user's figure), rank 0 = +2.1 GB (S52). GB:
 
 | digits | T1024 device | T2048 device | + X2 + rank 0 | margin to 373.44 | node total |
 |---|---|---|---|---|---|

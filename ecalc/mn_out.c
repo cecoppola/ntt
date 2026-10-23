@@ -12,7 +12,7 @@
 #include <hip/hip_runtime.h>
 #include "mn_out.h"
 #include "mem.h"
-#include "vpe.h"                                        /* S1e: vPE (ECALC_VPE) -- rank = PE, the lane's own device */
+#include "vpe.h"                                        /* S1e: PE layout (ECALC_PE_PER_GPU) -- rank = PE, the PE's own device */
 #include "spill.h"                                    /* ECALC_ODIRECT */
 #include <sys/stat.h>                                 /* the patch (fstat) */
 #include "packed_fmt.h"                               /* ECALC_OUT_PACKED */
@@ -93,7 +93,7 @@ static void dev_fetch(const dbig *x, size_t a, size_t cnt, uint64_t *host)
 {
     size_t g = x->off + a, ge = g + cnt; int dev0; HIP_CHECK(hipGetDevice(&dev0));
     pthread_once(&g_fs_once, fs_init);
-    const int nq = vpe_on() ? 1 : DB_NQ;                   /* S1e: under ECALC_VPE a dbig is ONE quarter, q[0] on the PE's own device (dbig.h) */
+    const int nq = vpe_on() ? 1 : DB_NQ;                   /* S1e: under ECALC_PE_PER_GPU a dbig is ONE quarter, q[0] on the PE's own device (dbig.h) */
     for (int d = 0; d < nq; d++) {
         size_t q0 = (size_t)d * x->qc, q1 = q0 + x->qc, s = g > q0 ? g : q0, e = ge < q1 ? ge : q1;
         int dv = vpe_on() ? vpe_device() : d;
@@ -159,7 +159,7 @@ static void boundaries_ex(mn_out *o, const mn_out_src *src, comm *c, const char 
 /* ---- the writer thread: one job at a time (a chunk of the part file), the formatter blocks only when both
  * buffers are in flight ----
  * the write mode (ECALC_OUT_MODE: direct / buffered / sync / drop / auto; unset = the rule below) and
- * the number of pwrite threads per chunk (MN_OUT_THREADS, 8).  W2: the packed form (ECALC_OUT_PACKED=1, packed_fmt.h).
+ * the number of pwrite threads per chunk (MN_OUT_THREADS, 8).  W2: the packed form (ECALC_OUT_PACKED, packed_fmt.h).
  * W5: the stripe layout (MN_OUT_STRIPE).  Functions: out_mode, out_stripe, out_open,
  * direct_job, writer_run, out_packed, packed_mods, packed_digits, packed_hdr_*, out_run_one, mn_out_run,
  * mn_out_finish. */
@@ -281,7 +281,7 @@ static void *writer_run(void *a)
     return 0;
 }
 /* ---- the packed form (packed_fmt.h) ---- */
-static int out_packed(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_OUT_PACKED"); v = e ? atoi(e) : 2; if (v < 0 || v > 2) v = v < 0 ? 0 : 2; } return v; }   /* 2 = the 60-bit form (ECP_VERSION60), the default; 1 = the 64-bit form; 0 = ASCII */   /* packed since Phase 15 (the user's decision: packed on disk, converted off the clock by tools/unpack_digits) */
+static int out_packed(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_OUT_PACKED"); v = e ? atoi(e) : 2; v = v > 0 ? 2 : 0; } return v; }   /* 2 = the 60-bit form (ECP_VERSION60), the default; 0 = ASCII; the 64-bit form (=1) was removed 2026-10-23, Q87 (the readers still take version-1 files) */   /* packed since Phase 15 (the user's decision: packed on disk, converted off the clock by tools/unpack_digits) */
 static uint64_t mulmod_u(uint64_t a, uint64_t b, uint64_t q) { return (uint64_t)(((unsigned __int128)a * b) % q); }
 static uint64_t powmod_u(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1 % q; b %= q; while (e) { if (e & 1) r = mulmod_u(r, b, q); b = mulmod_u(b, b, q); e >>= 1; } return r; }
 /* the value of n limbs stored most significant first (base 10^18) mod the T1 primes, from the bytes the writer is handed */
@@ -625,7 +625,7 @@ static int patch_bytes(const char *name, size_t off, const char *old, const char
     if (verbose) printf("      patch: %s bytes [%zu, %zu) (%s, blocks [%zu, %zu))%s\n", name, off, off + len, direct ? "O_DIRECT" : "buffered", a0, a1, bad ? " FAILED" : "");
     return bad;
 }
-/* the patch of a packed part (packed_fmt.h; ECALC_OUT_PACKED=1, the default).  The correction changes the global
+/* the patch of a packed part (packed_fmt.h; ECALC_OUT_PACKED, the default).  The correction changes the global
  * limbs [0, m) of X (low: the uncorrected ones, nw: the corrected); this part holds the limbs [lo, hi) (its header's), limb i at
  * the byte ECP_HDR_BYTES + 8 (hi - 1 - i) (the most significant first), so its changed limbs [lo, min(hi, m)) are one byte
  * range: checked to hold the old limbs, rewritten, read back (patch_bytes: whole 4 KiB blocks with O_DIRECT as the writer).

@@ -27,12 +27,12 @@
 #include "mdb.h"
 #include "mem.h"
 #include "mn_plan.h"                                        /* Phase 13d L: the plan printer asks this file's decisions */
-#include "vpe.h"                                            /* S1b: ECALC_VPE */
+#include "vpe.h"                                            /* S1b: PE layout */
 #include "p24.h"                                            /* Phase 15 Batch 3 P24 (results/PRIMES_STRATEGY.md §P2415): 24 digits per point in the mn tier (P24) */
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define NR 4
-/* S1b (vPE, ECALC_VPE=1): the mn tier counts PEs as its nodes -- one APU (this PE's device vpe_lane()) per node, so a group of g PEs has nr = g ranks (rho = me) and
+/* S1b (PE layout, ECALC_PE_PER_GPU=1): the mn tier counts PEs as its nodes -- one APU (this PE's device vpe_lane()) per node, so a group of g PEs has nr = g ranks (rho = me) and
  * one mesh (d = 0); off, the four APU threads of a node: NL() = 4, LD(d) = d.  d below is always the MESH index, LD(d) the DEVICE. */
 #define NL() (vpe_on() ? 1 : NR)
 #define LD(d) (vpe_on() ? vpe_device() + (d) : (d))
@@ -108,12 +108,11 @@ __global__ void k_gather(uint64_t *x, struct acc src, size_t R, size_t rows, siz
     }
 }
 static unsigned nblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 16 ? 228 * 16 : b); }
-/* K1b (results/EXCHANGE.md §K1b, DIST_GATHER_RAW, default 2 since 2026-10-12): S39 candidate A -- gather an operand once without the canon (the strided
+/* K1b (results/EXCHANGE.md §K1b, DIST_GATHER_RAW=2, the only form since 2026-10-23, Q87): S39 candidate A -- gather an operand once without the canon (the strided
  * gather is the cost, not the prime), then one coalesced elementwise canon pass per prime.  canon(raw) = what k_gather writes, bit for bit
  * (the zero beyond src.n stays zero).  1 = A into xa[np-1] (its own plane is the staging), B into its cache plane when it has one (no memory);
  * 2 = also B without a cache plane, through one extra q-limb plane taken from the block pool's free extents only (no growth; a margin of
  * DIST_GATHER_RAW_MARGIN_GB per APU, default 2, must stay free) -- else B is gathered per prime as before */
-static int gather_raw(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_GATHER_RAW"); v = e ? atoi(e) : 2; } return v; }   /* default 2 since 2026-10-12 (user-adopted, results/SINGLE_NODE.md §CAND); 0 = the old gather */
 static double gather_raw_margin(void) { static double v = -1; if (v < 0) { const char *e = getenv("DIST_GATHER_RAW_MARGIN_GB"); v = e ? atof(e) : 2.0; } return v; }
 __global__ void k_gather_raw(uint64_t *x, struct acc src, size_t R, size_t rows, size_t row0, size_t C)
 {
@@ -202,14 +201,13 @@ static void cache_acct(int ndev, size_t b[][MEM_DEV_NCAT])   /* the memory repor
     for (int d = 0; d < ndev && d < NR; d++) for (int i = 0; i < DIST_CACHE_MAX; i++) if (g_cache.s[i].pl[d]) b[d][MEM_DEV_OTHER] += g_cache.slot_bytes;
 }
 /* the configured slot count: none for the single-node tier (at 4e10 the planes' mapping, 7-9 s for 2 x 16 GiB per APU at 0.055 s/GB,
- * costs more than the ~4 s of transforms it saves -- results/GRID_GROUPS.md §G; RNS_DIST_CACHE, default 0, removed 2026-10-12), RNS_DIST_CACHE_MN
- * over shares (default 2: the planes are 1/gt the size and a hit also skips the operand's all-to-all redistribution) */
+ * costs more than the ~4 s of transforms it saves -- results/GRID_GROUPS.md §G; RNS_DIST_CACHE, default 0, removed 2026-10-12), 2 slots
+ * over shares ( the planes are 1/gt the size and a hit also skips the operand's all-to-all redistribution) */
 static int cache_slots_of(int mn)
 {
     if (vpe_on()) return 0;                                   /* S1b: the transform cache is one process-wide singleton; off under vPE (digits do not depend on it) */
     if (!g_cache.init) {
-        const char *m = getenv("RNS_DIST_CACHE_MN"); int w = m ? atoi(m) : 2;
-        if (w < 0) w = 0; if (w > DIST_CACHE_MAX) w = DIST_CACHE_MAX;
+        int w = 2;                                            /* the mn tier's slots (RNS_DIST_CACHE_MN, default 2; the 0 / 1 forms removed 2026-10-23, Q87) */
         g_cache.n = 0; g_cache.nmn = w; g_cache.init = 1;
     }
     return mn ? g_cache.nmn : g_cache.n;
@@ -311,7 +309,7 @@ static void cache_plan(int *sa, int *sb, int ha, int hb, const void *ka, size_t 
  *   planes  P = min over the four APUs of (free bytes - the product's own peak need (rns_mul_dist_mn_scratch) - the margin
  *           0.5 GB per APU) / (q x 8), and at most what the free extents hold as they are
  *           (db_pool_fit_count: no remap, no growth); the group's minimum (every node must hold the same slots);
- *   slots   P >= np: min(RNS_DIST_CACHE_MN, P / np) full slots; else 1 slot of P primes (primes 0 .. P - 1 of the operand);
+ *   slots   P >= np: min(2, P / np) full slots (RNS_DIST_CACHE_MN removed); else 1 slot of P primes (primes 0 .. P - 1 of the operand);
  *           RNS_DIST_CACHE_PARTIAL_FORCE = P sets P whatever the
  *           room (tests only: the pool may then grow by hipMalloc, reported);
  *   hits    a hit on a k-prime slot skips primes < k's gathers and forward transforms (A: copied from the slot; B: read in place); the
@@ -323,7 +321,7 @@ static void cache_plan(int *sa, int *sb, int ha, int hb, const void *ka, size_t 
  * Held slots (the cache fit) are not allocated by the mn tier under the switch. */
 static size_t grp_max(mn_group *G, size_t v);
 static int g_node_of(mn_group *G);
-static int pc_on(void) { if (vpe_on()) return 0; static int v = -1; if (v < 0) { const char *e = getenv("RNS_DIST_CACHE_PARTIAL"); v = e ? atoi(e) != 0 : 1; } return v; }   /* default 1 since 2026-10-12 (TASKS 27; on both launch lines since 2026-09-29) */
+static int pc_on(void) { return !vpe_on(); }   /* partial slots from the block pool per grid product (RNS_DIST_CACHE_PARTIAL=1 since 2026-10-12; the =0 fallback, the held full slots of the mn tier, removed 2026-10-23, Q87) */
 static int cache_slot_k(int si, int np) { if (si < 0) return 0; int k = g_cache.s[si].k; return k > 0 && k < np ? k : np; }   /* the primes slot si holds for an np-prime product */
 static uint64_t *cache_pl(int si, int d, int p, size_t q) { const struct dist_slot *s = &g_cache.s[si]; return g_cache.pc ? s->pp[d][p] : s->pl[d] + (size_t)p * q; }   /* slot si's plane of prime p on APU d */
 static struct { size_t products, taken, planes_max, bytes_max, planes_sum, grown; } g_pcst;   /* PC: the run's partial slots (printed at the release) */
@@ -367,7 +365,7 @@ static int cache_pc_take(mn_group *G, size_t na, size_t nb, const mdbv *A, const
     if ((size_t)ns * k * plane > g_pcst.bytes_max) g_pcst.bytes_max = (size_t)ns * k * plane;
     *kout = k;
     if (getenv("RNS_VERBOSE") || getenv("ECALC_VERBOSE"))
-        printf("   transform cache (RNS_DIST_CACHE_PARTIAL) node %d: %d slot%s of %d of %d primes, q 2^%.2f, from the block pool: %.2f GB per APU (%.2f per node) | pool free %.2f GB per APU (the smallest), the product's need %.2f, margin %.2f -> %zu planes%s%s\n",
+        printf("   transform cache (partial slots) node %d: %d slot%s of %d of %d primes, q 2^%.2f, from the block pool: %.2f GB per APU (%.2f per node) | pool free %.2f GB per APU (the smallest), the product's need %.2f, margin %.2f -> %zu planes%s%s\n",
                node, ns, ns > 1 ? "s" : "", k, np, log2((double)q), (double)ns * k * plane / 1e9, 4.0 * ns * k * plane / 1e9, fmin / 1e9, need / 1e9, mg / 1e9, P,
                fe ? " (RNS_DIST_CACHE_PARTIAL_FORCE)" : "", hm1 > hm0 ? " -- the pool GREW" : "");
     return ns;
@@ -384,7 +382,7 @@ static void cache_pc_report(void)                             /* the run's parti
 {
     if (!pc_on() || !g_pcst.products) return;
     if (getenv("RNS_VERBOSE") || getenv("ECALC_VERBOSE"))
-        printf("   transform cache (RNS_DIST_CACHE_PARTIAL): %zu grid products, %zu with slots (planes per product: max %zu, mean %.2f), the largest %.2f GB per APU from the block pool%s\n",
+        printf("   transform cache (partial slots): %zu grid products, %zu with slots (planes per product: max %zu, mean %.2f), the largest %.2f GB per APU from the block pool%s\n",
                g_pcst.products, g_pcst.taken, g_pcst.planes_max, g_pcst.taken ? (double)g_pcst.planes_sum / g_pcst.taken : 0.0, g_pcst.bytes_max / 1e9,
                g_pcst.grown ? " -- the pool GREW (RNS_DIST_CACHE_PARTIAL_FORCE)" : ", no growth");
     memset(&g_pcst, 0, sizeof g_pcst);
@@ -654,11 +652,11 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
             }
         }
         double s0 = mem_now(), lg = 0, lf = 0;
-        int pa = 0, pb = 0; uint64_t *sraw = 0;                 /* K1b (DIST_GATHER_RAW): A / B prefilled (pb 2: B's raw plane sraw, canon per prime) */
-        if (gather_raw() && np > 1) {
+        int pa = 0, pb = 0; uint64_t *sraw = 0;                 /* K1b (DIST_GATHER_RAW=2 form): A / B prefilled (pb 2: B's raw plane sraw, canon per prime) */
+        if (np > 1) {
             if (ha < 0) { gather_raw_all(xa, np, A, R, rows, (size_t)r * rows, C, q, v->s); pa = 1; }
             if (hb < 0 && cb && cb != ca) { uint64_t *pb_[EC_NP]; for (int p = 0; p < np; p++) pb_[p] = cb + (size_t)p * q; gather_raw_all(pb_, np, B, R, rows, (size_t)r * rows, C, q, v->s); pb = 1; }
-            else if (hb < 0 && !cb && gather_raw() >= 2) {
+            else if (hb < 0 && !cb) {
                 size_t by = q * 8;
                 if (db_pool_fit_count(r, by) >= 1 && (double)db_pool_free_bytes(r) >= (double)by + gather_raw_margin() * 1e9) sraw = db_pool_alloc(r, by);
                 else { static int said; if (!said) { said = 1; printf("DIST_GATHER_RAW: APU%d: B's raw plane (%.2f GB) does not fit the pool's free extents with the %.1f GB margin; B gathered per prime\n", r, by * 1e-9, gather_raw_margin()); } }
@@ -836,7 +834,7 @@ void rns_mul_band_db(dbig *Cd, const dbig *A, const dbig *B, size_t lowcut, size
 /* S1b: the one-PE product (rns_mul.h) -- the band's two cuts, the grid of form S pieces when over the plane cap; lowcut 0, w -1: the full product */
 void rns_mul_local(dbig *Cd, const dbig *A, const dbig *B, size_t lowcut, size_t w)
 {
-    if (!vpe_on()) { ec_fatal(EC_RC_FATAL, "rns_mul_local: ECALC_VPE=1 only\n"); }
+    if (!vpe_on()) { ec_fatal(EC_RC_FATAL, "rns_mul_local: ECALC_PE_PER_GPU=1 only\n"); }
     mul_grid(Cd, A, B, lowcut, w); if (w != (size_t)-1 && Cd->n > w) { Cd->n = w; db_norm(Cd); }
 }
 /* mul_grid's piece: views of A and B (normalised: an all-zero piece is empty), the cuts, and the first formed piece straight into C
@@ -961,10 +959,7 @@ static int dist_gen_forced(void) { static int v = -1; if (v < 0) { const char *e
 static comm *lay_get(mn_group *G, int d)
 {
     if (vpe_on()) return G->all[0];                            /* S1b: the flat PE communicator is the transform's (no layered mesh) */
-    if (!G->lay[d]) {
-        G->lay[d] = comm_layered_create(RS[d].cm, G->all[d], d);
-        if (comm_layered_inter2_on()) comm_layered_set_inter2(G->lay[d], mn_mesh2(G, d, 0));   /* X2: collective over the group's nodes (all call lay_get for the same product) */
-    }
+    if (!G->lay[d]) G->lay[d] = comm_layered_create(RS[d].cm, G->all[d], d);
     return G->lay[d];
 }
 struct mn_ctx { mn_group *G; int node, g, nr; size_t R, C, n; int p24; };   /* p24 (Phase 15 Batch 3): the operands' sequences are the in-runs of p24.h */
@@ -1648,11 +1643,7 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     int NS = 0, fs[DIST_CACHE_MAX], nf = 0;
     g_cache_mn = 1;
     const int p24 = mn_p24_of(na, nb, g);                     /* Phase 15 Batch 3 P24: the same on every node of the group */
-    const int pc = pc_on(); int pck = 0;                      /* Phase 15 PC (RNS_DIST_CACHE_PARTIAL=1): the slots from the block pool per grid product (cache_pc_take, below) */
-    if (cache_slots() && nc > cap && !p24 && !pc) {         /* the slots: every node must hold the same count -- the group's minimum of what each could allocate (P24: no cache) */
-        int mine = cache_avail(); int agreed = DIST_CACHE_MAX - (int)grp_max(G, (size_t)(DIST_CACHE_MAX - mine)); if (agreed < g_cache.navail) g_cache.navail = agreed;   /* (a collective: the condition is group-wide) */
-        NS = g_cache.navail; for (int i = 0; i < NS; i++) fs[nf++] = i;
-    }
+    const int pc = pc_on(); int pck = 0;                      /* Phase 15 PC: the slots from the block pool per grid product (cache_pc_take, below) */
     int one = mn_grid_shape(na, nb, g, p24, &ka, &kb);
     if (one && p24) { if (nc > lowcut) { mn_core(&Cn, A, B, 0, G, 0, 1, &tm, -1, -1, 1, 0); formed = 1; if (X) mdb_add_shifted(&Cn, X, 0, G); } else skipped = 1; }   /* P24: X added afterwards */
     else if (one) { if (nc > lowcut) { mn_core(&Cn, A, B, X, G, 0, 1, &tm, -1, -1, 0, 0); formed = 1; } else skipped = 1; }
@@ -1752,27 +1743,17 @@ void rns_dist_plan_cap_test(int logn) { g_cap_test = logn; }
  * host, binsplit_node_bytes -- the run's own check uses its measured init peak where that is larger) */
 void rns_dist_cache_plan(int size, int pool_log, int np0, long grids_tree, long grids_recip, long grids_div, double node_bytes)
 {
-    int w = cache_slots_of(1); char qb[24], qb2[24];
+    int w = cache_slots_of(1); char qb[24];
     const char *first = grids_tree ? "the tree" : grids_recip ? "the reciprocal" : grids_div ? "the division" : 0;
     int ld = dist_logn_max(), lf = pool_log > 0 && pool_log < ld ? pool_log : ld;
-    double sd = (double)np0 * rns_q_slot(ld) * 8, sf = (double)np0 * rns_q_slot(lf) * 8;   /* one slot per APU: the default's, FIT's */
-    double budget = (getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0) * 1e9, room = budget - node_bytes - cache_fit_reserve();
-    int nf = room > 0 ? (int)(room / (NR * sf)) : 0; if (nf > w) nf = w;
-    if (!w || !first) { printf("plan cache  the mn transform cache (RNS_DIST_CACHE_MN=%d): %s -- nothing allocated; node %.2f GB\n", w, !w ? "off" : "not wanted (no mn grid product)", node_bytes / 1e9); return; }
-    if (pc_on()) {                                            /* Phase 15 PC: the partial slots come from the block pool per grid product -- decided at run time by the pool's free bytes */
-        printf("plan cache  the mn transform cache (RNS_DIST_CACHE_PARTIAL=1, RNS_DIST_CACHE_MN=%d): wanted first in %s (mn grids: tree %ld, recip %ld, div %ld); per grid product, slots from the block pool"
-               " (the arena, inside the node's %.2f GB: nothing added): P = (the pool's free bytes - the product's need - %.2f GB margin per APU) / (q x 8), at most what the free extents hold;"
-               " one prime at the cap %s limbs = %.2f GiB per APU (%.2f GB per node); P >= %d primes: full slots, else 1 slot of P primes; P24 products cached too; the grid's loop along its longer axis"
-               " (mn_model.py --cache-partial models the primes per phase)\n",
-               w, first, grids_tree, grids_recip, grids_div, node_bytes / 1e9, 0.5,
-               q_name(lf - 2, qb), rns_q_slot(lf) * 8 / 1073741824.0, NR * rns_q_slot(lf) * 8 / 1e9, np0);
-        return;
-    }
-    printf("plan cache  the mn transform cache (RNS_DIST_CACHE_MN=%d, transform-cache fit on): wanted first in %s (mn grids: tree %ld, recip %ld, div %ld), held to the division's end"
-           " | default: %d slot%s x %.2f GiB per APU (%s limbs x %d primes) = %.2f GB per node when hipMemGetInfo less RNS_DIST_CACHE_MARGIN_GB allows it, in no budget: node %.2f -> %.2f GB"
-           " | FIT: %.2f GiB per APU (%s x %d), room %.2f GB (ECALC_NODE_GB %.0f less the node and the reserve %.0f) -> %d slot%s = %.2f GB, node %.2f GB\n",
-           w, first, grids_tree, grids_recip, grids_div, w, w > 1 ? "s" : "", sd / 1073741824.0, q_name(ld - 2, qb), np0, w * NR * sd / 1e9, node_bytes / 1e9, (node_bytes + w * NR * sd) / 1e9,
-           sf / 1073741824.0, q_name(lf - 2, qb2), np0, room / 1e9, budget / 1e9, cache_fit_reserve() / 1e9, nf, nf == 1 ? "" : "s", nf * NR * sf / 1e9, (node_bytes + nf * NR * sf) / 1e9);
+    if (!w || !first) { printf("plan cache  the mn transform cache (%d slots): %s -- nothing allocated; node %.2f GB\n", w, !w ? "off" : "not wanted (no mn grid product)", node_bytes / 1e9); return; }
+    /* Phase 15 PC: the partial slots come from the block pool per grid product -- decided at run time by the pool's free bytes */
+    printf("plan cache  the mn transform cache (partial slots, at most %d): wanted first in %s (mn grids: tree %ld, recip %ld, div %ld); per grid product, slots from the block pool"
+           " (the arena, inside the node's %.2f GB: nothing added): P = (the pool's free bytes - the product's need - %.2f GB margin per APU) / (q x 8), at most what the free extents hold;"
+           " one prime at the cap %s limbs = %.2f GiB per APU (%.2f GB per node); P >= %d primes: full slots, else 1 slot of P primes; P24 products cached too; the grid's loop along its longer axis"
+           " (mn_model.py --cache-partial models the primes per phase)\n",
+           w, first, grids_tree, grids_recip, grids_div, node_bytes / 1e9, 0.5,
+           q_name(lf - 2, qb), rns_q_slot(lf) * 8 / 1073741824.0, NR * rns_q_slot(lf) * 8 / 1e9, np0);
 }
 /* the plan's piece: the same loop and cuts as the products' (a piece past the operand's end is empty and not counted) */
 struct plan_piece { size_t na, nb, pa, pb, lowcut, w; struct rns_grid_plan *p; };

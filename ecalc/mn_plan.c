@@ -318,9 +318,9 @@ static int plan_run_in(unsigned long d, unsigned long N, int size, int pool_log,
     }
 
     /* the leaf (node 0's range) */
-    { unsigned long lb1 = binsplit_lanes() > 1 ? binsplit_pe_b1(N, size) : 0;   /* ECALC_VPE: PE 0's range (the L PEs of a node split the node's) */
+    { unsigned long lb1 = binsplit_lanes() > 1 ? binsplit_pe_b1(N, size) : 0;   /* PE layout: PE 0's range (the L PEs of a node split the node's) */
       plan_leaf(1, binsplit_lanes() > 1 ? (lb1 ? lb1 : N + 1) : size > 1 ? term0(N, 1, size) : N + 1); }
-    if (binsplit_lanes() > 1 && !silent) printf("plan pe     ECALC_VPE: %d PEs per node, %d PEs in all; the leaf is PE 0's range [1, %lu) of one region; the tree, the reciprocal and the division are planned over the %d node%s (the groups below a node are not modelled until the PE-level products exist)\n",
+    if (binsplit_lanes() > 1 && !silent) printf("plan pe     ECALC_PE_PER_GPU: %d PEs per node, %d PEs in all; the leaf is PE 0's range [1, %lu) of one region; the tree, the reciprocal and the division are planned over the %d node%s (the groups below a node are not modelled until the PE-level products exist)\n",
            binsplit_lanes(), size * binsplit_lanes(), binsplit_pe_b1(N, size) ? binsplit_pe_b1(N, size) : N + 1, size, size > 1 ? "s" : "");
     long tree_max = 0;
     size_t k_mu = pn + 1 + dl - nq + 1;   /* k from S's largest possible length */

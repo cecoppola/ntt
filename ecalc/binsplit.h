@@ -18,12 +18,12 @@ struct dbig_s;
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* S1d (TARGET1, ECALC_VPE=1): with the switch on each vPE (one pthread per lane, vpe.h) runs its own binary splitting over its own term range with ONE region
- * (its device); the run's state below is then one copy per vPE, picked by the thread's vPE index.  Written as the names the callers already use
+/* S1d (TARGET1, ECALC_PE_PER_GPU=1): with the switch on each PE (one process per GPU, vpe.h) runs its own binary splitting over its own term range with ONE region
+ * (its device); the run's state below is then one copy per PE (index vpe_idx(): one slot used per process).  Written as the names the callers already use
  * (macros over per-vPE arrays: bs_a0 = (bs_a0_v[bs_vidx()]) is still an lvalue); with the switch off bs_vidx() is 0 and nothing changes.
  * BS_VMAX = vpe.h's VPE_MAX (tests/t_bs.c checks it). */
 #define BS_VMAX 8
-extern __thread int vpe_t_idx;                            /* vpe.h (vpe.c): the calling thread's vPE index, 0 outside vpe_run threads */
+extern __thread int vpe_t_idx;                            /* vpe.h (vpe.c): the calling thread's PE index (thread-local override; 0 when unset) */
 extern int vpe_g_idx;                                     /* vpe.h: S2 (ECALC_PE_PER_GPU=1) the process's PE index on its node, >= 0 and valid on every thread of the process, else -1 */
 #define bs_vidx() (vpe_g_idx >= 0 ? vpe_g_idx : vpe_t_idx)   /* = vpe_idx() (vpe.h needs HIP's headers; this is plain C): the per-vPE storage index of the calling thread */
 typedef struct { double t_seed, t_school, t_batch, t_mdev, t_total; int levels, school_levels, batch_levels, mdev_levels; size_t peak_pool_limbs;
@@ -106,7 +106,7 @@ extern int bs_keep_dev_v[BS_VMAX]; struct dbig_s *bs_Pd_ptr(void), *bs_Qd_ptr(vo
 #define bs_Qd (*bs_Qd_ptr())                          /* release the two level pools */
 /* reference: the same recursion on the CPU with schoolbook products, any N */
 void binsplit_ref(bigint *P, bigint *Q, unsigned long a, unsigned long b);
-/* S1d: the planner's PE terms (ECALC_VPE=1; with the switch off 4 devices per node, 1 PE per node, and the node's range as before) */
+/* S1d: the planner's PE terms (ECALC_PE_PER_GPU=1; with the switch off 4 devices per node, 1 PE per node, and the node's range as before) */
 unsigned long binsplit_pe_b1(unsigned long N, int g);   /* end of rank 0's (PE 0's) term range [1, b1) on g node-processes; 0 = all terms */
 int binsplit_nrn(void); int binsplit_lanes(void);        /* devices (PEs) per node; PEs per node */
 #ifdef __cplusplus

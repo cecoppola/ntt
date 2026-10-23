@@ -8,18 +8,16 @@
  * SLURM_JOB_ID=<id> ./mnrun.sh 3 ./tests/t_mn_grid [scale] [pool_log]  (scale: the shapes' unit as a fraction of the
  * cap, default 1; 0.25 for a quick run).  Every node checks its own share and the length. */
 #include "harness.h"
-#include "vpe_bt.h"
 #include "tref.h"
 #include <hip/hip_runtime.h>
 #include "../dbig.h"
 #include "../mdb.h"
 #include "../mn.h"
 #include "../rns_mul.h"
-#include "../vpe.h"
 #include <string.h>
-static __thread rng_t rg = { 4242 };      /* (per vPE thread under --vpe: every PE draws the same sequence) */
+static rng_t rg = { 4242 };
 static __thread int g_me, g_size;
-static double g_scale = 1.0; static int g_argc; static char **g_argv; static int g_vpe;
+static double g_scale = 1.0; static int g_argc; static char **g_argv; 
 static void rnd_bi(bigint *a, size_t n, int kind) { bi_reserve(a, n ? n : 1); gen_limbs(a->l, n, kind, &rg); a->n = n; bi_norm(a); }
 /* the number a sharded over nodes [g0, g0+g) with basis N >= a->n: this node's share (zeros above a->n) */
 static void make_mdb(mdb *m, const bigint *a, size_t N, int g0, int g)
@@ -52,7 +50,7 @@ static int body_rc;
 static void body(void *unused)
 {
     (void)unused; int argc = g_argc; char **argv = g_argv; (void)argv; double scale = g_scale;
-    g_size = g_vpe ? mn_size() : mn_init(); g_me = mn_rank();
+    g_size = mn_init(); g_me = mn_rank();
     if (g_size < 2) { printf("t_mn_grid: needs COMM_SIZE >= 2 (mnrun.sh)\n"); body_rc = 2; return; }
     int L = 0; while ((1 << L) < g_size) L++;
     mn_group *G = mn_group_at(L);
@@ -75,7 +73,6 @@ static void body(void *unused)
         rns_mul_dist_mn(&C, &A, &B, 0, G); double t1 = now(); tref_mul(&r, &a, &b); double t2 = now();
         VERIFY(check(&C, &r, "product"), "%s %zu x %zu %s", sh[si].name, na, nb, gen_name[kind]);
         if (g_me == 0 && kind == 0) printf("   %s %zu x %zu: %.2f s (mn product %.2f, reference %.2f, check %.2f)\n", sh[si].name, na, nb, now() - t0, t1 - t0, t2 - t1, now() - t2);
-        if (g_vpe && si < 2 && kind == 0) { double t3 = now(); rns_mul_dist_mn(&C, &A, &B, 0, G); if (g_me == 0) printf("   (second mn product of the same operands: %.2f s)\n", now() - t3); }
         rns_mul_dist_mn(&C, &A, &B, &X, G); bi_add(&t, &r, &x);
         VERIFY(check(&C, &t, "product + x"), "%s %zu x %zu + x %s", sh[si].name, na, nb, gen_name[kind]);
         for (int wv = 0; wv < 3; wv++) {                      /* low products: pieces above w skipped, the result truncated (A5: in basis w) */
@@ -148,17 +145,11 @@ static void body(void *unused)
     bi_free(&a); bi_free(&b); bi_free(&x); bi_free(&r); bi_free(&t); bi_free(&rl);
     mn_barrier(); mn_finalize();
 }
-/* --vpe: the product tier over PEs (4 per node, one communicator over all of them, form S pieces): mn_init once, then every PE thread runs the body */
 int main(int argc, char **argv)
 {
-    int k = 1; for (int i = 1; i < argc; i++) { if (!strcmp(argv[i], "--vpe")) g_vpe = 1; else argv[k++] = argv[i]; } argc = k;
     g_scale = argc > 1 ? atof(argv[1]) : 1.0; g_argc = argc; g_argv = argv;
-    harness_meta(g_vpe ? "t_mn_grid --vpe" : "t_mn_grid"); rns_init(argc > 2 ? atoi(argv[2]) : 31);
-    setenv("DIST_LOGN_TEST", g_vpe ? "21" : "24", 1);
-    if (g_vpe) {
-        vpe_set_forced(VPE_S_B);
-        mn_init();                                            /* the process-level init (the flat communicators); the lanes do not call it again */
-        vpe_run(body, 0);
-    } else body(0);
+    harness_meta("t_mn_grid"); rns_init(argc > 2 ? atoi(argv[2]) : 31);
+    setenv("DIST_LOGN_TEST", "24", 1);
+    body(0);
     return body_rc ? body_rc : verify_done("t_mn_grid");
 }

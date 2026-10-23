@@ -1,6 +1,6 @@
 #!/bin/bash
 # digcmp.sh <outfile> <ASCII reference>: a run's digits (the file, or its part files <outfile>.part*) against the reference;
-# prints identical / DIFFERS.  Packed parts (ECALC_OUT_PACKED=1 or 2 -- 2 the default since 2026-10-12: header "ECPACK18") are compared by
+# prints identical / DIFFERS.  Packed parts (ECALC_OUT_PACKED nonzero, the default since 2026-10-12; the 8-byte form of =1 was removed, its files are still read: header "ECPACK18") are compared by
 # tools/unpack_digits --cmp without an ASCII copy; ASCII files with O_DIRECT reads (nothing left in the page cache)
 f=$1 ref=$2; here=$(cd "$(dirname "$0")" && pwd)
 P=$(ls "$f".part* 2>/dev/null | sort); [ -n "$P" ] || P=$f

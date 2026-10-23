@@ -38,7 +38,7 @@ DIST_STATS pass (m, job 21733): all 9 products 89.4 -> 67.3 s (-24.8 %); both ex
 
 **Model changes.** `MN_MODEL_CACHE=code` is now the default: hits from `cache_pieces` at `CACHE_MN_SLOTS` slots, each saving `CACHE_HIT_F` of piece_cost's fwd 2 - fwd 1 (at the target a hit saves 0.40-0.58 s of a 1.25-1.81 s piece: about 80 % local forward transform, 20 % exchanges, 3 % redistribution). Proposal knobs `CACHE_PRIMES`, `CACHE_LOOP='long'`, `CACHE_SLOTS_PHASE`; `mn_model.py --cache-proposals`.
 
-**Estimate table (5.1e13, mod, `estimate.py --target`).**
+**Estimate table (5.1e13, mod, `mn_model.py estimate --target`).**
 
 | cache | NP | without the write | with the write @0.6 | distributed levels / recip / div |
 |---|---|---|---|---|
@@ -52,7 +52,7 @@ Proposals (mod, NP=4, 0 slots = 434.1 s without / 453.3 with the write): 1 slot 
 
 **Gates (all at 75cdb2f).** mnaccept `unit,e9,mn` 15 PASS, 0 FAIL (1307 s, job 21733); 4e10 at size 1 identical, `total` 61.69 s (m).
 
-**Open issues.** Fits are on aac6's loopback; `estimate.py --target` still priced 2 slots by default (353.3 s) while the budget allows 0 (434.1 s); the default cache harmful wherever slots are oversized or the node shared (fixed by FIT; adoption was the user's); proposals modelled only.
+**Open issues.** Fits are on aac6's loopback; `mn_model.py estimate --target` still priced 2 slots by default (353.3 s) while the budget allows 0 (434.1 s); the default cache harmful wherever slots are oversized or the node shared (fixed by FIT; adoption was the user's); proposals modelled only.
 
 ## TC15 — the multi-node transform cache's allocation (internal target task list T7)
 

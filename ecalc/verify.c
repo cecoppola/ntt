@@ -193,7 +193,7 @@ static const struct { unsigned long off; const char *w; } windows[] = {
  * (lines "offset 50digits", 1-based fractional offset) */
 struct win { unsigned long off; char w[51]; int from_file; };
 static struct win *g_win; static int g_nwin = -1, g_nwin_file; static const char *g_win_file;
-static int g_win_ready; static pthread_mutex_t g_win_mx = PTHREAD_MUTEX_INITIALIZER;   /* S1e (ECALC_VPE): the vPE writers call tier2_range at once: the table is loaded once, published when complete */
+static int g_win_ready; static pthread_mutex_t g_win_mx = PTHREAD_MUTEX_INITIALIZER;   /* S1e (PE layout): concurrent writers may call tier2_range at once: the table is loaded once, published when complete */
 void tier2_windows_reset(void) { free(g_win); g_win = 0; g_nwin = -1; g_nwin_file = 0; __atomic_store_n(&g_win_ready, 0, __ATOMIC_RELEASE); }
 static void win_load_i(void);
 static void win_load(void)

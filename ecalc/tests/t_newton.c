@@ -9,15 +9,11 @@
  *     counted; a perturbed seed forces the overshoot path; a longer prewarm mu.  3b: quotients of 1 .. 8 limbs
  *  4. time at 2^LOGMAX limbs (A = 2 nq limbs) with the split tiers
  *  5. the reciprocal's middle product; 6. the division in two quotient halves (DKM, the one division)
- *  8. the reciprocal's chain guard (NEWTON_CHAIN_GUARD, results/DIVISION.md §RECIP): exact doublings off and on, the DKM estimate
+ *  8. the reciprocal's chain guard (results/DIVISION.md §RECIP): the error bound at exact doublings, the DKM estimate
  *
- * 9. --vpe (S1c, ECALC_VPE; one process per node, 4 vPE threads each, COMM_TRANSPORT=xshmem XSHMEM_LOOPBACK_PES=4, mnrun.sh): the multi-PE division
- *    newton_mn_divmod over 4 / 8 / 12 PEs (the reciprocal chain per PE, the mdb helpers over PE groups) against mpz_tdiv_qr: X exactly (every PE its share),
- *    R's and P's, Q's residues, five operand kinds x sizes 2e4 .. 1e6 limbs; then forced corrections (ECALC_TEST_CORR, NEWTON_DKM_TEST_HI) on one case.
- *    Switches read once per process: run again with ECALC_VPE_CHAIN=leader, NEWTON_MN_SPLIT=4096 NEWTON_MN_GROUPS=0 (more sharded steps, no subgroups),
- *    DIST_LOGN_TEST=19 (grids, the wrap)
+ * (9., --vpe: the multi-PE division over vPE threads, was removed 2026-10-23 with the thread mode; the division over PE processes is gated end to end by the multi-node digit checks)
  *
- * Usage: t_newton [LOGMAX (26)] | t_newton --vpe
+ * Usage: t_newton [LOGMAX (26)]
  * Decimal limbs only since archive:PLAN §28.5.
  */
 #include "harness.h"
@@ -41,16 +37,8 @@ static void mpz_recip(mpz_t mu, const mpz_t Q, size_t nq, size_t k)
  * limbs are not normalised).  A doubling j -> 2j with no limb cut after it keeps its own error: mu - B^(nq+k)/Q < 2 M + 3, so
  * err >= -(2 ceil(M) + 6) when the chain's LAST doubling is exact (ceil(M) <= B / top limb + 1); a doubling j -> jn < 2j cuts it by
  * >= 1 limb (+-8 as before; the upper side is the model's +2 plus margin).  Two exact doublings in a row square the error (no bound
- * without NEWTON_CHAIN_GUARD: returns 0).  With the guard every doubling cuts: +-8 */
-static int recip_bound(const bigint *Q, size_t k, long *lo, long *hi)
-{
-    *lo = -8; *hi = 8;
-    if (newton_chain_guard()) return 1;
-    size_t j = 2; int prev = 0, last = 0;
-    while (j < k) { size_t jn = newton_chain_next(j, k); int ex = jn == 2 * j; if (ex && prev) return 0; prev = last = ex; j = jn; }
-    if (last) *lo = -(2 * (long)(BI_B10 / Q->l[Q->n - 1] + 1) + 6);
-    return 1;
-}
+ * without the chain guard, whose fallback was removed 2026-10-23, Q87).  With the guard every doubling cuts: +-8 */
+static int recip_bound(const bigint *Q, size_t k, long *lo, long *hi) { (void)Q; (void)k; *lo = -8; *hi = 8; return 1; }
 static long recip_err(mpz_t m, mpz_t x, mpz_t q, const bigint *Q, const bigint *mu, size_t k)   /* err as above (1 << 62 if it does not fit) */
 {
     bi_to_mpz(q, Q); mpz_recip(m, q, Q->n, k); bi_to_mpz(x, mu); mpz_sub(x, m, x);
@@ -96,110 +84,8 @@ static int check_div(const char *what, const bigint *S, size_t dl, const bigint 
     return ok;
 }
 
-/* ---- 9. --vpe: the multi-PE division over vPE threads ---- */
-#include "../mdb.h"
-#include "../mn.h"
-#include "../vpe.h"
-struct vdiv { const char *what; bigint P, Q, Xr; size_t dl; uint64_t pres[3], qres[3], rres[3]; };
-static struct vdiv g_vd[24]; static int g_nvd, g_vrun[24], g_nvrun, g_vlast;
-static int g_vbad[VPE_MAX]; static char g_vmsg[VPE_MAX][200];
-static __thread int g_me;
-static void vfail(int L, const char *fmt, int ci, const char *a) { if (!g_vbad[L]) { g_vbad[L] = 1; snprintf(g_vmsg[L], sizeof g_vmsg[L], fmt, ci, a); } }
-static void vmake_mdb(mdb *m, const bigint *a, size_t N, int g0, int g)
-{
-    memset(m, 0, sizeof *m); db_init(&m->sh); m->n = a->n; m->N = N; m->g0 = g0; m->g = g;
-    size_t lo, hi; mdb_share(m, g_me, &lo, &hi);
-    if (hi > lo) {
-        bigint v; bi_init(&v); bi_reserve(&v, hi - lo); v.n = hi - lo;
-        for (size_t i = 0; i < hi - lo; i++) v.l[i] = lo + i < a->n ? a->l[lo + i] : 0;
-        db_from_bi(&m->sh, &v); m->sh.n = hi - lo; bi_free(&v);
-    }
-}
-static void vlane(void *arg)
-{
-    (void)arg; const int L = vpe_lane(); g_me = mn_rank();
-    int size = mn_size(), lv = 0; while ((1 << lv) < size) lv++;
-    mn_group *G = mn_group_at(lv);
-    for (int ri = 0; ri < g_nvrun; ri++) {
-        struct vdiv *c = &g_vd[g_vrun[ri]]; int ci = g_vrun[ri];
-        mdb P, Q, X; size_t NQ = c->Q.n + 5, NP = (c->P.n > c->Q.n ? c->P.n : c->Q.n) + 3;
-        vmake_mdb(&P, &c->P, NP, G->g0, G->g); vmake_mdb(&Q, &c->Q, NQ, G->g0, G->g); memset(&X, 0, sizeof X);
-        uint64_t pres[3], qres[3], rres[3]; double tr = 0;
-        newton_mn_divmod(&X, &P, &Q, c->dl, G, qs3, 3, pres, qres, rres, &tr);
-        for (int j = 0; j < 3; j++) if (pres[j] != c->pres[j] || qres[j] != c->qres[j] || rres[j] != c->rres[j]) vfail(L, "case %d: %s residues differ", ci, "P/Q/R");
-        size_t lo, hi; mdb_share(&X, g_me, &lo, &hi);
-        if (X.n != c->Xr.n) vfail(L, "case %d: X has %s limbs (wrong length)", ci, "a wrong number of");
-        if (hi > lo) {
-            bigint h; bi_init(&h); dbig v = X.sh; v.n = hi - lo; db_to_bi(&h, &v); size_t bad = 0;
-            for (size_t i = 0; i < hi - lo; i++) { uint64_t want = lo + i < c->Xr.n ? c->Xr.l[lo + i] : 0, got = i < h.n ? h.l[i] : 0; if (got != want) bad++; }
-            if (bad) vfail(L, "case %d: X share has %s wrong limbs", ci, "some");
-            bi_free(&h);
-        }
-        if (X.sh.cap) db_free(&X.sh);
-        if (P.sh.cap) db_free(&P.sh);
-        if (Q.sh.cap) db_free(&Q.sh);
-    }
-    newton_db_free_scratch();
-    if (g_vlast) { mn_barrier(); mn_finalize(); }
-}
-static void vref(const char *what, const bigint *P, const bigint *Q, size_t dl)
-{
-    struct vdiv *c = &g_vd[g_nvd++]; c->what = what; bi_init(&c->P); bi_init(&c->Q); bi_init(&c->Xr); bi_copy(&c->P, P); bi_copy(&c->Q, Q); c->dl = dl;
-    bigint S, A; bi_init(&S); bi_init(&A); bi_add(&S, P, Q); bi_shl_limbs(&A, &S, dl);
-    mpz_t a, q, x, r; mpz_inits(a, q, x, r, NULL); bi_to_mpz(a, &A); bi_to_mpz(q, Q); mpz_tdiv_qr(x, r, a, q);
-    bi_from_mpz(&c->Xr, x);
-    for (int j = 0; j < 3; j++) { c->pres[j] = limbs_mod_u64(P->l, P->n, qs3[j]); c->qres[j] = limbs_mod_u64(Q->l, Q->n, qs3[j]); c->rres[j] = mpz_fdiv_ui(r, qs3[j]); }
-    mpz_clears(a, q, x, r, NULL); bi_free(&S); bi_free(&A);
-}
-static void vrun(const int *ids, int n, const char *tag)
-{
-    g_nvrun = n; for (int i = 0; i < n; i++) g_vrun[i] = ids[i];
-    newton_stats before = newton_st; double t0 = now();
-    vpe_run(vlane, 0);
-    int bad = 0; for (int l = 0; l < vpe_lanes(); l++) { VERIFY(!g_vbad[l], "%s lane %d: %s", tag, l, g_vmsg[l]); bad |= g_vbad[l]; g_vbad[l] = 0; }
-    printf("   %s: %d divisions on %d PEs, %s (%.1f s; corrections up %zu down %zu)\n", tag, n, mn_size(), bad ? "FAILED" : "ok", now() - t0, newton_st.up_corr - before.up_corr, newton_st.down_corr - before.down_corr);
-    g_vlast = 0;
-}
-static int vpe_main(void)
-{
-    rng_t rng = { 0x7E57ULL };
-    harness_meta("t_newton --vpe"); rns_init(31);
-    vpe_set_forced(VPE_S_B | VPE_S_C);
-    if (!getenv("DIST_LOGN_TEST")) setenv("DIST_LOGN_TEST", "20", 1);
-    mn_init();                                            /* the process-level init (the flat communicators); the lanes do not call it again */
-    size_t nqs[3] = { 20011, 150003, 600011 };
-    bigint P, Q; bi_init(&P); bi_init(&Q);
-    for (int si = 0; si < 3; si++) {
-        size_t nq = nqs[si];
-        bi_random(&Q, nq, GEN_UNIFORM, &rng); bi_random(&P, nq, GEN_UNIFORM, &rng); vref("random, dl = nq/2", &P, &Q, nq / 2);
-        vref("random, dl = nq - 1", &P, &Q, nq - 1);
-        bi_random(&Q, nq, GEN_ONES, &rng); vref("Q = B^k - 1", &P, &Q, nq / 2);
-        bi_random(&Q, nq, GEN_UNIFORM, &rng); bi_random(&P, 5, GEN_UNIFORM, &rng); vref("P of 5 limbs, dl = nq - 1", &P, &Q, nq - 1);
-        bi_random(&Q, nq, GEN_BIT, &rng); for (size_t i = 0; i + 1 < nq; i++) Q.l[i] = 0; bi_random(&P, nq, GEN_UNIFORM, &rng); vref("Q = single top limb", &P, &Q, nq / 2);
-    }
-    bi_random(&Q, (size_t)1 << 20, GEN_UNIFORM, &rng); bi_random(&P, (size_t)1 << 20, GEN_UNIFORM, &rng); vref("random 2^20, dl = nq/2", &P, &Q, (size_t)1 << 19);
-    printf("-- 9. the multi-PE division over %d PEs, %d cases against GMP (ECALC_VPE_CHAIN=%s, NEWTON_MN_SPLIT=%s)\n", mn_size(), g_nvd,
-           getenv("ECALC_VPE_CHAIN") ? getenv("ECALC_VPE_CHAIN") : "own", getenv("NEWTON_MN_SPLIT") ? getenv("NEWTON_MN_SPLIT") : "default");
-    int all[24]; for (int i = 0; i < g_nvd; i++) all[i] = i;
-    vrun(all, g_nvd, "all cases");
-    /* forced corrections on one case (the result must not change; the corrections are counted) */
-    int one[1] = { 0 };
-    static const char *tc[] = { "5", "-7" }, *th[] = { "3", "-4" };
-    for (int i = 0; i < 2; i++) {
-        setenv("ECALC_TEST_CORR", tc[i], 1); newton_stats b = newton_st; vrun(one, 1, i ? "ECALC_TEST_CORR=-7" : "ECALC_TEST_CORR=5");
-        size_t n = (newton_st.up_corr - b.up_corr) + (newton_st.down_corr - b.down_corr); VERIFY(n >= (size_t)atoi(tc[i] + (tc[i][0] == '-')), "ECALC_TEST_CORR=%s: %zu corrections", tc[i], n);
-        unsetenv("ECALC_TEST_CORR");
-    }
-    for (int i = 0; i < 2; i++) {
-        setenv("NEWTON_DKM_TEST_HI", th[i], 1); newton_stats b = newton_st; if (i == 1) g_vlast = 1; vrun(one, 1, i ? "NEWTON_DKM_TEST_HI=-4" : "NEWTON_DKM_TEST_HI=3");
-        size_t n = (newton_st.up_corr - b.up_corr) + (newton_st.down_corr - b.down_corr) + (newton_st.dkm_corr - b.dkm_corr); VERIFY(n >= (size_t)atoi(th[i] + (th[i][0] == '-')), "NEWTON_DKM_TEST_HI=%s: %zu corrections", th[i], n);
-        unsetenv("NEWTON_DKM_TEST_HI");
-    }
-    return verify_done("t_newton --vpe");
-}
 int main(int argc, char **argv)
 {
-    for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--vpe")) return vpe_main();
     int LOGMAX = argc > 1 ? atoi(argv[1]) : 26;
     rng_t rng = {0x4E37ULL};
     bigint A, Q, X, R, mu, t; bi_init(&A); bi_init(&Q); bi_init(&X); bi_init(&R); bi_init(&mu); bi_init(&t);
@@ -458,52 +344,48 @@ int main(int argc, char **argv)
         }
     }
 
-    /* 8. the chain guard (results/DIVISION.md §RECIP).  (a) SIMP's operand: Q of 131075 limbs, top limb 2.35e16 (M = B^nq / Q = 42.6), k 65538:
-     * the last doubling 32769 -> 65538 is exact -- error -22 units off (within -(2 ceil(M) + 6)), +-8 on.  (b) k = 1024, 2048 at nq
-     * 1027 (every doubling exact), 100 uniform Q: off, the error squares from doubling to doubling (printed: the count beyond +-8 and the
-     * largest); on, +-8 for every Q.  (c) DKM's step-1 estimate X0 = ((A1 >> (nq - 1)) mu_top) >> (k1 + 1) for a quotient of kq = 4095
-     * limbs at nq 8200 (h = k1 = 2048: mu_top is all of mu, its error is not cut), 300 Q x 3 A1 (random, B^n - 1, a multiple of Q
-     * minus 1): off, max |X1 - X0| printed (> 64 would be fatal in the division: "DKM step 1: N corrections"); on, within 2; and the
-     * division itself (newton_db_divmod_shifted, A = A1 B^2047, the guard on) exact against GMP for the first 3 Q and for every (Q, A1)
-     * whose estimate was beyond 64 with the guard off */
-    printf("-- 8. the reciprocal's chain guard (NEWTON_CHAIN_GUARD)\n");
+    /* 8. the chain guard (results/DIVISION.md §RECIP; its =0 fallback was removed 2026-10-23, Q87, so every case runs the guarded chain).
+     * (a) SIMP's operand: Q of 131075 limbs, top limb 2.35e16 (M = B^nq / Q = 42.6), k 65538: the error within +-8.  (b) k = 1024, 2048 at
+     * nq 1027 (every doubling would be exact without the guard), 100 uniform Q: +-8 for every Q.  (c) DKM's step-1 estimate
+     * X0 = ((A1 >> (nq - 1)) mu_top) >> (k1 + 1) for a quotient of kq = 4095 limbs at nq 8200 (h = k1 = 2048: mu_top is all of mu),
+     * 300 Q x 3 A1 (random, B^n - 1, a multiple of Q minus 1): within 2 of X1; and the division itself (newton_db_divmod_shifted,
+     * A = A1 B^2047) exact against GMP for the first 3 Q */
+    printf("-- 8. the reciprocal's chain guard\n");
     {
-        int guard_env = newton_chain_guard();
         long lo, hi;
         {   rng_t r8 = {0x9A4EA83C95610E7BULL};                 /* the rng state of SIMP's section-5 draw (t_newton 20 at SIMP 4003968, results/CODE_REDUCTION.md §SIMP) */
             bi_random(&Q, 131075, GEN_UNIFORM, &r8);
-            for (int on = 0; on < 2; on++) {
-                newton_chain_guard_set(on); newton_db_recip(&mu, &Q, 65538);
+            {
+                newton_db_recip(&mu, &Q, 65538);
                 long err = recip_err(m, x, q, &Q, &mu, 65538); recip_bound(&Q, 65538, &lo, &hi);
-                VERIFY(err >= lo && err <= hi, "chain guard %s, SIMP's Q: error %ld, bound [%ld, %ld]", on ? "on" : "off", err, lo, hi);
-                printf("   SIMP's Q (nq 131075, top limb %llu), k 65538, guard %s: error %+ld units, bound [%ld, %ld]\n", (unsigned long long)Q.l[Q.n - 1], on ? "on " : "off", err, lo, hi);
+                VERIFY(err >= lo && err <= hi, "SIMP's Q: error %ld, bound [%ld, %ld]", err, lo, hi);
+                printf("   SIMP's Q (nq 131075, top limb %llu), k 65538: error %+ld units, bound [%ld, %ld]\n", (unsigned long long)Q.l[Q.n - 1], err, lo, hi);
             }
         }
         for (int kb = 1024; kb <= 2048; kb *= 2) {
-            rng_t r8 = {0xABCDULL}; size_t nq = 1027, k = (size_t)kb; long nout[2] = {0, 0}; double emax[2] = {0, 0};
+            rng_t r8 = {0xABCDULL}; size_t nq = 1027, k = (size_t)kb; long nout = 0; double emax = 0;
             for (int i = 0; i < 100; i++) {
                 bi_random(&Q, nq, GEN_UNIFORM, &r8);
-                for (int on = 0; on < 2; on++) {
-                    newton_chain_guard_set(on); newton_db_recip(&mu, &Q, k);
+                {
+                    newton_db_recip(&mu, &Q, k);
                     long err = recip_err(m, x, q, &Q, &mu, k); double ed = mpz_get_d(x); if (ed < 0) ed = -ed;
-                    if (ed > emax[on]) emax[on] = ed;
-                    if (err < -8 || err > 8) nout[on]++;
-                    if (on) VERIFY(err >= -8 && err <= 8, "chain guard on, nq %zu k %zu Q #%d: error %ld units", nq, k, i, err);
+                    if (ed > emax) emax = ed;
+                    if (err < -8 || err > 8) nout++;
+                    VERIFY(err >= -8 && err <= 8, "nq %zu k %zu Q #%d: error %ld units", nq, k, i, err);
                 }
             }
-            printf("   nq %zu k %zu, 100 Q: guard off %ld beyond +-8 (largest |error| %.3g units), on %ld (largest %.3g)\n", nq, k, nout[0], emax[0], nout[1], emax[1]);
+            printf("   nq %zu k %zu, 100 Q: %ld beyond +-8 (largest |error| %.3g units)\n", nq, k, nout, emax);
         }
         {   static const uint64_t qs8[3] = { 2305843009213693951ULL, 1000000000000000003ULL, 4611686018427387847ULL };
             rng_t r8 = {0x99ULL}; size_t nq = 8200, kq = 4095, s8 = kq / 2, k1 = kq - s8, na1 = nq + k1 - 1;
-            bigint A1, mu0, mu1; bi_init(&A1); bi_init(&mu0); bi_init(&mu1);
+            bigint A1, mu1; bi_init(&A1); bi_init(&mu1);
             mpz_t a1, x1, x0, bp; mpz_inits(a1, x1, x0, bp, NULL);
-            double cmax[2] = {0, 0}; int nfat = 0, ndiv = 0;
+            double cmax = 0; int ndiv = 0;
             for (int i = 0; i < 300; i++) {
                 bi_random(&Q, nq, GEN_UNIFORM, &r8); bi_to_mpz(q, &Q);
                 dbig Qd8; db_init(&Qd8); db_from_bi(&Qd8, &Q);
                 newton_db_Qd = &Qd8;                              /* the device flow's reciprocal: to h = newton_dkm_h(4095) = 2048 limbs */
-                newton_chain_guard_set(0); newton_db_recip(&mu0, &Q, kq);
-                newton_chain_guard_set(1); newton_db_recip(&mu1, &Q, kq);
+                newton_db_recip(&mu1, &Q, kq);
                 newton_db_Qd = 0; newton_db_free_scratch();
                 for (int ak = 0; ak < 3; ak++) {
                     bi_random(&A1, na1, GEN_UNIFORM, &r8); bi_to_mpz(a1, &A1);
@@ -511,18 +393,17 @@ int main(int argc, char **argv)
                     if (ak == 1) mpz_sub_ui(a1, bp, 1);
                     if (ak == 2) { mpz_fdiv_q(x1, bp, q); mpz_mul(a1, x1, q); mpz_sub_ui(a1, a1, 1); }
                     mpz_fdiv_q(x1, a1, q);
-                    double c[2];
-                    for (int on = 0; on < 2; on++) {
-                        bigint *mt = on ? &mu1 : &mu0;
+                    double c;
+                    {
+                        bigint *mt = &mu1;
                         bi_to_mpz(x0, mt); mpz_ui_pow_ui(bp, BI_B10, mt->n - (k1 + 1)); mpz_tdiv_q(x0, x0, bp);   /* mu's top k1 + 1 limbs */
                         mpz_ui_pow_ui(bp, BI_B10, nq - 1); mpz_tdiv_q(r, a1, bp); mpz_mul(x0, x0, r);
                         mpz_ui_pow_ui(bp, BI_B10, k1 + 1); mpz_tdiv_q(x0, x0, bp);
-                        mpz_sub(x0, x1, x0); c[on] = mpz_get_d(x0); if (c[on] < 0) c[on] = -c[on];
-                        if (c[on] > cmax[on]) cmax[on] = c[on];
+                        mpz_sub(x0, x1, x0); c = mpz_get_d(x0); if (c < 0) c = -c;
+                        if (c > cmax) cmax = c;
                     }
-                    VERIFY(c[1] <= 2, "chain guard on, DKM estimate Q #%d A %d: X1 - X0 = %.3g", i, ak, c[1]);
-                    if (c[0] > 64) nfat++;
-                    if (c[0] > 64 || (i < 3 && ak == 0)) {               /* the division itself, the guard on */
+                    VERIFY(c <= 2, "DKM estimate Q #%d A %d: X1 - X0 = %.3g", i, ak, c);
+                    if (i < 3 && ak == 0) {                                /* the division itself */
                         bigint S8, X8; bi_init(&S8); bi_init(&X8); bi_from_mpz(&S8, a1);
                         if (S8.n == na1) {
                             size_t dl = s8; dbig Sd, Qd; db_init(&Sd); db_init(&Qd); db_from_bi(&Sd, &S8); db_from_bi(&Qd, &Q);
@@ -534,7 +415,7 @@ int main(int argc, char **argv)
                             mpz_ui_pow_ui(bp, BI_B10, dl); mpz_mul(a, a1, bp); mpz_tdiv_qr(x0, x1, a, q);
                             int okx = bi_eq_mpz(&X8, x0), okr = 1; for (int j = 0; j < 3; j++) if (mpz_fdiv_ui(x1, qs8[j]) != got[j]) okr = 0;
                             size_t hc = newton_st.dkm_corr - b.dkm_corr;
-                            VERIFY(okx && okr && hc <= 4, "chain guard on, DKM division Q #%d A %d: X %s, R %s, step-1 corrections %zu", i, ak, okx ? "ok" : "DIFFERS", okr ? "ok" : "DIFFER", hc);
+                            VERIFY(okx && okr && hc <= 4, "DKM division Q #%d A %d: X %s, R %s, step-1 corrections %zu", i, ak, okx ? "ok" : "DIFFERS", okr ? "ok" : "DIFFER", hc);
                             db_free(&Sd); db_free(&Qd); newton_db_free_scratch(); ndiv++;
                             mpz_fdiv_q(x1, a1, q);
                         }
@@ -543,11 +424,9 @@ int main(int argc, char **argv)
                 }
                 db_free(&Qd8);
             }
-            printf("   DKM step 1, nq %zu kq %zu (h = k1 = %zu), 300 Q x 3 A: max |X1 - X0| guard off %.3g (%d beyond 64: fatal in the division), on %.3g; %d divisions with the guard on exact\n",
-                   nq, kq, k1, cmax[0], nfat, cmax[1], ndiv);
-            mpz_clears(a1, x1, x0, bp, NULL); bi_free(&A1); bi_free(&mu0); bi_free(&mu1);
+            printf("   DKM step 1, nq %zu kq %zu (h = k1 = %zu), 300 Q x 3 A: max |X1 - X0| %.3g; %d divisions exact\n", nq, kq, k1, cmax, ndiv);
+            mpz_clears(a1, x1, x0, bp, NULL); bi_free(&A1); bi_free(&mu1);
         }
-        newton_chain_guard_set(guard_env);
     }
 
     printf("-- 4. time at 2^%d limbs\n", LOGMAX);

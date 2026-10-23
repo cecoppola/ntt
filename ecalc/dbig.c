@@ -58,7 +58,7 @@ void db_copy_h2d_async(int dev, void *dst, const void *src, size_t bytes)
     HIP_CHECK(hipSetDevice(cur));
 }
 void db_copy_h2d_wait(int dev) { if (g_h2d_init[dev]) HIP_CHECK(hipStreamSynchronize(g_h2d_s[dev])); }
-/* K8b (results/MEMORY.md §K8b): BS_SEED_PULL=1 -- the seeds' host -> device copies without a HIP runtime call inside init's mapping window.
+/* K8b (results/MEMORY.md §K8b): the seeds' host -> device copies without a HIP runtime call inside init's mapping window.
  * K8 measured the seed thread blocked 3.1 s at 6.441e10 inside db_copy_h2d_async (its launch and hipSetDevice queue behind the
  * background mappers' hipMemCreate / hipMemMap / hipMemSetAccess, 0.24 s with no mapper).  Here one persistent kernel per APU
  * (k_pull, 456 blocks, launched by db_pull_start_all from binsplit_seeds_begin once the region pools exist and before the
@@ -66,8 +66,8 @@ void db_copy_h2d_wait(int dev) { if (g_h2d_init[dev]) HIP_CHECK(hipStreamSynchro
  * store of `seq` (db_pull_copy_async), its completion a host spin on the kernel's `done` counter (db_pull_wait), and the kernels
  * leave on `quit` (db_pull_stop_all, at the end of seeds_stream, before the buffers are unregistered).  The source's device
  * pointer is resolved once per buffer (db_pull_resolve, from the seed thread right after the buffers are registered).  Same bytes
- * to the same addresses as db_copy_h2d_async: digits identical.  Default 1 (results/SINGLE_NODE.md §CAND); on a CPX
- * XCD the 456 blocks need not all be resident and the first copy never completes (CPX runs set BS_SEED_PULL=0. */
+ * to the same addresses as db_copy_h2d_async: digits identical.  Always on (results/SINGLE_NODE.md §CAND; the fallback BS_SEED_PULL=0
+ * was removed 2026-10-23, Q87; on a CPX XCD the 456 blocks need not all be resident and the first copy never completes). */
 struct db_pullctl { unsigned long long seq, done, exited, quit; unsigned long long dst, src, n; };
 #define DB_PULL_BLOCKS 456
 __global__ void k_pull(struct db_pullctl *c)
@@ -94,7 +94,6 @@ __global__ void k_pull(struct db_pullctl *c)
         if (threadIdx.x == 0) __hip_atomic_fetch_add(&c->done, 1ull, __ATOMIC_RELEASE, __HIP_MEMORY_SCOPE_SYSTEM);
     }
 }
-int db_seed_pull_on(void) { static int on = -1; if (on < 0) on = getenv("BS_SEED_PULL") ? atoi(getenv("BS_SEED_PULL")) : 1; return on; }   /* default 1; 0 = hipMemcpy */
 static hipStream_t g_pull_s[DB_NQ]; static struct db_pullctl *g_pull[DB_NQ]; static int g_pull_on[DB_NQ]; static unsigned long long g_pull_seq[DB_NQ];
 static pthread_mutex_t g_pull_mx = PTHREAD_MUTEX_INITIALIZER;
 static struct { const void *h, *d; } g_pull_src[4]; static int g_pull_nsrc;   /* db_pull_resolve: the seed buffers' device pointers */
@@ -118,7 +117,7 @@ void db_pull_start_all(void)                             /* idempotent; the laun
         g_pull_on[d] = 1; g_pull_seq[d] = 0; n++;
     }
     HIP_CHECK(hipSetDevice(cur));
-    if (n) db_tl("seed pull kernels launched on %d APUs (%.3f s; BS_SEED_PULL)", n, mem_now() - t0);
+    if (n) db_tl("seed pull kernels launched on %d APUs (%.3f s; pull)", n, mem_now() - t0);
     pthread_mutex_unlock(&g_pull_mx);
 }
 void db_pull_copy_async(int dev, void *dst, const void *src, size_t bytes)
@@ -539,7 +538,7 @@ static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT])
 }
 size_t db_pool_free_bytes(int d) { size_t s = 0; for (int i = 0; i < g_ext[d].n; i++) s += g_ext[d].e[i].bytes; return s; }
 int db_pool_extents(int d) { return g_ext[d].n; }
-/* (results/CACHE.md §PC15; RNS_DIST_CACHE_PARTIAL, rns_dist.c cache_pc_take): how many blocks of `bytes` the free extents hold as
+/* (results/CACHE.md §PC15; partial transform-cache slots, rns_dist.c cache_pc_take): how many blocks of `bytes` the free extents hold as
  * they are -- no remap, no growth (each block within one extent) */
 size_t db_pool_fit_count(int d, size_t bytes) { size_t al = (size_t)DB_ALIGN * 8, b = (bytes + al - 1) / al * al, c = 0; if (!b) return 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ext[d].n; i++) c += g_ext[d].e[i].bytes / b; pthread_mutex_unlock(&g_pool_mx); return c; }
 size_t db_pool_hipmalloc_bytes(int d) { size_t s = 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ndonated; i++) if (g_donated[i].dev == d && g_donated[i].kind == 2) s += g_donated[i].bytes; pthread_mutex_unlock(&g_pool_mx); return s; }
@@ -596,13 +595,12 @@ static void bounce_init(int d)
     HIP_CHECK(hipHostMalloc((void **)&g_bounce[d][0], BOUNCE * 8, 0)); HIP_CHECK(hipHostMalloc((void **)&g_bounce[d][1], BOUNCE * 8, 0));
     bs_init(d);
 }
-/* DBIG_SMALL_BOUNCE=1 (default on; 0 = the two big buffers) -- a quarter of at most SBOUNCE limbs (8 MiB) goes through one small pinned buffer
+/* Small bounce (always on; the fallback DBIG_SMALL_BOUNCE=0 was removed 2026-10-23, Q87) -- a quarter of at most SBOUNCE limbs (8 MiB) goes through one small pinned buffer
  * per device instead of the two 1 GiB ones.  The first host copy of a run allocated 4 x 2 GiB of pinned host memory (≈2.2 s on
  * every aac7 node, longer on one, in the reciprocal's gather of 0.2 MB, results/DIVISION.md §O2); the small buffer costs milliseconds.
  * The bytes copied are the same, so digits are identical; the big buffers are still allocated on the first large copy. */
 #define SBOUNCE ((size_t)1 << 20)
 static uint64_t *g_sbounce[DB_NQ];
-static int small_bounce_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_SMALL_BOUNCE") ? atoi(getenv("DBIG_SMALL_BOUNCE")) : 1; return v; }   /* default 1 since 2026-10-12 (user-adopted, results/SINGLE_NODE.md §CAND) */
 static uint64_t *sbounce_get(int d)
 {
     if (!g_sbounce[d]) {
@@ -623,7 +621,7 @@ void db_from_bi(dbig *x, const bigint *a)
     for (int d = 0; d < nq_(); d++) {
         size_t lo = (size_t)d * x->qc; if (lo >= a->n) break;
         size_t len = a->n - lo < x->qc ? a->n - lo : x->qc;
-        if (len <= SBOUNCE && small_bounce_on()) {                  /* O2: one chunk through the small pinned buffer */
+        if (len <= SBOUNCE) {                  /* O2: one chunk through the small pinned buffer */
             uint64_t *sb = sbounce_get(dv_(d)); HIP_CHECK(hipSetDevice(dv_(d)));
             HIP_CHECK(hipStreamSynchronize(0));
             memcpy(sb, a->l + lo, len * 8);
@@ -650,7 +648,7 @@ void db_to_bi(bigint *r, const dbig *x)
     for (int d = 0; d < nq_(); d++) {
         size_t lo = (size_t)d * x->qc; if (lo >= x->n) break;
         size_t len = x->n - lo < x->qc ? x->n - lo : x->qc;
-        if (len <= SBOUNCE && small_bounce_on()) {                  /* O2: one chunk through the small pinned buffer */
+        if (len <= SBOUNCE) {                  /* O2: one chunk through the small pinned buffer */
             uint64_t *sb = sbounce_get(dv_(d)); HIP_CHECK(hipSetDevice(dv_(d)));
             HIP_CHECK(hipStreamSynchronize(0));                     /* the source is complete */
             HIP_CHECK(hipMemcpyAsync(sb, x->q[d], len * 8, hipMemcpyDeviceToHost, g_bs[dv_(d)]));

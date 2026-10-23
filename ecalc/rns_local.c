@@ -1,4 +1,4 @@
-/* rns_local.c - form S: the product of one PE on its own device (S1b of the TARGET1 plan, ECALC_VPE=1 only).
+/* rns_local.c - form S: the product of one PE on its own device (S1b of the TARGET1 plan, ECALC_PE_PER_GPU=1 only).
  *
  * C = A B for dbig operands of one quarter each (dbig.h, vPE), n = a transform length (2^k or 3 2^(k-2), at least 2^20) >= na + nb points.  It is
  * form B (rns_dist.c b_core) with the four-APU region and the peer reads removed: the np primes one after the other on this PE's device and
@@ -42,7 +42,7 @@ __global__ void k_lload(uint64_t *dst, const uint64_t *src, size_t sn, size_t n,
 static unsigned lblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 16 ? 228 * 16 : b); }
 void rns_local_core(dbig *Cd, const dbig *A, const dbig *B, size_t nc)
 {
-    if (!vpe_on()) { ec_fatal(EC_RC_FATAL, "rns_local_core: form S exists under ECALC_VPE=1 only\n"); }
+    if (!vpe_on()) { ec_fatal(EC_RC_FATAL, "rns_local_core: form S exists under ECALC_PE_PER_GPU=1 only\n"); }
     struct lstate *v = &VPE(LS); const int dev = vpe_device();   /* S2: pe_geo's ordinal (= the lane in S1) */
     HIP_CHECK(hipSetDevice(dev));
     if (!v->init) {

@@ -3,7 +3,6 @@
 # default read at the site named in note (file:line as of main a1569d5); launch-line switches that have a plain literal default are listed too so that a change of the literal is caught.
 BS_CKPT_DIR	unset	str	path		ecalc.c; the top-level set's directory (ECALC_CKPT_TOP); unset or empty = <outfile>.top
 BS_LAYOUT_ONLY	unset	str	D[:g],...		ecalc.c:440; layout printer, exits before rns_init
-COMM_LAYER_INTER2	0	bool	0|1	built-in default	comm_layered.c; default 0 since 2026-10-21 (both transports); 1 from 2026-10-12 (TASKS 27)
 COMM_OFI	auto	bool	0|1		comm_ofi.c:98 default = a cxi NIC is present (cxi_present())
 COMM_OFI_NICS	unset	str	NIC list, ; between devices		comm_ofi.c:123; unset = automatic
 COMM_OFI_PLAN_CXI	0	bool	0|1		comm_ofi.c:92 (cxi_present() || set)
@@ -61,18 +60,18 @@ XSHMEM_LANES	1	int	1..4	experiment	xshmem.h, pe_geo.c; lanes (contexts) per PE; 
 XSHMEM_LANE_MIN_KB	256	int	>=1	experiment	comm_xshmem.c; smallest chunk per lane when XSHMEM_LANES > 1
 XSHMEM_LOCAL	0	int	0|1	experiment	xshmem.h; engine uses xshmem_ptr node-local copies
 XSHMEM_LOOPBACK_PES	1	int	1..8	experiment	xshmem.h; PEs one process hosts in the ofi backend (PE = K*rank + l, own GPU/NIC/heap each); 1 = one PE per process
-XSHMEM_YIELD	1	int	0|1	experiment	xshmem.h; 0 = the xshmem waits and the exchange worker never sched_yield (diagnostic for the vPE exchange latency, S1b); 1 = they do
+XSHMEM_YIELD	1	int	0|1	experiment	xshmem.h; 0 = the xshmem waits and the exchange worker never sched_yield (diagnostic); 1 = they do
 XSHMEM_MRMODE	libsma	str	libsma|ofi	experiment	xshmem.h; ofi backend memory-registration mode
 XSHMEM_OFI_SIG	dc	str	dc|flush|waw	experiment	xshmem.h; ofi backend signal-after-data mode (design 1.4)
 XSHMEM_PES_PER_GPU	1	int	>=1	experiment	pe_geo.c; PEs per GPU (target fallback 2)
-ECALC_XEX_THREAD	1 (0 under ECALC_VPE=1)	int	0|1	experiment	comm_xshmem.c; one persistent worker thread per loopback PE owns the sender half of the exchanges (1, default; under ECALC_VPE=1 the default is 0: measured 9q6g, 4 workers + 4 PE threads cost 35x per exchange); 0 = poll-only, the APU thread does it in post and wait
+ECALC_XEX_THREAD	1 (0 under ECALC_PE_PER_GPU=1)	int	0|1	experiment	comm_xshmem.c; one persistent worker thread per loopback PE owns the sender half of the exchanges (1, default; under ECALC_PE_PER_GPU=1 the default is 0: measured 9q6g, 4 workers + 4 PE threads cost 35x per exchange); 0 = poll-only, the APU thread does it in post and wait
 XSHMEM_ORDER	rot	str	rot|seq	experiment	comm_xshmem.c; peer order of the offset words, puts and signals: rot = (me+q)%n (default, no incast on member 0), seq = rank order (the reference's)
-XSHMEM_ROUND_MB	128	float	>= 0	experiment	comm_xshmem.c, xshmem_round.h; unset = 128 (Q73 2026-10-21; 0 where the engine polls: vPE, ECALC_PE_PER_GPU, ECALC_XEX_THREAD=0, planner and engine alike); 0 = off, whole-exchange staging; m > 0: an all-to-all whose pair exceeds m/(n-1) MiB goes in rounds staging at most m MiB each way (needs ECALC_XEX_THREAD=1); the planner sizes XSHMEM_HEAP_MB from it
+XSHMEM_ROUND_MB	128	float	>= 0	experiment	comm_xshmem.c, xshmem_round.h; unset = 128 (Q73 2026-10-21; 0 where the engine polls: ECALC_PE_PER_GPU, ECALC_XEX_THREAD=0, planner and engine alike); 0 = off, whole-exchange staging; m > 0: an all-to-all whose pair exceeds m/(n-1) MiB goes in rounds staging at most m MiB each way (needs ECALC_XEX_THREAD=1); the planner sizes XSHMEM_HEAP_MB from it
 TMPDIR		str	path	test-only	t_pe_geo.c; the system temp directory for the mock sysfs tree; unset = /tmp
-ECALC_VPE	0	bool	0/1	experiment	vpe.c; 1 = one pthread per GPU (vPE), PE = L*node+lane; needs COMM_TRANSPORT=xshmem; aborts "stages e not merged" in a thread-mode full run (not yet gated: the S1e flow gives wrong digits at 1e8; the --vpe component tests use vpe_set_forced); ECALC_PE_PER_GPU=1 is not affected
-ECALC_VPE_LANES	4	int	1..8	experiment	vpe.c; vPEs per process (= XSHMEM_LOOPBACK_PES); only with ECALC_VPE=1
-ECALC_VPE_CHAIN	own	str	own|leader	experiment	newton_db.c; the vPE reciprocal chain: own = every PE computes it (default), leader = lane 0 of each node, r0 by a node-group all-gather
-ECALC_VPE_BG_THREADS	0	int	0..	experiment	ecalc.c; background OpenMP team of one PE (recurrence, writer) with ECALC_VPE=1; 0 = CPUs / lanes (48 on aac7; with ECALC_PE_PER_GPU the process's affinity mask); only with ECALC_VPE=1
+ECALC_VPE	0	bool	0/1	removed	mn.c; the thread mode was removed 2026-10-23 (Q86; code on branch vpe-int): a nonzero value is a fatal error naming ECALC_PE_PER_GPU=1
+ECALC_VPE_CHAIN	own	str	own	removed	mn.c; the leader chain was removed with the thread mode 2026-10-23 (Q86): any value other than own is a fatal error
+ECALC_VPE_LANES	4	int	1..8	experiment	vpe.c; PEs per node where there is no launch (planners, MN_PLAN_ONLY, unit-test views); with ECALC_PE_PER_GPU=1 the launch (SLURM tasks per node) wins and a value that disagrees is fatal
+ECALC_VPE_BG_THREADS	0	int	0..	experiment	ecalc.c; background OpenMP team of one PE (recurrence, writer) with ECALC_PE_PER_GPU=1; 0 = the process's affinity mask
 ECALC_PE_PER_GPU	0	bool	0/1	experiment	vpe.c, mem.c; 1 = one process per GPU (PE; srun 4 tasks per node, SLURM_LOCALID, xshmem K = 1, implies the vPE view); needs COMM_TRANSPORT=xshmem and make XSHMEM=ofi; launch by mnrun.sh; aborts "stages not merged" until S2a..S2d are all in
 ECALC_TEST_DIE_PE	-1	int	-1..	test-only	ecalc.c; kill test (ECALC_PE_PER_GPU gate): PE <n> dies by ec_fatal after the bs phase; unset = off
 XSHMEM_HEAP_SLACK_MB	0	int	MiB	experiment	comm_xshmem.c; MiB added to each loopback PE's DATA heap (default 0 = the plan's figure exactly); the Cray backend needs a few MiB more than the planner's heap (control and alignment come out of the same heap)

@@ -16,9 +16,9 @@
 #include "memsample.h"                                       /* Phase 14 S1 (E1) */
 #include "mn_plan.h"                                         /* Phase 13d L: the chain and the X1 group, asked by the plan printer too */
 #include "binsplit.h"                                        /* Phase 14 L1: dm_tight (DM_TIGHT), read once with the layout's switches */
-#include "vpe.h"                                            /* S1c: virtual PEs (ECALC_VPE=1): the chain and the mdb helpers per PE */
+#include "vpe.h"                                            /* S1c: PE layout (ECALC_PE_PER_GPU=1): the chain and the mdb helpers per PE */
 static int nv = -1;
-/* S1c: the reciprocal chain's scratch is per vPE (one set per PE thread; idx 0 only when the switch is off, so the off path is unchanged) */
+/* S1c: the reciprocal chain's scratch is per PE (idx 0 only when the layout is off, so the off path is unchanged) */
 VPE_STATE(dbig, g_r); VPE_STATE(dbig, g_r2); VPE_STATE(dbig, g_qt); VPE_STATE(dbig, g_t1); VPE_STATE(dbig, g_t2);
 #define g_r VPE(g_r)
 #define g_r2 VPE(g_r2)
@@ -84,20 +84,16 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
  * printer, mn_plan.c, asks them too).  Anchored (the default): the targets k, ceil(k/2), ... read from the top -- the next target
  * after j is the smallest of them above j (anchored; the power-of-two doubling, NEWTON_ANCHOR=0, was removed 2026-10-12) */
 static void nv_init(void) { if (nv < 0) nv = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0; }
-/* NEWTON_CHAIN_GUARD=1 (RECIP, results/DIVISION.md §RECIP; the default since D25, =0 the fallback): the anchored targets k, g(k), g(g(k)), ... with g(t) = ceil(t/2) + 1
+/* The chain guard (RECIP, results/DIVISION.md §RECIP; on since D25, the NEWTON_CHAIN_GUARD=0 fallback removed 2026-10-23, Q87): the anchored targets k, g(k), g(g(k)), ... with g(t) = ceil(t/2) + 1
  * instead of ceil(t/2), so every doubling j -> jn has jn <= 2j - 1 and its output is cut by >= 1 limb (>= 2 above the seed's 2 -> 3).
  * Without it a doubling with jn = 2j keeps its own error, up to ~2 M units (M = B^nq / Q, 1..B: the decimal limbs are not normalised;
  * -22 units at M 42.6 in SIMP), and a run of such doublings squares it (k = 2^m: up to two limbs lost, model) */
-static int g_chain_guard = -1;
-int newton_chain_guard(void) { if (g_chain_guard < 0) { const char *e = getenv("NEWTON_CHAIN_GUARD"); g_chain_guard = e ? atoi(e) > 0 : 1; } return g_chain_guard; }
-void newton_chain_guard_set(int on) { g_chain_guard = on != 0; }   /* tests */
-static size_t chain_g(size_t t) { return (t + 1) / 2 + (size_t)newton_chain_guard(); }
+static size_t chain_g(size_t t) { return (t + 1) / 2 + 1; }
 size_t newton_chain_next(size_t j, size_t k)
 {
     nv_init();
     size_t jn = k;
-    if (newton_chain_guard()) { for (;;) { size_t g = chain_g(jn); if (g >= jn || g <= j) break; jn = g; } return jn; }   /* (g(t) >= t only at t <= 3) */
-    while ((jn + 1) / 2 > j) jn = (jn + 1) / 2;
+    for (;;) { size_t g = chain_g(jn); if (g >= jn || g <= j) break; jn = g; }   /* (g(t) >= t only at t <= 3) */
     return jn;
 }
 /* recip_mn: the single-node part ends at the largest target <= split (NEWTON_MN_SPLIT, 2^16), or the seed's 2 */
@@ -105,7 +101,7 @@ size_t newton_mn_chain_start(size_t k)
 {
     nv_init();
     size_t split = getenv("NEWTON_MN_SPLIT") ? strtoull(getenv("NEWTON_MN_SPLIT"), 0, 10) : ((size_t)1 << 16), kp = k;
-    while (kp > split && chain_g(kp) > 2 && chain_g(kp) < kp) kp = chain_g(kp);   /* (unguarded: chain_g = (kp + 1) / 2, as before) */
+    while (kp > split && chain_g(kp) > 2 && chain_g(kp) < kp) kp = chain_g(kp);
     if (kp > split) kp = 2;
     return kp;
 }
@@ -428,7 +424,7 @@ __global__ void k_mn_scatter(struct sacc dst, size_t lo2, const uint64_t *rb, co
     size_t total = (size_t)g * SL, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
     for (; t < total; t += stride) { size_t r = t / SL, k = t - r * SL; if (k < pc[r].len) *sacc_p(dst, pc[r].a + k - lo2) = rb[pc[r].off + k]; }
 }
-/* S1c: the process-wide counters (newton_st, newton_mid_st, newton_x_dx) are written by vPE lane 0 only -- every PE computes the same values, and the
+/* S1c: the process-wide counters (newton_st, newton_mid_st, newton_x_dx) are written by PE 0 of the node only -- every PE computes the same values, and the
  * readers (the output stage) run after the division's last collective, which lane 0 enters after these writes */
 #define NST(stmt) do { if (!vpe_on() || vpe_ppg() || !vpe_idx()) { stmt; } } while (0)   /* (ECALC_PE_PER_GPU=1: the PEs are processes, each has its own counters -- lane 0 only left every PE but 0 with newton_x_dx = 0: the deferred tail patch then ran on PE 0 alone and the other PEs' digits-vs-X check failed, 1 n 3e10) */
 static unsigned mn_nblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 8 ? 228 * 8 : b); }
@@ -529,7 +525,7 @@ static void mdb_shift_gt(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, i
     size_t SLk = K > 1 ? ((SL + K - 1) / K + 1 + 15) / 16 * 16 : SL;
     struct shift_ctx C = { X, &Yn, s, n2, lo1, lo2, cn, SL, SLk, K, g, node, NLANES(), G, 0 };
     if (X->n && n2) {
-        if (vpe_on()) shift_lane(&C, 0);                  /* the vPE thread is its own APU thread: no omp region */
+        if (vpe_on()) shift_lane(&C, 0);                  /* the PE process drives its one APU itself: no omp region */
         else {
 #pragma omp parallel num_threads(4)
             shift_lane(&C, omp_get_thread_num());
@@ -748,25 +744,6 @@ static void mn_prod_cut_x1(mdb *C, const mdb *A, const mdb *B, mn_group *G, size
     *C = Cs;
 }
 static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G);
-/* S1c: ECALC_VPE_CHAIN = own (default; every PE runs the chain on its own GPU, no communication) | leader (lane 0 of each node runs it, the node's PEs get r0 by one
- * node-group all-gather; the removed NEWTON_MN_CHAIN_BCAST measured no gain at one PE per node, so this is an arm) */
-static int vpe_chain_leader(void)
-{
-    static int v = -1;
-    if (v < 0) { const char *e = getenv("ECALC_VPE_CHAIN"); v = e && !strcmp(e, "leader");
-                 if (e && strcmp(e, "own") && strcmp(e, "leader")) { ec_fatal(EC_RC_FATAL, "ECALC_VPE_CHAIN=%s: own or leader\n", e); } }
-    return v;
-}
-/* r0 (kp + 1 limbs) from the node's lane 0 to the other PEs of the node (an all-gather over the node's PEs through the host; the chain's result is small) */
-static void recip_chain_share(dbig *r0, size_t kp, int mine)
-{
-    comm *c = vpe_sub(vpe_node() * vpe_lanes(), vpe_lanes()); size_t cap = kp + 4, row = cap + 1;
-    uint64_t *buf = (uint64_t *)calloc(row, 8), *all = (uint64_t *)malloc((size_t)vpe_lanes() * row * 8);
-    if (mine) { bigint h; bi_init(&h); db_to_bi(&h, r0); if (h.n > cap) { ec_fatal(EC_RC_FATAL, "recip_chain_share: r0 has %zu limbs (kp %zu)\n", h.n, kp); } buf[0] = h.n; memcpy(buf + 1, h.l, h.n * 8); bi_free(&h); }
-    mn_allgather(c, buf, (int)row, all);                                 /* (lane 0 of the node is rank 0 of the node group) */
-    if (!mine) { bigint h; bi_init(&h); bi_reserve(&h, all[0] + 1); memcpy(h.l, all + 1, all[0] * 8); h.n = all[0]; db_from_bi(r0, &h); bi_free(&h); }
-    free(buf); free(all);
-}
 /* D3: the reciprocal's waits are their own phase (MN_WAIT_STATS) */
 static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G) { int pp = comm_wst_set_phase(WST_RECIP); recip_mn_body(mu, Q, k, G); comm_wst_set_phase(pp); }
 /* the reciprocal mu of Q (k + 1 limbs) over G: the single-node chain up to the split precision, then the sharded steps */
@@ -784,7 +761,6 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     static int rts = -1;
     if (rts < 0) rts = getenv("NEWTON_MN_RECIP_TS") ? atoi(getenv("NEWTON_MN_RECIP_TS")) : 0;
     double tsa = mem_now(), tsb, tsc, tsd;
-    const int lead = vpe_on() && vpe_chain_leader() && vpe_lanes() > 1, mine = !lead || vpe_lane() == 0;   /* S1c: who runs the chain (own: every PE; leader: lane 0 of each node) */
     mdb Qt; memset(&Qt, 0, sizeof Qt); mdb_shift(&Qt, Q, (long)(nq - T), T, G);
     tsb = mem_now();
     bigint hq; bi_init(&hq);
@@ -792,17 +768,15 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     tsc = mem_now();
     dbig Qtop, r0; double tsi0 = mem_now(), tsi1 = 0, tsi2 = 0, tsi3 = 0;
     db_init(&Qtop); db_init(&r0);
-    if (mine) {
+    {
     if (rts >= 2) { tsi1 = mem_now(); db_reserve(&Qtop, hq.n ? hq.n : 1); tsi2 = mem_now(); }   /* S32: NEWTON_MN_RECIP_TS=2: db_init / the first pool get (db_from_bi's own reserve is then a no-op) / the upload, timed apart */
     db_from_bi(&Qtop, &hq); tsi3 = mem_now(); bi_free(&hq);
     if (rts >= 2) { char hn[64] = "?"; gethostname(hn, sizeof hn);
         printf("%srecip ts2 node %d host %s: at run %.3f s: db_init +%.4f first_pool_get(db_reserve) +%.3f db_from_bi(upload) +%.3f total +%.3f\n", ec_log_prefix(), me, hn, tsi0, tsi1 - tsi0, tsi2 - tsi1, tsi3 - tsi2, tsi3 - tsi0); fflush(stdout); }
     recip_db2(&r0, &Qtop, 0, kp, nq);                                  /* on every node: r ~ B^(nq + kp) / Q, kp + 1 limbs */
     }
-    else bi_free(&hq);
-    if (lead) recip_chain_share(&r0, kp, mine);                        /* leader arm: lane 0's r0 to the node's other PEs */
     tsd = mem_now();
-    if (mine) db_free(&Qtop);
+    db_free(&Qtop);
     double t1 = mem_now();
     if (rts) { struct timespec rt; clock_gettime(CLOCK_REALTIME, &rt);
         printf("%srecip ts node %d: wall %.3f; at run %.3f s: shift +%.3f gather +%.3f chain +%.3f (since this node entered recip_mn)\n", ec_log_prefix(), me, (double)(rt.tv_sec % 1000) + rt.tv_nsec * 1e-9, tsa, tsb - tsa, tsc - tsb, tsd - tsc); fflush(stdout); }
@@ -813,7 +787,7 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     mn_group *Gs = 0; int member = 0, mid_ok = 0;                     /* R4: the first sharded round forms the whole product (the chain's last |d| is not carried over) */
     mdb r; memset(&r, 0, sizeof r);
     mdb qt, t, u, pw, d, corr, rs; memset(&qt, 0, sizeof qt); memset(&t, 0, sizeof t); memset(&u, 0, sizeof u); memset(&pw, 0, sizeof pw); memset(&d, 0, sizeof d); memset(&corr, 0, sizeof corr); memset(&rs, 0, sizeof rs);
-    if (me == 0) printf("recip(mn): the single-node chain to %zu limbs (%.2f s), then the sharded steps to %zu over %d nodes%s\n", kp, t1 - t0, k, G->g, vpe_on() ? (lead ? " (vPE chain: leader per node)" : " (vPE chain: own per PE)") : "");
+    if (me == 0) printf("recip(mn): the single-node chain to %zu limbs (%.2f s), then the sharded steps to %zu over %d nodes%s\n", kp, t1 - t0, k, G->g, vpe_on() ? " (vPE chain: own per PE)" : "");
     while (j < k) {
         size_t jn = newton_chain_next(j, k);                           /* Phase 13d L: extracted (unchanged) */
         size_t take = 2 * j + 2 < nq ? 2 * j + 2 : nq;

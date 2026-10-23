@@ -21,7 +21,7 @@
  * tiny_exchange).  send / recv / allreduce_modq / alltoallv_host / allgather (device) are 0: comm_util.c's fallbacks apply.
  *
  * CTRL layout (words, per communicator id < MAXID, a pure function of the id, so no exchange at create):
- *   ctrl + id * 7 * nw : ROFF[n] SIG[n] VAL0[n] VAL1[n] VSEQ0[n] VSEQ1[n] SOFF[n]   (n = nw: the largest member count = the nodes; with ECALC_VPE
+ *   ctrl + id * 7 * nw : ROFF[n] SIG[n] VAL0[n] VAL1[n] VSEQ0[n] VSEQ1[n] SOFF[n]   (n = nw: the largest member count = the nodes; with ECALC_PE_PER_GPU
  *   (S1a) the PEs, K * nodes, and only XS_MAXID_VPE ids)
  * Threads: mesh d is driven by APU thread d (device d current at create; the main thread is thread 0).  Every entry selects the loopback
  * PE of the comm (XSHMEM_SELECT); a debug flag catches two threads inside one comm. */
@@ -54,7 +54,7 @@
 #define COPY(d, s, n, st) HIP_CHECK(comm_copy_async(d, s, n, st))
 #define SYNC(st) do { int ph_ = ec_ph(EC_PH_HIP_SYNC); HIP_CHECK(hipStreamSynchronize(st)); ec_ph(ph_); } while (0)
 #define MAXID 1024                         /* communicator ids (control blocks) */
-#define MAXID_VPE 512                      /* ... with ECALC_VPE (flat PE communicators: the control block grows with the PE count) */
+#define MAXID_VPE 512                      /* ... with ECALC_PE_PER_GPU (flat PE communicators: the control block grows with the PE count) */
 #define MAXL 4                             /* lane contexts per PE (XSHMEM_LANES) */
 #define MAXLPE 8                           /* loopback PEs per process */
 #define MAXPEND 256                        /* exchanges one worker can hold */
@@ -576,10 +576,10 @@ int comm_xshmem_init(void)
     xshmem_cfg_t cfg; xshmem_cfg_load(&cfg);
     const char *eo = getenv("XSHMEM_ORDER");
     if (eo && strcmp(eo, "seq") && strcmp(eo, "rot")) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_ORDER=%s: seq or rot\n", eo);
-    X.rot = !(eo && !strcmp(eo, "seq")); { const char *et_ = getenv("ECALC_XEX_THREAD"); X.thr = et_ ? atoi(et_) != 0 : !vpe_on(); X.thr_set = et_ != 0; }   /* S1b: vPE polls by default.  Measured 9q6g/9q6h (1 n, 4 PEs): with the worker 35 ms per exchange (quiets ~20 ms each), polling 3 ms; the worker still costs 2.4-2.8 s per product after it was given its PE's device, so the cause is the worker design under 4 PE threads in one process, not the device */ { xshmem_cfg_t cf_; xshmem_cfg_load(&cf_); X.yield = !cf_.noyield; }
+    X.rot = !(eo && !strcmp(eo, "seq")); { const char *et_ = getenv("ECALC_XEX_THREAD"); X.thr = et_ ? atoi(et_) != 0 : !vpe_on(); X.thr_set = et_ != 0; }   /* S1b: the PE layout polls by default.  Measured 9q6g/9q6h in the removed thread mode (1 n, 4 PE threads in one process): with the worker 35 ms per exchange (quiets ~20 ms each), polling 3 ms */ { xshmem_cfg_t cf_; xshmem_cfg_load(&cf_); X.yield = !cf_.noyield; }
     { const char *er = xshmem_round_env(); double m = er ? atof(er) : 0; X.rbytes = m > 0 ? (size_t)(m * 1048576.0) : 0;
-      if (X.rbytes && !X.thr && !X.thr_set && getenv("XSHMEM_ROUND_MB")) X.thr = 1;   /* vPE with an explicit XSHMEM_ROUND_MB: the rounds run in the worker */
-      if (X.rbytes && !X.thr && !getenv("XSHMEM_ROUND_MB")) X.rbytes = 0;   /* the default rounds (Q73) need the worker: poll-only (vPE default or ECALC_XEX_THREAD=0) runs whole exchanges */
+      if (X.rbytes && !X.thr && !X.thr_set && getenv("XSHMEM_ROUND_MB")) X.thr = 1;   /* PE layout with an explicit XSHMEM_ROUND_MB: the rounds run in the worker */
+      if (X.rbytes && !X.thr && !getenv("XSHMEM_ROUND_MB")) X.rbytes = 0;   /* the default rounds (Q73) need the worker: poll-only (PE-layout default or ECALC_XEX_THREAD=0) runs whole exchanges */
       if (X.rbytes && !X.thr) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_ROUND_MB needs the worker thread (ECALC_XEX_THREAD=1): the rounds run in it\n"); }
 #ifdef XSHMEM_CRAY
     { const char *en = getenv("XSHMEM_CRAY_NUMA");   /* 1: pin this process to its NUMA node's cpus BEFORE libsma init and our heap first touch (the Cray topo has no cpu list otherwise; sysfs via pe_geo, GPU index -> NUMA node as the ofi backend) */
@@ -665,18 +665,18 @@ comm *comm_xshmem_create_at(int pe_start, int pe_stride, int n, int id)
     int dev = 0, lpe = cur_lpe(&dev);
     return make_comm(n, me, id, lpe, dev, pe_start, pe_stride, 0);
 }
-/* S1a (ECALC_VPE): the communicator over the contiguous PE run [pe_start, pe_start + n) in PE units (PE = K * node + loopback PE), rank = PE - pe_start.
- * Created by the vPE thread of the calling device (device = loopback PE) that is a member; local, like create_at.  Ids as create_at's (< X.maxid). */
+/* S1a (PE layout): the communicator over the contiguous PE run [pe_start, pe_start + n) in PE units (PE = K * node + loopback PE), rank = PE - pe_start.
+ * Created by the calling PE (device = loopback PE) if it is a member; local, like create_at.  Ids as create_at's (< X.maxid). */
 comm *comm_xshmem_create_flat(int pe_start, int n, int id)
 {
     if (!X.inited) comm_xshmem_init();
-    if (!vpe_on()) die(0, "create_flat without ECALC_VPE");
+    if (!vpe_on()) die(0, "create_flat outside one process per GPU (ECALC_PE_PER_GPU=1)");
     if (n < 1 || pe_start < 0 || pe_start + n > X.K * X.nodes || id < 0 || id >= X.maxid) die(0, "bad PE run");
     int dev = 0, lpe = cur_lpe(&dev), my = X.K * X.q + lpe;
     if (my < pe_start || my >= pe_start + n) die(0, "this PE is not in the run");
     return make_comm(n, my - pe_start, id, lpe, dev, pe_start, 1, 1);
 }
-void comm_xshmem_select(int lpe) { if (X.inited && X.K == 1) return; XSHMEM_SELECT(lpe); }     /* the vPE thread hook (vpe.h): this thread's current loopback PE (K = 1: the only one) */
+void comm_xshmem_select(int lpe) { if (X.inited && X.K == 1) return; XSHMEM_SELECT(lpe); }     /* the loopback-PE hook (vpe.h): the current loopback PE (K = 1: the only one) */
 /* S2a (ECALC_PE_PER_GPU): this process's place as the backend's topology (pe_geo) reports it: v = { pe, npes, local, pes per node, gpu, numa, nics, nic[0] }, cpus = the NUMA node's cpu list.  0 = ok */
 int comm_xshmem_geo(int *v, char *cpus, int ncpus)
 {

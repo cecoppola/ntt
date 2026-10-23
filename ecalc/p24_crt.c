@@ -3,8 +3,8 @@
  * thread k does Garner for point x0 + k0 + k (dgarner4: a copy of rns_mul.c's, static there), its four base-10^18 digits and their
  * shift by s(x) = 6 (x mod 3) digits into E[x] = e[0..3] at limbs L(x) .. L(x) + 3 (p24.h); then the chunk's limbs
  * [L(x0 + k0), L(x0 + k0 + n)) sum the E of the (at most three) points that meet them -- the last three points of the previous chunk
- * kept as the tails -- the carry chain runs on thread 0 over the LDS (as k_crt_batch; P24_CRT_SCAN=1, K4c: a carry-lookahead over
- * wave ballot masks, results/KERNELS.md §K4c), and the limbs go to the column's out-run.  The
+ * kept as the tails -- the carry chain is a carry-lookahead over
+ * wave ballot masks (as k_crt_batch; K4c, results/KERNELS.md §K4c; the serial chain was removed 2026-10-23, Q87), and the limbs go to the column's out-run.  The
  * contributions past the column's last own limb L(x0 + rows) - 1 form its 4-limb spill at L(x0 + rows) (the next out-run's first
  * limbs), added by the caller like k_crt_batch's.  Bound (P2415.md 1.1): min(Pa, Pb) <= 10^12 points gives c < 10^60, so c 10^s < 10^72
  * (four limbs, e4 = 0) and the spill's top limb holds the final carry; the device flag says otherwise (1: e4 != 0, 2: a spill carry). */
@@ -13,7 +13,6 @@
 #include <stdlib.h>
 #include "rns_int.h"
 #include "p24.h"
-#include "rns_mul.h"                                 /* p24_crt_scan_on (C linkage, as the config line reads it) */
 #include "fatal.h"
 
 #define P24_T 256
@@ -48,14 +47,14 @@ __device__ static inline void p24_dgarner4(const struct gconst *g, const uint64_
 
 __global__ __launch_bounds__(P24_T)
 void k_crt24(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const uint64_t *p3, struct gconst g, struct p24_run om,
-             uint64_t *out, uint64_t *spill, unsigned *err, int scan_on)
+             uint64_t *out, uint64_t *spill, unsigned *err)
 {
     const uint64_t BB = EC_1E18;
     __shared__ uint64_t E[3 + P24_T][4];                  /* E[3 + k]: this chunk's point k; E[0..2]: the previous chunk's last three */
     __shared__ uint64_t V[2 * P24_T], CY[2 * P24_T];      /* a chunk's limbs: at most L(x + 256) - L(x) <= 342 */
     __shared__ uint64_t carry;
     __shared__ uint64_t GM[2 * P24_T / 64], PM[2 * P24_T / 64];   /* K4c: the generate / propagate masks of limbs [64 t, 64 t + 64) */
-    const int scan = scan_on && warpSize == 64;
+    if (warpSize != 64) __builtin_trap();                 /* the carry-lookahead needs wave64 masks (the serial chain was removed 2026-10-23, Q87) */
     uint64_t cyr = 0;                                     /* K4c: the carry into the chunk, uniform over the block */
     const size_t j = blockIdx.x, rows = om.r, x0 = om.R * j + om.a, base = j * rows, A0 = p24_L(x0), ob = p24_run_S(&om, j);
     const int tid = threadIdx.x;
@@ -82,7 +81,7 @@ void k_crt24(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const u
             uint64_t q = sm / BB; V[li] = sm - q * BB; CY[li] = q;
         }
         __syncthreads();
-        if (scan) {   /* K4c (P24_CRT_SCAN): the chain as a carry-lookahead over ballot masks (as K4b's k_crt_batch, results/KERNELS.md §K4c).
+        {   /* K4c: the chain as a carry-lookahead over ballot masks (as K4b's k_crt_batch, results/KERNELS.md §K4c).
                        * Serial form: sm_i = V_i + CY_{i-1} + o_{i-1} (CY_{-1} = the chunk's carry-in, o_{-1} = 0), o_i = sm_i >= B.  A limb
                        * sums at most three points' digits (< 3B), so CY <= 2, the carry-in <= 3 and w_i = V_i + CY_{i-1} <= B + 2:
                        * o_i = gen_i | (prop_i & o_{i-1}), gen = w >= B, prop = w == B - 1.  nl <= 342: thread t owns limbs t and t + 256 */
@@ -107,14 +106,6 @@ void k_crt24(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const u
             if (in0) out[ob + (Lc0 - A0) + tid] = r0;
             if (in1) out[ob + (Lc0 - A0) + tid + P24_T] = r1;
             cyr = CY[nl - 1] + top;                      /* V, CY, GM, PM are rewritten only after the next chunk's first barrier */
-        } else {
-        if (tid == 0) {
-            uint64_t cy = carry;
-            for (size_t i = 0; i < nl; i++) { uint64_t sm = V[i] + cy; cy = CY[i]; if (sm >= BB) { sm -= BB; cy++; } V[i] = sm; }
-            carry = cy;
-        }
-        __syncthreads();
-        for (size_t li = tid; li < nl; li += P24_T) out[ob + (Lc0 - A0) + li] = V[li];
         }
         uint64_t t[4] = { 0, 0, 0, 0 };
         if (tid < 3) { t[0] = E[n + tid][0]; t[1] = E[n + tid][1]; t[2] = E[n + tid][2]; t[3] = E[n + tid][3]; }
@@ -122,7 +113,7 @@ void k_crt24(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const u
         if (tid < 3) { E[tid][0] = t[0]; E[tid][1] = t[1]; E[tid][2] = t[2]; E[tid][3] = t[3]; }
         __syncthreads();
     }
-    if (scan && tid == 0) carry = cyr;
+    if (tid == 0) carry = cyr;
     if (tid == 0) {                                       /* the spill: limbs L(x1) + t from the last three points (E[0..2] = x1 - 3 ..) and the carry */
         const size_t x1 = x0 + rows, L1 = p24_L(x1); uint64_t cy = carry;
         const long long xl = (long long)x1 - 3, xh = (long long)x1 - 1;
@@ -139,17 +130,12 @@ void k_crt24(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const u
 
 __device__ unsigned p24_err_flag;                          /* per device (no allocation: a module variable) */
 static unsigned *err_dev(void) { void *p = 0; HIP_CHECK(hipGetSymbolAddress(&p, HIP_SYMBOL(p24_err_flag))); return (unsigned *)p; }
-int p24_crt_scan_on(void)                          /* K4c: default 1 since D24, =0 the serial chain; read per launch (one per product) so tests/t_crt24k can switch it */
-{
-    const char *e = getenv("P24_CRT_SCAN");
-    return e ? atoi(e) != 0 : 1;
-}
 void p24_crt_launch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const uint64_t *p3, const struct gconst *gc,
                     size_t R, size_t C, size_t a, size_t rows, uint64_t *out, uint64_t *spill, hipStream_t s)
 {
     if (gc->np != 4) { ec_fatal(EC_RC_FATAL, "p24_crt: %d primes (P24 needs four)\n", gc->np); }
     struct p24_run om = p24_run_make(R, C, a, rows, 0);
-    k_crt24<<<(unsigned)C, P24_T, 0, s>>>(p0, p1, p2, p3, *gc, om, out, spill, err_dev(), p24_crt_scan_on());
+    k_crt24<<<(unsigned)C, P24_T, 0, s>>>(p0, p1, p2, p3, *gc, om, out, spill, err_dev());
 }
 unsigned p24_crt_err(hipStream_t s)
 {

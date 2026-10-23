@@ -33,12 +33,12 @@
 #include "memsample.h"                               /* E1, E12 */
 #include "spill.h"                                   /* E3 (the output file under ECALC_ODIRECT) */
 #include "fatal.h"                                   /* ec_quit, EC_RC_BUDGET */
-#include "vpe.h"                                   /* S1e: virtual PEs (ECALC_VPE=1, off by default): the flow runs per vPE thread */
+#include "vpe.h"                                   /* PE identity (ECALC_PE_PER_GPU=1, off by default) */
 #include "segv_trace.h"                               /* s18w task 2: ECALC_SEGV_TRACE=1 (default 0) */
 #include "comm_ofi.h"                                /* B7ACCT: comm_ofi_planned (the MEM_REPORT_DEVS comm-pool term) */
 extern "C" size_t comm_layered_vbytes(int dev);      /* B7ACCT (comm_layered.c) */
 #include <pthread.h>
-#include <sys/stat.h>                                /* S1e: the recheck's .top directory test under ECALC_VPE */
+#include <sys/stat.h>                                /* the recheck's .top directory test in process mode */
 #include <semaphore.h>
 #include <omp.h>
 #include "ntt.h"
@@ -88,9 +88,6 @@ static void x_bg_hook(bigint *X, void *a) { struct x_bg *b = (struct x_bg *)a; b
  * X_hi, then, at the gate, the limbs < s from X_lo (the division's device X, newton_db_x_dev).  The X_lo hook opens the gate before step 2's low
  * product unless X_lo0 >= B^s (or MN_OUT_DKM_HI_TEST_CARRY=1): then the division adds the corrections to X_lo in place and main opens it after
  * the division.  At size > 1 the same with two part files per rank (mn_out_early_hi_start / mn_out_early_lo_release) ---- */
-static int g_dkm_hi = -1;
-static int dkm_hi_on(void) { if (g_dkm_hi < 0) { const char *e = getenv("MN_OUT_DKM_HI"); g_dkm_hi = e ? atoi(e) != 0 : 1; } return g_dkm_hi; }   /* default 1 ; =0 the old writer */
-static int dkm_hi_explicit(void) { return getenv("MN_OUT_DKM_HI") != 0; }   /* the "ignored" notes only when the switch is set by hand */
 static int dkm_hi_test_carry(void) { const char *e = getenv("MN_OUT_DKM_HI_TEST_CARRY"); return e && atoi(e) != 0; }
 struct x_hi { int on, released; size_t s; dbig Xh; mn_out_src src_lo, src_hi; sem_t go; uint64_t res_hi[T1_NQ]; double t_gate, t_hi; };
 static struct x_hi g_xhi;
@@ -154,10 +151,9 @@ struct out_ctx {
     double t00, t_init, t_bs, t_10dp, t_dm;
     int hi, hi_rel; mdb Xh; size_t s;                 /* Phase 15 EW (MN_OUT_DKM_HI) at size > 1: X_hi taken at the division's hook (Xm is then X_lo), the release done */
 };
-static const char *who(void) { return vpe_on() ? "pe" : "node"; }   /* the log word of a rank: the PE under ECALC_VPE (S1e), else the node */
+static const char *who(void) { return vpe_on() ? "pe" : "node"; }   /* the log word of a rank: the PE in process mode, else the node */
 static void node_pfx(const struct out_ctx *c) { if (c->size > 1) printf("mn: %s %d: ", who(), c->rank); }
-/* ECALC_VPE: the divisions's hooks are process-wide function pointers set once before the vPE threads start (newton.h has one slot each); each is called in the
- * vPE thread that runs the division, and finds that thread's out_ctx here, not through the (shared) arg */
+/* process mode: the division's hooks are process-wide function pointers set once before the flow (newton.h has one slot each); each finds the flow's out_ctx here, not through the arg */
 VPE_STATE(struct out_ctx *, g_ocp);
 static struct out_ctx *oc_of(void *a) { return vpe_on() ? VPE(g_ocp) : (struct out_ctx *)a; }
 /* MN_OUT_EARLY=1 -- the division's hook (newton_mn_x_hook) starts this rank's part file on X before the low product */
@@ -332,7 +328,7 @@ static void budget_check(unsigned long N, int verbose)
 {
     const char *sw = getenv("ECALC_BUDGET_CHECK"); if (sw && !atoi(sw)) return;   /* default on; =0 off */
     int me = mn_rank(), sz = mn_size(); if (sz < 1) sz = 1;
-    int L = vpe_on() ? vpe_lanes() : 1; const int gn = vpe_on() ? vpe_nnodes() : sz;   /* ECALC_VPE (S1e): the model and the process figures are per NODE; every PE of a node reports 1/L of them, so a node's PEs sum to the node and the rule below is unchanged */
+    int L = vpe_on() ? vpe_lanes() : 1; const int gn = vpe_on() ? vpe_nnodes() : sz;   /* process mode: the model and the process figures are per NODE; every PE of a node reports 1/L of them, so a node's PEs sum to the node and the rule below is unchanged */
     double node_gb = getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0;
     int cap = rns_pool_log() >= 31 ? 1 : 0;
     size_t pb = 0, ab = 0, hb = 0; binsplit_node_bytes(N, gn, cap, ec_np_init(), &pb, &ab, &hb);
@@ -428,18 +424,14 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
     }
     return pool_log;
 }
-/* ---- ECALC_VPE (S1e): the flow runs in one pthread per vPE (vpe.h) ---------------------------------------------------------------------
- * Every vPE thread runs the same flow as a node-process does today, with mn_size() = the PE count (>= 2: the size-1 flow stays for the off path), mn_rank() = the
+/* ---- ECALC_PE_PER_GPU: the flow of one PE, one process per GPU (vpe.h) ---------------------------------------------------------------------
+ * Every PE process runs the same flow as a node-process does today, with mn_size() = the PE count (>= 2: the size-1 flow stays for the off path), mn_rank() = the
  * PE, bs_a0 / bs_b1 = its term range, its own recurrence thread (pq_bg_run) and writer (mn_out_early); the output parts are two per PE (D3: X_hi's part npe-1-pe,
  * X_lo's 2 npe-1-pe), the .top set per PE (binsplit.c).  Process-wide things are done once in main, before the threads (the division's hooks, newton_x_defer,
- * bs_ckpt_dir, the thread counts) or by lane 0 (node-level reports); everything the flow keeps is a local of the thread function. */
-#define MEMREP(x) do { if (vpe_proc_leader()) mem_report(x); } while (0)   /* S2: every PE reports its own process (device pools, host items); S1: lane 0 for the shared process */
+ * bs_ckpt_dir, the thread counts) or by the node leader (node-level reports); everything the flow keeps is a local of the flow function. */
+#define MEMREP(x) do { if (vpe_proc_leader()) mem_report(x); } while (0)   /* every PE reports its own process (device pools, host items) */
 VPE_STATE(int, g_flow_rc);
-static int flow_rc_all(void)                           /* the OR of the flow's results: S1 over the lanes' slots; S2 this process's slot (the only one written) */
-{
-    if (vpe_ppg()) return VPE(g_flow_rc);
-    int f = 0; for (int i = 0; i < vpe_lanes(); i++) f |= g_flow_rc_v[i]; return f;
-}
+static int flow_rc_all(void) { return VPE(g_flow_rc); }   /* this process's slot (the only one written) */
 struct flow_ctx { unsigned long N, d, d_out; const char *outfile; int verbose, pool_log, mn_size; double t00, t_ri; };
 static int ckpt_top_mode(void)
 {
@@ -461,16 +453,14 @@ static int env_vpe_bg_threads(void)                    /* ECALC_VPE_BG_THREADS =
     if (n < 1) { n = omp_get_num_procs() / vpe_lanes(); if (n < 1) n = 1; }
     return n;
 }
-/* the division's hooks, set once (the slots in newton.h are process-wide; a hook finds its vPE's out_ctx through oc_of) */
+/* the division's hooks, set once (the slots in newton.h are process-wide; a hook finds the flow's out_ctx through oc_of) */
 static void mn_hooks_set(struct out_ctx *oc, const char *outfile)
 {
     if (outfile && (getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) : 1)) {   /* default 1 */ newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = oc; }
-    if (dkm_hi_on()) {                                  /* the writer on X_hi after DKM's step 1 (needs the early writer and the deferred corrections) */
-        if (newton_mn_x_hook && newton_x_defer) { newton_mn_xhi_hook = mn_early_hi_hook; newton_mn_xlo_hook = mn_early_lo_hook; }
-        else if (mn_rank() == 0 && dkm_hi_explicit()) printf("mn: MN_OUT_DKM_HI ignored: it needs MN_OUT_EARLY=1 with an output file and ECALC_CORR_PATCH=2\n");
-    }
+    /* the writer on X_hi after DKM's step 1 (MN_OUT_DKM_HI, always on since 2026-10-12; the =0 fallback was removed 2026-10-23, Q87): needs the early writer and the deferred corrections */
+    if (newton_mn_x_hook && newton_x_defer) { newton_mn_xhi_hook = mn_early_hi_hook; newton_mn_xlo_hook = mn_early_lo_hook; }
 }
-/* the end of the flow of one rank / PE (the sequences are the off path's, byte for byte; the vPE form shuts down the device pools once, after every lane) */
+/* the end of the flow of one rank / PE (the sequences are the off path's, byte for byte; the process form shuts down the device pools once) */
 static void flow_end(int f, int rank0)
 {
     VPE(g_flow_rc) = f;
@@ -488,9 +478,9 @@ static void flow_end(int f, int rank0)
     } else { db_release_pools(); rns_shutdown(); mem_report("released"); mem_report_summary(); mn_barrier(); mn_finalize(); }   /* M5 + A-mem: its device memory goes before the final barrier (after the top set's writer) */
 }
 static void seeds_begin_thunk(void *a) { vpe_set_range((unsigned long)(uintptr_t)a); binsplit_seeds_begin((unsigned long)(uintptr_t)a); }
-static void seeds_begin_vpe(void *a) { vpe_run(seeds_begin_thunk, a); }   /* I2 under ECALC_VPE: every vPE's seeds and region pools, inside rns_init, from its own thread (binsplit's per-thread state) */
+static void seeds_begin_vpe(void *a) { vpe_run(seeds_begin_thunk, a); }   /* I2 in process mode: the PE's seeds and region pools, inside rns_init (binsplit's per-thread state) */
 static void flow_run(void *a);
-static void recheck_run(void *a)                       /* ECALC_RECHECK under ECALC_VPE: one PE's recheck (its parts, its top set, its term range) */
+static void recheck_run(void *a)                       /* ECALC_RECHECK in process mode: one PE's recheck (its parts, its top set, its term range) */
 {
     struct flow_ctx *fc = (struct flow_ctx *)a; vpe_set_range(fc->N);
     int f = mn_out_recheck(fc->N, fc->d, fc->d_out, fc->outfile, mn_comm(0), mn_rank(), fc->mn_size, bs_a0, bs_b1 ? bs_b1 : fc->N + 1, fc->verbose);
@@ -539,7 +529,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "ecalc: WARNING: this run does not fit the modelled memory (device %.2f / %.2f GB, node %.2f / %.0f GB); launchers refuse it (mnrun.sh, tools/plan_values.py --fit)\n",
                 fit.device * 1e-9, fit.limit * 1e-9, fit.node * 1e-9, fit.budget * 1e-9);
     { char eff[360]; const char *np = getenv("ECALC_NP"), *pc = getenv("ECALC_PLANE_CAP_IDX"), *cs = getenv("COMM_SIZE");   /* L5: the resolved values (print-only) */
-      snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,plane_cap:%s,comm_size:%s,batch_pipe:%d,crt_scan:%d,dm_mn_wrap:%d(%s),p24_crt_scan:%d,chain_guard:%d,layer_inter2:%d", pool_log, np ? np : "-", "10^18", verbose, pc ? pc : "-", cs ? cs : "1", rns_batch_pipe_on(), rns_crt_scan_on(), newton_dm_wrap(), binsplit_dm_wrap_src(), p24_crt_scan_on(), newton_chain_guard(), comm_layered_inter2_on());
+      snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,plane_cap:%s,comm_size:%s,dm_mn_wrap:%d(%s)", pool_log, np ? np : "-", "10^18", verbose, pc ? pc : "-", cs ? cs : "1", newton_dm_wrap(), binsplit_dm_wrap_src());
       cfg_print(eff); }
     { /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them.
                                                                                  * the seeds stream through their own two 2 GiB buffers (binsplit.c) -- the staging is the checkpoints' 1 GiB chunk per APU */
@@ -576,8 +566,8 @@ int main(int argc, char **argv)
                 fflush(stdout); _exit(f); }   /* + the SHMEM pool line */   /* MN_PLAN_ONLY (no device was touched; _exit: no atexit reports) */
     if (getenv("ECALC_RECHECK") && atoi(getenv("ECALC_RECHECK"))) {   /* the standalone recheck of a finished run (mn_out.h) -- no pools, no computation */
         int sz = mn_init(); bs_ckpt_dir = getenv("BS_CKPT_DIR"); if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
-        if (vpe_on()) {                                   /* S1e: every PE rechecks its own parts and its own top set (the check counts PEs) */
-            if (sz < 2) ec_fatal(EC_RC_FATAL, "ecalc: ECALC_VPE=1 needs at least 2 PEs (%d): run on 2+ nodes or ECALC_VPE_LANES >= 2\n", sz);
+        if (vpe_on()) {                                   /* every PE rechecks its own parts and its own top set (the check counts PEs) */
+            if (sz < 2) ec_fatal(EC_RC_FATAL, "ecalc: ECALC_PE_PER_GPU=1 needs at least 2 PEs (%d): run on 2+ nodes or more tasks per node\n", sz);
             struct flow_ctx fc; memset(&fc, 0, sizeof fc); fc.N = N; fc.d = d; fc.d_out = d_out; fc.outfile = outfile; fc.verbose = verbose; fc.mn_size = sz;
             if (!bs_ckpt_dir) { const char *dd = mn_out_ckpt_default(outfile); struct stat st; if (dd && stat(dd, &st) == 0 && S_ISDIR(st.st_mode)) bs_ckpt_dir = dd; }
             vpe_run(recheck_run, &fc);
@@ -605,8 +595,8 @@ int main(int argc, char **argv)
     int mn_dist = mn_size_ > 1;                      /* M3: the top levels as distributed products */
     if (mn_dist && !mn_selftest_layered(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
     if (getenv("ECALC_BG_THREADS")) g_bg_threads = atoi(getenv("ECALC_BG_THREADS"));
-    if (vpe_on()) {                                  /* S1e: the process-wide settings of the vPE flow, once, before the threads */
-        if (mn_size_ < 2) ec_fatal(EC_RC_FATAL, "ecalc: ECALC_VPE=1 needs at least 2 PEs (%d): run on 2+ nodes or ECALC_VPE_LANES >= 2\n", mn_size_);
+    if (vpe_on()) {                                  /* the process-wide settings of the PE flow, once, before the flow */
+        if (mn_size_ < 2) ec_fatal(EC_RC_FATAL, "ecalc: ECALC_PE_PER_GPU=1 needs at least 2 PEs (%d): run on 2+ nodes or more tasks per node\n", mn_size_);
         g_bg_threads = env_vpe_bg_threads(); mn_out_bg_threads(g_bg_threads);
         if (vpe_ppg()) printf("ppg: %s: background team %d threads (ECALC_VPE_BG_THREADS, default = this process's affinity mask of %d CPUs; OMP max %d), device %d\n", ec_log_prefix(), g_bg_threads, g_bg_threads, omp_get_max_threads(), vpe_device());   /* S2: one line per process (the mask is the PE's own) */
         if (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0)
@@ -619,19 +609,19 @@ int main(int argc, char **argv)
     }
     struct flow_ctx fc; memset(&fc, 0, sizeof fc);
     fc.N = N; fc.d = d; fc.d_out = d_out; fc.outfile = outfile; fc.verbose = verbose; fc.pool_log = pool_log; fc.mn_size = mn_size_; fc.t00 = t00; fc.t_ri = t_ri;
-    vpe_run(flow_run, &fc);                          /* off: once on this thread (the off path's flow, as before); on: one thread per vPE */
+    vpe_run(flow_run, &fc);                          /* off: once on this thread (the off path's flow, as before); process mode: this process's PE */
     int rc = flow_rc_all();
     if (vpe_on()) rns_shutdown();                    /* (off: the flow's end did it) */
     return rc;
 }
-/* the flow of one rank (off) or one PE (ECALC_VPE): bs, the reciprocal and division, the output stage */
+/* the flow of one rank (off) or one PE (ECALC_PE_PER_GPU): bs, the reciprocal and division, the output stage */
 static void flow_run(void *a)
 {
     struct flow_ctx *fc = (struct flow_ctx *)a;
     const unsigned long N = fc->N, d = fc->d, d_out = fc->d_out; const char *outfile = fc->outfile;
     const int verbose = fc->verbose, pool_log = fc->pool_log, mn_size_ = fc->mn_size, mn_dist = mn_size_ > 1; const double t00 = fc->t00, t_ri = fc->t_ri;
     double t;
-    if (vpe_on()) vpe_set_range(N);                  /* S1e: this PE's term range [a0, b1) of N over the PEs (bs_a0 / bs_b1 are per vPE) */
+    if (vpe_on()) vpe_set_range(N);                  /* this PE's term range [a0, b1) of N over the PEs */
     if (mn_size_ > 1) printf("mn: %s %d computes terms [%lu, %lu) of %lu\n", who(), mn_rank(), bs_a0, bs_b1, N);
     double t_pg = mem_now(); binsplit_pregrow(N); t_pg = mem_now() - t_pg;   /* WP3: region pools at init, like the device pools */
     if (getenv("ECALC_INIT_ONLY") && atoi(getenv("ECALC_INIT_ONLY"))) { vpe_node_barrier(); MEMREP("init"); if (vpe_node_leader()) printf("ECALC_INIT_ONLY: the pools and the arena of %lu digits are mapped (%.1f s); stopping\n", d, mem_now() - t00); fflush(stdout); _exit(0); }   /* the ceiling probe (the allocation edge in seconds) */
@@ -643,10 +633,10 @@ static void flow_run(void *a)
     if (getenv("MEM_REPORT_DEVS") && mn_size_ > 1 && vpe_proc_leader()) {   /* B7ACCT: the layout's terms outside "in use" on the per-APU lines (a report only) */
         const char *eo = getenv("COMM_OFI_POOL_MB"); size_t ofi = eo && comm_ofi_planned() ? (size_t)atol(eo) << 20 : 0;
         mem_report_outside(0, ofi, comm_layered_vbytes);   /* X2: the v-slots are in the comm pool (ofi) */ }
-    MEMREP("init");                               /* device and host bytes by category at each phase boundary (vPE: lane 0) */
+    MEMREP("init");                               /* device and host bytes by category at each phase boundary (process mode: every PE) */
     budget_check(N, verbose);                     /* ECALC_BUDGET_CHECK=1 -- every rank stops here when any node is over */
     bs_verbose = verbose >= 2;
-    if (!vpe_on()) {                                  /* (vPE: set once in main before the threads: one process-wide value) */
+    if (!vpe_on()) {                                  /* (PE layout: set once in main: one process-wide value) */
     bs_ckpt_dir = getenv("BS_CKPT_DIR");                                             /* the top-level set's directory (ECALC_CKPT_TOP) */
     if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0; }
     int ovl = mn_size_ == 1;                       /* the overlapped flow (device top levels, device dm): size 1; size > 1 runs M3's distributed flow */
@@ -657,7 +647,7 @@ static void flow_run(void *a)
     struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.d_out = d_out; xb.outfile = outfile; xb.verbose = verbose >= 2;
     struct out_ctx oc; memset(&oc, 0, sizeof oc); oc.N = N; oc.d = d; oc.d_out = d_out; oc.outfile = outfile; oc.verbose = verbose; oc.size = mn_size_; oc.rank = mn_rank(); VPE(g_ocp) = &oc;
     { int cp = getenv("ECALC_CORR_PATCH") ? atoi(getenv("ECALC_CORR_PATCH")) : 2;   /* default 2 */   /* 1 = size 1 (the writer runs before the corrections), 2 = also size > 1 */
-      if (!vpe_on()) newton_x_defer = (ovl && cp >= 1) || (mn_size_ > 1 && cp >= 2);   /* (vPE: set in main, before the threads) */
+      if (!vpe_on()) newton_x_defer = (ovl && cp >= 1) || (mn_size_ > 1 && cp >= 2);   /* (PE layout: set in main) */
       oc.zone = getenv("ECALC_CORR_PATCH_ZONE") ? strtoul(getenv("ECALC_CORR_PATCH_ZONE"), 0, 10) : 4096;
       if (newton_x_defer) xb.t2_defer = oc.zone; }
     oc.pqb = &pqb; oc.xb = &xb; oc.t00 = t00; oc.t_init = t_init;
@@ -700,11 +690,11 @@ static void flow_run(void *a)
             t_bs += tt - tg; mn_pn = Pm.n; mn_qn = Qm.n;
             MEMREP("tree");                     /* the tree's slabs and shares should show under the pool's donated bytes, not hipMalloc */
             P.n = Q.n = 0; binsplit_free_pools();
-            if (vpe_proc_leader()) { memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st); }   /* (S1: the shared stat blocks are lane 0's; S2: each process resets its own) */
+            if (vpe_proc_leader()) { memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st); }   /* (each process resets its own) */
             int L = 0; while ((1 << L) < mn_size_) L++;
             mn_group *G = mn_group_at(L);
             double td = mem_now(); comm_wst_set_phase(WST_DM);   /* D3 */
-            if (!vpe_on()) mn_hooks_set(&oc, outfile);   /* (vPE: the hooks were set in main, before the threads, and stay: they find this thread's oc by VPE(g_ocp)) */
+            if (!vpe_on()) mn_hooks_set(&oc, outfile);   /* (PE layout: the hooks were set in main and stay: they find the PE's oc by VPE(g_ocp)) */
             newton_mn_divmod(&Xm, &Pm, &Qm, (d + 17) / 18, G, t1_q, T1_NQ, Pres, Qres, Rres, &t_recip);
             if (!vpe_on()) { newton_mn_x_hook = 0; newton_mn_xhi_hook = 0; newton_mn_xlo_hook = 0; }
             if (oc.hi && !oc.hi_rel) { mn_out_early_lo_release(oc.early, &Xm, mn_comm(0)); oc.hi_rel = 1; }   /* X_lo0 >= B^s -- X_lo now corrected (every rank: collective) */
@@ -774,10 +764,7 @@ static void flow_run(void *a)
     memset(&rns_st, 0, sizeof rns_st);
     newton_db_x_hook = x_bg_hook; newton_db_x_arg = &xb;   /* O4: the hook starts the residues and the chunked writer (M5) on X before the low product */
     newton_db_x_dev = &Xdev; xb.Xd = &Xdev; oc.Xd = &Xdev;   /* X never leaves the device -- the writer and the residues read it there */
-    if (dkm_hi_on()) {                                /* the writer on X_hi after DKM's step 1 (the deferred corrections) */
-        if (newton_x_defer) { newton_db_xhi_hook = x_hi_hook; newton_db_xlo_hook = x_lo_hook; }
-        else if (dkm_hi_explicit()) printf("MN_OUT_DKM_HI ignored: it needs ECALC_CORR_PATCH >= 1\n");
-    }
+    if (newton_x_defer) { newton_db_xhi_hook = x_hi_hook; newton_db_xlo_hook = x_lo_hook; }   /* the writer on X_hi after DKM's step 1 (needs the deferred corrections) */
     newton_db_divmod_shifted(&X, &bs_Pd, dl, &bs_Qd, t1_q, T1_NQ, Rres); db_free(&bs_Pd);
     newton_db_x_hook = 0; newton_db_Qd = 0; newton_db_x_dev = 0; newton_db_xhi_hook = 0; newton_db_xlo_hook = 0;
     if (g_xhi.on && !g_xhi.released) x_hi_release(&xb);   /* X_lo0 >= B^s -- X_lo now corrected in place */

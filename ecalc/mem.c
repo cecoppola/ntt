@@ -21,9 +21,9 @@
 
 double mem_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 
-/* S1a: with ECALC_VPE the device's NUMA node comes from its PCI function (hipDeviceGetPCIBusId, sysfs numa_node: the pe_geo.c chain), so a
+/* with ECALC_PE_PER_GPU the device's NUMA node comes from its PCI function (hipDeviceGetPCIBusId, sysfs numa_node: the pe_geo.c chain), so a
  * PE's pinning follows its GPU wherever the node numbers it; off: node == device (unchanged).  Unknown (no sysfs value): the device index. */
-static int g_numa_pci = -1;                      /* -1: not decided yet (decided from ECALC_VPE here, so no pinning can run before it is set) */
+static int g_numa_pci = -1;                      /* -1: not decided yet (decided from ECALC_PE_PER_GPU here, so no pinning can run before it is set) */
 void mem_set_numa_pci(int on) { g_numa_pci = on; }
 static int (*g_own_fn)(void);
 void mem_set_own_device_fn(int (*fn)(void)) { g_own_fn = fn; }
@@ -31,9 +31,9 @@ int mem_own_device(void) { return g_own_fn ? g_own_fn() : -1; }
 int mem_numa_node_of_device(int dev)
 {
     int pci = __atomic_load_n(&g_numa_pci, __ATOMIC_ACQUIRE);
-    if (pci < 0) { const char *e = getenv("ECALC_VPE"), *g = getenv("ECALC_PE_PER_GPU"); pci = (e && atoi(e) != 0) || (g && atoi(g) != 0); __atomic_store_n(&g_numa_pci, pci, __ATOMIC_RELEASE); }
+    if (pci < 0) { const char *g = getenv("ECALC_PE_PER_GPU"); pci = g && atoi(g) != 0; __atomic_store_n(&g_numa_pci, pci, __ATOMIC_RELEASE); }
     if (!pci || dev < 0 || dev >= 64) return dev;
-    static int cache[64]; static int have[64];       /* published by a release store of have[], read with acquire (mn_init_vpe also primes every device single-threaded) */
+    static int cache[64]; static int have[64];       /* published by a release store of have[], read with acquire (mn_init_ppg primes the own device) */
     if (__atomic_load_n(&have[dev], __ATOMIC_ACQUIRE)) return cache[dev] - 1;
     int node = dev; char bus[32], path[96];
     if (hipDeviceGetPCIBusId(bus, sizeof bus, dev) == hipSuccess) {

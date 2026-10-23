@@ -21,20 +21,16 @@ size_t rns_batch_tile_bytes = 15000000000ULL;
 int rns_gpucrt_min = 1;
 int rns_gpucrt_blocks = 912;      /* GPUCRT_MIN_BLOCKS: stripes so that M S >= this */
 static uint64_t *g_spill; static size_t g_spill_cap;
-/* N3 (BS_BATCH_PIPE, default 1 since D20; =0 keeps the old host side): the batch tier's host side without needless gaps -- the per-product scans of
+/* N3 (BS_BATCH_PIPE, on since D20, the =0 fallback removed 2026-10-23, Q87): the batch tier's host side without needless gaps -- the per-product scans of
  * rns_mul_batch in parallel (one device lookup per product, reused), and in rns_mul_batch_local the tiles of a device
  * issued back to back: descriptors through two pinned slots, the spill merge on the stream (VMM pools), the lengths of
  * all the device's tiles read back once at the end, so the GPU never waits for the host between tiles.  Same kernels,
  * same arguments, same order on each stream: digits identical.  binsplit_e reads it too (its level layout in parallel). */
-int rns_batch_pipe = -1;
-int rns_batch_pipe_on(void) { if (rns_batch_pipe < 0) { const char *e = getenv("BS_BATCH_PIPE"); rns_batch_pipe = e ? atoi(e) != 0 : 1; } return rns_batch_pipe; }
-/* K4b (RNS_CRT_SCAN, default 1 since D21; =0 = the serial carry chain): k_crt_batch's carry-lookahead */
-int rns_crt_scan_on(void) { static int sc = -1; if (sc < 0) { const char *e = getenv("RNS_CRT_SCAN"); sc = e ? atoi(e) != 0 : 1; } return sc; }
 static struct bdesc *g_hdp[EC_NP][2]; static size_t g_hdp_cap[EC_NP];   /* N3: the pinned descriptor slots per device */
 
 static int g_nd = 0, g_pool_log = 31;
 /* S2c (ECALC_PE_PER_GPU=1, one process per PE): this process opens, allocates for, registers and tears down ONLY its own device (vpe_device(): the local id with --gpu-bind=none,
- * 0 with one visible device); the devices [g_d0, g_d1) are the ones rns_init set up.  Off / threads (ECALC_VPE): all g_nd devices, unchanged.  D[], g_tables[] stay indexed by the device ordinal. */
+ * 0 with one visible device); the devices [g_d0, g_d1) are the ones rns_init set up.  Off: all g_nd devices, unchanged.  D[], g_tables[] stay indexed by the device ordinal. */
 static int g_d0 = 0, g_d1 = 0;
 static struct dev {
     ntt_ctx *ctx;
@@ -258,13 +254,11 @@ void rns_shutdown(void)
 }
 
 static int ceil_log2(size_t n) { int l = 0; while (((size_t)1 << l) < n) l++; return l; }
-/* WP8: transform length for nc points: 2^logn, or 3 * 2^(logn-2) when nc fits it (0.75x the points) */
-int rns_r3 = -1;                                     /* RNS_R3: 1 (default when the prime set allows) */
+/* WP8: transform length for nc points: 2^logn, or 3 * 2^(logn-2) when nc fits it (0.75x the points) and the prime set has the radix-3 roots (RNS_R3=0 removed 2026-10-23, Q87) */
 static int pick_len(size_t nc, int *logk)
 {
     int logn = ceil_log2(nc); if (logn < NTT_LOGN_MIN) logn = NTT_LOGN_MIN;
-    if (rns_r3 < 0) rns_r3 = getenv("RNS_R3") ? atoi(getenv("RNS_R3")) : ec_has_radix3();
-    if (rns_r3 && ec_has_radix3() && logn - 2 >= NTT_LOGN_MIN && nc <= ((size_t)3 << (logn - 2))) { *logk = logn - 2; return 1; }
+    if (ec_has_radix3() && logn - 2 >= NTT_LOGN_MIN && nc <= ((size_t)3 << (logn - 2))) { *logk = logn - 2; return 1; }
     *logk = logn; return 0;
 }
 static size_t len_of(int r3, int logk) { return (size_t)(r3 ? 3 : 1) << logk; }
@@ -361,10 +355,10 @@ void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, con
 {
     const uint64_t BB = EC_1E18;
     __shared__ uint64_t C0[CRT_THREADS], C1[CRT_THREADS + 3], C2[CRT_THREADS + 3], C3[CRT_THREADS + 3];
-    __shared__ uint64_t V[CRT_THREADS], CY[CRT_THREADS];
+    __shared__ uint64_t CY[CRT_THREADS];
     __shared__ uint64_t carry;
     __shared__ uint64_t GM[CRT_THREADS / 64], PM[CRT_THREADS / 64];           /* K4b: the generate / propagate masks (wave64) */
-    const int scan = g.scan && warpSize == 64;
+    if (warpSize != 64) __builtin_trap();                                     /* the carry-lookahead needs wave64 masks (the serial chain was removed 2026-10-23, Q87) */
     uint64_t cyr = 0;                                                         /* K4b: the carry, uniform over the block */
     const size_t gs = first_stripe + blockIdx.x, pi = gs / S, s = gs % S, base = pi * Lpts;
     const struct bdesc d = P[pi];
@@ -386,56 +380,35 @@ void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, con
                       uint64_t d[4]; ec_words_to_dec4(c, d); c[0] = d[0]; c[1] = d[1]; c[2] = d[2]; c[3] = d[3]; }
         C0[j] = c[0]; C1[j + 3] = c[1]; C2[j + 3] = c[2]; C3[j + 3] = c[3];
         __syncthreads();
-        if (scan) {   /* K4b (RNS_CRT_SCAN): the chunk's carry chain as a carry-lookahead over ballot masks, 3 barriers instead of 5 */
-            const int n = (int)(K1 - c0 < CRT_THREADS ? K1 - c0 : CRT_THREADS);
-            uint64_t v = C0[j] + C1[j + 2] + C2[j + 1] + C3[j] + xk, q = 0;      /* < 5B */
-            while (v >= BB) { v -= BB; q++; }
-            CY[j] = q;                                                           /* q <= 4 */
-            __syncthreads();                                                     /* every C read done, CY complete */
-            if (j < 3) { C1[j] = C1[n + j]; C2[j] = C2[n + j]; C3[j] = C3[n + j]; }   /* tails (nobody reads C until the next chunk's barrier) */
-            /* serial form: sm_i = V_i + CY_{i-1} + o_{i-1} (CY_{-1} = the chunk's carry-in <= 5, o_{-1} = 0), o_i = sm_i >= B.
-             * With w_i = V_i + CY_{i-1} <= B + 4: o_i = gen_i | (prop_i & o_{i-1}), gen = w >= B, prop = w == B - 1 */
-            const uint64_t w = v + (j ? CY[j - 1] : cyr);
-            const int in = j < n;
-            const uint64_t gm = __ballot(in && w >= BB), pm = __ballot(in && w == BB - 1);
-            if ((j & 63) == 0) { GM[j >> 6] = gm; PM[j >> 6] = pm; }
-            __syncthreads();
-            /* o_{i-1} = bit i of (A + G) ^ A ^ G over 256 bits (A = G | P): carry-in of bit i of the sum A + G */
-            uint64_t ci = 0, mine = 0, top = 0;
-            for (int t = 0; t < CRT_THREADS / 64; t++) {
-                const uint64_t G = GM[t], A = G | PM[t], s1 = A + G, s2 = s1 + ci;
-                const uint64_t co = (s1 < A) | (s2 < s1);
-                const uint64_t cv = s2 ^ A ^ G;                                   /* carry-in of each bit */
-                if (t == (j >> 6)) mine = (cv >> (j & 63)) & 1;
-                if (t == (n >> 6)) top = (cv >> (n & 63)) & 1;                    /* o_{n-1} for n < 256 */
-                ci = co;
-            }
-            if (n == CRT_THREADS) top = ci;
-            uint64_t r = w + mine; if (r >= BB) r -= BB;
-            if (in) out[k] = r;
-            cyr = CY[n - 1] + top;                                               /* the next chunk's carry-in (CY, GM, PM rewritten only after the next chunk's first barrier) */
-            continue;
+        const int n = (int)(K1 - c0 < CRT_THREADS ? K1 - c0 : CRT_THREADS);
+        uint64_t v = C0[j] + C1[j + 2] + C2[j + 1] + C3[j] + xk, q = 0;      /* < 5B */
+        while (v >= BB) { v -= BB; q++; }
+        CY[j] = q;                                                           /* q <= 4 */
+        __syncthreads();                                                     /* every C read done, CY complete */
+        if (j < 3) { C1[j] = C1[n + j]; C2[j] = C2[n + j]; C3[j] = C3[n + j]; }   /* tails (nobody reads C until the next chunk's barrier) */
+        /* serial form: sm_i = V_i + CY_{i-1} + o_{i-1} (CY_{-1} = the chunk's carry-in <= 5, o_{-1} = 0), o_i = sm_i >= B.
+         * With w_i = V_i + CY_{i-1} <= B + 4: o_i = gen_i | (prop_i & o_{i-1}), gen = w >= B, prop = w == B - 1 */
+        const uint64_t w = v + (j ? CY[j - 1] : cyr);
+        const int in = j < n;
+        const uint64_t gm = __ballot(in && w >= BB), pm = __ballot(in && w == BB - 1);
+        if ((j & 63) == 0) { GM[j >> 6] = gm; PM[j >> 6] = pm; }
+        __syncthreads();
+        /* o_{i-1} = bit i of (A + G) ^ A ^ G over 256 bits (A = G | P): carry-in of bit i of the sum A + G */
+        uint64_t ci = 0, mine = 0, top = 0;
+        for (int t = 0; t < CRT_THREADS / 64; t++) {
+            const uint64_t G = GM[t], A = G | PM[t], s1 = A + G, s2 = s1 + ci;
+            const uint64_t co = (s1 < A) | (s2 < s1);
+            const uint64_t cv = s2 ^ A ^ G;                                   /* carry-in of each bit */
+            if (t == (j >> 6)) mine = (cv >> (j & 63)) & 1;
+            if (t == (n >> 6)) top = (cv >> (n & 63)) & 1;                    /* o_{n-1} for n < 256 */
+            ci = co;
         }
-        {   /* digits < B: the sum of five digits < 5B fits a word; limb j of this chunk: C0[j] + C1[j-1] + C2[j-2] + C3[j-3] + x[k] (indices shifted by 3) */
-            uint64_t sm = C0[j] + C1[j + 2] + C2[j + 1] + C3[j] + xk, q = 0;
-            while (sm >= BB) { sm -= BB; q++; }
-            V[j] = sm; CY[j] = q;
-        }
-        __syncthreads();
-        if (j == 0) {
-            uint64_t cy = carry;
-            int n = (int)(K1 - c0 < CRT_THREADS ? K1 - c0 : CRT_THREADS);
-            for (int i = 0; i < n; i++) { uint64_t sm = V[i] + cy; cy = CY[i]; if (sm >= BB) { sm -= BB; cy++; } V[i] = sm; }
-            carry = cy;
-        }
-        __syncthreads();
-        if (k < K1) out[k] = V[j];
-        /* tails for the next chunk: the last three C1/C2/C3 entries */
-        __syncthreads();
-        if (j < 3) { int n = (int)(K1 - c0 < CRT_THREADS ? K1 - c0 : CRT_THREADS); C1[j] = C1[n + j]; C2[j] = C2[n + j]; C3[j] = C3[n + j]; }
-        __syncthreads();
+        if (n == CRT_THREADS) top = ci;
+        uint64_t r = w + mine; if (r >= BB) r -= BB;
+        if (in) out[k] = r;
+        cyr = CY[n - 1] + top;                                               /* the next chunk's carry-in (CY, GM, PM rewritten only after the next chunk's first barrier) */
     }
-    if (scan && j == 0) carry = cyr;
+    if (j == 0) carry = cyr;
     if (j == 0) {
         /* spill at K1: [C1[-1] + C2[-2] + C3[-3] + carry, C2[-1] + C3[-2], C3[-1], overflow] */
         uint64_t *sp = stripe_spill + gs * 4;
@@ -460,7 +433,6 @@ struct gconst rns_gconst(void)
     { unsigned __int128 t = g.M2[2] % ec_P[3]; t = ((t << 64) | g.M2[1]) % ec_P[3]; t = ((t << 64) | g.M2[0]) % ec_P[3];
       g.c3 = ec_inv((uint64_t)t, ec_P[3]); }
     g.np = ec_np_init();                         /* P3: the kernel's prime count */
-    g.scan = rns_crt_scan_on();                  /* K4b */
     return g;
 }
 
@@ -516,7 +488,7 @@ __global__ void k_spill_merge(const struct bdesc *P, size_t M, const uint64_t *s
     }
 }
 static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t maxnc, const signed char *dv)   /* 0 = the B planes do not fit pool 1 (nothing done: the caller runs the striped tier) */
-{                                                  /* dv (N3, BS_BATCH_PIPE=1): mem_dev_of(P[i].c) per product, from the caller's scan; 0 = look it up */
+{                                                  /* dv (N3): mem_dev_of(P[i].c) per product, from the caller's scan; 0 = look it up */
     int logk, r3 = pick_len(maxnc, &logk); (void)logL;
     size_t L = len_of(r3, logk), plane_cap = rns_plane_limbs();   /* pool 0's real capacity */
     size_t Mmax = plane_cap / (ec_np * L); if (Mmax < 1) { ec_fatal(EC_RC_FATAL, "rns_mul_batch_local: L %zu does not fit the pools\n", L); }
@@ -843,7 +815,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
     size_t maxnc = 0, in_limbs = 0, out_limbs = 0;
     int staged = 0;
     signed char *dv = 0; int dv_local = 1;              /* N3: one device lookup per product, reused by the local tier */
-    if (rns_batch_pipe_on() && N >= 4096) {          /* the scans below in parallel (the same results) */
+    if (N >= 4096) {          /* the scans below in parallel (the same results) */
         dv = (signed char *)malloc(N);
         size_t mx = 0, inl = 0; int st = 0, loc = 1;
 #pragma omp parallel for schedule(static) reduction(max : mx) reduction(+ : inl) reduction(|| : st) reduction(&& : loc)
@@ -902,7 +874,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
     /* the striped path pairs products 2j, 2j+1 sharing B (the tree's P1 Q2 + P2, Q1 Q2 -- at 4e10 the
      * level of 8 products at 2^30 points, which the batch-local tier cannot hold) and takes the 3 2^k length when nc fits it:
      * per pair 5 transforms of 3 2^28 points instead of 6 of 2^30.  Both need the GPU CRT (the host CRT path reads 2^logL
-     * planes from the staging); RNS_R3=0 keeps the 2^k lengths. */
+     * planes from the staging); the 2^k lengths without the radix-3 roots. */
     int logk = logL, r3 = 0, pair = 0;
     if (rns_gpucrt_min <= 1 && !staged) {
         r3 = pick_len(maxnc, &logk); if (!r3) logk = logL;

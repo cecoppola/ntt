@@ -28,7 +28,7 @@ rns_dist_cache_plan: ECALC_NODE_GB less the layout's node -- binsplit_node_bytes
 over one slot per node): 0 at the target, as the `plan cache` line prints.  --check-c defaults to BS_ARENA_ROOM 0.16 and reads ECALC_NP=auto
 from the file's `plan` lines.
 
-Agent X's mn_model.py and Q's estimate.py import mem_per_node for their memory rows.  Every number is "modelled"
+mn_model.py (and its estimate subcommand) import mem_per_node for their memory rows.  Every number is "modelled"
 unless the calibration table says "measured"; the tables' sources are named in results/MEMORY.md §M11.  Phase 12 (agent Q):
 the tree's g-terms in both forms -- 'flat' (the code at 7aded87) and 'grid' (agent G's gridded top product, archive:PLAN §27) --
 and L's level schedule (mn_groups, MN_GROUPS); see results/TIME_MODEL.md §Q.
@@ -36,13 +36,13 @@ and L's level schedule (mn_groups, MN_GROUPS); see results/TIME_MODEL.md §Q.
 import math, sys, functools, os
 
 LN10 = math.log(10.0)
-NR = 4                                   # regions of one binary splitting (4 per node, one per APU; ONE per PE with ECALC_VPE)
+NR = 4                                   # regions of one binary splitting (4 per node, one per APU; ONE per PE with ECALC_PE_PER_GPU)
 NRN = 4                                  # devices (APUs / PEs) per node: the per-node multipliers (planes, v-slots, comm pools, the dm numbers' share)
-PE_LANES = 0                             # ECALC_VPE=1: PEs per node (ECALC_VPE_LANES, default 4); 0 = off
+PE_LANES = 0                             # ECALC_PE_PER_GPU=1: PEs per node (ECALC_VPE_LANES, default 4); 0 = off
 PPN_PROC = 1                             # S2c (ECALC_PE_PER_GPU=1): processes per node, each with its own runtime + comm (binsplit.c bs_ppn_proc); 1 = one process per node
 def lanes(): return PE_LANES or 1        # PEs per node (binsplit.c bs_lanes)
 def set_pe(L, ppn_proc=1):
-    """S1d (TARGET1): the PE planner, in lockstep with binsplit.c.  ECALC_VPE=1 with L lanes: a node is L identical PEs of one device each; every PE runs
+    """S1d (TARGET1): the PE planner, in lockstep with binsplit.c.  ECALC_PE_PER_GPU=1 with L lanes: a node is L identical PEs of one device each; every PE runs
     its own binary splitting over its term range with ONE region, so the per-node figures are the one PE's times L (arena, seed buffers, writer);
     the devices per node are L (planes, v-slots, comm pools, the quarter of the dm numbers); the checkpoint staging is L GiB.  The tree's group
     schedule stays over the nodes (the groups below a node are not modelled until the PE-level products exist).  L = 0: off (the code before S1d)."""
@@ -50,9 +50,8 @@ def set_pe(L, ppn_proc=1):
     PE_LANES = int(L); PPN_PROC = int(ppn_proc) if L else 1; NR = 1 if L else 4; NRN = int(L) if L else 4
     HOST_STAGING = (int(L) if L else 4) * (1 << 30) * (2 if L and PPN_PROC > 1 and os.environ.get('RNS_BATCH_SPLIT', '') == '1' else 1); HOST_WRITER = int(0.65 * GB) * lanes(); HOST_EARLY = int(0.9 * GB) * lanes()
 def _pe_from_env():
-    e = os.environ.get('ECALC_VPE', ''); g = os.environ.get('ECALC_PE_PER_GPU', '')
+    g = os.environ.get('ECALC_PE_PER_GPU', '')
     if g and g != '0': L = int(os.environ.get('ECALC_VPE_LANES') or 4); set_pe(L, L)   # S2c: one process per PE: the host terms x PEs per node
-    elif e and e != '0': set_pe(int(os.environ.get('ECALC_VPE_LANES') or 4))
 GB = 1e9
 
 # ---------------------------------------------------------------- the code's sizing formulas (binsplit.c)
@@ -86,7 +85,7 @@ def seed_terms_for(bend, fill=SEED_FILL, S0=256, decimal=True):
 def seed_span(N, g, fill=SEED_FILL):
     """the span S the layout uses for a run of N terms over g node-processes: node 0's terms [1, 1 + N / g) at g > 1 (binsplit_layout_only,
     mn_plan.c), [1, N + 1) at size 1"""
-    G = g * lanes()                       # (a PE's range with ECALC_VPE: binsplit.c bs_pe_b1)
+    G = g * lanes()                       # (a PE's range with ECALC_PE_PER_GPU: binsplit.c bs_pe_b1)
     return seed_terms_for(N + 1 if G <= 1 else 1 + N // G, fill)
 
 def seed_limbs(N, nterms, S=256, decimal=True):
@@ -538,15 +537,6 @@ def vslot_resident(nq, g, groups=None, pool_log=31, p24=None, depth=None):
     maxlow = max([v for (_, gg, v) in levels if gg < g] or [0])
     return dict(per_apu=max(maxlow, top_tree, dm), tree_top=max(maxlow, top_tree), levels=levels, dm=dm, summed=lower + max(top_tree, dm))
 
-def _env_on(env, key, dflt):
-    """the C form `e ? atoi(e) != 0 : dflt` (TASKS 27, 2026-10-12: the X2 / S36 / M3 switches default to 1 in the code)"""
-    v = env.get(key)
-    return dflt if v is None else v not in ('', '0')
-
-def inter2_on(env=None):
-    env = os.environ if env is None else env
-    return _env_on(env, 'COMM_LAYER_INTER2', False)   # default 0 since 2026-10-21 (comm_layered.c comm_layered_inter2_on)
-
 # ---------------------------------------------------------------- the other pools (measured constants where the code has them)
 def planes_3q30(pool_log=31, digits=0):
     """the 3 2^k plane pools (RNS_PLANES_3Q30 and its size rule) were removed from the code (SIMP, results/CODE_REDUCTION.md §SIMP): never on.
@@ -676,7 +666,7 @@ DEFAULTS15C = dict(DEFAULTS15B, arena_room=ARENA_ROOM)
 # Phase 15 DL (the user's Batch 3 decisions of 2026-09-29): DEFAULTS15D = the code's defaults now -- DEFAULTS15C + NEWTON_DKM=1 with dm_layout following it
 # (binsplit.c; NEWTON_DKM=0 in the environment gives C's layout).  MN_P24=2 is the tree's scratch (opts p24; mn_model passes it).  mem_per_node's base.
 DKM_CODE = True                                                    # NEWTON_DKM: built in (switch removed 2026-10-12)
-CHAIN_GUARD_CODE = int(int(os.environ.get("NEWTON_CHAIN_GUARD", "1")) > 0)                                             # NEWTON_CHAIN_GUARD: default 1 since D25 (results/DIVISION.md §RECIP); 0 = the fallback
+CHAIN_GUARD_CODE = 1                                                                                                                  # the chain guard (D25; the NEWTON_CHAIN_GUARD=0 fallback was removed 2026-10-23, Q87)
 LEAN_CODE = True                                                   # int15k: DM_MN_LEAN, built in since 2026-10-12 -- the lean mn division set at size > 1 (opts lean)
 DEFAULTS15D = dict(DEFAULTS15C, dkm=DKM_CODE, lean=LEAN_CODE)
 TARGET_LAUNCH = dict(round_mb=1024)                     # D2 (results/SHMEM_ITEMS.md §V114): the target's launch line
@@ -690,7 +680,7 @@ TARGET_DIGITS = 3.82e13                                 # CURRENT: the user deci
                                                         # candidate (the device edge's margin over the proposed 3.76e13): login-node MN_PLAN_ONLY / BS_LAYOUT_ONLY
                                                         # at 576 (verified here 2026-10-06, b7-vslot aa86cac): device_with 363.526 GB vs the 373.44 GB measured
                                                         # edge (9.91 GB under), node 378.785 / 405.612 GB with the general-map v-slots (480 budget: +74.4 GB),
-                                                        # pieces (node 0 / critical path) 103 / 107 (1236 products), `plan check` OK; estimate.py --fabric target-m
+                                                        # pieces (node 0 / critical path) 103 / 107 (1236 products), `plan check` OK; mn_model.py estimate --fabric target-m
                                                         # at this D/g: 221.9 s modelled without the output write / 225.1 s with it at --bw 47 (ROCm 7.2.4, MAP_RATE
                                                         # 0.010 measured on the target).
                                                         # history: 4.08e13 (TGT17, 2026-10-06, superseded by this decision -- device 372.12 GB, 1.32 GB under the
@@ -733,7 +723,7 @@ def seedbuf_vmm(N, nterms, S=256):
     span = 2 * per * 8                                                  # (Phase 15 DL: in whole spans, as seeds_stream carves them)
     mx = max(span * max(0, min(nspan, -(-(r + 1) * nspan // NR)) - min(nspan, -(-r * nspan // NR))) for r in range(NR))
     b = max(min(HOST_SEEDBUF_VMM, mx), span)
-    return 2 * (b // span * span) * lanes()   # (per PE with ECALC_VPE: binsplit.c as_host_bytes)
+    return 2 * (b // span * span) * lanes()   # (per PE with ECALC_PE_PER_GPU: binsplit.c as_host_bytes)
 
 def pool_mb_of(need, pool, pool_mb=8192):
     """the SHMEM pool (bytes) the run gets from its need (bytes) under the pool rule (binsplit_shmem_pool_rule)"""
@@ -874,7 +864,6 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
     staging = NRN * best * 8
     lv = [S for S in mn_groups(g, groups) if S < g]
     control = NRN * (g + sum(lv)) * (ring + 64)
-    if inter2_on(): control += NRN * sum(S for S in [min(S, g) for S in mn_groups(g, groups)] if S > 1 and S & (S - 1)) * (ring + 64)   # X2 COMM_LAYER_INTER2: a second mesh per general-map group
     mailbox = SHMEM_MAXID * g * 8
     sym = NRN * 3 * qmax * 8 if sym_slabs else 0
     ofi_dev_mb = 0
@@ -937,7 +926,7 @@ def pool_check():
             D, g, pl, tmb, rmb, meas, m, 100 * (m / meas - 1), det['per_apu'] / 1048576.0, det['by'], det['control'] / 1048576.0, src))
 
 # ---------------------------------------------------------------- Phase 15 TC: the mn transform cache (rns_dist.c cache_avail)
-CACHE_MN_SLOTS_CODE = 2                  # RNS_DIST_CACHE_MN's default
+CACHE_MN_SLOTS_CODE = 2                  # the mn transform cache's slots (rns_dist.c)
 CACHE_FIT_RESERVE = 32e9                 # rns_dist.c cache_fit_reserve (32 GB per node)
 DIST_LOGN_MAX = 31                       # rns_dist.c: the single-node tier's cap, which sizes the default's slots
 def cache_mn_bytes(g, pool_log=31, np=4, slots=CACHE_MN_SLOTS_CODE, fit=False):
@@ -950,7 +939,7 @@ def cache_mn_bytes(g, pool_log=31, np=4, slots=CACHE_MN_SLOTS_CODE, fit=False):
 def cache_report():
     """the cache at the target and one step below (TARGET_LAUNCH), and at the single-node test points of results/CACHE.md §TC15"""
     groups = '2,4,8,16,32,64,192,576'
-    print('== Phase 15 TC: the mn transform cache (RNS_DIST_CACHE_MN=%d; GB per node, modelled)' % CACHE_MN_SLOTS_CODE)
+    print('== Phase 15 TC: the mn transform cache (%d slots; GB per node, modelled)' % CACHE_MN_SLOTS_CODE)
     for T in (TARGET_DIGITS, TARGET_BELOW):
         oo = dict(TARGET_LAUNCH, transport='shmem', staging='code', depth=2, groups=groups, np=TARGET_NP); r = mem_per_node(int(T / TARGET_NODES), TARGET_NODES, oo)
         one = r['cache_slot']                                           # (Phase 15 DOC2: the slot at pool 0's planes -- four at the target under auto)
@@ -999,7 +988,7 @@ def _mem_per_node(D, g=1, opts=None):
     # sets pool_log and the 3 2^k planes, cap_pool), depth (COMM_ALLTOALLV_DEPTH, the code's default 2 since Phase 13c: the v-slots' form --
     # B7ACCT: vslot_resident, outside the arena, on dev_bs / dev_dm), host_fit (size 1: the host HWM fitted on the measured runs instead of the init constants)
     if o['cap'] is not None: o['pool_log'], o['planes_3q30'] = cap_pool(o['cap'])
-    D_total = D * g; d = digits_of_run(D_total); N = e_terms(d); nterms = (N + g * lanes() - 1) // (g * lanes())   # (a PE's terms with ECALC_VPE)
+    D_total = D * g; d = digits_of_run(D_total); N = e_terms(d); nterms = (N + g * lanes() - 1) // (g * lanes())   # (a PE's terms with ECALC_PE_PER_GPU)
     S = seed_span(N, g, o['seed_fill']) if o['decimal'] else 256                # Phase 15 (2026-09-27): BS_SEED_FILL (128 by default; 0 = 256)
     bs = arena_bs_bytes(N, nterms, decimal=o['decimal'], S=S); bs_total = sum(bs)
     aroom = o['arena_room'] if o['vmm'] else 0.0                            # Phase 15 AS: BS_ARENA_ROOM (needs the VMM pool)
@@ -1067,7 +1056,7 @@ def _mem_per_node(D, g=1, opts=None):
         dev_dm = max(dev_dm, dev_init + VMM_DM_GROW_FILL)
     peak = max(dev_init + host_init, dev_bs + max(host_init, host_dm), dev_dm + host_dm) * (1 + o['margin'])   # (the measured node = device max + host HWM)
     # Phase 15 TC (results/CACHE.md §TC15): the mn transform cache -- not in node_peak (the numbers the docs cite); the default code's slots
-    # (RNS_DIST_CACHE_MN=2 x 16 GiB per APU at four primes) live from the first mn grid product (the tree at the target) to the division's end,
+    # (2 slots x 16 GiB per APU at four primes) live from the first mn grid product (the tree at the target) to the division's end,
     # so they add to the bs and dm peaks: node_peak_cache.  cache_fit_slots: what RNS_DIST_CACHE_FIT would take against this model's peak.
     cmn = cache_mn_bytes(g, o['pool_log'], npp, CACHE_MN_SLOTS_CODE) if g > 1 else 0
     peak_c = max(dev_init + host_init, dev_bs + cmn + max(host_init, host_dm), dev_dm + cmn + host_dm) * (1 + o['margin'])
@@ -1384,7 +1373,7 @@ def report15():
             Dm = max_digits_per_node(nb * GB, g, o, hi=4e11); cs.append('%.0f GB: %.2e per node = %.3e digits' % (nb, Dm, Dm * g))
         print('  %-52s %s' % (name, '; '.join(cs)))
 
-_pe_from_env()                                   # S1d: ECALC_VPE=1 in the environment = the PE planner (binsplit.c bs_nrn / bs_lanes)
+_pe_from_env()                                   # ECALC_PE_PER_GPU=1 in the environment = the PE planner (binsplit.c bs_nrn / bs_lanes)
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == '--p15':
         report15(); sys.exit(0)

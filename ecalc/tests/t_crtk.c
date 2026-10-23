@@ -1,133 +1,197 @@
-/* t_crtk - K4b: k_crt_batch with the parallel carry (RNS_CRT_SCAN, gconst.scan = 1) against the serial chain (scan = 0).
+/* t_crtk - the two device CRT kernels with the carry-lookahead (K4b k_crt_batch in rns_mul.c, K4c k_crt24 in p24_crt.c) against a host
+ * reference.  The serial carry chains they replaced were removed 2026-10-23 (Q87); the reference here is the plain base-B addition
+ * of the known coefficients (a __int128 carry loop on the host), so no GPU path is compared with another.
  *
- *  1. equivalence: every limb and every stripe spill identical, scan 0 vs 1, three and four primes, on
- *     - random residues (any coefficient below the primes' product);
- *     - long carry ripples: every coefficient B - 1 with sparse 2B - 1 generators, plus an added operand of B - 1 limbs;
- *     - all residues p_i - 1 (the largest coefficient: every limb carries, every stripe spills);
- *     shapes: the C form (one product, C stripes of `rows` coefficients), ragged stripes (nc not a multiple of 256,
- *     nc < S), and a B-form batch (M products, S stripes each, products with an added operand, the top carry limb).
- *  2. timing (part 2, argument log2 q > 0): the C form of the 1-node 6.441e10 run, q = 2^logq coefficients in
- *     C = q / 8192 stripes (2^29 -> 65536 x 8192, results/KERNELS.md §S39), scan 0 vs 1, three and four primes, best and median of 7.
+ * Each case builds coefficients with known base-10^18 digits, makes their residues mod the primes on the host, runs the kernel,
+ * and compares every output limb and every stripe / column spill (and, for k_crt24, the device flag) with the host sum.
+ *  A. k_crt_batch, three and four primes: stripes of a product (the C form, ragged stripes, nc < S, the B form batch with an added
+ *     operand x and the top carry limb); coefficient kinds 0 random, 1 long carry ripples (B - 1 with sparse 2B - 1), 2 the
+ *     largest digits under the primes' product (every limb carries).
+ *  B. k_crt24: columns of a rank's plane (R, C, nr, rank rho: rows < 256, rows not a multiple of 256, every a mod 3, rows 1 and 3);
+ *     coefficient kinds 0 random below 10^60, 1 ripples (10^24 - 1 with sparse 2 10^24 - 1), 2 a generator at each column's first
+ *     point (the ripple crosses every chunk into the spill), 3 the bound 10^60 - 1, 4 a mix of 0, 10^24 - 1, 10^48 - 1, 10^60 - 1 and random.
  *
- * Usage: t_crtk [log2 q for part 2 (29); 0 skips part 2]
+ * Usage: t_crtk
  */
 #include "harness.h"
 #include "../rns_int.h"
 #include "../modarith.h"
+#include "../p24.h"
 #include <hip/hip_runtime.h>
 
 #define HC(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(2); } } while (0)
 
-__device__ static inline uint64_t mix64(uint64_t z)
+typedef unsigned __int128 u128;
+static const uint64_t B = EC_1E18;
+static uint64_t mix64(uint64_t z)
 {
     z += 0x9E3779B97F4A7C15ULL; z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL; z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL; return z ^ (z >> 31);
 }
-/* plane p of n coefficients: mode 0 random residue, 1 the value B - 1 (sparse 2B - 1), 2 p - 1 */
-__global__ void k_fill(uint64_t *pl, size_t n, uint64_t p, int mode, uint64_t seed)
+/* the residue of d[0] + d[1] B + d[2] B^2 + d[3] B^3 mod p */
+static uint64_t resid(const uint64_t d[4], uint64_t p)
 {
-    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x;
-    for (; i < n; i += st) {
-        uint64_t h = mix64(seed ^ (i * 0x632BE59BD9B4E019ULL)), v;
-        if (mode == 0) { v = h & ((1ULL << 52) - 1); while (v >= p) v -= p; }
-        else if (mode == 1) { uint64_t c = (mix64(i ^ 0x5bd1e995ULL ^ seed) % 997 == 0) ? 2 * EC_1E18 - 1 : EC_1E18 - 1; v = c % p; }
-        else v = p - 1;
-        pl[i] = v;
+    u128 r = 0;
+    for (int k = 3; k >= 0; k--) r = (r * B + d[k]) % p;
+    return (uint64_t)r;
+}
+
+/* ---- A. k_crt_batch ---- */
+/* coefficient k of np primes: digits below B, the top one capped so that the value stays under the product of the first np primes
+ * (3 primes ~ 5.8e46: d[2] < 1e10; 4 primes ~ 4e62: d[3] < 1e8) */
+static void coefA(int mode, int np, size_t k, uint64_t seed, uint64_t d[4])
+{
+    uint64_t h = mix64(seed ^ (k * 0x632BE59BD9B4E019ULL)), cap = np == 3 ? 10000000000ULL : 100000000ULL;
+    d[0] = d[1] = d[2] = d[3] = 0;
+    if (mode == 0) { for (int i = 0; i < np; i++) d[i] = mix64(h + 1 + i) % (i == np - 1 ? cap : B); }
+    else if (mode == 1) { d[0] = B - 1; d[1] = h % 997 == 0 ? 1 : 0; }                    /* B - 1, or 2B - 1 */
+    else { for (int i = 0; i < np - 1; i++) d[i] = B - 1; d[np - 1] = cap - 1; }
+}
+/* the host sum of one stripe [K0, K1) of a product: the limbs out[K0..K1), the spill sp[0..3] (the limbs K1 .. K1 + 2 and the carry after them) */
+static void ref_stripe(const uint64_t (*cd)[4], const uint64_t *x, size_t nx, size_t K0, size_t K1, uint64_t *out, uint64_t sp[4])
+{
+    u128 carry = 0;
+    for (size_t k = K0; k < K1 + 3; k++) {
+        u128 sm = carry;
+        for (size_t j = 0; j < 4; j++) if (k >= j + K0 && k - j < K1) sm += cd[k - j][j];
+        if (k < K1 && k < nx) sm += x[k];
+        if (k < K1) out[k] = (uint64_t)(sm % B); else sp[k - K1] = (uint64_t)(sm % B);
+        carry = sm / B;
     }
+    sp[3] = (uint64_t)carry;
 }
-__global__ void k_fillx(uint64_t *x, size_t n, int mode, uint64_t seed)
+/* M products; product i has nc[i] coefficients at plane offset i * Lpts, S stripes, an added operand of nx[i] limbs */
+static void run_batch(int np, size_t M, const uint32_t *nc, const uint32_t *nx, size_t Lpts, int S, int mode, uint64_t seed, const char *tag)
 {
-    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x;
-    for (; i < n; i += st) x[i] = mode == 1 ? EC_1E18 - 1 : mix64(seed + i) % EC_1E18;
-}
-
-static uint64_t *g_pl[4];
-static size_t g_cap;
-static void planes(size_t n, int mode, uint64_t seed)
-{
-    if (n > g_cap) { for (int p = 0; p < 4; p++) { if (g_pl[p]) HC(hipFree(g_pl[p])); HC(hipMalloc(&g_pl[p], n * 8)); } g_cap = n; }
-    for (int p = 0; p < 4; p++) k_fill<<<1024, 256>>>(g_pl[p], n, ec_P[p], mode, seed + 77 * p);
-    HC(hipDeviceSynchronize());
-}
-
-/* M products; product i has nc[i] coefficients at plane offset i * Lpts, S stripes, an added operand of nx[i] limbs; run scan 0 and 1, compare */
-static size_t run_cmp(int np, size_t M, const uint32_t *nc, const uint32_t *nx, size_t Lpts, int S, int mode, uint64_t seed, const char *tag)
-{
-    planes(M * Lpts, mode, seed);
-    struct bdesc *hd = (struct bdesc *)calloc(M, sizeof *hd), *dd;
-    uint64_t *out[2], *sp[2], *x = NULL; size_t tot = 0, xtot = 0, *oo = (size_t *)malloc(M * sizeof *oo), *xo = (size_t *)malloc(M * sizeof *xo);
+    uint64_t *hp[4], *dp[4], *hx = 0, *dx = 0; size_t tot = 0, xtot = 0;
+    size_t *oo = (size_t *)malloc(M * sizeof *oo), *xo = (size_t *)malloc(M * sizeof *xo);
     for (size_t i = 0; i < M; i++) { oo[i] = tot; tot += nc[i] + 1; xo[i] = xtot; xtot += nx[i]; }
-    if (xtot) { HC(hipMalloc(&x, xtot * 8)); k_fillx<<<256, 256>>>(x, xtot, mode, seed); }
-    for (int v = 0; v < 2; v++) { HC(hipMalloc(&out[v], tot * 8)); HC(hipMemset(out[v], 0x5A, tot * 8)); HC(hipMalloc(&sp[v], M * S * 32)); HC(hipMemset(sp[v], 0x3C, M * S * 32)); }
-    HC(hipMalloc(&dd, M * sizeof *dd));
-    struct gconst g = rns_gconst(); g.np = np;
-    for (int v = 0; v < 2; v++) {
-        for (size_t i = 0; i < M; i++) { hd[i].c = out[v] + oo[i]; hd[i].na = nc[i] - nc[i] / 3; hd[i].nb = nc[i] / 3; hd[i].nx = nx[i]; hd[i].x = nx[i] ? x + xo[i] : NULL; }
-        HC(hipMemcpy(dd, hd, M * sizeof *dd, hipMemcpyHostToDevice));
-        g.scan = v;
-        k_crt_batch<<<(unsigned)(M * S), CRT_THREADS>>>(g_pl[0], g_pl[1], g_pl[2], g_pl[3], dd, 0, S, Lpts, g, sp[v]);
-        HC(hipDeviceSynchronize());
+    uint64_t (*cd)[4] = (uint64_t (*)[4])calloc(M * Lpts, sizeof *cd);
+    for (int p = 0; p < 4; p++) hp[p] = (uint64_t *)calloc(M * Lpts, 8);
+    for (size_t i = 0; i < M; i++)
+        for (size_t k = 0; k < nc[i]; k++) {
+            uint64_t *d = cd[i * Lpts + k]; coefA(mode, np, k, seed + 31 * i, d);
+            for (int p = 0; p < np; p++) hp[p][i * Lpts + k] = resid(d, ec_P[p]);
+        }
+    for (int p = 0; p < 4; p++) { HC(hipMalloc(&dp[p], M * Lpts * 8)); HC(hipMemcpy(dp[p], hp[p], M * Lpts * 8, hipMemcpyHostToDevice)); }
+    if (xtot) {
+        hx = (uint64_t *)malloc(xtot * 8); for (size_t i = 0; i < xtot; i++) hx[i] = mix64(seed + 7 * i) % B;
+        if (mode == 2) for (size_t i = 0; i < xtot; i++) hx[i] = B - 1;
+        HC(hipMalloc(&dx, xtot * 8)); HC(hipMemcpy(dx, hx, xtot * 8, hipMemcpyHostToDevice));
     }
-    uint64_t *h0 = (uint64_t *)malloc(tot * 8), *h1 = (uint64_t *)malloc(tot * 8), *s0 = (uint64_t *)malloc(M * S * 32), *s1 = (uint64_t *)malloc(M * S * 32);
-    HC(hipMemcpy(h0, out[0], tot * 8, hipMemcpyDeviceToHost)); HC(hipMemcpy(h1, out[1], tot * 8, hipMemcpyDeviceToHost));
-    HC(hipMemcpy(s0, sp[0], M * S * 32, hipMemcpyDeviceToHost)); HC(hipMemcpy(s1, sp[1], M * S * 32, hipMemcpyDeviceToHost));
-    size_t bad = 0, carries = 0;
-    for (size_t i = 0; i < tot; i++) bad += h0[i] != h1[i];
-    for (size_t i = 0; i < M * (size_t)S * 4; i++) bad += s0[i] != s1[i];
-    for (size_t i = 0; i < tot; i++) carries += h0[i] == 0 || h0[i] == EC_1E18 - 1;
-    printf("  %-34s np %d M %3zu S %5d mode %d: %s (limbs %zu, B-1/0 limbs %zu)\n", tag, np, M, S, mode, bad ? "DIFFER" : "identical", tot, carries);
-    VERIFY(bad == 0, "%s np %d M %zu S %d mode %d: %zu words differ (limbs %zu, B-1/0 limbs %zu)", tag, np, M, S, mode, bad, tot, carries);
-    for (int v = 0; v < 2; v++) { HC(hipFree(out[v])); HC(hipFree(sp[v])); }
-    if (x) HC(hipFree(x));
-    HC(hipFree(dd)); free(hd); free(oo); free(xo); free(h0); free(h1); free(s0); free(s1);
-    return bad;
+    struct bdesc *hd = (struct bdesc *)calloc(M, sizeof *hd), *dd; uint64_t *out, *sp;
+    HC(hipMalloc(&out, tot * 8)); HC(hipMemset(out, 0x5A, tot * 8)); HC(hipMalloc(&sp, M * S * 32)); HC(hipMemset(sp, 0x3C, M * S * 32));
+    for (size_t i = 0; i < M; i++) { hd[i].c = out + oo[i]; hd[i].na = nc[i] - nc[i] / 3; hd[i].nb = nc[i] / 3; hd[i].nx = nx[i]; hd[i].x = nx[i] ? dx + xo[i] : NULL; }
+    HC(hipMalloc(&dd, M * sizeof *dd)); HC(hipMemcpy(dd, hd, M * sizeof *dd, hipMemcpyHostToDevice));
+    struct gconst g = rns_gconst(); g.np = np;
+    k_crt_batch<<<(unsigned)(M * S), CRT_THREADS>>>(dp[0], dp[1], dp[2], dp[3], dd, 0, S, Lpts, g, sp);
+    HC(hipDeviceSynchronize());
+    uint64_t *ho = (uint64_t *)malloc(tot * 8), *hs = (uint64_t *)malloc(M * S * 32);
+    HC(hipMemcpy(ho, out, tot * 8, hipMemcpyDeviceToHost)); HC(hipMemcpy(hs, sp, M * S * 32, hipMemcpyDeviceToHost));
+    size_t bad = 0, ripple = 0; uint64_t *eo = (uint64_t *)malloc((size_t)(Lpts + 1) * 8);
+    for (size_t i = 0; i < M; i++) {
+        for (int s = 0; s < S; s++) {
+            size_t K0 = (size_t)((uint64_t)nc[i] * s / S), K1 = (size_t)((uint64_t)nc[i] * (s + 1) / S); uint64_t esp[4];
+            ref_stripe((const uint64_t (*)[4])(cd + i * Lpts), hx ? hx + xo[i] : NULL, nx[i], K0, K1, eo, esp);
+            for (size_t k = K0; k < K1; k++) { bad += ho[oo[i] + k] != eo[k]; ripple += eo[k] == B - 1 || eo[k] == 0; }
+            for (int u = 0; u < 4; u++) bad += hs[(i * S + s) * 4 + u] != esp[u];
+            if (nx[i] && s == S - 1) bad += ho[oo[i] + nc[i]] != esp[0];             /* the top limb: the final carry */
+        }
+    }
+    printf("  %-34s np %d M %3zu S %5d mode %d: %s (limbs %zu, B-1/0 limbs %zu)\n", tag, np, M, S, mode, bad ? "DIFFER" : "ok", tot, ripple);
+    VERIFY(bad == 0, "%s np %d M %zu S %d mode %d: %zu words differ from the host sum (limbs %zu)", tag, np, M, S, mode, bad, tot);
+    HC(hipFree(out)); HC(hipFree(sp)); HC(hipFree(dd)); if (dx) HC(hipFree(dx));
+    for (int p = 0; p < 4; p++) { HC(hipFree(dp[p])); free(hp[p]); }
+    free(cd); free(hx); free(hd); free(oo); free(xo); free(ho); free(hs); free(eo);
 }
 
-static int cmp_d(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
-
-int main(int argc, char **argv)
+/* ---- B. k_crt24 ---- */
+/* the coefficient of point x as four base-B digits (d[3] < 10^6 keeps it below 10^60) */
+static void coefB(int mode, size_t x, size_t xfirst, uint64_t seed, uint64_t d[4])
 {
-    int logq = argc > 1 ? atoi(argv[1]) : 29;
+    uint64_t h = mix64(seed ^ (x * 0x632BE59BD9B4E019ULL));
+    d[0] = d[1] = d[2] = d[3] = 0;
+    switch (mode) {
+    case 0: d[0] = mix64(h + 1) % B; d[1] = mix64(h + 2) % B; d[2] = mix64(h + 3) % B; d[3] = mix64(h + 4) % 1000000; break;
+    case 1: d[0] = B - 1; d[1] = (h % 997 == 0) ? 1999999 : 999999; break;                 /* 10^24 - 1, or 2 10^24 - 1 */
+    case 2: d[0] = B - 1; d[1] = x == xfirst ? 1999999 : 999999; break;
+    case 3: d[0] = d[1] = d[2] = B - 1; d[3] = 999999; break;                                /* 10^60 - 1 */
+    default: switch (h % 5) {
+        case 0: break;
+        case 1: d[0] = B - 1; d[1] = 999999; break;
+        case 2: d[0] = d[1] = B - 1; d[2] = 999999999999ULL; break;                          /* 10^48 - 1 */
+        case 3: d[0] = d[1] = d[2] = B - 1; d[3] = 999999; break;
+        default: d[0] = mix64(h + 1) % B; d[1] = mix64(h + 2) % B; d[2] = mix64(h + 3) % B; d[3] = mix64(h + 4) % 1000000; }
+    }
+}
+/* rank rho of nr over R, C columns */
+static void run24(size_t R, size_t C, int nr, int rho, int mode, uint64_t seed)
+{
+    size_t a = R * (size_t)rho / (size_t)nr, rows = R * (size_t)(rho + 1) / (size_t)nr - a, q = rows * C;
+    struct p24_run m = p24_run_make(R, C, a, rows, 0); size_t tot = p24_run_total(&m) + 8;
+    uint64_t *h[4], *dp[4]; uint64_t (*cd)[4] = (uint64_t (*)[4])malloc(q * sizeof *cd);
+    for (int p = 0; p < 4; p++) h[p] = (uint64_t *)malloc(q * 8);
+    for (size_t j = 0; j < C; j++)
+        for (size_t k = 0; k < rows; k++) {
+            uint64_t *d = cd[j * rows + k]; coefB(mode, R * j + a + k, R * j + a, seed, d);
+            for (int p = 0; p < 4; p++) h[p][j * rows + k] = resid(d, ec_P[p]);
+        }
+    for (int p = 0; p < 4; p++) { HC(hipMalloc(&dp[p], q * 8)); HC(hipMemcpy(dp[p], h[p], q * 8, hipMemcpyHostToDevice)); }
+    uint64_t *out, *sp; struct gconst gc = rns_gconst(); gc.np = 4;
+    HC(hipMalloc(&out, tot * 8)); HC(hipMemset(out, 0xA5, tot * 8)); HC(hipMalloc(&sp, C * 32)); HC(hipMemset(sp, 0x3C, C * 32));
+    (void)p24_crt_err(0);
+    p24_crt_launch(dp[0], dp[1], dp[2], dp[3], &gc, R, C, a, rows, out, sp, 0);
+    HC(hipDeviceSynchronize()); unsigned fl = p24_crt_err(0);
+    uint64_t *ho = (uint64_t *)malloc(tot * 8), *hs = (uint64_t *)malloc(C * 32);
+    HC(hipMemcpy(ho, out, tot * 8, hipMemcpyDeviceToHost)); HC(hipMemcpy(hs, sp, C * 32, hipMemcpyDeviceToHost));
+    size_t bad = 0, nines = 0;
+    for (size_t j = 0; j < C; j++) {                                   /* the host sum of column j: points at limbs L(x) .. L(x) + 3, one carry pass */
+        size_t x0 = R * j + a, A0 = p24_L(x0), L1 = p24_L(x0 + rows), n = L1 + 4 - A0, ob = p24_run_S(&m, j);
+        u128 *acc = (u128 *)calloc(n, sizeof *acc);
+        for (size_t k = 0; k < rows; k++) {
+            uint64_t e[4]; size_t x = x0 + k; p24_shift_digits(cd[j * rows + k], p24_s(x), e);
+            for (int t = 0; t < 4; t++) acc[p24_L(x) - A0 + t] += e[t];
+        }
+        u128 carry = 0;
+        for (size_t l = 0; l < n; l++) {
+            u128 sm = acc[l] + carry; uint64_t v = (uint64_t)(sm % B); carry = sm / B;
+            if (l < L1 - A0) { bad += ho[ob + l] != v; nines += v == B - 1; } else bad += hs[4 * j + (l - (L1 - A0))] != v;
+        }
+        bad += carry != 0; free(acc);
+    }
+    printf("  R %6zu C %3zu nr %d rho %d (rows %5zu, a mod 3 = %zu) mode %d: %s (limbs %zu, B-1 limbs %zu, flag %u)\n",
+           R, C, nr, rho, rows, a % 3, mode, bad || fl ? "DIFFER" : "ok", tot - 8, nines, fl);
+    VERIFY(bad == 0, "R %zu C %zu nr %d rho %d mode %d: %zu words differ from the host sum", R, C, nr, rho, mode, bad);
+    VERIFY(fl == 0, "R %zu C %zu nr %d rho %d mode %d: device flag %u below the bound", R, C, nr, rho, mode, fl);
+    HC(hipFree(out)); HC(hipFree(sp)); free(ho); free(hs); free(cd);
+    for (int p = 0; p < 4; p++) { HC(hipFree(dp[p])); free(h[p]); }
+}
+
+int main(void)
+{
     HC(hipSetDevice(0));
-    /* part 1: equivalence */
+    printf("== t_crtk A: k_crt_batch against the host sum ==\n"); harness_meta("t_crtk");
     for (int np = 3; np <= 4; np++)
         for (int mode = 0; mode < 3; mode++) {
             uint64_t seed = 1000 * np + mode;
-            { size_t q = 1 << 20; uint32_t nc = (uint32_t)q, nx = 0; run_cmp(np, 1, &nc, &nx, q, (int)(q / 8192), mode, seed, "C form 2^20 / 128"); }
-            { size_t q = 3 << 18; uint32_t nc = (uint32_t)q, nx = 0; run_cmp(np, 1, &nc, &nx, q, (int)(q / 8192), mode, seed + 1, "C form 3*2^18 / 96"); }
-            { uint32_t nc = 777 * 13 + 5, nx = 0; run_cmp(np, 1, &nc, &nx, nc, 13, mode, seed + 2, "ragged 10106 / 13"); }
-            { uint32_t nc = 300001, nx = 0; run_cmp(np, 1, &nc, &nx, nc, 7, mode, seed + 3, "ragged 300001 / 7"); }
-            { uint32_t nc = 5, nx = 0; run_cmp(np, 1, &nc, &nx, 8, 9, mode, seed + 4, "nc 5 < S 9"); }
-            { uint32_t nc = 1, nx = 1; run_cmp(np, 1, &nc, &nx, 1, 1, mode, seed + 5, "nc 1 + x"); }
-            {   /* B-form batch: 24 products of varied lengths, S = 5, every other one with an added operand */
-                enum { MB = 24 }; uint32_t nc[MB], nx[MB]; size_t L = 1 << 16;
+            { size_t q = 1 << 18; uint32_t nc = (uint32_t)q, nx = 0; run_batch(np, 1, &nc, &nx, q, (int)(q / 8192), mode, seed, "C form 2^18 / 32"); }
+            { size_t q = 3 << 16; uint32_t nc = (uint32_t)q, nx = 0; run_batch(np, 1, &nc, &nx, q, (int)(q / 8192), mode, seed + 1, "C form 3*2^16 / 24"); }
+            { uint32_t nc = 777 * 13 + 5, nx = 0; run_batch(np, 1, &nc, &nx, nc, 13, mode, seed + 2, "ragged 10106 / 13"); }
+            { uint32_t nc = 300001, nx = 0; run_batch(np, 1, &nc, &nx, nc, 7, mode, seed + 3, "ragged 300001 / 7"); }
+            { uint32_t nc = 5, nx = 0; run_batch(np, 1, &nc, &nx, 8, 9, mode, seed + 4, "nc 5 < S 9"); }
+            { uint32_t nc = 1, nx = 1; run_batch(np, 1, &nc, &nx, 1, 1, mode, seed + 5, "nc 1 + x"); }
+            {   /* B-form batch: 24 products of varied lengths, every other one with an added operand */
+                enum { MB = 24 }; uint32_t nc[MB], nx[MB]; size_t L = 1 << 16;   /* > 37 * 23^2 + 3, so every nc stays positive */
                 for (int i = 0; i < MB; i++) { nc[i] = (uint32_t)(L - 37 * i * i - (i & 3)); nx[i] = (i & 1) ? nc[i] - 11 * i : 0; }
-                run_cmp(np, MB, nc, nx, L, 5, mode, seed + 6, "B-form batch 24 x 2^16 / 5 + x");
-                run_cmp(np, MB, nc, nx, L, 1, mode, seed + 7, "B-form batch 24 x 2^16 / 1 + x");
+                run_batch(np, MB, nc, nx, L, 5, mode, seed + 6, "B-form batch 24 x 2^16 / 5 + x");
+                run_batch(np, MB, nc, nx, L, 1, mode, seed + 7, "B-form batch 24 x 2^16 / 1 + x");
             }
         }
-    /* part 2: the C-form timing */
-    if (logq > 0) {
-        size_t q = (size_t)1 << logq; int C = (int)(q / 8192); if (C < 1) C = 1;
-        planes(q, 0, 42);
-        uint64_t *out, *sp; struct bdesc hd = { 0, 0, 0, 0, (uint32_t)q, 0, 0 }, *dd;
-        HC(hipMalloc(&out, (q + 1) * 8)); HC(hipMalloc(&sp, (size_t)C * 32)); HC(hipMalloc(&dd, sizeof hd)); hd.c = out;
-        HC(hipMemcpy(dd, &hd, sizeof hd, hipMemcpyHostToDevice));
-        hipEvent_t e0, e1; HC(hipEventCreate(&e0)); HC(hipEventCreate(&e1));
-        for (int np = 3; np <= 4; np++) {
-            double ms[2][7];
-            for (int rep = 0; rep < 8; rep++)
-                for (int v = 0; v < 2; v++) {
-                    struct gconst g = rns_gconst(); g.np = np; g.scan = v;
-                    HC(hipEventRecord(e0, 0));
-                    k_crt_batch<<<(unsigned)C, CRT_THREADS>>>(g_pl[0], g_pl[1], g_pl[2], g_pl[3], dd, 0, C, q, g, sp);
-                    HC(hipEventRecord(e1, 0)); HC(hipEventSynchronize(e1));
-                    float t; HC(hipEventElapsedTime(&t, e0, e1)); if (rep) ms[v][rep - 1] = t;   /* rep 0: warm-up */
-                }
-            for (int v = 0; v < 2; v++) qsort(ms[v], 7, sizeof(double), cmp_d);
-            double gb = (double)q * 8 * (np + 1) / 1e9;
-            printf("timing C form q 2^%d C %d np %d: scan 0 best %.3f ms median %.3f ms (%.0f GB/s) | scan 1 best %.3f ms median %.3f ms (%.0f GB/s) | ratio %.2f\n",
-                   logq, C, np, ms[0][0], ms[0][3], gb / ms[0][3] * 1e3, ms[1][0], ms[1][3], gb / ms[1][3] * 1e3, ms[0][3] / ms[1][3]);
+    printf("== t_crtk B: k_crt24 against the host sum ==\n");
+    struct { size_t R, C; int nr; } sh[] = { {1024, 16, 8}, {1000, 9, 3}, {4096, 6, 8}, {2048, 5, 1}, {777, 7, 1}, {65536, 12, 8}, {12, 5, 4}, {8, 3, 8}, {3000, 4, 7} };
+    for (size_t i = 0; i < sizeof sh / sizeof sh[0]; i++)
+        for (int mode = 0; mode < 5; mode++) {
+            int rh[3] = { 0, sh[i].nr / 2, sh[i].nr - 1 };
+            for (int t = 0; t < 3; t++) { if (t && rh[t] == rh[t - 1]) continue; run24(sh[i].R, sh[i].C, sh[i].nr, rh[t], mode, 1000 * i + 10 * mode + t); }
         }
-    }
     return verify_done("t_crtk");
 }

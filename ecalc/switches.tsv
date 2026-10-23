@@ -4,7 +4,6 @@ name	type	default	code_default	range	scope	profile	evidence	readme	source	files	
 BS_ARENA_ROOM	float	0.16	0.16		built-in default	-	AS15.md+DL15.md	Y	ecalc	binsplit.c	1	-	-	
 BS_ARENA_TRIM_GB	float	0	0		unclassified	-	-	Y	ecalc	binsplit.c	1	coordinator (TASKS S)	2026-11-11	
 BS_BALANCE_N	int	unset	unset		built-in default	-	-	Y	ecalc	binsplit.c	2	-	-	
-BS_BATCH_PIPE	bool	1	1	0|1	built-in default	-	-	Y	ecalc	rns_mul.c	1	coordinator (D20, results/KERNELS.md §N3)	2026-11-11	rns_mul.c, binsplit.c; N3 batch-tier host overlap (results/KERNELS.md §N3); default 1 since D20, =0 kept fallback
 BS_CKPT_BG_CHUNK_MB	int	256	256		built-in default	-	N13.md	Y	ecalc	binsplit.c	1	-	-	
 BS_CKPT_BG_MBS	float	0	0		test-only	-	N13.md	Y	ecalc	binsplit.c	1	diagnostics (TESTING.md)	2027-04-12	
 BS_CKPT_DIR	str	unset	derived	path	launch-line	-	W.md+WP7.md	Y	ecalc	ecalc.c	3	-	-	ecalc.c; the top-level set's directory (ECALC_CKPT_TOP); unset or empty = <outfile>.top
@@ -12,10 +11,8 @@ BS_LAYOUT_ONLY	str	unset	derived	D[:g],...	launch-line	-	MS15.md+B7ACCT.md	Y	eca
 BS_MDEV_LOGL	int	derived	derived		built-in default	-	M3.md+A-ckpt.md	Y	ecalc	binsplit.c,mn_plan.c	6	-	-	
 BS_SEED_CHUNK_MB	int	derived	derived		built-in default	-	H.md+R114.md	Y	ecalc	binsplit.c	4	-	-	
 BS_SEED_FILL	bool	unset	unset	0|1	built-in default	-	T215.md+DOC15.md	Y	ecalc	binsplit.c	1	-	-	
-BS_SEED_PULL	int	1	1	0|1	built-in default	-	-	Y	ecalc	dbig.c	2	coordinator (TASKS S)	2026-11-11	dbig.c; K8b+CAND, user-adopted 2026-10-12 (acts with DB_POOL_VMM); 0 = old path
 BS_SEED_TERMS	int	derived	derived		built-in default	-	T215.md+WP7.md	Y	ecalc	binsplit.c	5	-	-	
 BS_SEED_THREADS	int	all	all		built-in default	-	I.md+S22.md	Y	ecalc	binsplit.c	6	-	-	
-COMM_LAYER_INTER2	bool	0	0	0|1	built-in default	-	XEFF.md+S47.md	Y	ecalc	comm_layered.c	1	coordinator (TASKS S)	2026-11-11	comm_layered.c; default 0 since 2026-10-21 (both transports); 1 from 2026-10-12 (TASKS 27)
 COMM_LAYER_VSLOT_MB	bool	derived	derived	0|1	built-in default	-	-	prose	ecalc	comm_layered.c	1	-	-	
 COMM_OFI	bool	auto	derived	0|1	launch-line	aac7	OFI17.md	Y	ecalc	comm_ofi.c	3	-	-	comm_ofi.c:98 default = a cxi NIC is present (cxi_present())
 COMM_OFI_CHUNK_MB	float	unset	unset		built-in default	-	TUNE17.md+OFI17.md	Y	ecalc	comm_ofi.c	2	-	-	
@@ -52,15 +49,13 @@ COMM_TRACE_THR	bool	derived	derived	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	2	
 COMM_TRACE_WD_MS	int	0	unset	ms	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	comm_trace.h:106; 0 = no watchdog
 COMM_TRANSPORT	enum	unset	derived	shmem	launch-line	-	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c,rns_dist.c	6	-	-	mn.c: a transport is needed for COMM_SIZE > 1 (mnrun.sh sets it: xshmem, the S3a engine, when the launched executable has it (the default build, make XSHMEM=ofi, where libfabric is found; Q73 2026-10-21), else shmem; an explicit shmem is the fallback and the reference); tcp removed 2026-10-12
 COMM_XSTATS	int	0	0		test-only	-	XEFF.md	Y	ecalc	comm_shmem.c	1	diagnostics (TESTING.md)	2027-04-12	
-DBIG_SMALL_BOUNCE	int	1	1	0|1	built-in default	-	-	Y	ecalc	dbig.c	2	coordinator (TASKS S)	2026-11-11	dbig.c; O2+CAND, user-adopted 2026-10-12; 0 = old path
 DB_POOL_VERBOSE	int	0	derived	0|1|2	launch-line	-	T215.md+S18KITFIX.md	Y	ecalc	dbig.c	6	-	-	dbig.c:123: defaults to 1 when RNS_VERBOSE is set, else 0
 DB_POOL_VMM	bool	derived	derived	0|1	built-in default	-	R114.md	Y	ecalc	dbig.c	1	-	-	
 DB_POOL_VMM_CHUNK_GB	float	2	2		built-in default	-	S46.md+R114.md	Y	ecalc	dbig.c	1	-	-	
 DB_POOL_VMM_RESERVE	float	3	3		built-in default	-	R114.md	Y	ecalc	dbig.c	1	-	-	
 DC_STATS	int	0	0		test-only	-	S21.md	Y	ecalc	mn_out.c	2	diagnostics (TESTING.md)	2027-04-12	
 DIST_CHUNKS	int	derived	derived		built-in default	-	S19B.md+A-comm.md	Y	ecalc	ntt_dist.c,rns_dist.c	6	-	-	
-DIST_GATHER_RAW	int	2	2	0|1|2	built-in default	-	-	Y	ecalc	rns_dist.c	1	coordinator (TASKS S)	2026-11-11	rns_dist.c; K1b+CAND, user-adopted 2026-10-12; 0 = old gather
-DIST_GATHER_RAW_MARGIN_GB	float	2	2	-	built-in default	-	-	prose	ecalc	rns_dist.c	1	-	-	rns_dist.c; K1b, GB per APU kept free when DIST_GATHER_RAW=2 takes its plane
+DIST_GATHER_RAW_MARGIN_GB	float	2	2	-	built-in default	-	-	N	ecalc	rns_dist.c	1	-	-	rns_dist.c; K1b, GB per APU kept free when DIST_GATHER_RAW=2 takes its plane
 DIST_GEN	bool	0	0	0|1	test-only	-	X13b.md+S36.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
 DIST_LOGN_TEST	int	derived	derived		test-only	-	G12.md+P13b.md	Y	ecalc	ecalc.c,rns_dist.c	2	diagnostics (TESTING.md)	2027-04-12	
 DIST_STATS	bool	derived	derived	0|1	test-only	-	G515.md+CX15.md	Y	ecalc	rns_dist.c	3	diagnostics (TESTING.md)	2027-04-12	
@@ -87,7 +82,7 @@ ECALC_MEM_GUARD_GB	float	0	derived	>=0 GB	launch-line	aac7	IO15.md+DOC15.md	Y	ec
 ECALC_MEM_GUARD_PERIOD	float	1	1		test-only	-	IO15.md	prose	ecalc	memsample.c	2	diagnostics (TESTING.md)	2027-04-12	
 ECALC_MEM_SAMPLE	bool	derived	derived	0|1	test-only	-	IO15.md+S114.md	Y	ecalc	memsample.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_MEM_SAMPLE_FILE	bool	derived	derived	0|1	test-only	-	S114.md	Y	ecalc	memsample.c	1	diagnostics (TESTING.md)	2027-04-12	
-ECALC_NODE_GB	float	480	480		built-in default	-	P16.md+C314.md	prose	ecalc	binsplit.c,ecalc.c,rns_dist.c	12	-	-	
+ECALC_NODE_GB	float	480	480		built-in default	-	P16.md+C314.md	prose	ecalc	binsplit.c,ecalc.c	10	-	-	
 ECALC_NP	enum	auto	derived	auto|3|4	launch-line	aac7	P15.md+DOC215.md	Y	ecalc	crt.c,ecalc.c	3	-	-	ecalc.c: unset becomes auto at size > 1 (D18), 3 at size 1; crt.c reads auto
 ECALC_NP_AUTO_TERMS	bool	derived	derived	0|1	test-only	-	NP15.md	Y	ecalc	crt.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_ODIRECT	int	1	1		built-in default	-	S114.md+KP15.md	Y	ecalc	spill.c	3	-	-	
@@ -104,12 +99,12 @@ ECALC_TEST_CORR	int	0	0		test-only	-	DKM15.md+KP15.md	prose	ecalc	newton_db.c	1	
 ECALC_TEST_DIE_PE	int	-1	unset	-1..	test-only	-	-	prose	ecalc	ecalc.c	2	TARGET12 (S2)	2027-04-12	ecalc.c; kill test (ECALC_PE_PER_GPU gate): PE <n> dies by ec_fatal after the bs phase; unset = off
 ECALC_VERBOSE	int	1	1	0|1|2	launch-line	aac7	PC15.md+M13.md	Y	ecalc	binsplit.c,comm_shmem.c,ecalc.c,memsample.c,mn.c,newton_db.c,rns_dist.c	20	-	-	ecalc.c
 ECALC_VMM_BG	bool	unset	unset	0|1	built-in default	-	S34.md	Y	ecalc	dbig.c	1	-	-	
-ECALC_VPE	bool	0	unset	0/1	experiment	-	-	Y	ecalc	mem.c,vpe.c	2	TARGET1 (S1)	2026-12-31	vpe.c; 1 = one pthread per GPU (vPE), PE = L*node+lane; needs COMM_TRANSPORT=xshmem; aborts "stages e not merged" in a thread-mode full run (not yet gated: the S1e flow gives wrong digits at 1e8; the --vpe component tests use vpe_set_forced); ECALC_PE_PER_GPU=1 is not affected
-ECALC_VPE_BG_THREADS	int	0	0	0..	experiment	-	-	Y	ecalc	ecalc.c	1	TARGET1 (S1)	2026-12-31	ecalc.c; background OpenMP team of one PE (recurrence, writer) with ECALC_VPE=1; 0 = CPUs / lanes (48 on aac7; with ECALC_PE_PER_GPU the process's affinity mask); only with ECALC_VPE=1
-ECALC_VPE_CHAIN	str	own	unset	own|leader	experiment	-	-	Y	ecalc	newton_db.c	1	TARGET1 (S1)	2026-12-31	newton_db.c; the vPE reciprocal chain: own = every PE computes it (default), leader = lane 0 of each node, r0 by a node-group all-gather
-ECALC_VPE_LANES	int	4	derived	1..8	experiment	-	-	Y	ecalc	vpe.c	1	TARGET1 (S1)	2026-12-31	vpe.c; vPEs per process (= XSHMEM_LOOPBACK_PES); only with ECALC_VPE=1
+ECALC_VPE	bool	0	unset	0/1	removed	-	-	Y	ecalc	mn.c	1	-	-	mn.c; the thread mode was removed 2026-10-23 (Q86; code on branch vpe-int): a nonzero value is a fatal error naming ECALC_PE_PER_GPU=1
+ECALC_VPE_BG_THREADS	int	0	0	0..	experiment	-	-	Y	ecalc	ecalc.c	1	TARGET1 (S2)	2026-12-31	ecalc.c; background OpenMP team of one PE (recurrence, writer) with ECALC_PE_PER_GPU=1; 0 = the process's affinity mask
+ECALC_VPE_CHAIN	str	own	unset	own	removed	-	-	N	ecalc	mn.c	1	-	-	mn.c; the leader chain was removed with the thread mode 2026-10-23 (Q86): any value other than own is a fatal error
+ECALC_VPE_LANES	int	4	derived	1..8	experiment	-	-	Y	ecalc	vpe.c	1	TARGET1 (S2)	2026-12-31	vpe.c; PEs per node where there is no launch (planners, MN_PLAN_ONLY, unit-test views); with ECALC_PE_PER_GPU=1 the launch (SLURM tasks per node) wins and a value that disagrees is fatal
 ECALC_WINDOWS	bool	derived	derived	0|1	test-only	-	A-out.md+H.md	Y	ecalc	verify.c	1	diagnostics (TESTING.md)	2027-04-12	
-ECALC_XEX_THREAD	int	1 (0 under ECALC_VPE=1)	derived	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c,xshmem_round.h	2	TARGET1 (S3a)	2026-12-31	comm_xshmem.c; one persistent worker thread per loopback PE owns the sender half of the exchanges (1, default; under ECALC_VPE=1 the default is 0: measured 9q6g, 4 workers + 4 PE threads cost 35x per exchange); 0 = poll-only, the APU thread does it in post and wait
+ECALC_XEX_THREAD	int	1 (0 under ECALC_PE_PER_GPU=1)	derived	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c,xshmem_round.h	2	TARGET1 (S3a)	2026-12-31	comm_xshmem.c; one persistent worker thread per loopback PE owns the sender half of the exchanges (1, default; under ECALC_PE_PER_GPU=1 the default is 0: measured 9q6g, 4 workers + 4 PE threads cost 35x per exchange); 0 = poll-only, the APU thread does it in post and wait
 MDB_SHIFT_CHUNK_MB	float	1024	1024		built-in default	-	P214.md	Y	ecalc	binsplit.c,newton_db.c	4	-	-	
 MEM_DPOOL_FILL	int	0	0		test-only	-	V.md+R.md	Y	ecalc	mem.c	2	diagnostics (TESTING.md)	2027-04-12	
 MEM_REPORT_DEVS	bool	0	unset	0|1	launch-line	aac7	B7ACCT.md+TC15.md	Y	ecalc	ecalc.c,mem.c	2	-	-	ecalc.c:372/537 (presence test)
@@ -118,7 +113,6 @@ MN_GROUPS	str	unset	derived	group list	launch-line	-	T114.md+SC15.md	Y	ecalc	rns
 MN_NONPOW2_CAP	str	auto	derived	auto|0|1	built-in default	-	-	Y	ecalc	ecalc.c,rns_mul.c	2	T2 (D57)	2026-11-19	rns_mul.c rns_np2cap: auto (unset, Q58) = non-pow2 groups take the next pow2 plane from MN_NONPOW2_MIN digits per node; 1 = always; 0 = the pow2 plane (T2, D57)
 MN_NONPOW2_MIN	num	4.5e10	unset	>0	built-in default	-	-	Y	ecalc	rns_mul.c	1	T2 (D57)	2026-11-19	rns_mul.c rns_np2_min: digits per node-process from which MN_NONPOW2_CAP auto is on (results/DIVISION.md NPCAP crossover)
 MN_OUT_CHUNK_MB	int	256	256		built-in default	-	IO15.md+A-out.md	Y	ecalc	mn_out.c	2	-	-	
-MN_OUT_DKM_HI	bool	1	1	0|1	built-in default	-	EW15.md+R§93	Y	ecalc	ecalc.c	2	coordinator (TASKS S)	2026-11-11	ecalc.c; default 1 since 2026-10-12 (TASKS 27)
 MN_OUT_DKM_HI_TEST_CARRY	bool	unset	unset	0|1	test-only	-	EW15.md	prose	ecalc	ecalc.c	1	diagnostics (TESTING.md)	2027-04-12	
 MN_OUT_EARLY	int	1	1		built-in default	-	IO15.md	Y	ecalc	binsplit.c,ecalc.c	6	-	-	
 MN_OUT_STRIPE	bool	1	1	0|1	built-in default	-	IO15.md+SC15.md	Y	ecalc	mn_out.c	1	-	-	
@@ -130,7 +124,6 @@ MN_SELFTEST_LOGR	int	unset	unset		test-only	-	FIX117.md	Y	ecalc	mn.c	2	diagnosti
 MN_TREE_LOGN_TEST	int	0	0		test-only	-	G12.md+M13.md	Y	ecalc	mn.c,mn_plan.c	4	diagnostics (TESTING.md)	2027-04-12	
 MN_T_CHUNK_MB	float	1024	1024	MiB	launch-line	aac7	P214.md+S22.md	Y	ecalc	newton_db.c,rns_dist.c	3	-	-	rns_dist.c:1608
 MN_WAIT_STATS	bool	0	unset	0|1	launch-line	-	S27.md+S22.md	Y	ecalc	comm_util.c	1	-	-	comm_util.c:22 (atoi > 0)
-NEWTON_CHAIN_GUARD	int	1	1	0|1	built-in default	-	-	Y	ecalc	newton_db.c	1	coordinator (D25, results/DIVISION.md §RECIP)	2026-11-11	newton_db.c newton_chain_guard; default 1 since D25, =0 kept fallback (RECIP, results/DIVISION.md §RECIP); dm_layout and mem_model.py follow it
 NEWTON_DKM_TEST_HI	int	0	0		test-only	-	DKM15.md+EW15.md	prose	ecalc	newton_db.c	1	diagnostics (TESTING.md)	2027-04-12	
 NEWTON_DOUBLING_TS	int	0	0		test-only	-	S22.md+S21.md	Y	ecalc	newton_db.c	2	diagnostics (TESTING.md)	2027-04-12	
 NEWTON_MN_GROUPS	int	1	1		built-in default	-	X.md+G13d.md	Y	ecalc	newton_db.c	2	-	-	
@@ -139,22 +132,17 @@ NEWTON_MN_SPLIT	int	derived	derived		built-in default	-	A37CMP.md+A-div.md	Y	eca
 NEWTON_RECIP_GUARD	bool	unset	unset	0|1	built-in default	-	R114.md	Y	ecalc	newton_db.c	1	-	-	
 NEWTON_VERBOSE	int	0	0		test-only	-	L114.md+L13d.md	Y	ecalc	newton_db.c	6	diagnostics (TESTING.md)	2027-04-12	
 NTT_SIZE_STATS	int	0	0		test-only	-	S22.md+NTT3P.md	Y	ecalc	ntt.c	1	diagnostics (TESTING.md)	2027-04-12	
-P24_CRT_SCAN	bool	1	derived	0|1	built-in default	-	-	Y	ecalc	p24_crt.c	1	coordinator (D24, results/KERNELS.md §K4c)	2026-11-11	K4c: k_crt24 parallel carry (p24_crt.c p24_crt_scan_on); default 1 since D24, =0 kept fallback
 PE_GEO_SYSFS_ROOT	str			path prefix	test-only	-	-	Y	ecalc	pe_geo.c	1	TARGET1 (B3)	2026-12-31	pe_geo.c; prefix of every /sys path (mock trees for tests/t_pe_geo); unset = the real /sys
 POOL_LOG	int	31	31	29..31	launch-line	-	A-mem.md+M13.md	Y	ecalc	ecalc.c	3	-	-	ecalc.c:rewritten by ECALC_PLANE_CAP; 31 default (2^31 pools)
 RNS_BATCH_LOCAL_MIN	int	unset	unset		built-in default	-	P3.md+R.md	Y	ecalc	rns_mul.c	2	-	-	
 RNS_BATCH_SPLIT	int	0	derived	0|1|20..29	experiment	-	-	Y	ecalc	rns_mul.c	1	TARGET12 (S2)	2026-12-31	rns_mul.c; Q75 a: 0 = off (default, byte-identical); 1 = on under ECALC_PE_PER_GPU=1: a batch product too large for the one device's plane pool is cut into operand pieces (a ka x kb grid, each piece product through the local tier, summed into C with carries; temporaries in the pinned staging, 2 GiB per PE when the switch is 1); k in 20..29 = forced in any mode, pieces of at most 2^k limbs (tests); the planner prints the split lines instead of REFUSED
 RNS_BATCH_TILE_GB	float	unset	unset		built-in default	-	P.md	Y	ecalc	rns_mul.c	2	-	-	
-RNS_CRT_SCAN	bool	1	1	0|1	built-in default	-	-	Y	ecalc	rns_mul.c	1	coordinator (D21, results/KERNELS.md §K4b)	2026-11-11	K4b: k_crt_batch parallel carry (rns_mul.c rns_gconst); default 1 since D21, =0 kept fallback
 RNS_DIST_CACHE_MARGIN_GB	float	24	24		built-in default	-	TC15.md+M13.md	Y	ecalc	rns_dist.c	2	-	-	
-RNS_DIST_CACHE_MN	int	2	2		experiment	-	TC15.md	Y	ecalc	rns_dist.c	1	coordinator (TASKS S)	2026-11-11	
-RNS_DIST_CACHE_PARTIAL	bool	1	1	0|1	built-in default	-	PC15.md+R§93	Y	ecalc	rns_dist.c	1	coordinator (TASKS S)	2026-11-11	rns_dist.c; default 1 since 2026-10-12 (TASKS 27)
 RNS_DIST_CACHE_PARTIAL_FORCE	bool	unset	unset	0|1	test-only	-	PC15.md	prose	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
 RNS_DIST_CACHE_TRACE	bool	0	0	0|1	test-only	-	CX15.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
 RNS_INIT_POOL_LOG	int	unset	unset		test-only	-	T11.md+S51.md	Y	ecalc	rns_mul.c	2	archive:scripts_2026-10-23/aac6.conf (CPX launch note, T11.md)	2027-04-12	
 RNS_POOL1_GB	float	unset	unset		built-in default	-	R.md+T.md	Y	ecalc	mn_plan.c,rns_mul.c	4	-	-	
 RNS_POOL_GROW	int	0	0		test-only	-	B16.md+R.md	Y	ecalc	binsplit.c,rns_mul.c	6	diagnostics (TESTING.md)	2027-04-12	
-RNS_R3	int	derived	derived		experiment	-	P.md	Y	ecalc	rns_mul.c	2	coordinator (TASKS S)	2026-11-11	
 RNS_STRATEGY	bool	derived	derived	0|1	built-in default	-	B13b.md+G13d.md	Y	ecalc	rns_dist.c	1	-	-	
 RNS_STRATEGY_CHECK	int	0	0		test-only	-	B13b.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
 RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	32	-	-	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
@@ -180,11 +168,11 @@ XSHMEM_MRMODE	str	libsma	unset	libsma|ofi	experiment	-	-	Y	ecalc	xshmem.h	1	TARG
 XSHMEM_OFI_SIG	str	dc	derived	dc|flush|waw	experiment	-	-	Y	ecalc	xshmem.h,xshmem_ofi.c	2	TARGET1 (B1)	2026-12-31	xshmem.h; ofi backend signal-after-data mode (design 1.4)
 XSHMEM_ORDER	str	rot	derived	rot|seq	experiment	-	-	Y	ecalc	comm_xshmem.c	1	TARGET1 (S3a)	2026-12-31	comm_xshmem.c; peer order of the offset words, puts and signals: rot = (me+q)%n (default, no incast on member 0), seq = rank order (the reference's)
 XSHMEM_PES_PER_GPU	int	1	1	>=1	experiment	-	-	Y	ecalc	comm_xshmem.c,ecalc.c,pe_geo.c,vpe.c,xshmem_cray.h	7	TARGET1 (B1)	2026-12-31	pe_geo.c; PEs per GPU (target fallback 2)
-XSHMEM_ROUND_MB	float	128	derived	>= 0	experiment	-	-	Y	ecalc	comm_xshmem.c,xshmem_round.h	3	TARGET1 (S3a)	2026-12-31	comm_xshmem.c, xshmem_round.h; unset = 128 (Q73 2026-10-21; 0 where the engine polls: vPE, ECALC_PE_PER_GPU, ECALC_XEX_THREAD=0, planner and engine alike); 0 = off, whole-exchange staging; m > 0: an all-to-all whose pair exceeds m/(n-1) MiB goes in rounds staging at most m MiB each way (needs ECALC_XEX_THREAD=1); the planner sizes XSHMEM_HEAP_MB from it
+XSHMEM_ROUND_MB	float	128	derived	>= 0	experiment	-	-	Y	ecalc	comm_xshmem.c,xshmem_round.h	3	TARGET1 (S3a)	2026-12-31	comm_xshmem.c, xshmem_round.h; unset = 128 (Q73 2026-10-21; 0 where the engine polls: ECALC_PE_PER_GPU, ECALC_XEX_THREAD=0, planner and engine alike); 0 = off, whole-exchange staging; m > 0: an all-to-all whose pair exceeds m/(n-1) MiB goes in rounds staging at most m MiB each way (needs ECALC_XEX_THREAD=1); the planner sizes XSHMEM_HEAP_MB from it
 XSHMEM_SIG_LANES	int	0	unset	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; signals to member i go on lane i mod N (after every payload lane is quiet)
 XSHMEM_THP_DISABLE	int	0	derived	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; 1 = prctl(PR_SET_THP_DISABLE) at engine init (no THP faults in this process: avoids direct compaction stalls)
 XSHMEM_THREAD_LEVEL	int	3	unset	0|1|2|3	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; thread level of xshmem_init_thread (3 MULTIPLE default; 2 SERIALIZED as the ofi backend)
-XSHMEM_YIELD	int	1	unset	0|1	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (S1b)	2026-12-31	xshmem.h; 0 = the xshmem waits and the exchange worker never sched_yield (diagnostic for the vPE exchange latency, S1b); 1 = they do
+XSHMEM_YIELD	int	1	unset	0|1	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (S1b)	2026-12-31	xshmem.h; 0 = the xshmem waits and the exchange worker never sched_yield (diagnostic); 1 = they do
 DIST_BIG	int	derived	derived		test-only	-	-	Y	tests	t_dist.c,t_mul.c	3	ecalc/tests/t_dist.c	2027-04-12	
 DIST_BIG_K	int	64	64		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
 DIST_BIG_PRIMES	str	0,2	0,2		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	

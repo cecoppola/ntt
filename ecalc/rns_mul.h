@@ -65,9 +65,6 @@ int rns_batch_split_mode(void);
 size_t rns_batch_split_lmax(void);
 int rns_batch_split_shape(size_t na, size_t nb, int G, size_t Lp, int *ka, int *kb);
 void rns_mul_batch_split(rns_prod *P, size_t N);
-int rns_crt_scan_on(void);           /* K4b: RNS_CRT_SCAN (default 1 since D21; =0 = the serial carry chain) */
-int p24_crt_scan_on(void);          /* K4c: P24_CRT_SCAN (p24_crt.c; default 1 since D24; =0 = the serial chain) */
-int rns_batch_pipe_on(void);          /* N3: BS_BATCH_PIPE (default 1 since D20; =0 = the old host side): the batch tier's host side in parallel and its tiles back to back */
 uint64_t *rns_hstage(int dev);
 /* WP5: the distributed product tier (rns_dist.c): C = A B over the four APUs' four-step transform (dbig operands) */
 struct dbig_s; void rns_mul_dist_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B);   /* dbig operands (dbig.h) */

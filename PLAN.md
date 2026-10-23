@@ -117,7 +117,7 @@ flipped) has an owner and a review date (`ecalc/switches_review.tsv`; the table 
 2. Kit preflight: environment record, build (path 2: `make XSHMEM=cray SHMEM_CRAY=1`), libfabric memory monitor (uffd), plan check
    (`MN_PLAN_ONLY` must end with `plan check ... OK`), the memory edge, a node screen (`tools/nodescreen.sh`).
 3. Measurements: A3 (`comm_ofi` injection per NIC, one vs two NICs per APU) and A4 (all-to-all scaling with node count).
-   These replace the assumed fabric rate in the model; re-run `estimate.py` and recheck the size against the grid steps.
+   These replace the assumed fabric rate in the model; re-run `mn_model.py estimate` and recheck the size against the grid steps.
 4. A/B on the target of `MN_T_CHUNK_MB` 1024 vs 2048 and X2 on vs off (aac7 evidence only so far).
 5. Growing runs (a few nodes, then larger groups), each VERIFY OK; then the 576-node run with the write, RECHECK and
    `unpack_digits` off the clock, and a prefix compare against a 10¹¹ reference.

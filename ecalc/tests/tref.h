@@ -135,7 +135,7 @@ static void tref_mul(bigint *C, const bigint *A, const bigint *B)
         mpz_from_limbs(x, A->l, na); mpz_from_limbs(y, B->l, nb); mpz_mul(z, x, y); bi_from_mpz(C, z);
         mpz_clears(x, y, z, NULL); return;
     }
-    const char *e = getenv("DIST_LOGN_TEST"); char save[32] = ""; if (e && !vpe_in_run()) {   /* (not inside the vPE threads: setenv races with the other PEs' cap, which must agree for the collective grids; the grid reference is exact too) */
+    const char *e = getenv("DIST_LOGN_TEST"); char save[32] = ""; if (e && !vpe_in_run()) {   /* (not inside a PE's flow: the cap must agree across the PEs for the collective grids; the grid reference is exact too) */
          snprintf(save, sizeof save, "%s", e); unsetenv("DIST_LOGN_TEST"); }
     bigint a = { A->l, na, 0 }, b = { B->l, nb, 0 };
     dbig x, y, z; db_init(&x); db_init(&y); db_init(&z);

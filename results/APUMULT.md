@@ -226,3 +226,10 @@ Side finding: ALGORITHM §4.5 still said the transform cache served the reciproc
 - A15, `BS_MDEV_LOGL` 28 / 29 / 30 / 30 (layout D, one run each): totals 135.07 / 127.45 / 136.89 / 131.62 s; bs 61.3 / 57.0 / 57.1 / 56.5 s.
   The batch tier is faster than the device tier at the levels that move (level 22: batch 1.80 s vs device 3.87 s; level 23: 2.86 vs 3.83 s),
   so 28 loses about 4 s of bs and 29 equals 30 within noise; the default stays (OPPORTUNITIES, rejected).
+- A1 under P (Q93 rerun, aac7 item 9zu5, main 1e2ea1b, 1 node, 7e10 digits, P = `ECALC_PE_PER_GPU=1 RNS_BATCH_SPLIT=1`; 3 P runs and
+  2 D runs, alternating, the third D run cut by the item's time cap; every run VERIFY OK, same sha). Seed thread ends: D 33.7 / 30.9 s,
+  P 19.3 / 21.7 / 19.3 s; last background mapping: D 25.5 / 21.6 s, P 28.8 / 13.9 / 17.0 s; seed − mapping: D +8.2 / +9.3 s,
+  P −9.5 / +7.8 / +2.2 s; bs level 1 starts: D 34.0 / 31.2 s, P 29.2 / 22.2 / 19.8 s. So P's per-APU seed threads start bs about
+  10 s earlier, and in P the mapping, not the seed, binds in one run of three. Totals: D 207.1 / 198.0 s, P 444.5 / 373.2 / 369.9 s
+  (bs 38.7 / 37.8 vs 98.0 / 58.0 / 58.4; dm 27.8 / 20.0 vs 107.1 / 63.7 / 63.4; recip 5.4 / 4.4 vs 25.8 / 16.1 / 16.0), so at one node P is
+  about 1.8x slower overall and the start-up gain does not matter there; P is the target-shaped layout, not the 1-node one.

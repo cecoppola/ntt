@@ -1,7 +1,6 @@
 /* t_dbig - the device bigint against the host bigint: shifts, add, sub, cmp, norm, set_base_pow,
  * from/to host, across quarter boundaries (decimal limbs). */
 #include "harness.h"
-#include "vpe_bt.h"
 #include "tref.h"
 #include <hip/hip_runtime.h>
 #include "../dbig.h"
@@ -19,7 +18,7 @@ static int same(const dbig *x, const bigint *a, const char *what)
     if (!ok) printf("  %s: n %zu vs %zu\n", what, t.n, a->n);
     bi_free(&t); return ok;
 }
-/* ---- S1b: --vpe (ECALC_VPE forced, no network): the device bigint of ONE quarter on a lane's device, and form S (rns_local.c) ---- */
+/* ---- --vpe (the PE view forced, no network, one PE = lane 0): the device bigint of ONE quarter on the PE's device, and form S (rns_local.c) ---- */
 static void vpe_part(int logmax);
 static int run(int logmax, int argc, char **argv);
 int main(int argc, char **argv)
@@ -169,11 +168,11 @@ static void vpe_part(int logmax)
         db_free(&x); db_free(&y); db_free(&z);
     }
     db_release_pools();
-    vpe_set_forced(VPE_S_B);
-    /* 2. per lane, concurrently: dbig + GMP-checked products */
+    vpe_set_forced(1);
+    /* 2. dbig + GMP-checked products (vpe_run: once on the caller) */
     int lg = logmax; vpe_run(lane_body, &lg);
     for (int l = 0; l < L; l++) VERIFY(!g_vfail[l], "lane %d: %s", l, g_vwhat[l]);
-    printf("t_dbig --vpe: %d lanes concurrent dbig + form S products vs GMP: %s\n", L, "done");
+    printf("t_dbig --vpe: lane 0 dbig + form S products vs GMP: %s\n", "done");
     /* 3. form S vs form C: identical digits, whole and through the grid (DIST_LOGN_TEST lowers the plane cap: 2^22 points -> pieces) */
     for (int pass = 0; pass < 2; pass++) {
         if (pass) setenv("DIST_LOGN_TEST", "22", 1);

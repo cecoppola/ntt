@@ -29,8 +29,6 @@ typedef struct { size_t iters, overshoots, repeats, down_corr, up_corr; double t
  * size > 1: newton_mn_divmod */
 int newton_dm_wrap(void);   /* D22: DM_MN_WRAP's effective value (default 1 since D22; 0 = off) */
 size_t newton_dkm_h(size_t k);                        /* the reciprocal's length under DKM for a quotient of k limbs */
-int newton_chain_guard(void);                         /* NEWTON_CHAIN_GUARD (newton_db.c, off by default): the reciprocal's chain keeps a guard limb per doubling */
-void newton_chain_guard_set(int on);                  /* tests: the guard off / on */
 size_t newton_chain_next(size_t j, size_t k);         /* the anchored chain's next target after j (also in mn_plan.h) */
 extern newton_stats newton_st;
 extern int newton_seed_perturb;      /* test hook: multiply the seed by this/16 (0 = off) */

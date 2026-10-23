@@ -6,7 +6,7 @@
 #include <hip/hip_runtime.h>
 #include "modarith.h"
 struct bdesc { const uint64_t *a, *b, *x; uint64_t *c; uint32_t na, nb, nx; };
-struct gconst { ec_mod m[4]; uint64_t c64[4]; uint64_t c1, c2, c3, M1[2], M2[3]; int np; int scan; };   /* np: the prime count (P3: 3 -> planes p0..p2, p3 unread); scan: K4b RNS_CRT_SCAN (k_crt_batch's parallel carry) */
+struct gconst { ec_mod m[4]; uint64_t c64[4]; uint64_t c1, c2, c3, M1[2], M2[3]; int np; };   /* np: the prime count (P3: 3 -> planes p0..p2, p3 unread) */
 #define CRT_THREADS 256
 /* device Garner: FP64-Barrett for the modular steps (one definition for rns_mul.c and p24_crt.c; SH3 follow-up) */
 __device__ static inline uint64_t dmod128(uint64_t hi, uint64_t lo, const ec_mod m, uint64_t c64)

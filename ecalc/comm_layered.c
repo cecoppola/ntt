@@ -42,7 +42,7 @@ struct lay_v { void *rb; const size_t *rcnt, *rdsp; hipStream_t s; char *x3; siz
 typedef struct { comm *intra, *inter; int d, g, na, dev; char *tmp; size_t tmp_cap; int own_tmp, tmp_sym;   /* tmp_sym: the scratch is the inter transport's symmetric memory (S12) */   /* d: my intra rank; dev: my device; na: intra size; minor: rho = na r + d (else g d + r) */
                  struct lay_ex ex[2]; int head, npend, nlog;                /* npend: physically pending; nlog: posted minus waited */
                  char *vtmp; size_t vcap; struct lay_v v;
-                 comm *inter2; int i2;   /* X2: the second inter communicator (COMM_LAYER_INTER2); the v-slots always come from the comm pool */
+                 /* the v-slots always come from the comm pool */
                  int tker; char *vx[2]; size_t vxcap[2]; struct cpy *ctab; int ctcap; } lay_priv;   /* see below */
 #define PRIV(c) ((lay_priv *)(c)->priv)
 static inline int rho_of(const lay_priv *p, int d, int r) { return p->g * d + r; }   /* the global rank of (intra d, inter r) */
@@ -325,14 +325,8 @@ static void y_alltoallv2(comm *c, const void *sb, const size_t *scnt, const size
     HIP_CHECK(hipSetDevice(p->dev));
     v_stages(c, sb, scnt, sdsp, &t, x0, x1, x2, x3, s, 0);   /* under the pending exchange's inter stage */
     comm *ic = p->inter;
-    if (p->i2 && p->inter2) {                             /* X2 COMM_LAYER_INTER2: k posts on its own communicator (slot parity) BEFORE k-1 completes: two inter stages in flight */
-        ic = k ? p->inter2 : p->inter;
-        v_post(c, ic, &t, x2, x3, s, 0);
-        complete_v(c);                                    /* the previous one (p->v still describes it): its inter wait and scatter */
-    } else {
-        complete_v(c);                                    /* the previous one: its inter wait and scatter */
-        v_post(c, ic, &t, x2, x3, s, 0);
-    }
+    complete_v(c);                                        /* the previous one: its inter wait and scatter (one inter stage in flight) */
+    v_post(c, ic, &t, x2, x3, s, 0);
     p->v.ic = ic; p->v.rb = rb; p->v.rcnt = rcnt; p->v.rdsp = rdsp; p->v.s = s; p->v.x3 = x3; p->v.cnt2 = t.cnt2; p->v.slot = k; p->v.pend = 1; p->nlog++;
     free(t.T);
 }
@@ -409,11 +403,10 @@ static void y_destroy(comm *c)
 static void *y_sym_alloc(comm *c, size_t bytes) { return comm_sym_alloc(PRIV(c)->inter, bytes); }
 static void y_sym_free(comm *c, void *p) { comm_sym_free(PRIV(c)->inter, p); }
 static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_barrier, y_modq, y_max, y_destroy, 0, 0, y_allgather, y_allgather_host, y_alltoallv, y_alltoallv_host, y_sym_alloc, y_sym_free };
-/* COMM_LAYER_INTER2: unset = 0 (one inter stage in flight, both transports; user 2026-10-21, results/SHMEM.md); =1 gives the second inter mesh (two in flight).  The v-slots always come from the comm pool; the shared v-slot pair (S36) and the
- * release after each product (M3) are always on.  binsplit.c's sizing, mn.c and rns_dist.c read the same function. */
-int comm_layered_inter2_on(void) { const char *e = getenv("COMM_LAYER_INTER2"); return e ? atoi(e) != 0 : 0; }
+/* One inter stage in flight (both transports; user 2026-10-21, results/SHMEM.md).  The v-slots always come from the comm pool; the shared v-slot pair (S36) and the
+ * release after each product (M3) are always on. */
 static void lay_opts(lay_priv *p) {
-    p->i2 = comm_layered_inter2_on(); vslot_attach(p);   /* S36: the shared pair */
+    vslot_attach(p);   /* S36: the shared pair */
 }
 static comm *layered_create_i(comm *intra, comm *inter, int d);
 comm *comm_layered_create(comm *intra, comm *inter, int d) { int ph_ = ec_ph(EC_PH_LAYER_CREATE); comm *r = layered_create_i(intra, inter, d); ec_ph(ph_); return r; }
@@ -426,8 +419,6 @@ static comm *layered_create_i(comm *intra, comm *inter, int d)
     lay_opts(p);
     return c;
 }
-/* X2: the second inter communicator of this layered communicator (COMM_LAYER_INTER2=1; mn.c creates it over the same PE set under a fresh id) */
-void comm_layered_set_inter2(comm *c, comm *inter2) { PRIV(c)->inter2 = inter2; }
 /* a device scratch of at least one slab buffer (size x bytes of the largest exchange; two slab buffers of the
  * pipelined exchanges let two stay in flight); the comm's own is freed */
 void comm_layered_scratch(comm *c, void *p, size_t bytes)

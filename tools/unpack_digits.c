@@ -1,4 +1,4 @@
-/* unpack_digits - Phase 15 IO (W2): the packed digit files of ecalc (ECALC_OUT_PACKED=1, and =2 the default since 2026-10-12: ecalc/packed_fmt.h) to the exact
+/* unpack_digits - Phase 15 IO (W2): the packed digit files of ecalc (ECALC_OUT_PACKED, the 60-bit form the default since 2026-10-12; the 8-byte form of =1 is still read: ecalc/packed_fmt.h) to the exact
  * ASCII file ("2." + digits + "\n", byte-identical to the run's normal output), or compared with an ASCII reference without
  * writing anything.  Streaming: a reader thread reads the limbs, the main thread formats them (OpenMP), a consumer thread
  * writes the ASCII or compares it with the reference as it reads that; memory about 1.7 GB at the default chunk.

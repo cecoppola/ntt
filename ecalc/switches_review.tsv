@@ -7,16 +7,12 @@
 # columns (tab separated): name, class (experiment|fallback|diagnostic|test|internal|launch-line), owner, review (YYYY-MM-DD), note
 BS_ARENA_TRIM_GB	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
 BS_CKPT_BG_MBS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-BS_SEED_PULL	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback, also the aac6 CPX workaround (archive:scripts_2026-10-23/aac6.conf); default since 2026-10-12 (CAND)
-COMM_LAYER_INTER2	fallback	coordinator (TASKS S)	2026-11-11	=0 restores the pre-X2 exchange; default 1 from 2026-10-12 (TASKS 27, W2B D1e), 0 since 2026-10-21 (both transports)
 COMM_OFI_DEV	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_OFI_VERBOSE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_SHMEM_POOL_NEED_MB	internal	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	internal channel from the planner to the library; do not set by hand
 COMM_SHMEM_STAGE_SLOT_MB	internal	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	internal channel from the planner to the library; do not set by hand
 COMM_XSTATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-DBIG_SMALL_BOUNCE	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback; default since 2026-10-12 (CAND)
 DC_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-DIST_GATHER_RAW	fallback	coordinator (TASKS S)	2026-11-11	other values are the fallback; default 2 since 2026-10-12 (CAND)
 DIST_GEN	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DIST_LOGN_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DIST_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
@@ -28,14 +24,13 @@ ECALC_MEM_GUARD_PERIOD	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic
 ECALC_MEM_SAMPLE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_MEM_SAMPLE_FILE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_NP_AUTO_TERMS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-ECALC_OUT_PACKED	fallback	coordinator (TASKS S)	2026-11-11	=1 / =0 fallbacks of the 60-bit packed output (TASKS 40, default 2 with lane A batch D5)
+ECALC_OUT_PACKED	fallback	coordinator (TASKS S)	2026-11-11	=0 (ASCII) kept as an output form; the 8-byte form =1 removed 2026-10-23 (Q87); default 2
 ECALC_PLANE_CAP	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
 ECALC_PLANE_CAP_IDX	internal	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	internal channel from the planner to the library; do not set by hand
 ECALC_SEGV_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_TEST_CORR	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_WINDOWS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 MEM_DPOOL_FILL	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-MN_OUT_DKM_HI	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback (one part file per node); default since 2026-10-12 (W2B D1e)
 MN_OUT_DKM_HI_TEST_CARRY	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 MN_OUT_STRIPE_FORCE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 MN_PLAN_QUIET	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
@@ -46,15 +41,10 @@ NEWTON_DOUBLING_TS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or 
 NEWTON_MN_RECIP_TS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 NEWTON_VERBOSE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 NTT_SIZE_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-RNS_CRT_SCAN	fallback	coordinator (D21, results/KERNELS.md §K4b)	2026-11-11	on by default since D21; =0 keeps the serial carry chain; remove the serial path at review
-P24_CRT_SCAN	fallback	coordinator (D24, results/KERNELS.md §K4c)	2026-11-11	on by default since D24; =0 keeps the serial carry chain; 2 n total -1.89 s n.s., digits identical (K4c)
-RNS_DIST_CACHE_MN	fallback	coordinator (TASKS S)	2026-11-11	default 2 since 2026-10-12 (TC15); 0 / 1 keep the older slot forms
-RNS_DIST_CACHE_PARTIAL	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback; default since 2026-10-12 (W2B D1e)
 RNS_DIST_CACHE_PARTIAL_FORCE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 RNS_DIST_CACHE_TRACE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 RNS_INIT_POOL_LOG	launch-line	archive:scripts_2026-10-23/aac6.conf (CPX launch note, T11.md)	2027-04-12	pool size of rns_init for the CPX nodes (29) and the unit tests; changes no digit
 RNS_POOL_GROW	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-RNS_R3	fallback	coordinator (TASKS S)	2026-11-11	on by default when the prime set has the radix-3 roots (ec_has_radix3); =0 keeps the power-of-two lengths only
 RNS_STRATEGY_CHECK	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DIST_BIG	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_BIG_K	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
@@ -76,9 +66,7 @@ T_ALLOC_SEED	test	ecalc/tests/t_alloc.c	2027-04-12	test harness setting
 T_COMM_TRACE	test	ecalc/tests/t_comm.c	2027-04-12	test harness setting
 T_PATCH_DIR	test	ecalc/tests/t_patch.c	2027-04-12	test harness setting
 T_PATCH_UNPACK	test	ecalc/tests/t_patch.c	2027-04-12	test harness setting
-DM_MN_WRAP	fallback	P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF)	2026-11-11	on by default since D22; =0 keeps the old low-product form; 6-node (P24) dm -6.25 s, total -2.86 s n.s., +5.4 GB/APU, in the memory model (DEF)
-BS_BATCH_PIPE	fallback	coordinator (D20, results/KERNELS.md §N3)	2026-11-11	on by default since D20; =0 keeps the old batch-tier host side; remove it at review
-NEWTON_CHAIN_GUARD	fallback	coordinator (D25, results/DIVISION.md §RECIP)	2026-11-11	on by default since D25; =0 keeps the old chain; digits identical (the division is exact either way); removes a rare fatal (chains of exact doublings)
+DM_MN_WRAP	fallback	P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF)	2026-11-11	kept 2026-10-23 (Q87): FIT (D26) decides 0 / 1 per run by the memory fit, so the =0 path is live; was: on by default since D22; =0 keeps the old low-product form; 6-node (P24) dm -6.25 s, total -2.86 s n.s., +5.4 GB/APU, in the memory model (DEF)
 COMM_SHMEM_NP_HEAP_THP	fallback	coordinator (D48, results/SHMEM.md)	2026-11-18	=0 restores the 4 KiB node-process heap; default 1 since D48 (2026-10-18, items 97q/97r/97s/97t: no compaction stalls with it)
 COMM_TRACE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_TRACE_SAMPLE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
@@ -101,7 +89,7 @@ XSHMEM_LANES	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off
 XSHMEM_LANE_MIN_KB	experiment	TARGET1 (B1)	2026-12-31	lane striping chunk floor, off with XSHMEM_LANES=1; review with XSHMEM_LANES
 XSHMEM_LOCAL	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
 XSHMEM_LOOPBACK_PES	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
-XSHMEM_YIELD	experiment	TARGET1 (S1b)	2026-12-31	diagnostic arm, off by default; review when the vPE exchange latency is closed
+XSHMEM_YIELD	experiment	TARGET1 (S1b)	2026-12-31	diagnostic arm, off by default; review when the xshmem transport gate (S3a) closes
 XSHMEM_MRMODE	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
 XSHMEM_OFI_SIG	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
 XSHMEM_PES_PER_GPU	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
@@ -110,10 +98,8 @@ ECALC_XEX_THREAD	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine arm (comm_xsh
 XSHMEM_ORDER	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine arm (comm_xshmem.c); review when the xshmem transport gate (S3a) closes
 XSHMEM_ROUND_MB	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine arm (comm_xshmem.c), off by default; review when the xshmem transport gate (S3a) closes
 TMPDIR	test-only	TARGET1 (B3)	2026-12-31	system temp directory read by tests/t_pe_geo
-ECALC_VPE	experiment	TARGET1 (S1)	2026-12-31	virtual PEs, off by default; review when S1a..S1e are merged
-ECALC_VPE_LANES	experiment	TARGET1 (S1)	2026-12-31	vPEs per process; review with ECALC_VPE
-ECALC_VPE_CHAIN	experiment	TARGET1 (S1)	2026-12-31	vPE chain arm, own by default; review with ECALC_VPE
-ECALC_VPE_BG_THREADS	experiment	TARGET1 (S1)	2026-12-31	background team per PE; review with ECALC_VPE
+ECALC_VPE_LANES	experiment	TARGET1 (S2)	2026-12-31	PEs per node without a launch (planners, tests); review with ECALC_PE_PER_GPU
+ECALC_VPE_BG_THREADS	experiment	TARGET1 (S2)	2026-12-31	background team per PE; review with ECALC_PE_PER_GPU
 ECALC_PE_PER_GPU	experiment	TARGET12 (S2)	2026-12-31	one process per GPU (PE); off by default; review when S2a..S2d are merged
 ECALC_TEST_DIE_PE	diagnostic	TARGET12 (S2)	2027-04-12	fault-injection setting for the process-per-GPU kill test; changes no digit
 XSHMEM_HEAP_SLACK_MB	experiment	TGTSHAPE	2026-12-31	diagnostic for XSHMEM=cray runs, off by default

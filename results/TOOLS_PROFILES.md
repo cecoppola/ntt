@@ -142,13 +142,13 @@ Local model only (`ecalc/estimate.py`, `mn_model.py`). Checks `mn_model.AAC7` (b
 | c | 6.441e11 | 457.15 s |
 b0 vs b' (same config) are 6.3 % apart, which brackets the noise.
 
-Old profile (bw 3.6; `estimate.py --g 10 --D <D/node> --fabric aac7`), mod vs m: b0 797.9 vs 721.90 s (+10.5 %); b' +17.5 %; c 645.0 vs 457.15 s (+41.1 %). The error grows as digits shrink. `AAC7_CONSTS` NODE_SCALE/INIT_SCALE (1.12/1.20) set to 1.0 only moves 797.9 -> 780.7 s (-2.2 %), not the dominant term; `exposed` fabric time is 641.3 of 797.9 s (80 %), so the fabric constant is what is off.
+Old profile (bw 3.6; `mn_model.py estimate --g 10 --D <D/node> --fabric aac7`), mod vs m: b0 797.9 vs 721.90 s (+10.5 %); b' +17.5 %; c 645.0 vs 457.15 s (+41.1 %). The error grows as digits shrink. `AAC7_CONSTS` NODE_SCALE/INIT_SCALE (1.12/1.20) set to 1.0 only moves 797.9 -> 780.7 s (-2.2 %), not the dominant term; `exposed` fabric time is 641.3 of 797.9 s (80 %), so the fabric constant is what is off.
 
 New profile `aac7_s18` (`AAC7_S18` in `ecalc/mn_model.py`; `AAC7_CONSTS` untouched): `bw_apu` refit to 4.25 GB/s per APU thread, centering b0 and b'. Mod vs m: b0 699.6 vs 721.90 s (-3.1 %); b' +3.0 %; c 564.8 vs 457.15 s (+23.5 %, improved from 41.1 % but not closed; a single flat `bw_apu` cannot fit two different digit counts, an open residual).
 
 The a4 comm-mark rates do not explain the residual (m, GB-received-weighted over all comm-mark phases): n=2 14.43 GB/s per APU thread (373.02 GB, 25.84 s); n=8 9.44 GB/s (814.58 GB, 86.33 s). Both are far above 3.6 and 4.25; plugging 9.76 into `--bw` gives 392.4 s at 8.1e11 vs 721.90 s measured (-45.6 %). So the comm-mark all-to-all rate is not a 1:1 stand-in for the model's `bw_apu`, the wall also carries bs/dm compute, init and dc.
 
-`--target` output is byte-identical before and after. `aac7_s18` is off by default (`--fabric aac7_s18` or `MN_MODEL_PROFILE=aac7_s18`); `apply_profile()` applies `AAC7_CONSTS` to it as to `aac7`. Files: `ecalc/mn_model.py`, `ecalc/estimate.py` (choices and help).
+`--target` output is byte-identical before and after. (Retired 2026-10-23: `aac7_s18` = `--fabric aac7_c16 --bw 6`.) `aac7_s18` was off by default (`--fabric aac7_s18` or `MN_MODEL_PROFILE=aac7_s18`); `apply_profile()` applies `AAC7_CONSTS` to it as to `aac7`. Files: `ecalc/mn_model.py`, `ecalc/estimate.py` (choices and help).
 
 ## B07 - `ecalc/calib_table.py` (step 1 of the calibration plan in results/TOOLS_PROFILES.md §B05)
 

@@ -2,7 +2,6 @@
  * For each (logR, logC): random plane x, y; distributed fwd/pw/inv over 4
  * ranks must equal the single-rank ntt_fwd/ntt_pw/ntt_inv cyclic convolution. */
 #include "harness.h"
-#include "vpe_bt.h"
 #include <omp.h>
 #include <string.h>
 #include "../ntt.h"
@@ -403,7 +402,7 @@ static void layered_bench(int logn, int reps)
     }
     HIP_CHECK(hipSetDevice(0));
 }
-/* S1b --vpe: form S (rns_local.c) on every lane concurrently against form C (the four-APU product, switch off): same operands, identical bigints,
+/* --vpe: form S (rns_local.c) on lane 0 (the PE view forced, no threads) against form C (the four-APU product, switch off): same operands, identical bigints,
  * the forced-carry kinds (all-ones, sparse) included; low / band products against the truncated full product; the grid at a lowered plane cap */
 struct vcase { bigint A, B, C; };
 static struct vcase g_vc[24]; static int g_nvc; static int g_vbad[VPE_MAX]; static char g_vw[VPE_MAX][96];
@@ -440,11 +439,11 @@ static void vpe_dist_test(void)
         if (g_nvc >= 24) break;
     }
     db_release_pools();
-    vpe_set_forced(VPE_S_B);
+    vpe_set_forced(1);
     vpe_run(vlane, 0);
     setenv("DIST_LOGN_TEST", "21", 1); vpe_run(vlane, 0); unsetenv("DIST_LOGN_TEST");
     for (int l = 0; l < vpe_lanes(); l++) VERIFY(!g_vbad[l], "lane %d: %s", l, g_vw[l]);
-    printf("t_dist --vpe: %d cases x %d lanes, form S == form C (whole, grid, low, band)\n", g_nvc, vpe_lanes());
+    printf("t_dist --vpe: %d cases, form S == form C (whole, grid, low, band)\n", g_nvc);
     db_release_pools(); vpe_set_forced(0);
 }
 int main(int argc, char **argv)

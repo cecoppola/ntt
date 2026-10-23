@@ -1,21 +1,14 @@
-/* t_vpe.c - the vPE foundation (stage S1a of the TARGET1 plan; vpe.h, mn.c, comm_xshmem.c).
+/* t_vpe.c - PE identity and the PE communicators in the one-process-per-GPU layout (ECALC_PE_PER_GPU=1; vpe.h, mn.c, comm_xshmem.c).  (The thread-mode parts were removed 2026-10-23, Q86.)
  *
- *   t_vpe [all|probe|host|stages]
- *     host    no GPU, no network: identity arithmetic (vpe_set_nodes / lanes), the log prefix, VPE_STATE, the "stages not merged" text is NOT run here
- *     stages  vpe_stages_check() in a forked child must abort with "ECALC_VPE: stages ... not merged" and rc 3 while stages are missing (rc 0 once all are
- *             merged); the harness sets ECALC_VPE=1 itself.  The host part also checks, in forked children, vpe_sub out of range (fatal, rc 3) and vpe_sub
- *             NULL for a PE outside the run; the communicator part checks the duplicate-id fatal ("used twice", rc 3) and the NULL case
+ *   t_vpe [all|probe|host] [--ppg] | t_vpe info|die|badlayout      (--ppg is accepted and implied: every run is process mode)
+ *     host    no GPU, no network: identity arithmetic (vpe_set_nodes / lanes), the log prefix; in forked children vpe_sub out of range (fatal, rc 3) and vpe_sub NULL for a PE outside the run
  *     probe   the sub-communicator probe (D1): on every PE, the aligned groups of 2 and 4 PEs of a node and the contiguous runs of 3, 6, 12 PEs: barrier,
  *             allreduce_max, allgather_host, alltoallv of random counts on each; prints T_VPE_PROBE PASS|FAIL per process
  *     all     host + probe + the flat communicator (alltoall, alltoallv of random counts incl. zeros, allreduce_max, allgather_host, barrier) + the
  *             tree's group schedule for the PE count against mn_groups_parse; prints T_VPE_RESULT PASS|FAIL per process
- *   One process per node, L = ECALC_VPE_LANES (4) vPE threads each, COMM_TRANSPORT=xshmem XSHMEM_LOOPBACK_PES=L (make XSHMEM=ofi), launched by srun on
- *   1, 2, 3 nodes (4, 8, 12 PEs).  Without COMM_TRANSPORT=xshmem the communicator parts are skipped (SKIP line).
- *
- * S2a (TARGET12, ECALC_PE_PER_GPU=1): `--ppg` after the mode (or the modes info, die, badlayout) = ONE PROCESS PER PE, no threads: the program is launched as 4 tasks per node
- * (MNRUN via mnrun.sh with ECALC_PE_PER_GPU=1: COMM_TRANSPORT=xshmem, XSHMEM_LOOPBACK_PES=1), 1, 2, 3 nodes = 4, 8, 12 PEs.  all / probe run in process mode: identity (vpe_idx = the
- *   local id, vpe_lpp 1, lanes = tasks per node, device, prefix, leaders), the node barrier (a laggard PE holds the others), the node group exercised, then the same flat
- *   communicator and sub-communicator parts as above (one T_VPE_RESULT / T_VPE_PROBE line per PE: 4 per node).
+ *   ONE PROCESS PER PE: launched as 4 tasks per node (mnrun.sh with ECALC_PE_PER_GPU=1: COMM_TRANSPORT=xshmem, XSHMEM_LOOPBACK_PES=1; make XSHMEM=ofi), 1, 2, 3 nodes = 4, 8, 12 PEs.
+ *   all / probe: identity (vpe_idx = the local id, lanes = tasks per node, device, prefix, leaders), the node barrier (a laggard PE holds the others), the node group exercised, then the flat
+ *   communicator and sub-communicator parts (one T_VPE_RESULT / T_VPE_PROBE line per PE: 4 per node).  Without COMM_TRANSPORT=xshmem the communicator parts are skipped (SKIP line).
  *     info       mn_init, then one PPG_INFO line per PE: launch ids, visible devices, the chosen device, NUMA node, launch cpuset and cpuset now, cxi NIC, the process's VRAM on every
  *                GPU from kfd sysfs (a second GPU with memory = a context there); the launch/binding probe
  *     die        PE 2 (or the last PE) exits 7 after mn_init while the others wait in a barrier: the step must end nonzero (srun --kill-on-bad-exit), nobody hangs
@@ -58,33 +51,16 @@ static int in_child(void (*fn)(void *), void *arg, char *buf, size_t n)
 }
 static void sub_range_body(void *a) { (void)a; (void)vpe_sub(0, vpe_npe() + 1); }
 static void sub_slot_body(void *a) { (void)a; (void)vpe_sub_slot(0, 2, 16); }
-static void stages_body(void *a) { (void)a; vpe_stages_check(); }
 
 /* ---- host part ---- */
-VPE_STATE(int, cnt); static int g_barrier_sum;
-static void state_body(void *unused)
-{
-    (void)unused;
-    VPE(cnt) = 100 + vpe_idx();                          /* each vPE its own cell */
-    vpe_node_barrier();
-    for (int i = 0; i < vpe_lanes(); i++) CHK(cnt_v[i] == 100 + i, "cell %d = %d", i, cnt_v[i]);
-    __atomic_fetch_add(&g_barrier_sum, vpe_idx() + 1, __ATOMIC_RELAXED);
-    vpe_node_barrier();
-    int L = vpe_lanes(); CHK(g_barrier_sum == L * (L + 1) / 2, "sum %d", g_barrier_sum);   /* nobody passed the barrier early */
-    CHK(vpe_lane() == vpe_idx() && vpe_in_run(), "lane/in_run");
-    CHK(vpe_pe() == L * vpe_node() + vpe_idx() && vpe_npe() == L * vpe_nnodes(), "identity pe %d npe %d", vpe_pe(), vpe_npe());
-    const char *p = ec_log_prefix(); char want[64]; snprintf(want, sizeof want, "pe %d (node %d lane %d): ", vpe_pe(), vpe_node(), vpe_idx());
-    CHK(!strcmp(p, want), "prefix '%s' want '%s'", p, want);
-    CHK(vpe_node_leader() == (vpe_idx() == 0) && vpe_root() == (vpe_pe() == 0), "leader/root");
-}
 static void host_part(void)
 {
     CHK(vpe_on(), "forced on");
     int L = vpe_lanes(); CHK(L >= 1 && L <= VPE_MAX, "lanes %d", L);
     vpe_set_nodes(2, 3);
     CHK(vpe_node() == 2 && vpe_nnodes() == 3 && vpe_npe() == 3 * L && vpe_pe() == 2 * L + vpe_idx(), "pe %d npe %d", vpe_pe(), vpe_npe());
-    CHK(g_ppg ? vpe_ppg() && vpe_lpp() == 1 && vpe_idx() >= 0 && vpe_idx() < L && ec_log_prefix()[0] == 'p' : !strcmp(ec_log_prefix(), ""), "prefix outside vpe_run '%s'", ec_log_prefix());
-    CHK(vpe_root() == 0 && vpe_node_leader() == (vpe_idx() == 0) && (!g_ppg || vpe_proc_leader()), "root/leader on the main thread of node 2");
+    CHK(vpe_ppg() && vpe_idx() >= 0 && vpe_idx() < L && ec_log_prefix()[0] == 'p', "prefix outside vpe_run '%s'", ec_log_prefix());
+    CHK(vpe_root() == 0 && vpe_node_leader() == (vpe_idx() == 0) && vpe_proc_leader(), "root/leader on the main thread of node 2");
     vpe_set_nodes(0, 1);
     if (g_ppg && vpe_early_device() >= 0) { printf("t_vpe: forked fatal checks skipped (a launched process has initialised HIP: fork is unsafe; `t_vpe host --ppg` on a login node runs them)\n"); }
     else {   /* vpe_sub argument checks (before any communicator exists), in children: fatal rc 3 + text; a PE outside the run gets NULL */
@@ -196,7 +172,7 @@ static void ppg_ident(void *unused)
     (void)unused;
     const char *ll = getenv("SLURM_LOCALID"), *np = getenv("SLURM_NTASKS_PER_NODE");
     int L = vpe_lanes(), dev = -1; HIPC(hipGetDevice(&dev));
-    CHK(vpe_ppg() && vpe_lpp() == 1 && vpe_in_run(), "ppg %d lpp %d in_run %d", vpe_ppg(), vpe_lpp(), vpe_in_run());
+    CHK(vpe_ppg() && vpe_in_run(), "ppg %d in_run %d", vpe_ppg(), vpe_in_run());
     CHK(!ll || vpe_idx() == atoi(ll), "vpe_idx %d, SLURM_LOCALID %s", vpe_idx(), ll ? ll : "-");
     CHK(!np || L == atoi(np), "lanes %d, SLURM_NTASKS_PER_NODE %s", L, np ? np : "-");
     CHK(vpe_lane() == vpe_idx() && vpe_pe() == L * vpe_node() + vpe_idx() && vpe_npe() == L * vpe_nnodes(), "identity pe %d npe %d", vpe_pe(), vpe_npe());
@@ -266,41 +242,25 @@ static void die_body(void *unused)
 int main(int argc, char **argv)
 {
     const char *mode = argc > 1 && strncmp(argv[1], "--", 2) ? argv[1] : "all";
-    for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--ppg")) g_ppg = 1;
-    if (!strcmp(mode, "info") || !strcmp(mode, "die") || !strcmp(mode, "badlayout")) g_ppg = 1;
+    g_ppg = 1;                                           /* process mode only (the thread mode was removed); --ppg is accepted */
     g_mode_probe = !strcmp(mode, "probe"); g_mode_all = !strcmp(mode, "all");
-    if (g_ppg) {                                         /* S2a: this process is ONE PE (srun, SLURM_LOCALID); without srun (host / stages on a login node): local 0 of 4 */
+    if (g_ppg) {                                         /* S2a: this process is ONE PE (srun, SLURM_LOCALID); without srun (host on a login node): local 0 of 4 */
         cpu_set_t m; sched_getaffinity(0, sizeof m, &m); cpustr(&m, g_launch_mask, sizeof g_launch_mask);
         setenv("ECALC_PE_PER_GPU", "1", 1);
         if (!strcmp(mode, "badlayout") && getenv("SLURM_LOCALID") && atoi(getenv("SLURM_LOCALID")) == 1) setenv("SLURM_LOCALID", "2", 1);
         if (!getenv("SLURM_LOCALID")) { setenv("ECALC_VPE_LANES", "4", 0); vpe_set_ppg(0); } else vpe_ppg_init();
     }
-    if (!strcmp(mode, "stages")) {
-        char b[512]; int rc, want;
-        if (!g_ppg) {
-            setenv("ECALC_VPE", "1", 1);
-            rc = in_child(stages_body, 0, b, sizeof b); want = (VPE_S_ALL & ~VPE_STAGES_MERGED) ? 3 : 0;
-            CHK(rc == want, "stages: rc %d want %d (text '%s')", rc, want, b);
-            CHK(!want || strstr(b, "ECALC_VPE: stages") && strstr(b, "not merged"), "stages text '%s'", b);
-        } else {                                         /* ECALC_PE_PER_GPU alone: aborts "stages ... not merged" while an S2 stage is missing */
-            rc = in_child(stages_body, 0, b, sizeof b); want = (VPE_P_ALL & ~VPE_PSTAGES_MERGED) ? 3 : 0;   /* process mode depends on the S2 stages only */
-            CHK(rc == want, "ppg stages: rc %d want %d (text '%s')", rc, want, b);
-            CHK(!want || strstr(b, "stages") && strstr(b, "not merged"), "ppg stages text '%s'", b);
-        }
-        printf("t_vpe stages: %s (%d checks)\n", g_fail ? "FAILED" : "OK", g_checks); return g_fail != 0;
-    }
-    if (!g_mode_all && !g_mode_probe && strcmp(mode, "host") && !g_ppg) { printf("usage: t_vpe [all|probe|host|stages] [--ppg] | t_vpe info|die|badlayout\n"); return 2; }
-    vpe_set_forced(VPE_S_A);
+    if (!g_mode_all && !g_mode_probe && strcmp(mode, "host") && strcmp(mode, "info") && strcmp(mode, "die") && strcmp(mode, "badlayout")) { printf("usage: t_vpe [all|probe|host] [--ppg] | t_vpe info|die|badlayout\n"); return 2; }
+    vpe_set_forced(1);
     host_part();
     if (!strcmp(mode, "host")) { printf("\nt_vpe host: %s (%d checks)\n", g_fail ? "FAILED" : "OK", g_checks); return g_fail != 0; }
-    if (!g_ppg) vpe_run(state_body, 0);
     const char *tr = getenv("COMM_TRANSPORT");
     g_skip_comm = !tr || strcmp(tr, "xshmem");
     int npe = 0;
-    if (g_skip_comm) printf("t_vpe: SKIP the communicator parts (COMM_TRANSPORT=xshmem, XSHMEM_LOOPBACK_PES=%d and make XSHMEM=ofi needed)\n", g_ppg ? 1 : vpe_lanes());
+    if (g_skip_comm) printf("t_vpe: SKIP the communicator parts (COMM_TRANSPORT=xshmem, XSHMEM_LOOPBACK_PES=1 and make XSHMEM=ofi needed)\n");
     else {
         npe = mn_init();
-        printf("t_vpe: node %d of %d: mn_init -> %d PEs (%s)\n", vpe_node(), vpe_nnodes(), npe, g_ppg ? "one process per PE" : "vPE threads");
+        printf("t_vpe: node %d of %d: mn_init -> %d PEs (one process per PE)\n", vpe_node(), vpe_nnodes(), npe);
         CHK(npe == vpe_npe() && mn_size() == npe, "npe %d vs %d", npe, vpe_npe());
         if (g_ppg && !strcmp(mode, "info")) vpe_run(ppg_info, 0);
         else if (g_ppg && !strcmp(mode, "die")) vpe_run(die_body, 0);

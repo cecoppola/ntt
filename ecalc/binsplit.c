@@ -14,7 +14,6 @@
 #include <sys/stat.h>
 #include "binsplit.h"
 size_t comm_shmem_heap_env(const char **name); int comm_shmem_pool_in_heap(void); /* the pool rule's heap check -- declared here, comm.h needs HIP's headers and this file is plain C */
-int comm_layered_inter2_on(void);   /* TASKS 27 (comm.h; comm_layered.c): the X2 default */
 #include "rns_mul.h"
 #include "mem.h"
 #include "dbig.h"
@@ -22,10 +21,10 @@ int comm_layered_inter2_on(void);   /* TASKS 27 (comm.h; comm_layered.c): the X2
 #include "memsample.h"
 int ec_np_init(void);                                     /* modarith.h (crt.c): the prime count (the layout report) */
 extern int ec_np_auto; int ec_np_planes(int pool_log, int g);   /* modarith.h (crt.c), pool 0's planes (ECALC_NP=auto: 3 or 4 by the run's largest group) */
-size_t newton_dkm_h(size_t k); int newton_chain_guard(void);   /* newton.h (newton_db.c), dm_layout's DKM set and NEWTON_CHAIN_GUARD */
+size_t newton_dkm_h(size_t k);   /* newton.h (newton_db.c), dm_layout's DKM set */
 /* the node-process rank/size (the checkpoint names and headers), from mn.c (mn.h needs the HIP headers; this is a C file) */
 int mn_rank(void); int mn_size(void);
-/* S1d (TARGET1): the vPE identity from vpe.h (vpe.h includes comm.h, which needs HIP's headers; this file is plain C).  With ECALC_VPE=1 a vPE is one pthread per lane;
+/* S1d (TARGET1): the vPE identity from vpe.h (vpe.h includes comm.h, which needs HIP's headers; this file is plain C).  With ECALC_PE_PER_GPU=1 a PE is one process per GPU;
  * its binary splitting has ONE region (its device, storage index vpe_idx()), its own term range and its own state (the per-vPE arrays below); switch off: vpe_on() = 0,
  * vpe_idx = 0 and every line below behaves as before. */
 void vpe_adopt(int idx); int vpe_on(void); int vpe_lanes(void); int vpe_lane(void); int vpe_pe(void); int vpe_npe(void);
@@ -33,7 +32,7 @@ int mn_groups_parse(int size, int *out, int max); size_t rns_mul_dist_mn_scratch
 size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t share_b, size_t share_c, size_t *qmax);
 int rns_mul_dist_mn_logcap_g(int g); int rns_mul_dist_mn_logmin_g(int g);   /* D19 (rns_dist.c): DM_MN_WRAP's plane in dm_layout */
 size_t rns_mul_dist_mn_vslot(size_t na, size_t nb, int g);   /* B7ACCT (rns_dist.c) */   /* the tree's schedule and its products' scratch (rns_dist.c / mdb.h, a C++ header) */
-/* the layout's environment hand-offs (COMM_*): every vPE lane lays out the same values, but setenv itself is not thread-safe */
+/* the layout's environment hand-offs (COMM_*): the values are the same on every call, but setenv itself is not thread-safe */
 static pthread_mutex_t g_env_mx = PTHREAD_MUTEX_INITIALIZER;
 static int bs_setenv(const char *n, const char *v, int o) { pthread_mutex_lock(&g_env_mx); int r = setenv(n, v, o); pthread_mutex_unlock(&g_env_mx); return r; }
 static int bs_unsetenv(const char *n) { pthread_mutex_lock(&g_env_mx); int r = unsetenv(n); pthread_mutex_unlock(&g_env_mx); return r; }
@@ -82,14 +81,14 @@ void binsplit_ref(bigint *P, bigint *Q, unsigned long a, unsigned long b)
 #define NRMAX 8                                       /* array bound: the regions of one process (4 per node; one per vPE) */
 static int bs_nreg(void) { return vpe_on() ? 1 : 4; }   /* regions of one binary splitting: 4 per node (one per APU), or ONE per vPE (its own device) */
 #define NR bs_nreg()
-/* the planner's per-node counts.  Switch off: 4 devices per node and the node range is split into 4 regions.  ECALC_VPE=1: L = vpe_lanes() PEs per node (one device each), each
+/* the planner's per-node counts.  PE layout off: 4 devices per node and the node range is split into 4 regions.  ECALC_PE_PER_GPU=1: L = vpe_lanes() PEs per node (one device each), each
  * holding ONE region over its own range; a node is L identical PEs, so the per-node figures (planes, arena, v-slots, the shares of the dm numbers) are the one PE's times L.
  * bs_nrn() = devices (PEs) per node, bs_lanes() = PEs per node (1 off).  The tree's group schedule stays node-based (MN_GROUPS over the nodes; the groups below a node
  * are not modelled until S1b/S1c's *_pe functions exist) -- with L = 4 the PE model equals the node model up to rounding. */
 static int bs_nrn(void) { return vpe_on() ? vpe_lanes() : 4; }
 static int bs_lanes(void) { return vpe_on() ? vpe_lanes() : 1; }
 /* S2c (ECALC_PE_PER_GPU=1): every PE is its own process, so each of the node's PEs has its own ROCm runtime and its own comm host memory: the planner's host terms 'runtime' and 'comm' are
- * multiplied by the processes per node (mem_model.py PPN_PROC, in lockstep); 1 with the switch off or in threads (ECALC_VPE), where the PEs share one process. */
+ * multiplied by the processes per node (mem_model.py PPN_PROC, in lockstep); 1 with the switch off. */
 int vpe_ppg(void);
 static size_t bs_ppn_proc(void) { return vpe_ppg() ? (size_t)vpe_lanes() : 1; }
 int binsplit_ppn_proc(void) { return (int)bs_ppn_proc(); }   /* S2: ecalc.c budget_check divides the node model by the same term, so planner and budget agree */
@@ -160,7 +159,7 @@ static void donate_pools(int which)                  /* the region pools of one 
 }
 void binsplit_release_arenas(void)                   /* after the block pool is done with them (rns_shutdown) */
 {
-    for (int v = 0; v < BS_VMAX; v++) for (int r = 0; r < NRMAX; r++) {   /* every vPE's arenas (one thread runs the shutdown) */
+    for (int v = 0; v < BS_VMAX; v++) for (int r = 0; r < NRMAX; r++) {   /* every PE slot's arenas */
         __typeof__(g_arena_v[0][0]) *a = &g_arena_v[v][r]; if (!a->base) continue;
         if (a->vmm) { if (a->donated < 2) mem_dev_forget(a->base); db_vmm_arena_release(a->dev); } else if (a->donated < 2) mem_dev_free(a->base); else mem_dev_free_raw(a->dev, a->base);
         a->base = 0;
@@ -193,16 +192,16 @@ static size_t node_norm(const uint64_t *p, size_t n)
     while (n) { size_t m = n < 64 ? n : 64; mem_dev_copy(t, p + (n - m), m * 8); size_t k = limb_norm(t, m); if (k) return n - m + k; n -= m; }
     return 0;
 }
-/* the calling thread's rank and the team's size within its region, and its home region (-1: not pinned).  A vPE's team is its own omp team (it owns its device and its share of the cores) */
+/* the calling thread's rank and the team's size within its region, and its home region (-1: not pinned).  A PE process's team is its own omp team (it owns its device and its share of the cores) */
 static pthread_mutex_t g_batch_mx = PTHREAD_MUTEX_INITIALIZER;
 static int bs_rt(int *rk, int *home)
 {
     if (vpe_on()) { *rk = omp_get_thread_num(); *home = -1; return omp_get_num_threads(); }
     *home = mem_thread_home(); return mem_region_threads(rk);
 }
-/* the omp thread count of a whole-node team: all cores, or a vPE's share of them (the cores of the process divided by its lanes) */
+/* the omp thread count of a whole-node team: all cores, or a PE's share of them (the cores of the process divided by its lanes) */
 /* (S2c: a PE process has the CPUs of its own mask to itself: no division by the lanes) */
-static int bs_nthreads(void) { int n = omp_get_max_threads(); if (vpe_on() && !vpe_ppg() && vpe_lanes() > 1) { n /= vpe_lanes(); if (n < 1) n = 1; } return n; }
+static int bs_nthreads(void) { return omp_get_max_threads(); }
 /* copy limbs out of (or into) region r's pool with the threads of r's node (a lone memcpy from device memory runs at a few GB/s) */
 static void region_copy(uint64_t *dst, const uint64_t *src, size_t limbs, int r)
 {
@@ -394,7 +393,7 @@ int binsplit_ppg_batch_levels(unsigned long N, int g, size_t *lv, int nlv)
  * (5/8 of the hole: r, r2 at ~ half of it stay out of the tail, t1 takes it).  At size > 1 the shares are 1/size of it
  * (the sharded division, A-div) and the tree's products add their slabs (tree_need_dev). */
 struct dm_layout { size_t nq, k, tcap, hole, thresh, need_dev, tree_dev; size_t jl, v2, v3, div; int tight; size_t room; int dkm, lean; size_t wrap, trim; };   /* DL: dkm = the layout follows the DKM division; lean = the lean division set */   /* room = BS_ARENA_ROOM's term (in need_dev) */   /* jl = the last doubling's start, v2 / v3 / div = the terms per device, the switches */
-static size_t quarter_bytes(size_t limbs) { size_t q = (size_t)bs_nrn(); return ((limbs + q - 1) / q + 4095) / 4096 * 4096 * 8; }   /* the share of one device (a quarter on the 4-APU node; one PE's with ECALC_VPE) */
+static size_t quarter_bytes(size_t limbs) { size_t q = (size_t)bs_nrn(); return ((limbs + q - 1) / q + 4095) / 4096 * 4096 * 8; }   /* the share of one device (a quarter on the 4-APU node; one PE's with ECALC_PE_PER_GPU) */
 /* DM_TIGHT=1 -- the reciprocal reserves r2 only when d is first written (2j + 4 limbs, freed whenever
  * its content is dead) and t1 per doubling at Q_t (take) + r (j + 1) + 8, and the device tier's top levels free each input pair as it is
  * consumed; dm_layout's v2 / v3 follow (E2: -1 n_Q of arena).  */
@@ -486,7 +485,6 @@ static void vslot_prealloc_env(unsigned long N, int size)
         { const char *er = getenv("COMM_RANK"), *ve = getenv("ECALC_VERBOSE"); if (getenv("MN_PLAN_ONLY") || ((!er || atoi(er) == 0) && ve && atoi(ve) >= 2)) printf("plan vslot-prealloc  %s=%s MiB per slot (S31: each v-slot of a %d-node group allocated once)\n", nm, getenv(nm), gg[k]); } }
 #undef VS_NOTE
 }
-static int inter2_on(void) { return comm_layered_inter2_on(); }
 int binsplit_vslot_budget_on(void) { return 1; }   /* always 1; kept for the `vslot:` line's budget field */
 /* BS_ARENA_ROOM=<f> (0 = off, the default; f > 0 with the VMM pool) -- the division's room.  With
  * BS_SEED_FILL=128 the dm phase's large blocks (the division's t and xq, 2 n_Q quarters) missed a contiguous extent of the arenas at
@@ -620,7 +618,7 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     int dkm = k >= 5 && (size > 1 || (logl < 62 && nq >= ((size_t)1 << logl) + ((size_t)1 << logl) / 8));
     size_t kr = dkm ? newton_dkm_h(k) : k, k1 = k - k / 2;                    /* (k1: step 1's quotient limbs, s = floor(k/2) <= dl) */
     int lean = dkm && size > 1;                                               /* the lean mn division set (size > 1 only) */
-    size_t jl = (kr + 1) / 2 + (size_t)newton_chain_guard();                 /* NEWTON_CHAIN_GUARD (RECIP): the last doubling starts at ceil(kr/2) + 1 */
+    size_t jl = (kr + 1) / 2 + 1;                 /* the chain guard (RECIP): the last doubling starts at ceil(kr/2) + 1 */
     size_t take = 2 * jl + 2 < nq ? 2 * jl + 2 : nq, t1a = take + (jl + 2) + 8;   /* r has j + 2 limbs (measured at 4e10, job 21131: r 555555559 at j 555555557) */
     size_t nq_s = (nq + size - 1) / size, k_s = (k + size - 1) / size, jl_s = (jl + size - 1) / size;
     /* the hole is the DIVISION's largest block, t = A_h mu of 2k + 8 limbs (xq = low(X Q)
@@ -737,10 +735,6 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     if (ring < 4096) ring = 4096;
     for (int l = 0; l < nl; l++) if (gs[l] < size) members += (size_t)gs[l];
     size_t control = (size_t)bs_nrn() * members * (ring + 64), mailbox = (size_t)1024 * size * 8;
-    if (inter2_on()) {   /* X2 COMM_LAYER_INTER2: a second mesh (control blocks) for every general-map group the layered communicator runs over (non-power-of-two S; lay_get) */
-        size_t extra = 0; for (int l = 0; l < nl; l++) { int S = gs[l] < size ? gs[l] : size; if (S > 1 && (S & (S - 1))) extra += (size_t)S; }
-        control += (size_t)bs_nrn() * extra * (ring + 64);
-    }
     size_t vsp = binsplit_vslot_bytes(N, size, 0, 0, 0);   /* X2: the v-slots per APU thread, resident to the run's end */
     size_t sym = 0;
     g_ofi_dev_mb = 0;
@@ -826,7 +820,7 @@ static size_t layout_arena(unsigned long N, int g, size_t *bs2_)
         size_t base = 2 * cap * 8, extra = want > base ? want - base : 0; extra = (extra + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
         arena += as_arena(base + extra); bs2 += base;   /* whole chunks under BS_ARENA_ROOM */
     }
-    arena *= (size_t)bs_lanes(); bs2 *= (size_t)bs_lanes();   /* ECALC_VPE: the node's L PEs are alike */
+    arena *= (size_t)bs_lanes(); bs2 *= (size_t)bs_lanes();   /* PE layout: the node's L PEs are alike */
     if (bs2_) *bs2_ = bs2;
     return arena;
 }
@@ -1096,7 +1090,7 @@ void binsplit_pregrow(unsigned long N)
  * wrote it (node count, MN_GROUPS levels; recorded, not compared).  No restart: the set only feeds the recheck. */
 #define CKPT_MAGIC2 "ECBSCKP2"
 #define CKPT_MAGIC3 "ECBSCKP3"
-#define CKPT_MAGIC4 "ECBSCKP4"                         /* S1d: a set of PEs (ECALC_VPE=1): one file per PE (p<PE>_tree_LLL.*), nregions 1, ext.size = PEs, ext.rank = this PE, ext.dev_nodes = PEs per node; never read by a run of the other mode */
+#define CKPT_MAGIC4 "ECBSCKP4"                         /* S1d: a set of PEs (ECALC_PE_PER_GPU=1): one file per PE (p<PE>_tree_LLL.*), nregions 1, ext.size = PEs, ext.rank = this PE, ext.dev_nodes = PEs per node; never read by a run of the other mode */
 #define CKPT_CHUNK ((size_t)1 << 30)
 struct ckpt_hdr { char magic[8]; uint64_t N; int32_t decimal, seed_terms, level, which, mdev_host, nregions; uint64_t n, off, offr[NRMAX], node_bytes; };
 struct ckpt_ext { int32_t size, rank, dev_nodes, kind; uint64_t a0, b1; uint64_t tree[10]; };   /* kind 1 = a tree set (tree[] = P.n P.N P.g0 P.g P.sh.n, the same for Q) */
@@ -1256,8 +1250,8 @@ static int ckpt_read_hdr(const char *kind, int level, struct ckpt_hdr *h, struct
     memset(x, 0, sizeof *x);
     struct ckpt_sched s3;
     int ok = fread_all(f, h, sizeof *h);
-    if (ok && !vpe_on() && !memcmp(h->magic, CKPT_MAGIC4, 8)) ec_fatal(EC_RC_FATAL, "bs: checkpoint %s is a set of PEs (ECALC_VPE=1); this run is not (a PE set is read only by a run with ECALC_VPE=1)\n", p);
-    if (ok && vpe_on() && (!memcmp(h->magic, CKPT_MAGIC2, 8) || !memcmp(h->magic, CKPT_MAGIC3, 8))) ec_fatal(EC_RC_FATAL, "bs: checkpoint %s is a set of node-processes; this run is ECALC_VPE=1 (a node set is read only by a run without it)\n", p);
+    if (ok && !vpe_on() && !memcmp(h->magic, CKPT_MAGIC4, 8)) ec_fatal(EC_RC_FATAL, "bs: checkpoint %s is a set of PEs (ECALC_PE_PER_GPU=1); this run is not (a PE set is read only by a run with ECALC_PE_PER_GPU=1)\n", p);
+    if (ok && vpe_on() && (!memcmp(h->magic, CKPT_MAGIC2, 8) || !memcmp(h->magic, CKPT_MAGIC3, 8))) ec_fatal(EC_RC_FATAL, "bs: checkpoint %s is a set of node-processes; this run is ECALC_PE_PER_GPU=1 (a node set is read only by a run without it)\n", p);
     ok = ok && ((!vpe_on() && !memcmp(h->magic, CKPT_MAGIC2, 8) && fread_all(f, x, sizeof *x))
                 || (!vpe_on() && !memcmp(h->magic, CKPT_MAGIC3, 8) && fread_all(f, x, sizeof *x) && fread_all(f, &s3, sizeof s3))
                 || (vpe_on() && !memcmp(h->magic, CKPT_MAGIC4, 8) && fread_all(f, x, sizeof *x) && fread_all(f, &s3, sizeof s3)));
@@ -1494,9 +1488,9 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
     int nt = getenv("BS_SEED_THREADS") ? atoi(getenv("BS_SEED_THREADS")) : bs_nthreads();   /* I2: fewer than all leaves cores to init's allocations */
     ss->nchunks = ss->nbuf = ss->npend = 0; ss->t_span = ss->t_wait_pool = ss->t_wait_dma = ss->t_issue = ss->t_free = 0;
     int direct = !db_pool_vmm_on();                              /* the host cannot store into a VMM range */
-    int pull = !direct && db_seed_pull_on();                     /* K8b (results/MEMORY.md §K8b): BS_SEED_PULL=1 -- the copies by the persistent pull kernels (no runtime call in the mapping window) */
-    void (*cpy)(int, void *, const void *, size_t) = direct ? mem_dev_copy_async : pull ? db_pull_copy_async : db_copy_h2d_async;   /* into a VMM range: by a kernel (hipMemcpyAsync ran at 6 GB/s, synchronously) */
-    void (*cwait)(int) = direct ? mem_dev_copy_wait : pull ? db_pull_wait : db_copy_h2d_wait;
+    int pull = !direct;                                          /* K8b (results/MEMORY.md §K8b): the copies by the persistent pull kernels (no runtime call in the mapping window; fallback BS_SEED_PULL=0 removed 2026-10-23, Q87) */
+    void (*cpy)(int, void *, const void *, size_t) = direct ? mem_dev_copy_async : db_pull_copy_async;   /* into a VMM range: by a kernel (hipMemcpyAsync ran at 6 GB/s, synchronously) */
+    void (*cwait)(int) = direct ? mem_dev_copy_wait : db_pull_wait;
     if (pull) for (int b = 0; b < 2; b++) db_pull_resolve(ss->buf[b]);   /* K8b: the buffers' device pointers once, here (the copies make no runtime call) */
     for (int r = 0; r < NR; r++) {
         size_t lo = r0[r], hi = r0[r + 1];
@@ -1561,7 +1555,7 @@ void binsplit_seeds_begin(unsigned long N)
     double tp = mem_now(); binsplit_pregrow(N);
     uint64_t *pool[NRMAX]; for (int r = 0; r < NR; r++) pool[r] = pool_get(0, r, seed_region_limbs(g_pre.per, g_pre.r0, r));
     seed_stream_pools(&g_pre.ss, pool);
-    if (db_pool_vmm_on() && db_seed_pull_on()) db_pull_start_all();   /* K8b: BS_SEED_PULL=1 -- the pull kernels now, with no mapping in flight (the background mapping is released after the hook) */
+    if (db_pool_vmm_on()) db_pull_start_all();   /* K8b: the pull kernels now, with no mapping in flight (the background mapping is released after the hook) */
     if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("      init: region pools %.2f s (inside rns_init, before the plane pools: the seeds stream into them)\n", mem_now() - tp);
 }
 void binsplit_e(bigint *P, bigint *Q, unsigned long N)
@@ -1623,14 +1617,14 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             ec_fatal(EC_RC_FATAL, "ECALC_FATAL_TEST=1: a forced failure in bs's worker %d of %d (all at once, after the seeds)", omp_get_thread_num(), NR);
         }
     }
-    /* N3 (BS_BATCH_PIPE=1, rns_mul.c): the level's host passes over its nodes in parallel -- the max_nl scan, the layout
+    /* N3 (rns_mul.c; the fallback BS_BATCH_PIPE=0 removed 2026-10-23, Q87): the level's host passes over its nodes in parallel -- the max_nl scan, the layout
      * region by region (a large level's regions are contiguous index ranges, so each region's running offset is the
      * serial one), the product list in one buffer kept across the levels, the lengths read back -- the same layout */
-    int pipe = rns_batch_pipe_on(); rns_prod *pr_buf = 0; size_t pr_cap = 0;
+    rns_prod *pr_buf = 0; size_t pr_cap = 0;
     while (cur.n > 1) {
         t = mem_now();
         size_t npairs = cur.n / 2, odd = cur.n & 1, max_nl = 0;
-        int par = pipe && npairs >= 4096 && npairs + odd > (size_t)bs_balance_n;   /* N3: a large level (place_node = region_of) */
+        int par = npairs >= 4096 && npairs + odd > (size_t)bs_balance_n;   /* N3: a large level (place_node = region_of) */
         if (par) {
 #pragma omp parallel for num_threads(bs_nthreads()) schedule(static) reduction(max : max_nl)
             for (size_t i = 0; i < cur.n; i++) { size_t m = cur.nd[i].pn > cur.nd[i].qn ? cur.nd[i].pn : cur.nd[i].qn; if (m > max_nl) max_nl = m; }
@@ -1653,7 +1647,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
                 }
                 offr[r] = acc;
             }
-            if (bad) ec_fatal(EC_RC_FATAL, "bs: BS_BATCH_PIPE: a level's regions are not contiguous (level %d, %zu nodes)\n", bs_st.levels + 1, nxt.n);
+            if (bad) ec_fatal(EC_RC_FATAL, "bs: a level's regions are not contiguous (level %d, %zu nodes)\n", bs_st.levels + 1, nxt.n);
         } else
         for (size_t i = 0; i < npairs; i++) {
             struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
@@ -1674,45 +1668,31 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         if (2 * max_nl + 1 <= ((size_t)1 << bs_mdev_logl)) {
             tier = "batch"; bs_st.batch_levels++;
             rns_prod *pr;
-            if (pipe) {                              /* N3: one buffer for all the levels (level 1's size), every field set */
-                if (pr_cap < 2 * npairs) { free(pr_buf); pr_cap = 2 * npairs; pr_buf = (rns_prod *)malloc(pr_cap * sizeof *pr_buf); }
-                pr = pr_buf;
+            /* N3: one buffer for all the levels (level 1's size), every field set */
+            if (pr_cap < 2 * npairs) { free(pr_buf); pr_cap = 2 * npairs; pr_buf = (rns_prod *)malloc(pr_cap * sizeof *pr_buf); }
+            pr = pr_buf;
 #pragma omp parallel for num_threads(bs_nthreads()) schedule(static) if (par)
-                for (size_t i = 0; i < npairs; i++) {
-                    struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
-                    rns_prod *p0 = &pr[2 * i], *p1 = &pr[2 * i + 1];
-                    p0->a = NODE_P(cur, a); p0->na = a->pn; p0->b = NODE_Q(cur, b); p0->nb = b->qn; p0->c = NODE_P(nxt, o);
-                    p0->x = NODE_P(cur, b); p0->nx = b->pn; p0->ncn = 0;
-                    p1->a = NODE_Q(cur, a); p1->na = a->qn; p1->b = p0->b; p1->nb = b->qn; p1->c = NODE_Q(nxt, o);
-                    p1->x = 0; p1->nx = 0; p1->ncn = 0;
-                }
-            } else {
-            pr = (rns_prod *)calloc(1, 2 * npairs * sizeof *pr);
             for (size_t i = 0; i < npairs; i++) {
                 struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
-                pr[2 * i].a = NODE_P(cur, a); pr[2 * i].na = a->pn; pr[2 * i].b = NODE_Q(cur, b); pr[2 * i].nb = b->qn; pr[2 * i].c = NODE_P(nxt, o);
-                pr[2 * i].x = NODE_P(cur, b); pr[2 * i].nx = b->pn;                 /* P = P1 Q2 + P2 in the CRT */
-                pr[2 * i + 1].a = NODE_Q(cur, a); pr[2 * i + 1].na = a->qn; pr[2 * i + 1].b = pr[2 * i].b; pr[2 * i + 1].nb = b->qn; pr[2 * i + 1].c = NODE_Q(nxt, o);
+                rns_prod *p0 = &pr[2 * i], *p1 = &pr[2 * i + 1];
+                p0->a = NODE_P(cur, a); p0->na = a->pn; p0->b = NODE_Q(cur, b); p0->nb = b->qn; p0->c = NODE_P(nxt, o);
+                p0->x = NODE_P(cur, b); p0->nx = b->pn; p0->ncn = 0;
+                p1->a = NODE_Q(cur, a); p1->na = a->qn; p1->b = p0->b; p1->nb = b->qn; p1->c = NODE_Q(nxt, o);
+                p1->x = 0; p1->nx = 0; p1->ncn = 0;
             }
-            }
+
             tl1 = mem_now();
-            if (vpe_on()) pthread_mutex_lock(&g_batch_mx);   /* rns_mul.c's batch tier is node-wide state (one device set, one stat block): one vPE at a time until a per-vPE batch exists (S1 is correctness, not speed) */
+            if (vpe_on()) pthread_mutex_lock(&g_batch_mx);   /* rns_mul.c's batch tier is node-wide state (one device set, one stat block): one caller at a time (a guard from the removed thread mode; a PE process has no concurrent caller) */
             rns_mul_batch(pr, 2 * npairs);
             if (vpe_on()) pthread_mutex_unlock(&g_batch_mx);
             tl2 = mem_now();
             normed = 1;
-            if (pipe) {                              /* N3: all lengths, then the flag (a missing one: node_norm below redoes them all) */
-                int ok = 1;
+            /* N3: all lengths, then the flag (a missing one: node_norm below redoes them all) */
+            int ok = 1;
 #pragma omp parallel for num_threads(bs_nthreads()) schedule(static) if (par) reduction(&& : ok)
-                for (size_t i = 0; i < npairs; i++) { ok = ok && pr[2 * i].ncn && pr[2 * i + 1].ncn; nxt.nd[i].pn = pr[2 * i].ncn; nxt.nd[i].qn = pr[2 * i + 1].ncn; }
-                normed = ok;
-            } else {
-            for (size_t i = 0; i < npairs; i++) {
-                if (!pr[2 * i].ncn || !pr[2 * i + 1].ncn) { normed = 0; break; }
-                nxt.nd[i].pn = pr[2 * i].ncn; nxt.nd[i].qn = pr[2 * i + 1].ncn;
-            }
-            free(pr);
-            }
+            for (size_t i = 0; i < npairs; i++) { ok = ok && pr[2 * i].ncn && pr[2 * i + 1].ncn; nxt.nd[i].pn = pr[2 * i].ncn; nxt.nd[i].qn = pr[2 * i + 1].ncn; }
+            normed = ok;
+
         } else {
             tier = "mdev"; bs_st.mdev_levels++;
             {
@@ -1770,7 +1750,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         bs_st.levels++;
         if (bs_st.levels <= 3) db_tl("bs: level %d done (%s, %.2f s)", bs_st.levels, tier, dt);   /* ECALC_INIT_TL=1 */
         if (bs_verbose) printf("bs: level %2d %-6s %8zu pairs  max_nl %10zu  pool %6.2f GB  %.2f s  (batch %.2f: scatter %.2f ntt %.2f crt %.2f merge %.2f)\n", bs_st.levels, tier, npairs, max_nl, off * 8e-9, dt, rns_st.tb_total, rns_st.tb_scatter, rns_st.tb_ntt, rns_st.tb_crt, rns_st.tb_merge);
-        if (!vpe_on()) memset(&rns_st, 0, sizeof rns_st);   /* (shared by the vPEs: not reset under their feet) */
+        if (!vpe_on()) memset(&rns_st, 0, sizeof rns_st);   /* (PE layout: not reset here) */
         if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "bs level %d %s", bs_st.levels, tier); mem_live_line(w); }
         free(cur.nd);
         cur = nxt;

@@ -84,7 +84,7 @@ is chosen per level from the largest node length `max_nl`:
 | 2·max_nl + 1 ≤ 2³⁰ points (`BS_MDEV_LOGL`) | **batch** | one `rns_mul_batch` of all 2·npairs products of the level (`rns_mul.c`) |
 | otherwise | **device top levels** | each pair as `dbig` numbers through `rns_mul_dist_db` (`rns_dist.c`); inputs freed as consumed |
 
-(The CPU schoolbook tier below `bs_school_nl` is set to 0: the batch tier is faster at every size. With `BS_BATCH_PIPE=1`, the default since D20, the batch tier's host side runs without needless gaps: a level's layout and the products' scans in parallel and each device's tiles issued back to back through pinned descriptor slots, one length read-back per level, `results/KERNELS.md §N3`; `BS_BATCH_PIPE=0` keeps the old host side.)
+(The CPU schoolbook tier below `bs_school_nl` is set to 0: the batch tier is faster at every size. Since D20 (the `BS_BATCH_PIPE=0` fallback was removed 2026-10-23, Q87) the batch tier's host side runs without needless gaps: a level's layout and the products' scans in parallel and each device's tiles issued back to back through pinned descriptor slots, one length read-back per level, `results/KERNELS.md §N3`; `BS_BATCH_PIPE=0` keeps the old host side.)
 
 **Across nodes.** With size > 1, node r takes the term range [1 + N·r/size, 1 + N·(r+1)/size) and runs the whole leaf tree
 on it, leaving (P_r, Q_r) on its devices. `mn_tree` then combines nodes in groups (§6.5), so after the last level P and Q
@@ -145,7 +145,7 @@ digits (`ec_words_to_dec`, at most four). Limb k of the product is
 
 where Cj are the j-th base-10¹⁸ digits of the coefficients and x_k the added operand; the carry chain is resolved in LDS
 (per 256-coefficient chunk, as a carry-lookahead over the waves'
-ballot masks, `results/KERNELS.md §K4b`; `RNS_CRT_SCAN=0` keeps the serial chain, D21).
+ballot masks, `results/KERNELS.md §K4b`; the serial chain was removed 2026-10-23, Q87).
 On the GPU (`k_crt_batch`) a product's coefficients are cut into S stripes (a block per stripe, coalesced reads, 256
 coefficients per chunk); each stripe emits a 4-limb *spill* past its end, and the spills are merged into the limbs
 (`k_spill_merge`, or chunked-carry adds in the distributed tiers). A CPU Garner is kept for small products and tests.
@@ -156,8 +156,8 @@ min·(10²⁴ − 1)², which fits four primes while min(Pa, Pb) ≤ 10¹² (`P2
 s = 6·(x mod 3) digits, lands on limbs L(x) … L(x)+3 with L(x) = ⌊4x/3⌋. Gain: −38 % at 10¹⁰ digits on 2 processes (m;
 `results/PRIMES_STRATEGY.md §P2415`). It applies to every multi-node product whose plane pool holds four primes (built in; since D18 every multi-node product; the 18-digit form of the removed `ECALC_NP_MN3` path is gone, D56).
 Its CRT kernel `k_crt24` (`p24_crt.c`, one block per column, 256 points per chunk) sums the at most three points meeting
-each of a chunk's up to 342 limbs and resolves the chunk's carry chain on one thread; with `P24_CRT_SCAN=1` (the default since D24, `=0` the serial chain;
-`results/KERNELS.md §K4c`) as the same carry-lookahead over wave ballot masks as `RNS_CRT_SCAN` (two limbs per thread, 512-bit masks).
+each of a chunk's up to 342 limbs and resolves the chunk's carry chain on one thread; as a carry-lookahead (D24; the serial chain was removed 2026-10-23, Q87;
+`results/KERNELS.md §K4c`) over wave ballot masks as in `k_crt_batch` (two limbs per thread, 512-bit masks).
 
 ### 4.4 Product tiers
 
@@ -222,8 +222,7 @@ reciprocal of Q's top limbs (`newton_seed_top`). Functions: `recip_db2` (one nod
 error (≤ 2M + 3 units at 2j) by ≥ 1 limb; a doubling with jn = 2j (the anchored chain does this whenever the target is even)
 keeps it, and a run of such doublings squares it (k = 2^m: up to two limbs lost, modelled). The division's corrections
 absorb it unless the run is long and μ's top limbs are used uncut (DKM with h = k₁, i.e. an odd quotient length); then the
-step-1 estimate can be off by more than the 64-correction limit (fatal, never wrong digits). `NEWTON_CHAIN_GUARD=1` (the default
-since D25, `=0` the old chain) anchors the chain at k, ⌈k/2⌉ + 1, … so every doubling is cut: |error| ≤ 8 units at any M (results/DIVISION.md §RECIP).
+step-1 estimate can be off by more than the 64-correction limit (fatal, never wrong digits). The chain guard (since D25; the `NEWTON_CHAIN_GUARD=0` old chain was removed 2026-10-23, Q87) anchors the chain at k, ⌈k/2⌉ + 1, … so every doubling is cut: |error| ≤ 8 units at any M (results/DIVISION.md §RECIP).
 
 ### 5.2 Division in two quotient halves ("DKM")
 
@@ -262,7 +261,7 @@ Two layouts exist (both supported, user rule Q85):
   heap, and the PE's place (GPU, NUMA node, NICs) comes from the backend's topology (`pe_geo.c`). `XSHMEM_LANES=N`
   gives each PE N SHMEM contexts (lane k on NIC k) and stripes every payload put over them (`comm_xshmem.c`). With no
   striped tier on one device, batch products larger than one device's plane pool are split over the PE's own device
-  (`RNS_BATCH_SPLIT`, `rns_mul.c`). The virtual-PE thread mode (`ECALC_VPE`, `vpe.c`) is shelved. P cuts start-up, so
+  (`RNS_BATCH_SPLIT`, `rns_mul.c`). The virtual-PE thread mode (`ECALC_VPE`) was removed from main on 2026-10-23 (Q86; the code is on branch `vpe-int`). P cuts start-up, so
   it wins at small sizes and is equal within noise at 3 nodes, 10¹¹ digits (`results/XSHMEM.md`).
 
 ### 6.2 The four-step transform
@@ -293,8 +292,8 @@ boundaries are resolved by a scan over (carry, propagate) flags (`mn_core`, `db_
 Fabric bytes equal a flat all-to-all's; messages per APU fall from 4g − 1 to g − 1; the on-node quarter never touches a NIC.
 Two exchanges are in flight (depth 2), so one exchange's xGMI stage hides under the previous one's fabric stage.
 `alltoallv` has the same stages with per-peer counts (the node's send counts are all-gathered over the four APU threads).
-All-gather runs the inter stage first and the xGMI stage second, so the fabric moves 4× less. `COMM_LAYER_INTER2` adds a
-second inter communicator over the same PE set so that consecutive v-exchanges alternate, and `COMM_LAYER_VSLOT_*` take
+All-gather runs the inter stage first and the xGMI stage second, so the fabric moves 4× less. One inter stage is in flight at a time (the two-in-flight variant `COMM_LAYER_INTER2` was removed 2026-10-23: slower on both
+transports, results/SHMEM.md), and `COMM_LAYER_VSLOT_*` take
 the v-exchange slots from the communicator pool and share and release them between products (they are counted in the node
 budget).
 
@@ -415,15 +414,14 @@ digits 1…d_out + newline.
 **Packed form.** The default output is **packed** (`ECALC_OUT_PACKED=2` since 2026-10-12): each node writes its limbs as a
 60-bit little-endian stream, 15 bytes per two limbs (0.4167 B/digit), most significant limb first, behind a 4096-byte `ECPACK18` header giving the part's limb and digit range,
 the T1 primes and the part's digit residues. No ASCII formatting happens in the run; `tools/unpack_digits` makes the ASCII
-file off the clock (`--cmp` compares without writing). `ECALC_OUT_PACKED=1` writes 8 bytes per limb (0.444 B/digit, the
-default before 2026-10-12), `=0` ASCII.
+file off the clock (`--cmp` compares without writing). `ECALC_OUT_PACKED=0` writes ASCII; the 8-byte form (`=1`, 0.444 B/digit) was removed 2026-10-23, Q87 (the readers still take its files).
 
 **Parts.** At size 1 the file is `<outfile>`. At size > 1 each node writes `<outfile>.part<k>`, k = size − 1 − rank (part 0
-holds the leading digits), so the sorted parts are the file; by default (`MN_OUT_DKM_HI=1`) each node writes two parts (its share of
+holds the leading digits), so the sorted parts are the file; each node writes two parts (its share of
 X_hi and of X_lo; nparts = 2·size). The converter takes the set in any order.
 
 **Early writer.** The writer is a background thread started by the division: right after step 1 on X_hi (final: step 2 changes only limbs below s) and later on
-X_lo (`MN_OUT_DKM_HI=0` starts it at the division hook instead: X formed, before the low product). Writes use O_DIRECT through aligned buffers (`ECALC_ODIRECT=auto` chooses by file system). Division **corrections**
+X_lo (the older start at the division hook, `MN_OUT_DKM_HI=0`, was removed 2026-10-23, Q87). Writes use O_DIRECT through aligned buffers (`ECALC_ODIRECT=auto` chooses by file system). Division **corrections**
 that arrive after the writer started are not applied to X; the output stage patches only the tail the carry or borrow
 reaches (`mn_out_tail_fix`): it rewrites the 4 KiB blocks holding the changed limbs and moves the header's residues by the
 same change, so the file stays consistent.
@@ -452,7 +450,7 @@ A run is good only with `VERIFY OK` on every node (`verify.c/h`, `out_stage` in 
 
 | tool | what |
 |---|---|
-| `estimate.py` | wall time by phase for a size, node count and fabric profile; `--target` prints the standing estimate |
+| `mn_model.py estimate` | wall time by phase for a size, node count and fabric profile (was `estimate.py`); `--target` prints the standing estimate |
 | `mn_model.py` | the cost model behind it (all-to-all rate per APU thread, hiding fractions, round costs) |
 | `mem_model.py` | the memory layout per node; `--check-c` compares with the C layout |
 | `calib_table.py` | run logs → one row per run; `--fit`, `--ab` (rate-adjusted paired A/B) |

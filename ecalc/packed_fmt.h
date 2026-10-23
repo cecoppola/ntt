@@ -1,4 +1,4 @@
-/* packed_fmt.h - the packed digit file (ECALC_OUT_PACKED=1; version 2 below, =2, the default), shared by the writer (mn_out.c) and the
+/* packed_fmt.h - the packed digit file (ECALC_OUT_PACKED, the default; version 2 below; the version-1 8-byte writer was removed 2026-10-23, its files are still read), shared by the writer (mn_out.c) and the
  * converter / checker (tools/unpack_digits.c).
  *
  * A packed file is a 4096-byte header followed by the base-10^18 limbs of X exactly as the run holds them: 8 bytes per

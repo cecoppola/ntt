@@ -3,7 +3,7 @@
 
 "Exclude k bad nodes, no spares": the run then has N = 576 - k nodes.  The code's default schedule (the powers of two dividing N, then the
 odd part's prime factors) is very slow at awkward N; an explicit MN_GROUPS whose last group is the (uneven) N is accepted by the planner.
-This script searches those schedules with the standing model (ecalc/estimate.py -> mn_model.py; pure Python, CPU only) on the target line:
+This script searches those schedules with the standing model (ecalc/mn_model.py estimate; pure Python, CPU only) on the target line:
     profile `target` (layv factor 0.655), MN_T_CHUNK_MB=2048 (MDB_SHIFT_CHUNK_MB stays 1024), shared v-slot pair (X2, always on), RNS_DIST_CACHE_FIT=1,
     ECALC_NP=auto, BS_ARENA_ROOM=0.16, ECALC_PLANE_CAP=2^31, COMM_SHMEM_ROUND_MB=1024, the same total digits whatever N.
 Memory rule (results/LAUNCH_DEFAULTS.md §B01, S52): device peak (model) + 0.5 GB (X2, the user's figure) + 2.1 GB (rank 0) must stay <= 373.44 - 10 GB.
@@ -19,7 +19,7 @@ import argparse, os, sys, csv, itertools, subprocess, re, functools
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', 'ecalc'))
-import mn_model as M, mem_model, estimate as E
+import mn_model as M, mem_model
 
 EDGE = M.TARGET_DEVICE_EDGE_GB                                       # 373.44 GB (measured on the target)
 X2_GB, RANK0_GB, RULE_GB = 0.5, 2.1, 10.0
@@ -84,7 +84,7 @@ def top_ratio(N, groups):
     return max(ch) / min(ch)
 
 def evaluate(fab, design, N, T, groups):
-    try: e = E.estimate(N, T / N, 'grid', None if groups is None else ','.join(map(str, groups)), fab, 'model', design=design)
+    try: e = M.estimate(N, T / N, 'grid', None if groups is None else ','.join(map(str, groups)), fab, 'model', design=design)
     except (ValueError, ZeroDivisionError, KeyError, AssertionError): return None
     dev = e['device_gb'] - RELEASE_GB; peak = dev + X2_GB + RANK0_GB
     return dict(N=N, T=T, groups=','.join(map(str, groups)) if groups else 'default', wall=e['nowrite_s'], device=dev, peak=peak, margin=EDGE - peak,
