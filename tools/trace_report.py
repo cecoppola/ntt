@@ -5,21 +5,21 @@
   python3 tools/trace_report.py --compare DIR_A DIR_B [--label A B]    one table, A | B | B-A | (B-A)/A (several runs per side: --compare A1 A2 --vs B1 B2: medians)
   python3 tools/trace_report.py --selftest                    a synthetic 3-node trace through the whole analysis (exit 1 on a failure)
 
-Reads the per-process files (node-processes and proxies) with numpy memory maps in chunks, puts every stamp on node 0's clock (the ping-pong offsets of the
+Reads the per-process files with numpy memory maps in chunks, puts every stamp on node 0's clock (the ping-pong offsets of the
 header, linear in time between the init and the finalize estimate), spills the node-process records per communicator to a temporary directory
 (--tmp, default $TMPDIR) and analyses one communicator at a time, so the memory is one communicator's records (the largest: about a third of the trace)
 plus compact per-message tables (capped at --max-msgs, uniformly thinned beyond).  Output: a compact text report (--out FILE, default stdout):
   1 header     files, clock offsets, drift and round-trip bounds, sampling, drops
   2 volume     exchanges, messages, bytes per exchange kind and path
-  3 stages     latency p50 / p90 / p99 / max of every stage of an exchange, of a round and of a message (sender wait for the offset word, put post, wire /
-               proxy stages, signal one way, end to end); one block per RUN and a side-by-side comparison when there are several
+  3 stages     latency p50 / p90 / p99 / max of every stage of an exchange, of a round and of a message (sender wait for the offset word, put post, wire,
+               signal one way, end to end); one block per RUN and a side-by-side comparison when there are several
   4 links      per source node -> destination node and per peer distance (shift order): messages, end to end, signal one way, rate
   5 last       who is last: per receiver (the sender whose signal was seen last, by how much), per exchange (the sender node that issued last, the node that
                published its offset word last), which peer ended the waits, with the lag against the median
   6 slowest    the slowest exchanges: per rank stage breakdown, the slowest messages, and the raw event timeline of the slowest
   6b skew      the slowest exchanges by arrival skew (last begin - first begin) with the late node; sections 6 and 7 rank by xt = last done - last begin (after the last arrival)
   7 time       whether slow exchanges / messages cluster in time (a node stalling) or are spread: per-bin counts, Fano factor, persistence, worst bins
-  8 stalls     (COMM_TRACE_HB) the heartbeat gaps of every node (node-process and proxy threads), the OS counters that moved at each gap (vmstat compaction / THP / faults / swap,
+  8 stalls     (COMM_TRACE_HB) the heartbeat gaps of every node (every node), the OS counters that moved at each gap (vmstat compaction / THP / faults / swap,
                pressure, the thread's context switches) and the late exchanges of that node at that time; the skew-ranked exchanges against the heartbeat of their late node
   8a           (COMM_TRACE_HB_MEM) per node, the seconds with pgmigrate_fail > 20000/s with fragmentation score, MemFree, Dirty+Writeback, kcompactd ticks and KFD evicted_ms around them
   8b           (COMM_TRACE_PH, _THR, _WD_MS) the progress-watchdog firings and the slowest exchanges' late nodes: the phase tag of every thread of the node-process at the onset (ecalc/comm_phase.h),
@@ -43,7 +43,6 @@ assert REC.itemsize == 40 and REC2.itemsize == 40
 KIND = ["other", "redist", "result", "spill", "addsh", "layeq", "layv"]
 PATH = ["equal", "v", "rounds"]
 NAN = float("nan")
-PXNONE = 0xFFFFFFFF
 
 
 # ---------------------------------------------------------------- files, clocks
@@ -66,8 +65,7 @@ def load_run(d, label):
     r.files = [read_head(p) for p in sorted(glob.glob(os.path.join(d, "trace_pe*.bin")))]
     if not r.files:
         raise SystemExit("%s: no trace_pe*.bin files" % d)
-    r.nodeproc = [h for h in r.files if not h["meta"]["proxy"]]
-    r.proxies = [h for h in r.files if h["meta"]["proxy"]]
+    r.nodeproc = r.files                           # one file per process (one process per node)
     r.nodes = max(h["meta"]["nodes"] for h in r.files)
     r.meta0 = next((h["meta"] for h in r.nodeproc if h["meta"]["node"] == 0), r.nodeproc[0]["meta"])
     r.T0 = r.meta0["m0"]
@@ -88,10 +86,7 @@ def load_run(d, label):
         for c in h["meta"]["comms"]:
             key = (c["id"], tuple(c["node"]))
             if key not in groups:
-                groups[key] = len(groups); r.comms[groups[key]] = dict(id=c["id"], n=c["n"], node=c["node"], apu=c["apu"], apun={}, legacy=False)
-            ci = r.comms[groups[key]]; ci["apun"][h["meta"]["node"]] = c["apu"]
-            # trace version 1 wrote the device current at the first exchange, which in proxy mode (ppa > 0) is not the communicator's proxy: infer it (infer_apu)
-            ci["legacy"] = ci["legacy"] or (h["meta"].get("version", 1) < 2 and h["meta"].get("ppa", 0) > 0)
+                groups[key] = len(groups); r.comms[groups[key]] = dict(id=c["id"], n=c["n"], node=c["node"], apu=c["apu"])
             lut[c["id"]] = groups[key]
         h["lut"] = lut
     idc = collections.Counter(c["id"] for c in r.comms.values())
@@ -118,35 +113,6 @@ def chunks(h, n=2000000):
     mm = np.memmap(h["path"], dtype=REC, mode="r", offset=h["ro"], shape=(h["nrec"],))
     for i in range(0, h["nrec"], n):
         yield mm[i:i + n]
-
-
-# ---------------------------------------------------------------- proxies: dense per-command tables
-def load_proxies(run):
-    P = {}
-    E = run.ev
-    for h in run.proxies:
-        node, apu = h["meta"]["node"], h["meta"]["apu"]
-        kmax = -1
-        for c in chunks(h):
-            kmax = max(kmax, int(c["aux"].max()))
-        if kmax < 0:
-            continue
-        tab = {k: np.full(kmax + 1, NAN) for k in ("pick", "cfirst", "clast", "sig", "done", "qbeg", "qend", "batch")}
-        tab["nch"] = np.zeros(kmax + 1, np.int32); tab["bytes"] = np.zeros(kmax + 1, np.uint64)
-        for c in chunks(h):
-            t = to_clock0(run, c["t"], node).astype(np.float64); k = c["aux"].astype(np.int64); ev = c["ev"]
-            for name, key in (("P_PICKUP", "pick"), ("P_SIGNAL", "sig"), ("P_DONE", "done"), ("P_QUIET_BEG", "qbeg"), ("P_QUIET_END", "qend"), ("P_BATCH", "batch")):
-                m = ev == E[name]
-                if m.any():
-                    np.fmin.at(tab[key], k[m], t[m])
-            m = ev == E["P_PICKUP"]
-            if m.any():
-                tab["bytes"][k[m]] = c["bytes"][m]
-            m = ev == E["P_CHUNK"]
-            if m.any():
-                np.fmin.at(tab["cfirst"], k[m], t[m]); np.fmax.at(tab["clast"], k[m], t[m]); np.add.at(tab["nch"], k[m], 1)
-        P[(node, apu)] = tab
-    return P
 
 
 # ---------------------------------------------------------------- spill the node-process records per communicator
@@ -247,22 +213,7 @@ def rd_table(R, E):
     return out
 
 
-def infer_apu(m, P, node):
-    """proxy of a communicator on one node for a version-1 trace: the proxy whose ring has the sender's commands (same ring index, picked up 0..2 ms after the post) most often"""
-    best, bs = None, -1
-    sel = np.flatnonzero((m["nsrc"] == node) & (m["pxk"] != PXNONE))
-    for (nd, apu), t in P.items():
-        if nd != node:
-            continue
-        kk = m["pxk"][sel]; ok = kk < len(t["pick"])
-        dt = t["pick"][kk[ok]] - m["t_posted"][sel][ok]
-        sc = int(np.count_nonzero((dt >= 0) & (dt < 2e6)))
-        if sc > bs:
-            best, bs = apu, sc
-    return best
-
-
-def msg_table(R, E, nodes_of_rank, cinfo, P):
+def msg_table(R, E, nodes_of_rank):
     ev = R["ev"]; g = lambda n: R[ev == E[n]]
     pi = g("M_PUT_ISSUE")
     if len(pi) == 0:
@@ -275,33 +226,14 @@ def msg_table(R, E, nodes_of_rank, cinfo, P):
     for name, col, keyf in (("M_PUT_POSTED", "t_posted", sk), ("M_PUT_DONE", "t_done", sk), ("M_SIG_ISSUE", "t_sigi", sk), ("M_ROFF_WAIT", "t_roffw", sk), ("M_ROFF_SEEN", "t_roffs", sk),
                             ("M_ROFF_ISSUE", "t_roffi", rk), ("M_SIG_WAIT", "t_sigw", rk), ("M_SIG_SEEN", "t_sigs", rk)):
         x = g(name); uk, uv = last_per_key(keyf(x), x["t"].astype(np.float64)); m[col] = lookup(bk, uk, uv)
-    x = g("M_PUT_POSTED"); uk, uv = last_per_key(sk(x), x["aux"].astype(np.int64)); m["pxk"] = lookup(bk, uk, uv, np.int64, PXNONE)
     nr = np.array(nodes_of_rank, np.int64); m["nsrc"] = nr[m["src"]]; m["ndst"] = nr[m["dst"]]; m["dist"] = (m["dst"] - m["src"]) % len(nr)
-    n = len(bk)
-    for c in ("pick", "cfirst", "clast", "psig", "pdone"):
-        m[c] = np.full(n, NAN)
-    for node in np.unique(m["nsrc"]):
-        node = int(node)
-        if cinfo["legacy"] and node not in cinfo.setdefault("apuinf", {}):
-            cinfo["apuinf"][node] = infer_apu(m, P, node)
-        apu = cinfo["apuinf"][node] if cinfo["legacy"] else cinfo["apun"].get(node, cinfo["apu"])
-        t = P.get((node, apu))
-        if t is None:
-            continue
-        sel = np.flatnonzero((m["nsrc"] == node) & (m["pxk"] != PXNONE) & (m["pxk"] < len(t["pick"])))
-        kk = m["pxk"][sel]
-        for col, key in (("pick", "pick"), ("cfirst", "cfirst"), ("clast", "clast"), ("psig", "sig"), ("pdone", "done")):
-            m[col][sel] = t[key][kk]
     # derived stages (ns)
     d = {}
     d["roff_wait"] = m["t_roffs"] - m["t_roffw"]                 # sender blocked on the receiver's offset word
     d["roff_oneway"] = m["t_roffs"] - m["t_roffi"]               # receiver's word issued -> sender saw it (cross-node; includes the sender's lateness)
     d["put_post"] = m["t_posted"] - m["t_put"]                   # put / ring-post call
-    d["wire"] = m["t_done"] - m["t_posted"]                      # libfabric / PX1: put posted -> delivery complete (observed by the sender)
-    d["px_ring"] = m["pick"] - m["t_posted"]                     # proxy: ring post -> the proxy takes the command
-    d["px_chunks"] = m["clast"] - m["cfirst"]                    # proxy: first -> last chunk issued
-    d["px_busy"] = m["pdone"] - m["pick"]                        # proxy: pickup -> command's quiet done
-    sig_issue = np.where(np.isfinite(m["t_sigi"]), m["t_sigi"], m["psig"])
+    d["wire"] = m["t_done"] - m["t_posted"]                      # libfabric: put posted -> delivery complete (observed by the sender)
+    sig_issue = m["t_sigi"]
     d["sig_oneway"] = m["t_sigs"] - sig_issue                    # signal issued -> receiver saw it (cross-node)
     d["sig_wait"] = m["t_sigs"] - m["t_sigw"]                    # receiver blocked on the signal
     d["e2e"] = m["t_sigs"] - m["t_put"]                          # put issued -> signal seen (cross-node)
@@ -311,7 +243,7 @@ def msg_table(R, E, nodes_of_rank, cinfo, P):
 
 
 # ---------------------------------------------------------------- accumulation across communicators
-MSG_STAGES = ["roff_wait", "roff_oneway", "put_post", "wire", "px_ring", "px_chunks", "px_busy", "sig_oneway", "sig_wait", "e2e"]
+MSG_STAGES = ["roff_wait", "roff_oneway", "put_post", "wire", "sig_oneway", "sig_wait", "e2e"]
 EX_STAGES = [("copy_sync", lambda e: e["t_copy"] - e["t_copy_iss"]), ("copy_gpu", lambda e: e["copy_gpu"]), ("rcopy_gpu", lambda e: e["rcopy_gpu"]), ("post", lambda e: e["t_posted"] - e["t_begin"]), ("copy", lambda e: e["t_copy"] - e["t_begin"]), ("publish", lambda e: e["t_pub"] - e["t_copy"]),
              ("call", lambda e: e["t_wait"] - e["t_posted"]), ("join", lambda e: e["t_joined"] - e["t_wait"]), ("sigs", lambda e: e["t_sigs"] - e["t_joined"]),
              ("quiet", lambda e: e["t_quiet"] - e["t_sigs"]), ("rcopy", lambda e: e["t_rcopy"] - e["t_rciss"]), ("wait", lambda e: e["t_done"] - e["t_wait"]), ("total", lambda e: e["t_done"] - e["t_begin"])]
@@ -384,9 +316,9 @@ def last_analysis(m, d, nodes, acc):
             acc.last["end_" + col].append((int(a), int(b), float(c)))
 
 
-def add_comm(R, run, cid, cinfo, P, acc, rng, top_k):
+def add_comm(R, run, cid, cinfo, acc, rng, top_k):
     E = run.ev
-    ex = ex_table(R, E); rd = rd_table(R, E); mt = msg_table(R, E, cinfo["node"], cinfo, P)
+    ex = ex_table(R, E); rd = rd_table(R, E); mt = msg_table(R, E, cinfo["node"])
     if ex is not None:
         for name, f in EX_STAGES:
             for kd in np.unique(ex["kind"]):
@@ -430,7 +362,7 @@ def add_comm(R, run, cid, cinfo, P, acc, rng, top_k):
                 v = d[name][m["kind"] == kd]; acc.stage[("msg", name, int(kd))].append(v[np.isfinite(v)].astype(np.float32))
         last_analysis(m, d, run.nodes, acc)
         keep = dict(nsrc=m["nsrc"].astype(np.int16), ndst=m["ndst"].astype(np.int16), dist=m["dist"].astype(np.int16), kind=m["kind"].astype(np.int8), path=m["path"].astype(np.int8), bytes=m["bytes"].astype(np.float32),
-                    t_put=m["t_put"], e2e=d["e2e"].astype(np.float32), sig=d["sig_oneway"].astype(np.float32), rw=d["roff_wait"].astype(np.float32), wire=np.where(np.isfinite(d["wire"]), d["wire"], d["px_busy"]).astype(np.float32),
+                    t_put=m["t_put"], e2e=d["e2e"].astype(np.float32), sig=d["sig_oneway"].astype(np.float32), rw=d["roff_wait"].astype(np.float32), wire=d["wire"].astype(np.float32),
                     comm=np.full(n, cid, np.int32), xseq=m["xseq"].astype(np.int32))
         acc.nmsg += n
         acc.msgs.append(keep)
@@ -468,8 +400,8 @@ def stage_summary(acc):
 def section_header(run, L):
     L.append("== RUN %s  (%s) ==" % (run.label, run.dir))
     m = run.meta0
-    L.append("1 header: %d node-process files, %d proxy files, %d nodes; ppa %s pxsend %s order %s shift %s round_mb %s; sampling 1/%s; records %d, dropped %d" % (
-        len(run.nodeproc), len(run.proxies), run.nodes, m["ppa"], m["pxsend"], m["order"], m["shift"], m["round_mb"], m["sample"], sum(h["nrec"] for h in run.files), sum(h["dropped"] for h in run.nodeproc + run.proxies)))
+    L.append("1 header: %d files, %d nodes; order %s shift %s round_mb %s; sampling 1/%s; records %d, dropped %d" % (
+        len(run.files), run.nodes, m["order"], m["shift"], m["round_mb"], m["sample"], sum(h["nrec"] for h in run.files), sum(h["dropped"] for h in run.files)))
     if any(h["dropped"] for h in run.files):
         L.append("  WARNING: some records were dropped (arena full): the tail of the run is missing there; raise COMM_TRACE_MAX_MB or COMM_TRACE_SAMPLE")
     env = m.get("env", {}); keys = [k for k in sorted(env) if k.startswith("COMM_") or k.startswith("MN_")]
@@ -547,12 +479,12 @@ def fmt_hdr_ex(run, cid, x):
     return "comm %d xseq %d" % (cid, x)
 
 
-def section_slowest(run, acc, L, P, nshow, ntl):
+def section_slowest(run, acc, L, nshow, ntl):
     L.append("6 slowest exchanges by exchange time (xt = last done - last begin, i.e. after the last rank arrived: transport, copies, waits; the arrival skew is listed with each and ranked in 6b; stage values ms on each rank):")
     top = acc.top[:nshow]
     for rank_i, (dur, cid, xs, sub) in enumerate(top):
         cinfo = run.comms[cid]; E = run.ev
-        ex = ex_table(sub, E); mt = msg_table(sub, E, cinfo["node"], cinfo, P)
+        ex = ex_table(sub, E); mt = msg_table(sub, E, cinfo["node"])
         t0 = float(np.nanmin(ex["t_begin"])) if ex is not None else float(sub["t"].min())
         k = int(ex["K"].max()) if ex is not None else 1
         L.append(" #%d comm %s (APU %d) xseq %d kind %s path %s rounds %d: xt %.2f ms; arrival skew %.2f ms" % (rank_i + 1, cinfo["lab"], cinfo["apu"], xs, KIND[int(ex["kind"][0])] if ex is not None else "?", PATH[int(ex["path"].max())] if ex is not None else "?", k,
@@ -566,17 +498,17 @@ def section_slowest(run, acc, L, P, nshow, ntl):
                                                                                                     f(ex["t_quiet"][i] - ex["t_sigs"][i]), f(ex["t_rcopy"][i] - ex["t_rciss"][i]), (ex["t_done"][i] - t0) / 1e6, ex["bytes"][i] / 1048576.0))
         if mt is not None:
             m, d = mt; o = np.argsort(-np.nan_to_num(d["e2e"], nan=-1))[:6]
-            L.append("     slowest messages (us): src->dst (nodes) rnd MiB | roffwait post wire/pxbusy sig1 e2e | roff pub -> put (us)")
+            L.append("     slowest messages (us): src->dst (nodes) rnd MiB | roffwait post wire sig1 e2e | roff pub -> put (us)")
             for i in o:
                 L.append("       %2d->%-2d (%d->%d) r%-3d %6.1f | %9.0f %6.0f %9.0f %7.0f %9.0f | %s" % (m["src"][i], m["dst"][i], m["nsrc"][i], m["ndst"][i], m["rnd"][i], m["bytes"][i] / 1048576.0, d["roff_wait"][i] / 1e3, d["put_post"][i] / 1e3,
-                                                                                                   (d["wire"][i] if np.isfinite(d["wire"][i]) else d["px_busy"][i]) / 1e3, d["sig_oneway"][i] / 1e3, d["e2e"][i] / 1e3,
+                                                                                                   d["wire"][i] / 1e3, d["sig_oneway"][i] / 1e3, d["e2e"][i] / 1e3,
                                                                                                    "%.0f" % ((m["t_put"][i] - m["t_roffi"][i]) / 1e3) if np.isfinite(m["t_roffi"][i]) else "-"))
         if rank_i < ntl:
             L.append("     raw timeline (ms from first begin; node rank event peer round bytes aux), first 160 events:")
             o = np.argsort(sub["t"], kind="stable")[:160]
             names = {v: k for k, v in run.ev.items()}
             for r in sub[o]:
-                L.append("       %9.3f n%-2d r%-2d %-14s peer %-3d rd %-3d %10d %s" % ((int(r["t"]) - t0) / 1e6, cinfo["node"][int(r["me"])] if 0 <= r["me"] < len(cinfo["node"]) else -1, r["me"], names.get(int(r["ev"]), "?"), r["peer"], r["round"], r["bytes"], r["aux"] if r["aux"] != PXNONE else ""))
+                L.append("       %9.3f n%-2d r%-2d %-14s peer %-3d rd %-3d %10d %s" % ((int(r["t"]) - t0) / 1e6, cinfo["node"][int(r["me"])] if 0 <= r["me"] < len(cinfo["node"]) else -1, r["me"], names.get(int(r["ev"]), "?"), r["peer"], r["round"], r["bytes"], r["aux"]))
 
 
 def section_time(run, acc, L, binw, ratio):
@@ -688,7 +620,7 @@ def load_hb(run):
                     sn[2][names[int(r["round"])] if int(r["round"]) < len(names) else "?%d" % int(r["round"])] = int(r["bytes"])
         if gaps or snaps:
             phtl = {tid: ([x[0] for x in sorted(v)], [x[1] for x in sorted(v)]) for tid, v in phraw.items()}
-            out.append(dict(node=node, proc=("px%d" % h["meta"]["apu"]) if h["meta"]["proxy"] else "np", gaps=sorted(gaps), snaps=snaps, phtl=phtl, thr=thr, wds=sorted(wds), phnames=h["meta"].get("phases") or [], gap_ms=h["meta"].get("hb_gap_ms"), hb_ms=h["meta"].get("hb_ms")))
+            out.append(dict(node=node, proc="np", gaps=sorted(gaps), snaps=snaps, phtl=phtl, thr=thr, wds=sorted(wds), phnames=h["meta"].get("phases") or [], gap_ms=h["meta"].get("hb_gap_ms"), hb_ms=h["meta"].get("hb_ms")))
     return out
 
 
@@ -812,19 +744,19 @@ def section_stalls(run, acc, L, hbs):
     if not hbs:
         L.append("   no heartbeat records (COMM_TRACE_HB unset, or an older trace)"); return
     h0 = hbs[0]; L.append("   heartbeat every %s ms, gap threshold %s ms; threads: %d (%s); gaps seen: %d" % (h0["hb_ms"], h0["gap_ms"], len(hbs), ",".join(sorted(set(h["proc"] for h in hbs))), sum(len(h["gaps"]) for h in hbs)))
-    L.append("   per node: gaps (heartbeat thread of the node-process / of the proxies), longest ms, counter totals over the run (last - first snapshot of the node-process):")
+    L.append("   per node: gaps (heartbeat thread of the node-process), longest ms, counter totals over the run (last - first snapshot of the node-process):")
     for nd in range(run.nodes):
         mine = [h for h in hbs if h["node"] == nd]
         if not mine:
             continue
-        gnp = sum(len(h["gaps"]) for h in mine if h["proc"] == "np"); gpx = sum(len(h["gaps"]) for h in mine if h["proc"] != "np")
+        gnp = sum(len(h["gaps"]) for h in mine)
         lg = max([g[1] for h in mine for g in h["gaps"]] or [0]) / 1e6
         tot = ""
         for h in mine:
             if h["proc"] == "np" and len(h["snaps"]) >= 2:
                 ids = sorted(h["snaps"], key=lambda i: h["snaps"][i][0]); a, b = h["snaps"][ids[0]][2], h["snaps"][ids[-1]][2]
                 tot = fmt_delta({k: b[k] - a[k] for k in b if k in a and b[k] != a[k] and (k in HB_KEY or k.startswith("allocstall") or k.startswith("compact_") or k.startswith("numa_"))}, 12)
-        L.append("     node %2d: gaps np %4d px %4d  longest %9.1f ms | %s" % (nd, gnp, gpx, lg, tot))
+        L.append("     node %2d: gaps np %4d  longest %9.1f ms | %s" % (nd, gnp, lg, tot))
     t0 = run.t_first
     allg = sorted([(g[1], g[0], h, g) for h in hbs for g in h["gaps"]], key=lambda x: -x[0])[:30]
     allg.sort(key=lambda x: x[1])
@@ -854,14 +786,13 @@ def section_stalls(run, acc, L, hbs):
 def run_report(run, args, L):
     tmp = tempfile.mkdtemp(prefix="trace_report_", dir=args.tmp)
     try:
-        P = load_proxies(run)
         counts = spill(run, tmp)
         acc = Acc(args.max_msgs); rng = np.random.default_rng(1)
         for cid in sorted(counts, key=lambda c: -counts[c]):
             if cid not in run.comms:
                 continue
             R = np.fromfile(os.path.join(tmp, "c%d.bin" % cid), dtype=REC2)
-            add_comm(R, run, cid, run.comms[cid], P, acc, rng, args.top)
+            add_comm(R, run, cid, run.comms[cid], acc, rng, args.top)
             acc.ncomm += 1
             del R
         S = stage_summary(acc)
@@ -872,7 +803,7 @@ def run_report(run, args, L):
         section_links(run, acc, L)
         section_last(run, acc, L)
         run.t_first = float(np.nanmin(np.concatenate([e["t_start"] for e in acc.exs]))) if acc.exs else 0.0
-        section_slowest(run, acc, L, P, args.top, args.timeline)
+        section_slowest(run, acc, L, args.top, args.timeline)
         section_skew(run, acc, L)
         section_time(run, acc, L, args.bin_s, args.slow_ratio)
         hbs = load_hb(run); section_stalls(run, acc, L, hbs); section_storms(run, L, hbs); section_stall_phases(run, acc, L, hbs)
@@ -1043,25 +974,23 @@ def compare_runs(dirsA, dirsB, labels, L):
 
 
 # ---------------------------------------------------------------- selftest: a synthetic trace
-def synth(d, nodes=3, nex=60, seed=3, ncomm=1, legacy=False):
-    """one communicator (id 4, APU 0), rounds path K = 1 with PX3 proxies; node 2 is the slow one (late by 4 ms in 10% of the exchanges, in a burst);
-    node clocks: node j = true + j*1.5 ms + drift j*40 us/s.
-    ncomm > 1: proxy mode with ncomm communicators (ids 4..), communicator c on proxy (APU) c; each proxy has its own ring index counter; exchange x belongs to communicator (x-1) % ncomm.
-    The header of the communicators says APU c (trace version 2), or with legacy = True APU 0 and version 1 (what the old writer did)."""
+def synth(d, nodes=3, nex=60, seed=3):
+    """one communicator (id 4, APU 0), rounds path K = 1; node 2 is the slow one (late by 4 ms in 10% of the exchanges, in a burst);
+    node clocks: node j = true + j*1.5 ms + drift j*40 us/s."""
     rng = np.random.default_rng(seed); EVN = ["E_BEGIN", "E_COPY_ISS", "E_COPY_DONE", "E_PUBLISHED", "E_POSTED", "E_WAIT", "E_JOINED", "E_SIGS_SEEN", "E_QUIET_END", "E_RCOPY_ISS", "E_RCOPY_DONE", "E_DONE",
                                            "R_BEGIN", "R_PUBLISHED", "R_SCOPY_ISS", "R_SCOPY_DONE", "R_SENDS_DONE", "R_SIGS_DONE", "R_QUIET_END", "R_RCOPY_ISS", "R_END",
                                            "M_ROFF_ISSUE", "M_ROFF_WAIT", "M_ROFF_SEEN", "M_PUT_ISSUE", "M_PUT_POSTED", "M_PUT_DONE", "M_SIG_ISSUE", "M_SIG_WAIT", "M_SIG_SEEN", "M_FLUSH_BEG", "M_FLUSH_END",
-                                           "P_PICKUP", "P_BATCH", "P_CHUNK", "P_SIGNAL", "P_QUIET_BEG", "P_QUIET_END", "P_DONE", "H_GAP", "H_CNT", "H_PHASE", "H_THR", "H_WD"]
+                                           "H_GAP", "H_CNT", "H_PHASE", "H_THR", "H_WD"]
     PHN = ["NONE", "HIP_MALLOC", "VSLOT_RELEASE", "RD_FWD"]; STR = ["ecalc", "futex_wait_queue", "hrtimer_nanosleep"]
     HBN = ["compact_stall", "thr_nivcsw", "pgmajfault", "pgmigrate_fail", "bud_n0_Normal_frag", "mi_MemFree_kb", "mi_Dirty_kb", "mi_Writeback_kb", "kcompactd0_ticks", "kfd_present"]
     EV = {n: i + 1 for i, n in enumerate(EVN)}
     base = 5_000_000_000_000; off = lambda j, t: int(j * 1_500_000 + j * 40e-6 * (t - base))        # node j's clock minus true, ns
-    recs = collections.defaultdict(list); prec = collections.defaultdict(list); kcount = collections.defaultdict(int)
+    recs = collections.defaultdict(list)
     def put(node, ev, t, comm, me, peer, seq, xs, rnd=0, nb=0, aux=0, kp=(5 | (2 << 4))):
         recs[node].append((int(t) + off(node, t), nb, comm, seq, xs, aux, rnd, EV[ev], kp, me, peer))
     t = base + 10_000_000
     for x in range(1, nex + 1):
-        ci = (x - 1) % ncomm; cid = 4 + ci
+        cid = 4
         slowx = 20 <= x < 26
         begin = [t + int(rng.integers(0, 300_000)) + (4_000_000 if (slowx and j == 2) else 0) for j in range(nodes)]
         pub = [b + 800_000 for b in begin]; done_t = 0
@@ -1079,12 +1008,8 @@ def synth(d, nodes=3, nex=60, seed=3, ncomm=1, legacy=False):
                     continue
                 tw = pub[s] + 100_000; seen = max(tw, pub[r] + 60_000 + int(rng.integers(0, 20_000))); tp = seen + 5_000
                 put(s, "M_ROFF_WAIT", tw, cid, s, r, x, x); put(s, "M_ROFF_SEEN", seen, cid, s, r, x, x); put(s, "M_PUT_ISSUE", tp, cid, s, r, x, x, nb=8 << 20)
-                k = kcount[(s, ci)]; kcount[(s, ci)] += 1
-                put(s, "M_PUT_POSTED", tp + 8_000, cid, s, r, x, x, nb=8 << 20, aux=k)
-                pick = tp + 20_000 + int(rng.integers(0, 10_000)); first = pick + 3_000; last = first + 300_000; sig = last + 10_000; done = sig + 300_000
-                node_p = prec[(s, ci)]; nodeoff = off(s, pick)
-                for ev, tt, extra in (("P_PICKUP", pick, 8 << 20), ("P_CHUNK", first, 4 << 20), ("P_CHUNK", last, 4 << 20), ("P_SIGNAL", sig, 8 << 20), ("P_QUIET_BEG", sig + 1_000, 0), ("P_QUIET_END", done, 0), ("P_DONE", done, 0)):
-                    node_p.append((int(tt) + nodeoff, extra, cid, x, 0, k, 0, EV[ev], 0, s, r))
+                put(s, "M_PUT_POSTED", tp + 8_000, cid, s, r, x, x, nb=8 << 20)
+                sig = tp + 345_000 + int(rng.integers(0, 10_000)); put(s, "M_PUT_DONE", sig - 15_000, cid, s, r, x, x, nb=8 << 20); put(s, "M_SIG_ISSUE", sig, cid, s, r, x, x, nb=8 << 20)
                 sig_issue[(s, r)] = sig
                 put(r, "M_SIG_WAIT", max(pub[r] + 700_000, tp), cid, r, s, x, x)
         for r in range(nodes):
@@ -1112,18 +1037,16 @@ def synth(d, nodes=3, nex=60, seed=3, ncomm=1, legacy=False):
     os.makedirs(d, exist_ok=True)
     clock0 = [{"node": j, "off_m": j * 1_500_000, "off_r": 0, "rtt": 8000 + 100 * j, "rtt_med": 12000, "t0": base} for j in range(1, nodes)]
     clock1 = [{"node": j, "off_m": int(j * 1_500_000 + j * 40e-6 * (t - base)), "off_r": 0, "rtt": 8100, "rtt_med": 12000, "t0": int(t)} for j in range(1, nodes)]
-    def wr(pe, node, proxy, apu, rows, comms, clock):
-        meta = {"version": 1 if legacy else 2, "rec_bytes": 40, "pe": pe, "node": node, "nodes": nodes, "ppn": 5, "ppa": 1, "proxy": proxy, "apu": apu, "pxsend": 3, "order": 2, "shift": 1, "round_mb": 1024.0, "sample": 1, "arena_mb": 256,
-                "nrec": len(rows), "dropped": 0, "m0": base + off(node, base), "r0": 0, "events": EVN, "hbnames": HBN, "hbstrs": STR, "phases": PHN, "hb_ms": 1, "hb_gap_ms": 20, "comms": comms, "clock": clock, "env": {"COMM_TRACE": "1", "COMM_SHMEM_PX_SEND": "3"}}
+    def wr(pe, node, rows, comms, clock):
+        meta = {"version": 2, "rec_bytes": 40, "pe": pe, "node": node, "nodes": nodes, "order": 2, "shift": 1, "round_mb": 1024.0, "sample": 1, "arena_mb": 256,
+                "nrec": len(rows), "dropped": 0, "m0": base + off(node, base), "r0": 0, "events": EVN, "hbnames": HBN, "hbstrs": STR, "phases": PHN, "hb_ms": 1, "hb_gap_ms": 20, "comms": comms, "clock": clock, "env": {"COMM_TRACE": "1"}}
         js = json.dumps(meta).encode(); js += b" " * ((8 - len(js) % 8) % 8)
         arr = np.array(rows, dtype=REC) if rows else np.zeros(0, REC)
         with open(os.path.join(d, "trace_pe%d.bin" % pe), "wb") as f:
             f.write(struct.pack("<8sIIQQQQ", b"ECTRACE1", 40, len(js), 64, 64 + len(js), len(arr), 0) + b"\0" * 16); f.write(js); arr.tofile(f)
     for j in range(nodes):
         rows = sorted(recs[j], key=lambda r: r[0])
-        wr(5 * j + 4, j, 0, -1, rows, [{"id": 4 + c, "n": nodes, "rank": j, "apu": 0 if legacy else c, "node": list(range(nodes))} for c in range(ncomm)], [clock0, clock1] if j == 0 else [])
-        for c in range(ncomm):
-            wr(5 * j + c, j, 1, c, sorted(prec[(j, c)], key=lambda r: r[0]), [], [])
+        wr(j, j, rows, [{"id": 4, "n": nodes, "rank": j, "apu": 0, "node": list(range(nodes))}], [clock0, clock1] if j == 0 else [])
 
 
 def selftest():
@@ -1157,14 +1080,6 @@ def selftest():
         s8 = txt.split("8b stall classification")[1] if "8b stall classification" in txt else ""
         if "t101:VSLOT_RELEASE" not in s8 or "t102:RD_FWD" not in s8 or "futex_wait_queue" not in s8 or "dly 2.5ms" not in s8 or "n2 1/3/1" not in s8:
             bad.append("the phase tags / watchdog snapshot of node 2 were not reported (8b)")
-        # proxy mode, 4 communicators on 4 proxies: the px figures must be the synthetic ones (post -> pick ~ 12-18 us, chunks 300 us, one-way signal ~ 42 us) with the header
-        # APU (version 2) and with the legacy header (every communicator APU 0, version 1: the proxy is inferred); the old mapping by the header APU fails both
-        for leg in (False, True):
-            synth(os.path.join(tmp, "px%d" % leg), ncomm=4, legacy=leg)
-            rp = load_run(os.path.join(tmp, "px%d" % leg), "px"); Lp = []; Sp = run_report(rp, args, Lp)
-            pr, sg = Sp[("msg", "px_ring", 5)], Sp[("msg", "sig_oneway", 5)]
-            if not (10 < pr["p50"] < 20): bad.append("proxy mode (legacy %s): px_ring p50 %.1f us, expected 10..20: comm -> proxy mapping wrong" % (leg, pr["p50"]))
-            if not (35 < sg["p50"] < 55): bad.append("proxy mode (legacy %s): signal one way p50 %.1f us, expected ~42" % (leg, sg["p50"]))
         print(txt if "-v" in sys.argv else "selftest: report %d lines" % len(L))
         for b in bad:
             print("selftest FAIL:", b)

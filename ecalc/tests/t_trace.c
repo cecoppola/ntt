@@ -16,9 +16,9 @@ int main(int argc, char **argv)
 {
     if (argc < 2) return 2;
     setenv("COMM_TRACE_WD_MS", "50", 1); setenv("COMM_TRACE_THR", "1", 1); setenv("COMM_TRACE_PH", "1", 1);
-    tr_init(0);
+    tr_init();
     if (!g_tr.on) { fprintf(stderr, "t_trace: set COMM_TRACE=1\n"); return 2; }
-    setenv("COMM_TRACE_HB", "5", 1); setenv("COMM_TRACE_HB_GAP_MS", "1", 1); tr_hb_start(0);
+    setenv("COMM_TRACE_HB", "5", 1); setenv("COMM_TRACE_HB_GAP_MS", "1", 1); tr_hb_start();
     if (!g_hb.started) { printf("FAIL: no heartbeat thread\n"); return 1; }
     if (!ec_ph_on) { printf("FAIL: phase tags not on\n"); return 1; }
     { int p0 = ec_ph(EC_PH_HIP_MALLOC); usleep(400000); int p1 = ec_ph(EC_PH_VSLOT_RELEASE); ec_ph(p1); ec_ph(p0); if (p0 != 0 || p1 != EC_PH_HIP_MALLOC) { printf("FAIL: ec_ph return value\n"); return 1; } }

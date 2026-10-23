@@ -30,15 +30,8 @@ static const char *const cfg_names[] = {
     "COMM_SHMEM_HUGETLB",
     "COMM_SHMEM_NP_HEAP_THP",
     "COMM_SHMEM_ORDER",
-    "COMM_SHMEM_PE_PER_APU",
     "COMM_SHMEM_POOL_MB",
     "COMM_SHMEM_POOL_NEED_MB",
-    "COMM_SHMEM_PROXY",
-    "COMM_SHMEM_PX_KCOPY",
-    "COMM_SHMEM_PX_NUMA",
-    "COMM_SHMEM_PX_SCHED",
-    "COMM_SHMEM_PX_SEND",
-    "COMM_SHMEM_PX_THP",
     "COMM_SHMEM_RING_KB",
     "COMM_SHMEM_ROUND_MB",
     "COMM_SHMEM_SERIAL",
@@ -51,7 +44,6 @@ static const char *const cfg_names[] = {
     "COMM_TRACE_HB",
     "COMM_TRACE_HB_GAP_MS",
     "COMM_TRACE_HB_MEM",
-    "COMM_TRACE_HB_PX",
     "COMM_TRACE_MAX_MB",
     "COMM_TRACE_PH",
     "COMM_TRACE_SAMPLE",
@@ -178,4 +170,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_ROUND_MB",
     "XSHMEM_YIELD",
 };
-#define CFG_NAMES_N 176
+#define CFG_NAMES_N 168

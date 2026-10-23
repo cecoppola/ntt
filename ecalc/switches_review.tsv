@@ -79,12 +79,6 @@ T_PATCH_UNPACK	test	ecalc/tests/t_patch.c	2027-04-12	test harness setting
 DM_MN_WRAP	fallback	P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF)	2026-11-11	on by default since D22; =0 keeps the old low-product form; 6-node (P24) dm -6.25 s, total -2.86 s n.s., +5.4 GB/APU, in the memory model (DEF)
 BS_BATCH_PIPE	fallback	coordinator (D20, results/KERNELS.md §N3)	2026-11-11	on by default since D20; =0 keeps the old batch-tier host side; remove it at review
 NEWTON_CHAIN_GUARD	fallback	coordinator (D25, results/DIVISION.md §RECIP)	2026-11-11	on by default since D25; =0 keeps the old chain; digits identical (the division is exact either way); removes a rare fatal (chains of exact doublings)
-COMM_SHMEM_PE_PER_APU	fallback	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	=0 with COMM_OFI=0 restores the plain SHMEM data path; 1 is the COMM_OFI=0 default since D31 (2026-10-14)
-COMM_SHMEM_PROXY	experiment	N7b	2026-11-14	goes with COMM_SHMEM_PE_PER_APU
-COMM_SHMEM_PX_KCOPY	fallback	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	=0 restores hipMemcpyAsync (SDMA) for proxy-pool copies; default in the proxy mode since D31 (2026-10-14)
-COMM_SHMEM_PX_THP	fallback	coordinator (D36, results/SHMEM_ITEMS.md §N7G)	2027-03-31	permanent fallback (D49, 2026-10-18): review at the target session; =0 restores 4 KiB helper heaps; default 1 in the proxy mode since D36 (2026-10-15)
-COMM_SHMEM_PX_NUMA	fallback	coordinator (D31, results/SHMEM_ITEMS.md §N7D)	2026-11-14	=0 = first touch; default since D31 (2026-10-14)
-COMM_SHMEM_PX_SEND	fallback	coordinator (D53, results/SHMEM.md)	2026-11-18	=1 restores the batch-then-quiet send; default 3 (PX3) when unset under COMM_SHMEM_PE_PER_APU=1 with an OpenSHMEM 1.5 build (else 1) since D53 (user 2026-10-19, items 98v, 99b)
 COMM_SHMEM_NP_HEAP_THP	fallback	coordinator (D48, results/SHMEM.md)	2026-11-18	=0 restores the 4 KiB node-process heap; default 1 since D48 (2026-10-18, items 97q/97r/97s/97t: no compaction stalls with it)
 COMM_TRACE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_TRACE_SAMPLE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
@@ -94,11 +88,9 @@ COMM_TRACE_CLOCK_N	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or 
 COMM_TRACE_HB	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_TRACE_HB_GAP_MS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_TRACE_HB_MEM	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-COMM_TRACE_HB_PX	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_TRACE_PH	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_TRACE_THR	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_TRACE_WD_MS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-COMM_SHMEM_PX_SCHED	experiment	T1 (D57)	2026-11-18	off by default (0 = today's PX3, code path unchanged); W >= 1: whole put-with-signal per command + shifted-ring peer walk, at most W senders per receiver (99: no window); auto: 99 up to 4 nodes else 0; 4 n -14 s, 2-3 n neutral, 6 n loses (results/SHMEM.md)
 COMM_SHMEM_HUGETLB	experiment	L5	2027-03-31	off by default; node-process heap from the 2 MiB hugetlb pool (aac7 has no pool: falls back to NP_HEAP_THP); review at the target session
 MN_NONPOW2_MIN	experiment	T2 (D57)	2026-11-19	the auto rule's threshold (digits per node, 4.5e10)
 MN_NONPOW2_CAP	experiment	T2 (D57)	2026-11-19	auto since Q58 (user 2026-10-20): on from MN_NONPOW2_MIN digits per node; 6 n -18 s libfabric, +41 GB/node planes; 1 = on, 0 = off

@@ -52,14 +52,15 @@ digits up to 10¹¹.
 | 6 nodes, 3.8646 × 10¹¹ digits (repeat, test cluster, defaults of 209712f, no writes, 2026-10-13 day plan) | mean 197.1 s, sd 12.0 s, min 181.1 s, max 224.8 s over 34 runs; 0 hangs (m) | `results/NIGHT_RUNS.md §DAY` §4 |
 | 6 nodes, 3.8646 × 10¹¹ digits (repeat on main 1aa2b80, after the CKPT, N7 and N7b merges, aac7, 2026-10-14, no writes) | mean 190.70 s, sd 12.03 s, min 175.38 s, max 217.78 s over 31 runs; 0 hangs; gates at 1/2/4/6 nodes PASS (digits identical); SHMEM-path sweep 24/24 digits identical at 1 to 6 nodes (m; not a paired speed claim) | 2026-10-14 repeat; results/NIGHT_RUNS.md §NIGHT2 |
 
-**SHMEM transport (`COMM_OFI=0`, proxy mode).** The device exchanges can run over Cray SHMEM instead of libfabric: one helper
-process per APU (`COMM_SHMEM_PE_PER_APU=1`, default under `COMM_OFI=0`) with huge-page heaps (`COMM_SHMEM_PX_THP=1`, D36, and
-`COMM_SHMEM_NP_HEAP_THP=1`, D48, both defaults). The random multi-second stalls were kernel proactive compaction of the node
-process's pinned 4 KiB SHMEM heap evicting the GPU queues; with the heap in 2 MiB pages there were 0 stalls in 16 runs at 3 nodes
-and 0 in 6 at 2 nodes, against 9 in 24 without (m). At 2 nodes SHMEM equals libfabric (43.3-45.1 against 43.0-45.2 s); at 3 nodes it is
-about 6 % behind (49.6 against 46.6 s, m). At 6 nodes, 3.8646 × 10¹¹ digits, libfabric takes 184.5 s (4 runs, m) and SHMEM took
-286.0 s mean over 24 runs, best four 220.5 s (m) before the heap fix; the 6-node figure with the fix is not yet measured
-(TASKS). `COMM_TRACE` (v2: heartbeat, thread, watchdog and phase tags, memory counters) is the diagnostic. Evidence:
+**SHMEM transport (`COMM_OFI=0`).** The device exchanges can run over Cray SHMEM puts instead of libfabric (the plain data path
+of `comm_shmem.c`; kept as the reference for the Cray SHMEM 12.1 port). The one-helper-process-per-APU "proxy mode"
+(`COMM_SHMEM_PE_PER_APU`, its `COMM_SHMEM_PX_*` switches and its trace mode) was removed in P7 (2026-10-22, user Q78); its measured
+results stay below and in `results/SHMEM.md`. With the node-process heap in 2 MiB pages (`COMM_SHMEM_NP_HEAP_THP=1`, D48,
+default) the random multi-second stalls were gone: they were kernel proactive compaction of the node
+process's pinned 4 KiB SHMEM heap evicting the GPU queues; there were 0 stalls in 16 runs at 3 nodes
+and 0 in 6 at 2 nodes, against 9 in 24 without (m). With the proxy mode, at 2 nodes SHMEM equalled libfabric (43.3-45.1 against 43.0-45.2 s); at 3 nodes it was
+about 6 % behind (49.6 against 46.6 s, m). At 6 nodes, 3.8646 × 10¹¹ digits, libfabric takes 184.5 s (4 runs, m) and the SHMEM proxy mode took
+286.0 s mean over 24 runs, best four 220.5 s (m) before the heap fix. `COMM_TRACE` (v2: heartbeat, thread, watchdog and phase tags, memory counters) is the diagnostic. Evidence:
 `results/SHMEM.md`, `results/SHMEM_STALLS.md`. SHMEM stays a selectable transport; libfabric remains the default wherever a
 cxi NIC is present.
 

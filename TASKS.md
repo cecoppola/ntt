@@ -48,6 +48,7 @@ One line each (what, why, size); nothing here is started without the user's word
 - D54 (user 2026-10-19): `COMM_SHMEM_PEER_ORDER` and `COMM_SHMEM_PX_BLOCK_MB` removed (main 66e34d0; gates 7/7 and acceptance 23/23, items 99l and 99m): peer loops walk in rank order, the PX3 chunk is the fixed 4 MiB.
 - Q58 (user 2026-10-20): `MN_NONPOW2_CAP` default auto = on only from `MN_NONPOW2_MIN` (4.5e10) digits per node-process, off below (3 n 6e10 was +8.9 s with it on; a group whose size is not a power of two takes the next power-of-two plane: 6 n 3.70e11 -18.3 s with libfabric, +41.3 GB per node of plane memory; `=1` forces on, `=0` restores the power-of-two plane; results/DIVISION.md).
 - Q59 (user 2026-10-20): `COMM_SHMEM_PX_SCHED` unset = `auto` (99 up to 4 nodes, else PX3; 4 n -14 s; `=0` restores PX3; results/SHMEM.md).
+- Q78 (user 2026-10-22): the comm_shmem.c proxy mode (`COMM_SHMEM_PE_PER_APU`, `COMM_SHMEM_PX_*`, `COMM_TRACE_HB_PX`) was removed (branch p7); D53, D54 and Q59 above and the proxy rows of RESULTS.md are history. Kept: plain SHMEM path, `COMM_SHMEM_NP_HEAP_THP`, `COMM_SHMEM_STAGE_SLOT_MB` (Q79, until the Cray SHMEM 12.1 port is tested).
 - Q60 (user 2026-10-20): aac7 profile `COMM_SHMEM_ROUND_MB=128` (was 1024; host staging 10.2 -> 3.1 GB per node at 2 n, no time lost at 2-6 n; lets `MN_NONPOW2_CAP` fit 3.8646e11 at 6 n for SHMEM; results/SHMEM.md).
 
 ## Ideas (saved, not scheduled)

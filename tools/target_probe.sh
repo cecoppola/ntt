@@ -84,7 +84,7 @@ kv THP_khugepaged_defrag "$(cat /sys/kernel/mm/transparent_hugepage/khugepaged/d
 kv BUDDY_FRAG_SCORE "$(awk '{lo=0;hi=0;for(i=5;i<=NF;i++){p=$i*2^(i-5); if(i-5<9)lo+=p; else hi+=p}; if(lo+hi>0)printf "%s%s:%d ",$2,$4,100*lo/(lo+hi)}' /proc/buddyinfo 2>/dev/null)"
 kv BUDDY_FREE_GE2M_MB "$(awk '{h=0;for(i=14;i<=NF;i++)h+=$i*2^(i-5)*4/1024; printf "%s%s:%d ",$2,$4,h}' /proc/buddyinfo 2>/dev/null)"
 kv KFD_PRESENT "$([ -d /sys/class/kfd/kfd/proc ] && echo "yes (per-process evicted_ms under /sys/class/kfd/kfd/proc/<pid>/stats_<gpu>/ while a job runs)" || echo no)"
-# MADV_COLLAPSE (25) on a 2 MiB aligned anonymous mapping: EINVAL = kernel without it or no free 2 MiB block, seen on a loaded host (needs >= 6.1 or a backport); COMM_SHMEM_NP_HEAP_THP / PX_THP print a failure line then
+# MADV_COLLAPSE (25) on a 2 MiB aligned anonymous mapping: EINVAL = kernel without it or no free 2 MiB block, seen on a loaded host (needs >= 6.1 or a backport); COMM_SHMEM_NP_HEAP_THP prints a failure line then
 kv KERNEL_GE_6_1 "$(uname -r | awk -F'[.-]' '{print ($1>6||($1==6&&$2>=1))?"yes":"no (MADV_COLLAPSE only with a backport)"}')"
 kv MADV_COLLAPSE "$(python3 -I -c 'import mmap
 e=None
@@ -229,25 +229,25 @@ propose() {
     echo "# on-node path: /dev/xpmem=$(fact XPMEM_DEV); 2-PE shmem_ptr/put/get: $(fact SHMEM_TWOPE_PROBE)"
     echo "# kernel $(fact KERNEL): THP $(fact THP_enabled) | defrag $(fact THP_defrag) | shmem $(fact THP_shmem_enabled); proactiveness=$(fact KERNEL_MM_COMPACTION_PROACTIVENESS) unevictable=$(fact KERNEL_MM_COMPACT_UNEVICTABLE_ALLOWED); hugetlb 2M free $(fact HUGETLB_2M_FREE) of $(fact HUGETLB_2M_NR); MADV_COLLAPSE: $(fact MADV_COLLAPSE)"
     echo "# SHMEM memory advice: $(memadvice)"
-    echo "# COMM_SHMEM_PE_PER_APU advice: $(advice)"
+    echo "# SHMEM NIC advice: $(advice)"
     echo "# ECALC_OUT_DIR / MNACCEPT_TMP: pick a shared, non-RAM directory from the FS_CANDIDATE lines of facts.txt; the single-file write rate comes from the runbook step 'output FS'"
   } >> "$P"
 }
 memadvice() {  # runbook "First SHMEM run on the target": how the kernel memory facts map to switches
   local fh mc nr; fh=$(fact HUGETLB_2M_FREE); mc=$(fact MADV_COLLAPSE); nr=$(fact HUGETLB_2M_NR)
-  case "$mc" in works*) ;; "") echo -n "MADV_COLLAPSE untested (run the node phase with --hold); ";; *) echo -n "MADV_COLLAPSE refused (unsupported kernel, or no free 2 MiB block: repeat on an idle node) -> COMM_SHMEM_NP_HEAP_THP / PX_THP print a failure line and keep 4 KiB pages (see runbook); ";; esac
+  case "$mc" in works*) ;; "") echo -n "MADV_COLLAPSE untested (run the node phase with --hold); ";; *) echo -n "MADV_COLLAPSE refused (unsupported kernel, or no free 2 MiB block: repeat on an idle node) -> COMM_SHMEM_NP_HEAP_THP prints a failure line and keep 4 KiB pages (see runbook); ";; esac
   if [ -n "$fh" ] && [ "$fh" -gt 0 ] 2>/dev/null; then echo -n "hugetlb pool present ($fh free 2 MiB pages): size it to the heap and try COMM_SHMEM_HUGETLB=1 (heap-size/2 MiB per node-process); "
   else echo -n "no hugetlb pool (nr_hugepages=${nr:-?}): COMM_SHMEM_HUGETLB falls back to NP_HEAP_THP; "; fi
   echo "proactiveness $(fact KERNEL_MM_COMPACTION_PROACTIVENESS): keep it, A/B 0 only if the first run shows kcompactd stalls or KFD evicted_ms"
 }
-advice() {  # the SHMEM facts that decide COMM_SHMEM_PE_PER_APU (see profiles/README.md runbook step 9)
+advice() {  # the SHMEM NIC facts (see profiles/README.md runbook step 9)
   local nics n2 n4 two
   n2=$(fact SHMEM_NICS2_RC); n4=$(fact SHMEM_NICS4_RC); two=$(fact SHMEM_TWOPE_PROBE)
   [ -n "$n2" ] || { echo "UNKNOWN (SHMEM runs not done: rerun with --hold on a compute node)"; return; }
-  if [ "$n4" = 0 ]; then echo "one PE accepts SHMEM_OFI_NUM_NICS=4 -> one PE can use >1 NIC; try PE_PER_APU=0 with NUM_NICS=$(fact CXI_DEV_COUNT) first (measure), then 1"
-  elif [ "$n2" = 0 ]; then echo "one PE accepts NUM_NICS=2 but not 4 -> 1 PE per APU gets both of its NICs (PE_PER_APU=1 is the 2-NIC form)"
-  else echo "one PE accepts only 1 NIC -> PE_PER_APU=1 uses one NIC per APU (the two-PEs-per-APU form was removed)"; fi
-  case "$two" in *"nonnull=0/"*) echo "# NOTE: shmem_ptr is NULL for a same-node peer: no on-node path, the proxy mode needs the /dev/shm heap workaround (N7b)";; esac
+  if [ "$n4" = 0 ]; then echo "one PE accepts SHMEM_OFI_NUM_NICS=4 -> one PE can use >1 NIC; try NUM_NICS=$(fact CXI_DEV_COUNT) first (measure), then 1"
+  elif [ "$n2" = 0 ]; then echo "one PE accepts NUM_NICS=2 but not 4 -> one PE per APU gets both of its NICs"
+  else echo "one PE accepts only 1 NIC -> one PE per APU uses one NIC per APU"; fi
+  case "$two" in *"nonnull=0/"*) echo "# NOTE: shmem_ptr is NULL for a same-node peer: no on-node path";; esac
 }
 report() {
   echo "=== target_probe: facts ($F) ==="

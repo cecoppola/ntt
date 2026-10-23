@@ -1,9 +1,8 @@
-/* comm_trace.h - COMM_TRACE=1 (default off): the per-message trace of the SHMEM / libfabric / proxy exchanges (included by comm_shmem.c only; all static).
+/* comm_trace.h - COMM_TRACE=1 (default off): the per-message trace of the SHMEM / libfabric exchanges (included by comm_shmem.c only; all static).
  *
  * What it records.  Fixed 40-byte binary records (struct tr_rec) written by whichever thread runs the step, into chunks claimed from one preallocated
  * per-process arena (mmap, zero pages untouched until used): no lock, no malloc, one atomic add per 4096 records.  Each record is a stamp
- * (CLOCK_MONOTONIC ns) of one stage of an exchange, of a round, or of ONE message (sender -> receiver of one pair in one round), or -- in the proxy
- * processes (COMM_SHMEM_PE_PER_APU=1) -- of one command of the proxy's ring.  The arena is written to one file per process at exit
+ * (CLOCK_MONOTONIC ns) of one stage of an exchange, of a round, or of ONE message (sender -> receiver of one pair in one round).  The arena is written to one file per process at exit
  * (COMM_TRACE_DIR, default /tmp/ecalc_trace_<job>_<step>/trace_pe<PE>.bin): a 64-byte header, a JSON text (node, PE, switches, the communicator table,
  * the clock-offset estimates, the event names, drop counts), then the records.  tools/trace_report.py reads them.
  *
@@ -14,10 +13,10 @@
  *
  * Node heartbeat (COMM_TRACE_HB=<ms>, tr_hb_start): a thread per process wakes every <ms>; a wake-up later than COMM_TRACE_HB_GAP_MS (default 20) after the previous one stamps H_GAP and a snapshot of cheap OS
  * counters (/proc/vmstat compaction / THP / major faults / allocstall / swap / numa, /proc/pressure (cpu, memory, io), the thread's own context switches and faults), and every 1000 ms a periodic snapshot (so a stall can be
- * correlated even when the heartbeat thread itself stalled).  COMM_TRACE_HB_PX=1 also starts it in the proxy processes.  Nothing is pinned; the cost is one wake-up per <ms> (see ecalc/README.md).
+ * correlated even when the heartbeat thread itself stalled).  Nothing is pinned; the cost is one wake-up per <ms> (see ecalc/README.md).
  *
- * Off: g_tr.on is 0 and every site is one predictable branch on it.  Switches: COMM_TRACE, COMM_TRACE_SAMPLE, COMM_TRACE_MAX_MB (node-process arena,
- * default 256; a proxy gets a quarter, at least 16), COMM_TRACE_DIR, COMM_TRACE_HB, COMM_TRACE_HB_GAP_MS, COMM_TRACE_HB_PX, COMM_TRACE_HB_MEM, COMM_TRACE_CLOCK_N (ping-pong iterations of the clock estimate, default 50). */
+ * Off: g_tr.on is 0 and every site is one predictable branch on it.  Switches: COMM_TRACE, COMM_TRACE_SAMPLE, COMM_TRACE_MAX_MB (arena MiB,
+ * default 256, at least 16), COMM_TRACE_DIR, COMM_TRACE_HB, COMM_TRACE_HB_GAP_MS, COMM_TRACE_HB_MEM, COMM_TRACE_CLOCK_N (ping-pong iterations of the clock estimate, default 50). */
 #ifndef EC_COMM_TRACE_H
 #define EC_COMM_TRACE_H
 #include <stdint.h>
@@ -40,7 +39,7 @@
 #endif
 
 /* event ids start at 1 (0 = an unused record slot).  E_: the exchange (peer -1); R_: a round of the rounds path (round = j); M_: one message (me = the rank
- * that stamps it, peer = the other end); P_: a proxy command (me = node, peer = destination node, aux = ring index k); H_: the heartbeat thread (COMM_TRACE_HB): H_GAP = one observed wake-up gap (bytes = gap ns, aux = snapshot id),
+ * that stamps it, peer = the other end); H_: the heartbeat thread (COMM_TRACE_HB): H_GAP = one observed wake-up gap (bytes = gap ns, aux = snapshot id),
  * H_CNT = one OS counter of a snapshot (aux = snapshot id, round = counter index into the JSON "hbnames", bytes = its value, seq = 0 snapshot taken at a gap, 1 the periodic one, 2 a watchdog one),
  * H_PHASE = a thread changed its phase tag (comm_phase.h; comm = tid, aux = new tag, bytes = old tag, me = thread slot), H_THR = one thread of a snapshot (comm = snapshot id, seq = tid, xseq = wchan index and
  * peer = thread name index into the JSON "hbstrs", me = last CPU, round = phase tag, aux = ms in that phase, kp = snapshot kind | 128 for the heartbeat thread itself, bytes = run_delay ns | state char << 56),
@@ -49,7 +48,6 @@
     X(E_BEGIN) X(E_COPY_ISS) X(E_COPY_DONE) X(E_PUBLISHED) X(E_POSTED) X(E_WAIT) X(E_JOINED) X(E_SIGS_SEEN) X(E_QUIET_END) X(E_RCOPY_ISS) X(E_RCOPY_DONE) X(E_DONE) \
     X(R_BEGIN) X(R_PUBLISHED) X(R_SCOPY_ISS) X(R_SCOPY_DONE) X(R_SENDS_DONE) X(R_SIGS_DONE) X(R_QUIET_END) X(R_RCOPY_ISS) X(R_END) \
     X(M_ROFF_ISSUE) X(M_ROFF_WAIT) X(M_ROFF_SEEN) X(M_PUT_ISSUE) X(M_PUT_POSTED) X(M_PUT_DONE) X(M_SIG_ISSUE) X(M_SIG_WAIT) X(M_SIG_SEEN) X(M_FLUSH_BEG) X(M_FLUSH_END) \
-    X(P_PICKUP) X(P_BATCH) X(P_CHUNK) X(P_SIGNAL) X(P_QUIET_BEG) X(P_QUIET_END) X(P_DONE) \
     X(H_GAP) X(H_CNT) X(H_PHASE) X(H_THR) X(H_WD)
 enum {
     TR_NONE = 0,
@@ -66,14 +64,14 @@ static const char *const tr_ev_name[TR_NEV] = { "none",
 
 #define TR_CHUNK_RECS 4096
 /* t: CLOCK_MONOTONIC ns of this process's node; bytes: payload of the stage; comm: communicator id; seq: pair sequence (M_), exchange sequence (E_ R_);
- * xseq: exchange sequence; aux: proxy ring index k (M_PUT_POSTED, P_), the sender count (E_BEGIN: rounds K); round; ev; kp = xtag kind | path << 4
- * (path 0 equal, 1 v, 2 rounds); me, peer: ranks in the communicator (P_: nodes) */
+ * xseq: exchange sequence; aux: the sender count (E_BEGIN: rounds K); round; ev; kp = xtag kind | path << 4
+ * (path 0 equal, 1 v, 2 rounds); me, peer: ranks in the communicator */
 struct tr_rec { uint64_t t, bytes; uint32_t comm, seq, xseq, aux; uint16_t round; uint8_t ev, kp; int16_t me, peer; };
 _Static_assert(sizeof(struct tr_rec) == 40, "trace record");
 typedef struct tr_buf { uint32_t chunk, pos; } tr_buf;   /* chunk 0: none yet; UINT32_MAX: the arena is full */
 #define TR_MAXCOMM 4096
 #define TR_MAXNODE 256
-/* apu: the communicator's APU; in proxy mode (COMM_SHMEM_PE_PER_APU) that of its proxy (JSON version 2; version 1 recorded the device current at the first exchange) */
+/* apu: the device current at the communicator's first exchange (JSON version 2) */
 struct tr_comm { int id, n, rank, apu, *node; };
 struct tr_clk { int64_t off_m, off_r, rtt, rtt_med, t0; int ok; };   /* node j's clock minus node 0's: monotonic, realtime (ns), the best round trip, the median one, node 0's monotonic time of the best */
 static struct {
@@ -90,13 +88,13 @@ static inline uint64_t tr_now(void) { struct timespec t; clock_gettime(CLOCK_MON
 static inline uint64_t tr_now_real(void) { struct timespec t; clock_gettime(CLOCK_REALTIME, &t); return (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec; }
 
 static void tr_ph_init(void);
-/* the arena (COMM_TRACE_MAX_MB / div MiB; a proxy passes 4); on = 0 when COMM_TRACE is off or the mapping fails */
-static void tr_init(size_t div)
+/* the arena (COMM_TRACE_MAX_MB MiB); on = 0 when COMM_TRACE is off or the mapping fails */
+static void tr_init(void)
 {
     const char *e = getenv("COMM_TRACE"); if (!e || atoi(e) <= 0) return;
     const char *s = getenv("COMM_TRACE_SAMPLE"); g_tr.sample = s && atoi(s) > 1 ? (uint32_t)atoi(s) : 1;
     const char *c = getenv("COMM_TRACE_CLOCK_N"); g_tr.clock_n = c && atoi(c) > 0 ? (uint32_t)atoi(c) : 50;
-    const char *m = getenv("COMM_TRACE_MAX_MB"); size_t want = m && atol(m) > 0 ? (size_t)atol(m) : 256; if (div) want = want / div; if (want < 16) want = 16;
+    const char *m = getenv("COMM_TRACE_MAX_MB"); size_t want = m && atol(m) > 0 ? (size_t)atol(m) : 256; if (want < 16) want = 16;
     g_tr.mb = want; size_t bytes = want << 20; g_tr.nchunks = (uint32_t)(bytes / (TR_CHUNK_RECS * sizeof(struct tr_rec)));
     void *a = mmap(0, (size_t)g_tr.nchunks * TR_CHUNK_RECS * sizeof(struct tr_rec), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     if (a == MAP_FAILED) { fprintf(stderr, "comm_trace: cannot map %zu MiB: COMM_TRACE off\n", want); return; }
@@ -411,15 +409,14 @@ static void *tr_hb_main(void *a)
     }
     return 0;
 }
-/* COMM_TRACE_HB=<ms> (0 / unset: off); proxy = 1 from a proxy process (needs COMM_TRACE_HB_PX=1) */
-static void tr_hb_start(int proxy)
+/* COMM_TRACE_HB=<ms> (0 / unset: off) */
+static void tr_hb_start(void)
 {
     if (!g_tr.on || g_hb.started) return;
     const char *e = getenv("COMM_TRACE_HB"), *th = getenv("COMM_TRACE_THR"); int ms = e ? atoi(e) : 0;
     if (ms <= 0 && g_tr.wd_ms) ms = 2;                                                       /* the watchdog needs the thread */
     if (ms <= 0) return;
     g_hb.thr = th && atoi(th) > 0; { const char *me = getenv("COMM_TRACE_HB_MEM"); g_hb.mem = me && atoi(me) > 0; }
-    if (proxy) { const char *px = getenv("COMM_TRACE_HB_PX"); if (!px || atoi(px) <= 0) return; }
     const char *g = getenv("COMM_TRACE_HB_GAP_MS"); g_hb.ms = (uint32_t)ms; g_hb.gap_ms = g && atoi(g) > 0 ? (uint32_t)atoi(g) : 20;
     if (g_hb.mem) tr_hb_mem_start();
     g_hb.run = 1;

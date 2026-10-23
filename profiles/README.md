@@ -116,17 +116,14 @@ key without a consumer), SCRIPT-ONLY (aac7env.sh sets it but the profile lacks i
 8. **First small run.** 1 node, `1e9` digits with write and compare against a reference, then 2 nodes (gates per TESTING.md §2), then a 1e10 run. **Give the first launch a long timeout (at least
    600 s, 2 x the cold figure of results/AAC7_PORT.md §ROCM: init 33 s warm-up there, an earlier first run did not finish the reciprocal in 240 s)**: ROCm 7.14 builds its code objects on first use.
    Watch `libamdhip64` in the log (the right ROCm), `-DCOMM_SHMEM`, `config-src:`. A second identical run shows the warm time; use that for any comparison.
-9. **SHMEM checks that decide `COMM_SHMEM_PE_PER_APU`** (`SHMEM_*` lines of the facts; the probe prints its reading as "COMM_SHMEM_PE_PER_APU advice"):
-   * `SHMEM_TWOPE_PROBE`: `shmem_ptr_peers_nonnull=1/1` means the library has an on-node path (XPMEM present: `XPMEM_DEV=1`) and the proxy mode can map a
-     proxy's pool directly; `0/1` means NULL (aac7 11.8: no `/dev/xpmem`) and the proxy mode needs its `/dev/shm` heap file (N7b), which needs `/dev/shm` of at least the heap size and no `noexec` problem for mapping.
+9. **SHMEM NIC checks** (`SHMEM_*` lines of the facts; the probe prints its reading as "SHMEM NIC advice"; the `COMM_SHMEM_PE_PER_APU` proxy mode was removed in P7):
+   * `SHMEM_TWOPE_PROBE`: `shmem_ptr_peers_nonnull=1/1` means the library has an on-node path (XPMEM present: `XPMEM_DEV=1`); `0/1` means NULL (aac7 11.8: no `/dev/xpmem`).
      `get_ok`/`put_ok` must be 1. `SHMEM_TWOPE_LOCALITY_ONNODE_RC` != 0 (a crash) is the aac7 behaviour: not an error of the probe; rc 0 and `shmem_ptr` non-NULL means a faster on-node path exists to be measured.
    * `heap_is_device=1`: the library's `shmem_malloc` returns device memory, so `COMM_SHMEM_DEVHEAP=1` takes effect (otherwise ecalc falls back to the registered host pool and says so); `0` = host heap, the template's
      `COMM_SHMEM_DEVHEAP=1` is then harmless but a no-op.
    * `SHMEM_NICS{1,2,4,8}_RC` and `SHMEM_POLICY_*_RC`: which `SHMEM_OFI_NUM_NICS` the library accepts for ONE PE, and which NIC policies exist. Accepts 2 (and more): one PE can drive more than one NIC. Rejects
-     everything above 1 ("only 1 NIC available"): one PE = one NIC, so with 1 PE per APU (`COMM_SHMEM_PE_PER_APU=1`) only one of the two NICs of each APU is used (the two-PEs-per-APU form was removed).
-   * `SHMEM_NICS4_5PE_RC` / `SHMEM_NICS2_4PE_RC`: the PE counts of the proxy mode (4 proxies + the node-process) start with the NIC count they ask for (mnrun.sh sets `SHMEM_OFI_NUM_NICS=4` for `=1`).
-     Then the real check is the 2-node gate and a 6-node 1e10 with `COMM_OFI=0` (per-NIC traffic: the telemetry counters read by `tools/envprobe.sh`).
-   Decision rule (assumed, to be confirmed by the user): comm_ofi (the default) is used unless a proxy-mode arm measures faster in an ABBA at the target (≤ 4 rounds, results/SHMEM_ITEMS.md §N7D is the aac7 reference: 1.43 x slower there).
+     everything above 1 ("only 1 NIC available"): one PE = one NIC, so with one PE per APU only one of the two NICs of each APU is used.
+   Decision rule (assumed, to be confirmed by the user): comm_ofi (the default) is used unless a SHMEM arm measures faster in an ABBA at the target (≤ 4 rounds, results/SHMEM_ITEMS.md §N7D is the aac7 reference: 1.43 x slower there).
 
 Key table (every `__FILL__` of the template):
 
@@ -143,7 +140,7 @@ Key table (every `__FILL__` of the template):
 | `MNRUN_EXCLUDE_HOSTS` | step 6 | empty at the start; the screen's `EXCLUDE` later |
 
 Slurm limits (probe `QOS=`, `ASSOC=`, `CFG_*`): read the per-user node limit (`node=` in `MaxTRESPU`) against the 576-node job before any large submission; a pending job above the limit never starts (aac7: 6 nodes).
-Huge pages and kernel memory: see "First SHMEM run on the target" below (it replaces the former one-line note; `/dev/shm` `huge=` still changes how the proxy heap file is backed, so keep the probe's `SHM_MOUNT` line).
+Huge pages and kernel memory: see "First SHMEM run on the target" below (it replaces the former one-line note; keep the probe's `SHM_MOUNT` line).
 
 ## First SHMEM run on the target
 
@@ -153,7 +150,7 @@ when the kernel moves pages, and the NIC count per node. The probe (node phase, 
 
 | probe fact | meaning | switch choice |
 |---|---|---|
-| `KERNEL`, `KERNEL_GE_6_1`, `MADV_COLLAPSE` | `works` needs kernel >= 6.1 or a backport (the probe tests it on an anonymous mapping) | `works`: `COMM_SHMEM_NP_HEAP_THP=1` and `COMM_SHMEM_PX_THP=1` (code defaults) collapse the heaps to 2 MiB pages, the fix of the aac7 stalls. `errno=22` on an idle node (with `KERNEL_GE_6_1=no`, or the same on a repeat): unsupported; on a busy host it can also mean no free 2 MiB block. The run prints a collapse failure line and keeps 4 KiB heap pages, which are the pages compaction migrates (the stall cause): then use the hugetlb heap if a pool exists, else expect stalls and ask the site for a backport or `compaction_proactiveness=0` |
+| `KERNEL`, `KERNEL_GE_6_1`, `MADV_COLLAPSE` | `works` needs kernel >= 6.1 or a backport (the probe tests it on an anonymous mapping) | `works`: `COMM_SHMEM_NP_HEAP_THP=1` (code default) collapse the heaps to 2 MiB pages, the fix of the aac7 stalls. `errno=22` on an idle node (with `KERNEL_GE_6_1=no`, or the same on a repeat): unsupported; on a busy host it can also mean no free 2 MiB block. The run prints a collapse failure line and keeps 4 KiB heap pages, which are the pages compaction migrates (the stall cause): then use the hugetlb heap if a pool exists, else expect stalls and ask the site for a backport or `compaction_proactiveness=0` |
 | `HUGETLB_2M_FREE`, `_NR`, `_PER_NUMA`, `_OVERCOMMIT` | the 2 MiB pool; per NUMA node `free/total` | pool present: reserve about heap size / 2 MiB per node-process (plus the library's own needs) and A/B `COMM_SHMEM_HUGETLB=1` (node-process heap only; the proxy helper heaps stay `/dev/shm` files + `PX_THP`). No pool (aac7: 0, overcommit 0): the switch prints needed and free pages and falls back to `NP_HEAP_THP`; reserve at boot or in a job prolog, before memory fragments |
 | `THP_enabled`, `THP_defrag`, `THP_shmem_enabled`, `THP_khugepaged_defrag` | aac7: `always`/`madvise`/`never`; AMD's MI300A guidance wants THP `always` for unified memory | `enabled=never` makes MADV_COLLAPSE fail: stop and ask the site. `shmem_enabled` other than `never` or a `huge=` on `/dev/shm` changes how the proxy heap file is backed: record it, re-run the 2-node gate |
 | `KERNEL_MM_COMPACTION_PROACTIVENESS`, `_COMPACT_UNEVICTABLE_ALLOWED` | aac7 and AMD's guide: 20 and 1 | keep both for the first run. `0` is an A/B per job (stalls, KFD `evicted_ms`, GPU allocation time at start-up), not a default; only if stalls show up in the checklist below |
@@ -174,7 +171,5 @@ Checklist for the first SHMEM run (after steps 0-9; 2 nodes, `1e10` digits or la
 
 All SHMEM defaults are on in the code; start with none of them on the launch line:
 
-- `COMM_SHMEM_NP_HEAP_THP=1` and `COMM_SHMEM_PX_THP=1` (2 MiB heaps, the stall fix), `COMM_SHMEM_PE_PER_APU=1` (multi-node `COMM_OFI=0`), and `COMM_SHMEM_PX_SEND` unset, which means 3 (PX3, chunked puts, one fence and one signal word per command) when the library is OpenSHMEM 1.5 and `PE_PER_APU=1` (D53).
-- Fallback: `COMM_SHMEM_PX_SEND=1` if the cray-shmem 12.1 build rejects the chunked puts or the signal word, or is slower in a paired test.
-- Do not set `PX_SEND=4`, a peer order of shift or other chunk sizes: they gave no gain on aac7 (4 n 149.2 s with `PX_SEND=4` and shift, but +9.0 s at 6 n).
-- Measure first, in this order: (1) the collapse lines and the stall checklist above (hugetlb pool present: `COMM_SHMEM_HUGETLB=1` against off, 4 nodes); (2) SHMEM against libfabric at 2, 4 and 8 nodes with the same digits per node, to see whether the aac7 gap (parity at 1 peer, about +7 % at 3, about +9 % at 5) grows with the peers on the target fabric; (3) the same with `PX_SEND=1` as a control.
+- `COMM_SHMEM_NP_HEAP_THP=1` (2 MiB heap, the stall fix). The proxy-mode switches (`PE_PER_APU`, `PX_*`) were removed in P7.
+- Measure first, in this order: (1) the collapse lines and the stall checklist above (hugetlb pool present: `COMM_SHMEM_HUGETLB=1` against off, 4 nodes); (2) SHMEM against libfabric at 2, 4 and 8 nodes with the same digits per node, to see whether the aac7 gap (parity at 1 peer, about +7 % at 3, about +9 % at 5) grows with the peers on the target fabric; (3) a repeat of the 2-node pair as a control.

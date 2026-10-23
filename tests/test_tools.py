@@ -51,7 +51,7 @@ class TraceReport(unittest.TestCase):
     def test_header_and_load(self):
         run_ = self.tr.load_run(self.d, "syn")
         self.assertEqual(run_.nodes, 3)
-        self.assertEqual(len(run_.nodeproc), 3); self.assertEqual(len(run_.proxies), 3)
+        self.assertEqual(len(run_.nodeproc), 3)
         self.assertEqual(run_.files[0]["meta"]["rec_bytes"], 40)
         self.assertIn("E_BEGIN", run_.ev)
 
