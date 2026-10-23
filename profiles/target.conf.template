@@ -25,7 +25,6 @@ MNRUN_MODULES=__FILL__                # the full module line: "<TARGET_DSMML_MOD
 MNRUN_UNLOAD=__FILL__                 # modules to unload first (a versioned rocm conflicts with a login default); empty if none conflicts
 SHMEM_CRAY=1                          # build flag: make -B SHMEM_CRAY=1 (Cray OpenSHMEMX); the build log must show -DCOMM_SHMEM (gate.sh)
 GMP_HOME=__FILL__                     # a GMP built from source if the site has no gmp.h: `ls $GMP_HOME/include/gmp.h`; remove the key if the site provides one
-COMM_SHMEM_IMPL=cray                  # the only launch form mnrun.sh supports (D14); detected; set for the record
 
 # ---- [scheduler] ----------------------------------------------------------------------------------------------------
 # How to determine: `sinfo -o '%P %c %m %D'`; the production queue name and node limit from the site's user guide.
@@ -48,7 +47,7 @@ COMM_OFI=1                            # device exchanges over libfabric on the c
 COMM_SHMEM_ROUND_MB=1024              # exchanges staged in 1 GiB rounds: user decision D2 (V114.md; pool 45.0 -> 9.8 GB, mod)
 # SHMEM memory switches (kernel-dependent; probe facts THP_*, HUGETLB_2M_*, MADV_COLLAPSE, KERNEL_MM_*; runbook "First SHMEM run on the target").
 # COMM_SHMEM_NP_HEAP_THP=1 is a code default (D48) and needs MADV_COLLAPSE (kernel >= 6.1 or a backport): leave unset.
-# With a 2 MiB hugetlb pool (probe HUGETLB_2M_FREE > 0) A/B COMM_SHMEM_HUGETLB=1 (branch hugetlb, results/SHMEM_STALLS.md 9.1; not measured): add it here only after that A/B.
+# With a 2 MiB hugetlb pool (probe HUGETLB_2M_FREE > 0) A/B COMM_SHMEM_HUGETLB=1 (branch hugetlb, archive:results_merged_2026-10-23/SHMEM_STALLS.md 9.1; not measured): add it here only after that A/B.
 # How to determine MN_GROUPS: the site's topology (nodes per dragonfly group) and a TARGET_TASKS timing A/B; the
 # code default of MN_GROUPS at the headline size is the plan's pick, so leave MN_GROUPS unset unless a measurement says otherwise.
 

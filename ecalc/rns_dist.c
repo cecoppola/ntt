@@ -276,7 +276,6 @@ void rns_dist_cache_release(void)                             /* the planes free
     HIP_CHECK(hipSetDevice(cur));
     g_cache.tried = 0; g_cache.navail = 0; g_cache.bytes = 0; g_cache.slot_q = 0;
 }
-void rns_dist_cache_stats(size_t *hits, size_t *misses) { *hits = g_cache.hits; *misses = g_cache.misses; g_cache.hits = g_cache.misses = 0; }
 static int cache_lookup(const void *key, size_t lo, size_t n, size_t q, int mn, int np, int p24)   /* the slot holding this operand's transform on q-limb planes (np primes; PC: p24 its form), or -1 */
 {
     for (int i = 0; i < g_cache.navail; i++) { const struct dist_slot *s = &g_cache.s[i]; if (s->key == key && s->lo == lo && s->n == n && s->q == q && s->mn == mn && s->np == np && s->p24 == p24) return i; }
@@ -392,18 +391,8 @@ static void cache_pc_report(void)                             /* the run's parti
 }
 /* Phase 15 CX (results/CACHE.md §CX15; instrumentation, off by default): RNS_DIST_CACHE_TRACE=1 -- mn_grid prints one line per piece of a grid
  * product (its (i, j), limbs, the operands' cache state, the piece's wall and mn_core's parts; with DIST_STATS=1 also the transforms'
- * event-timed parts, summed over the four APU threads / 4).  rns_dist_cache_test_slots(n): tests (tests/cx_grid.c) set the mn tier's
- * slot count in-process, 0..the slots already allocated (the first product that wants the cache allocates RNS_DIST_CACHE_MN of them) */
+ * event-timed parts, summed over the four APU threads / 4) */
 static int cache_trace_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("RNS_DIST_CACHE_TRACE"); v = e ? atoi(e) != 0 : 0; } return v; }
-extern "C" void rns_dist_cache_test_slots(int n);
-extern "C" double rns_dist_cache_alloc_s(void);
-void rns_dist_cache_test_slots(int n)
-{
-    cache_slots_of(1); if (n < 0) n = 0; if (n > DIST_CACHE_MAX) n = DIST_CACHE_MAX;
-    g_cache.nmn = n; cache_drop();
-    if (g_cache.tried) { int k = 0; while (k < DIST_CACHE_MAX && g_cache.s[k].pl[0]) k++; g_cache.navail = n < k ? n : k; }
-}
-double rns_dist_cache_alloc_s(void) { return g_cache.t_alloc; }
 /* ---- Phase 13b B (archive:PLAN §29 E4, 31 axis S): the prime-per-APU product ("B form") ------------------------------------
  * RNS_STRATEGY selects the product strategy of dist_core, the single-node product under every size-1 dist product (the
  * top tree levels, the reciprocal's doublings, the division's products) and the node-local products at size > 1:

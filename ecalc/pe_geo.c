@@ -4,6 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "pe_geo.h"
+#include "env_int.h"
 #ifndef PE_GEO_NOBOOT
 #include <stdint.h>
 #include "xshmem_boot.h"
@@ -18,7 +19,6 @@ const char *pe_geo_err(void) { return g_err; }
 
 static const char *root(void) { const char *r = getenv("PE_GEO_SYSFS_ROOT"); return r ? r : ""; }
 static int read_int(const char *path, int def) { FILE *f = fopen(path, "r"); int v = def; if (f) { if (fscanf(f, "%d", &v) != 1) v = def; fclose(f); } return v; }
-static int env_int(const char *n, int def) { const char *e = getenv(n); return (e && *e) ? atoi(e) : def; }
 
 /* NUMA nodes present: highest nodeN dir + 1 (>= 1) */
 static int numa_count(void)
@@ -40,11 +40,11 @@ int pe_geo_from(pe_topo *t, int pe, int npes, int local, int ppn, int ngpu, cons
     if (npes % ppn) FAIL("npes %d not a multiple of pes per node %d", npes, ppn);
     t->pe = pe; t->npes = npes; t->local = local; t->pes_per_node = ppn;
     t->node = pe / ppn; t->nnodes = npes / ppn;
-    t->pes_per_gpu = env_int("XSHMEM_PES_PER_GPU", 1); if (t->pes_per_gpu < 1) FAIL("XSHMEM_PES_PER_GPU < 1");
+    t->pes_per_gpu = ec_env_int_ne("XSHMEM_PES_PER_GPU", 1); if (t->pes_per_gpu < 1) FAIL("XSHMEM_PES_PER_GPU < 1");
     if (ppn % t->pes_per_gpu) FAIL("pes per node %d not a multiple of XSHMEM_PES_PER_GPU %d", ppn, t->pes_per_gpu);
     t->gpu_node = local / t->pes_per_gpu;
     t->gpu = ngpu >= 1 ? (ngpu == 1 ? 0 : t->gpu_node % ngpu) : -1;
-    t->nlanes = env_int("XSHMEM_LANES", 1); if (t->nlanes < 1) FAIL("XSHMEM_LANES < 1");
+    t->nlanes = ec_env_int_ne("XSHMEM_LANES", 1); if (t->nlanes < 1) FAIL("XSHMEM_LANES < 1");
 
     /* NUMA node of the GPU: PCI function's numa_node, else gpu_node modulo the NUMA nodes present (comm_ofi dev_numa fallback) */
     t->numa = -1;
@@ -96,11 +96,11 @@ static uint64_t host_hash(void)
 void pe_geo_init(pe_topo *t)
 {
     int pe, npes, ppn = 0; boot_init(&pe, &npes);
-    int local = env_int("SLURM_LOCALID", -1);
+    int local = ec_env_int_ne("SLURM_LOCALID", -1);
     uint64_t *hh = (uint64_t *)malloc((size_t)npes * sizeof *hh), me = host_hash();
     boot_allgather(&me, sizeof me, hh);
     int cnt = 0, first = -1; for (int r = 0; r < npes; r++) if (hh[r] == me) { if (first < 0) first = r; cnt++; }
-    ppn = env_int("SLURM_NTASKS_PER_NODE", 0);
+    ppn = ec_env_int_ne("SLURM_NTASKS_PER_NODE", 0);
     if (!ppn) { const char *s = getenv("SLURM_STEP_TASKS_PER_NODE"); if (s && *s) { char *end; long v = strtol(s, &end, 10); if (v > 0 && (*end == 0 || !strncmp(end, "(x", 2))) ppn = (int)v; } }
     if (!ppn) ppn = cnt;
     if (local < 0) local = pe - first;
@@ -113,7 +113,7 @@ void pe_geo_init(pe_topo *t)
 #ifdef USE_HIP
     if (hipGetDeviceCount(&ngpu) != hipSuccess) { (void)hipGetLastError(); ngpu = 0; }
     if (ngpu > 0) {
-        int envp = env_int("XSHMEM_PES_PER_GPU", 1), gn = (local / (envp > 0 ? envp : 1));
+        int envp = ec_env_int_ne("XSHMEM_PES_PER_GPU", 1), gn = (local / (envp > 0 ? envp : 1));
         int dev = ngpu == 1 ? 0 : gn % ngpu;
         if (hipDeviceGetPCIBusId(bus, sizeof bus, dev) == hipSuccess) { for (char *c = bus; *c; c++) if (*c >= 'A' && *c <= 'F') *c += 'a' - 'A'; bp = bus; }
         else (void)hipGetLastError();

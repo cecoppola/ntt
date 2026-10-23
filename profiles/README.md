@@ -26,7 +26,6 @@ validates, and prints the effective configuration and its hash. Size-dependent v
 | file | machine | status |
 |---|---|---|
 | `aac7.conf` | aac7 (Cray EX, 4 x MI300A, Slingshot-11, Cray OpenSHMEMX) | filled from `ecalc/aac7env.sh`, `mnrun.sh`, the launch lines in `PLAN.md` §3; holds the aac7 launch line (`LAUNCH_LINE_KEYS`) |
-| `aac6.conf` | aac6 (MI300A, InfiniBand, single node; set aside 2026-10-12) | filled, small: aac6 is a correctness machine |
 | `target.conf.template` | the production machine | every unknown is `__FILL__` with "how to determine"; copy to `target.conf` (not tracked: add it to `.git/info/exclude`) |
 
 Site specifics of the target (names, module names, paths, node lists) must never be committed here. The tracked template holds
@@ -71,7 +70,7 @@ exactly that, so the line has one source (the values above it in the same file).
 ```
 tools/profile_load.py aac7 --check                 # compare with what aac7env.sh exports
 tools/profile_load.py aac7 --line                  # the launch line (the keys of LAUNCH_LINE_KEYS as KEY=value); tools/gate.sh --line aac7 runs it
-tools/profile_load.py aac6 --check -q              # problems only; --launch=aac7 forces the aac7 comparison, --strict exits 1 on MISMATCH/UNKNOWN
+tools/profile_load.py aac7 --check -q              # problems only; --launch=aac7 forces the aac7 comparison, --strict exits 1 on MISMATCH/UNKNOWN
 ```
 
 Statuses: MATCH (a launch script sets the same value), MISMATCH (it sets a different one), PROFILE-ONLY (no launch script sets it; the
@@ -93,7 +92,7 @@ key without a consumer), SCRIPT-ONLY (aac7env.sh sets it but the profile lacks i
    `MODULE_LOAD_RC=rc=0` and `MODULES_AFTER_LOAD` in the facts: a ROCm module loaded by default conflicts and the later `module load` silently
    fails (results/AAC7_PORT.md §ROCM), so `MNRUN_UNLOAD` = every default-loaded ROCm module (`MOD_LOADED_ROCM`); empty only if none is loaded.
    Expected: three names; the SHMEM library's libfabric (`SMA_LIBFABRIC_RESOLVED`) is the stated libfabric version.
-2. **Build** (`SHMEM_CRAY=1`, `GMP_HOME`). `tools/gate.sh --build` on a login node or in the allocation; the log must show `-DCOMM_SHMEM`. `GMP_HOME`: a
+2. **Build** (`SHMEM_CRAY=1`, `GMP_HOME`; path 2 of `README.md` adds `XSHMEM=cray`: `make -B XSHMEM=cray SHMEM_CRAY=1 GMP_HOME=...`). `tools/gate.sh --build` on a login node or in the allocation; the log must show `-DCOMM_SHMEM`. `GMP_HOME`: a
    `gmp.h` on the include path (probe note "a gmp.h is available") means delete the key; otherwise build GMP from source and set it to the
    prefix (`ls $GMP_HOME/include/gmp.h`). The Makefile's `CRAY_SMA`/`CRAY_DSMML` defaults point at one version: let the module's
    `CRAY_OPENSHMEMX_PREFIX`/`CRAY_DSMML_PREFIX` win (the probe prints both as `SMA_PREFIX`, `DSMML_PREFIX`). Expected: the build passes with the
@@ -116,14 +115,14 @@ key without a consumer), SCRIPT-ONLY (aac7env.sh sets it but the profile lacks i
 8. **First small run.** 1 node, `1e9` digits with write and compare against a reference, then 2 nodes (gates per TESTING.md §2), then a 1e10 run. **Give the first launch a long timeout (at least
    600 s, 2 x the cold figure of results/AAC7_PORT.md §ROCM: init 33 s warm-up there, an earlier first run did not finish the reciprocal in 240 s)**: ROCm 7.14 builds its code objects on first use.
    Watch `libamdhip64` in the log (the right ROCm), `-DCOMM_SHMEM`, `config-src:`. A second identical run shows the warm time; use that for any comparison.
-9. **SHMEM NIC checks** (`SHMEM_*` lines of the facts; the probe prints its reading as "SHMEM NIC advice"; the `COMM_SHMEM_PE_PER_APU` proxy mode was removed in P7):
+9. **SHMEM NIC checks** (`SHMEM_*` lines of the facts; the probe prints its reading as "SHMEM NIC advice"):
    * `SHMEM_TWOPE_PROBE`: `shmem_ptr_peers_nonnull=1/1` means the library has an on-node path (XPMEM present: `XPMEM_DEV=1`); `0/1` means NULL (aac7 11.8: no `/dev/xpmem`).
      `get_ok`/`put_ok` must be 1. `SHMEM_TWOPE_LOCALITY_ONNODE_RC` != 0 (a crash) is the aac7 behaviour: not an error of the probe; rc 0 and `shmem_ptr` non-NULL means a faster on-node path exists to be measured.
    * `heap_is_device=1`: the library's `shmem_malloc` returns device memory, so `COMM_SHMEM_DEVHEAP=1` takes effect (otherwise ecalc falls back to the registered host pool and says so); `0` = host heap, the template's
      `COMM_SHMEM_DEVHEAP=1` is then harmless but a no-op.
    * `SHMEM_NICS{1,2,4,8}_RC` and `SHMEM_POLICY_*_RC`: which `SHMEM_OFI_NUM_NICS` the library accepts for ONE PE, and which NIC policies exist. Accepts 2 (and more): one PE can drive more than one NIC. Rejects
      everything above 1 ("only 1 NIC available"): one PE = one NIC, so with one PE per APU only one of the two NICs of each APU is used.
-   Decision rule (assumed, to be confirmed by the user): comm_ofi (the default) is used unless a SHMEM arm measures faster in an ABBA at the target (≤ 4 rounds, results/SHMEM_ITEMS.md §N7D is the aac7 reference: 1.43 x slower there).
+   Decision rule (assumed, to be confirmed by the user): path 1 (xshmem over libfabric, the default build) is the reference; path 2 (`XSHMEM=cray`, `ECALC_PE_PER_GPU=1 XSHMEM_LANES=2`, `README.md`) is adopted for the target run if it measures faster in an ABBA at the target (≤ 4 rounds, with an A/A control). The aac7 reference is `results/XSHMEM.md` (craylane): path 2 +7.5 % against path 1 at 3 n, 1e11 (the gap is init, +8 s).
 
 Key table (every `__FILL__` of the template):
 
@@ -144,15 +143,14 @@ Huge pages and kernel memory: see "First SHMEM run on the target" below (it repl
 
 ## First SHMEM run on the target
 
-Background and evidence: `results/SHMEM_STALLS.md` (cause of the aac7 stalls: sections 4-5; target implications: section 9; hugetlb switch: 9.1 on branch `hugetlb`;
-healthy values 8.3; stall checklist 8.4). The SHMEM transport depends on three things outside ecalc: kernel memory settings, the GPU driver's queue eviction
+Background and evidence: `results/SHMEM.md` (cause of the aac7 stalls, the stall checklist and the target implications, condensed) and `archive:results_merged_2026-10-23/SHMEM_STALLS.md` (the full report: causes sections 4-5; target implications section 9; hugetlb switch 9.1; healthy values 8.3; stall checklist 8.4). The SHMEM transport depends on three things outside ecalc: kernel memory settings, the GPU driver's queue eviction
 when the kernel moves pages, and the NIC count per node. The probe (node phase, `--hold`) reads them; none is changed by it.
 
 | probe fact | meaning | switch choice |
 |---|---|---|
 | `KERNEL`, `KERNEL_GE_6_1`, `MADV_COLLAPSE` | `works` needs kernel >= 6.1 or a backport (the probe tests it on an anonymous mapping) | `works`: `COMM_SHMEM_NP_HEAP_THP=1` (code default) collapse the heaps to 2 MiB pages, the fix of the aac7 stalls. `errno=22` on an idle node (with `KERNEL_GE_6_1=no`, or the same on a repeat): unsupported; on a busy host it can also mean no free 2 MiB block. The run prints a collapse failure line and keeps 4 KiB heap pages, which are the pages compaction migrates (the stall cause): then use the hugetlb heap if a pool exists, else expect stalls and ask the site for a backport or `compaction_proactiveness=0` |
-| `HUGETLB_2M_FREE`, `_NR`, `_PER_NUMA`, `_OVERCOMMIT` | the 2 MiB pool; per NUMA node `free/total` | pool present: reserve about heap size / 2 MiB per node-process (plus the library's own needs) and A/B `COMM_SHMEM_HUGETLB=1` (node-process heap only; the proxy helper heaps stay `/dev/shm` files + `PX_THP`). No pool (aac7: 0, overcommit 0): the switch prints needed and free pages and falls back to `NP_HEAP_THP`; reserve at boot or in a job prolog, before memory fragments |
-| `THP_enabled`, `THP_defrag`, `THP_shmem_enabled`, `THP_khugepaged_defrag` | aac7: `always`/`madvise`/`never`; AMD's MI300A guidance wants THP `always` for unified memory | `enabled=never` makes MADV_COLLAPSE fail: stop and ask the site. `shmem_enabled` other than `never` or a `huge=` on `/dev/shm` changes how the proxy heap file is backed: record it, re-run the 2-node gate |
+| `HUGETLB_2M_FREE`, `_NR`, `_PER_NUMA`, `_OVERCOMMIT` | the 2 MiB pool; per NUMA node `free/total` | pool present: reserve about heap size / 2 MiB per node-process (plus the library's own needs) and A/B `COMM_SHMEM_HUGETLB=1` (the legacy `comm_shmem.c` node-process heap only; for path 2 the test is the libsma heap on hugetlb, `TASKS.md` target session). No pool (aac7: 0, overcommit 0): the switch prints needed and free pages and falls back to `NP_HEAP_THP`; reserve at boot or in a job prolog, before memory fragments |
+| `THP_enabled`, `THP_defrag`, `THP_shmem_enabled`, `THP_khugepaged_defrag` | aac7: `always`/`madvise`/`never`; AMD's MI300A guidance wants THP `always` for unified memory | `enabled=never` makes MADV_COLLAPSE fail: stop and ask the site. `shmem_enabled` other than `never` or a `huge=` on `/dev/shm` changes how the SHMEM heap file is backed: record it, re-run the 2-node gate |
 | `KERNEL_MM_COMPACTION_PROACTIVENESS`, `_COMPACT_UNEVICTABLE_ALLOWED` | aac7 and AMD's guide: 20 and 1 | keep both for the first run. `0` is an A/B per job (stalls, KFD `evicted_ms`, GPU allocation time at start-up), not a default; only if stalls show up in the checklist below |
 | `BUDDY_FRAG_SCORE`, `BUDDY_FREE_GE2M_MB` | per NUMA node and zone: share of free memory in blocks below 2 MiB (above 90 starts a proactive kcompactd pass); free MiB in blocks of 2 MiB or more | an idle node should be low (aac7 clean runs 1-17; start-up itself pushes node 0 of the first node to 91-99). A high score before the job: compact or drop caches in a prolog |
 | `CXI_DEV_COUNT`, `FI_CXI_DOMAINS` | NICs per node (8 on the target, 4 on aac7) | `SHMEM_OFI_NUM_NICS` defaults to 1: set it to the NIC count with a NUMA or user mapping (the launcher caps it; the library aborts when asked for more NICs than exist). Steps 3, 6, 9 |
@@ -162,14 +160,14 @@ Checklist for the first SHMEM run (after steps 0-9; 2 nodes, `1e10` digits or la
 
 1. `COMM_TRACE_HB=1 COMM_TRACE_HB_MEM=1` (heartbeat of 1 ms; per-zone buddyinfo and fragmentation score, kcompactd and khugepaged CPU ticks, KFD `evicted_ms`). Optional: `COMM_TRACE_HB_GAP_MS=20` (default), `COMM_TRACE=1` for the message trace (about 1 GB per 6 nodes at the full size unsampled; `COMM_TRACE_SAMPLE`), `COMM_TRACE_HB_PX=1` for the proxies.
 2. Read the log: the node-process heap line (`heap ... MiB PMD-mapped after`): PMD-mapped equal to the heap size (or `Shared_Hugetlb` with the hugetlb switch), collapse about 2 s; no collapse failure line from either heap. A shortfall means 4 KiB pages are left: see the `MADV_COLLAPSE` row.
-3. `tools/trace_report.py` on the trace dir (section 8a: storm seconds with the fragmentation and KFD columns; 8b: threads and watchdog). Healthy: no storm seconds, kcompactd ticks near 0, KFD `evicted_ms` small and not rising by seconds across a pass, fragmentation score of node 0 of the first node high only after start-up. Reference values: `results/SHMEM_STALLS.md` 8.3.
-4. Stalls present: follow 8.4 there (per-second `/proc/vmstat` deltas on the late node, kcompactd ticks, score above 90, KFD `evicted_ms`), then try in this order: hugetlb heap if a pool exists; `compaction_proactiveness=0` per job (A/B with an A/A control, at least 4 ABBA pairs); a prolog that compacts and drops caches.
-5. Measure the stall rate per node-hour on a short run before assuming it is zero: at 576 nodes one frozen node costs everyone (section 6.4 there).
+3. `tools/trace_report.py` on the trace dir (section 8a: storm seconds with the fragmentation and KFD columns; 8b: threads and watchdog). Healthy: no storm seconds, kcompactd ticks near 0, KFD `evicted_ms` small and not rising by seconds across a pass, fragmentation score of node 0 of the first node high only after start-up. Reference values: `archive:results_merged_2026-10-23/SHMEM_STALLS.md` 8.3 (healthy: 3 nodes 4.8e10 SHMEM 47-51 s, libfabric 46-48 s, init 21.8-23.4 s, heap collapse about 2 s).
+4. Stalls present: follow the checklist in `results/SHMEM.md` (per-second `/proc/vmstat` deltas on the late node, kcompactd ticks, score above 90, KFD `evicted_ms`), then try in this order: hugetlb heap if a pool exists; `compaction_proactiveness=0` per job (A/B with an A/A control, at least 4 ABBA pairs); a prolog that compacts and drops caches.
+5. Measure the stall rate per node-hour on a short run before assuming it is zero: at 576 nodes one frozen node costs everyone (section 6.4 of the archived report).
 6. Compare SHMEM against libfabric (`COMM_TRANSPORT`), same digits and nodes, A/A first; the first launch keeps the long timeout of step 8.
 
 ### SHMEM settings to use on the target
 
 All SHMEM defaults are on in the code; start with none of them on the launch line:
 
-- `COMM_SHMEM_NP_HEAP_THP=1` (2 MiB heap, the stall fix). The proxy-mode switches (`PE_PER_APU`, `PX_*`) were removed in P7.
-- Measure first, in this order: (1) the collapse lines and the stall checklist above (hugetlb pool present: `COMM_SHMEM_HUGETLB=1` against off, 4 nodes); (2) SHMEM against libfabric at 2, 4 and 8 nodes with the same digits per node, to see whether the aac7 gap (parity at 1 peer, about +7 % at 3, about +9 % at 5) grows with the peers on the target fabric; (3) a repeat of the 2-node pair as a control.
+- `COMM_SHMEM_NP_HEAP_THP=1` (2 MiB heap, the stall fix).
+- Measure first, in this order: (1) the collapse lines and the stall checklist above (hugetlb pool present: `COMM_SHMEM_HUGETLB=1` against off, 4 nodes, fallback transport only); (2) SHMEM against libfabric at 2, 4 and 8 nodes with the same digits per node, to see whether the aac7 gap (parity at 1 peer, about +7 % at 3, about +9 % at 5) grows with the peers on the target fabric; (3) a repeat of the 2-node pair as a control.

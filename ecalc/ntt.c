@@ -4,6 +4,7 @@
  */
 #include <stdio.h>
 #include "fatal.h"
+#include "env_int.h"
 #include <stdlib.h>
 #include <string.h>
 #include "ntt.h"
@@ -24,7 +25,6 @@ int ntt_pw_fuse = 14;
 /* ntt_stg and ntt_pw_fuse are internal (the tests' pass-split and fusion checks set them); the kernel choice is fixed:
  * 7-stage passes in the register-blocked body, the reduced-correction Barrett, the register-blocked b1 pass
  * with 2^3 points per thread, the per-logn pass plan (plan_auto) */
-static int env_int(const char *nm, int dflt) { const char *e = getenv(nm); return e ? atoi(e) : dflt; }
 
 /* ---- the reduced-correction FP64 Barrett.  The quotient is taken from the exact product
  * hi + lo against the two-term reciprocal pinv + pinvl (pinvl = (1 - p pinv) / p, computed per thread):
@@ -496,7 +496,7 @@ int ntt_ctx_prime(const ntt_ctx *c) { return c->prime; }
 #include <pthread.h>
 #include <vector>
 static int ss_on = -1;
-int ntt_ss_enabled(void) { if (ss_on < 0) ss_on = env_int("NTT_SIZE_STATS", 0) > 0; return ss_on; }
+int ntt_ss_enabled(void) { if (ss_on < 0) ss_on = ec_env_int("NTT_SIZE_STATS", 0) > 0; return ss_on; }
 namespace {
 struct ss_ent { unsigned long calls, xforms, untimed; double ms; };
 struct ss_pend { hipEvent_t a, b; ss_ent *e; int dev; };

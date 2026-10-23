@@ -176,7 +176,7 @@ Done 2026-10-13, branch `nicchk`, merged to main. **Problem (m).** 2026-10-13 12
   10.45-10.48, 6 at 11.15-11.70; hard-slow (< 9.7) is 6 of 28 = 21 %. At 2 n the rate is equal in both groups.
 - **SHMEM** uses a fixed layout, not a draw: NIC 0 and 3 on bank B, NIC 1 and 2 on bank A in every launch (4 n, 4 launches;
   2 n, 6 launches), at 9.65-9.83 GB/s (byte split 57 / 43 %). The same transport reaches libfabric's fast dm with whole puts
-  to one peer (SHMEM.md, send schedule), so the layout does not cap it (assumed for that run: its counters were not recorded).
+  to one peer (`archive:results_merged_2026-10-23/SHMEM_full.md`, send schedule), so the layout does not cap it (assumed for that run: its counters were not recorded).
 - **Verdict.** No launch tweak is supported (earlier tclass, NUM_NICS, NIC policy, SEP, startup-connect and CXI_PID_BASE
   tests did not pin it either, §A14); detect-and-relaunch loses (relaunch costs init about 25 s plus a probe against 10-14 s
   saved in half the launches, mod). The pinning line is closed; compare arms interleaved and report the mode.

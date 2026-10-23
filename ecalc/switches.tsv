@@ -35,7 +35,7 @@ COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	bins
 COMM_SHMEM_POOL_NEED_MB	bool	?	?	0|1	test-only	-	-	Y	ecalc	comm_shmem.c	2	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	
 COMM_SHMEM_RING_KB	int	256	256		built-in default	-	S12.md+S.md	Y	ecalc	binsplit.c,comm_shmem.c	4	-	-	
 COMM_SHMEM_ROUND_MB	float	0	0	>=0 MiB	launch-line	aac7	V114.md	Y	ecalc	binsplit.c,comm_shmem.c,rns_dist.c	3	-	-	comm_shmem.c:305; 0 = no rounds
-COMM_SHMEM_SERIAL	bool	auto	derived	0|1	launch-line	aac6,aac7	S.md+S16.md	Y	ecalc	comm_shmem.c	1	-	-	comm_shmem.c:284 per-build default (OSHMEM 1)
+COMM_SHMEM_SERIAL	bool	auto	derived	0|1	launch-line	aac7	S.md+S16.md	Y	ecalc	comm_shmem.c	1	-	-	comm_shmem.c:284 per-build default (OSHMEM 1)
 COMM_SHMEM_SPIN_US	int	2000	2000		built-in default	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	1	-	-	
 COMM_SHMEM_STAGE_SLOT_MB	bool	0	0	0|1	test-only	-	V114.md+STD17.md	prose	ecalc	comm_shmem.c	1	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	
 COMM_SIZE	int	1	conflict:0|1|4096	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,comm_shmem.c,ecalc.c,fatal.c,mem.c,mn.c,mn_plan.c,rns_mul.c,segv_trace.c,vpe.c	24	-	-	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
@@ -99,7 +99,7 @@ ECALC_PLANE_CAP	bool	derived	derived	0|1	experiment	-	P13b.md+CAP17.md	Y	ecalc	e
 ECALC_PLANE_CAP_IDX	int	derived	derived		test-only	-	-	Y	ecalc	binsplit.c,ecalc.c	3	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	
 ECALC_RECHECK	bool	0	unset	0|1	launch-line	-	V.md+KP15.md	Y	ecalc	ecalc.c	2	-	-	ecalc.c: standalone recheck of a finished run
 ECALC_SEGV_TEST	int	unset	unset		test-only	-	S18W.md	Y	ecalc	segv_trace.c	2	diagnostics (TESTING.md)	2027-04-12	
-ECALC_SEGV_TRACE	bool	0	derived	0|1	launch-line	aac6,aac7	S18W.md+S30.md	Y	ecalc	segv_trace.c	1	-	-	segv_trace.c:146
+ECALC_SEGV_TRACE	bool	0	derived	0|1	launch-line	aac7	S18W.md+S30.md	Y	ecalc	segv_trace.c	1	-	-	segv_trace.c:146
 ECALC_TEST_CORR	int	0	0		test-only	-	DKM15.md+KP15.md	prose	ecalc	newton_db.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_TEST_DIE_PE	int	-1	unset	-1..	test-only	-	-	prose	ecalc	ecalc.c	2	TARGET12 (S2)	2027-04-12	ecalc.c; kill test (ECALC_PE_PER_GPU gate): PE <n> dies by ec_fatal after the bs phase; unset = off
 ECALC_VERBOSE	int	1	1	0|1|2	launch-line	aac7	PC15.md+M13.md	Y	ecalc	binsplit.c,comm_shmem.c,ecalc.c,memsample.c,mn.c,newton_db.c,rns_dist.c	20	-	-	ecalc.c
@@ -151,7 +151,7 @@ RNS_DIST_CACHE_MN	int	2	2		experiment	-	TC15.md	Y	ecalc	rns_dist.c	1	coordinator
 RNS_DIST_CACHE_PARTIAL	bool	1	1	0|1	built-in default	-	PC15.md+R§93	Y	ecalc	rns_dist.c	1	coordinator (TASKS S)	2026-11-11	rns_dist.c; default 1 since 2026-10-12 (TASKS 27)
 RNS_DIST_CACHE_PARTIAL_FORCE	bool	unset	unset	0|1	test-only	-	PC15.md	prose	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
 RNS_DIST_CACHE_TRACE	bool	0	0	0|1	test-only	-	CX15.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
-RNS_INIT_POOL_LOG	int	unset	unset		test-only	-	T11.md+S51.md	Y	ecalc	rns_mul.c	2	profiles/aac6.conf (CPX launch note, T11.md)	2027-04-12	
+RNS_INIT_POOL_LOG	int	unset	unset		test-only	-	T11.md+S51.md	Y	ecalc	rns_mul.c	2	archive:scripts_2026-10-23/aac6.conf (CPX launch note, T11.md)	2027-04-12	
 RNS_POOL1_GB	float	unset	unset		built-in default	-	R.md+T.md	Y	ecalc	mn_plan.c,rns_mul.c	4	-	-	
 RNS_POOL_GROW	int	0	0		test-only	-	B16.md+R.md	Y	ecalc	binsplit.c,rns_mul.c	6	diagnostics (TESTING.md)	2027-04-12	
 RNS_R3	int	derived	derived		experiment	-	P.md	Y	ecalc	rns_mul.c	2	coordinator (TASKS S)	2026-11-11	

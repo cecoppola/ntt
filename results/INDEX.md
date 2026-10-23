@@ -4,7 +4,7 @@ Scope: lookup of the former `results/<ID>.md` reports (merged 2026-10-19) into t
 
 Reports older than the 2026-10-12 clean-up are in `archive:results/`; the raw data, logs and one-off drivers of all items are in
 `archive:results_raw_2026-10-19/`, the original per-item files in `archive:results_merged_2026-10-19/`. `A11.md` (switch
-inventory, read by tools), `DESIGN_TABLE.md` (generated), `SHMEM.md`, `SHMEM_STALLS.md`, `XSHMEM.md` and `PPG.md` keep their own files.
+inventory, read by tools), `DESIGN_TABLE.md` (generated), `SHMEM.md` (closing record of the SHMEM fallback; the proxy-mode, stall and overnight-run records are in `archive:results_merged_2026-10-23/`) and `XSHMEM.md` keep their own files.
 
 | ID | what | topic file |
 |---|---|---|
@@ -31,6 +31,7 @@ inventory, read by tools), `DESIGN_TABLE.md` (generated), `SHMEM.md`, `SHMEM_STA
 | apumult_R | spilling to SSD and releasing memory on MI300A (research findings) | APUMULT.md |
 | apumult_summary |  | APUMULT.md |
 | AP34 | the apumult A1-A34 optimization list against ecalc (2026-10-23) | APUMULT.md |
+| ATRIM | `BS_ARENA_TRIM_GB`: the opt-in arena trim, measured at 2 n and 3 n | MEMORY.md §ATRIM |
 | AS15 | Phase 15 Batch 2, row 2: arena sizing for `BS_SEED_FILL=128` (the division's VMM remaps) | MEMORY.md |
 | AUD2 | removal / consolidation audit of C/HIP sources, tests and Makefile (read-only, 2026-10-12) | CODE_REDUCTION.md |
 | AUD3 | where ecalc's algorithms and code structure can be simpler and smaller (read-only audit, 2026-10-12) | CODE_REDUCTION.md |
@@ -43,10 +44,11 @@ inventory, read by tools), `DESIGN_TABLE.md` (generated), `SHMEM.md`, `SHMEM_STA
 | B13b | Phase 13b, agent B: strategy B in the library, and B4 (PLAN §31, axis S) | PRIMES_STRATEGY.md |
 | B16 | Phase 16 B: ecalc bring-up on aac7 at 4 → 8 → 12 nodes (10¹⁰ digits per node) | AAC7_PORT.md |
 | B7ACCT | counting the general map's v-exchange slots in the layout (branch `b7-vslot`, 2026-10-06) | GRID_GROUPS.md |
+| BSPLIT | `RNS_BATCH_SPLIT`: own-device split of oversized batch products under one process per GPU; digit gates identical to D at 1, 2 and 3 n | XSHMEM.md §BSPLIT |
 | C | B7 `alltoallv` in every transport, C4 the two-plane pipeline, C5 `DIST_STATS` under pipelining (2026-09-20) | EXCHANGE.md |
 | C01 | machine profile templates (step one of the profile plan) | TOOLS_PROFILES.md |
 | C02 | (opportunity C8): the gap between the layered exchange rate and the NIC rate -- where it goes at 4 / 6 nodes, three peer | OFI_FABRIC.md |
-| C04 | environment probe (`tools/envprobe.sh`) and the probe covariate in `ecalc/calib_table.py` | TOOLS_PROFILES.md |
+| C04 | environment probe (`archive:scripts_2026-10-23/envprobe.sh`) and the probe covariate in `ecalc/calib_table.py` | TOOLS_PROFILES.md |
 | C05 | M5, the 60-bit packed digit output (`ECALC_OUT_PACKED=2`) | OUTPUT_IO.md |
 | C06 | G5 (X2 cut-group pool-offset asymmetry) and M3 (release the v-slots; S-1 remainder), 2026-10-11 (branch c06 = main bc800 | GRID_GROUPS.md |
 | C09 | best MN_GROUPS for every usable node count (N = 576 .. 544), 3.71e13 and 3.79e13 digits | GRID_GROUPS.md |
@@ -61,7 +63,7 @@ inventory, read by tools), `DESIGN_TABLE.md` (generated), `SHMEM.md`, `SHMEM_STA
 | CX15 | Phase 15 agent CX: what the multi-node transform cache is worth | CACHE.md |
 | D16 | Phase 16 D: the A/Bs on aac7, and the Phase E scripts (the 12-node scaled headline) | AAC7_PORT.md |
 | D213d | D2 13d — the model: steps for G, the 13c recalibration, the 576 piece counts, the estimate (Phase 13d, PLAN.md §32 row D | TIME_MODEL.md |
-| DAY | the 2026-10-13 day plan: large run, correctness sweep, SHMEM sweep, 6-node repeat | NIGHT_RUNS.md |
+| DAY | the 2026-10-13 day plan: large run, correctness sweep, SHMEM sweep, 6-node repeat | archive:results_merged_2026-10-23/NIGHT_RUNS.md |
 | DEF | P24 as the multi-node default (D18) and DM_MN_WRAP in the memory model + 6-node A/B (D19 b) | LAUNCH_DEFAULTS.md |
 | DKM15 | the division in two quotient halves with a half-length reciprocal (Phase 15 Batch 3, agent DKM) | DIVISION.md |
 | DL15 | the arena sized to DKM's division, and the room check on the model's node (Phase 15 Batch 3, agent DL) | MEMORY.md |
@@ -110,24 +112,24 @@ inventory, read by tools), `DESIGN_TABLE.md` (generated), `SHMEM.md`, `SHMEM_STA
 | M3 | the top levels of the binary-splitting tree as distributed products over node groups (2026-09-18) | GRID_GROUPS.md |
 | M615 | Phase 15 Batch 2, agent M6: item 6 (E11, band-sized products and the chunked division window) with the Q/S margin trim | DIVISION.md |
 | MAP15 | Phase 15 Batch 2, row 5 (N2): the arena's mapping, the seeds and level 1 | MEMORY.md |
-| MEAS-N7 | SHMEM data path (`COMM_OFI=0`) against libfabric (`COMM_OFI=1`) at 2 nodes | SHMEM_ITEMS.md |
+| MEAS-N7 | SHMEM data path (`COMM_OFI=0`) against libfabric (`COMM_OFI=1`) at 2 nodes | archive:results_merged_2026-10-23/SHMEM_ITEMS_full.md |
 | MEAS-P24 | four-prime product form (P24) for all multi-node products against the default, 2 nodes | PRIMES_STRATEGY.md |
 | MPB15 | MPB (Phase 15 Batch 3): the `ECALC_NP=auto` switch-over on min(pa, pb) (`ECALC_NP_AUTO_MIN=1`) | PRIMES_STRATEGY.md |
 | MS15 | the node memory at 5.1–5.7 × 10¹³ on 576 nodes, and the largest target that fits 480 GB (Phase 15, agent MS) | TARGET.md |
 | N13 | Phase 13a agent N — checkpoint hardening (TASKS 1.7, 4.1, 1.4) | CHECKPOINT.md |
 | N3 | host gaps in the batch tier (`BS_BATCH_PIPE`) | KERNELS.md |
 | N414 | `t_mn_grid` on real nodes over SOS, `mnrun.sh`'s SHMEM detection, the dist tier's load speed (Phase 14, PLAN §33 A4, A5) | TESTING_VERIF.md |
-| N7 | SHMEM data path (`COMM_OFI=0`) against `comm_ofi`: sweep, diagnosis, peer-order fix, confirmation | SHMEM_ITEMS.md |
-| N7B | one SHMEM proxy PE per APU (`COMM_SHMEM_PE_PER_APU=1`): bandwidth, gates, 6-node ABBA | SHMEM_ITEMS.md |
-| N7C | SHMEM proxy mode: why it is slow, and `COMM_SHMEM_PX_NUMA=1` + `HSA_ENABLE_SDMA=0` (config C) | SHMEM_ITEMS.md |
-| N7D | SHMEM proxy mode toward comm_ofi speed at 6 nodes (copy kernel, parallel init, put-with-signal sends) | SHMEM_ITEMS.md |
-| N7E | the N7D proxy-mode switches at 6 nodes: paired repeat (PX_SEND=2, PX_INIT=1) against comm_ofi | SHMEM_ITEMS.md |
-| N7E_V | N7E-V — COMM_SHMEM_PE_PER_APU=2 (two helper PEs per APU): correctness record | SHMEM_ITEMS.md |
-| N7G | COMM_SHMEM_PX_THP and COMM_SHMEM_PX_PIN on the proxy mode: pairs and verdict | SHMEM_ITEMS.md |
+| N7 | SHMEM data path (`COMM_OFI=0`) against `comm_ofi`: sweep, diagnosis, peer-order fix, confirmation | archive:results_merged_2026-10-23/SHMEM_ITEMS_full.md |
+| N7B | one SHMEM proxy PE per APU (`COMM_SHMEM_PE_PER_APU=1`): bandwidth, gates, 6-node ABBA | archive:results_merged_2026-10-23/SHMEM_ITEMS_full.md |
+| N7C | SHMEM proxy mode: why it is slow, and `COMM_SHMEM_PX_NUMA=1` + `HSA_ENABLE_SDMA=0` (config C) | archive:results_merged_2026-10-23/SHMEM_ITEMS_full.md |
+| N7D | SHMEM proxy mode toward comm_ofi speed at 6 nodes (copy kernel, parallel init, put-with-signal sends) | archive:results_merged_2026-10-23/SHMEM_ITEMS_full.md |
+| N7E | the N7D proxy-mode switches at 6 nodes: paired repeat (PX_SEND=2, PX_INIT=1) against comm_ofi | archive:results_merged_2026-10-23/SHMEM_ITEMS_full.md |
+| N7E_V | N7E-V — COMM_SHMEM_PE_PER_APU=2 (two helper PEs per APU): correctness record | archive:results_merged_2026-10-23/SHMEM_ITEMS_full.md |
+| N7G | COMM_SHMEM_PX_THP and COMM_SHMEM_PX_PIN on the proxy mode: pairs and verdict | archive:results_merged_2026-10-23/SHMEM_ITEMS_full.md |
 | NIC | node screen catches nodes with fewer NICs than the launch asks for | NODE_SLOWMODE.md |
 | NIC16_experiments | NIC16 — one process driving all Slingshot NICs of a node (aac7) | OFI_FABRIC.md |
-| NIGHT | overnight runs 2026-10-13 (five aac7 items, two local analyses) | NIGHT_RUNS.md |
-| NIGHT2 | overnight regression on main 1aa2b80 (2026-10-14) | NIGHT_RUNS.md |
+| NIGHT | overnight runs 2026-10-13 (five aac7 items, two local analyses) | archive:results_merged_2026-10-23/NIGHT_RUNS.md |
+| NIGHT2 | overnight regression on main 1aa2b80 (2026-10-14) | archive:results_merged_2026-10-23/NIGHT_RUNS.md |
 | NP15 | NP (Phase 15 Batch 2, PLAN §37 row 1) — four primes only where needed (`ECALC_NP=auto`) | PRIMES_STRATEGY.md |
 | NTT3P | can ecalc's large transforms run in 3 memory passes instead of 4? (design study, no code changed) | KERNELS.md |
 | O1 | overnight 6-node paired ABBA, MN_GROUPS `2,6` (default) vs single level `6` (TASKS 42) | GRID_GROUPS.md |
@@ -137,6 +139,7 @@ inventory, read by tools), `DESIGN_TABLE.md` (generated), `SHMEM.md`, `SHMEM_STA
 | O5 | K7-a GPU-3 rebalance -- the B5 form (B4 with APU 3 given a share of the inverse) | DIVISION.md |
 | O8 | TASKS backlog clean-up (local only, no cluster use; 2026-10-11, branch o8 off main 0298fe2) | CODE_REDUCTION.md |
 | OFI17 | `comm_ofi`: a multi-NIC bulk path for ecalc (Phase 17, branch `p17-ofi`) | OFI_FABRIC.md |
+| PPG | TARGET1 stage S2, one process per GPU (`ECALC_PE_PER_GPU`): gate 9v8, S2d paired timing (2026-10-22) | XSHMEM.md §PPG |
 | P | single-node speed: B3 planes at init, A2 level-22 pairing, DM_POOL default, I11 init, A4 tile budget (Phase 11, PLAN §26 | SINGLE_NODE.md |
 | P1 | the distributed division multiply: the low product X·Q as a low part + one cyclic plane (`DM_MN_WRAP`) | DIVISION.md |
 | P13b | sizing follows the prime count; the plane cap as one switch; the one-node ceiling at three primes (Phase 13b, PLAN §31 r | MEMORY.md |
@@ -194,7 +197,7 @@ inventory, read by tools), `DESIGN_TABLE.md` (generated), `SHMEM.md`, `SHMEM_STA
 | SHM | the SHMEM pool under `COMM_OFI=0` is too small at 6 nodes (bug A of NIGHT) | SHMEM_ITEMS.md |
 | SHR2 | shrink pass 2: top-level checkpoints only, the unreachable stand-in, SOS/OSHMEM builds, AUD2 re-scan (2026-10-12) | CODE_REDUCTION.md |
 | SIMP | AUD3 items 1–4: one single-node division flow, DKM only, no 3·2^k distributed planes, one grid planner | CODE_REDUCTION.md |
-| STAT | static-analysis triage (L1, results/NIGHT_RUNS.md §NIGHT section 6) and SH4 leftovers | NIGHT_RUNS.md |
+| STAT | static-analysis triage (L1, results/NIGHT_RUNS.md §NIGHT section 6) and SH4 leftovers | archive:results_merged_2026-10-23/NIGHT_RUNS.md |
 | STD17 | OFI memory accounting (OFIMEM) and the standard 10-node run with all NICs (Phase 17, branch `p17-ofimem`) | OFI_FABRIC.md |
 | T | tests, checkpoints and docs (Phase 10, PLAN.md §21: D3, D2, D4, D5, C6, E3) | TESTING_VERIF.md |
 | T05 | why 4-node run totals are bimodal (fast ~181 s / slow ~208 s) | NODE_SLOWMODE.md |
@@ -237,14 +240,13 @@ Topic files:
 
 | file | subject |
 |---|---|
-| SHMEM_ITEMS.md | the SHMEM transport and proxy mode: per-item records behind results/SHMEM.md and SHMEM_STALLS.md (N7 series, pool sizing, strided PE sets, target forms) |
+| SHMEM_ITEMS.md | the SHMEM fallback transport (`comm_shmem.c`): pool sizing, strided PE sets, target forms (the proxy-mode records are archived) |
 | OFI_FABRIC.md | comm_ofi (libfabric multi-NIC path), NIC use, the fabric limit and the exchange rate versus the NIC rate |
 | NODE_SLOWMODE.md | the bimodal 4-node totals (slow mode), what picks it, and the node screens (nodechk, NIC count, slow hosts) |
 | CRASHES_HANGS.md | crashes, hangs and intermittent defects: t_mn_grid hang, segfaults, races, DIST_LOGN_TEST corrections, hang bounds |
 | CHECKPOINT.md | checkpoint and restart of the binary-splitting phase: per-node checkpoints, hardening, restart under another MN_GROUPS |
 | TOOLS_PROFILES.md | tools and the parameter system: profiles, the switch registry, calibration, the target kit, mnaccept, environment probe |
 | LAUNCH_DEFAULTS.md | launch-line decisions and defaults adopted: slot release, K2+K3, P24 default, the pre-launch memory fit, exchange re-confirm |
-| NIGHT_RUNS.md | overnight and day-plan runs of 2026-10-13/14 and the static-analysis triage |
 | GRID_GROUPS.md | the grid of piece products over shares and node groups: layout at any group size, MN_GROUPS schedules, v-slot release, the 576-node layout checks |
 | EXCHANGE.md | the all-to-all exchange in every transport: all-gather, layered exchange two-deep, slab pipelining, the rank gradient, gather kernels |
 | TIME_MODEL.md | the time model and the 576-node estimates: refits to measured runs, scaling studies, the model's inputs measured on aac7 |
@@ -261,7 +263,4 @@ Topic files:
 | AAC7_PORT.md | the aac7 port (Phase 16): bring-up at 4 to 12 nodes, the A/Bs and the 12-node scaled headline, the fastest software stack |
 | APUMULT.md | the apumult study (internal reference multiplier) against ecalc: spec comparison and the apumult measurements |
 | SESSIONS.md | aac7 measurement sessions of September/October: profile analysis 2 to 10 nodes, T2048 A/B, XSTATS decomposition, X2 and VMM_SAFE soak |
-| XSHMEM.md | target-shaped communication: xshmem.h (Cray SHMEM 12.1 style over libfabric on aac7), backends, 11.8 and cxi facts, t_xshmem, the engine `COMM_TRANSPORT=xshmem`, gates, first timing, target port checklist (merges the former XSHMEM_B1-B4, XSHMEM_S3A_A1/A2) |
-| PPG.md | TARGET1 stage S2, one process per GPU (`ECALC_PE_PER_GPU`): gate 9v8, digits identical off vs on, single-run timings, S2d paired timing pending |
-| BSPLIT.md | `RNS_BATCH_SPLIT`: own-device split of oversized batch products under one process per GPU; unit and planner checks, digit gates identical to D at 1, 2 and 3 n |
-| ATRIM.md | BS_ARENA_TRIM_GB: the opt-in arena trim, measured at 2 n and 3 n |
+| XSHMEM.md | target-shaped communication: xshmem.h (Cray SHMEM 12.1 style over libfabric on aac7), backends, 11.8 and cxi facts, t_xshmem, the engine `COMM_TRANSPORT=xshmem`, gates, first timing, target port checklist (merges the former XSHMEM_B1-B4, XSHMEM_S3A_A1/A2); also the PPG (one process per GPU, S2d timing) and BSPLIT (`RNS_BATCH_SPLIT`) sections |

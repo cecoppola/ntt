@@ -15,10 +15,11 @@
 #                 e.g. --line file:~/target_line.env.   --env words are appended; ECALC_SEGV_TRACE=1 is always set.
 #     --profile P load profiles/P.conf (tools/profile_load.py) into the gate's environment: explicit env > profile > code default; writes
 #                 config_src.txt (config-src: line). Unknown/misspelled key or __FILL__ = FAIL. Not given = behaviour unchanged.
-#                 --build also runs `tools/switch_registry.py --check` and `tools/profile_load.py --validate-all` first (either failing = FAIL).
+#                 --build also runs `tools/switch_registry.py --check`, `tools/profile_load.py --validate-all`, `tools/xshmem_api_check.py` and
+#                 `python3 -m unittest discover -s tests` first (any failing = FAIL; python3 missing = FAIL with a message).
 #     (at --nodes > 1 the gate CHECKS the multi-node product form: since D18 (2026-10-12, results/LAUNCH_DEFAULTS.md §DEF) every multi-node product runs the
 #                 four-prime 24-digit form P24 (crt.c ec_np_planes; rns_dist.c mn_p24_of), so the run log must show "plane pool 0 for 4 primes";
-#                 needs ECALC_NP=auto on the line, or no ECALC_NP.  The three-prime path (--mn-primes 3, ECALC_NP_MN3) was removed 2026-10-19, D56.)
+#                 needs ECALC_NP=auto on the line, or no ECALC_NP. )
 #     --ref FILE  reference digits (default ~/ref/e_1000000000.txt, else ecalc/results/e_1000000000.out, else ~/ntt/ecalc/results/...); only 1e9 has a default
 #     --out DIR   output dir (default ~/gate/<timestamp>): build.log, run.log, gate.txt (one line), digit files are deleted after
 #     --timeout   seconds allowed for the run (default 1500); --wait seconds to wait for an --alloc job to start (default 1800)
@@ -90,6 +91,8 @@ if [ $BUILD = 1 ]; then
   python3 "$ROOT/tools/switch_registry.py" --check > "$OUT/registry.log" 2>&1 || fail "switch registry stale (see registry.log; run tools/switch_registry.py)"
   nrw=$(grep -c '^WARN' "$OUT/registry.log" || true); [ "${nrw:-0}" = 0 ] || say "registry: $nrw review-date warning(s), not a failure (registry.log; tools/switch_registry.py --review)"   # T27
   python3 "$ROOT/tools/profile_load.py" --validate-all > "$OUT/profiles.log" 2>&1 || fail "profile validation failed (see profiles.log)"
+  python3 "$ROOT/tools/xshmem_api_check.py" > "$OUT/xshmem_api.log" 2>&1 || fail "xshmem API parity check failed (see xshmem_api.log)"
+  ( cd "$ROOT" && python3 -m unittest discover -s tests ) > "$OUT/unittest.log" 2>&1 || fail "python unit tests failed (see unittest.log; python3 -m unittest discover -s tests)"
 fi
 PROF_SRC=
 if [ -n "$PROFILE" ]; then

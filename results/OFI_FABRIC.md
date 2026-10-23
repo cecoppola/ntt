@@ -34,7 +34,7 @@ from measured numbers, **mod** modelled, **a** assumed. Times Eastern.
   `COMM_XSTATS` (built), VSLOT_POOL + INTER2 (built; INTER2 default on until 2026-10-21, now 0, results/SHMEM.md); item 4 (OFI-native signalling) was shown NOT worth building (X3).
   §C02's `rr`/`winK` schedules were designed and a probe queued; the engine switch was not built.
 - **Four PEs per node** (§P16) wins at 4 nodes / 10^10 (26 s vs 35-45 s, m) but loses 3.7x at 8 nodes, 2.4x at 4 x 10^10, does not
-  fit memory at the target and needs per-PE plumbing; superseded by the proxy-PE work (`COMM_SHMEM_PE_PER_APU`, results/SHMEM_ITEMS.md,
+  fit memory at the target and needs per-PE plumbing; superseded by the proxy-PE work (`COMM_SHMEM_PE_PER_APU`, `archive:results_merged_2026-10-23/SHMEM_ITEMS_full.md`,
   results/SHMEM.md). The one-PE-per-APU rewrite was not built.
 - **uffd.** `FI_MR_CACHE_MONITOR=userfaultfd` is the `mnrun.sh` default (S46, results/CRASHES_HANGS.md §S46); the 46-run soak (§T12)
   found 0 crashes, which is consistent with but does not prove removal.
@@ -244,7 +244,7 @@ nodes). Modelled walls (`estimate.py`, **mod**): 4 PEs per node is 2.2-4x at the
 
 **Verdict.** Not adopted: a 25-30 % compute gain at 4 nodes does not survive scale-up (loses at 32 PEs and at 4 x 10^10), and it does
 not fit the target memory. Recommendation made then: drop the form, spend the effort on a per-node budget and one-PE-per-APU. The need
-for one NIC per APU was later met by the proxy-PE design (results/SHMEM_ITEMS.md). Standing facts: the on-node SHMEM lane is 10-12 GB/s
+for one NIC per APU was later met by the proxy-PE design (`archive:results_merged_2026-10-23/SHMEM_ITEMS_full.md`). Standing facts: the on-node SHMEM lane is 10-12 GB/s
 per PE, not xGMI; the model over-predicted both arms at 2-4 nodes (calibration points handed to the model owner).
 
 ## §C02 — (opportunity C8) the gap between the layered exchange rate and the NIC rate: where it goes at 4 / 6 nodes, three peer schedules, the plan
@@ -281,7 +281,7 @@ probe item. Inputs: S48 runs at 6.441e10 digits per node with `COMM_XSTATS=1`, T
    and 2 nodes, 4-node ABBA >= 8 rounds with the MCU group recorded, then 10 nodes.
 
 **Status.** The probe item was installed but not yet run when written (4 nodes busy); the engine switch was not built; results of the
-probe are not in this file (look in results/SHMEM_ITEMS.md and RESULTS.md for later schedule work: `COMM_SHMEM_PEER_ORDER` now takes
+probe are not in this file (look in `archive:results_merged_2026-10-23/SHMEM_ITEMS_full.md` and RESULTS.md for later schedule work: `COMM_SHMEM_PEER_ORDER` now takes
 `rank` / `shift`). Side finding: the slow mode at 4 nodes outweighs anything a schedule can win (a14's launch-group work is the bigger
 lever).
 

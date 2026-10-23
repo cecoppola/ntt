@@ -226,8 +226,8 @@ TARGET_M_CONSTS = dict(MAP_RATE=0.010)
 TARGET_DEVICE_EDGE_GB = 373.44
 TARGET_HOST_PIN_APU_GB = 256.0
 TARGET_M = Fabric("Slingshot-2 dragonfly (PLAN 25), TGTBENCH2 measured constants", bw_apu=TARGET_BW_APU, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
-# S48 (2026-10-11): 'aac7_s48' = the aac7 profile refit to the 1/2/4/6-node scaling runs by ecalc/refit_s48.py; it reads ecalc/aac7_s48_fit.json
-# (written by `refit_s48.py --write-profile`; absent = the profile is refused).  Selected by --fabric aac7_s48 or its alias --fabric aac7 / MN_MODEL_PROFILE (B01, 2026-10-11: the aac7 default; the old one is aac7_c16).  The estimate.py default (no --fabric) stays the target profile.
+# S48 (2026-10-11): 'aac7_s48' = the aac7 profile refit to the 1/2/4/6-node scaling runs by archive:scripts_2026-10-23/refit_s48.py; it reads ecalc/aac7_s48_fit.json
+# (written by `archive:scripts_2026-10-23/refit_s48.py --write-profile`; absent = the profile is refused).  Selected by --fabric aac7_s48 or its alias --fabric aac7 / MN_MODEL_PROFILE (B01, 2026-10-11: the aac7 default; the old one is aac7_c16).  The estimate.py default (no --fabric) stays the target profile.
 AAC7_S48_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aac7_s48_fit.json')
 AAC7_S48 = Fabric("aac7 S48 refit (placeholder until aac7_s48_fit.json is read)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
 # B01 (the user's decision of 2026-10-11): 'aac7' now means the S48 refit (an alias of 'aac7_s48'); the previous aac7 profile (C16: 3.6 GB/s per
@@ -235,7 +235,7 @@ AAC7_S48 = Fabric("aac7 S48 refit (placeholder until aac7_s48_fit.json is read)"
 # L4 (2026-10-11, results/TIME_MODEL.md §L4): 'aac7_l4' / 'aac7_l4a' = the aac7 profile refit to ALL of 2026-10-11's multi-node runs with the corrected structure
 # (tree level = its slowest group, TREE_CRIT; operand/result/spill exchanges at k_other of the bulk rate; layv factor on the non-pow2 groups), per NIC
 # launch group: aac7_l4 = the fast group B (bulk rate bw_apu), aac7_l4a = the slow group A (bw_apu x alpha_slow).  Read from ecalc/aac7_l4_fit.json
-# (refit_s48.py --l4 --write-profile).  'target_l4' = the target fabric (100 GB/s ASSUMED, as 'target') with the L4 layv factor instead of T06's 0.655.
+# (archive:scripts_2026-10-23/refit_s48.py --l4 --write-profile).  'target_l4' = the target fabric (100 GB/s ASSUMED, as 'target') with the L4 layv factor instead of T06's 0.655.
 # aac7_s48 and every other profile stay selectable and unchanged.
 AAC7_L4_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aac7_l4_fit.json')
 AAC7_L4 = Fabric("aac7 L4 refit, NIC group B (placeholder until aac7_l4_fit.json is read)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
@@ -255,12 +255,12 @@ def apply_profile(name):
         if 'MN_MODEL_MAP_RATE' not in os.environ: MAP_RATE = TARGET_M_CONSTS['MAP_RATE']
     if name == 'aac7_s48':
         import json
-        if not os.path.exists(AAC7_S48_FILE): raise SystemExit('mn_model: profile aac7_s48 needs %s (run refit_s48.py --write-profile)' % AAC7_S48_FILE)
+        if not os.path.exists(AAC7_S48_FILE): raise SystemExit('mn_model: profile aac7_s48 needs %s (restore archive:scripts_2026-10-23/refit_s48.py and run it with --write-profile)' % AAC7_S48_FILE)
         j = json.load(open(AAC7_S48_FILE))
-        PROFILES[name] = Fabric("aac7 S48 refit (refit_s48.py)", bw_apu=j['bw_apu'], lat=j['lat'], group=64, layers=2, taper=1.0, write_bw=j.get('write_bw', 0.116), v_factor=j.get('layv_factor', 1.0))
+        PROFILES[name] = Fabric("aac7 S48 refit (archive:scripts_2026-10-23/refit_s48.py)", bw_apu=j['bw_apu'], lat=j['lat'], group=64, layers=2, taper=1.0, write_bw=j.get('write_bw', 0.116), v_factor=j.get('layv_factor', 1.0))
     if name in ('aac7_l4', 'aac7_l4a', 'target_l4'):
         import json
-        if not os.path.exists(AAC7_L4_FILE): raise SystemExit('mn_model: profile %s needs %s (run refit_s48.py --l4 --write-profile)' % (name, AAC7_L4_FILE))
+        if not os.path.exists(AAC7_L4_FILE): raise SystemExit('mn_model: profile %s needs %s (restore archive:scripts_2026-10-23/refit_s48.py and run it with --l4 --write-profile)' % (name, AAC7_L4_FILE))
         j = json.load(open(AAC7_L4_FILE))
         if name == 'target_l4':
             PROFILES[name] = Fabric("Slingshot-2 dragonfly (PLAN 25), L4 layv factor", bw_apu=TARGET_BW_APU, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=j.get('layv_factor_nopen', j['layv_factor']))   # (the factor fitted without the multi-node-children level penalty: the target runs without it)

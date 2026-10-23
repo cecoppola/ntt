@@ -54,7 +54,7 @@ EPR = re.compile(r'^ENVPROBE\b(.*)$')
 EPKV = re.compile(r'(\w+)=(\S+)')
 
 def parse_probes(lines):
-    """ENVPROBE lines (tools/envprobe.sh): r64= r256= group=A|B fgfc=<M> nn= t= wall= -> list of dicts (rates float or None)"""
+    """ENVPROBE lines (archive:scripts_2026-10-23/envprobe.sh): r64= r256= group=A|B fgfc=<M> nn= t= wall= -> list of dicts (rates float or None)"""
     out = []
     for ln in lines:
         m = EPR.match(LAB.sub('', ln.strip()))

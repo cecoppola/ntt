@@ -60,7 +60,7 @@ Open at the time: the leaf race (now fixed); size-1 recheck needs `ECALC_CKPT_TO
 Branch `w12` from `main` 7aded87. Files: output tail of `ecalc.c`, `mn_out.c/.h`, `mnaccept.sh` (`recheck` step and the `--full` recheck), README; minimal `binsplit.c/.h` (`bs_ckpt_own_buf`, `bs_ckpt_tree_pdone`).
 
 #### 1. `ECALC_CKPT_TOP` on by default above 10^10 digits (as built then; README now says off by default, see summary)
-Default then: on with an outfile, decimal limbs and d_out > 10^10 (`=0` off, `=1` any size); directory `BS_CKPT_DIR` else `<outfile>.top/`. Size 1 device flow: a background thread writes `bs_ckpt_tree_write(0, ...)` of P, Q right after bs; the driver waits for P (`ckpt_top_wait_p`) before `S = P + Q` overwrites P and joins before Q's block is released after the division; DMA buffers are the thread's own. Size > 1: `mn_tree` writes the top set as before; default directory `<outfile>.top` and `BS_CKPT_TREE_EVERY=64`.
+Default then: on with an outfile, decimal limbs and d_out > 10^10 (`=0` off, `=1` any size); directory `BS_CKPT_DIR` else `<outfile>.top/`. Size 1 device flow: a background thread writes the static `tree_write` (was `bs_ckpt_tree_write`, removed 2026-10-23) of P, Q right after bs; the driver waits for P (`ckpt_top_wait_p`) before `S = P + Q` overwrites P and joins before Q's block is released after the division; DMA buffers are the thread's own. Size > 1: `mn_tree` writes the top set as before; default directory `<outfile>.top` and `BS_CKPT_TREE_EVERY=64`.
 Measured at 4 x 10^10 (same binary, one run each, identical digits):
 
 | | top-level set (then default) | `ECALC_CKPT_TOP=0` |

@@ -33,7 +33,7 @@ Labels: **m** measured, **mod** modelled, **a** assumed.
 - The digits must be right without a reference: every run checks itself (`ALGORITHM.md` §10).
 - Where the project stands against this goal, with the standing estimate and the memory margin: section 2.
 
-## 2. Current status (2026-10-19)
+## 2. Current status (2026-10-23)
 
 **What works.** ecalc computes ⌊10^d·e⌋ with decimal limbs end to end (binary splitting, Newton reciprocal, two-half
 division, packed output) and verifies itself on every run (T1 residues, T2 windows; `ALGORITHM.md` §10). It runs at 1-6
@@ -46,23 +46,12 @@ digits up to 10¹¹.
 | 2 nodes (aac7), 6.441 × 10¹⁰ digits per node, same three defaults | 134.51 s against 140.10 s without them (pooled 12 pairs, -5.58 s [-10.54, -0.63]) (m, 2026-10-12); one gate run after the wave 2 removals: 134.0 s (m) | `results/SINGLE_NODE.md §CAND`, `results/CODE_REDUCTION.md §W2B` |
 | 1 node, 6.441 × 10¹⁰ digits, before the 2026-10-12 defaults | 76-78 s (m) | `RESULTS.md`, `results/TIME_MODEL.md §S48` |
 | 1 node, 10¹¹ digits | 129.3 s (m, before the 2026-10-12 defaults) | `results/CODE_REDUCTION.md §L2` |
-| 1 / 2 / 4 / 6 nodes at 6.441 × 10¹⁰ digits per node (scaling, aac7, mean of 2 runs per count, 2026-10-13 overnight, defaults of 4ae95ec1) | 67.6 / 119.4 / 172.2 / 204.6 s; efficiency vs 1 node (T1/Tn) 0.57 / 0.39 / 0.33 (m, 2026-10-13; before tonight's runs: 74.4 / 138.9 / 188.2 / 246.4 s, `results/TIME_MODEL.md §M2a`) | `results/NIGHT_RUNS.md §NIGHT` §4 |
+| 3 nodes, 10¹¹ digits, the two supported multi-node paths (aac7, 2026-10-22/23; `README.md`) | path 1 (libfabric, layout D, `COMM_TRANSPORT=xshmem`): 81.2 to 83 s; path 2 (Cray SHMEM, one process per GPU, two lanes): 85 to 93 s, +7.5 % (11 interleaved pairs, CI +3.4 to +11.5 %); the gap is init, +8 s (m) | `results/XSHMEM.md` (craylane) |
+| older, libfabric era: 1 / 2 / 4 / 6 nodes at 6.441 × 10¹⁰ digits per node (aac7, 2026-10-13 overnight) | 67.6 / 119.4 / 172.2 / 204.6 s, efficiency vs 1 node 0.57 / 0.39 / 0.33 (m); before those runs 74.4 / 138.9 / 188.2 / 246.4 s (`results/TIME_MODEL.md §M2a`); the nightly records are archived (`archive:results_merged_2026-10-23/NIGHT_RUNS.md`) | `results/TIME_MODEL.md §M2a` |
 | 3 / 5 nodes at 6.441 × 10¹⁰ digits per node (aac7, comm_ofi default, 2026-10-14): 147.7 s (3 runs, sd 4.5) and 182.1 s (3 runs, sd 9.7); with the 1/2/4/6 points the curve reads 67.6 / 119.4 / 147.7 / 172.2 / 182.1 / 204.6 s for 1 to 6 nodes (m, 2026-10-14) | `results/TIME_MODEL.md §SCALE35` |
-| 6 nodes, 3.8646 × 10¹¹ digits (repeat, aac7, defaults, no writes, 2026-10-13) | mean 202.1 s, sd 8.6 s, min 192.0 s, max 230.9 s over 47 runs; 0 hangs (m) | `results/NIGHT_RUNS.md §NIGHT` §5 |
-| 6 nodes, 3.8646 × 10¹¹ digits (repeat, test cluster, defaults of 209712f, no writes, 2026-10-13 day plan) | mean 197.1 s, sd 12.0 s, min 181.1 s, max 224.8 s over 34 runs; 0 hangs (m) | `results/NIGHT_RUNS.md §DAY` §4 |
-| 6 nodes, 3.8646 × 10¹¹ digits (repeat on main 1aa2b80, after the CKPT, N7 and N7b merges, aac7, 2026-10-14, no writes) | mean 190.70 s, sd 12.03 s, min 175.38 s, max 217.78 s over 31 runs; 0 hangs; gates at 1/2/4/6 nodes PASS (digits identical); SHMEM-path sweep 24/24 digits identical at 1 to 6 nodes (m; not a paired speed claim) | 2026-10-14 repeat; results/NIGHT_RUNS.md §NIGHT2 |
+| older, libfabric era: 6 nodes, 3.8646 × 10¹¹ digits (aac7, defaults, no writes, 2026-10-13/14) | means 190.7 to 202.1 s (sd 8.6 to 12.0 s) over 112 runs in three repeats, 0 hangs; gates at 1/2/4/6 nodes PASS (m) | archive:results_merged_2026-10-23/NIGHT_RUNS.md |
 
-**SHMEM transport (`COMM_OFI=0`).** The device exchanges can run over Cray SHMEM puts instead of libfabric (the plain data path
-of `comm_shmem.c`; kept as the reference for the Cray SHMEM 12.1 port). The one-helper-process-per-APU "proxy mode"
-(`COMM_SHMEM_PE_PER_APU`, its `COMM_SHMEM_PX_*` switches and its trace mode) was removed in P7 (2026-10-22, user Q78); its measured
-results stay below and in `results/SHMEM.md`. With the node-process heap in 2 MiB pages (`COMM_SHMEM_NP_HEAP_THP=1`, D48,
-default) the random multi-second stalls were gone: they were kernel proactive compaction of the node
-process's pinned 4 KiB SHMEM heap evicting the GPU queues; there were 0 stalls in 16 runs at 3 nodes
-and 0 in 6 at 2 nodes, against 9 in 24 without (m). With the proxy mode, at 2 nodes SHMEM equalled libfabric (43.3-45.1 against 43.0-45.2 s); at 3 nodes it was
-about 6 % behind (49.6 against 46.6 s, m). At 6 nodes, 3.8646 × 10¹¹ digits, libfabric takes 184.5 s (4 runs, m) and the SHMEM proxy mode took
-286.0 s mean over 24 runs, best four 220.5 s (m) before the heap fix. `COMM_TRACE` (v2: heartbeat, thread, watchdog and phase tags, memory counters) is the diagnostic. Evidence:
-`results/SHMEM.md`, `results/SHMEM_STALLS.md`. SHMEM stays a selectable transport; libfabric remains the default wherever a
-cxi NIC is present.
+**Multi-node paths (user rule Q85, 2026-10-23).** Two paths stay supported and are described, with build and run lines and the figures above, in `README.md`: path 1, libfabric (`COMM_TRANSPORT=xshmem` over the `xshmem_ofi.c` backend, layout D, the default since Q73) and path 2, Cray SHMEM (`XSHMEM=cray`, `xshmem_cray.h`, one process per GPU, `XSHMEM_LANES=2`, the target shape). Path 2 is +7.5 % against path 1 at 3 nodes, 10¹¹ digits, and the whole gap is start-up (init +8 s, aac7-specific, m; `results/XSHMEM.md`). The fallback `COMM_TRANSPORT=shmem` (`comm_shmem.c`, with `comm_ofi.c` as its data plane) is kept as the reference. The one-helper-process-per-APU proxy mode was removed in P7 (2026-10-22, Q78) and the aac7 tuning of Cray SHMEM 11.8 ended on 2026-10-21 (target redirect); the stall diagnosis (kernel compaction of a pinned 4 KiB heap; the node-process heap is in 2 MiB pages, `COMM_SHMEM_NP_HEAP_THP=1`, D48) and the closing record are in `results/SHMEM.md`. `COMM_TRACE` (v2: heartbeat, thread, watchdog and phase tags, memory counters) is the diagnostic.
 
 The 60-bit packed output (`ECALC_OUT_PACKED=2`) is the default since 2026-10-12 (batch D5, `results/CODE_REDUCTION.md §W2A`).
 The wave 2 settings removals changed no timing at the defaults (`results/CODE_REDUCTION.md §W2A`, `results/CODE_REDUCTION.md §W2B`).
@@ -73,9 +62,7 @@ user-supplied 100 GB/s injection peak per APU (a for the achieved rate)); the wr
 and 1.0 s at the file system's 1 TB/s (mod, `results/TARGET.md §TGT`); the target has run only the memory and exchange benchmarks (`results/TARGET.md §TGTBENCH2`). The
 largest multi-node cost today is the distributed division multiply (+94 s at 6 nodes against 1, m).
 
-**Road to the target.** Code reduction, the correctness defect (closed 2026-10-13) and the SHMEM stall fix are done; next the
-SHMEM 6-node confirmation, the switch audit and consolidations, and performance work on the test system (`TASKS.md`), then the
-target session (section 4).
+**Road to the target.** Code reduction, the correctness defect (closed 2026-10-13), the SHMEM stall fix and the two-path work (Q73, Q85) are done; the target redirect (2026-10-21) points the remaining work at the Cray SHMEM 12.1 shape: the start-up gap of path 2, the target-session day-one checks and the proposed items in `TASKS.md`, then the target session (section 4).
 
 ## 3. Defaults and launch lines
 
@@ -83,7 +70,7 @@ The code defaults are the tested configuration; nothing has to be set for a one-
 and evidence of each, is the switch table in `ecalc/README.md`.
 
 The multi-node launch line sets, in addition: the transport (`COMM_TRANSPORT=xshmem` since Q73, 2026-10-21, with `XSHMEM_ROUND_MB=128` and `XSHMEM_ORDER=rot`; the fallback `COMM_TRANSPORT=shmem`: Cray contexts per thread, the
-symmetric heap in device memory, SHMEM rounds of 1 GiB), `ECALC_NP=auto`, `MN_T_CHUNK_MB=2048`, the memory guard, the
+symmetric heap in device memory, `COMM_SHMEM_ROUND_MB=128` in the aac7 profile, Q60; path 2 adds `ECALC_PE_PER_GPU=1 XSHMEM_LANES=2` on an `XSHMEM=cray` build, and `mnrun.sh` supplies the NUMA placement and the libsma heap: the build and run lines of both paths are in `README.md`), `ECALC_NP=auto`, `MN_T_CHUNK_MB=2048`, the memory guard, the
 crash-trace handler and the verbose memory lines. Every multi-node product runs the four-prime 24-digit form P24 (user decision
 D18, 2026-10-12: the code default at every size > 1, as the target always had from 32 nodes; `results/PRIMES_STRATEGY.md §MEAS-P24`: −8.9 s
 at 2 nodes, +8.6 GB per APU, m; `results/LAUNCH_DEFAULTS.md §DEF`). The three-prime multi-node path (`ECALC_NP_MN3`, `tools/gate.sh --mn-primes 3`) was removed 2026-10-19 (D56). The batch tier's host overlap `BS_BATCH_PIPE` (D20, `results/KERNELS.md §N3`: −0.99 s at 1 node, m) and the carry-lookahead in `k_crt_batch` `RNS_CRT_SCAN` (D21, `results/KERNELS.md §K4b`: −2.52 s at 1 node, m) and the division's low product as one cyclic plane `DM_MN_WRAP` (D22, `results/DIVISION.md §P1`, `results/LAUNCH_DEFAULTS.md §DEF`: 6 nodes dm −6.25 s, +5.4 GB per APU, counted by the memory model, m) are code defaults since 2026-10-12, each with a `=0` fallback (`DM_MN_WRAP` automatic since 2026-10-13, D26, `results/LAUNCH_DEFAULTS.md §FIT`: on only where the device with it fits the device limit less a 5 GB margin -- on at aac7's 1 to 6 nodes, off at 3.82 × 10¹³ on 576 nodes); so are the P24 CRT carry-lookahead `P24_CRT_SCAN` (D24, `results/KERNELS.md §K4c`) and the reciprocal chain guard `NEWTON_CHAIN_GUARD` (D25, `results/DIVISION.md §RECIP`, counted by the memory model) since 2026-10-13. The transform-cache fit and partial cache, the early write after
@@ -123,12 +110,11 @@ flipped) has an owner and a review date (`ecalc/switches_review.tsv`; the table 
 
 ## 4. Plan to the target run
 
-**Remaining work in this repository** is in `TASKS.md`: the acceptance and fallback gates, the switch audit, the SHMEM
-confirmation and gap, and performance on aac7 (largest cost: the distributed division multiply).
+**Remaining work in this repository** is in `TASKS.md`: the acceptance and fallback gates, the switch audit, the start-up gap of the Cray SHMEM path, and performance on aac7 (largest cost: the distributed division multiply).
 
 **Target session** (the user runs it; the steps are in `ecalc/target_kit.sh -h`):
 1. Fill `profiles/target.conf` from the template (modules, ROCm, NICs, partition, memory); `tools/profile_load.py target --check`.
-2. Kit preflight: environment record, build (`-DCOMM_SHMEM`), libfabric memory monitor (uffd), plan check
+2. Kit preflight: environment record, build (path 2: `make XSHMEM=cray SHMEM_CRAY=1`), libfabric memory monitor (uffd), plan check
    (`MN_PLAN_ONLY` must end with `plan check ... OK`), the memory edge, a node screen (`tools/nodescreen.sh`).
 3. Measurements: A3 (`comm_ofi` injection per NIC, one vs two NICs per APU) and A4 (all-to-all scaling with node count).
    These replace the assumed fabric rate in the model; re-run `estimate.py` and recheck the size against the grid steps.
@@ -150,4 +136,4 @@ the plan-REFUSED path.
 | crash without a trace | `ECALC_SEGV_TRACE=1` on the launch line |
 | wrong digits | T1/T2 in the run, RECHECK and `unpack_digits` after it |
 | the write short of the file system's 1 TB/s (one file, 32 writers per node; ecalc: 2 files per node, 8 threads) | `tools/wbench` at scale in the kit, `MN_OUT_THREADS=32`; a shared-file writer if needed (OPPORTUNITIES N8): 12.8 s exposed at 1.0 GB/s per node (mod) |
-| SHMEM has to carry the device exchanges (cray-shmem 12.1.0 untested; the target has hugetlb pages, aac7 does not) | `COMM_OFI=0` runs on aac7 first (`results/SHMEM.md`: no stalls with the heap fix, 3-6 % behind at 3-4 nodes); pool 10240 MiB then (m, planner); hugetlb backing switch and stall checks in the target session |
+| Cray SHMEM 12.1 (`XSHMEM=cray`, path 2) untested on the target; the init gap (+8 s on aac7) may differ; the target has hugetlb pages, aac7 does not | path 2 runs on aac7 against Cray SHMEM 11.8 (`results/XSHMEM.md`, +7.5 % against path 1, digits identical); the kit's build, plan and t_xshmem checks and the day-one list T1-T8 (`results/XSHMEM.md`, `TASKS.md`) on the target; path 1 stays as the fallback (Q85) |

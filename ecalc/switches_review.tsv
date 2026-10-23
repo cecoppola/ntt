@@ -7,7 +7,7 @@
 # columns (tab separated): name, class (experiment|fallback|diagnostic|test|internal|launch-line), owner, review (YYYY-MM-DD), note
 BS_ARENA_TRIM_GB	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
 BS_CKPT_BG_MBS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-BS_SEED_PULL	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback, also the aac6 CPX workaround (profiles/aac6.conf); default since 2026-10-12 (CAND)
+BS_SEED_PULL	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback, also the aac6 CPX workaround (archive:scripts_2026-10-23/aac6.conf); default since 2026-10-12 (CAND)
 COMM_LAYER_INTER2	fallback	coordinator (TASKS S)	2026-11-11	=0 restores the pre-X2 exchange; default 1 from 2026-10-12 (TASKS 27, W2B D1e), 0 since 2026-10-21 (both transports)
 COMM_OFI_DEV	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_OFI_VERBOSE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
@@ -52,7 +52,7 @@ RNS_DIST_CACHE_MN	fallback	coordinator (TASKS S)	2026-11-11	default 2 since 2026
 RNS_DIST_CACHE_PARTIAL	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback; default since 2026-10-12 (W2B D1e)
 RNS_DIST_CACHE_PARTIAL_FORCE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 RNS_DIST_CACHE_TRACE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-RNS_INIT_POOL_LOG	launch-line	profiles/aac6.conf (CPX launch note, T11.md)	2027-04-12	pool size of rns_init for the CPX nodes (29) and the unit tests; changes no digit
+RNS_INIT_POOL_LOG	launch-line	archive:scripts_2026-10-23/aac6.conf (CPX launch note, T11.md)	2027-04-12	pool size of rns_init for the CPX nodes (29) and the unit tests; changes no digit
 RNS_POOL_GROW	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 RNS_R3	fallback	coordinator (TASKS S)	2026-11-11	on by default when the prime set has the radix-3 roots (ec_has_radix3); =0 keeps the power-of-two lengths only
 RNS_STRATEGY_CHECK	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit

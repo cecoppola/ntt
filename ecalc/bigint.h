@@ -66,11 +66,8 @@ uint64_t limb_mul_1(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint6
 void bi_shl_limbs(bigint *r, const bigint *a, size_t k);
 void bi_shr_limbs(bigint *r, const bigint *a, size_t k);
 /* r = a * 10^k (0 <= k < 18) */
-void bi_mul_pow10(bigint *r, const bigint *a, unsigned k);
 /* B^k = 10^(18k) as a bigint */
 void bi_set_base_pow(bigint *r, size_t k);
-/* top limb of a w-limb window read as a signed value: 1 if the value is negative (>= B/2) */
-static inline int bi_limb_negative(uint64_t top) { return top >= BI_B10 / 2; }
 static inline uint64_t bi_limb_max(void) { return BI_B10 - 1; }
 size_t limb_norm(const uint64_t *a, size_t n);
 
@@ -79,7 +76,6 @@ void bi_copy(bigint *r, const bigint *a);
 void bi_set_u64(bigint *r, uint64_t v);
 void bi_add(bigint *r, const bigint *a, const bigint *b);
 void bi_sub(bigint *r, const bigint *a, const bigint *b);           /* a >= b */
-void bi_add_shifted(bigint *r, const bigint *a, size_t limbs);      /* r += a << (64 limbs) */
 void bi_mul_school(bigint *r, const bigint *a, const bigint *b);
 void bi_mul_u64(bigint *r, const bigint *a, uint64_t m);
 /* mul_1 is by a precomputed reciprocal of 10^18 (any m < 10^18, canonical limbs); the fused seed step: */

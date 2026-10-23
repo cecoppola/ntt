@@ -236,7 +236,7 @@ Open: rerun unit / e9 size 1 on a one-node job; the 517.7 vs 323 s difference fo
 
 Agent AS, branch `p15-AS` from main f184d51 (B1). Labels: measured, replayed (an exact port of the pool driven by a measured trace), modelled.
 
-**Approach.** Record every block-pool event (`DB_POOL_TRACE=1`, print only), replay the pool offline (`tests/as_pool_replay.py`, exact port of `dbig.c` placement) and try arena layouts before node time.
+**Approach.** Record every block-pool event (`DB_POOL_TRACE=1`, print only), replay the pool offline (`archive:scripts_2026-10-23/as_pool_replay.py`, exact port of `dbig.c` placement) and try arena layouts before node time.
 
 **Trace at 10¹¹ (B1 defaults, job 21610, s24-16, m):** total 207.41 s, dm 105.50 s; **15 remaps summing 9.49 s** (APUs 1–3: 11.11 and 4.17 GB in the reciprocal, 22.22 GB for `t`, a growth of 2 chunks costing 0.22–3.80 s, 22.22 GB for `xq`). Replay: 116 blocks, 0 mismatches, same 15 remaps. Causes: (1) the arena (63.82 GB) is not a whole number of 2 GiB chunks; the last chunk's remainder lies after the tail's end, so the "spill to the tail's very end" rule finds no extent ending there and carves the bs top level's second output from the front of the tail; (2) with whole chunks, the division's `t` (22.22 GB) meets 31.09 GB free in two extents (11.11 + 19.98) because the freed top-level children leave 8.07 GB holes (dm_layout v3 counts bytes, not holes).
 
@@ -244,7 +244,7 @@ Replayed layouts (APUs 1–3): B1 15 remaps; whole chunks 9; + 1 chunk 6; **+ 2 
 
 **More sizes (jobs 21610, 21615; every replay exact).** Remaps on B1 (m): 2 × 10¹⁰ 0; 4 × 10¹⁰ 2 (0.44 s); 6 × 10¹⁰ 4; 8 × 10¹⁰ 3 (1.14 s); 9 × 10¹⁰ 9 (3.35 s); 10¹¹ 15; 1.16 / 1.2 / 1.3 × 10¹¹ 4 (2.33 / 2.17 / 3.01 s). `dm` at 10¹¹ fill 0: 91.15 s vs fill 128: 105.50 s (one run each, the cost the fill brought). The extra room that removes remaps is not monotone (greedy placement); the tail's size and the "large" threshold do not help at a fixed arena. **Rule: room = f × hole (the division's largest block per APU) in the dm need, arenas in whole chunks. Every f in [0.13, 0.23] leaves 0 remaps over ten traces; 0.25 leaves 4; f = 0.16 chosen** (least memory).
 
-**Switch `BS_ARENA_ROOM=<f>` (off by default; needs the VMM pool).** `binsplit.c`: `bs_arena_room()`, `as_arena()` (arena in whole `DB_POOL_VMM_CHUNK_GB` chunks), `dm_layout` gets `room = f × hole`; `dbig.c`: `db_pool_vmm_chunk()`, `DB_POOL_TRACE=1`; `mem_model.py` follows (`dm_layout(room=)`, `arena_of(chunk=)`); README rows `BS_ARENA_ROOM`, `DB_POOL_TRACE`; `tests/as_pool_replay.py`, `tests/as_sweep.sh`. Off = byte-identical layout to B1. `--check-c` exact at f = 0 and 0.16 (10 points each). Mapped arena change (modelled from the port): 2 × 10¹⁰ +4.3 GB, 4 × 10¹⁰ 0, 10¹¹ +12.9 (exactly the 2 chunks × 3 APUs B1 maps inside the division), 1.3 × 10¹¹ +17.2, target share (7.38 × 10¹⁰ : 576, NP=4) +8.6 GB per node.
+**Switch `BS_ARENA_ROOM=<f>` (off by default; needs the VMM pool).** `binsplit.c`: `bs_arena_room()`, `as_arena()` (arena in whole `DB_POOL_VMM_CHUNK_GB` chunks), `dm_layout` gets `room = f × hole`; `dbig.c`: `db_pool_vmm_chunk()`, `DB_POOL_TRACE=1`; `mem_model.py` follows (`dm_layout(room=)`, `arena_of(chunk=)`); README rows `BS_ARENA_ROOM`, `DB_POOL_TRACE`; `archive:scripts_2026-10-23/as_pool_replay.py`, `tests/as_sweep.sh`. Off = byte-identical layout to B1. `--check-c` exact at f = 0 and 0.16 (10 points each). Mapped arena change (modelled from the port): 2 × 10¹⁰ +4.3 GB, 4 × 10¹⁰ 0, 10¹¹ +12.9 (exactly the 2 chunks × 3 APUs B1 maps inside the division), 1.3 × 10¹¹ +17.2, target share (7.38 × 10¹⁰ : 576, NP=4) +8.6 GB per node.
 
 **Node runs.** First series (job 21619) found a bug: `binsplit_pregrow` rounded from the unrounded cap and `arena_get` re-rounded to 2 MiB, so the arena ended a few MiB into a 33rd chunk (the §2 defect again); fixed in 1667150; check run (job 21626): arenas 39/32/32/32 chunks, 0 remaps, 0 growths, dm 88.48 s, VERIFY OK. **Paired series at 10¹¹ (job 21626 + 21634, s24-26, interleaved, all VERIFY OK, m):**
 
@@ -425,3 +425,20 @@ Branch `p14-L1` from main @ ae1d872. Files: `binsplit.c` (dm_layout, device-tier
 
 Open issues: the tight schedule assumes the last doubling converges at once (every run to 1.25 × 10¹¹ shows `corrections 0/0`); per-doubling fragmentation to be read from `DB_POOL_VERBOSE` at 4e10 and 1.4–1.6 × 10¹¹; the size > 1 formula keeps the size-1 shape over the shares (sharded reciprocal's live set not re-derived).
 
+### §ATRIM — BS_ARENA_TRIM_GB (trim the dm arena need; merged 2026-10-23 from ATRIM.md)
+
+**Question.** Does trimming the dm layout's arena need by a fixed number of GB per APU save node memory without costing time or remaps?
+**Change / branch.** Branch `atrim`; switch `BS_ARENA_TRIM_GB`, default 0 (off). Subtracted at the end of `dm_layout`, clamped at `max(v2, v3)`; rank 0 prints the decision; twin `mem_model.py arena_trim`.
+**Method.** aac7, `BS_ARENA_TRIM_GB=8` (TR8) against the switch off (S); 2 n at 1.2882e11 digits, 3 n at 1.9323e11 digits; `DB_POOL_VERBOSE=1` for remaps.
+**Results.**
+
+| size | arm | arena per node (GB) | time (s) | runs | remaps |
+|---|---|---|---|---|---|
+| 2 n 1.2882e11 | S | 266.3 (m) | 115.2 (m) | 7 | 0 |
+| 2 n 1.2882e11 | TR8 | 231.9 (m), -34.4 | 111.4 (m) | 5 | 0 |
+| 3 n 1.9323e11 | S | - | 149.4 (m) | - | 0 |
+| 3 n 1.9323e11 | TR8 | - | 149.6 (m) | - | 0 |
+
+**Verdict.** Needs more data: memory saving is large at 2 n and time is neutral (3 n) to slightly better (2 n); the digits gate (item 9lu_atrim_gate: 1 n and 2 n, SHMEM and libfabric) decides whether it stays opt-in.
+**Open issues.** No adoption decision; gate result pending; no 4 n / 6 n data.
+**RESUME.** Branch `atrim` merged with main eb0c5f0; next: collect 9lu_atrim_gate.

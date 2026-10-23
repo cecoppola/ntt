@@ -18,3 +18,8 @@ __pycache__/
 
 __pycache__/
 *.pyc
+
+# built by tools/Makefile
+tools/unpack_digits
+tools/wbench
+tools/test_pack60

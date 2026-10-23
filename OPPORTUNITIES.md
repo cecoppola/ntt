@@ -2,7 +2,7 @@
 
 Scope: every known opportunity to improve performance (time, memory, concurrency, algorithm), open or closed, with its evidence. | Maintained: updated when an idea is found, tried, adopted or rejected.
 
-Revised 2026-10-19 (SHMEM state). Rebuilt 2026-10-12 from the archived ranked list (`archive:docs/OPPORTUNITIES.md`, 2026-10-10..12), the old task list
+Revised 2026-10-23 (K4c adopted, proxy rows folded, N7 and N9 closed). Rebuilt 2026-10-12 from the archived ranked list (`archive:docs/OPPORTUNITIES.md`, 2026-10-10..12), the old task list
 (`archive:TASKS_HISTORY_2026-10-12.md`), the target notes (technical ideas only), the old TASKS "Ideas" section and the
 follow-ups in `results/`. Status is checked against the code after the wave 2 settings removal (`ecalc/switches.tsv`,
 `results/CODE_REDUCTION.md §W2A`, `results/CODE_REDUCTION.md §W2B`). Old IDs are kept (G = robustness, C = fabric/exchange, K = per-node kernels,
@@ -12,7 +12,7 @@ Labels: **m** measured, **mod** modelled, **a** assumed. Scale: **1 n** one node
 at 6.441 × 10¹⁰ digits per node, **576 n** the target run (3.82 × 10¹³ digits). Effort: S < 1 day, M 1–3 days,
 L > 3 days. Needs: **local** (no GPU or any one node), **aac7** (≤ 6 nodes), **target** (only the target can show it).
 
-Where the time went before the 2026-10-12 defaults (m, `results/TIME_MODEL.md §M2a`; current scaling: `PLAN.md` section 2, libfabric): 1 / 2 / 4 / 6 nodes take 74.4 / 138.9 /
+Where the time went before the 2026-10-12 defaults (older data) (m, `results/TIME_MODEL.md §M2a`; current scaling: `PLAN.md` section 2, libfabric): 1 / 2 / 4 / 6 nodes take 74.4 / 138.9 /
 188.2 / 246.4 s; at 6 nodes the growth over 1 node is +172 s, of it division (dm) +94 s, binary splitting (bs) +60 s,
 reciprocal +22.5 s, init +14 s. Target standing estimate: about 182 s without the write (mod, fabric a; `results/TIME_MODEL.md §L4`).
 
@@ -31,9 +31,8 @@ per node at 400 Gb/s (2 per APU: 100 GB/s injection peak per APU); Rocky Linux 9
 | M7a | fabric/exchange | 9-way top schedule `MN_GROUPS=…,64,576` instead of the 3·3 top `…,64,192,576` | −4.7 s at 576 n (mod, 5.276 × 10¹³ era) | S | target | `archive:docs/OPPORTUNITIES.md` M7; target task list T5 (private) |
 | M7b | output | Output file striping and write waves (`MN_OUT_STRIPE`; the `MN_OUT_WAVES` switch was removed 2026-10-20) tuned to the target's parallel file system; now part of N8's write test | see N8; packed write already −6.25 % bytes (m) | S | target | `results/OUTPUT_IO.md §O4`; target task list T10 (private) |
 | C3 | fabric/exchange | Run the reciprocal's small doublings (and the division's small products) on a subgroup instead of all 576 nodes, cutting the 1.10 M reciprocal messages per APU | 0 … −18.5 s at 576 n, depends on the target's per-message cost (mod); 1 n part ≈ 0.02 s (m) | M–L | target | `results/GRID_GROUPS.md §S52`, `results/SINGLE_NODE.md §S21` (A37-R6) |
-| A37-R1 | init | GPU seed kernel (the CPU seed thread binds init on aac7 1 n); gate = target init timeline shows the seed ending > 18 s and > 2 s after the last mapping | 0–1 s at 576 n (mod, S22), 0–6 s (mod, S21) | L | target (gate) | `results/SESSIONS.md §S22` §3, `results/SINGLE_NODE.md §S21` |
+| A37-R1 | init | GPU seed kernel (the CPU seed thread binds init on aac7 1 n; closed NO-GO under layout D, may bind under layout P: TASKS Proposed); gate = target init timeline shows the seed ending > 18 s and > 2 s after the last mapping | 0–1 s at 576 n (mod, S22), 0–6 s (mod, S21) | L | target (gate) | `results/SESSIONS.md §S22` §3, `results/SINGLE_NODE.md §S21` |
 | N2 | per-node compute | Gather layout: each rank holds its own rows so the 3/4 remote pull in `k_gather` / `k_bload` disappears (the kernel floor is the remote read) | `k_gather_raw` 2.0 s + `k_bload` 1.2 s per APU at 1 n (m); at 576 n only the per-node leaf, ≈ 1 s (mod) | L (needs scoping) | aac7 1 n | `results/EXCHANGE.md §P2`, `results/EXCHANGE.md §K1b` §6; `TASKS.md` Proposed |
-| K4c | per-node compute | `k_crt24` (the P24 CRT in `p24_crt.c`, the multi-node default): the per-chunk serial carry chain as K4b's carry-lookahead (switch `P24_CRT_SCAN`, **adopted 2026-10-13, user decision D24: on by default, `=0` the fallback**). Kernel 1.55× at 2^30 points per rank; node-0 CRT time −1.24 s per 2 n run (m) | **2 n, 6.441e10/node, 4 ABBA rounds: total −1.89 s, 95 % CI [−7.51, +3.73] (n.s.); dm −0.55 s [−3.00, +1.90]; digits identical (m)** | S (done) | aac7 2 n | `results/KERNELS.md §K4c`, `results/KERNELS.md §K4b` |
 | K4d | per-node compute | Four-prime CRT conversion: `ec_words_to_dec4` (16 divisions per coefficient) limits the four-prime CRT kernel; a cheaper word→decimal conversion | four-prime kernel only 1.46× with K4b (m); payoff unmeasured | M | aac7 1-2 n | `results/KERNELS.md §K4b` follow-ups |
 | N4 | fabric/exchange | Slow launch mode (libfabric): the inter-node all-to-all rate is set by a fair, memoryless per-launch draw of the NIC outbound-engine bank group (A or B, ≈ 50 % each, the same bank on all NICs of the job); hard-slow (< 9.7 GB/s per thread) in 6 of 28 = 21 % of 4 n launches (m, items 9cg, 9ch). Not controllable from our side (no launch variable predicts it), so pinning is closed and detect-and-relaunch loses (mod); the SHMEM fixed layout (NIC 1, 2 on bank A, NIC 0, 3 on B) runs at ≈ 9.8 GB/s (m). Report the mode in every 4 n comparison and use interleaved arms | ≈ 20 s in ≈ 30 % of 4 n runs (mod); −12 % exchange rate in slow launches (m); 576 n unknown (the target's Slurm 25.11.8 is aac7's 25.11 series, a; whether the per-launch NIC group exists there is unknown) | M | aac7 4 n | `results/NODE_SLOWMODE.md §A13`, `results/NODE_SLOWMODE.md §A14`, `results/NODE_SLOWMODE.md §T05` |
 | C9 | fabric/exchange | dm "blow-ups" (dm > 290 s in 1 of 8–16 ten-node runs) and ±12–25 % job-to-job fabric noise: diagnose the cause | 50–100 s per affected 10-node run (m); 576 n unknown | M | aac7 (if it shows at ≤ 6 n) | `results/SESSIONS.md §S31`, `results/TIME_MODEL.md §S19B` |
@@ -42,8 +41,6 @@ per node at 400 Gb/s (2 per APU: 100 GB/s injection peak per APU); Rocky Linux 9
 | M2 | model | Refit the time model to the current code with the M2a scaling points (1/2/4/6 n, stage split) so 576 n rankings rest on current data | no seconds; the model was 1 n 109.5 vs 78 s (m) before K2/K3 entered it | M | local + aac7 | `results/TIME_MODEL.md §M2a`, `results/CODE_REDUCTION.md §O8` |
 | M4 | memory | Re-check the old Phase-12 memory items: `mdb_shift` exchange scratch (copies Q at g = 1, 29 GB at 6.44 × 10¹⁰), the O(share) window temporary | unknown; probably absorbed by the lean division set (built in) and T_CHUNK (a) | S | local | `archive:docs/OPPORTUNITIES.md` M4, `results/CODE_REDUCTION.md §AUD3` item 5 |
 | AUD3-10 | memory | One transform cache (partial slots for `mul_grid` too) | unknown at 1 n (needs ABBA); at 576 n the full slots already get 0 slots (m) | M | aac7 1 n | `results/CODE_REDUCTION.md §AUD3` item 10, `results/CACHE.md §TC15` |
-| N7 | fabric/exchange | SHMEM as the primary transport on the target (the user expects SHMEM to be needed there and possibly primary): close the proxy mode's gap to `comm_ofi`, check that OpenSHMEMX 12.1.0 (untested; aac7 has 11.8.0) runs ecalc's thread-multiple contexts and the device-memory heap, and whether it can use both NICs per PE | risk: device exchanges on SHMEM at the aac7 ratio would at least halve the fabric rate, ≥ +37 s at 576 n (mod, the 50 GB/s row); `COMM_OFI=0` raises the plan's pool from 2304 to 10240 MiB (m, planner). **Status 2026-10-19:** plain SHMEM was 3.0 × `comm_ofi` at 6 n (698.5 vs 230.5 s, m, `results/SHMEM_ITEMS.md §N7`); the proxy mode (one helper PE per APU, NUMA placement, copy kernel, huge-page heaps; N7b-N7G) is the `COMM_OFI=0` default and stable: the stalls were compaction of the pinned 4 KiB node-process heap, cured by `COMM_SHMEM_NP_HEAP_THP=1` (0 stalls in 16 runs at 3 n and 0 in 6 at 2 n, against 9 in 24; m); 2 n SHMEM = libfabric, 3 n about 6 % behind, 6 n before the fix 286.0 s mean (24 runs) vs 184.5 s libfabric, best four 220.5 s (m). **2026-10-22:** the proxy mode was removed in P7 (Q78); SHMEM on the target is the xshmem engine (`XSHMEM=cray`, `results/XSHMEM.md`); the proxy items above are closed | M | aac7 2–6 n, target (12.1.0) | `results/SHMEM.md`, `results/SHMEM_STALLS.md`, `results/SHMEM_ITEMS.md §N7`, `results/SHMEM_ITEMS.md §N7B`, `results/SHMEM_ITEMS.md §N7G`, `results/TARGET.md §TGT`, `results/OFI_FABRIC.md §OFI17` |
-| N9 | fabric/exchange | Hugetlb backing for the SHMEM node-process and helper heaps (the target has hugetlb pages; aac7 does not): removes the 4 KiB pinned pages that compaction works on and the 2.9 s per helper start-up collapse; new switch, off by default | the start-up collapse (m) and the residual GPU-queue evictions of 1.4-12 s per run (m); unknown at 6 n | M | aac7 (collapsed 4 KiB baseline), target (hugetlb itself) | `results/SHMEM_STALLS.md` |
 | N8 | output | Writer design gap: the target's file system reaches ≈ 1 TB/s only with 32 writers per node into ONE file (user-supplied); ecalc writes two part files per node (1152 files) from one process with 8 pwrite threads per 256 MB chunk (`MN_OUT_THREADS=8`, O_DIRECT, `MN_OUT_DKM_HI`). Steps: (a) `tools/wbench` on the target at 64+ nodes with `-t 8` vs `-t 32` per-node files and striping (no code; `MN_OUT_THREADS=32` is a setting); (b) if per-node files fall short, one shared striped file with each node writing its byte range at a computed offset (the packed form makes offsets exact; the 4 KiB part headers move to a sidecar) | 15.9 TB packed: 15.9 s at 1 TB/s, 27.6 s at 1.0 GB/s per node, 63.7 s at 0.43 GB/s per node (8 of 32 writers, linear a); exposed write 1.0 / 12.8 / 48.8 s (mod, `target_l4`): −11.8 s against the 1.0 GB/s prior, up to −47.8 s | S (a), M (b) | target | `results/TARGET.md §TGT`, `ALGORITHM.md` §9, `mn_out.c`, `results/OUTPUT_IO.md §IO15` |
 
 ## Tried — adopted
@@ -65,7 +62,8 @@ per node at 400 Gb/s (2 per APU: 100 GB/s injection peak per APU); Rocky Linux 9
 | M1 | Spend the memory margin on digits: target size 3.82 × 10¹³ (+3.0 %) | rank-0 margin 12.9 GB (mod); 3.83 × 10¹³ and up change the plan (+20 s), ≥ 3.95 × 10¹³ unsafe (mod) | `results/GRID_GROUPS.md §S52`, `results/LAUNCH_DEFAULTS.md §L1` |
 | G1 | `FI_MR_CACHE_MONITOR=userfaultfd` against the mapper deadlock / segfault | reproducer hangs 22/105 → 0/104; 46 four-node runs, 0 segfaults (m) | `results/CRASHES_HANGS.md §S46`, `results/OFI_FABRIC.md §T12` |
 | DC8 | `DIST_CHUNKS=8` | device −13.4 GB per node at 576 n for +2.4 s (mod) | `results/GRID_GROUPS.md §S45` |
-| OFI | `comm_ofi` transport where a cxi NIC exists | × 2.1 over SHMEM at 10 n (1670 vs 3532 s, m) | `results/OFI_FABRIC.md §OFI17` |
+| OFI | `comm_ofi` transport where a cxi NIC exists | × 2.1 over SHMEM at 10 n (1670 vs 3532 s, m) | `results/OFI_FABRIC.md §OFI17`; since Q73 it is the data plane of the `COMM_TRANSPORT=shmem` fallback, and `xshmem_ofi.c` supersedes it as the default path (`results/XSHMEM.md`) |
+| K4c | `k_crt24` (the P24 CRT) carry-lookahead, `P24_CRT_SCAN`, adopted 2026-10-13 (user decision D24: on by default, `=0` the fallback) | kernel 1.55×; 2 n, 6.441e10/node, 4 ABBA rounds: total −1.89 s [−7.51, +3.73] (n.s.), dm −0.55 s [−3.00, +1.90], digits identical (m) | `results/KERNELS.md §K4c`, `results/KERNELS.md §K4b` |
 | DKM | Division in two quotient halves | −25.7 s at 10¹¹ (m) | `results/DIVISION.md §DKM15` |
 | P24 | 24 digits per transform point in multi-node products | −38 % at 10¹⁰ on 2 processes (m) | `results/PRIMES_STRATEGY.md §P2415` |
 | IO | Write overlapped with the division, corrections patched (`ECALC_CORR_PATCH=2`, `MN_OUT_EARLY`, `MN_OUT_DKM_HI`) | write hidden under the division (m) | `results/OUTPUT_IO.md §IO215` |
@@ -77,8 +75,7 @@ per node at 400 Gb/s (2 per APU: 100 GB/s injection peak per APU); Rocky Linux 9
 
 | ID | idea | measured result (why not) | evidence |
 |---|---|---|---|
-| N7E | `COMM_SHMEM_PX_SEND=2` + `COMM_SHMEM_PX_INIT=1` on the proxy mode (6 n, 3.8646e11): paired repeat, B − A +129.3 s [+92.9, +165.7] (28 pairs, 1.68 × comm_ofi); the N7D 1.43 × is not reproduced; PX_SEND 2 vs 1 +69.9 s [−217.8, +357.6] (4 pairs); PX_INIT 1 vs 0 +107.2 s [−50.5, +264.9] (3 pairs) | m | results/SHMEM_ITEMS.md §N7E |
-| N7G | `COMM_SHMEM_PX_THP=1` + `COMM_SHMEM_PX_PIN=1` on the proxy mode (6 n, 3.8646e11): 3 pairs, B − A −124.9 s [−460.6, +210.8], not significant (m). THP alone then won 4 pairs (−287.8 s, CI [−507, −68], m) and became the default (D36); `COMM_SHMEM_PX_PIN` showed no significant gain and was removed 2026-10-18 | m | results/SHMEM_ITEMS.md §N7G |
+| N7 / N7B-N7G / N9 | the SHMEM proxy mode (one helper PE per APU, `COMM_SHMEM_PE_PER_APU`, `PX_*` switches, peer order, NUMA, copy kernel, huge-page helper heaps) and SHMEM as primary transport; hugetlb for helper heaps | best 1.43× comm_ofi at 6 n in one run, 1.68× over 28 pairs (m); plain SHMEM 3.0× (698.5 vs 230.5 s), one PE per APU 2.9×; the stalls were compaction of the 4 KiB node-process heap, cured by `COMM_SHMEM_NP_HEAP_THP=1` (0/16 vs 9/24, m); proxy mode removed in P7 (Q78); N7 and N9 closed: on the target SHMEM is the xshmem engine (`XSHMEM=cray`, path 2), hugetlb is a target-session test of the libsma heap (TASKS target row 29) | `results/SHMEM.md`, `results/XSHMEM.md`, `archive:results_merged_2026-10-23/SHMEM_ITEMS_full.md` |
 | K1 / P2 | `k_gather` tiled / coalesced write (`DIST_GATHER_TILE`, removed) and a kernel rewrite | S50 −0.08 ± 0.88 s at 1 n; P2 probe: floor is the remote read, ≤ 0.6 s headroom (m, mod) → N2 | `results/EXCHANGE.md §S50`, `results/EXCHANGE.md §P2` |
 | P3 / K8 | Shorter init mapping: early publish of mapped chunks to the seed DMA (`ECALC_VMM_PUBLISH`, not built); K8 init reorderings | P3: ≤ 1–1.5 s at 1 n, 0 at 2–6 n and at the target (mod); K8: each reordering +2.0 … +11.5 s (m) | `results/MEMORY.md §P3`, `results/MEMORY.md §K8` |
 | S52 / C3 | `DIST_COALESCE` message aggregation | 1.0–4.5 s at 576 n (mod); dropped for now by the user; reopen if the target's per-message cost is ≥ 8.5 µs | `results/GRID_GROUPS.md §S52` |
@@ -108,30 +105,28 @@ per node at 400 Gb/s (2 per APU: 100 GB/s injection peak per APU); Rocky Linux 9
 | 4PE | 4 processes per node (one per APU) | 3.7× slower at 8 n (m) | `archive:docs/OPPORTUNITIES.md` |
 | spill | `hipMallocManaged` host spill at the device edge | host 21 GB/s vs HBM 3.2–3.8 TB/s (m) | `results/TARGET.md §TGTBENCH2` |
 | CPX | CPX partition mode | 0.2–0.4 s gains (m); the target runs SPX | `results/KERNELS.md §S44` |
+| A37CMP | apumult a37v1 choices rejected: skip the remainder check (T1 needs it), Stirling-balanced leaves, P/Q arenas split over dies, and the other items of its rejected list | verdicts item by item, each with its reason (m / mod as labelled there) | `results/APUMULT.md §A37CMP` |
+| AP34 | apumult A1-A34 optimization list against ecalc: items already done (have), closed (measured or rejected before) or not applicable (n/a) | per-item verdict table; the three live items (shared-operand transform reuse, seed under P, batch/device crossover) are in TASKS Proposed | `results/APUMULT.md §AP34` |
 
 ## Ranking
 
-Top 10 open for the target run, by payoff per effort (payoffs as in the Open table; re-ranked 2026-10-12 on the user-supplied target facts):
+Top 9 open for the target run, by payoff per effort (payoffs as in the Open table; ranking dated 2026-10-12 on the user-supplied target facts, closed rows dropped 2026-10-23; `TASKS.md` owns the order of work):
 
 | # | ID | why here |
 |---|---|---|
 | 1 | M7c | the 100 GB/s per APU of every estimate rests on both NICs working: +37 s (mod) if one does; one kit stage |
 | 2 | N8 | write −11.8 … −47.8 s (mod) to reach the file system's 1 TB/s; step (a) is a benchmark and a setting |
-| 3 | N7 | SHMEM may become primary: ≥ +37 s risk (mod); OpenSHMEMX 12.1.0 untested |
-| 4 | N1 | the largest measured multi-node cost (+94 s at 6 n); open, not started |
-| 5 | M7d | ROCm 7.14.0 builds; its speed is one aac7 ABBA away (a release moved +46 s before, mod) |
-| 6 | M7a | −4.7 s (mod) for one launch-line value |
-| 7 | C7 | −6 … −17 s realistic (mod/a); built only if the target gate opens |
-| 8 | C3 | 0 … −18.5 s (mod), depends on the target's per-message cost |
-| 9 | N4 | ≈ 20 s in a third of 4-node runs (mod); unknown at 576 |
-| 10 | M2 | no seconds, but every 576 ranking depends on it |
+| 3 | N1 | the largest measured multi-node cost (+94 s at 6 n); open, not started |
+| 4 | M7d | ROCm 7.14.0 builds; its speed is one aac7 ABBA away (a release moved +46 s before, mod) |
+| 5 | M7a | −4.7 s (mod) for one launch-line value |
+| 6 | C7 | −6 … −17 s realistic (mod/a); built only if the target gate opens |
+| 7 | C3 | 0 … −18.5 s (mod), depends on the target's per-message cost |
+| 8 | N4 | ≈ 20 s in a third of 4-node runs (mod); unknown at 576 |
+| 9 | M2 | no seconds, but every 576 ranking depends on it |
 
 Top 5 testable on ≤ 6 aac7 nodes now:
 
 | # | ID | test |
 |---|---|---|
-| 1 | N1 | division multiply: stage and wait split at 2/4/6 n with `MN_WAIT_STATS`, then a fix and ABBA |
-| 2 | M7d | ROCm 7.14.0 (the target's) against 7.2.4 at 1 n: gate, then ABBA |
-| 3 | N7 | closed: the proxy mode was removed in P7 (Q78); SHMEM work continues on the xshmem engine (`results/XSHMEM.md`) |
-| 4 | N3 | host gaps in the batch tier: profile and overlap at 1 n, ABBA — done, adopted (D20) |
-| 5 | K4b | `k_crt_batch` C-form carry chain at 1 n, ABBA — done: −2.52 s [−4.19, −0.85] (`results/KERNELS.md §K4b`); adopted (D21) |
+| 10 | N1 | division multiply: stage and wait split at 2/4/6 n with `MN_WAIT_STATS`, then a fix and ABBA |
+| 11 | M7d | ROCm 7.14.0 (the target's) against 7.2.4 at 1 n: gate, then ABBA |

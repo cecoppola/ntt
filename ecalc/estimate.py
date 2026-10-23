@@ -15,7 +15,7 @@ the general map's exchange overlap).  internal target notes says what to measure
 
 Phase 13b (agent D): the estimate is of the code after step 0 (three primes, NTT_MODMUL=1) and of a design -- --np, --strategy
 (C | B | B4 | auto), --cap (2^30 | 3*2^29 | 2^31 | 3*2^30; default the code's rule), --chunk (off | shift | both), --depth (1 | 2),
---modmul; --legacy gives the Phase 12 model (four primes, the Phase 10/11 phase table).  design_table.py prints every design.
+--modmul; --legacy gives the Phase 12 model (four primes, the Phase 10/11 phase table).  archive:scripts_2026-10-23/design_table.py prints every design.
 
 Phase 15 (agent MD): the default is the code's defaults since Phase 14 on the target's launch line (mn_model.DEFAULT15: auto, 2^31, both chunks
 at 1024 MB, depth 2, DM_TIGHT, MN_TREE_EARLY_FREE, NEWTON_RECIP_CUT, the SHMEM pool from the plan, COMM_SHMEM_ROUND_MB=1024 = the user's D2;

@@ -1,4 +1,4 @@
-/* t_kbench.c - the exchange block-copy kernels on three memory kinds (KT: results/SHMEM.md; the prerequisite of the staging question).
+/* t_kbench.c - the exchange block-copy kernels on three memory kinds (KT: archive:results_merged_2026-10-23/SHMEM_full.md; the prerequisite of the staging question).
  *
  * Runs the shapes of k_btrans / k_ccopy (and a wide, unrolled variant) from a source buffer to a destination buffer, each hipMalloc
  * ("dev"), fine-grained hipExtMallocWithFlags ("fine") or 2 MiB-THP host memory, NUMA-bound to the APU's node and hipHostRegister'd ("host"),

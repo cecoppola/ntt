@@ -17,7 +17,7 @@ experiment / test-only row with no review row, and a review row whose switch is 
 generated review table in ecalc/README.md (between the switch-review markers); a stale table is a --check problem.
 
 Sources (all in the repository, nothing else is read):
-  ecalc/*.c *.h          getenv("X"), env_int("X", d), env_on("X")    -> name, default as the code applies it, type, files
+  ecalc/*.c *.h          getenv("X"), env_int("X", d), ec_env_int("X", d), env_on("X")    -> name, default as the code applies it, type, files
   ecalc/tests/*.c *.h    the same, for names that ecalc itself does not read   -> source=tests, scope test-only
   ecalc/README.md        the Switches table                           -> readme presence (Y / prose / N)
   results/A11.md         the inventory of 2026-10-11 (status, evidence) -> scope, evidence
@@ -172,7 +172,7 @@ def extract(sub, skip_names=frozenset()):
                 d, k = classify(line, n, m.start(), m.end())
                 r = out.setdefault(n, {"defaults": [], "kinds": [], "files": set(), "sites": 0})
                 r["defaults"].append(d); r["kinds"].append(k); r["files"].add(fn); r["sites"] += 1
-            for m in re.finditer(r'\b(env_int|env_on)\s*\(\s*"([A-Z][A-Z0-9_]*)"\s*(?:,\s*([^)]*))?\)', line):
+            for m in re.finditer(r'\b(ec_env_int_ne|ec_env_int|env_int|env_on)\s*\(\s*"([A-Z][A-Z0-9_]*)"\s*(?:,\s*([^)]*))?\)', line):
                 if in_comment(line, m.start()):
                     continue
                 n = m.group(2)

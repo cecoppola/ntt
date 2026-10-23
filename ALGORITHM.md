@@ -21,8 +21,8 @@ to a multiple of 18. The pipeline has four stages:
 
 Everything is integer arithmetic on numbers held as **base-10¹⁸ limbs** (§2). All big products are number-theoretic
 transform (NTT) products modulo three or four 52-bit primes, reconstructed by the Chinese remainder theorem (CRT)
-straight back into decimal limbs (§4). One process per node drives the node's four APUs (MI300A, one HIP device
-each); several nodes cooperate over a communicator stack (§6).
+straight back into decimal limbs (§4). By default one process per node drives the node's four APUs (MI300A, one HIP device
+each; layout D, §6.1); several nodes cooperate over a communicator stack (§6).
 
 Notation used throughout:
 
@@ -251,9 +251,19 @@ Functions: `divmod_shifted_dkm`, `newton_db_divmod_shifted` (one node), `mn_divm
 
 ### 6.1 Processes and ranks
 
-One process per node, four OpenMP threads, one per APU (a process per APU was 3.7× slower at 8 nodes, m). `mn_init`
-(`mn.c`) reads `COMM_RANK` and `COMM_SIZE` and opens the node's four **meshes**: mesh d connects APU thread d of every
-node, rank = node. A transform over a group of g nodes uses nr = 4g ranks; rank ρ = g·d + r (APU d of node r).
+Two layouts exist (both supported, user rule Q85):
+
+- **D, the default: one process per node**, four OpenMP threads, one per APU. `mn_init` (`mn.c`) opens the node's four
+  **meshes**: mesh d connects APU thread d of every node, rank = node. A transform over a group of g nodes uses nr = 4g
+  ranks; rank ρ = g·d + r (APU d of node r). Under `COMM_TRANSPORT=xshmem` the node-process hosts one loopback PE per
+  APU thread (`XSHMEM_LOOPBACK_PES`).
+- **P, `ECALC_PE_PER_GPU=1`: one process per GPU**, the shape of Cray SHMEM on the target (4 GPUs and 8 NICs per node,
+  one PE per GPU). `mnrun.sh` launches four tasks per node; each process owns one device, one xshmem PE and its own
+  heap, and the PE's place (GPU, NUMA node, NICs) comes from the backend's topology (`pe_geo.c`). `XSHMEM_LANES=N`
+  gives each PE N SHMEM contexts (lane k on NIC k) and stripes every payload put over them (`comm_xshmem.c`). With no
+  striped tier on one device, batch products larger than one device's plane pool are split over the PE's own device
+  (`RNS_BATCH_SPLIT`, `rns_mul.c`). The virtual-PE thread mode (`ECALC_VPE`, `vpe.c`) is shelved. P cuts start-up, so
+  it wins at small sizes and is equal within noise at 3 nodes, 10¹¹ digits (`results/XSHMEM.md`).
 
 ### 6.2 The four-step transform
 
@@ -296,14 +306,15 @@ budget).
 |---|---|
 | `comm_local.c` | one rank (size 1): no-ops and copies; the single-node pipeline runs through it |
 | `comm_xgmi.c` | the node's four APUs: peer copies over the xGMI mesh, driven by four host threads |
-| `comm_shmem.c` | OpenSHMEM: a communicator is a strided PE set; one symmetric pool holds every remote-writable buffer; the sender puts a slab at an offset the receiver chose, then a signal word; the receiver polls signals. Setup, collectives and the fallback data path (`COMM_OFI=0`: the node-process puts the slabs itself from the host-staged pool; its heap is in 2 MiB pages, `COMM_SHMEM_NP_HEAP_THP`, default 1: a 4 KiB pinned heap let kernel compaction evict the GPU queues, `results/SHMEM_STALLS.md`); the former proxy mode (one helper process per APU) was removed in P7, 2026-10-22; the switches are in `ecalc/README.md`, the SHMEM-against-libfabric numbers in `results/SHMEM.md`. `COMM_TRACE` records per-message traces for it |
-| `comm_ofi.c` | libfabric (`cxi`): the device exchanges' data plane over every NIC of the node, one domain per APU thread, chunks striped over the NICs; completion is signalled through SHMEM. On by default wherever a cxi NIC is present; `COMM_OFI=0` forces the SHMEM path. ×2.1 over plain SHMEM at 10 nodes (m; `results/OFI_FABRIC.md §OFI17`) |
+| `comm_shmem.c` | OpenSHMEM, `COMM_TRANSPORT=shmem` (the fallback and the reference): a communicator is a strided PE set; one symmetric pool holds every remote-writable buffer; the sender puts a slab at an offset the receiver chose, then a signal word; the receiver polls signals. Its heap is in 2 MiB pages (`COMM_SHMEM_NP_HEAP_THP`, default 1: a 4 KiB pinned heap let kernel compaction evict the GPU queues, `results/SHMEM.md`). The switches are in `ecalc/README.md`; `COMM_TRACE` records per-message traces |
+| `comm_ofi.c` | libfabric (`cxi`): the device exchanges' data plane over every NIC of the node, one domain per APU thread, chunks striped over the NICs; completion is signalled through SHMEM. The data plane of the `COMM_TRANSPORT=shmem` fallback (there `COMM_OFI` follows the presence of a cxi NIC) and the reference arm; the default path has its own data plane in `xshmem_ofi.c`. ×2.1 over plain SHMEM at 10 nodes (m; `results/OFI_FABRIC.md §OFI17`) |
 | `comm_xshmem.c` | `COMM_TRANSPORT=xshmem` (the default multi-node transport since Q73, 2026-10-21; built by default where libfabric is found, `XSHMEM=0` omits it): the inter-node meshes over `xshmem.h`, the 1:1 mapping of the Cray SHMEM 12.1 calls (libfabric backend `xshmem_ofi.c` on aac7, `xshmem_cray.h` on the target); one node-process hosts one loopback PE per APU thread; the receiver publishes offsets, a worker thread puts and signals, rounds (`XSHMEM_ROUND_MB`, default 128); `results/XSHMEM.md` |
+| `xshmem.h`, `xshmem_ofi.c`, `xshmem_boot.c`, `xshmem_cray.h`, `pe_geo.c` | the API (the 1:1 mapping of the Cray SHMEM 12.1 calls) and its two backends: libfabric cxi with PMI2 bootstrap (`XSHMEM=ofi`, path 1) and Cray SHMEM (`XSHMEM=cray`, static inline, path 2); `pe_geo.c` reports each PE's GPU, NUMA node and NICs. `vpe.c` is the shelved virtual-PE mode |
 | `comm_layered.c` | the layered composition of an intra (xGMI) and an inter (SHMEM/OFI) communicator, §6.3 |
 | `comm_sim4.c`, `comm_util.c` | a synthetic four-rank layout in one APU's memory for tests; shared helpers |
 | `comm_copy.c` | N7D: the GPU copy kernel for copies that touch a host-registered pool (called from `comm_xshmem.c`'s `COPY`) |
 
-Multi-node builds need SHMEM (`make SHMEM_CRAY=1`; a plain build refuses multi-node runs). SHMEM, the meshes and the
+Builds: the default build (`XSHMEM=ofi`, where libfabric and the PMI2 header are found) runs `COMM_TRANSPORT=xshmem` multi-node; `XSHMEM=cray SHMEM_CRAY=1` builds path 2; `SHMEM_CRAY=1` is also what `COMM_TRANSPORT=shmem` needs (without it that transport is a fatal), and `tools/gate.sh` requires `-DCOMM_SHMEM` in the log of a multi-node build (`README.md`). The transport, the meshes and the
 communicators are opened before any HIP thread exists, because opening them after the arenas crashed in a vendor
 initialisation (8 of 78 runs, m).
 
@@ -339,12 +350,12 @@ The T2 head tails (the 49 digits before each node's range) are all-gathered befo
 
 ## 7. The run, in order
 
-`ecalc.c` (`main`). One process per node, four APU threads.
+`ecalc.c` (`main`). One process per node (layout D; one process per GPU under layout P, §6.1), four APU threads per process in D.
 
 | # | phase | what runs | why |
 |---|---|---|---|
 | 0 | plan | `MN_PLAN_ONLY=<digits>:<nodes>` and `BS_LAYOUT_ONLY` print piece counts, the SHMEM pool and the node bytes without a device | the pool is sized before `shmem_init`; the layout is checked against the memory edges |
-| 1 | transport | SHMEM, meshes, communicators open | before any HIP thread exists |
+| 1 | transport | xshmem or SHMEM, meshes, communicators open | before any HIP thread exists |
 | 2 | pools | per APU: plane pools 0 and 1, then the region arena (HIP virtual memory, 2 GiB chunks) mapped in the background | nothing is allocated inside a later phase |
 | 3 | seeds | spans computed on the CPU and pulled into the arenas | hidden under the mapping |
 | 4 | self-tests | transport and layered-exchange self-tests (size > 1) | a broken transport fails in seconds |
@@ -379,7 +390,7 @@ everything is allocated once, up front, and sized by a model that the C layout r
 - **Exchange memory.** Staging for SHMEM/OFI and the general map's v-slots are counted in the node budget
   (`binsplit_vslot_bytes`, `binsplit_shmem_pool_need`); `COMM_LAYER_VSLOT_*` share and release them in time.
 - **Memory fit (FIT, `results/LAUNCH_DEFAULTS.md §FIT`).** `binsplit_fit` (`binsplit.c`) puts the node's device peak -- the larger of the dm
-  phase (planes + arena + comm_ofi pools + the v-slots) and the bs phase (the same + the VMM pool's bs growth, 6.0 GB m, + the
+  phase (planes + arena + transport pools + the v-slots) and the bs phase (the same + the VMM pool's bs growth, 6.0 GB m, + the
   tree top's v-slots) -- against the device edge `ECALC_DEVICE_GB` and the node (planes + arena + bs growth + host + v-slots)
   against `ECALC_NODE_GB`, at rank 0's layout, so every rank computes the same numbers. `MN_PLAN_ONLY` prints it (`plan fit`),
   a run prints it (`memory fit:`), `BS_LAYOUT_ONLY` prints a `fit:` line that `mem_model.py --check-c` compares; the launchers

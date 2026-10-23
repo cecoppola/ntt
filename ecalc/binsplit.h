@@ -39,7 +39,6 @@ extern int bs_verbose;
  * desc[10] = P.n P.N P.g0 P.g P.sh.n, the same for Q, as tree set `level` (size 1: 0; size > 1: mn_tree's top level);
  * multi-node names carry the node rank (ecalc/README.md: BS_CKPT_DIR, ECALC_CKPT_TOP) */
 extern const char *bs_ckpt_dir;  /* directory; 0 = none */
-size_t bs_ckpt_tree_write(int level, unsigned long N, const uint64_t desc[10], struct dbig_s *P, struct dbig_s *Q);   /* bytes, 0 = failed */
 extern unsigned long bs_N_v[BS_VMAX];                      /* the run's N (set by binsplit_e) */
 #define bs_N (bs_N_v[bs_vidx()])
 int    bs_ckpt_tree_find(unsigned long N);                 /* this node's highest complete tree set, 0 = none */
@@ -97,7 +96,6 @@ int  binsplit_ppg_batch_logl(unsigned long N, int g, size_t *nc);   /* S2fix: EC
 int  binsplit_fit(unsigned long N, int g, struct bs_fit *F);     /* fills F, decides the run's DM_MN_WRAP when unset; returns F->fits */
 void binsplit_fit_print(const struct bs_fit *F, double D, int g, const char *pre);
 int  binsplit_dm_wrap(void);                                      /* the run's DM_MN_WRAP: set > the fit's decision > 1 */
-int  binsplit_dm_wrap_auto(void);                                 /* 1: the value is the fit's decision */
 const char *binsplit_dm_wrap_src(void);                           /* "fit" / "set" / "default" (not decided: 1) */
 extern unsigned long bs_a0_v[BS_VMAX], bs_b1_v[BS_VMAX];   /* M2: the term range [a0, b1) this process (vPE: this PE) computes (b1 = 0: [1, N+1)) */
 #define bs_a0 (bs_a0_v[bs_vidx()])

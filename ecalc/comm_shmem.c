@@ -47,6 +47,7 @@
 #endif
 #include <stdio.h>
 #include "fatal.h"
+#include "env_int.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -386,29 +387,24 @@ int comm_shmem_available(void) { return 1; }
 int comm_shmem_pool_in_heap(void) { return 1; }
 int comm_shmem_rank(void) { return S.me; }
 void comm_shmem_counters(double *t, long *n, double *b) { pthread_mutex_lock(&S.alloc_lock); *t = S.tv; *n = S.nv; *b = S.bv; pthread_mutex_unlock(&S.alloc_lock); }
-static int env_int(const char *name, int def) { const char *e = getenv(name); return e ? atoi(e) : def; }
 static int comm_shmem_init_i(void);
 int comm_shmem_init(void) { int ph_ = ec_ph(EC_PH_SHMEM_INIT); int r = comm_shmem_init_i(); ec_ph(ph_); return r; }
 static int comm_shmem_init_i(void)
 {
     if (S.inited) return S.npes;
     int prov = -1;
-    { int ev = env_int("ECALC_VERBOSE", 1); S.verbose = ev >= 3 ? 2 : ev >= 2 ? 1 : 0; }
+    { int ev = ec_env_int("ECALC_VERBOSE", 1); S.verbose = ev >= 3 ? 2 : ev >= 2 ? 1 : 0; }
     size_t mb = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : 8192;
-#ifdef COMM_SHMEM_DEVICE_HEAP
-    S.devheap = 1;
-#else
-    S.devheap = env_int("COMM_SHMEM_DEVHEAP", 0);
-#endif
+    S.devheap = ec_env_int("COMM_SHMEM_DEVHEAP", 0);
     /* the mailbox needs the PE count, known only after init; sized for the launcher's count when it tells us, else for 4096 PEs */
     int npes_hint = getenv("SLURM_NTASKS") ? atoi(getenv("SLURM_NTASKS")) : getenv("PMI_SIZE") ? atoi(getenv("PMI_SIZE")) : getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 4096;
     if (npes_hint < 1) npes_hint = 4096;
     S.mb_bytes = ((size_t)MAXID * npes_hint * 8 + ALIGN - 1) & ~(size_t)(ALIGN - 1);
     S.pool_bytes = (mb << 20) + S.mb_bytes;
-    g_np_mode = env_int("COMM_SHMEM_NP_HEAP_THP", 1);   /* NPHEAP (default 1, D48): the node-process's heap */
+    g_np_mode = ec_env_int("COMM_SHMEM_NP_HEAP_THP", 1);   /* NPHEAP (default 1, D48): the node-process's heap */
     if (g_np_mode < 0 || g_np_mode > 1) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_NP_HEAP_THP=%d: 0 (off) or 1 (the node-process heap in 2 MiB pages)\n", g_np_mode);
     if (g_np_mode) {
-        g_hp_mode = env_int("COMM_SHMEM_HUGETLB", 0);
+        g_hp_mode = ec_env_int("COMM_SHMEM_HUGETLB", 0);
         if (g_hp_mode < 0 || g_hp_mode > 1) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_HUGETLB=%d: 0 (off) or 1 (the node-process heap from the 2 MiB hugetlb pool)\n", g_hp_mode);
         { g_heap_min = comm_shmem_heap_env(0); if (!g_heap_min) { g_np_mode = 0; fprintf(stderr, "comm_shmem: COMM_SHMEM_NP_HEAP_THP=1 skipped: SHMEM_SYMMETRIC_SIZE is not set\n"); } else g_heap_arm = 1; } }
     shmem_init_thread(SHMEM_THREAD_MULTIPLE, &prov);
@@ -433,8 +429,8 @@ static int comm_shmem_init_i(void)
     if (eo) S.order = !strcmp(eo, "putsig") ? ORDER_PUTSIG : !strcmp(eo, "fence") ? ORDER_FENCE : ORDER_QUIET;
     else S.order = HAVE_PUT_SIGNAL ? ORDER_PUTSIG : ORDER_QUIET;
     if (S.order == ORDER_PUTSIG && !HAVE_PUT_SIGNAL) { if (S.me == 0) fprintf(stderr, "comm_shmem: putsig needs OpenSHMEM 1.5 headers: using quiet\n"); S.order = ORDER_QUIET; }
-    S.spin_us = env_int("COMM_SHMEM_SPIN_US", 2000);
-    S.xstats = env_int("COMM_XSTATS", 0) > 0;
+    S.spin_us = ec_env_int("COMM_SHMEM_SPIN_US", 2000);
+    S.xstats = ec_env_int("COMM_XSTATS", 0) > 0;
     tr_init();                                            /* COMM_TRACE=1: the trace arena */
     tr_hb_start();                                        /* COMM_TRACE_HB=<ms>: the heartbeat thread (comm_trace.h) */
     { const char *er = getenv("COMM_SHMEM_ROUND_MB"); double rm = er ? atof(er) : 0; S.round_bytes = rm > 0 ? (size_t)(rm * 1048576.0) : 0; }

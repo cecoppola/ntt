@@ -142,7 +142,6 @@ comm *comm_xshmem_create_flat(int pe_start, int n, int id);   /* S1a (ECALC_VPE)
 void  comm_xshmem_select(int lpe);             /* S1a: this thread's current loopback PE (the vpe.h thread hook) */
 int   comm_xshmem_loopback_pes(void);          /* K: loopback PEs per process */
 int   comm_xshmem_geo(int *v, char *cpus, int ncpus);   /* S2a: v = { pe, npes, local, pes per node, gpu, numa, nics, nic[0] }; cpus = the NUMA node cpu list; 0 = ok */
-int   comm_xshmem_nodes(void);
 void  comm_xshmem_finalize(void);
 void  comm_xshmem_counters(double *t, long *n, double *bytes);
 #endif

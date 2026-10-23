@@ -255,7 +255,7 @@ static void arena_get(int r, size_t cap, size_t extra, size_t hole, size_t thres
  * one [bend - S, bend), has at most <limbs> limbs (mn_plan.c's size: floor(log10 Q / digits per limb) + 1).  A node of level l then
  * has at most 2^l <limbs> limbs, so with <limbs> = 128 every batch product from 2^10 points up fills its 2^k length and the batch
  * tier's top level ends at the mdev threshold (2^30); 96 or 192 fill 3 2^k.  S depends on log10 of the run's last term (at 10^11:
- * 128 -> 229, at 4 x 10^10: 239; tests/t2_seed_model.py), so no one BS_SEED_TERMS fits every size.  Overrides BS_SEED_TERMS */
+ * 128 -> 229, at 4 x 10^10: 239; archive:scripts_2026-10-23/t2_seed_model.py), so no one BS_SEED_TERMS fits every size.  Overrides BS_SEED_TERMS */
 /* BS_SEED_FILL=128 by default; BS_SEED_FILL=0 (or a BS_SEED_TERMS in the environment, or a caller
  * that set bs_seed_terms before the first use, as the unit tests do) keeps the fixed span */
 static int g_fill_auto = -1;
@@ -494,7 +494,7 @@ int binsplit_vslot_budget_on(void) { return 1; }   /* always 1; kept for the `vs
  * chunks (DB_POOL_VMM_CHUNK_GB) -- the chunks are mapped whole anyway, so this costs no memory, and the reserved tail then ends
  * where the arena's last extent ends (a remainder after it made the pool carve spills from the tail's front: the reciprocal's two
  * remaps); (2) the dm need gains f x the hole (the division's largest block), so the blocks that spill around the tail leave it
- * whole.  f from the pool replays of measured traces (tests/as_pool_replay.py). */
+ * whole.  f from the pool replays of measured traces (archive:scripts_2026-10-23/as_pool_replay.py). */
 static double bs_arena_room(void) { static double f = -1; if (f < 0) { const char *e = getenv("BS_ARENA_ROOM"); f = e ? atof(e) : 0.16; if (f < 0) f = 0; } return f; }   /* default 0.16 */
 /* BS_ARENA_TRIM_GB=<GB per APU> (0 = off, the default) -- trim the dm need by this much (before the arenas are rounded to chunks): the model's
  * need sits above the measured live peak (2 n 1.2882e11: arena 66.57 GB, peak 55.47 GB) and every chunk is mapped (the extra by the background
@@ -901,7 +901,6 @@ static int dm_wrap_req(void)
     return g_wrap_run >= 0 ? g_wrap_run : 1;
 }
 int binsplit_dm_wrap(void) { int v; if (dm_wrap_env(&v)) return v; return g_wrap_run >= 0 ? g_wrap_run : 1; }   /* newton_db.c dm_wrap, the config line */
-int binsplit_dm_wrap_auto(void) { int v; return !dm_wrap_env(&v) && g_wrap_run >= 0; }                                   /* 1: the value is the fit's decision */
 const char *binsplit_dm_wrap_src(void) { int v; return dm_wrap_env(&v) ? "set" : g_wrap_run >= 0 ? "fit" : "default"; }     /* the config line's word */
 static void fit_arm(unsigned long N, int g, int wrap, struct bs_fit *F)
 {
@@ -1314,7 +1313,6 @@ static size_t tree_write(int level, unsigned long N, const uint64_t desc[10], db
     size_t bytes = sizeof h + sizeof x + sizeof(struct ckpt_sched); for (int r = 0; r < NR; r++) bytes += h.offr[r] * 8;
     return bytes;
 }
-size_t bs_ckpt_tree_write(int level, unsigned long N, const uint64_t desc[10], dbig *P, dbig *Q) { if (sp_odirect()) sp_dev_sync_all(); return tree_write(level, N, desc, P, Q, 0, 0); }   /* see ckpt_write */
 
 /* ---- a tree set written by a background thread ----
  * The top set (size 1: tree_000 from ecalc.c; size > 1: mn_tree's top level) is written while the reciprocal and the

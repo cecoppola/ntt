@@ -23,8 +23,15 @@ covers it; its log shows the `I3:` line.
     tools/gate.sh --build --nodes 2 --hold <hold>          # two nodes: required when multi-node code changed
     tools/gate.sh --nodes 2 --alloc --line aac7            # own short allocation instead of a hold
 
-- `--build` runs `make -B` in `ecalc/`. A multi-node build needs SHMEM (`SHMEM_CRAY=1`); the gate checks the build log
-  for `-DCOMM_SHMEM` and refuses a multi-node run without it. It also runs `tools/switch_registry.py --check` and
+**Path 2 gate (the Cray SHMEM path, user rule Q85; run when `xshmem*`, `comm_xshmem.c`, `pe_geo.c`, the launcher's P branch or shared multi-node code changed).**
+Build with `make -B -C ecalc XSHMEM=cray SHMEM_CRAY=1 GMP_HOME=<gmp>` (aac7: `module load cray-dsmml cray-openshmemx`; rebuild with `-B` when
+switching `XSHMEM`). Then 10⁹ digits identical to the reference at 1 node and at 2 nodes with
+`--env "ECALC_PE_PER_GPU=1 XSHMEM_LANES=2"` (the gate passes `--env` words to `mnrun.sh`), and `tests/t_xshmem correct` with `XSHMEM_LANES=2` at 1, 2 and 3 nodes
+x 4 PEs (build `make XSHMEM=cray SHMEM_CRAY=1 GMP_HOME=<gmp> tests/t_xshmem`; every PE must print `XT_RESULT PASS`). Path 1 is the plain gate above and must stay digit-identical and no
+slower after any shared-code change. A timing claim between the paths needs interleaved pairs (ABBA) and an A/A control: aac7 run times are bimodal, so single runs prove nothing (`results/XSHMEM.md`, craylane).
+
+- `--build` runs `make -B` in `ecalc/` (path 1; add `SHMEM_CRAY=1` for a multi-node run: the gate checks the build log
+  for `-DCOMM_SHMEM` and refuses a multi-node run without it). It also runs `tools/switch_registry.py --check` and
   `tools/profile_load.py --validate-all`; either failing is a FAIL. The registry check's review-date `WARN` lines (a
   setting past its review date in `ecalc/switches_review.tsv`, or an experiment without one) are printed, never a FAIL.
 - `--line` selects the launch line (the test system's is the `LAUNCH_LINE_KEYS` of `profiles/aac7.conf`, printed by
@@ -85,6 +92,7 @@ question open, and killed runs have been followed by nodes draining for a reboot
 | switches or defaults | `tools/switch_registry.py --check`; the switch row in `ecalc/README.md` |
 | virtual PEs (`ecalc/vpe.{h,c}`, the `vpe_*` part of `mn.c`, `ECALC_VPE`) | `tests/t_vpe host` and `ECALC_VPE=1 tests/t_vpe stages` (no GPU work; login node is enough; both check the fatal paths in forked children); `tests/t_vpe all` and `probe` with `COMM_TRANSPORT=xshmem XSHMEM_LOOPBACK_PES=4` (`make XSHMEM=ofi`) at 1, 2 and 3 nodes, one process per node (4, 8, 12 PEs; prints `T_VPE_RESULT PASS`); the switch-off path must stay byte-identical (gate at 1 node, digits and log text); the flow under `vpe_run` (S1e: `ecalc.c` flow function, per-PE writer threads, two part files per PE): `tests/t_out --vpe` (host only: ranks write their parts from threads at once, parts / residues / windows vs the reference) and `mnaccept.sh <hold> --only vpe` (needs all stages merged; 10^8 at 1 and 2 node-processes, 10^9 at 2, top-level set + recheck at 1; digits identical); process per GPU (S2a, `ECALC_PE_PER_GPU`): `tests/t_vpe host --ppg` and `stages --ppg` (login node), and under `mnrun.sh` with `ECALC_PE_PER_GPU=1 COMM_TRANSPORT=xshmem` (4 tasks per node) `tests/t_vpe all --ppg` / `probe --ppg` at 1, 2, 3 nodes (one `T_VPE_RESULT PASS` per PE: 4, 8, 12), `t_vpe info` (launch and binding probe: `PPG_INFO` line per PE), `t_vpe die` and `t_vpe badlayout` (the step must end nonzero within 120 s, no task left); the thread mode (`t_vpe all`, `XSHMEM_LOOPBACK_PES=4`) stays |
 | the xshmem layer (`xshmem*.{h,c}`, `comm_xshmem.c`, `pe_geo.c`) | build with the plain `make ecalc` (XSHMEM=ofi is the default where libfabric is found; `XSHMEM=0` for the old build); `tests/t_pe_geo` (host only); `tests/t_xshmem` at 1, 2 and 3 nodes x 4 PEs (sections `basic exch deadlock layer limit`); then the gate at 1, 2 and 3 nodes with no transport variables (the default is xshmem with `XSHMEM_ROUND_MB=128`; digits identical) and at 2 and 3 nodes with `COMM_TRANSPORT=shmem COMM_OFI=1` (the fallback), and `mnaccept.sh <hold> --only mn` (default env) (`results/XSHMEM.md` §5-6) |
+| process layout P and lanes (`ECALC_PE_PER_GPU`, `XSHMEM_LANES`, `RNS_BATCH_SPLIT`, `xshmem_cray.h`, the launcher's P branch) | the path 2 gate (section 2) at 1 and 2 nodes, and D against P digits at 1, 2 and 3 nodes (`sha` of the output file) |
 | speed claims | the timing method in section 6, on top of the above |
 
 ## 5. Unit tests and digit comparison
@@ -102,8 +110,7 @@ OpenMP-parallel) and above that by the residue form -- every limb below B, the l
 the low 64 limbs exactly and the top limbs within the exact bounds of the leading 64 x 64 limb product; `tref_mul` gives a
 reference value (GMP, or the one-node device product at the default plane checked by the residue form); `tref_faults`
 checks the reference itself (one limb changed low, in the middle or at the top must fail; `t_mul` runs it on every product
-of sections 1 and 2). `tests/` at the repository root holds two model scripts
-(`t2_seed_model.py`, `as_pool_replay.py`); `tools/test_unpack.py` and `tools/test_pack60.c` test the packed format.
+of sections 1 and 2). The two Phase 15 model replays (`archive:scripts_2026-10-23/t2_seed_model.py`, `archive:scripts_2026-10-23/as_pool_replay.py`) are archived; `tools/test_unpack.py` and `tools/test_pack60.c` test the packed format.
 Python unit tests of the tools (`trace_report.py`, `switch_registry.py`, `doccheck.py`; stdlib, numpy only for the first, each < 5 s): `python3 -m unittest discover -s tests` from the repository root (`tests/test_tools.py`).
 
 Digits against a reference:

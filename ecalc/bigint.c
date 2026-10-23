@@ -234,17 +234,6 @@ void bi_sub(bigint *r, const bigint *a, const bigint *b)
     limb_sub(r->l, a->l, a->n, b->l, b->n);
     r->n = a->n; bi_norm(r);
 }
-void bi_add_shifted(bigint *r, const bigint *a, size_t k)
-{
-    size_t need = (a->n + k > r->n ? a->n + k : r->n) + 1;
-    bi_reserve(r, need);
-    { size_t i;
-#pragma omp parallel for schedule(static) if (need - r->n > (1u << 22))
-      for (i = r->n; i < need; i++) r->l[i] = 0; }
-    uint64_t c = limb_add(r->l + k, r->l + k, need - k - 1, a->l, a->n);
-    r->l[need - 1] = c;
-    r->n = need; bi_norm(r);
-}
 /* r = a B^k and r = floor(a / B^k): whole-limb shifts (limb_move handles r == a and overlap) */
 void bi_shl_limbs(bigint *r, const bigint *a, size_t k)
 {
@@ -290,11 +279,6 @@ uint64_t bi_divmod_u64(bigint *q, const bigint *a, uint64_t d)
     for (size_t i = a->n; i-- > 0;) { rem = rem * B10 + a->l[i]; q->l[i] = (uint64_t)(rem / d); rem %= d; }
     q->n = a->n; bi_norm(q);
     return (uint64_t)rem;
-}
-void bi_mul_pow10(bigint *r, const bigint *a, unsigned k)
-{
-    static const uint64_t p10[19] = {1ULL,10ULL,100ULL,1000ULL,10000ULL,100000ULL,1000000ULL,10000000ULL,100000000ULL,1000000000ULL,10000000000ULL,100000000000ULL,1000000000000ULL,10000000000000ULL,100000000000000ULL,1000000000000000ULL,10000000000000000ULL,100000000000000000ULL,1000000000000000000ULL};
-    bi_mul_u64(r, a, p10[k]);
 }
 void bi_set_base_pow(bigint *r, size_t k)
 {

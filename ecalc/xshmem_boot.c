@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "xshmem_boot.h"
+#include "env_int.h"
 
 #ifndef BOOT_PMIX
 #include <pmi2.h>
@@ -37,19 +38,18 @@ void boot_finalize(void) {}
 static struct { int up, rank, size, seq; char job[PMI2_MAX_VALLEN]; } B;
 static int boot_up_flag(void) { return B.up; }
 
-static int env_int(const char *n, int def) { const char *e = getenv(n); return (e && *e) ? atoi(e) : def; }
 
 int boot_init(int *rank, int *size)
 {
     if (!B.up) {
         /* Cray PMI2 keeps the KVS in a fixed shared segment (default far too small: 30 entries aborted 8 PEs).  Every allgather puts
          * ceil(len/450) keys per PE and keys are never freed (about 5 allgathers per job), so size it from the task count: 16 per task + 256. */
-        if (!getenv("PMI_MAX_KVS_ENTRIES")) { char v[32]; int nt = env_int("SLURM_NTASKS", 64); snprintf(v, sizeof v, "%d", 16 * nt + 256); setenv("PMI_MAX_KVS_ENTRIES", v, 0); }
+        if (!getenv("PMI_MAX_KVS_ENTRIES")) { char v[32]; int nt = ec_env_int_ne("SLURM_NTASKS", 64); snprintf(v, sizeof v, "%d", 16 * nt + 256); setenv("PMI_MAX_KVS_ENTRIES", v, 0); }
         int spawned = 0, appnum = 0, rc = PMI2_Init(&spawned, &B.size, &B.rank, &appnum);
         if (rc != PMI2_SUCCESS) bdie("PMI2_Init failed (run under plain srun, no --mpi)", rc);
         rc = PMI2_Job_GetId(B.job, sizeof B.job);
         if (rc != PMI2_SUCCESS) bdie("PMI2_Job_GetId failed", rc);
-        int sr = env_int("SLURM_PROCID", -1), sn = env_int("SLURM_NTASKS", -1);
+        int sr = ec_env_int_ne("SLURM_PROCID", -1), sn = ec_env_int_ne("SLURM_NTASKS", -1);
         if ((sr >= 0 && sr != B.rank) || (sn >= 0 && sn != B.size)) {
             fprintf(stderr, "xshmem_boot: PMI2 rank/size %d/%d != SLURM_PROCID/SLURM_NTASKS %d/%d\n", B.rank, B.size, sr, sn);
             bdie("rank/size mismatch", 0);

@@ -87,7 +87,6 @@ static struct {
 
 #define YIELD() do { if (X.yield) sched_yield(); } while (0)
 static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
-static int env_int(const char *name, int def) { const char *e = getenv(name); return e ? atoi(e) : def; }
 static inline uint64_t rd64(const uint64_t *p) { return *(volatile const uint64_t *)p; }
 static inline int sigge(const uint64_t *p, uint64_t v) { return xshmem_signal_test(p, XSHMEM_CMP_GE, v); }
 
@@ -688,7 +687,6 @@ int comm_xshmem_geo(int *v, char *cpus, int ncpus)
     return 0;
 }
 int comm_xshmem_loopback_pes(void) { return X.inited ? X.K : XS_LPES(); }
-int comm_xshmem_nodes(void) { return X.nodes; }
 void comm_xshmem_finalize(void)
 {
     if (!X.inited) return;
