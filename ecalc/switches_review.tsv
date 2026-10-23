@@ -123,3 +123,4 @@ ECALC_VPE_CHAIN	experiment	TARGET1 (S1)	2026-12-31	vPE chain arm, own by default
 ECALC_VPE_BG_THREADS	experiment	TARGET1 (S1)	2026-12-31	background team per PE; review with ECALC_VPE
 ECALC_PE_PER_GPU	experiment	TARGET12 (S2)	2026-12-31	one process per GPU (PE); off by default; review when S2a..S2d are merged
 ECALC_TEST_DIE_PE	diagnostic	TARGET12 (S2)	2027-04-12	fault-injection setting for the process-per-GPU kill test; changes no digit
+RNS_BATCH_SPLIT	experiment	TARGET12 (S2)	2026-12-31	own-device split of oversized batch products under one process per GPU (Q75 a); off by default; review when adopted

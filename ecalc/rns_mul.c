@@ -683,6 +683,159 @@ static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t
     return 1;
 }
 
+/* ======================================================================== */
+/* RNS_BATCH_SPLIT (Q75 a): own-device split of batch products larger than the one device's plane pool (ECALC_PE_PER_GPU=1)                 */
+/* ======================================================================== */
+/* 0 (default) = off, byte-identical; 1 = on under ECALC_PE_PER_GPU=1 when the local tier cannot hold a product (the striped tier would be fatal there);
+ * k in 20..29 = forced in any mode: products of more than 2^k limbs are split into pieces of at most 2^k (tests).  Each product A B (+ X) is cut into a grid of
+ * ka x kb operand pieces whose products fit the local tier (all sharing one B piece go through rns_mul_batch_local as one grpB batch, device g_d0, outputs in the
+ * pinned staging buffer); the piece products are added into C at their offsets (exact decimal-limb addition with carries: bsp_add), X last.  Same digits. */
+int rns_batch_split_mode(void)
+{
+    const char *e = getenv("RNS_BATCH_SPLIT");
+    int v = e && *e ? atoi(e) : 0; if (v == 0) return 0;
+    if (v != 1 && (v < 20 || v > 29)) { ec_fatal(EC_RC_FATAL, "RNS_BATCH_SPLIT=%s: 0, 1 or 20..29\n", e); }
+    return v;
+}
+static size_t pow2_floor(size_t n) { size_t p = 1; if (!n) return 0; while (p * 2 <= n) p *= 2; return p; }
+size_t rns_batch_split_lmax(void)
+{
+    int pl = g_pool_log ? g_pool_log : 31, np = ec_np_init(), m = rns_batch_split_mode();
+    size_t p0 = rns_plane_limbs(), p1, st;
+    if (g_nd && D[g_d0].db.p) p1 = D[g_d0].db.cap / 8;
+    else if (rns_pool1_bytes_req) p1 = rns_pool1_bytes_req / 8;
+    else { size_t b; rns_plane_pool_bytes(pl, np, 0, &b); p1 = b / 8; }
+    st = g_nd ? g_staging_bytes / 8 : (rns_staging_bytes_req ? rns_staging_bytes_req : (size_t)8 << pl) / 8;
+    size_t l = p0 / np; if (p1 / np < l) l = p1 / np; if (st < l) l = st;
+    l = pow2_floor(l); if (m >= 20 && l > ((size_t)1 << m)) l = (size_t)1 << m;
+    return l;
+}
+#define BSP_MAXPIECES 1024   /* the grid's piece count ka * kb is bounded (not each side): a lopsided product splits its long operand further */
+int rns_batch_split_shape(size_t na, size_t nb, int G, size_t Lp, int *ka, int *kb)
+{
+    double best = 0; int ba = 0, bb = 0;
+    for (int b = 1; b <= BSP_MAXPIECES; b++) for (int a = 1; a * b <= BSP_MAXPIECES; a++) {
+        size_t sa = (na + a - 1) / a, sb = (nb + b - 1) / b, nc = sa + sb; if (nc > Lp) continue;
+        size_t len = (size_t)1 << ceil_log2(nc);
+        double cost = (double)b * (1.0 + 2.0 * G * a) * (double)len;
+        if (!ba || cost < best || (cost == best && a * b < ba * bb)) { best = cost; ba = a; bb = b; }
+    }
+    if (!ba) return 0;
+    *ka = ba; *kb = bb; return 1;
+}
+#define BSP_CH 64
+/* Single-user state: the split path writes the piece products into D[g_d0].hstage from offset 0, and g_bsp_h / g_bsp_d / g_bsp_depth are process-wide: ONE rns caller per process
+ * (one process per GPU, one batch-tier call at a time).  rns_mul_batch_split asserts it with g_bsp_depth (a nested split is fatal); a second thread calling the tier would overwrite the staging. */
+static uint8_t *g_bsp_h; static size_t g_bsp_cap; static uint64_t *g_bsp_d; static int g_bsp_depth;
+__global__ void k_bsp_fill(uint64_t *c, size_t n) { for (size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x; i < n; i += st) c[i] = 0; }
+__global__ void k_bsp_add1(uint64_t *C, const uint64_t *S, size_t ns, uint8_t *fl)   /* one thread per chunk of BSP_CH limbs: C += S with carry-in 0; flags: carry out, all limbs B-1 */
+{
+    size_t t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, lo = t * BSP_CH; if (lo >= ns) return;
+    size_t hi = lo + BSP_CH < ns ? lo + BSP_CH : ns; uint64_t cy = 0; int p = 1;
+    for (size_t k = lo; k < hi; k++) { uint64_t sm = C[k] + S[k] + cy; cy = sm >= EC_1E18; uint64_t v = cy ? sm - EC_1E18 : sm; C[k] = v; p &= (v == EC_1E18 - 1); }
+    fl[2 * t] = (uint8_t)cy; fl[2 * t + 1] = (uint8_t)p;
+}
+__global__ void k_bsp_add2(uint64_t *C, size_t ns, const uint8_t *fl)   /* the chunk's carry-in (fl[2t]) rippled into the chunk */
+{
+    size_t t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, lo = t * BSP_CH; if (lo >= ns || !fl[2 * t]) return;
+    size_t hi = lo + BSP_CH < ns ? lo + BSP_CH : ns;
+    for (size_t k = lo; k < hi; k++) { uint64_t v = C[k] + 1; if (v == EC_1E18) C[k] = 0; else { C[k] = v; break; } }
+}
+__global__ void k_bsp_find(const uint64_t *C, size_t n, unsigned long long *idx) { for (size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x; i < n; i += st) if (C[i] != EC_1E18 - 1) atomicMin(idx, (unsigned long long)i); }
+__global__ void k_bsp_inc(uint64_t *C) { C[0] += 1; }
+__global__ void k_bsp_norm(const uint64_t *c, size_t n, uint32_t *out) { while (n && c[n - 1] == 0) n--; *out = (uint32_t)n; }
+static void bsp_fill0(hipStream_t s, uint64_t *c, size_t n) { if (n) k_bsp_fill<<<(unsigned)((n + 255) / 256 < 4096 ? (n + 255) / 256 : 4096), 256, 0, s>>>(c, n); }
+static void bsp_ripple(hipStream_t s, uint64_t *C, size_t pos, size_t top)   /* C[pos..] += 1 (carry out of a piece) */
+{
+    size_t st = pos, w = 4096, idx = (size_t)-1;
+    while (st < top) {
+        size_t n = top - st < w ? top - st : w; unsigned long long big = ~0ULL;
+        HIP_CHECK(hipMemcpyAsync(g_bsp_d, &big, 8, hipMemcpyHostToDevice, s));
+        k_bsp_find<<<(unsigned)((n + 255) / 256 < 4096 ? (n + 255) / 256 : 4096), 256, 0, s>>>(C + st, n, (unsigned long long *)g_bsp_d);
+        HIP_CHECK(hipMemcpyAsync(&big, g_bsp_d, 8, hipMemcpyDeviceToHost, s)); HIP_CHECK(hipStreamSynchronize(s));
+        if (big != ~0ULL) { idx = st + (size_t)big; break; }
+        st += n; w *= 8;
+    }
+    if (idx == (size_t)-1) { ec_fatal(EC_RC_FATAL, "rns_mul_batch_split: a carry out of the product's top limb\n"); }
+    bsp_fill0(s, C + pos, idx - pos); k_bsp_inc<<<1, 1, 0, s>>>(C + idx); HIP_CHECK(hipStreamSynchronize(s));
+}
+static void bsp_add(hipStream_t s, uint64_t *C, size_t ctop, size_t off, const uint64_t *S, size_t ns)   /* C[off..] += S[0..ns) in base 1e18, the carry rippled up to ctop */
+{
+    if (!ns) return;
+    size_t nch = (ns + BSP_CH - 1) / BSP_CH, need = 2 * nch + 64;
+    if (g_bsp_cap < need) { if (g_bsp_h) HIP_CHECK(hipHostFree(g_bsp_h)); g_bsp_cap = need + (need >> 2); HIP_CHECK(hipHostMalloc((void **)&g_bsp_h, g_bsp_cap, 0)); }
+    if (!g_bsp_d) HIP_CHECK(hipMalloc((void **)&g_bsp_d, 64));
+    uint8_t *fl = g_bsp_h + 64;
+    k_bsp_add1<<<(unsigned)((nch + 255) / 256), 256, 0, s>>>(C + off, S, ns, fl);
+    HIP_CHECK(hipStreamSynchronize(s));
+    uint8_t cy = 0; int any = 0;
+    for (size_t t = 0; t < nch; t++) { uint8_t co = fl[2 * t], pr = fl[2 * t + 1]; fl[2 * t] = cy; any |= cy; cy = co | (pr & cy); }
+    if (any) { k_bsp_add2<<<(unsigned)((nch + 255) / 256), 256, 0, s>>>(C + off, ns, fl); HIP_CHECK(hipStreamSynchronize(s)); }
+    if (cy) bsp_ripple(s, C, off + ns, ctop);
+}
+void rns_mul_batch_split(rns_prod *P, size_t N)
+{
+    int cur; HIP_CHECK(hipGetDevice(&cur)); int d = g_d0; HIP_CHECK(hipSetDevice(d)); struct dev *v = &D[d];
+    size_t Lp = rns_batch_split_lmax(), stl = g_staging_bytes / 8; uint64_t *stg = v->hstage;
+    if (!stg || Lp < 1024) { ec_fatal(EC_RC_FATAL, "rns_mul_batch_split: no staging buffer or plane room for pieces (Lp %zu)\n", Lp); }
+    if (g_bsp_depth) { ec_fatal(EC_RC_FATAL, "rns_mul_batch_split: a piece product does not fit the local tier\n"); }
+    g_bsp_depth++;
+    size_t *big = (size_t *)malloc(N * sizeof *big), nbig = 0, nsm = 0; rns_prod *sm = (rns_prod *)malloc(N * sizeof *sm); size_t *smi = (size_t *)malloc(N * sizeof *smi);
+    for (size_t i = 0; i < N; i++) { if (P[i].na + P[i].nb > Lp) big[nbig++] = i; else { sm[nsm] = P[i]; smi[nsm++] = i; } }
+    hipStream_t s = v->s; double t0 = mem_now();
+    if (nsm) {
+        rns_mul_batch(sm, nsm); for (size_t k = 0; k < nsm; k++) P[smi[k]].ncn = sm[k].ncn;
+        uint32_t *hl; HIP_CHECK(hipHostMalloc((void **)&hl, nsm * 4, 0)); int any = 0;   /* a tier that does not report the length (the striped one): scan it here */
+        for (size_t k = 0; k < nsm; k++) if (!sm[k].ncn) { rns_prod *p = &P[smi[k]]; hl[k] = 0xFFFFFFFFu; k_bsp_norm<<<1, 1, 0, s>>>(p->c, p->na + p->nb + (p->x && p->nx ? 1 : 0), hl + k); any = 1; }
+        if (any) { HIP_CHECK(hipStreamSynchronize(s)); for (size_t k = 0; k < nsm; k++) if (!sm[k].ncn) P[smi[k]].ncn = hl[k]; }
+        HIP_CHECK(hipHostFree(hl));
+    }
+    free(sm); free(smi);
+    for (size_t g0 = 0; g0 < nbig; ) {
+        size_t g1 = g0 + 1; const rns_prod *f = &P[big[g0]];
+        while (g1 < nbig && P[big[g1]].b == f->b && P[big[g1]].nb == f->nb) g1++;
+        size_t G = g1 - g0, na_max = 0, nb = f->nb; for (size_t q = g0; q < g1; q++) if (P[big[q]].na > na_max) na_max = P[big[q]].na;
+        int ka, kb;
+        if (!rns_batch_split_shape(na_max, nb, (int)G, Lp, &ka, &kb)) { ec_fatal(EC_RC_FATAL, "rns_mul_batch_split: no grid of at most %d pieces for %zu x %zu limbs within 2^%d\n", BSP_MAXPIECES, na_max, nb, ceil_log2(Lp)); }
+        size_t sa = (na_max + ka - 1) / ka, sb = (nb + kb - 1) / kb, nB = (nb + sb - 1) / sb, stride = (sa + sb + 7) / 8 * 8, T = stl / stride;
+        if (T < 1) { ec_fatal(EC_RC_FATAL, "rns_mul_batch_split: the staging buffer (%zu limbs) holds no piece product (%zu limbs)\n", stl, sa + sb); }
+        for (size_t q = g0; q < g1; q++) {
+            rns_prod *p = &P[big[q]]; size_t ctop = p->na + p->nb + (p->x && p->nx ? 1 : 0);
+            bsp_fill0(s, p->c, ctop); HIP_CHECK(hipStreamSynchronize(s));
+            if (p->x && p->nx) bsp_add(s, p->c, ctop, 0, p->x, p->nx);
+        }
+        size_t tot = 0, *pq = (size_t *)malloc(G * (size_t)ka * sizeof *pq), *pia = (size_t *)malloc(G * (size_t)ka * sizeof *pia);
+        for (size_t q = g0; q < g1; q++) for (size_t i = 0; i * sa < P[big[q]].na; i++) { pq[tot] = q; pia[tot++] = i; }
+        rns_prod *sub = (rns_prod *)malloc((T < tot ? T : tot) * sizeof *sub); signed char *dvb = (signed char *)malloc(T < tot ? T : tot); memset(dvb, d, T < tot ? T : tot);
+        for (size_t j = 0; j < nB; j++) {
+            size_t nbj = nb - j * sb < sb ? nb - j * sb : sb;
+            for (size_t c0 = 0; c0 < tot; c0 += T) {
+                size_t m = tot - c0 < T ? tot - c0 : T, mx = 0;
+                for (size_t k = 0; k < m; k++) {
+                    const rns_prod *p = &P[big[pq[c0 + k]]]; size_t i = pia[c0 + k], nai = p->na - i * sa < sa ? p->na - i * sa : sa;
+                    memset(&sub[k], 0, sizeof sub[k]);
+                    sub[k].a = p->a + i * sa; sub[k].na = nai; sub[k].b = p->b + j * sb; sub[k].nb = nbj; sub[k].c = stg + k * stride;
+                    if (nai + nbj > mx) mx = nai + nbj;
+                }
+                if (!rns_mul_batch_local(sub, m, ceil_log2(mx), m > 1, mx, dvb)) { ec_fatal(EC_RC_FATAL, "rns_mul_batch_split: the piece batch (%zu x %zu limbs) does not fit the local tier\n", m, mx); }
+                for (size_t k = 0; k < m; k++) { rns_prod *p = &P[big[pq[c0 + k]]]; bsp_add(s, p->c, p->na + p->nb + (p->x && p->nx ? 1 : 0), pia[c0 + k] * sa + j * sb, stg + k * stride, sub[k].na + sub[k].nb); }
+            }
+        }
+        free(sub); free(dvb); free(pq); free(pia);
+        uint32_t *hl; HIP_CHECK(hipHostMalloc((void **)&hl, G * 4, 0));
+        for (size_t q = g0; q < g1; q++) { rns_prod *p = &P[big[q]]; k_bsp_norm<<<1, 1, 0, s>>>(p->c, p->na + p->nb + (p->x && p->nx ? 1 : 0), hl + (q - g0)); }
+        HIP_CHECK(hipStreamSynchronize(s));
+        for (size_t q = g0; q < g1; q++) P[big[q]].ncn = hl[q - g0];
+        HIP_CHECK(hipHostFree(hl));
+        printf("batch-split: %zu products sharing B of %zu x %zu limbs: %d x %d pieces of %zu x %zu (Lp 2^%d), %zu per chunk\n", G, na_max, nb, ka, kb, sa, sb, ceil_log2(Lp), T);
+        g0 = g1;
+    }
+    free(big);
+    rns_st.n_batch += N; rns_st.t_total += mem_now() - t0; rns_st.tb_total += mem_now() - t0;
+    g_bsp_depth--;
+    HIP_CHECK(hipSetDevice(cur));
+}
+
 void rns_mul_batch(rns_prod *P, size_t N)
 {
     if (!N) return;
@@ -715,6 +868,11 @@ void rns_mul_batch(rns_prod *P, size_t N)
     }
     if (ec_np == 3) { size_t mt = 0; for (size_t i = 0; i < N; i++) { size_t t = P[i].na < P[i].nb ? P[i].na : P[i].nb; if (t > mt) mt = t; } ec_np_check(mt, "rns_mul_batch"); }   /* P3 */
     int logL = ceil_log2(maxnc); if (logL < NTT_LOGN_MIN) logL = NTT_LOGN_MIN;
+    int bsm = rns_batch_split_mode();                   /* RNS_BATCH_SPLIT (0 = off: nothing below changes) */
+    if (bsm && !g_bsp_depth && (bsm >= 20 ? maxnc > ((size_t)1 << bsm) : (vpe_ppg() && rns_plane_limbs() / (ec_np * ((size_t)1 << logL)) < 1))) {
+        if (staged) { ec_fatal(EC_RC_FATAL, "rns_mul_batch: RNS_BATCH_SPLIT needs registered products\n"); }
+        free(dv); rns_mul_batch_split(P, N); return;
+    }
     if (logL > RNS_BATCH_LOGL_MAX) { ec_fatal(EC_RC_FATAL, "rns_mul_batch: L 2^%d too large\n", logL); }
     size_t L = (size_t)1 << logL;
     int grpB = N > 1;                                   /* every product shares one B: transform it once */
@@ -739,6 +897,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
         }
     }
     free(dv); dv = 0;
+    if (vpe_ppg() && bsm == 1 && !staged && !g_bsp_depth) { rns_mul_batch_split(P, N); return; }   /* the local tier could not hold it (pool 1): split */
     if (vpe_ppg()) { ec_fatal(EC_RC_FATAL, "rns_mul_batch: the striped tier needs all %d devices; with ECALC_PE_PER_GPU=1 this process has device %d only (N %zu, 2^%d points)\n", EC_NP, g_d0, N, logL); }   /* S2c */
     /* the striped path pairs products 2j, 2j+1 sharing B (the tree's P1 Q2 + P2, Q1 Q2 -- at 4e10 the
      * level of 8 products at 2^30 points, which the batch-local tier cannot hold) and takes the 3 2^k length when nc fits it:

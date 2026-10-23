@@ -458,7 +458,7 @@ assumed (a).
 |---|---|
 | APU / node / node-process | one MI300A is one APU and one HIP device; a node has 4 APUs on an xGMI mesh; one node-process drives them |
 | B | the limb base 10¹⁸ |
-| batch tier | the product tier of the lower binary-splitting levels: many small products in one launch |
+| batch tier | the product tier of the lower binary-splitting levels: many small products in one launch; under `ECALC_PE_PER_GPU=1` a product too large for the one device's plane pool is cut into operand pieces and summed with carries (`RNS_BATCH_SPLIT`, `rns_mul_batch_split`; exact, same digits) |
 | binary splitting | the recursion P = P₁Q₂ + P₂, Q = Q₁Q₂ over term ranges |
 | block pool | the per-APU virtual-memory arena from which `dbig` numbers are carved after the leaf levels |
 | B / C (forms) | the one-node product forms: prime per APU without exchange (B), four-step over xGMI (C) |

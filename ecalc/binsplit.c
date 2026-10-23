@@ -94,7 +94,7 @@ int vpe_ppg(void);
 static size_t bs_ppn_proc(void) { return vpe_ppg() ? (size_t)vpe_lanes() : 1; }
 int binsplit_ppn_proc(void) { return (int)bs_ppn_proc(); }   /* S2: ecalc.c budget_check divides the node model by the same term, so planner and budget agree */
 #define BS_HOST_INIT_BYTES_P() ((size_t)7000000000 * bs_ppn_proc() + ((size_t)8 << 30))   /* BS_HOST_INIT_BYTES with the runtime per process */
-static size_t bs_staging(void) { return vpe_on() ? (size_t)vpe_lanes() << 30 : (size_t)4 << 30; }   /* the checkpoint staging: 1 GiB per APU thread / PE */
+static size_t bs_staging(void) { return vpe_on() ? (size_t)vpe_lanes() << (vpe_ppg() && rns_batch_split_mode() == 1 ? 31 : 30) : (size_t)4 << 30; }   /* RNS_BATCH_SPLIT=1 under P: ecalc.c raises the pinned staging to 2 GiB per PE */   /* the checkpoint staging: 1 GiB per APU thread / PE */
 static unsigned long bs_pe_b1(unsigned long N, int g)   /* the end of rank 0's (PE 0's) term range [1, b1): b1 = 0 = all terms */
 {
     unsigned __int128 G = (unsigned __int128)g * (unsigned)bs_lanes(), nn = N;
@@ -354,8 +354,9 @@ static void region_need(unsigned long N, size_t need[NRMAX])
  * (rns_mul.c: `rns_plane_limbs() / (ec_np * L) >= 1`); a product that does not fit goes to the striped tier, which needs all 4 devices and is fatal here.  Walks region_need's levels
  * (batch while the lower bound of the level's Q is within 2^BS_MDEV_LOGL), the level's largest product P1 Q2 = min(2 m, span) x per limbs (+3 %: per is an estimate); the caller
  * sets the term range.  *nc = that product's limbs; returns its logL (0: no batch level). */
-static int bs_batch_logl(unsigned long N, size_t *nc)
+static int bs_batch_logl_lv(unsigned long N, size_t *nc, size_t *lv, int nlv)   /* lv[l] (nlv entries, zeroed here) = level l's largest product */
 {
+    if (lv) memset(lv, 0, nlv * sizeof *lv);
     size_t per; unsigned long nspan; seed_limbs(N, &per, &nspan);
     unsigned long S = bs_seed_terms, a0 = bs_b1 ? bs_a0 : 1, nterms = bs_b1 ? bs_b1 - bs_a0 : N; size_t best = 0;
     for (int l = 0; ; l++) {
@@ -364,15 +365,25 @@ static int bs_batch_logl(unsigned long N, size_t *nc)
         if (2 * level_q_lower(a0, nterms, S, m_full, nspan) + 1 > ((size_t)1 << bs_mdev_logl)) break;
         size_t span = 2 * m_full < nspan ? 2 * m_full : nspan, c = (size_t)((double)span * (double)per * 1.03) + (size_t)l + 2;
         if (c > best) best = c;
+        if (lv && l < nlv) lv[l] = c;
     }
     if (nc) *nc = best;
     int lg = 0; while (((size_t)1 << lg) < best) lg++;
     return best ? (lg < 10 ? 10 : lg) : 0;
 }
+static int bs_batch_logl(unsigned long N, size_t *nc) { return bs_batch_logl_lv(N, nc, 0, 0); }
 int binsplit_ppg_batch_logl(unsigned long N, int g, size_t *nc)   /* rank 0's (PE 0's) range, restored after */
 {
     unsigned long a0 = bs_a0, b1 = bs_b1; bs_a0 = 1; bs_b1 = bs_pe_b1(N, g);
     int lg = bs_batch_logl(N, nc); bs_a0 = a0; bs_b1 = b1; return lg;
+}
+/* RNS_BATCH_SPLIT's planner: every batch level's largest product (limbs, level 0 first; 0 = no such level) of PE 0's leaf; returns the number of levels */
+int binsplit_ppg_batch_levels(unsigned long N, int g, size_t *lv, int nlv)
+{
+    unsigned long a0 = bs_a0, b1 = bs_b1; bs_a0 = 1; bs_b1 = bs_pe_b1(N, g);
+    bs_batch_logl_lv(N, 0, lv, nlv); bs_a0 = a0; bs_b1 = b1;
+    int n = 0; for (int i = 0; i < nlv; i++) if (lv[i]) n = i + 1;
+    return n;
 }
 /* the dm phase's block-pool need per device from N alone, the way the driver's formulas
  * size it (ecalc.c: n_Q = Q's limbs, Q = N! in the chosen base; dl = the limbs of 10^d; k_mu = P.n + 1 + dl - n_Q + 1;
@@ -679,6 +690,14 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
  * Q_t r; mdb_shift at MDB_SHIFT_CHUNK_MB) + the communicators' control blocks (4 per level of size S < size, 4 meshes of size:
  * 8 words and a COMM_SHMEM_RING_KB ring per member) + the mailbox + a 256 MiB margin.
  * by: the product that sets the staging. */
+/* limbs of the last `nodes` of `size` nodes' term ranges of the series (N terms, equal term counts per node; Q's limbs nq in all): lgamma weights -- later terms are longer, so the last node's
+ * share is above the average nq / size (bs_pe_b1's ranges) */
+static size_t bs_tail_limbs(unsigned long N, size_t nq, int size, size_t nodes)
+{
+    if (nodes >= (size_t)size) return nq;
+    double t0 = 1.0 + (double)(((unsigned __int128)(size - nodes) * N) / (unsigned)size), tot = lgamma((double)N + 1.0), part = tot - lgamma(t0);
+    return (size_t)((double)nq * part / tot) + 1;
+}
 static __thread size_t g_stage_apu;                                  /* the last need's per-APU staging (bytes), for the staging regions */
 size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t bylen)
 {
@@ -692,6 +711,17 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
             size_t nqc = nq_leaf * (size_t)prev + 8, na = nqc, nb = nqc * (size_t)(nch - 1), nc = na + nb;
             size_t st = rns_mul_dist_mn_stage(na, nb, S, nq_leaf + 8, (nb + S - 1) / S, (nc + S - 1) / S, &q); if (q > qmax) qmax = q;
             if (st > best) { best = st; snprintf(lvl, sizeof lvl, "tree level of %d", S); who = lvl; }
+            if (xsh_on()) {   /* the level's operand exchanges (mn.c tree_level / tree_level_k -> comm_xshmem.c xex_post).  A whole exchange (no rounds: one process per GPU,
+                 * XSHMEM_ROUND_MB 0) stages both sides outside the heap at once: sst = the PE's part of the operand, rst = its part of the operand's sequence.
+                 * A child's P (prev nodes) is cut over its prev x NL PEs: a sending PE stages s = (the child's limbs) / (prev NL); the product's group has S nodes x NL PEs, so the
+                 * operand's sequence is cut over S NL and a receiver stages (the child's limbs) / (S NL).  The child's limbs are the largest child's (the last one: terms grow, node shares are not
+                 * uniform: bs_tail_limbs from lgamma).  The running Q_c (c children, group-sharded from c = 2) stages 2 x its limbs / (S NL).  Measured 3 n 1.93e11: sst 6912 + rst 2304 MiB (s = 6912, prev / S = 1/3); at 2 n 1e11 4965 + 1241 (the bound 1.5 s is above it) */
+                const char *er = xshmem_round_env(); size_t Rl = er && atof(er) > 0 ? (size_t)(atof(er) * 1048576.0) / 8 : 0;
+                size_t NLp = (size_t)bs_nrn(), SNL = (size_t)S * NLp, tl = bs_tail_limbs(N, nq, size, (size_t)prev), tl1 = tl > nq_leaf * (size_t)prev ? tl : nq_leaf * (size_t)prev;   /* (the last child: the largest) */
+                size_t sA = (tl1 / (size_t)prev + 8 + NLp - 1) / NLp, rA = (tl1 + 8 + SNL - 1) / SNL, sx = sA + rA;
+                for (int c = 2; c < nch; c++) { size_t lc = bs_tail_limbs(N, nq, size, (size_t)c * (size_t)prev), sq = 2 * ((lc + 8 + SNL - 1) / SNL); if (sq > sx) sx = sq; }
+                if (!Rl && sx > best) { best = sx; snprintf(lvl, sizeof lvl, "tree level of %d (operand exchange)", S); who = lvl; }
+            }
         }
         prev = S;
     }
@@ -719,7 +749,12 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     g_ofi_dev_mb = 0; g_px_dev_mb = 0;
     if (ofi || px) {   /* a comm_ofi pool per device: one APU's staging (at least the self-tests' 128 MiB) + its slabs + a 256 MiB margin, in whole 256 MiB */
         size_t stg = best * 8 > ((size_t)128 << 20) ? best * 8 : ((size_t)128 << 20);
-        size_t dv = (stg > vsp ? stg : vsp) + ((size_t)256 << 20);   /* M3 (results/GRID_GROUPS.md §C06): the pool's v-slots are freed after each product's v-exchanges; staged exchanges and the slots are not live together: the larger, not the sum */
+        size_t dv = (stg > vsp ? stg : vsp) + ((size_t)256 << 20);
+        if (vpe_ppg()) {   /* one process per GPU: first-fit fragmentation of the DATA heap (comm_xshmem.c xalloc) scales with the staged blocks (1/16 of them, at least the 256 MiB); the heap's other symmetric blocks are
+                            * the allgather scratch per communicator, (2 n + 1) x 4 KiB with n = S x NL PEs (the control words are in the CTRL heap, not here), + 1 MiB of alignment */
+            size_t mg = stg / 16 > ((size_t)256 << 20) ? stg / 16 : ((size_t)256 << 20), gb = 0;
+            gb += ((size_t)2 * (size_t)size * (size_t)bs_nrn() + 1) * 4096; for (int l = 0; l < nl; l++) if (gs[l] < size) gb += ((size_t)2 * (size_t)gs[l] * (size_t)bs_nrn() + 1) * 4096;
+            dv = (stg > vsp ? stg : vsp) + mg + gb + ((size_t)1 << 20); }
         g_ofi_dev_mb = ((dv + ((size_t)1 << 20) - 1) >> 20); g_ofi_dev_mb = (g_ofi_dev_mb + 255) / 256 * 256;
         if (px) { g_px_dev_mb = g_ofi_dev_mb + 1; g_ofi_dev_mb = 0; }   /* (+ 1 MiB: the proxy's command ring) */
     }

@@ -541,6 +541,7 @@ int main(int argc, char **argv)
     { /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them.
                                                                                  * the seeds stream through their own two 2 GiB buffers (binsplit.c) -- the staging is the checkpoints' 1 GiB chunk per APU */
       rns_staging_bytes_req = 1u << 30;   /* no cap at 2^pool_log limbs -- at 8e10 the seed stage of a region is 19.5 GB > 16 GiB and the run aborted at the seeds ("seed region larger than the staging buffer") */
+      if (vpe_ppg() && rns_batch_split_mode() == 1) rns_staging_bytes_req = (size_t)2 << 30;   /* RNS_BATCH_SPLIT=1: the staging holds the piece products' temporaries (rns_mul.c): one 2^28-limb piece = 2 GiB (default 1 GiB, 2^27) */
       /* plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
       rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
     if (plan) { int f = mn_plan_run(d, N, plan_g, pool_log); binsplit_shmem_pool_rule(N, plan_g, 1);
@@ -550,6 +551,21 @@ int main(int argc, char **argv)
                     int ok = !lg || (size_t)np * ((size_t)1 << lg) <= pl_limbs;
                     printf("plan fit    batch tier (ECALC_PE_PER_GPU=1, PE 0's leaf of %d nodes x %d PEs): the largest product %zu limbs = 2^%d points x %d primes = %.3g limbs vs the plane pool's %.3g (cap 2^%d): %s\n",
                            plan_g, vpe_lanes(), nc, lg, np, (double)np * ((size_t)1 << lg), (double)pl_limbs, pool_log, ok ? "local tier OK" : "the striped tier would be needed (it needs all 4 devices)");
+                    if (!ok && rns_batch_split_mode() == 1) {   /* RNS_BATCH_SPLIT=1: oversized levels are cut into pieces on the one device (rns_mul.c); no memory beyond the staging and the pools, so the fit lines stand */
+                        size_t lv[40]; int nl = binsplit_ppg_batch_levels(N, plan_g, lv, 40), bad = 0;
+                        rns_preinit_pool_log(pool_log); size_t Lp = rns_batch_split_lmax(); rns_preinit_pool_log(pl0);
+                        for (int l = 0; l < nl; l++) {
+                            int lgl = 0; while (((size_t)1 << lgl) < lv[l]) lgl++;
+                            if ((size_t)np * ((size_t)1 << lgl) <= pl_limbs) continue;
+                            int ka = 0, kb = 0;
+                            if (!rns_batch_split_shape(lv[l] / 2, lv[l] / 2, 2, Lp, &ka, &kb)) { bad = 1; printf("plan fit    batch tier split: level %d (%zu limbs): no grid of at most 1024 pieces within 2^%d limbs\n", l, lv[l], (Lp ? 63 - __builtin_clzll(Lp) : 0)); continue; }
+                            size_t sa = (lv[l] / 2 + ka - 1) / ka, sb = (lv[l] / 2 + kb - 1) / kb; int lgp = 0; while (((size_t)1 << lgp) < sa + sb) lgp++;
+                            printf("plan fit    batch tier split (RNS_BATCH_SPLIT=1): level %d product %zu limbs = %d x %d pieces of %zu x %zu limbs (2^%d points; piece limit 2^%d = the pools and the %.3g-limb staging); transform points x%.2f; temporaries in the staging, no extra memory: OK\n",
+                                   l, lv[l], ka, kb, sa, sb, lgp, (Lp ? 63 - __builtin_clzll(Lp) : 0), (double)(rns_staging_bytes_req ? rns_staging_bytes_req / 8 : (size_t)1 << pool_log),
+                                   (double)kb * (1.0 + 4.0 * ka) * (double)((size_t)1 << lgp) / (5.0 * (double)((size_t)1 << lgl)));
+                        }
+                        if (!bad) ok = 1;
+                    }
                     if (!ok) { printf("plan REFUSED %.4g digits g %d: ECALC_PE_PER_GPU=1 cannot run the leaf's largest batch product (2^%d points x %d primes > the plane pool %.3g limbs at ECALC_PLANE_CAP=2^%d; the striped tier needs all 4 devices): %sa PE's leaf must stay within 2^29 points (3 primes) -- more nodes or fewer digits (about 1.0e11 at 3 nodes) -- or run without ECALC_PE_PER_GPU\n",
                                       (double)d_out, plan_g, lg, np, (double)pl_limbs, pool_log, pool_log < 31 && np * ((size_t)1 << lg) <= ((size_t)3 << 29) ? "use ECALC_PLANE_CAP=2^31, and " : ""); if (!f) f = EC_RC_BUDGET; } }
                 if (!fit.fits) { printf("plan REFUSED %.4g digits g %d: the memory does not fit (device %.2f GB vs ECALC_DEVICE_GB %.2f, node %.2f GB vs ECALC_NODE_GB %.0f): see the plan fit lines\n",

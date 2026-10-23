@@ -151,6 +151,7 @@ P24_CRT_SCAN	bool	1	derived	0|1	built-in default	-	-	Y	ecalc	p24_crt.c	1	coordin
 PE_GEO_SYSFS_ROOT	str			path prefix	test-only	-	-	Y	ecalc	pe_geo.c	1	TARGET1 (B3)	2026-12-31	pe_geo.c; prefix of every /sys path (mock trees for tests/t_pe_geo); unset = the real /sys
 POOL_LOG	int	31	31	29..31	launch-line	-	A-mem.md+M13.md	Y	ecalc	ecalc.c	3	-	-	ecalc.c:rewritten by ECALC_PLANE_CAP; 31 default (2^31 pools)
 RNS_BATCH_LOCAL_MIN	int	unset	unset		built-in default	-	P3.md+R.md	Y	ecalc	rns_mul.c	2	-	-	
+RNS_BATCH_SPLIT	int	0	derived	0|1|20..29	experiment	-	-	Y	ecalc	rns_mul.c	1	TARGET12 (S2)	2026-12-31	rns_mul.c; Q75 a: 0 = off (default, byte-identical); 1 = on under ECALC_PE_PER_GPU=1: a batch product too large for the one device's plane pool is cut into operand pieces (a ka x kb grid, each piece product through the local tier, summed into C with carries; temporaries in the pinned staging, 2 GiB per PE when the switch is 1); k in 20..29 = forced in any mode, pieces of at most 2^k limbs (tests); the planner prints the split lines instead of REFUSED
 RNS_BATCH_TILE_GB	float	unset	unset		built-in default	-	P.md	Y	ecalc	rns_mul.c	2	-	-	
 RNS_CRT_SCAN	bool	1	1	0|1	built-in default	-	-	Y	ecalc	rns_mul.c	1	coordinator (D21, results/KERNELS.md §K4b)	2026-11-11	K4b: k_crt_batch parallel carry (rns_mul.c rns_gconst); default 1 since D21, =0 kept fallback
 RNS_DIST_CACHE_MARGIN_GB	float	24	24		built-in default	-	TC15.md+M13.md	Y	ecalc	rns_dist.c	2	-	-	

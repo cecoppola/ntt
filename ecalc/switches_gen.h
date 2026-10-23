@@ -150,6 +150,7 @@ static const char *const cfg_names[] = {
     "PE_GEO_SYSFS_ROOT",
     "POOL_LOG",
     "RNS_BATCH_LOCAL_MIN",
+    "RNS_BATCH_SPLIT",
     "RNS_BATCH_TILE_GB",
     "RNS_CRT_SCAN",
     "RNS_DIST_CACHE_MARGIN_GB",
@@ -177,4 +178,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_ROUND_MB",
     "XSHMEM_YIELD",
 };
-#define CFG_NAMES_N 175
+#define CFG_NAMES_N 176

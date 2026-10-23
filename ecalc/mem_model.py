@@ -48,7 +48,7 @@ def set_pe(L, ppn_proc=1):
     schedule stays over the nodes (the groups below a node are not modelled until the PE-level products exist).  L = 0: off (the code before S1d)."""
     global NR, NRN, PE_LANES, PPN_PROC, HOST_STAGING, HOST_WRITER, HOST_EARLY
     PE_LANES = int(L); PPN_PROC = int(ppn_proc) if L else 1; NR = 1 if L else 4; NRN = int(L) if L else 4
-    HOST_STAGING = (int(L) if L else 4) * (1 << 30); HOST_WRITER = int(0.65 * GB) * lanes(); HOST_EARLY = int(0.9 * GB) * lanes()
+    HOST_STAGING = (int(L) if L else 4) * (1 << 30) * (2 if L and PPN_PROC > 1 and os.environ.get('RNS_BATCH_SPLIT', '') == '1' else 1); HOST_WRITER = int(0.65 * GB) * lanes(); HOST_EARLY = int(0.9 * GB) * lanes()
 def _pe_from_env():
     e = os.environ.get('ECALC_VPE', ''); g = os.environ.get('ECALC_PE_PER_GPU', '')
     if g and g != '0': L = int(os.environ.get('ECALC_VPE_LANES') or 4); set_pe(L, L)   # S2c: one process per PE: the host terms x PEs per node

@@ -12,7 +12,7 @@
  *     limbs; larger groups: four products vs mpz_mul and every product by residues mod three primes, see batch_sampled)
  *  4b. the locality-aware batch tier (pairs sharing B in device pools)
  *
- * Usage: t_mul [POOL (20; 0 skips sections 0-2)] [batch | dist]   (dist: only the distributed tier, 6e5 .. 2^27 limbs; DIST_BIG=1
+ * Usage: t_mul [POOL (20; 0 skips sections 0-2)] [batch | dist | split]   (split: only section 4c, the RNS_BATCH_SPLIT forced-split check)   (dist: only the distributed tier, 6e5 .. 2^27 limbs; DIST_BIG=1
  *        2^29, 2^30, time only).  The host product tier (rns_mul, Karatsuba split, mdev) and its sections were removed by TREF
  *        (results/CODE_REDUCTION.md §TREF); decimal limbs only since archive:PLAN §28.5.
  */
@@ -88,6 +88,7 @@ int main(int argc, char **argv)
 {
     int pool = argc > 1 ? atoi(argv[1]) : 20;
     int only_batch = argc > 2 && !strcmp(argv[2], "batch");
+    int only_big = argc > 2 && !strcmp(argv[2], "splitbig"), only_split = only_big || (argc > 2 && !strcmp(argv[2], "split"));   /* splitbig: only the 2^27 / 2^28-point cases (residues only, no unsplit reference) */   /* only section 4c (RNS_BATCH_SPLIT) */
     int only_dist = argc > 2 && !strcmp(argv[2], "dist");     /* WP5: the distributed tier against the reference, with times */
     rng_t rng = {0xB1B0ULL};
     bigint A, B, C; bi_init(&A); bi_init(&B); bi_init(&C);
@@ -111,6 +112,7 @@ int main(int argc, char **argv)
         return verify_done("t_mul");
     }
     rns_init(31);
+    if (only_split) goto split4c;
     if (pool && !only_batch) {
     /* 0. the reference's GMP conversions */
     printf("-- 0. GMP conversions: product tree == string form\n");
@@ -323,6 +325,68 @@ int main(int argc, char **argv)
             free(P); free(na1); free(na2); free(nb); free(nx);
         }
         mpz_clears(a, b, c, d, x, NULL);
+    }
+    split4c:
+    /* 4c. RNS_BATCH_SPLIT (rns_mul_batch_split): products larger than 2^k limbs cut into operand pieces on one device, k forced (20, 21), against the
+     * unsplit batch tier limb for limb (and the lengths) and by residues: all products sharing one B, pairs (P1 Q2 + P2, Q1 Q2), distinct B, with and without x, sizes 2^22 .. 2^24 points */
+    printf("-- 4c. batch split: forced pieces of at most 2^k limbs vs the unsplit tier\n");
+    {   /* the grid chooser on the shapes that failed gates (lopsided: the long operand is cut further) and its planner use */
+        struct { size_t na, nb; int G, lg; } gs[] = { {132513923, 10032291, 1, 22}, {131605731, 7283159, 1, 22}, {32470355, 32789908, 1, 20}, {132513923, 10032291, 2, 22}, {1022929560 / 2, 1022929560 / 2, 2, 28} };
+        for (size_t i = 0; i < sizeof gs / sizeof *gs; i++) {
+            int ka = 0, kb = 0; int ok = rns_batch_split_shape(gs[i].na, gs[i].nb, gs[i].G, (size_t)1 << gs[i].lg, &ka, &kb);
+            size_t sa = ok ? (gs[i].na + ka - 1) / ka : 0, sb = ok ? (gs[i].nb + kb - 1) / kb : 0;
+            int want = !(gs[i].na == 32470355);   /* 32.5M x 32.8M within 2^20 needs ~65 x 65 pieces: refused (the engine and the planner say so) */
+            VERIFY(ok == want && (!ok || ka * kb <= 1024) && (!ok || sa + sb <= ((size_t)1 << gs[i].lg)), "split grid for %zu x %zu within 2^%d: ok %d, %d x %d pieces of %zu x %zu", gs[i].na, gs[i].nb, gs[i].lg, ok, ka, kb, sa, sb);
+            printf("   grid %zu x %zu within 2^%d: %d x %d pieces of %zu x %zu\n", gs[i].na, gs[i].nb, gs[i].lg, ka, kb, sa, sb);
+        }
+    }
+    {
+        struct { int k; int shape; int logL; const char *why; } sc[] = {
+            {20, 0, 22, "one B (3 products), 2^22, k 20"}, {20, 1, 22, "pairs (2 pairs, x), 2^22, k 20"}, {21, 2, 23, "distinct B (2), 2^23, k 21"},
+            {20, 1, 23, "pairs (2 pairs, x), 2^23, k 20"}, {21, 0, 24, "one B (2 products), 2^24, k 21"}, {20, 3, 22, "mixed: small + large, 2^22, k 20"},
+            {26, 0, 27, "big: one B (2 products), 2^27, k 26"}, {26, 0, 28, "big: one B (2 products), 2^28, k 26"}, {27, 0, 28, "big: one B (2 products), 2^28, k 27"}, {28, 0, 29, "big: one B (2 products), 2^29, k 28: shifts above 2^31 bytes"},
+        };
+        for (size_t ci = only_big ? 6 : 0; ci < (only_big ? sizeof sc / sizeof *sc : 6); ci++) {
+            size_t L = (size_t)1 << sc[ci].logL; int nou = sc[ci].logL >= 27; size_t N = sc[ci].shape == 0 ? (ci == 4 || nou ? 2 : 3) : sc[ci].shape == 1 ? 4 : sc[ci].shape == 2 ? 2 : 3;
+            rns_prod *P = (rns_prod *)calloc(1, N * sizeof *P), *Pr = (rns_prod *)calloc(1, N * sizeof *Pr);
+            size_t tot = 0, na[4], nbv[4], nx[4], bi[4];
+            for (size_t i = 0; i < N; i++) {
+                size_t nc = 3 * L / 4 + 1 + rng_next(&rng) % (L / 4);
+                bi[i] = sc[ci].shape == 0 ? 0 : sc[ci].shape == 1 ? i / 2 : i;
+                if (sc[ci].shape == 3 && i == 1) nc = 1000 + rng_next(&rng) % 5000;
+                nbv[i] = 1 + nc / 3 + rng_next(&rng) % (nc / 3); na[i] = nc - nbv[i];
+                nx[i] = (sc[ci].shape == 1 && i % 2 == 0) ? 1 + rng_next(&rng) % nc : 0;
+            }
+            for (size_t i = 0; i < N; i++) if (i && bi[i] == bi[i - 1]) nbv[i] = nbv[i - 1];
+            for (size_t i = 0; i < N; i++) tot += na[i] + nbv[i] + nx[i] + (na[i] + nbv[i] + 1) * 2;
+            uint64_t *pool = (uint64_t *)mem_dev_alloc(0, (tot + 4 * N) * 8 + 64), *q = pool;
+            uint64_t *cr = (uint64_t *)mem_dev_alloc(0, (tot + 4 * N) * 8 + 64), *qr = cr;
+            for (size_t i = 0; i < N; i++) {
+                int kind = (int)(i % GEN_KINDS);
+                P[i].na = na[i]; P[i].nb = nbv[i]; P[i].nx = nx[i];
+                P[i].a = q; q += na[i];
+                if (i && bi[i] == bi[i - 1]) P[i].b = P[i - 1].b; else { P[i].b = q; q += nbv[i]; gen_limbs((uint64_t *)P[i].b, nbv[i], kind, &rng); }
+                P[i].x = nx[i] ? q : 0; q += nx[i];
+                P[i].c = q; q += na[i] + nbv[i] + 1;
+                gen_limbs((uint64_t *)P[i].a, na[i], kind, &rng); if (nx[i]) gen_limbs((uint64_t *)P[i].x, nx[i], kind, &rng);
+                Pr[i] = P[i]; Pr[i].c = qr; qr += na[i] + nbv[i] + 1;
+            }
+            for (size_t i = 0; i < N; i++) { memset(P[i].c, 0xAB, (P[i].na + P[i].nb + 1) * 8); memset(Pr[i].c, 0, (P[i].na + P[i].nb + 1) * 8); }
+            unsetenv("RNS_BATCH_SPLIT"); double t0 = mem_now(); if (!nou) rns_mul_batch(Pr, N); double dtu = mem_now() - t0;
+            char kb[8]; snprintf(kb, sizeof kb, "%d", sc[ci].k); setenv("RNS_BATCH_SPLIT", kb, 1);
+            t0 = mem_now(); rns_mul_batch(P, N); double dts = mem_now() - t0;
+            unsetenv("RNS_BATCH_SPLIT");
+            size_t bad = 0, badn = 0, badr = 0;
+            for (size_t i = 0; i < N; i++) {
+                size_t nc = P[i].na + P[i].nb + (P[i].x ? 1 : 0), n = nc; if (!nou && memcmp(P[i].c, Pr[i].c, nc * 8)) bad++;
+                while (n && P[i].c[n - 1] == 0) n--;
+                if (P[i].ncn != n) badn++;
+                if (!prod_residues_ok(P[i].a, P[i].na, P[i].b, P[i].nb, P[i].x, P[i].nx, P[i].c, nc)) badr++;
+            }
+            VERIFY(bad == 0 && badn == 0 && badr == 0, "batch split %s: %zu of %zu products differ from the unsplit tier, %zu lengths wrong, %zu wrong by residues", sc[ci].why, bad, N, badn, badr);
+            printf("   %-48s N=%zu unsplit %.3f s  split %.3f s\n", sc[ci].why, N, dtu, dts);
+            mem_dev_free(pool); mem_dev_free(cr); free(P); free(Pr);
+        }
     }
     printf("VmHWM %.1f GB\n", mem_vmhwm() / 1e9);
     rns_shutdown();

@@ -59,6 +59,12 @@ extern size_t rns_batch_tile_bytes;   /* default 15e9 */
 extern int rns_gpucrt_min;            /* default 1: GPU CRT with S stripes per product so M S >= rns_gpucrt_blocks (912) */
 extern int rns_gpucrt_blocks;
 void rns_mul_batch(rns_prod *P, size_t N);
+/* RNS_BATCH_SPLIT (0 off, 1 on under ECALC_PE_PER_GPU=1, 20..29 forced with pieces of at most 2^k limbs): products too large for the one device's plane pool are cut into operand pieces
+ * (rns_mul.c).  lmax = the largest piece product (power of two); shape = the ka x kb grid for na x nb limbs, G products sharing B (0: none within BSP_MAXPIECES = 1024 pieces) */
+int rns_batch_split_mode(void);
+size_t rns_batch_split_lmax(void);
+int rns_batch_split_shape(size_t na, size_t nb, int G, size_t Lp, int *ka, int *kb);
+void rns_mul_batch_split(rns_prod *P, size_t N);
 int rns_crt_scan_on(void);           /* K4b: RNS_CRT_SCAN (default 1 since D21; =0 = the serial carry chain) */
 int p24_crt_scan_on(void);          /* K4c: P24_CRT_SCAN (p24_crt.c; default 1 since D24; =0 = the serial chain) */
 int rns_batch_pipe_on(void);          /* N3: BS_BATCH_PIPE (default 1 since D20; =0 = the old host side): the batch tier's host side in parallel and its tiles back to back */

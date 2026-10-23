@@ -92,6 +92,7 @@ struct bs_fit {
     double limit, margin, budget;                                                               /* ECALC_DEVICE_GB, ECALC_DEVICE_MARGIN_GB, ECALC_NODE_GB (bytes) */
     int wrap, wrap_env, fits_dev, fits_node, fits;
 };
+int  binsplit_ppg_batch_levels(unsigned long N, int g, size_t *lv, int nlv);   /* RNS_BATCH_SPLIT's planner: each batch level's largest product (limbs) */
 int  binsplit_ppg_batch_logl(unsigned long N, int g, size_t *nc);   /* S2fix: ECALC_PE_PER_GPU=1: the largest batch-tier product's logL of PE 0's leaf (nc limbs) */
 int  binsplit_fit(unsigned long N, int g, struct bs_fit *F);     /* fills F, decides the run's DM_MN_WRAP when unset; returns F->fits */
 void binsplit_fit_print(const struct bs_fit *F, double D, int g, const char *pre);
