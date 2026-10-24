@@ -191,3 +191,16 @@ Done 2026-10-13, branch `nicchk`, merged to main. **Problem (m).** 2026-10-13 12
   per allocation (9cd, 9ce) did not recur on clean nodes or on the 80 GB node.
 - Cost: up to 80 GB (17 % of 480 GB) of node RAM lost on dirty nodes, relevant only when the plan's host need is near the
   budget. Mitigation: read MemFree at start (the PRE line records `memfree_min`) before a production-size run. No code change.
+
+## §BM - the 3 n bimodal run times are not a node-local compute mode (items 9zs19-9zs29 data; 9zv3_bm2d, 2026-10-24; m)
+
+**Existing data (59 runs at 3 n 1e11, 9zs19, 9zs21-9zs25, 9zs29).** 26 of 59 runs slow (ofi 7/21, Cray 19/38); slow runs +5.3 % total on ofi
+(+6.5 % bs, +5.4 % dm) and +7.6 % on Cray (+9.1 % bs, +10.6 % dm); init equal. Not time-correlated: P(slow | previous slow) = P(slow | previous
+fast) = 0.46 (Fisher p = 1.0), runs test z = -0.29. All 59 runs used the same three nodes, so a node property could not be tested.
+
+**Node-local test (9zv3_bm2d).** Four nodes without cxi NICs, one stream each, layout D 1-node runs of 3.3e10 digits (the per-node work of
+the 3 n 1e11 run, no network), 271 runs, all VERIFY OK. Compute time (total - init) per node: median 21.7 / 21.9 / 21.8 / 22.5 s, sd 0.36-0.49 s,
+max 23.1-23.2 s; the distribution is continuous and unimodal (19 of 271 runs more than 4 % above the pooled median, most of them on the
+node that is 3 % slower in every run). **No 5-8 % slow mode without the fabric**: the 3 n effect needs the network (the per-launch NIC state
+of §L1, or fabric load) or more than one node. Next test when three nodes with working NICs exist: the 3 n ABBA with per-launch NIC
+counters (plan item 9zv1_bm1); until then pair every A/B run (already the rule).
