@@ -238,3 +238,42 @@ Gates done (1 n, 2 n, 3 n digits identical). Follow-ups: single-plane arm, mdev 
 
 State: engine, backends, tests and docs on branch `xshmem`; gates 9p1/9p4 PASS, timing 9p5 done. Collect on aac7: `ssh <cluster> '<xtest or xloop summary file>'` for the raw tables.
 Next: user decision on adoption and on the open items above (TASKS "Proposed").
+
+## XWLAT: exchange-worker latency and the heap-tail test (branch xwlat, 2026-10-24, measured, aac7 2 n)
+
+**Heap-tail test.** `t_xshmem tail` (xshmem tests, part of `correct`): the DATA heap is rounded to 2 MiB so the request end is the heap end; a HIP kernel reads and writes the first and the last 8 B (and the last byte), the host copy-out agrees, 8 B puts go to the next PE's first and last words and a span ends 32 B before the heap end; a kernel then reads the received tail. Items 9zw7_xwxt1: path 1 (ofi) and path 2 (cray, lanes 2), 8 PEs: `SEC tail: PASS`, XT_RESULT PASS (basic also PASS). (A get does not exist in xshmem.h: the peer's put is the test.)
+
+**Where the 30 ms went.** The worker (`comm_xshmem.c` worker(), xex_send) never sleeps while an exchange is pending (it polls with `sched_yield`); the condvar is used only when it is idle. The evidence (9q6g/9q6h) was the removed thread mode (4 PE threads, one process); with one process per GPU the numbers are the reverse.
+
+**Measured (2 n 1e10, `ecalc total`, ABBA, 4 pairs each; 9zw6_xwab1, b47edce):**
+
+| arm A vs B | A s | B s | B - A s | 95 % CI |
+|---|---|---|---|---|
+| P poll-only (default) vs `ECALC_XEX_THREAD=1` | 40.17 | 31.96 | -8.21 | [-9.43, -6.99] |
+| D default vs `XSHMEM_WORKER_SPIN=1` | 39.23 | 38.50 | -0.73 | [-1.53, 0.08] |
+
+P = `ECALC_PE_PER_GPU=1 XSHMEM_LANES=2` (path 2). Single screening runs (9zw4_xwprobe3): `XSHMEM_YIELD=0` D 38.62 s, P+worker 30.67 s; spin+yield0 D 40.53, P 30.63: all within the noise of the arms above. The poll split at P shows 26.9 ms in "peers posted" (the receiver waits for the slowest peer: skew, not worker cost). Digits: gate 1e9 identical for P + worker (9zw6 g9_thr) and D + spin (g9_spin). Gate 9zw5_xwlat1 (wave3 gate on the branch): gd1, gd2, unit 9 PASS, gc1, gc2 PASS. Note: 1e10 arms print "digits DIFFERS": gate.sh compares with the 1e9 reference only; VERIFY OK on all.
+
+**Switch.** `XSHMEM_WORKER_SPIN` (an idle worker polls the queue instead of sleeping on the condvar): tried, no gain, removed again (commit after b47edce). **Open for the user:** default `ECALC_XEX_THREAD=1` under P (-20 % at 2 n 1e10); not changed here (default change).
+
+**1e11 confirmation (2 n, PG settings of the BSPLIT section: `ECALC_NODE_GB=420 ECALC_PE_PER_GPU=1 DIST_CHUNKS=8 ECALC_PLANE_CAP=2^30 MN_T_CHUNK_MB=512 BS_SEED_CHUNK_MB=1024 COMM_SHMEM_POOL_MB=512 RNS_BATCH_SPLIT=1`, path 2 adds `XSHMEM_LANES=2`; `ecalc total`, measured; items 9zwa_xwconf3, 9zwb_xwconf4, commit 75d4ea4).** Plain P with the default plan was refused before launch (node fit; with `ECALC_PLANE_CAP=2^30` also the largest batch product) until `RNS_BATCH_SPLIT=1` was added.
+
+| run (path 2, digit file written) | total s | sha |
+|---|---|---|
+| poll 1 / worker 1 / worker 2 / poll 2 (ABBA) | 316.09 / 291.92 / 303.53 / 320.83 | all 578f5efb0ff2b9af (identical) |
+
+Paired worker - poll with the digit file: -24.17 s, -17.30 s (mean -20.7 s, n = 2 pairs, 95 % CI about +-44 s: not significant by itself; both pairs agree in sign and with the 1e10 result -8.21 s [-9.43, -6.99]). The run was stopped after 4 runs because writing and hashing the digit file took about 400 s of 710 s per run.
+
+Without a digit file (VERIFY only, 9zwb): path 2 worker 154.49 s, poll 145.06 s (one pair, worker +9.4 s: the opposite sign; the totals are not comparable with the runs that write digits). Path 1 (ofi) under P (default lanes), 2 pairs: poll 156.32 s, worker 159.66 s, +3.34 s, 95 % CI [-85, +92] (n = 2): no effect shown. So the worker gain under P at 1e11 appears only in the runs that write the digit file, and is not confirmed without it. 
+
+**Where the worker wins (phase split of the five path-2 1e11 runs, measured, log lines `total ... (bs + dm + dc ...; init)`):**
+
+| run | init s | bs s | dm s | dc s | DATA heap per PE | VmHWM |
+|---|---|---|---|---|---|---|
+| poll 1 / 2 / 3 | 19.9 / 19.1 / 19.3 | 74.0 / 78.6 / 68.9 | 70.3 / 71.8 / 54.7 | 151.8 / 151.3 / 2.1 | 9408 MiB | 16.6 GB |
+| worker 1 / 2 / 3 | 12.4 / 12.5 / 12.9 | 67.1 / 71.5 / 72.1 | 55.5 / 67.0 / 67.3 | 156.9 / 152.5 / 2.1 | 960 MiB | 8.0 GB |
+
+The worker's gain is the start-up: init is 6.5-7.5 s shorter in all five pairs' runs (no overlap between the groups), because the rounds path (128 MiB) needs a 960 MiB DATA heap per PE where the poll-only whole-exchange path needs 9408 MiB (heap allocation, registration and first touch) and half the host memory. bs and dm differ by less than their run-to-run spread (about +-7 s; worker dm 55.5 / 67.0 / 67.3 against poll 70.3 / 71.8 / 54.7), so no per-exchange gain is shown at 1e11; the 1e10 gain of 8.2 s is the same init effect. Pair 3 (worker +9.4 s) is dm 12.6 s slower in that run plus bs +3.2 s, against init -6.4 s: dm noise, not a warm-up effect (it was the first run after the build, but init and bs behave like the others). The same worker runs on ofi P did not gain (default lanes, 2 pairs, CI [-85, +92]).
+
+**Recommendation.** Adopt `ECALC_XEX_THREAD=1` as the default under P on path 2: a robust 6.5-7.5 s start-up saving and half the host memory, digits identical (sha 578f5efb0ff2b9af at 1e11, 1e9 gates), bs / dm neutral within noise. It is a default change and stays the user's decision; not made on this branch.
+
