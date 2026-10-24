@@ -254,5 +254,5 @@ Next: user decision on adoption and on the open items above (TASKS "Proposed").
 
 P = `ECALC_PE_PER_GPU=1 XSHMEM_LANES=2` (path 2). Single screening runs (9zw4_xwprobe3): `XSHMEM_YIELD=0` D 38.62 s, P+worker 30.67 s; spin+yield0 D 40.53, P 30.63: all within the noise of the arms above. The poll split at P shows 26.9 ms in "peers posted" (the receiver waits for the slowest peer: skew, not worker cost). Digits: gate 1e9 identical for P + worker (9zw6 g9_thr) and D + spin (g9_spin). Gate 9zw5_xwlat1 (wave3 gate on the branch): gd1, gd2, unit 9 PASS, gc1, gc2 PASS. Note: 1e10 arms print "digits DIFFERS": gate.sh compares with the 1e9 reference only; VERIFY OK on all.
 
-**Switch.** `XSHMEM_WORKER_SPIN` (default 0): no gain, kept as a diagnostic arm. **Open for the user:** default `ECALC_XEX_THREAD=1` under P (-20 % at 2 n 1e10); not changed here (default change).
+**Switch.** `XSHMEM_WORKER_SPIN` (an idle worker polls the queue instead of sleeping on the condvar): tried, no gain, removed again (commit after b47edce). **Open for the user:** default `ECALC_XEX_THREAD=1` under P (-20 % at 2 n 1e10); not changed here (default change).
 

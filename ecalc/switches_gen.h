@@ -171,7 +171,6 @@ static const char *const cfg_names[] = {
     "XSHMEM_SIG_LANES",
     "XSHMEM_THP_DISABLE",
     "XSHMEM_THREAD_LEVEL",
-    "XSHMEM_WORKER_SPIN",
     "XSHMEM_YIELD",
 };
-#define CFG_NAMES_N 172
+#define CFG_NAMES_N 171
