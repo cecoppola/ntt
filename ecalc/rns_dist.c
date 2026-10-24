@@ -1015,8 +1015,8 @@ static void redistribute_i(const struct mn_ctx *X, const mdbv *op, struct rdst *
 /* the (carry, propagate) flags of the g nodes' shares, all-gathered over the group's mesh 0 (one byte per node, host
  * point-to-point: write to all, then read from all), and the scan: carry into node r = c_{r-1} | (p_{r-1} & carry into r-1);
  * returns the carry into this node, and aborts on a carry out of the last node (the fixed-length sum overflowed) */
-VPE_STATE(int, top_ok);
-#define g_top_ok VPE(top_ok)               /* S1b: per vPE (the truncated product's flag is set by mn_grid on the PE's own thread) */
+static int g_top_ok;
+/* S1b: the truncated product's flag, set by mn_grid */
 /* Phase 10 A5: a truncated product (basis w): the carry out of the top node is dropped (mod B^w) */
 static int node_carry_in(mn_group *G, int c, int p)
 {

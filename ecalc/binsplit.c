@@ -24,8 +24,8 @@ extern int ec_np_auto; int ec_np_planes(int pool_log, int g);   /* modarith.h (c
 size_t newton_dkm_h(size_t k);   /* newton.h (newton_db.c), dm_layout's DKM set */
 /* the node-process rank/size (the checkpoint names and headers), from mn.c (mn.h needs the HIP headers; this is a C file) */
 int mn_rank(void); int mn_size(void);
-/* S1d (TARGET1): the vPE identity from vpe.h (vpe.h includes comm.h, which needs HIP's headers; this file is plain C).  With ECALC_PE_PER_GPU=1 a PE is one process per GPU;
- * its binary splitting has ONE region (its device, storage index vpe_idx()), its own term range and its own state (the per-vPE arrays below); switch off: vpe_on() = 0,
+/* S1d (TARGET1): the PE identity from vpe.h (vpe.h includes comm.h, which needs HIP's headers; this file is plain C).  With ECALC_PE_PER_GPU=1 a PE is one process per GPU;
+ * its binary splitting has ONE region (its device, ), its own term range and its own state (one copy per process); switch off: vpe_on() = 0,
  * vpe_idx = 0 and every line below behaves as before. */
 void vpe_adopt(int idx); int vpe_on(void); int vpe_lanes(void); int vpe_lane(void); int vpe_pe(void); int vpe_npe(void);
 int mn_groups_parse(int size, int *out, int max); size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces);
@@ -36,10 +36,10 @@ size_t rns_mul_dist_mn_vslot(size_t na, size_t nb, int g);   /* B7ACCT (rns_dist
 static pthread_mutex_t g_env_mx = PTHREAD_MUTEX_INITIALIZER;
 static int bs_setenv(const char *n, const char *v, int o) { pthread_mutex_lock(&g_env_mx); int r = setenv(n, v, o); pthread_mutex_unlock(&g_env_mx); return r; }
 static int bs_unsetenv(const char *n) { pthread_mutex_lock(&g_env_mx); int r = unsetenv(n); pthread_mutex_unlock(&g_env_mx); return r; }
-/* the per-vPE state of binsplit.h (bs_N, bs_st, bs_seed_terms, bs_a0, bs_b1, the hook, the device P and Q): [0] only when the switch is off */
-unsigned long bs_N_v[BS_VMAX];                       /* M6: the run's N, for the tree sets written by mn.c */
-bs_stats bs_st_v[BS_VMAX];
-int bs_seed_terms_v[BS_VMAX] = { 256, 256, 256, 256, 256, 256, 256, 256 };   /* BS_SEED_TERMS: seed span; 256 measured best in both bases (RESULTS.md 58), 512 was the earlier value */
+/* the per-process state of binsplit.h (bs_N, bs_st, bs_seed_terms, bs_a0, bs_b1, the hook, the device P and Q)*/
+unsigned long bs_N;                       /* M6: the run's N, for the tree sets written by mn.c */
+bs_stats bs_st;
+int bs_seed_terms = 256;   /* BS_SEED_TERMS: seed span; 256 measured best in both bases (RESULTS.md 58), 512 was the earlier value */
 int bs_verbose = 0;
 const char *bs_ckpt_dir = 0;                         /* BS_CKPT_DIR: the directory of the top-level set (ECALC_CKPT_TOP); 0 = none */
 
@@ -108,10 +108,8 @@ int bs_mdev_logl = RNS_BATCH_LOGL_MAX;                /* BS_MDEV_LOGL: products 
 unsigned long binsplit_pe_b1(unsigned long N, int g) { return bs_pe_b1(N, g); }
 int binsplit_nrn(void) { return bs_nrn(); }
 int binsplit_lanes(void) { return bs_lanes(); }
-/* the region pools, the arenas: per vPE (index bs_vidx() = vpe_idx(); [0] only when the switch is off) */
-static uint64_t *g_pool_v[BS_VMAX][2][NRMAX]; static size_t g_cap_v[BS_VMAX][2][NRMAX];
-#define g_pool (g_pool_v[bs_vidx()])
-#define g_cap (g_cap_v[bs_vidx()])
+/* the region pools, the arenas (this process's one PE) */
+static uint64_t *g_pool[2][NRMAX]; static size_t g_cap[2][NRMAX];
 int vpe_device(void);
 static int reg_dev(int r, int nd) { return vpe_on() ? vpe_device() % nd : r % nd; }   /* the device of region r: the vPE's own APU, or the region's */
 /* a node in a region pool as a (non-owning, single-quarter) device number */
@@ -127,8 +125,7 @@ static dbig node_q(const struct level *lv, const struct node *nd) { return nd->q
  * two 14 GB halves that cannot merge left the pool falling back to hipMalloc, RESULTS 70).  A pool that outgrows
  * its half is re-allocated on its own (the half stays and is donated too); the arena itself outlives the block
  * pool's use of it (borrowed, never freed by db_release_pools) and goes at rns_shutdown. */
-static struct { uint64_t *base; size_t bytes, half, hole, thresh; int dev; int donated; int vmm; } g_arena_v[BS_VMAX][NRMAX];   /* vmm: a VMM range from db_vmm_arena_alloc */   /* bytes = 2 half + extra + hole; the hole (the last bytes) is the block pool's reserved tail */
-#define g_arena (g_arena_v[bs_vidx()])
+static struct { uint64_t *base; size_t bytes, half, hole, thresh; int dev; int donated; int vmm; } g_arena[NRMAX];   /* vmm: a VMM range from db_vmm_arena_alloc */   /* bytes = 2 half + extra + hole; the hole (the last bytes) is the block pool's reserved tail */
 static int in_arena(int r, const uint64_t *p) { return g_arena[r].base && p >= g_arena[r].base && p < g_arena[r].base + g_arena[r].bytes / 8; }
 static void arena_half_range(int r, int which, char **p, size_t *bytes)   /* the arena's range that goes with parity `which`: half 1 carries the extra and the hole to the arena's end */
 {
@@ -159,8 +156,8 @@ static void donate_pools(int which)                  /* the region pools of one 
 }
 void binsplit_release_arenas(void)                   /* after the block pool is done with them (rns_shutdown) */
 {
-    for (int v = 0; v < BS_VMAX; v++) for (int r = 0; r < NRMAX; r++) {   /* every PE slot's arenas */
-        __typeof__(g_arena_v[0][0]) *a = &g_arena_v[v][r]; if (!a->base) continue;
+    for (int r = 0; r < NRMAX; r++) {
+        __typeof__(g_arena[0]) *a = &g_arena[r]; if (!a->base) continue;
         if (a->vmm) { if (a->donated < 2) mem_dev_forget(a->base); db_vmm_arena_release(a->dev); } else if (a->donated < 2) mem_dev_free(a->base); else mem_dev_free_raw(a->dev, a->base);
         a->base = 0;
     }
@@ -193,7 +190,6 @@ static size_t node_norm(const uint64_t *p, size_t n)
     return 0;
 }
 /* the calling thread's rank and the team's size within its region, and its home region (-1: not pinned).  A PE process's team is its own omp team (it owns its device and its share of the cores) */
-static pthread_mutex_t g_batch_mx = PTHREAD_MUTEX_INITIALIZER;
 static int bs_rt(int *rk, int *home)
 {
     if (vpe_on()) { *rk = omp_get_thread_num(); *home = -1; return omp_get_num_threads(); }
@@ -1335,7 +1331,7 @@ struct bs_ckpt_bg *bs_ckpt_bg_start(int level, unsigned long N, const uint64_t d
     b->level = level; b->N = N; memcpy(b->desc, desc, sizeof b->desc); b->P = *P; b->Q = *Q; b->budget = budget; b->slack = slack;
     const char *e = getenv("BS_CKPT_BG_CHUNK_MB"); b->io.chunk = (size_t)(e ? atoi(e) : 256) << 20; if (b->io.chunk < ((size_t)1 << 20)) b->io.chunk = (size_t)1 << 20;
     e = getenv("BS_CKPT_BG_MBS"); b->io.mbs = e ? atof(e) : 0;   /* test: emulate a disk of this many MB/s (the four files together) */
-    b->vidx = bs_vidx(); b->tot_p = P->n * 8; b->tot = (P->n + Q->n) * 8;
+    b->vidx = vpe_lane(); b->tot_p = P->n * 8; b->tot = (P->n + Q->n) * 8;
     b->t0 = mem_now();
     if (pthread_create(&b->th, 0, bg_run, b)) { fprintf(stderr, "bs: checkpoint: cannot start the background writer\n"); free(b); return 0; }
     return b;
@@ -1533,8 +1529,7 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
 static size_t seed_region_limbs(size_t per, const size_t *r0, int r) { return 2 * per * (r0[r + 1] - r0[r]) + 2; }
 /* the seeds computed in a background thread during init's device allocations (archive:PLAN §16); binsplit_e
  * joins and takes the level-0 table from here.  B2: streamed to the regions as they are computed (above) */
-static struct { int active, joined; pthread_t th; unsigned long N, nspan; size_t per, r0[NRMAX + 1]; struct node *nd; double t; struct seed_stream ss; } g_pre_v[BS_VMAX];
-#define g_pre (g_pre_v[bs_vidx()])
+static struct { int active, joined; pthread_t th; unsigned long N, nspan; size_t per, r0[NRMAX + 1]; struct node *nd; double t; struct seed_stream ss; } g_pre;
 static void *pre_seeds_run(void *a)
 {
     vpe_adopt((int)(long)a);                          /* a helper thread of this vPE (a no-op with the switch off) */
@@ -1550,7 +1545,7 @@ void binsplit_seeds_begin(unsigned long N)
     /* the seeds alongside the plane pools' mapping */
     g_pre.nd = (struct node *)calloc(g_pre.nspan, sizeof *g_pre.nd);
     memset(&g_pre.ss, 0, sizeof g_pre.ss); pthread_mutex_init(&g_pre.ss.mx, 0); pthread_cond_init(&g_pre.ss.cv, 0);
-    pthread_create(&g_pre.th, 0, pre_seeds_run, (void *)(long)bs_vidx()); g_pre.active = 1;
+    pthread_create(&g_pre.th, 0, pre_seeds_run, (void *)(long)vpe_lane()); g_pre.active = 1;
     /* B2: the region pools now (the main thread, inside rns_init: the arenas before the plane pools), then the DMAs may start */
     double tp = mem_now(); binsplit_pregrow(N);
     uint64_t *pool[NRMAX]; for (int r = 0; r < NR; r++) pool[r] = pool_get(0, r, seed_region_limbs(g_pre.per, g_pre.r0, r));
@@ -1682,9 +1677,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             }
 
             tl1 = mem_now();
-            if (vpe_on()) pthread_mutex_lock(&g_batch_mx);   /* rns_mul.c's batch tier is node-wide state (one device set, one stat block): one caller at a time (a guard from the removed thread mode; a PE process has no concurrent caller) */
             rns_mul_batch(pr, 2 * npairs);
-            if (vpe_on()) pthread_mutex_unlock(&g_batch_mx);
             tl2 = mem_now();
             normed = 1;
             /* N3: all lengths, then the flag (a missing one: node_norm below redoes them all) */
@@ -1776,11 +1769,11 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     free(pr_buf);                                    /* N3 */
     bs_st.t_total = mem_now() - t0;
 }
-unsigned long bs_a0_v[BS_VMAX] = { 1, 1, 1, 1, 1, 1, 1, 1 }, bs_b1_v[BS_VMAX];   /* M2: this process's (vPE's) term range [a0, b1) (b1 = 0: all of [1, N+1)) */
-void (*bs_after_seeds_hook_v[BS_VMAX])(void *); void *bs_hook_arg_v[BS_VMAX];   /* called once the seeds are in the regions */
-int bs_keep_dev_v[BS_VMAX]; static dbig bs_Pd_v[BS_VMAX], bs_Qd_v[BS_VMAX];     /* the top level's P, Q left on device */
-dbig *bs_Pd_ptr(void) { return &bs_Pd_v[bs_vidx()]; }
-dbig *bs_Qd_ptr(void) { return &bs_Qd_v[bs_vidx()]; }
+unsigned long bs_a0 = 1, bs_b1;   /* M2: this process's (vPE's) term range [a0, b1) (b1 = 0: all of [1, N+1)) */
+void (*bs_after_seeds_hook)(void *); void *bs_hook_arg;   /* called once the seeds are in the regions */
+int bs_keep_dev; static dbig bs_Pd_s, bs_Qd_s;     /* the top level's P, Q left on device */
+dbig *bs_Pd_ptr(void) { return &bs_Pd_s; }
+dbig *bs_Qd_ptr(void) { return &bs_Qd_s; }
 void binsplit_free_pools(void)
 {
     for (int w = 0; w < 2; w++) for (int r = 0; r < NR; r++) {

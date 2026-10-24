@@ -25,7 +25,7 @@ struct lstate {
     uint64_t *sp[4]; size_t spcap;                       /* the sparse spill arrays (pinned host: written by the CRT kernel through spall, read by the carry kernel) */
     uint64_t *spall; struct bdesc *desc;                 /* all stripes' spills; the CRT descriptors (device) */
 };
-VPE_STATE(struct lstate, LS);
+static struct lstate LS;
 /* the transform length for a product of nc limbs: the smaller of 2^k and 3 2^(k-2) (radix-3 when the prime set has it), at least 2^20 (b_len of rns_dist.c) */
 size_t rns_local_pts(size_t nc, int *T, int *logk)
 {
@@ -43,7 +43,7 @@ static unsigned lblk(size_t total) { size_t b = (total + 255) / 256; return (uns
 void rns_local_core(dbig *Cd, const dbig *A, const dbig *B, size_t nc)
 {
     if (!vpe_on()) { ec_fatal(EC_RC_FATAL, "rns_local_core: form S exists under ECALC_PE_PER_GPU=1 only\n"); }
-    struct lstate *v = &VPE(LS); const int dev = vpe_device();   /* S2: pe_geo's ordinal (= the lane in S1) */
+    struct lstate *v = &LS; const int dev = vpe_device();   /* S2: pe_geo's ordinal (= the lane in S1) */
     HIP_CHECK(hipSetDevice(dev));
     if (!v->init) {
         for (int p = 0; p < EC_NP; p++) v->ctx[p] = ntt_ctx_create(p);
