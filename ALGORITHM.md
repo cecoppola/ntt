@@ -395,7 +395,7 @@ everything is allocated once, up front, and sized by a model that the C layout r
   a run prints it (`memory fit:`), `BS_LAYOUT_ONLY` prints a `fit:` line that `mem_model.py --check-c` compares; the launchers
   refuse a run that does not fit. With `DM_MN_WRAP` unset the same function decides the division's cyclic-plane low product:
   on only when the device with its two extra numbers stays within `ECALC_DEVICE_GB` − `ECALC_DEVICE_MARGIN_GB` (5 GB).
-- **Budget and guard.** `budget_check` (before compute) compares the modelled peak with 480 GB and MemAvailable (rc 8).
+- **Budget and guard.** `budget_check` (before compute) compares the modelled peak with 480 GB and MemAvailable (rc 8); the still-to-take figure counts the transport's comm_ofi pools as already taken (they exist at init).
   During the run `ECALC_MEM_GUARD_GB` stops with rc 9 when MemAvailable falls below it.
 - **Layout and models.** `binsplit.c` (`dm_layout`, `layout_arena`, `binsplit_node_bytes`, `tree_need_dev`) computes the
   layout; `BS_LAYOUT_ONLY` and `MN_PLAN_ONLY` print it without a device; `mem_model.py` mirrors it. Measured layouts agree
