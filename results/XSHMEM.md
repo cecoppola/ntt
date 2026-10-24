@@ -264,5 +264,16 @@ P = `ECALC_PE_PER_GPU=1 XSHMEM_LANES=2` (path 2). Single screening runs (9zw4_xw
 
 Paired worker - poll with the digit file: -24.17 s, -17.30 s (mean -20.7 s, n = 2 pairs, 95 % CI about +-44 s: not significant by itself; both pairs agree in sign and with the 1e10 result -8.21 s [-9.43, -6.99]). The run was stopped after 4 runs because writing and hashing the digit file took about 400 s of 710 s per run.
 
-Without a digit file (VERIFY only, 9zwb): path 2 worker 154.49 s, poll 145.06 s (one pair, worker +9.4 s: the opposite sign; the totals are not comparable with the runs that write digits). Path 1 (ofi) under P (default lanes), 2 pairs: poll 156.32 s, worker 159.66 s, +3.34 s, 95 % CI [-85, +92] (n = 2): no effect shown. So the worker gain under P at 1e11 appears only in the runs that write the digit file, and is not confirmed without it. The default is unchanged; adoption of `ECALC_XEX_THREAD=1` under P is left open (needs more pairs, with and without output, to settle).
+Without a digit file (VERIFY only, 9zwb): path 2 worker 154.49 s, poll 145.06 s (one pair, worker +9.4 s: the opposite sign; the totals are not comparable with the runs that write digits). Path 1 (ofi) under P (default lanes), 2 pairs: poll 156.32 s, worker 159.66 s, +3.34 s, 95 % CI [-85, +92] (n = 2): no effect shown. So the worker gain under P at 1e11 appears only in the runs that write the digit file, and is not confirmed without it. 
+
+**Where the worker wins (phase split of the five path-2 1e11 runs, measured, log lines `total ... (bs + dm + dc ...; init)`):**
+
+| run | init s | bs s | dm s | dc s | DATA heap per PE | VmHWM |
+|---|---|---|---|---|---|---|
+| poll 1 / 2 / 3 | 19.9 / 19.1 / 19.3 | 74.0 / 78.6 / 68.9 | 70.3 / 71.8 / 54.7 | 151.8 / 151.3 / 2.1 | 9408 MiB | 16.6 GB |
+| worker 1 / 2 / 3 | 12.4 / 12.5 / 12.9 | 67.1 / 71.5 / 72.1 | 55.5 / 67.0 / 67.3 | 156.9 / 152.5 / 2.1 | 960 MiB | 8.0 GB |
+
+The worker's gain is the start-up: init is 6.5-7.5 s shorter in all five pairs' runs (no overlap between the groups), because the rounds path (128 MiB) needs a 960 MiB DATA heap per PE where the poll-only whole-exchange path needs 9408 MiB (heap allocation, registration and first touch) and half the host memory. bs and dm differ by less than their run-to-run spread (about +-7 s; worker dm 55.5 / 67.0 / 67.3 against poll 70.3 / 71.8 / 54.7), so no per-exchange gain is shown at 1e11; the 1e10 gain of 8.2 s is the same init effect. Pair 3 (worker +9.4 s) is dm 12.6 s slower in that run plus bs +3.2 s, against init -6.4 s: dm noise, not a warm-up effect (it was the first run after the build, but init and bs behave like the others). The same worker runs on ofi P did not gain (default lanes, 2 pairs, CI [-85, +92]).
+
+**Recommendation.** Adopt `ECALC_XEX_THREAD=1` as the default under P on path 2: a robust 6.5-7.5 s start-up saving and half the host memory, digits identical (sha 578f5efb0ff2b9af at 1e11, 1e9 gates), bs / dm neutral within noise. It is a default change and stays the user's decision; not made on this branch.
 
