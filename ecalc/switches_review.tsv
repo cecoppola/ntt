@@ -117,3 +117,4 @@ XSHMEM_CRAY_TEST	experiment	craylane	2026-12-31	Cray speed work (gap to ofi)
 XSHMEM_CRAY_PUTSIG_SPLIT	experiment	craylane	2026-12-31	Cray speed work (gap to ofi)
 XSHMEM_CRAY_NOMEMSET	experiment	craylane	2026-12-31	Cray init time
 XSHMEM_CRAY_GPU_PRETOUCH	experiment	craylane	2026-12-31	Cray first-exchange stream sync
+XSHMEM_WORKER_SPIN	experiment	xwlat (TASKS exchange-worker latency)	2026-12-31	diagnostic arm, off by default; review with the xwlat measurement (results/XSHMEM.md)

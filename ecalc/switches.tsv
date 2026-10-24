@@ -172,6 +172,7 @@ XSHMEM_ROUND_MB	float	128	derived	>= 0	experiment	-	-	Y	ecalc	comm_xshmem.c,xshm
 XSHMEM_SIG_LANES	int	0	unset	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; signals to member i go on lane i mod N (after every payload lane is quiet)
 XSHMEM_THP_DISABLE	int	0	derived	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; 1 = prctl(PR_SET_THP_DISABLE) at engine init (no THP faults in this process: avoids direct compaction stalls)
 XSHMEM_THREAD_LEVEL	int	3	unset	0|1|2|3	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; thread level of xshmem_init_thread (3 MULTIPLE default; 2 SERIALIZED as the ofi backend)
+XSHMEM_WORKER_SPIN	int	0	unset	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	xwlat (TASKS exchange-worker latency)	2026-12-31	comm_xshmem.c; 1 = an idle exchange worker polls its queue instead of sleeping on the condvar (no futex wake-up; one core per PE); diagnostic arm
 XSHMEM_YIELD	int	1	unset	0|1	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (S1b)	2026-12-31	xshmem.h; 0 = the xshmem waits and the exchange worker never sched_yield (diagnostic); 1 = they do
 DIST_BIG	int	derived	derived		test-only	-	-	Y	tests	t_dist.c,t_mul.c	3	ecalc/tests/t_dist.c	2027-04-12	
 DIST_BIG_K	int	64	64		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
