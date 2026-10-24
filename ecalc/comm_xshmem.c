@@ -76,7 +76,7 @@ typedef struct xpe {                       /* one loopback PE of this process */
     pthread_t th; int th_on, stop; volatile int busy; pthread_mutex_t qm; pthread_cond_t qcv; struct xpriv *queue[MAXPEND]; volatile int nq;
 } xpe;
 static struct {
-    int yield, thr_set; double sp[8]; long nsp;               /* summed split of the whole-exchange path, see xex_wait */
+    int yield, thr_set, wspin; double sp[8]; long nsp;               /* summed split of the whole-exchange path, see xex_wait */
     int inited, thr, rot, K, nodes, nw, maxid, q; long nev; double tv; double bv; size_t rbytes; long nrex, nrounds;
     pthread_mutex_t lock;                  /* init and the counters */
     uint64_t maxseq; size_t dbytes;
@@ -221,6 +221,9 @@ static void *worker(void *a)
     xpe *lp = (xpe *)a; struct xpriv *act[MAXPEND]; int na = 0; unsigned idle = 0, wdev_ = (unsigned)-1;
     XSHMEM_SELECT(lp->lpe);
     for (;;) {
+        if (X.wspin && na == 0) {                           /* XSHMEM_WORKER_SPIN=1: an idle worker polls for work instead of sleeping on the condvar (no futex wake-up latency; one core per PE) */
+            unsigned sp = 0; while (__atomic_load_n(&lp->nq, __ATOMIC_ACQUIRE) == 0 && !__atomic_load_n(&lp->stop, __ATOMIC_ACQUIRE)) { if (++sp > 32) YIELD(); }
+        }
         if (lp->nq > 0 || na == 0) {
             pthread_mutex_lock(&lp->qm);
             while (na == 0 && lp->nq == 0 && !lp->stop) pthread_cond_wait(&lp->qcv, &lp->qm);
@@ -577,6 +580,7 @@ int comm_xshmem_init(void)
     const char *eo = getenv("XSHMEM_ORDER");
     if (eo && strcmp(eo, "seq") && strcmp(eo, "rot")) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_ORDER=%s: seq or rot\n", eo);
     X.rot = !(eo && !strcmp(eo, "seq")); { const char *et_ = getenv("ECALC_XEX_THREAD"); X.thr = et_ ? atoi(et_) != 0 : !vpe_on(); X.thr_set = et_ != 0; }   /* S1b: the PE layout polls by default.  Measured 9q6g/9q6h in the removed thread mode (1 n, 4 PE threads in one process): with the worker 35 ms per exchange (quiets ~20 ms each), polling 3 ms */ { xshmem_cfg_t cf_; xshmem_cfg_load(&cf_); X.yield = !cf_.noyield; }
+    { const char *ws_ = getenv("XSHMEM_WORKER_SPIN"); X.wspin = ws_ && atoi(ws_) != 0; }
     { const char *er = xshmem_round_env(); double m = er ? atof(er) : 0; X.rbytes = m > 0 ? (size_t)(m * 1048576.0) : 0;
       if (X.rbytes && !X.thr && !X.thr_set && getenv("XSHMEM_ROUND_MB")) X.thr = 1;   /* PE layout with an explicit XSHMEM_ROUND_MB: the rounds run in the worker */
       if (X.rbytes && !X.thr && !getenv("XSHMEM_ROUND_MB")) X.rbytes = 0;   /* the default rounds (Q73) need the worker: poll-only (PE-layout default or ECALC_XEX_THREAD=0) runs whole exchanges */
