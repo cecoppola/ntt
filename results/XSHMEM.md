@@ -238,3 +238,21 @@ Gates done (1 n, 2 n, 3 n digits identical). Follow-ups: single-plane arm, mdev 
 
 State: engine, backends, tests and docs on branch `xshmem`; gates 9p1/9p4 PASS, timing 9p5 done. Collect on aac7: `ssh <cluster> '<xtest or xloop summary file>'` for the raw tables.
 Next: user decision on adoption and on the open items above (TASKS "Proposed").
+
+## XWLAT: exchange-worker latency and the heap-tail test (branch xwlat, 2026-10-24, measured, aac7 2 n)
+
+**Heap-tail test.** `t_xshmem tail` (xshmem tests, part of `correct`): the DATA heap is rounded to 2 MiB so the request end is the heap end; a HIP kernel reads and writes the first and the last 8 B (and the last byte), the host copy-out agrees, 8 B puts go to the next PE's first and last words and a span ends 32 B before the heap end; a kernel then reads the received tail. Items 9zw7_xwxt1: path 1 (ofi) and path 2 (cray, lanes 2), 8 PEs: `SEC tail: PASS`, XT_RESULT PASS (basic also PASS). (A get does not exist in xshmem.h: the peer's put is the test.)
+
+**Where the 30 ms went.** The worker (`comm_xshmem.c` worker(), xex_send) never sleeps while an exchange is pending (it polls with `sched_yield`); the condvar is used only when it is idle. The evidence (9q6g/9q6h) was the removed thread mode (4 PE threads, one process); with one process per GPU the numbers are the reverse.
+
+**Measured (2 n 1e10, `ecalc total`, ABBA, 4 pairs each; 9zw6_xwab1, b47edce):**
+
+| arm A vs B | A s | B s | B - A s | 95 % CI |
+|---|---|---|---|---|
+| P poll-only (default) vs `ECALC_XEX_THREAD=1` | 40.17 | 31.96 | -8.21 | [-9.43, -6.99] |
+| D default vs `XSHMEM_WORKER_SPIN=1` | 39.23 | 38.50 | -0.73 | [-1.53, 0.08] |
+
+P = `ECALC_PE_PER_GPU=1 XSHMEM_LANES=2` (path 2). Single screening runs (9zw4_xwprobe3): `XSHMEM_YIELD=0` D 38.62 s, P+worker 30.67 s; spin+yield0 D 40.53, P 30.63: all within the noise of the arms above. The poll split at P shows 26.9 ms in "peers posted" (the receiver waits for the slowest peer: skew, not worker cost). Digits: gate 1e9 identical for P + worker (9zw6 g9_thr) and D + spin (g9_spin). Gate 9zw5_xwlat1 (wave3 gate on the branch): gd1, gd2, unit 9 PASS, gc1, gc2 PASS. Note: 1e10 arms print "digits DIFFERS": gate.sh compares with the 1e9 reference only; VERIFY OK on all.
+
+**Switch.** `XSHMEM_WORKER_SPIN` (default 0): no gain, kept as a diagnostic arm. **Open for the user:** default `ECALC_XEX_THREAD=1` under P (-20 % at 2 n 1e10); not changed here (default change).
+
