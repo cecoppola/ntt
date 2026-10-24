@@ -256,3 +256,13 @@ P = `ECALC_PE_PER_GPU=1 XSHMEM_LANES=2` (path 2). Single screening runs (9zw4_xw
 
 **Switch.** `XSHMEM_WORKER_SPIN` (an idle worker polls the queue instead of sleeping on the condvar): tried, no gain, removed again (commit after b47edce). **Open for the user:** default `ECALC_XEX_THREAD=1` under P (-20 % at 2 n 1e10); not changed here (default change).
 
+**1e11 confirmation (2 n, PG settings of the BSPLIT section: `ECALC_NODE_GB=420 ECALC_PE_PER_GPU=1 DIST_CHUNKS=8 ECALC_PLANE_CAP=2^30 MN_T_CHUNK_MB=512 BS_SEED_CHUNK_MB=1024 COMM_SHMEM_POOL_MB=512 RNS_BATCH_SPLIT=1`, path 2 adds `XSHMEM_LANES=2`; `ecalc total`, measured; items 9zwa_xwconf3, 9zwb_xwconf4, commit 75d4ea4).** Plain P with the default plan was refused before launch (node fit; with `ECALC_PLANE_CAP=2^30` also the largest batch product) until `RNS_BATCH_SPLIT=1` was added.
+
+| run (path 2, digit file written) | total s | sha |
+|---|---|---|
+| poll 1 / worker 1 / worker 2 / poll 2 (ABBA) | 316.09 / 291.92 / 303.53 / 320.83 | all 578f5efb0ff2b9af (identical) |
+
+Paired worker - poll with the digit file: -24.17 s, -17.30 s (mean -20.7 s, n = 2 pairs, 95 % CI about +-44 s: not significant by itself; both pairs agree in sign and with the 1e10 result -8.21 s [-9.43, -6.99]). The run was stopped after 4 runs because writing and hashing the digit file took about 400 s of 710 s per run.
+
+Without a digit file (VERIFY only, 9zwb): path 2 worker 154.49 s, poll 145.06 s (one pair, worker +9.4 s: the opposite sign; the totals are not comparable with the runs that write digits). Path 1 (ofi) under P (default lanes), 2 pairs: poll 156.32 s, worker 159.66 s, +3.34 s, 95 % CI [-85, +92] (n = 2): no effect shown. So the worker gain under P at 1e11 appears only in the runs that write the digit file, and is not confirmed without it. The default is unchanged; adoption of `ECALC_XEX_THREAD=1` under P is left open (needs more pairs, with and without output, to settle).
+
