@@ -838,6 +838,8 @@ static size_t layout_arena(unsigned long N, int g, size_t *bs2_)
 const char *const bs_cap_name[2] = { "2^30", "2^31" };   /* the cap index c = pool_log - 30 */
 #define BS_TABLES_BYTES ((size_t)610000000)
 #define BS_HOST_INIT_BYTES ((size_t)7000000000 + ((size_t)8 << 30))
+/* the comm_ofi pools of the node (bytes; as_shmem_pool's ofi term): allocated by the transport at init, so ecalc.c budget_check counts them as already taken (plq2) */
+size_t binsplit_comm_resident_bytes(unsigned long N, int g) { size_t ofi = 0; (void)as_shmem_pool(N, g, &ofi); return ofi; }
 size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *planes_, size_t *arena_, size_t *host_)
 {
     int pl0 = rns_pool_log(), pl = 30 + cap;
