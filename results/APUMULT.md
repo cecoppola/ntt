@@ -233,3 +233,7 @@ Side finding: ALGORITHM §4.5 still said the transform cache served the reciproc
   10 s earlier, and in P the mapping, not the seed, binds in one run of three. Totals: D 207.1 / 198.0 s, P 444.5 / 373.2 / 369.9 s
   (bs 38.7 / 37.8 vs 98.0 / 58.0 / 58.4; dm 27.8 / 20.0 vs 107.1 / 63.7 / 63.4; recip 5.4 / 4.4 vs 25.8 / 16.1 / 16.0), so at one node P is
   about 1.8x slower overall and the start-up gain does not matter there; P is the target-shaped layout, not the 1-node one.
+- BS_SEED_NUMA (Q92: the layout-D seed by four per-APU workers pinned to their NUMA node, as P seeds; aac7 items 9zu6, 9zuf-9zuj,
+  1 n): 1e9 digits identical; at 1e11, alternating 1/0/0/1, seed ends 56.7 / 41.7 / 49.2 / 40.1 s, bs level 1 starts 57.1 / 42.4 / 49.9 /
+  40.4 s, totals 145.4 / 133.4 / 137.9 / 130.8 s (init varies 26-43 s between runs). In every run the seed ends 13.8-14.4 s after the
+  region pools exist (the pull kernels' launch): the seed waits for the pools, not for CPU speed or NUMA placement. Dropped (Q94 (b)).
