@@ -3,7 +3,7 @@
  * Written ONLY against xshmem.h: the same source runs on the libfabric backend (make XSHMEM=ofi) and on the target (XSHMEM=cray).  Compiled as
  * HIP C++ (the Makefile's hipcc -x hip); hip is used only to move pattern bytes in and out of the heap when caps.dev_heap = 1.
  *
- * usage: t_xshmem [section ...]      sections: basic exch deadlock layer limit   (default = "correct": all five)
+ * usage: t_xshmem [section ...]      sections: basic exch deadlock layer limit tail   (default = "correct": all six)
  *                                              lat stream a2a                      (bandwidth / latency tables; "bw" = all three)
  *                                              all = correct + bw
  * env:   XT_PUTSIG=split|nbi   payload+signal form (split = put, quiet, signal_set; nbi = putmem_signal_nbi)   default split
@@ -25,7 +25,7 @@
 #include <regex.h>
 #include "../xshmem.h"
 #ifdef USE_HIP
-#include <hip/hip_runtime_api.h>
+#include <hip/hip_runtime.h>
 #endif
 
 #define MAXM 256          /* members of one communicator */
@@ -47,6 +47,7 @@ static xshmem_ctx_t lane[MAXL];
 static size_t maxslab;                 /* bytes of one slab slot (DATA) */
 static char *dsb, *drb, *dL;           /* DATA regions: send slabs, receive slabs, layered buffers */
 static uint64_t *ctl;                  /* CTRL base */
+static char *dbase_; static size_t dbytes_;   /* DATA heap base and size (2 MiB multiple) */
 #define BLOCKW (MAXM * (1 + MAXL))
 #define ROFF(cid) (ctl + (size_t)(cid) * BLOCKW)
 #define SIGW(cid, l) (ctl + (size_t)(cid) * BLOCKW + MAXM * (1 + (l)))
@@ -507,6 +508,74 @@ static void sec_limit(void)
     else fail("count mismatch check: unexpected failure count %d", nfail - f0);
 }
 
+/* ---------------- section tail: the first and the last bytes of the DATA heap touched by a GPU kernel, and put to a peer at the tail ----------------
+ * Catches registration-range bugs (a heap whose last page is not mapped or not registered: the 9s2 tail-page fault).  The DATA heap size is rounded
+ * up to 2 MiB here so that the last byte of the request is the last byte of the heap.  A device heap is touched by a kernel (read + write), a host heap by the CPU. */
+#ifdef USE_HIP
+__global__ void tail_kernel(uint64_t *first, uint64_t *last, uint64_t vf, uint64_t vl, uint64_t *out)
+{
+    out[0] = *(volatile uint64_t *)first; out[1] = *(volatile uint64_t *)last;      /* reads: what the previous step left */
+    *(volatile uint64_t *)first = vf; *(volatile uint64_t *)last = vl;              /* writes */
+    ((volatile unsigned char *)last)[7] ^= 0;                                       /* the very last byte read-modify-write */
+    out[2] = *(volatile uint64_t *)first; out[3] = *(volatile uint64_t *)last;
+}
+__global__ void tail_read(const uint64_t *a, const uint64_t *b, uint64_t *out) { out[0] = *(const volatile uint64_t *)a; out[1] = *(const volatile uint64_t *)b; out[2] = (uint64_t)((const volatile unsigned char *)b)[7]; }
+#endif
+static void tail_touch(uint64_t *f, uint64_t *l, uint64_t vf, uint64_t vl, uint64_t *o)
+{
+#ifdef USE_HIP
+    if (g_dev) {
+        uint64_t *d = 0; if (hipMalloc((void **)&d, 4 * sizeof(uint64_t)) != hipSuccess) { fail("tail: hipMalloc"); return; }
+        tail_kernel<<<1, 1>>>(f, l, vf, vl, d);
+        if (hipDeviceSynchronize() != hipSuccess) fail("tail: kernel on the heap's first/last bytes faulted");
+        if (hipMemcpy(o, d, 4 * sizeof(uint64_t), hipMemcpyDeviceToHost) != hipSuccess) fail("tail: hipMemcpy out");
+        (void)hipFree(d); return;
+    }
+#endif
+    o[0] = *f; o[1] = *l; *f = vf; *l = vl; o[2] = *f; o[3] = *l;
+}
+static void tail_peek(const uint64_t *a, const uint64_t *b, uint64_t *o)
+{
+#ifdef USE_HIP
+    if (g_dev) {
+        uint64_t *d = 0; if (hipMalloc((void **)&d, 3 * sizeof(uint64_t)) != hipSuccess) { fail("tail: hipMalloc"); return; }
+        tail_read<<<1, 1>>>(a, b, d);
+        if (hipDeviceSynchronize() != hipSuccess) fail("tail: kernel read of the received tail faulted");
+        if (hipMemcpy(o, d, 3 * sizeof(uint64_t), hipMemcpyDeviceToHost) != hipSuccess) fail("tail: hipMemcpy out");
+        (void)hipFree(d); return;
+    }
+#endif
+    o[0] = *a; o[1] = *b; o[2] = ((const unsigned char *)b)[7];
+}
+static void sec_tail(void)
+{
+    char *hend = dbase_ + dbytes_;                                  /* one past the last byte of the heap */
+    uint64_t *F = (uint64_t *)dbase_, *L = (uint64_t *)(hend - 8), *L2 = (uint64_t *)(hend - 16), *F2 = (uint64_t *)(dbase_ + 8);
+    int next = (me + 1) % np, prev = (me + np - 1) % np; uint64_t o[4];
+    uint64_t vf = mix64(0xf1f1ull ^ (uint64_t)me), vl = mix64(0x1a51ull ^ (uint64_t)me);
+    tail_touch(F, L, vf, vl, o);
+    if (o[2] != vf || o[3] != vl) fail("tail: pe %d kernel read-back of the first/last word: %llx %llx expected %llx %llx", me, (unsigned long long)o[2], (unsigned long long)o[3], (unsigned long long)vf, (unsigned long long)vl);
+    uint64_t hv[2]; hget(hv, F, 8); hget(hv + 1, L, 8);               /* the host-side view of the same bytes */
+    if (hv[0] != vf || hv[1] != vl) fail("tail: pe %d copy-out of the first/last word differs from the kernel's write", me);
+    { uint64_t w2 = mix64(0x2222ull ^ (uint64_t)me); hput(L2, &w2, 8); }
+    /* the last 4 KiB (a page span ending at the heap's last byte): pattern, put to the next PE's span of the last 4 KiB minus the 16 B words above */
+    size_t span = 4096 - 32; char *src = hend - 4096 - 4096, *dst = hend - 4096;
+    pfill(src, span, pbase(7001, me, next));
+    xshmem_barrier_all();
+    xshmem_ctx_putmem_nbi(lane[0], L, L2, 8, next);                   /* tail word to the peer's tail word (replaces L: read back below) */
+    xshmem_ctx_putmem_nbi(lane[0], F2, F, 8, next);                   /* first word to the peer's second word */
+    xshmem_ctx_putmem_nbi(lane[0], dst, src, span, next);             /* a span below the tail (ends 32 B before the end) */
+    xshmem_ctx_putmem_nbi(lane[0], hend - 24, L2, 8, next);           /* an 8 B put ending 16 B before the end */
+    xshmem_ctx_quiet(lane[0]);
+    xshmem_barrier_all();
+    uint64_t r[3]; tail_peek(F2, L, r);
+    if (r[0] != mix64(0xf1f1ull ^ (uint64_t)prev)) fail("tail: pe %d first word from pe %d: %llx", me, prev, (unsigned long long)r[0]);
+    if (r[1] != mix64(0x2222ull ^ (uint64_t)prev)) fail("tail: pe %d tail word from pe %d: %llx expected %llx", me, prev, (unsigned long long)r[1], (unsigned long long)mix64(0x2222ull ^ (uint64_t)prev));
+    { size_t first = 0; unsigned g = 0, e = 0; size_t nb = pcheck(dst, span, pbase(7001, prev, me), &first, &g, &e);
+      if (nb) fail("tail: pe %d span put from pe %d: %zu bad bytes, first at %zu got 0x%02x expected 0x%02x", me, prev, nb, first, g, e); }
+    if (me == 0) printf("  tail: first/last bytes of the DATA heap (%.1f MiB): kernel read/write, put to peer, kernel read of the received tail: ok\n", dbytes_ / 1048576.0);
+}
+
 /* ---------------- bandwidth / latency tables ---------------- */
 static int cmp_d(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
 static double median(double *v, int n) { qsort(v, n, sizeof *v, cmp_d); return v[n / 2]; }
@@ -642,10 +711,11 @@ int main(int argc, char **argv)
     if (lreg < ((size_t)12 * np << 10)) lreg = (size_t)12 * np << 10;
     size_t lregr = (lreg + (1u << 20) - 1) & ~(size_t)((1u << 20) - 1);
     lregion = lregr;
-    size_t dbytes = 2 * (size_t)np * maxslab + lregr + (4u << 20);
+    size_t dbytes = 2 * (size_t)np * maxslab + lregr + (4u << 20); dbytes = (dbytes + (2u << 20) - 1) & ~(size_t)((2u << 20) - 1);
     char *dbase = (char *)xshmem_heap_alloc(dbytes, XSHMEM_SPACE_DATA);
     ctl = (uint64_t *)xshmem_heap_alloc((size_t)1 << 20, XSHMEM_SPACE_CTRL);
     if (!dbase || !ctl) { fprintf(stderr, "t_xshmem: heap_alloc failed (%zu B data)\n", dbytes); xshmem_global_exit(2); }
+    dbase_ = dbase; dbytes_ = dbytes;
     dsb = dbase; drb = dbase + (size_t)np * maxslab; dL = dbase + 2 * (size_t)np * maxslab;
     hb1 = (unsigned char *)malloc(CH + 64); hb2 = (unsigned char *)malloc(CH + 64);
     if ((size_t)(NCID * BLOCKW + 4 * MAXM) * 8 > ((size_t)1 << 20)) { fprintf(stderr, "t_xshmem: control layout too big\n"); return 2; }
@@ -659,12 +729,12 @@ int main(int argc, char **argv)
     fflush(stdout);
     xshmem_barrier_all();
 
-    int want[16], nw = 0; enum { S_BASIC, S_EXCH, S_DEAD, S_LAYER, S_LIMIT, S_LAT, S_STREAM, S_A2A, S_N };
-    static const char *names[] = { "basic", "exch", "deadlock", "layer", "limit", "lat", "stream", "a2a" };
+    int want[16], nw = 0; enum { S_BASIC, S_EXCH, S_DEAD, S_LAYER, S_LIMIT, S_TAIL, S_LAT, S_STREAM, S_A2A, S_N };
+    static const char *names[] = { "basic", "exch", "deadlock", "layer", "limit", "tail", "lat", "stream", "a2a" };
     for (int i = 0; i < S_N; i++) want[i] = 0; (void)nw;
-    if (argc < 2) for (int i = S_BASIC; i <= S_LIMIT; i++) want[i] = 1;
+    if (argc < 2) for (int i = S_BASIC; i <= S_TAIL; i++) want[i] = 1;
     for (int a = 1; a < argc; a++) {
-        if (!strcmp(argv[a], "correct")) for (int i = S_BASIC; i <= S_LIMIT; i++) want[i] = 1;
+        if (!strcmp(argv[a], "correct")) for (int i = S_BASIC; i <= S_TAIL; i++) want[i] = 1;
         else if (!strcmp(argv[a], "bw")) for (int i = S_LAT; i <= S_A2A; i++) want[i] = 1;
         else if (!strcmp(argv[a], "all")) for (int i = 0; i < S_N; i++) want[i] = 1;
         else { int ok = 0; for (int i = 0; i < S_N; i++) if (!strcmp(argv[a], names[i])) { want[i] = 1; ok = 1; } if (!ok) { if (me == 0) fprintf(stderr, "t_xshmem: unknown section %s\n", argv[a]); xshmem_global_exit(2); } }
@@ -673,7 +743,7 @@ int main(int argc, char **argv)
     for (int i = 0; i < S_N; i++) if (want[i]) {
         int f0 = nfail; double t0 = tnow(); ctr_begin(names[i]);
         switch (i) { case S_BASIC: sec_basic(); break; case S_EXCH: sec_exch(); break; case S_DEAD: sec_deadlock(); break; case S_LAYER: sec_layer(); break;
-                     case S_LIMIT: sec_limit(); break; case S_LAT: sec_lat(); break; case S_STREAM: sec_stream(); break; default: sec_a2a(); }
+                     case S_LIMIT: sec_limit(); break; case S_TAIL: sec_tail(); break; case S_LAT: sec_lat(); break; case S_STREAM: sec_stream(); break; default: sec_a2a(); }
         ctr_end();
         total += section_end(names[i], f0);
         if (me == 0) printf("  (%s took %.1f s)\n", names[i], tnow() - t0);
