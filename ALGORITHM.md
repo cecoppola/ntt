@@ -261,7 +261,7 @@ Two layouts exist (both supported, user rule Q85):
   heap, and the PE's place (GPU, NUMA node, NICs) comes from the backend's topology (`pe_geo.c`). `XSHMEM_LANES=N`
   gives each PE N SHMEM contexts (lane k on NIC k) and stripes every payload put over them (`comm_xshmem.c`). With no
   striped tier on one device, batch products larger than one device's plane pool are split over the PE's own device
-  (`RNS_BATCH_SPLIT`, `rns_mul.c`). The virtual-PE thread mode (`ECALC_VPE`) was removed from main on 2026-10-23 (Q86; the code is on branch `vpe-int`). P cuts start-up, so
+  (`RNS_BATCH_SPLIT`, `rns_mul.c`). The virtual-PE thread mode (`ECALC_VPE`) was removed from main on 2026-10-23 (Q86; the code is on branch `vpe-int`, archive:branches_2026-10-24/). P cuts start-up, so
   it wins at small sizes and is equal within noise at 3 nodes, 10¹¹ digits (`results/XSHMEM.md`).
 
 ### 6.2 The four-step transform
