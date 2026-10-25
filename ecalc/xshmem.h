@@ -135,7 +135,7 @@ typedef struct xshmem_cfg {
     int ipc;          /* XSHMEM_IPC       0|1  ofi backend maps node-local heaps with hipIpc (default 0) */
     int noyield;      /* XSHMEM_YIELD     0 = the waits and the worker never sched_yield (default 1: they do) */
     int loopback_pes; /* XSHMEM_LOOPBACK_PES  PEs hosted by one process (ofi backend; default 1 = one PE per process) */
-    int peer;         /* XSHMEM_PEER      0|1  node-local PEs exchange payload by device copies through hipIpc-mapped heaps, not the NIC (ofi backend + engine; default 0; inert on the Cray backend) */
+    int peer;         /* XSHMEM_PEER      0|1  node-local PEs exchange payload by device copies through hipIpc-mapped heaps, not the NIC (ofi backend + engine; unset = -1 = on with one PE per process (Q100), off with loopback PEs; inert on the Cray backend) */
 } xshmem_cfg_t;
 
 static inline void xshmem_cfg_load(xshmem_cfg_t *c)
@@ -152,7 +152,7 @@ static inline void xshmem_cfg_load(xshmem_cfg_t *c)
     e = getenv("XSHMEM_IPC");      c->ipc = e ? atoi(e) : 0;
     e = getenv("XSHMEM_YIELD");    c->noyield = e && atoi(e) == 0;
     e = getenv("XSHMEM_LOOPBACK_PES"); c->loopback_pes = e ? atoi(e) : 1;
-    e = getenv("XSHMEM_PEER");     c->peer = e ? atoi(e) : 0;
+    e = getenv("XSHMEM_PEER");     c->peer = e ? atoi(e) : -1;
 }
 
 #if defined(XSHMEM_CRAY)

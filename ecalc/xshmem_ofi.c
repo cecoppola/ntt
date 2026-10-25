@@ -385,7 +385,7 @@ int xshmem_init_thread(int req, int *prov)
     if (K < 1 || K > MAXLPE) { fprintf(stderr, "xshmem_ofi: XSHMEM_LOOPBACK_PES=%d: use 1..%d\n", K, MAXLPE); abort(); }
     pe_topo t0; pe_geo_init(&t0);              /* process level: boot rank and size, node placement */
     if (getenv("XSHMEM_LOCAL") && atoi(getenv("XSHMEM_LOCAL"))) fprintf(stderr, "xshmem_ofi: XSHMEM_LOCAL is ignored by this backend (XSHMEM_PEER=1 is the node-local path)\n");
-    if ((cfg.peer || cfg.ipc) && K > 1) fprintf(stderr, "xshmem_ofi: XSHMEM_PEER / XSHMEM_IPC need one PE per process (XSHMEM_LOOPBACK_PES=1): off\n");
+    if ((cfg.peer == 1 || cfg.ipc) && K > 1) fprintf(stderr, "xshmem_ofi: XSHMEM_PEER / XSHMEM_IPC need one PE per process (XSHMEM_LOOPBACK_PES=1): off\n");
     int q = t0.pe, P = t0.npes;
     memset(&W, 0, sizeof W); W.K = K; W.q = q; W.P = P;
     int npes = P * K;
