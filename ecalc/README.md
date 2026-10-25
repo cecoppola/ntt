@@ -227,6 +227,7 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 | `XSHMEM_HEAP_MB` | *TARGET1*: MiB of the per-PE symmetric heap (0 = backend default). Under `COMM_TRANSPORT=xshmem` the pool rule (`binsplit.c`) sets it when unset to the per-device comm_ofi pool figure (max(staging, v-slots) + 256 MiB, whole 256 MiB; the `plan pool` line prints it and mnrun.sh exports it) |
 | `XSHMEM_MRMODE` | *TARGET1*: libfabric backend memory-registration mode: `libsma` (default; ALLOCATED\|ENDPOINT, fixed client key, offset addressing) or `ofi` (comm_ofi's VIRT_ADDR + PROV_KEY, base and keys exchanged at boot) |
 | `XSHMEM_CTRL` | *TARGET1*: `heap` (default; control words in the device heap) or `host` (control words in a host region, design 1.3 b) |
+| `XSHMEM_PEER` | *peer* (default 0 = off, byte-identical): 1 = same-node PEs exchange payload by device copies (`hipMemcpyAsync` on one stream per peer, synced before the signals) into the peer's DATA heap, which the libfabric backend maps with hipIpc (`xshmem_ptr`); signals and control words stay on the NIC; the remote-node path is unchanged. Needs one PE per process (`ECALC_PE_PER_GPU=1`, `--gpu-bind=none`); under the default layout (loopback PEs) it is off with a notice; inert on the Cray backend (`XSHMEM=cray`). A failed export or open leaves that peer on the NIC |
 | `XSHMEM_LOCAL` / `XSHMEM_IPC` | *TARGET1*: 1 = the engine copies node-local peers through `xshmem_ptr` / the libfabric backend maps node-local heaps with hipIpc (both off by default; need `--gpu-bind=none`) |
 | `ECALC_VPE` | *removed 2026-10-23 (Q86)*: the thread mode (one process driving the PEs as pthreads) is gone from main (code on branch `vpe-int`, archive:branches_2026-10-24/); a nonzero value is a fatal error at `mn_init` that names `ECALC_PE_PER_GPU=1` |
 | `ECALC_VPE_BG_THREADS` | with `ECALC_PE_PER_GPU=1` the background OpenMP team of one PE (recurrence, writer); default 0 = the process's affinity mask (the PE's NUMA node cpus) |
@@ -304,6 +305,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | TARGET1 (S2) | 2026-12-31 | `ECALC_VPE_BG_THREADS`, `ECALC_VPE_LANES` |
 | experiment | TARGET1 (S3a) | 2026-12-31 | `ECALC_XEX_THREAD`, `XSHMEM_LOOPBACK_PES`, `XSHMEM_ORDER`, `XSHMEM_ROUND_MB` |
 | experiment | TARGET12 (S2) | 2026-12-31 | `ECALC_PE_PER_GPU`, `RNS_BATCH_SPLIT` |
+| experiment | TASK4 peer | 2026-12-31 | `XSHMEM_PEER` |
 | experiment | TGTSHAPE | 2026-12-31 | `XSHMEM_HEAP_SLACK_MB` |
 | experiment | craylane | 2026-12-31 | `XSHMEM_CRAY_GPU_PRETOUCH`, `XSHMEM_CRAY_HEAP_THP`, `XSHMEM_CRAY_NOMEMSET`, `XSHMEM_CRAY_NUMA`, `XSHMEM_CRAY_PUTSIG_SPLIT`, `XSHMEM_CRAY_SIGSET`, `XSHMEM_CRAY_TEST`, `XSHMEM_LANE_CTX`, `XSHMEM_LANE_POLL`, `XSHMEM_LANE_TRACE`, `XSHMEM_SIG_LANES`, `XSHMEM_THP_DISABLE`, `XSHMEM_THREAD_LEVEL` |
 | experiment | L5 | 2027-03-31 | `COMM_SHMEM_HUGETLB` |

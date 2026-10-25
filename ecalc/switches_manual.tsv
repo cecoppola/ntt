@@ -89,3 +89,4 @@ XSHMEM_CRAY_TEST	0	int	0|1	experiment	xshmem_cray.h; runtime override of the sig
 XSHMEM_CRAY_PUTSIG_SPLIT	0	int	0|1	experiment	xshmem_cray.h; runtime override: 1 = putmem_nbi + fence + signal_set instead of the library putmem_signal_nbi
 XSHMEM_CRAY_NOMEMSET	0	int	0|1	experiment	xshmem_cray.h; diagnosis: skip our zeroing of the DATA heap (libsma heap is a fresh zero mapping)
 XSHMEM_CRAY_GPU_PRETOUCH	0	int	0|1	experiment	xshmem_cray.h; 1 = a GPU kernel reads one byte per 4 KiB page of the registered DATA heap at init (GPU page-table population)
+XSHMEM_PEER	0	int	0|1	experiment	xshmem.h; node-local PEs exchange payload by device copies through hipIpc-mapped DATA heaps (xshmem_ptr) instead of the NIC; ofi backend, one PE per process; inert on cray

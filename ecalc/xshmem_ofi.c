@@ -17,7 +17,9 @@
  * domains, endpoints, heaps and mutex (pe_t below).  The PE of a context call is the context's owner; calls without a context use the
  * calling thread's PE (xshmem_ofi_loopback_select).  Boot is per process: one allgather of K address blobs, one of K heap blobs (heap_alloc is called
  * by the K local PEs in order 0..K-1 from one thread); barrier_all and finalize are once per process.
- * Not yet: xshmem_ptr (always NULL; XSHMEM_IPC is ignored). */
+ * xshmem_ptr (XSHMEM_PEER=1 or XSHMEM_IPC=1, one PE per process): the DATA heaps of the PEs of the same node are exported with hipIpcGetMemHandle (in the
+ * heap blob), opened after the allgather, and xshmem_ptr(p, pe) returns the peer's byte at p's offset (NULL for another node's PE, the CTRL heap, or when the
+ * export or the open failed: the engine then uses the NIC).  Heap release closes the mappings. */
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -76,7 +78,7 @@ typedef struct {
     unsigned char *touch; int *tlist; int nt;  /* flush mode: target PEs written since the last quiet */
 } lane_t;
 typedef struct { uint32_t nics, nep; struct { uint32_t alen; char addr[MAXADDR]; } ep[MAXEP]; } ablob_t;
-typedef struct { uint64_t base, len; uint64_t key[MAXEP]; } hblob_t;
+typedef struct { uint64_t base, len; uint64_t key[MAXEP]; uint32_t has_ipc, pad; hipIpcMemHandle_t ipc; } hblob_t;   /* ipc: XSHMEM_PEER, DATA heap only */
 
 typedef struct pe_s {
     int lpe;                                   /* index among the PEs of this process */
@@ -87,6 +89,7 @@ typedef struct pe_s {
     dom_t dom[MAXD]; lane_t lane[MAXEP];
     char *hbase[2]; size_t hlen[2]; int hhost[2]; size_t flush_off;   /* flush mode: 8 B flush slot (and a source word at +64) in the DATA heap tail beyond hlen */
     hblob_t *peer[2];                          /* [space][pe] */
+    char **pmap;                               /* XSHMEM_PEER: [pe] the node-local peer's DATA heap mapped here by hipIpc (NULL: not mapped, use the NIC) */
     xshmem_ofi_cnt_t cnt;
 } pe_t;
 
@@ -381,7 +384,8 @@ int xshmem_init_thread(int req, int *prov)
     int K = cfg.loopback_pes;
     if (K < 1 || K > MAXLPE) { fprintf(stderr, "xshmem_ofi: XSHMEM_LOOPBACK_PES=%d: use 1..%d\n", K, MAXLPE); abort(); }
     pe_topo t0; pe_geo_init(&t0);              /* process level: boot rank and size, node placement */
-    { const xshmem_cfg_t *cf = &cfg; if (cf->ipc || cf->local) fprintf(stderr, "xshmem_ofi: XSHMEM_IPC / XSHMEM_LOCAL are ignored by this backend (xshmem_ptr is NULL)\n"); }
+    if (getenv("XSHMEM_LOCAL") && atoi(getenv("XSHMEM_LOCAL"))) fprintf(stderr, "xshmem_ofi: XSHMEM_LOCAL is ignored by this backend (XSHMEM_PEER=1 is the node-local path)\n");
+    if ((cfg.peer || cfg.ipc) && K > 1) fprintf(stderr, "xshmem_ofi: XSHMEM_PEER / XSHMEM_IPC need one PE per process (XSHMEM_LOOPBACK_PES=1): off\n");
     int q = t0.pe, P = t0.npes;
     memset(&W, 0, sizeof W); W.K = K; W.q = q; W.P = P;
     int npes = P * K;
@@ -490,6 +494,10 @@ void *xshmem_heap_alloc(size_t bytes, int space)
     }
     if ((uintptr_t)p & (HALIGN - 1)) fprintf(stderr, "xshmem_ofi: pe %d: heap %d base %p is not 2 MiB aligned\n", g->mype, space, p);
     hblob_t mine; memset(&mine, 0, sizeof mine); mine.base = (uint64_t)(uintptr_t)p; mine.len = user;
+    if (space == XSHMEM_SPACE_DATA && K == 1 && (g->cfg.peer || g->cfg.ipc) && !host) {
+        hipError_t ie = hipIpcGetMemHandle(&mine.ipc, p);
+        if (ie == hipSuccess) mine.has_ipc = 1; else { (void)hipGetLastError(); fprintf(stderr, "xshmem_ofi: pe %d: hipIpcGetMemHandle of the DATA heap: %s: XSHMEM_PEER off for this PE\n", g->mype, hipGetErrorString(ie)); }
+    }
     for (int e = 0; e < g->nep; e++) {
         lane_t *L = &g->lane[e]; dom_t *D = &g->dom[L->slot];
         struct iovec iov = { p, bytes }; struct fi_mr_attr ma; memset(&ma, 0, sizeof ma);
@@ -523,6 +531,16 @@ void *xshmem_heap_alloc(size_t bytes, int space)
         h->peer[space] = (hblob_t *)malloc((size_t)h->npes * sizeof(hblob_t)); memcpy(h->peer[space], all, (size_t)h->npes * sizeof(hblob_t));
         for (int r = 0; r < h->npes; r++) if (all[r].len != user) xfatal("heap %d: pe %d has %llu B, I have %zu B (same size on every PE)", space, r, (unsigned long long)all[r].len, user);
     }
+    if (space == XSHMEM_SPACE_DATA && K == 1 && (g->cfg.peer || g->cfg.ipc) && !host) {        /* open the node-local peers' DATA heaps on my device */
+        g->pmap = (char **)calloc((size_t)g->npes, sizeof(char *)); int nmap = 0, ppn = g->topo.pes_per_node;
+        int d = g->topo.gpu < 0 ? 0 : g->topo.gpu; if (hipSetDevice(d) != hipSuccess) xfatal("hipSetDevice(%d)", d);
+        for (int r = 0; r < g->npes; r++) if (r != g->mype && r / ppn == g->topo.node && all[r].has_ipc) {
+            void *mp = 0; hipError_t oe = hipIpcOpenMemHandle(&mp, all[r].ipc, hipIpcMemLazyEnablePeerAccess);
+            if (oe != hipSuccess) { (void)hipGetLastError(); fprintf(stderr, "xshmem_ofi: pe %d: hipIpcOpenMemHandle of pe %d: %s: that peer goes over the NIC\n", g->mype, r, hipGetErrorString(oe)); continue; }
+            g->pmap[r] = (char *)mp; nmap++;
+        }
+        if (g->mype == 0) fprintf(stderr, "xshmem_ofi: XSHMEM_PEER: pe 0 mapped %d node-local peer DATA heap(s) by hipIpc\n", nmap);
+    }
     free(all); free(W.mine[space]); W.mine[space] = 0;
     if (G[0].mype == 0) fprintf(stderr, "xshmem_ofi: heap %s %zu MiB (%s) registered per endpoint on %d domain(s)%s, key %s\n", space ? "CTRL" : "DATA", user >> 20, host ? "pinned host" : "fine-grained device", nopen, K > 1 ? " of PE 0 (per PE: its own heap on its own GPU)" : "", g->pkey ? "provider" : "client");
     return p;
@@ -530,6 +548,7 @@ void *xshmem_heap_alloc(size_t bytes, int space)
 static void heap_release(pe_t *g, int space)
 {
     if (!g->hbase[space]) return;
+    if (space == XSHMEM_SPACE_DATA && g->pmap) { for (int r = 0; r < g->npes; r++) if (g->pmap[r]) (void)hipIpcCloseMemHandle(g->pmap[r]); free(g->pmap); g->pmap = 0; }
     for (int e = 0; e < g->nep; e++) if (g->lane[e].mr[space]) { fi_close(&g->lane[e].mr[space]->fid); g->lane[e].mr[space] = 0; }
     if (g->hhost[space]) { (void)hipHostUnregister(g->hbase[space]); munmap(g->hbase[space], g->hlen[space]); } else (void)hipFree(g->hbase[space]);
     free(g->peer[space]); g->peer[space] = 0; g->hbase[space] = 0; g->hlen[space] = 0;
@@ -578,7 +597,13 @@ void xshmem_finalize(void)        /* once per process */
 }
 void xshmem_global_exit(int status) { pe_t *g = cur_pe(); char b[64]; snprintf(b, sizeof b, "global_exit(%d)", status); fprintf(stderr, "xshmem_ofi: pe %d: %s\n", g->mype, b); fflush(stderr); boot_abort(b); }
 
-void *xshmem_ptr(const void *p, int pe) { (void)p; (void)pe; return NULL; }       /* XSHMEM_IPC not implemented in P3 */
+void *xshmem_ptr(const void *p, int pe)       /* XSHMEM_PEER: the node-local peer's copy of p (same offset in its DATA heap), else NULL */
+{
+    pe_t *g = cur_pe(); size_t o;
+    if (!g->pmap || pe < 0 || pe >= g->npes || !g->pmap[pe]) return NULL;
+    if (locate(g, p, &o) != XSHMEM_SPACE_DATA) return NULL;
+    return g->pmap[pe] + o;
+}
 int xshmem_topo(xshmem_topo_t *t)
 {
     const pe_topo *q = &cur_pe()->topo;
@@ -592,7 +617,7 @@ int xshmem_topo(xshmem_topo_t *t)
 }
 void xshmem_caps_query(xshmem_caps_t *c)
 {
-    c->dev_heap = 1; c->host_pollable = 1; c->src_any = 0; c->ptr = 0; c->nlanes_ok = W.init ? cur_pe()->nics : 1;
+    c->dev_heap = 1; c->host_pollable = 1; c->src_any = 0; c->ptr = W.init && cur_pe()->pmap != 0; c->nlanes_ok = W.init ? cur_pe()->nics : 1;
 }
 void xshmem_ofi_counters(xshmem_ofi_cnt_t *c)
 {

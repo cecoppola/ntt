@@ -26,7 +26,7 @@
  * XAPI xshmem_ctx_create         int  (long opt, xshmem_ctx_t *c)
  * XAPI xshmem_ctx_destroy        void (ctx)
  * XAPI xshmem_barrier_all        void (void)                          init/finalize/test only
- * XAPI xshmem_ptr                void*(const void *p, int pe)         NULL unless the backend can map it (XSHMEM_IPC / shmem_ptr)
+ * XAPI xshmem_ptr                void*(const void *p, int pe)         NULL unless the backend can map it (XSHMEM_PEER / XSHMEM_IPC hipIpc in ofi, shmem_ptr in cray)
  * XAPI xshmem_progress           void (void)                          engine hook, no SHMEM name; safe from 1 worker thread + 1 caller
  * XAPI xshmem_topo               int  (xshmem_topo_t *t)              0 = ok; no SHMEM name; ofi: from pe_geo
  * XAPI xshmem_caps_query         void (xshmem_caps_t *c)              no SHMEM name
@@ -135,6 +135,7 @@ typedef struct xshmem_cfg {
     int ipc;          /* XSHMEM_IPC       0|1  ofi backend maps node-local heaps with hipIpc (default 0) */
     int noyield;      /* XSHMEM_YIELD     0 = the waits and the worker never sched_yield (default 1: they do) */
     int loopback_pes; /* XSHMEM_LOOPBACK_PES  PEs hosted by one process (ofi backend; default 1 = one PE per process) */
+    int peer;         /* XSHMEM_PEER      0|1  node-local PEs exchange payload by device copies through hipIpc-mapped heaps, not the NIC (ofi backend + engine; default 0; inert on the Cray backend) */
 } xshmem_cfg_t;
 
 static inline void xshmem_cfg_load(xshmem_cfg_t *c)
@@ -151,6 +152,7 @@ static inline void xshmem_cfg_load(xshmem_cfg_t *c)
     e = getenv("XSHMEM_IPC");      c->ipc = e ? atoi(e) : 0;
     e = getenv("XSHMEM_YIELD");    c->noyield = e && atoi(e) == 0;
     e = getenv("XSHMEM_LOOPBACK_PES"); c->loopback_pes = e ? atoi(e) : 1;
+    e = getenv("XSHMEM_PEER");     c->peer = e ? atoi(e) : 0;
 }
 
 #if defined(XSHMEM_CRAY)

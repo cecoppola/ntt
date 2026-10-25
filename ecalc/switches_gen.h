@@ -166,6 +166,7 @@ static const char *const cfg_names[] = {
     "XSHMEM_MRMODE",
     "XSHMEM_OFI_SIG",
     "XSHMEM_ORDER",
+    "XSHMEM_PEER",
     "XSHMEM_PES_PER_GPU",
     "XSHMEM_ROUND_MB",
     "XSHMEM_SIG_LANES",
@@ -173,4 +174,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_THREAD_LEVEL",
     "XSHMEM_YIELD",
 };
-#define CFG_NAMES_N 171
+#define CFG_NAMES_N 172
