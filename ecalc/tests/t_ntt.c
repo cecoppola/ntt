@@ -14,6 +14,8 @@
  *  5. rate: ms per pass at 2^LOGMAX on all APUs (reference 1.08 TB/s effective =
  *     16 B x n per pass; bench/16: 1.17); batched log L = 14, 17
  *
+ *  6. the 3 * 2^k transforms (radix3_test, up to 2^22)
+ *
  * Usage: t_ntt [LOGMAX (31)]
  *        t_ntt hash [KMAX2 KMAX3]   (output hashes of every transform, for old / new diffs)
  */
@@ -153,6 +155,43 @@ static int n3x_hash_mode(int kmax2, int kmax3)
     HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy));
     return 0;
 }
+/* the 3 * 2^k transforms (WP8; was t_ntt3): inverse(forward) == identity, and the cyclic convolution of length 3m equals the linear convolution computed by
+ * the 2^(k+2) engine on zero-padded inputs, for every prime and k = 10..logmax-2 */
+static rng_t rg3 = { 777 };
+static void radix3_test(int logmax)
+{
+    if (!ec_has_radix3()) { printf("t_ntt: prime set without 3 2^k roots; the 3 2^k part is skipped\n"); return; }
+    for (int prime = 0; prime < EC_NP; prime++) {
+        uint64_t p = ec_P[prime]; ntt_ctx *ctx = ntt_ctx_create(prime);
+        for (int logk = 10; logk + 2 <= logmax; logk++) {
+            size_t m = (size_t)1 << logk, L = 3 * m, L2 = (size_t)1 << (logk + 2);
+            uint64_t *hx = (uint64_t *)malloc(L2 * 8), *hy = (uint64_t *)malloc(L2 * 8), *r3 = (uint64_t *)malloc(L * 8), *r2 = (uint64_t *)malloc(L2 * 8);
+            size_t na = L / 2 + rng_next(&rg3) % (L / 2), nb = L - na;               /* na + nb == L: the linear product fits 3m exactly */
+            for (size_t i = 0; i < L2; i++) { hx[i] = i < na ? rng_next(&rg3) % p : 0; hy[i] = i < nb ? rng_next(&rg3) % p : 0; }
+            uint64_t *dx, *dy; HIP_CHECK(hipMalloc(&dx, 2 * L * 8)); HIP_CHECK(hipMalloc(&dy, L2 * 8));   /* dx: batch 2 of 3m, or 4m */
+            /* identity */
+            HIP_CHECK(hipMemcpy(dx, hx, L * 8, hipMemcpyHostToDevice));
+            ntt_fwd3(ctx, dx, logk, 1, 0); ntt_inv3(ctx, dx, logk, 1, 0);
+            HIP_CHECK(hipMemcpy(r3, dx, L * 8, hipMemcpyDeviceToHost));
+            size_t bad = 0; for (size_t i = 0; i < L; i++) bad += r3[i] != hx[i];
+            VERIFY(bad == 0, "prime %d 3*2^%d inv(fwd) identity: %zu differ", prime, logk, bad);
+            /* convolution, batch 2 (both halves the same data) */
+            HIP_CHECK(hipMemcpy(dx, hx, L * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dx + L, hx, L * 8, hipMemcpyHostToDevice));
+            HIP_CHECK(hipMemcpy(dy, hy, L * 8, hipMemcpyHostToDevice));
+            ntt_fwd3(ctx, dx, logk, 2, 0); ntt_fwd3(ctx, dy, logk, 1, 0); ntt_inv3_pw_bcast(ctx, dx, dy, logk, 2, 0);
+            HIP_CHECK(hipMemcpy(r3, dx + L, L * 8, hipMemcpyDeviceToHost));
+            HIP_CHECK(hipMemcpy(dx, hx, L2 * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dy, hy, L2 * 8, hipMemcpyHostToDevice));
+            ntt_fwd(ctx, dx, logk + 2, 1, 0); ntt_fwd(ctx, dy, logk + 2, 1, 0); ntt_pw(ctx, dx, dy, L2, 0); ntt_inv(ctx, dx, logk + 2, 1, 0);
+            HIP_CHECK(hipMemcpy(r2, dx, L2 * 8, hipMemcpyDeviceToHost));
+            bad = 0; for (size_t i = 0; i < L; i++) bad += r3[i] != r2[i];
+            for (size_t i = L; i < L2; i++) bad += r2[i] != 0;
+            VERIFY(bad == 0, "prime %d 3*2^%d convolution vs 2^%d: %zu differ", prime, logk, logk + 2, bad);
+            HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy)); free(hx); free(hy); free(r3); free(r2);
+        }
+        ntt_ctx_free(ctx);
+    }
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1 && !strcmp(argv[1], "hash")) return n3x_hash_mode(argc > 2 ? atoi(argv[2]) : 31, argc > 3 ? atoi(argv[3]) : 29);
@@ -394,5 +433,6 @@ int main(int argc, char **argv)
         harness_result("inv_TBps_per_apu", "TB/s", sum_inv / nd);
         VERIFY(LOGMAX < 22 || sum_fwd / nd > 0.9, "forward rate %.2f TB/s below 0.9 (bench/16: 1.17)", sum_fwd / nd);
     }
+    radix3_test(LOGMAX < 22 ? LOGMAX : 22);
     return verify_done("t_ntt");
 }

@@ -722,8 +722,8 @@ int main(int argc, char **argv)
     if (me == 0) {
         printf("INFO t_xshmem: %d PEs, %d per node (%d nodes), lanes %d, thread level %d, form %s, order %s, slab max %ld MiB, DATA heap %.1f MiB per PE, seed %llu, timeout %.0f s\n",
                np, ppn, g_nodes, nl, prov, g_nbi ? "putmem_signal_nbi" : "split(put+quiet+signal_set)", g_rot ? "rot" : "seq", mb, dbytes / 1048576.0, (unsigned long long)g_seed, g_timeout);
-        printf("INFO caps: dev_heap %d host_pollable %d src_any %d ptr %d nlanes_ok %d | cfg: sig %d lanes %d heap_mb %ld mrmode %d ctrl_host %d local %d ipc %d\n",
-               capp->dev_heap, capp->host_pollable, capp->src_any, capp->ptr, capp->nlanes_ok, cfgp->sig, cfgp->lanes, cfgp->heap_mb, cfgp->mrmode, cfgp->ctrl_host, cfgp->local, cfgp->ipc);
+        printf("INFO caps: dev_heap %d host_pollable %d src_any %d ptr %d nlanes_ok %d | cfg: lanes %d heap_mb %ld ctrl_host %d\n",
+               capp->dev_heap, capp->host_pollable, capp->src_any, capp->ptr, capp->nlanes_ok, cfgp->lanes, cfgp->heap_mb, cfgp->ctrl_host);
     }
     if (have_topo) printf("MAP pe %d node %d/%d local %d gpu %d nics %d [%d] numa %d lanes %d\n", me, tpo->node, tpo->nnodes, tpo->local, tpo->gpu, tpo->nics, tpo->nics ? tpo->nic[0] : -1, tpo->numa, tpo->nlanes);
     fflush(stdout);

@@ -257,7 +257,6 @@ static void fwd_cons(dist_plan *p, uint64_t *x, int k, hipStream_t s)
  * unpack writes the column layout over the whole of x), so the unpacks of chunks 0 .. K-2 run under the last exchange */
 void dist_fwd_pre(dist_plan *p, uint64_t *x, hipStream_t s)
 {
-    ntt_ss_tagger ss_tag_(p->logR, p->logC);   /* S22 NTT_SIZE_STATS: the logical size */
     int K = p->K, D = depth(p);
     dph_dir = 0;
     HIP_CHECK(hipEventRecord(p->evr, s));                /* WM15 H1: the previous transform's reads of rbuf */
@@ -267,7 +266,6 @@ void dist_fwd_pre(dist_plan *p, uint64_t *x, hipStream_t s)
 }
 void dist_fwd_post(dist_plan *p, uint64_t *x, hipStream_t s)
 {
-    ntt_ss_tagger ss_tag_(p->logR, p->logC);   /* S22 NTT_SIZE_STATS: the logical size */
     dph_dir = 0;
     chunk_wait(p, s);
     PH(3, s, fwd_cons(p, x, p->K - 1, s));
@@ -311,7 +309,6 @@ static void inv_loop(dist_plan *p, uint64_t *x, hipStream_t s, int kend)
  * same canonical operands, so bit-identical to dist_pw + dist_inv, one plane read and write per prime less */
 static void inv_pre_y(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s)
 {
-    ntt_ss_tagger ss_tag_(p->logR, p->logC);   /* S22 NTT_SIZE_STATS: the logical size */
     int size = comm_size(p->cm), K = p->K, D = depth(p);
     size_t rk = chunk_rows(p);
     dph_dir = 1;
@@ -327,7 +324,7 @@ static void inv_pre_y(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t 
     (void)rk; (void)size;
 }
 void dist_inv_pre(dist_plan *p, uint64_t *x, hipStream_t s) { inv_pre_y(p, x, 0, s); }
-void dist_inv_post(dist_plan *p, uint64_t *x, hipStream_t s) { ntt_ss_tagger ss_tag_(p->logR, p->logC); inv_loop(p, x, s, p->K); st_flush(p); }
+void dist_inv_post(dist_plan *p, uint64_t *x, hipStream_t s) { inv_loop(p, x, s, p->K); st_flush(p); }
 void dist_inv(dist_plan *p, uint64_t *x, hipStream_t s) { dist_inv_pre(p, x, s); dist_inv_post(p, x, s); }
 void dist_inv_pw(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s) { inv_pre_y(p, x, y, s); dist_inv_post(p, x, s); }   /* A6: = dist_pw + dist_inv */
 /* The transposed inverse: the column layout (cols columns of R points, bit-reversed within) is the row

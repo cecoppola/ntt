@@ -17,7 +17,6 @@
 #include "mn_plan.h"                                         /* Phase 13d L: the chain and the X1 group, asked by the plan printer too */
 #include "binsplit.h"                                        /* Phase 14 L1: dm_tight (DM_TIGHT), read once with the layout's switches */
 #include "vpe.h"                                            /* S1c: PE layout (ECALC_PE_PER_GPU=1): the chain and the mdb helpers per PE */
-static int nv = -1;
 /* S1c: the reciprocal chain's scratch is per PE (idx 0 only when the layout is off, so the off path is unchanged) */
 static dbig g_r; static dbig g_r2; static dbig g_qt; static dbig g_t1; static dbig g_t2;
 void newton_db_free_scratch(void) { db_free(&g_r); db_free(&g_r2); db_free(&g_qt); db_free(&g_t1); db_free(&g_t2); }
@@ -78,7 +77,6 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
 /* Phase 13d L: the chain's next target and the sharded reciprocal's start, extracted unchanged from recip_db2 / recip_mn (the plan
  * printer, mn_plan.c, asks them too).  Anchored (the default): the targets k, ceil(k/2), ... read from the top -- the next target
  * after j is the smallest of them above j (anchored; the power-of-two doubling, NEWTON_ANCHOR=0, was removed 2026-10-12) */
-static void nv_init(void) { if (nv < 0) nv = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0; }
 /* The chain guard (RECIP, results/DIVISION.md §RECIP; on since D25, the NEWTON_CHAIN_GUARD=0 fallback removed 2026-10-23, Q87): the anchored targets k, g(k), g(g(k)), ... with g(t) = ceil(t/2) + 1
  * instead of ceil(t/2), so every doubling j -> jn has jn <= 2j - 1 and its output is cut by >= 1 limb (>= 2 above the seed's 2 -> 3).
  * Without it a doubling with jn = 2j keeps its own error, up to ~2 M units (M = B^nq / Q, 1..B: the decimal limbs are not normalised;
@@ -86,7 +84,6 @@ static void nv_init(void) { if (nv < 0) nv = getenv("NEWTON_VERBOSE") ? atoi(get
 static size_t chain_g(size_t t) { return (t + 1) / 2 + 1; }
 size_t newton_chain_next(size_t j, size_t k)
 {
-    nv_init();
     size_t jn = k;
     for (;;) { size_t g = chain_g(jn); if (g >= jn || g <= j) break; jn = g; }   /* (g(t) >= t only at t <= 3) */
     return jn;
@@ -94,7 +91,6 @@ size_t newton_chain_next(size_t j, size_t k)
 /* recip_mn: the single-node part ends at the largest target <= split (NEWTON_MN_SPLIT, 2^16), or the seed's 2 */
 size_t newton_mn_chain_start(size_t k)
 {
-    nv_init();
     size_t split = getenv("NEWTON_MN_SPLIT") ? strtoull(getenv("NEWTON_MN_SPLIT"), 0, 10) : ((size_t)1 << 16), kp = k;
     while (kp > split && chain_g(kp) > 2 && chain_g(kp) < kp) kp = chain_g(kp);
     if (kp > split) kp = 2;
@@ -111,7 +107,6 @@ static void mul_band_db(dbig *C, const dbig *A, const dbig *B, size_t lowcut, si
 static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_t nq_seed)
 {
     double t0 = mem_now();
-    nv_init();
     size_t nq = Qd->n, j;
     /* scratch at its final capacity, once: r and r2 (k + 4 limbs, swapped as the iterate advances), t1 for
      * the products (max(nq + k, 2k) + 8); u, d, corr are views or land in the free one of r2 / t1 -- no
@@ -135,7 +130,6 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
         size_t tk = 2 * jl + 2 < nq ? 2 * jl + 2 : nq; db_reserve(&t1, tk + (jl + 2) + 8);   /* t1: the tail's back */
         db_pool_pin_tail(1); db_reserve(&r, jl + 4); db_pool_pin_tail(0);                    /* r: right below it -- the tail is full (job 21154: 7 small blocks had spilled into its front and t found it 0.11 GB short) */
         db_reserve(&r2, 2 * jl + 4); }                                                        /* r2: outside, just below Q (the highest free end); mu takes it */
-    int ts_on = getenv("NEWTON_DOUBLING_TS") ? atoi(getenv("NEWTON_DOUBLING_TS")) : 0; double ts_prev = mem_now();   /* S21 (A37-R6): NEWTON_DOUBLING_TS=1 (off by default; print only) -- one line per doubling with its end time */
     while (j < k) {
         size_t jn = newton_chain_next(j, k);                       /* Phase 13d L: extracted (unchanged) */
         for (;;) {
@@ -169,7 +163,6 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
             } else db_add_shifted(&r2, &r, j, &corr);
             if (converged) { if (tight && jn < k) db_copy(&r, &r2); else { dbig sw = r; r = r2; r2 = sw; } }   /* r <- r' by swap; E2: by a copy into r's block, except at the last doubling (r' becomes mu) */
             else db_shr_limbs(&r, &r2, j);
-            if (nv) printf("newton(db) j %zu -> %zu (k %zu): take %zu, r %zu limbs%s   dev pools %.1f GB%s (d %zu limbs, t1 %zu of cap %zu, r2 cap %zu)\n", j, jn, k, take, r.n, converged ? "" : " (repeat)", mem_dev_pool_bytes() / 1e9, tight ? "  tight" : "", dn, t1.n, t1.cap, r2.cap);
             if (mem_live_on()) { char w_[64]; snprintf(w_, sizeof w_, "recip(db) j %zu -> %zu", j, jn); mem_live_line(w_); }   /* Phase 14 S1 (E1): the pool's live bytes per doubling */
             if (!converged) { newton_st.repeats++; continue; }
             break;
@@ -178,7 +171,6 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
             if (tight && jn == k) { db_shr_limbs(&t1, &r, 2 * j - jn); db_copy(&r, &t1); }   /* E2: the last doubling -- r2 is the small block now; through the dead t1 (job 21151: the shift into r2 regrew it by 1.0 n_Q with everything live) */
             else { db_shr_limbs(&r2, &r, 2 * j - jn); if (tight && jn < k) db_copy(&r, &r2); else { dbig sw = r; r = r2; r2 = sw; } }
         }
-        if (ts_on) { double ts_now = mem_now(); printf("recip ts: doubling j %zu -> %zu (k %zu, Q %zu limbs, r %zu limbs): +%.4f s, %.4f s since the chain began (at %.3f s of the run), %zu repeats so far\n", j, jn, k, nq, r.n, ts_now - ts_prev, ts_now - t0, ts_now, (size_t)newton_st.repeats); ts_prev = ts_now; }   /* S21 (A37-R6) */
         j = jn;
         newton_st.iters++;
     }
@@ -233,7 +225,6 @@ void newton_db_recip(bigint *mu, const bigint *Q, size_t k)
     dbig Qd; db_init(&Qd);
     if (newton_db_Qd) Qd = *newton_db_Qd; else db_from_bi(&Qd, Q);
     size_t kr = newton_db_Qd ? newton_dkm_h(k) : k;   /* DKM: the device flow's prewarm stops at h (the division needs no more) */
-    if (kr != k && getenv("NEWTON_VERBOSE")) printf("newton(db): DKM -- the reciprocal to %zu limbs for k %zu\n", kr, k);
     recip_db(&g_mu_kept, &Qd, Q, kr); g_mu_k = k;
     if (newton_db_Qd) { g_mu_ql = newton_db_Qd->q[0]; g_mu_qn = newton_db_Qd->n; g_mu_qtop = db_top(newton_db_Qd); }   /* tagged by the device Q */
     else { g_mu_ql = Q->l; g_mu_qn = Q->n; g_mu_qtop = Q->n ? Q->l[Q->n - 1] : 0; }
@@ -340,7 +331,7 @@ static void divmod_shifted_dkm(bigint *X, const dbig *S, size_t dl, const dbig *
         double tf = mem_now();
         if (mem_live_on()) mem_live_line("divmod(dev, DKM) end");
         db_free(&Rd); db_free(&xq); db_free(&Aw);
-        if (getenv("RNS_VERBOSE") || getenv("NEWTON_VERBOSE"))
+        if (getenv("RNS_VERBOSE"))
             printf("divmod(dev, DKM, X_hi writer) %.2f s: k %zu = %zu + %zu (s), h %zu%s; mu %.2f, step 1 A mu %.2f, X_hi Q + corrections %.2f (%ld), step 2 A mu %.2f, X_lo Q %.2f, corrections %.2f (%ld, %s), R residues %.2f; X_lo0 %s B^s; pools %.1f GB\n",
                    mem_now() - t0, k, k1, s, h, kept_ok ? " (kept)" : " (fresh)", ta - t0, tb - ta, tc - tb, dx1, td - tc, te - td, tr - te, dx, rel ? "deferred" : "in place", tf - tr, carry ? ">=" : "<", db_pool_bytes() / 1e9);
         newton_st.t_div += mem_now() - t0;
@@ -370,7 +361,7 @@ static void divmod_shifted_dkm(bigint *X, const dbig *S, size_t dl, const dbig *
     double tf = mem_now();
     if (mem_live_on()) mem_live_line("divmod(dev, DKM) end");
     db_free(&Rd); db_free(&xq); db_free(&Aw);
-    if (getenv("RNS_VERBOSE") || getenv("NEWTON_VERBOSE"))
+    if (getenv("RNS_VERBOSE"))
         printf("divmod(dev, DKM) %.2f s: k %zu = %zu + %zu (s), h %zu%s; mu %.2f, step 1 A mu %.2f, X_hi Q + corrections %.2f (%ld), step 2 A mu + assembly %.2f, X_lo Q %.2f, corrections %.2f (%ld), R residues %.2f; pools %.1f GB\n",
                mem_now() - t0, k, k1, s, h, kept_ok ? " (kept)" : " (fresh)", ta - t0, tb - ta, tc - tb, dx1, td - tc, te - td, tr - te, dx, tf - tr, db_pool_bytes() / 1e9);
     newton_st.t_div += mem_now() - t0;
@@ -728,7 +719,6 @@ static void mn_prod_cut_x1(mdb *C, const mdb *A, const mdb *B, mn_group *G, size
     int L = x1_level(A->n, B->n, G, 2 * (A->n + B->n));
     if (!L) { mn_prod_cut(C, A, B, G, lowcut, highcut); return; }
     mn_group *Gs = mn_group_at(L); int member = x1_member(Gs);
-    if (getenv("NEWTON_VERBOSE") && G->me == 0) printf("divmod(mn): the product %zu x %zu limbs on the group [0, %d)\n", A->n, B->n, Gs->g);
     mdb As, Bs, Cs; memset(&As, 0, sizeof As); memset(&Bs, 0, sizeof Bs); memset(&Cs, 0, sizeof Cs);
     mdb_shift_g(&As, A, 0, A->N, G, 0, 1 << L); mdb_shift_g(&Bs, B, 0, B->N, G, 0, 1 << L);   /* the target [0, 2^L) on every node (a non-member's Gs is its own group) */
     if (member) mn_prod_cut(&Cs, &As, &Bs, Gs, lowcut, highcut);
@@ -744,7 +734,6 @@ static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G) { int pp = co
 static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
 {
     double t0 = mem_now();
-    nv_init();
     size_t nq = Q->n;
     int me = G->me, verbose = getenv("RNS_VERBOSE") != 0;
     /* the anchored chain from k: k, ceil(k/2), ...; the single-node part ends at the largest target <= split (or the seed's 2) */
@@ -792,7 +781,6 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
             else if (member) x1_regroup(&r, Gn, was);
             Gs = Gn;
             mid_ok = 0;                                                /* R4: the new group's nodes must agree (a node that was not a member has no previous round); job 21475: size 3, 4 */
-            if (nv && me == 0 && Gs != G) printf("newton(mn): j %zu on the group [0, %d)\n", j, Gs->g);
         }
         if (take == nq && Gs == G) ;                                   /* Q_t = Q itself (no shift copy) */
         else mdb_shift_g(&qt, Q, (long)(nq - take), take, G, 0, Ln ? 1 << Ln : G->g);   /* Q_t: the top limbs of Q, onto the step's group [0, 2^L) (once per step: a repeat reuses it) */
@@ -840,7 +828,6 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
             mfree(&corr);
             if (converged) { mfree(&r); r = rs; memset(&rs, 0, sizeof rs); }
             else { mdb_shift(&r, &rs, (long)j, rs.n > j ? rs.n - j : 1, Gs); mfree(&rs); }
-            if (nv && me == 0) printf("newton(mn) j %zu -> %zu (k %zu): take %zu, r %zu limbs%s   %.2f s%s\n", j, jn, k, take, r.n, converged ? "" : " (repeat)", mem_now() - s0, Gs != G ? " (subgroup)" : "");
             if (mem_live_on() && me == 0) { char w_[64]; snprintf(w_, sizeof w_, "recip(mn) j %zu -> %zu", j, jn); mem_live_line(w_); }   /* Phase 14 S1 (E1) */
             if (!converged) { NST(newton_st.repeats++); continue; }
             break;

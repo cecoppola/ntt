@@ -6,7 +6,7 @@
 # One pass/fail line per step as it completes, a summary at the end, exit status = number of failures.
 #
 # Steps (--only picks a subset; --full adds the last):
-#   unit   t_ntt 24, t_mul 20, t_bs, t_dbig 0, t_newton 20, t_verify, t_out, t_patch (Phase 15 KP), t_mn_grid at 2 node-processes
+#   unit   t_ntt 24, t_mul 20, t_bs, t_dbig 0, t_newton 20, t_verify, t_out, t_patch (Phase 15 KP), t_arith (modarith, roots, primes gpu), t_crt, t_p24, t_crtk, t_strategy 20, t_seed, t_dist, t_mn_grid at 2 node-processes
 #   e9     10^9 at size 1 (decimal limbs; the binary-limb run was archived with archive:PLAN §28.5), cmp'd against the reference
 #   mn     10^8 at sizes 2, 3, 4 and 10^9 at sizes 2, 4 on one node (the part files concatenated and cmp'd)
 #   ckpt   the top-level set (the only checkpoint; no restart inside a run, decision D11) at 10^8, size 2, in BS_CKPT_DIR:
@@ -101,7 +101,7 @@ N "mkdir -p $TMP; rm -f $TMP/*"
 # ---- unit tests -------------------------------------------------------------------------------------------
 if want unit || want grid; then
   SKIPBS=; want unit && refneed "unit t_bs" ref/e_1000000.sha256 ref/e_10000000.sha256 || SKIPBS=1
-  for t in "t_ntt 24" "t_mul 20" "t_bs" "t_dbig 0" "t_newton 20" "t_verify" "t_out" "t_patch"; do   # (t_patch: Phase 15 KP -- the three output forms)
+  for t in "t_ntt 24" "t_mul 20" "t_bs" "t_dbig 0" "t_newton 20" "t_verify" "t_out" "t_patch" "t_arith modarith" "t_arith roots" "t_arith primes gpu" "t_crt" "t_p24" "t_crtk" "t_strategy 20" "t_seed" "t_dist"; do   # (t_patch: Phase 15 KP -- the three output forms; the last nine: the Q104 gap tests, ~4 min together)
     n=${t// /_}; log=$OUT/unit_$n.log
     want unit || continue
     [ "$t" = t_bs ] && [ -n "$SKIPBS" ] && continue
@@ -114,8 +114,7 @@ if want unit || want grid; then
   done
   log=$OUT/unit_t_mn_grid_2.log
   if [ "$NOGRID" = 1 ]; then echo "SKIP unit t_mn_grid (2 procs): --skip-grid / MNACCEPT_SKIP_GRID=1" | tee -a "$SUM"; else
-  # A01 (measured): the TCP mesh over bond0 (1 Gb/s) overran every timeout (removed 2026-10-12); shmem: 127 s on 2 nodes.  Since Q73 (2026-10-21) mnrun.sh picks
-  # the transport (xshmem where the engine is linked, else shmem): the grid test runs on the default; MNACCEPT_ENV="COMM_TRANSPORT=shmem" runs it on the fallback.
+  # A01 (measured): the TCP mesh over bond0 (1 Gb/s) overran every timeout (removed 2026-10-12).  mnrun.sh picks the transport (xshmem, where the engine is linked): the grid test runs on the default.
   M 1200 2 ${MNACCEPT_ENV:-} ./tests/t_mn_grid 1 28 > "$log" 2>&1; rc=$?
   ok=$(grep -ac 'VERIFY OK' "$log")
   if [ $rc -eq 0 ] && [ "$ok" -ge 1 ] && ! grep -aq 'VERIFY FAILED' "$log"; then pass "unit t_mn_grid (2 procs)" "$ok VERIFY OK: $(grep -a 'VERIFY OK' "$log" | head -1)"
