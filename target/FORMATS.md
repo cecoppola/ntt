@@ -39,7 +39,7 @@ results/LOG.md                          the coordinator's dated log of the sessi
   every 30-60 min and at each milestone, so a session cut short loses at most one interval.
 - **Workers** (agents or plain shells): each holds its own Slurm allocation and loops `bench/run.sh` or one ladder
   command. A worker writes only below its own `results/.../<id>/` dir, `build/` (build items only) and `/tmp`.
-- Claims are atomic `mkdir` locks, so any number of workers can share one clone on the shared file system.
+- Claims are atomic O_EXCL lock files, so any number of workers can share one clone on the shared file system.
 - No item may assume another item runs at the same time; dependencies are declared in the manifest only.
 
 ## 3. lib/common.sh (source it: `. "$(dirname "$0")/../lib/common.sh"` or via `$TGT_ROOT`)
@@ -52,7 +52,7 @@ results/LOG.md                          the coordinator's dated log of the sessi
 | `tgt_sum_init DIR ID` | creates `DIR/raw/`, starts `DIR/summary.txt` (id, start, host, commit) |
 | `tgt_kv KEY VALUE` | appends `KEY=VALUE` to the current summary (one line; newlines replaced by ` / `) |
 | `tgt_sum_end STATUS RC` | appends end, wall_s, status, rc; writes `DONE` (contains the rc) |
-| `tgt_claim DIR` | atomic claim (`mkdir DIR/claim.d`); returns 1 if someone else holds it |
+| `tgt_claim DIR` | atomic claim (O_EXCL create of `DIR/claim.lock`, then `DIR/claim.d/who`); returns 1 if someone else holds it |
 | `tgt_timeout MIN CMD...` | runs CMD under `timeout` with MIN minutes, kills the process group on expiry, returns 124 |
 | `tgt_hosts JOBID` | prints the allocation's hosts one per line (`scontrol show hostnames`) |
 
@@ -121,8 +121,8 @@ into the Answer column of `results/bench/ANSWERS.md`.
 
 ## 7. Question register — `bench/QUESTIONS.md`
 
-One table, one row per open question about the target: `TQ<nn> | question | why it matters (the decision it drives) |
-items | prio`. Every manifest item names at least one `TQ`; every `TQ` has at least one item. Add questions, never
+One table, one row per open question about the target: `TQ<nn> | question | decision it drives | planned measurement |
+feeds (offline model / constant) | items | prio` (columns are found by header name; no `|` inside cells; a second table lists the planned items). Every manifest item names at least one `TQ`; every `TQ` has at least one item. Add questions, never
 renumber.
 
 ## 8. config/target.conf

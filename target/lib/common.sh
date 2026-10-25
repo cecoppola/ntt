@@ -60,14 +60,18 @@ tgt_sum_end() {     # STATUS RC
 }
 
 tgt_claim() {       # DIR: 0 = claimed by us, 1 = held by someone else
+    # the atomic step is an O_EXCL create (bash noclobber) of DIR/claim.lock: uutils' mkdir (some Linux distributions) is not atomic
+    # (two processes both got rc 0 for the same new directory, measured 2026-10-25); claim.d/who is written after it
     mkdir -p "$1"
-    mkdir "$1/claim.d" 2>/dev/null || return 1
+    ( set -o noclobber; : > "$1/claim.lock" ) 2>/dev/null || return 1
+    mkdir -p "$1/claim.d"
     echo "$(hostname -s) pid $$ $(date -Iseconds) ${TGT_WORKER:-}" > "$1/claim.d/who"
 }
 
 tgt_timeout() {     # MIN CMD...: run CMD in its own process group, kill the group after MIN minutes (rc 124)
     local min=$1; shift
-    timeout --kill-after=30 "$(( min * 60 ))" setsid "$@"
+    # setsid -w: a bare setsid forks when its caller leads a process group (timeout does) and returns at once with rc 0
+    setsid -w timeout --kill-after=30 "$(awk -v m="$min" 'BEGIN { printf "%d", m * 60 }')" "$@"
 }
 
 tgt_hosts() {       # JOBID: hosts of the allocation, one per line
