@@ -75,9 +75,10 @@ int main(int argc, char **argv)
         size_t h3off, h3v, h3p, h1off, h1v, h1p, h3off2;
         binsplit_node_bytes(Np, 3, 1, 3, 0, 0, &h3off); binsplit_node_bytes(N1, 1, 1, 3, 0, 0, &h1off);
         vpe_set_forced(1); binsplit_node_bytes(Np, 3, 1, 3, 0, 0, &h3v); binsplit_node_bytes(N1, 1, 1, 3, 0, 0, &h1v); vpe_set_forced(0);
-        vpe_set_ppg(0); binsplit_node_bytes(Np, 3, 1, 3, 0, 0, &h3p); binsplit_node_bytes(N1, 1, 1, 3, 0, 0, &h1p); vpe_set_ppg(-1);
+        vpe_set_ppg(0); binsplit_node_bytes(Np, 3, 1, 3, 0, 0, &h3p); binsplit_node_bytes(N1, 1, 1, 3, 0, 0, &h1p);
+        size_t stg2 = rns_batch_split_mode() == 1 ? (size_t)4 << 30 : 0; vpe_set_ppg(-1);   /* Q110: RNS_BATCH_SPLIT automatic in process mode raises the pinned staging from 1 to 2 GiB per PE */
         binsplit_node_bytes(Np, 3, 1, 3, 0, 0, &h3off2);
-        VERIFY(h3p == h3v + 3 * (size_t)13000000000, "host g 3: process mode %zu, one shared process %zu: want + 3 x 13 GB", h3p, h3v);
+        VERIFY(h3p == h3v + 3 * (size_t)13000000000 + stg2, "host g 3: process mode %zu, one shared process %zu: want + 3 x 13 GB + %zu staging", h3p, h3v, stg2);
         VERIFY(h1p == h1v + 3 * (size_t)7000000000, "host g 1: process mode %zu, one shared process %zu: want + 3 x 7 GB", h1p, h1v);
         VERIFY(h3off2 == h3off && h1off > 0, "host with the switch off unchanged after the process-mode calls: %zu vs %zu", h3off2, h3off);
         printf("   host per node, g 3 at 1e11: off %.1f, one shared process %.1f, processes %.1f GB; g 1 at 1e10: off %.1f, one shared process %.1f, processes %.1f GB\n", h3off / 1e9, h3v / 1e9, h3p / 1e9, h1off / 1e9, h1v / 1e9, h1p / 1e9);
