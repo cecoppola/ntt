@@ -123,7 +123,7 @@ case "${ECALC_PE_PER_GPU:-0}" in 0|"") ;; 1)
         for a in "$@"; do case "$a" in -*|[A-Za-z_]*=*) continue;; esac
             f=$(command -v -- "$a" 2>/dev/null) || continue; [ -f "$f" ] && [ -x "$f" ] || continue
             head -c 4 "$f" 2>/dev/null | grep -q ELF || continue
-            if grep -qa 'xshmem_cray: ' "$f"; then   # the XSHMEM=cray engine only (an ofi build made with SHMEM_CRAY=1 also links libsma: unchanged)
+            if grep -qa 'xshmem_cray: ' "$f"; then   # the XSHMEM=cray engine only (the ofi build does not link libsma: unchanged)
                 [ -n "${MNRUN_PPG_CPUBIND:-}" ] || MNRUN_PPG_CPUBIND=ldom; [ -n "${XSHMEM_CRAY_NUMA+x}" ] || export XSHMEM_CRAY_NUMA=1
                 echo "mnrun.sh: Cray build under ECALC_PE_PER_GPU=1: MNRUN_PPG_CPUBIND=$MNRUN_PPG_CPUBIND XSHMEM_CRAY_NUMA=$XSHMEM_CRAY_NUMA (defaults for the Cray build)"; break; fi
         done

@@ -14,7 +14,7 @@ archive:results_merged_2026-10-24/MEMORY.md §M, archive:results_merged_2026-10-
 
 mem_per_node's defaults (DEFAULTS) are the code's: DM_TIGHT, MN_TREE_EARLY_FREE, MN_T_CHUNK_MB and MDB_SHIFT_CHUNK_MB 1024, the SHMEM pool from the plan,
 DB_POOL_VMM's host and bs terms, ECALC_PLANE_CAP 2^31, BS_SEED_FILL=128, MN_OUT_EARLY, BS_ARENA_ROOM, NEWTON_DKM.  TARGET_LAUNCH is the target's launch line
-(COMM_SHMEM_ROUND_MB=1024, the user's D2); the pre-Phase-14 forms (OLD13), the Phase 14 / 15 defaults B0 / B1 and the historical tables are in the archive
+(XSHMEM_ROUND_MB=1024 = round_mb, the user's D2); the pre-Phase-14 forms (OLD13), the Phase 14 / 15 defaults B0 / B1 and the historical tables are in the archive
 (archive:scripts_2026-10-25/mem_model_legacy.py).  --check-c is exact against BS_LAYOUT_ONLY at 4e10, 1e11 and the target's share.
 B7ACCT (2026-10-06): vslot_resident -- the general map's v-exchange slots (comm_layered.c, hipMalloc'd beside the arena) on dev_bs / dev_dm;
 --check-c compares the C `vslot:` line (per APU, the tree top, device / node with them); the budget as the C (always on).
@@ -643,11 +643,11 @@ def host_size1(D):
     return int((12.1 + 0.031 * max(0.0, D / 1e9 - 40.0)) * GB)
 
 # ---------------------------------------------------------------- the defaults of the code (ecalc/README.md): DB_POOL_VMM=1 (the arena a VMM range), DM_TIGHT
-# following it, MN_TREE_EARLY_FREE=1, MN_T_CHUNK_MB=1024, MDB_SHIFT_CHUNK_MB=1024, COMM_SHMEM_POOL_AUTO=1 with the pool taken from MN_PLAN_ONLY's
+# following it, MN_TREE_EARLY_FREE=1, MN_T_CHUNK_MB=1024, MDB_SHIFT_CHUNK_MB=1024, the pool rule (the pool raised to the need) with the pool taken from MN_PLAN_ONLY's
 # `plan pool` line (mnrun.sh: the pool = the need rounded up to 256 MiB, the device heap exactly the pool), BS_SEED_FILL=128, MN_OUT_EARLY=1,
 # BS_ARENA_ROOM=ARENA_ROOM (binsplit.c bs_arena_room: the arenas in whole VMM chunks + that fraction of the hole in the dm need), NEWTON_DKM=1 with
-# dm_layout following it (MN_P24=2 is the tree's scratch: opts p24; mn_model passes it) and the lean mn division.  COMM_SHMEM_ROUND_MB is off in the
-# code; the target's launch line adds 1024 (TARGET_LAUNCH, the user's D2).  mem_per_node's base.
+# dm_layout following it (MN_P24=2 is the tree's scratch: opts p24; mn_model passes it) and the lean mn division.  exchange rounds (round_mb; the code's XSHMEM_ROUND_MB) are off in the
+# default; the target's launch line adds 1024 (TARGET_LAUNCH, the user's D2).  mem_per_node's base.
 ARENA_ROOM = 0.14                                       # BS_ARENA_ROOM's code default (was 0.16 from 2026-09-28, be2eec3; 0.14: memfix, one chunk less per APU at 2 n and 4 n)
 DKM_CODE = True                                                    # NEWTON_DKM: built in (switch removed 2026-10-12)
 CHAIN_GUARD_CODE = 1                                                                                                                  # the chain guard (D25; the NEWTON_CHAIN_GUARD=0 fallback was removed 2026-10-23, Q87)
@@ -731,7 +731,8 @@ def exchange_scratch(nq_total, g, alltoallv, shift_chunk_mb=0):
     return g * (share // 4) * 8 + g * (512 << 20)
 
 def shmem_staging(nq_total, g, groups=None, pool_log=31, staging='cached', chunks=4):
-    """the SHMEM transport's staging in its symmetric pool (comm_shmem.c: every exchange is copied through a send
+    """the removed plain SHMEM transport's staging in its symmetric pool (comm_shmem.c, removed in Q103; kept as a model of the 'tcp'/'shmem'
+    hypotheses, the xshmem engine has no such staging: every exchange was copied through a send
     staging and a receive staging in the pool, sized to the exchange and KEPT per communicator -- `staging()` grows
     sst/rst and never frees them; the level communicators live to the end).  Bytes per node-process:
       'cached'       (the code at 7aded87): per tree level one mesh per APU thread, its largest exchange's send + receive
@@ -754,9 +755,9 @@ def shmem_staging(nq_total, g, groups=None, pool_log=31, staging='cached', chunk
     if staging == 'per_exchange': return NRN * max(per_level)
     return NRN * sum(per_level)
 
-# ---------------------------------------------------------------- Phase 14 P2: the SHMEM pool as the code uses it (measured law)
-SHMEM_RING = 256 << 10                                    # COMM_SHMEM_RING_KB: the point-to-point ring per (communicator, source)
-SHMEM_MAXID = 1024                                        # comm_shmem.c MAXID: the mailbox rows
+# ---------------------------------------------------------------- Phase 14 P2: the SHMEM pool as the code used it (measured law; the xshmem planner keeps its pool rule and device pools)
+SHMEM_RING = 256 << 10                                    # the removed transport's COMM_SHMEM_RING_KB: the point-to-point ring per (communicator, source)
+SHMEM_MAXID = 1024                                        # comm_shmem.c (removed, Q103) MAXID: the mailbox rows
 SHMEM_SELFTEST = 128 << 20                                # mn_selftest_layered's symmetric buffers at init (measured 128 MiB at 2 PEs, 64 at 4)
 SHMEM_MARGIN = 256 << 20                                  # first-fit slack and the small exchanges (spills, counts, reductions): assumed
 
@@ -770,7 +771,7 @@ def mn_stage(na, nb, g, share_a, share_b, share_c, pool_log=31, logr_delta=0, t_
     RT(pa); the transform's inter-node stage (comm_layered) q / K each way.  MN_T_CHUNK_MB=m: the result exchange in rounds
     of m MiB per APU each way.  Measured (P214 section 1): the result exchange of the division's A_h mu product is the peak
     at 1e8 / 1e9 / 1e10 on 2 nodes and 1e9 / 1e10 on 4 processes, to the MiB.
-    Phase 14 V1: round_mb = COMM_SHMEM_ROUND_MB -- the transport carries each all-to-all in rounds staging at most round_mb
+    Phase 14 V1: round_mb (the code: XSHMEM_ROUND_MB) -- the transport carries each all-to-all in rounds staging at most round_mb
     each way, so every side of every exchange is bounded by it (rns_dist.c rns_mul_dist_mn_stage's RMIN)."""
     if not na or not nb or g < 2: return 0
     cap = 1 << mn_cap_log(g, pool_log); ka = kb = 1
@@ -810,8 +811,9 @@ def shmem_products(nq_total, g, groups=None):
     return out
 
 def ofi_planned(env=None):
-    """Phase 17 OFIMEM: comm_ofi_planned() (comm_ofi.c) -- COMM_OFI if set, else a cxi NIC on this host or COMM_OFI_PLAN_CXI=1 (the plan's
-    hint from mnrun.sh).  The target (Cray, cxi) has it on by default: pass COMM_OFI=1 to model it from a host without cxi."""
+    """Phase 17 OFIMEM: whether the device pools are modelled -- the C planner now always counts them under xshmem (pass ofi=1 / COMM_TRANSPORT=xshmem
+    in the env); this host test (COMM_OFI if set, else a cxi NIC on this host) is the legacy default of the 'shmem' transport model and its
+    COMM_OFI / COMM_OFI_PLAN_CXI switches are gone from the code."""
     env = os.environ if env is None else env
     if env.get('COMM_OFI') is not None: return env['COMM_OFI'] not in ('', '0') and int(env['COMM_OFI'] or 0) != 0
     return os.path.exists('/sys/class/cxi/cxi0') or env.get('COMM_OFI_PLAN_CXI', '0') not in ('', '0')
@@ -826,8 +828,8 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
                  8 words x S + S x the ring: 4 x (g + sum of the lower levels' S) x (ring + 64 B)  (measured 2 MiB at 2, 6 at 4)
       mailbox  = MAXID x g x 8 B;  + the self-tests' 128 MiB at init (not concurrent with the staging) and a margin.
       sym_slabs (DIST_MN_SYM_SLABS=1, TASKS 2.4): + NR x 3 q x 8 B kept (q = the largest mn_core plane), the transform's staging gone.
-      round_mb (COMM_SHMEM_ROUND_MB, Phase 14 V1): every side of every staged exchange at most round_mb.
-      ofi (Phase 17 OFIMEM, COMM_OFI): the device staging and the slabs move to one comm_ofi pool per device (detail['ofi_dev_mb']: one
+      round_mb (XSHMEM_ROUND_MB, Phase 14 V1): every side of every staged exchange at most round_mb.
+      ofi (Phase 17 OFIMEM; always on under xshmem): the device staging and the slabs move to one device pool per APU (COMM_OFI_POOL_MB) (detail['ofi_dev_mb']: one
       APU's staging, at least the self-tests' 128 MiB, + its slabs + 256 MiB, in whole 256 MiB); the SHMEM pool keeps 128 MiB of host-op
       staging, the control blocks, the mailbox and the margin (binsplit.c binsplit_shmem_pool_need).
     detail (a dict) receives the parts and the product that sets the staging."""
@@ -855,7 +857,7 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
         dv = max(stg, vslot) + sym // 4 + SHMEM_MARGIN   # M3: release -> the larger, not the sum
         ofi_dev_mb = round256_mb(dv); staging = 0; sym = 0
     stg0 = max(staging, SHMEM_SELFTEST)
-    if not ofi: sym += NRN * vslot   # X2: (no comm_ofi) the slots in the SHMEM pool, one set per APU thread; SHM: the sum also under M3's release (comm_shmem's
+    if not ofi: sym += NRN * vslot   # X2: (no device pools) the slots in the SHMEM pool, one set per APU thread; SHM: the sum also under M3's release (the removed transport's
                                     # staging regions are staging-only, the slots come from the general area: binsplit.c binsplit_shmem_pool_need)
     need = stg0 + control + mailbox + sym + SHMEM_MARGIN
     if detail is not None: detail.update(staging=staging, control=control, mailbox=mailbox, sym=sym, need=need, by=who, per_apu=best * 8, ofi_dev_mb=ofi_dev_mb)
@@ -894,7 +896,7 @@ def mem_per_node(D, g=1, opts=None):
     """FIT (D26, results/LAUNCH_DEFAULTS.md §FIT): DM_MN_WRAP automatic as the C decides it (binsplit.c binsplit_fit) -- when opts has no 'wrap' and the
     environment no DM_MN_WRAP, at g > 1: the wrap's arm if its device peak (dev_max) is within ECALC_DEVICE_GB (373.44) less
     ECALC_DEVICE_MARGIN_GB (5.0), else the arm without it; r['wrap'] says which.  (This model's dev_max is not the C's device: the C
-    also counts the comm_ofi pools as device memory; the C's `plan fit` lines are the source of truth.)"""
+    also counts the device pools (COMM_OFI_POOL_MB) as device memory; the C's `plan fit` lines are the source of truth.)"""
     global NP2_D
     d0 = NP2_D; NP2_D = float(D)                                       # MN_NONPOW2_CAP auto: the rule reads the digits per node
     try: return _mem_per_node_wrap(D, g, opts)
@@ -915,7 +917,7 @@ def _mem_per_node(D, g=1, opts=None):
           decimal (True), margin (0.0: a fraction added to the device total), logr_delta (DIST_LOGR_DELTA),
           form ('flat': today's g-sized spill buffers; 'grid': agent G's O(share) spills -- Phase 12),
           groups (MN_GROUPS: a list or string; None = the code's default schedule),
-          transport ('tcp' | 'shmem': the SHMEM transport's symmetric pool -- the larger of COMM_SHMEM_POOL_MB (pool_mb, 8192)
+          transport ('tcp' | 'shmem': the pool model, now of the xshmem planner -- the larger of COMM_SHMEM_POOL_MB (pool_mb, 8192)
           and the staging the transport needs (shmem_staging: staging = 'cached' (the code) | 'per_exchange' | 'resident'),
           in the node's HBM whether host-registered or a device heap).  Returns a dict with the parts and the peaks."""
     o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='grid', groups=None, transport='tcp', pool_mb=8192, staging='code', planes_3q30=None,
@@ -961,10 +963,10 @@ def _mem_per_node(D, g=1, opts=None):
     planes = planes_bytes(o['pool_log'], d, o['planes_3q30'], npp, o['strategy'], pool1_np=p1np, g=g)
     pdet = {}                                                             # (Phase 15 DL: the host terms before the room's decision, which counts them)
     if g > 1 and o['transport'] == 'shmem' and o['staging'] in ('code', 'sym'):   # Phase 14 P2: the measured law (the code as it is; 'sym': DIST_MN_SYM_SLABS=1)
-        ofi = ofi_planned() if o.get('ofi') is None else o['ofi']           # Phase 17 OFIMEM: COMM_OFI (None: as the code decides on this host)
+        ofi = ofi_planned() if o.get('ofi') is None else o['ofi']           # Phase 17 OFIMEM: the device pools (None: ofi_planned() on this host; the C always counts them under xshmem)
         need = shmem_pool(L['nq'], g, o['groups'], o['pool_log'], o['t_chunk_mb'], o['shift_chunk_mb'], o['staging'] == 'sym', detail=pdet, round_mb=o.get('round_mb', 0), ofi=ofi, vslot=vs['per_apu'])   # X2: the pool counts the v-slots here
         stg = pdet['staging']; pool = pool_mb_of(need, 'plan' if ofi and o['pool'] == 'auto' else o['pool'], o['pool_mb'])   # Phase 15: the pool rule (POOLS; 'max' = the model before); OFIMEM: under OFI an unset pool = the need
-        pdet['shmem_only'] = pool; pool += NRN * (pdet['ofi_dev_mb'] << 20)   # OFIMEM: + the four comm_ofi pools (the transport's pools in all)
+        pdet['shmem_only'] = pool; pool += NRN * (pdet['ofi_dev_mb'] << 20)   # OFIMEM: + the four device pools (the transport's pools in all)
     else:                                                                 # the hypotheses before Phase 14 (resident: 0 staging, the pool flat at 8 GiB)
         stg = shmem_staging(L['nq'], g, o['groups'], o['pool_log'], o['staging']) if (g > 1 and o['transport'] == 'shmem') else 0
         pool = max(o['pool_mb'] << 20, stg + (100 << 20)) if (g > 1 and o['transport'] == 'shmem') else 0
@@ -1078,13 +1080,13 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         S_ = seed_span(N, g, seed_fill); nt_ = N // (g * lanes()) if g * lanes() > 1 else N           # (BS_LAYOUT_ONLY: rank 0's range [1, 1 + N / g))
         sb = seedbuf_vmm(N, nt_, S_) if g > 1 else 0
         pool_b = 0; ofi_b = 0
-        xsh = env.get('COMM_TRANSPORT') == 'xshmem'                                # S3a: planned as shmem with the comm_ofi pools, no rounds (binsplit.c xsh_on)
+        xsh = env.get('COMM_TRANSPORT') == 'xshmem'                                # S3a: planned as shmem with the device pools (binsplit.c xsh_on); rounds from XSHMEM_ROUND_MB
         if g > 1 and env.get('COMM_TRANSPORT') in ('shmem', 'xshmem'):            # binsplit.c as_shmem_pool: binsplit_shmem_pool_rule's pool
-            pd_ = {}; ofi = 1 if xsh else ofi_planned(env)                                       # Phase 17 OFIMEM: the comm_ofi pools beside the SHMEM pool
+            pd_ = {}; ofi = 1 if xsh else ofi_planned(env)                                       # Phase 17 OFIMEM: the device pools beside the SHMEM pool
             nd = shmem_pool(dm_layout(N, g, pool_log, True, tight)['nq'], g, None, pool_log, t_chunk_mb, int(env.get('MDB_SHIFT_CHUNK_MB', '1024')), False, round_mb=int(float(env.get('XSHMEM_ROUND_MB' if xsh else 'COMM_SHMEM_ROUND_MB', '0') or 0)), detail=pd_, ofi=ofi,
                             vslot=(vslot_resident(dm_layout(N, g, pool_log, True, tight)['nq'], g, os.environ.get('MN_GROUPS') or None, pool_log, ((int(os.environ.get('MN_P24', '2') or 0), np_mode if np_mode is not None else EC_NP, g) if int(os.environ.get('MN_P24', '2') or 0) else None))['per_apu']))
             mb = -(-nd // (1 << 20)); mb = -(-mb // 256) * 256; have = int(env.get('COMM_SHMEM_POOL_MB', str(mb) if ofi else '8192'))
-            pool_b = (mb if mb > have else have) << 20   # (the pool rule always raises the pool: COMM_SHMEM_POOL_AUTO removed 2026-10-12)
+            pool_b = (mb if mb > have else have) << 20   # (the pool rule always raises the pool)
             if ofi: ofi_b = NRN * (int(env.get('COMM_OFI_POOL_MB', str(pd_['ofi_dev_mb']))) << 20)
         rh = room_host(N, g, pool_b + ofi_b, sb, env.get('MN_OUT_EARLY', '1') != '0')
         ar_room = None

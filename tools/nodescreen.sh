@@ -4,12 +4,12 @@
 #   local  (no network; srun, one task per node): t_nodechk (meminfo + 1 GB host->device upload per APU, median of 3, + the T10 cold path
 #          of --cold-gb per APU: VMM map, first touch, one cold upload) then ONE single-node ecalc of --local-digits digits with
 #          ECALC_INIT_TL=1 ECALC_VERBOSE=2 (init time = rns_init, total = the short real compute).  Per-node wall of each step is recorded.
-#   mn     (one SHMEM job over the nodes the local stage kept; skipped with --no-mn): ecalc of N x --mn-digits-per-node digits with
+#   mn     (one multi-node xshmem job over the nodes the local stage kept; skipped with --no-mn): ecalc of N x --mn-digits-per-node digits with
 #          ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=2 MNRUN_LABEL=1 through mnrun.sh -> tools/initchk.py's per-node rns_init / first-upload (host-attributed)
 #          plus the run's wall (a fabric-wide slow state shows as a high total, it cannot be pinned on one node).
 # Rule (same as initchk): a node is flagged when a time metric is > THR x the median (default 3) AND >= MINEX s above it (default 2), or when any
 # step failed / timed out / printed no result.  With fewer than 3 nodes the reference is the smaller value instead of the median.
-# SLURM_LABELIO=1 labels the mn log (mnrun.sh drops MNRUN_LABEL when MNRUN_CPUS_PER_TASK is set: its copt is overwritten, line 72-73).
+# SLURM_LABELIO=1 labels the mn log (mnrun.sh drops MNRUN_LABEL when MNRUN_CPUS_PER_TASK is set: see the copt lines of mnrun.sh).
 # Output ($OUT): screen_table.txt (per-node table), EXCLUDE (one host per line, the nodes to leave out), screen_summary.txt (wall per stage),
 # local/<host>.log, mn.log.  Exit 0 = no node flagged, 3 = flagged (EXCLUDE is non-empty), 2 = the screen itself could not run / parse.
 #

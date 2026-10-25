@@ -16,7 +16,7 @@
 #   PROBE_SRUN_EXTRA="--gpus-per-node=4" adds options to every srun step (if the site hides the APUs from a step without them).
 #   Modules: PROBE_MODULES="m1 m2 ..." forces the module line; otherwise the probe picks the candidates matching --want-rocm / --want-sma and
 #   the highest dsmml.  Stdout is bounded (about 150 lines); the full facts are in DIR/facts.txt, the proposal in DIR/target.conf.proposed.
-# Also collects the kernel memory facts of the SHMEM transport (THP, compaction_proactiveness, hugetlb pool, buddyinfo score, MADV_COLLAPSE).
+# Also collects the kernel memory facts of the host heaps (THP, compaction_proactiveness, hugetlb pool, buddyinfo score, MADV_COLLAPSE).
 # Docs: profiles/README.md "Target bring-up runbook".  Exit 0 = probe finished (the facts may say UNKNOWN/NONE), 2 = usage.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); ROOT=$(cd "$HERE/.." && pwd)
 OUT=./target_probe_out HOLD= TPL=$ROOT/profiles/target.conf.template DO_SHMEM=1 PHASE=all
@@ -80,11 +80,11 @@ kv HUGETLB_2M_NR "$(cat /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages 2
 kv HUGETLB_2M_OVERCOMMIT "$(cat /sys/kernel/mm/hugepages/hugepages-2048kB/nr_overcommit_hugepages 2>/dev/null)"
 kv HUGETLB_2M_PER_NUMA "$(for n in /sys/devices/system/node/node[0-9]*; do f=$n/hugepages/hugepages-2048kB; [ -r $f/free_hugepages ] && printf '%s:%s/%s ' $(basename $n) $(cat $f/free_hugepages) $(cat $f/nr_hugepages); done)"
 kv THP_khugepaged_defrag "$(cat /sys/kernel/mm/transparent_hugepage/khugepaged/defrag 2>/dev/null)"
-# fragmentation score per NUMA node and zone: 100 * free pages in blocks below order 9 / all free pages (the score of COMM_TRACE_HB_MEM; above 90 starts a proactive pass)
+# fragmentation score per NUMA node and zone: 100 * free pages in blocks below order 9 / all free pages (above 90 the kernel starts a proactive compaction pass)
 kv BUDDY_FRAG_SCORE "$(awk '{lo=0;hi=0;for(i=5;i<=NF;i++){p=$i*2^(i-5); if(i-5<9)lo+=p; else hi+=p}; if(lo+hi>0)printf "%s%s:%d ",$2,$4,100*lo/(lo+hi)}' /proc/buddyinfo 2>/dev/null)"
 kv BUDDY_FREE_GE2M_MB "$(awk '{h=0;for(i=14;i<=NF;i++)h+=$i*2^(i-5)*4/1024; printf "%s%s:%d ",$2,$4,h}' /proc/buddyinfo 2>/dev/null)"
 kv KFD_PRESENT "$([ -d /sys/class/kfd/kfd/proc ] && echo "yes (per-process evicted_ms under /sys/class/kfd/kfd/proc/<pid>/stats_<gpu>/ while a job runs)" || echo no)"
-# MADV_COLLAPSE (25) on a 2 MiB aligned anonymous mapping: EINVAL = kernel without it or no free 2 MiB block, seen on a loaded host (needs >= 6.1 or a backport); COMM_SHMEM_NP_HEAP_THP prints a failure line then
+# MADV_COLLAPSE (25) on a 2 MiB aligned anonymous mapping: EINVAL = kernel without it or no free 2 MiB block, seen on a loaded host (needs >= 6.1 or a backport)
 kv KERNEL_GE_6_1 "$(uname -r | awk -F'[.-]' '{print ($1>6||($1==6&&$2>=1))?"yes":"no (MADV_COLLAPSE only with a backport)"}')"
 kv MADV_COLLAPSE "$(python3 -I -c 'import mmap
 e=None
@@ -235,9 +235,9 @@ propose() {
 }
 memadvice() {  # runbook "First SHMEM run on the target": how the kernel memory facts map to switches
   local fh mc nr; fh=$(fact HUGETLB_2M_FREE); mc=$(fact MADV_COLLAPSE); nr=$(fact HUGETLB_2M_NR)
-  case "$mc" in works*) ;; "") echo -n "MADV_COLLAPSE untested (run the node phase with --hold); ";; *) echo -n "MADV_COLLAPSE refused (unsupported kernel, or no free 2 MiB block: repeat on an idle node) -> COMM_SHMEM_NP_HEAP_THP prints a failure line and keep 4 KiB pages (see runbook); ";; esac
-  if [ -n "$fh" ] && [ "$fh" -gt 0 ] 2>/dev/null; then echo -n "hugetlb pool present ($fh free 2 MiB pages): size it to the heap and try COMM_SHMEM_HUGETLB=1 (heap-size/2 MiB per node-process); "
-  else echo -n "no hugetlb pool (nr_hugepages=${nr:-?}): COMM_SHMEM_HUGETLB falls back to NP_HEAP_THP; "; fi
+  case "$mc" in works*) ;; "") echo -n "MADV_COLLAPSE untested (run the node phase with --hold); ";; *) echo -n "MADV_COLLAPSE refused (unsupported kernel, or no free 2 MiB block: repeat on an idle node) -> keep 4 KiB pages (see runbook); ";; esac
+  if [ -n "$fh" ] && [ "$fh" -gt 0 ] 2>/dev/null; then echo -n "hugetlb pool present ($fh free 2 MiB pages): size it to the heap if the run is to use huge pages (heap-size/2 MiB per node-process); "
+  else echo -n "no hugetlb pool (nr_hugepages=${nr:-?}): huge pages come only from THP; "; fi
   echo "proactiveness $(fact KERNEL_MM_COMPACTION_PROACTIVENESS): keep it, A/B 0 only if the first run shows kcompactd stalls or KFD evicted_ms"
 }
 advice() {  # the SHMEM NIC facts (see profiles/README.md runbook step 9)
