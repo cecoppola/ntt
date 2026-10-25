@@ -1,6 +1,6 @@
 # LAUNCH_DEFAULTS — launch-line decisions and defaults adopted
 
-Owner of items B01, L1, T08, ADOPT2, DEF, FIT, S47 (old IDs resolve through `results/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`; originals: `archive:results_merged_2026-10-19/`. Labels: m measured, mod modelled, a assumed. Times Eastern.
+Owner of items B01, L1, T08, ADOPT2, DEF, FIT, S47 (old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`; originals: `archive:results_merged_2026-10-19/`. Labels: m measured, mod modelled, a assumed. Times Eastern.
 
 ## Topic summary
 
@@ -48,18 +48,6 @@ Code default unchanged at the time (0; later built in, see summary).
 | 3.82e13 | 361.55 → 352.96 | -8.59 GB | 369.1 | 360.5 | 12.9 GB (above the 10 GB rule again) |
 
 - Gate item `91_l1_gate.sh` (2 nodes) was queued, not finished at report time; merge needed gate PASS and kit plan check OK. Branch l1 pushed. Verdict: RELEASE restores the 3.82e13 margin (12.9 GB, mod).
-
-## T08 - K2 + K3 default on (user adopted 2026-10-11)
-
-Branch `t08` (from main ceb94c1).
-- Change: `ecalc/dbig.c` `modq_mont_on()` (`DBIG_MODQ_MONT`) and `addsub3_on()` (`DBIG_ADDSUB3`) default 1 when unset; `=0` turns each off. K3 fallback: `db_mod_qs` uses `k_modq_m` only if every q is odd and in [2^62, 2^63), else `k_modq`. K2 still needs `DBIG_ADDSUB2` (default 1), else `k_addsub2`. K4 `RNS_CRT_SUB` stays off. README rows updated (S51 evidence, `results/KERNELS.md §S51`).
-- Gates (aac7, 2-node hold, `gate.sh --build`, SHMEM; single runs, not timing claims, m): 1 node new defaults PASS, VERIFY OK, digits identical, segv 0, 12.75 s; 2 nodes PASS, 19.67 s; 1 node old path (`DBIG_ADDSUB3=0 DBIG_MODQ_MONT=0`) PASS, 13.10 s; `t_dbig 22 0 29` VERIFY OK (565 checks) in both bases. aac6 cross-check: 1 node PASS, 11.42 s (m, one run). Skipped: 4e10/1e11 step (no 4e10 reference), `t_newton`/`t_mul`/mnaccept (kernel-only change).
-
-## ADOPT2 - `P24_CRT_SCAN=1` (D24) and `NEWTON_CHAIN_GUARD=1` (D25) as code defaults; two helper merges
-
-- Change: both default 1 (`=0` fallback); readers `p24_crt_scan_on()` (p24_crt.c), `newton_chain_guard()` (newton_db.c); the `config:` line shows `p24_crt_scan:%d,chain_guard:%d`. `mem_model.py` adds the guard's +1 limb (`CHAIN_GUARD_CODE`). Helper merges: `dmod128`/`dmod192` once in `rns_int.h`, `db_powmod_h` once in `dbig.c`; same behaviour.
-- Checks (aac7, 2-node hold, SHMEM, m): `gate.sh --build --nodes 2` PASS (20.66 s), `--nodes 1` PASS (9.64 s); `t_newton 20` VERIFY OK (2756 checks); `mnaccept.sh --only unit` 9 passed (1556 s), `--only e9,mn` 6 passed (108 s); `MN_PLAN_ONLY=38200000000000:576` rc 0; `mem_model.py --check-c` exact (0 terms inexact) at 1e10, 1e11, 6.441e10 × 2 and the 576-node share, guard 0 and 1.
-- ABBA, 1 node, 1e10 digits, A = guard 0, B = guard 1, 4 rounds (8 pairs): B − A = +0.25 s, 95 % CI [-1.00, +1.50] (n.s.; runs 15.9-19.4 s): no measurable cost. `P24_CRT_SCAN` has no effect at 1 node; its timing is `results/KERNELS.md §K4c`. Merged.
 
 ## DEF — P24 as the multi-node default (D18) and DM_MN_WRAP in the memory model + 6-node A/B (D19 b)
 
@@ -139,3 +127,6 @@ Both CIs include 0; no difference shown; neither setting confirmed or refuted. A
 - Failures: two runs crashed with a segfault at the end of init (42 s, rc 1, VERIFY FAILED), both arm A (ii r2 on aac7-n11; i r7 on aac7-n10); pairs dropped; independent of the setting, look like the known intermittent init crash; not investigated.
 - Queue bug fixed in the driver: `OUT` and `HOLD` were exported and inherited by queue items; `run_item` now uses `env -u OUT -u HOLD`.
 - Verdict: inconclusive; point estimates (+7.0 s, −2.7 s) well inside the noise (±17, ±10 s). Both settings stay on the aac7 line (evidence: the 10-node S22/S31 runs). To resolve at 4 nodes: remove the cause of the bimodality (per-host stage times, nodechk, fixed node set via `-w`); or about 30+ pairs for (i) (about 3.5 h per comparison, mod); or a paired design with A and B back to back on the same nodes using stage-level times. Rule (user): adopt/keep only on a CI that excludes 0 with identical digits. Raw: aac7 `<cluster work dir>/s47/run/`.
+
+
+Sections moved to `archive:results_merged_2026-10-24/LAUNCH_DEFAULTS.md` (2026-10-24 cleanup): T08; ADOPT2.

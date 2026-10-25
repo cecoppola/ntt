@@ -1,6 +1,8 @@
 # TOOLS_PROFILES — tools and the parameter system
 
-Scope: tools and the parameter system: profiles, the switch registry, calibration, the target kit, mnaccept, environment probe. Condensed from the per-item reports (originals in `archive:results_merged_2026-10-19/`; old IDs resolve through `results/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`. Labels: m = measured, mod = modelled, a = assumed.
+Scope: tools and the parameter system: profiles, the switch registry, calibration, the target kit, mnaccept, environment probe. Condensed from the per-item reports (originals in `archive:results_merged_2026-10-19/`; old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`. Labels: m = measured, mod = modelled, a = assumed.
+
+Sections moved to `archive:results_merged_2026-10-24/TOOLS_PROFILES.md` (2026-10-24 cleanup): L5; C04; S18M; B05; A04; S18KIT; S18KITFIX.
 
 | item | title |
 |---|---|
@@ -10,7 +12,7 @@ Scope: tools and the parameter system: profiles, the switch registry, calibratio
 | T27 | parameter system: computed size values and review dates for settings |
 | C04 | environment probe (`archive:scripts_2026-10-23/envprobe.sh`) and the probe covariate in `ecalc/calib_table.py` |
 | S18M | AAC7 profile calibration against the 2026-10-06/07 10-node comm_ofi runs (branch `s18-m`) |
-| B07 | `ecalc/calib_table.py` (step 1 of the calibration plan in results/TOOLS_PROFILES.md §B05) |
+| B07 | `ecalc/calib_table.py` (step 1 of the calibration plan in archive:results_merged_2026-10-24/TOOLS_PROFILES.md §B05) |
 | B05 | a faster calibration process (design; CPU + reading only) |
 | A04 | mnaccept.sh fixes (branch a04, 2026-10-11) |
 | A06 | (N6): target_kit.sh hand-off items |
@@ -70,20 +72,6 @@ Totals are single runs, not a timing comparison.
 
 Verdict: PASS, profile loading and validation work on both machines; the merge of o3 was left to the user. Next: wire mnrun.sh / e16_headline.sh / target_kit.sh to the loader; a gate B failure would be a profile gap.
 
-## L5 - parameter system step P1-1: switch registry + print-only effective configuration line
-
-Branch `l5` (from main a1569d5). No behaviour change: new `ecalc/config_line.c|h` and two call sites in `ecalc.c main`.
-
-Design:
-- `ecalc/switches.tsv` (generated, 266 rows; columns name, type, default, code_default, range, scope, profile, evidence, readme, source, files, sites, note). m by script: 239 rows read by `ecalc/*.c|h`, 27 only by `ecalc/tests`. `code_default` is a literal (131 of 239), `unset`, `derived` (57) or `conflict:` (3). Types are heuristic (bool 75, int 129, float 24, str 8, enum 3). Scope from A11 status: built-in default 110, launch-line 45, experiment 25, test-only 59. 19 switches appear in `profiles/*.conf`. README presence: 220 yes, 19 prose, 0 missing.
-- `ecalc/switches_manual.tsv` (48 hand rows, launch-line switches checked against code): wins over extraction; `--check` fails if a hand default contradicts a literal code default.
-- `tools/switch_registry.py`: no argument regenerates `switches.tsv` and `switches_gen.h`; `--check` (exit 1) fails on a switch in code but not the registry, a registry row with no site, a changed `code_default`, a contradicted hand default, a stale header or table; `--readme` and `--readme-diff` (the README table is prose, the generated one gives default/type/scope/evidence; no row would stay identical, so the README was not changed). Negative tests (m): a changed literal gave 2 problems, a new `getenv` gave 2 problems. Dynamic names (`COMM_LAYER_VSLOT_MB_<g>`, the `POOL_LOG` knob array) are not covered.
-- Startup line: `config: hash=<8 hex> set=<k=v sorted> eff=pool_log:..,np:..,base:..,verbose:..,overlap:..,plane_cap:..,comm_size:..`, rank 0 only. hash = FNV-1a 32 of the sorted `k=v` lines of set switches (COMM_RANK excluded). Environment is snapshotted at the first statement of `main`.
-
-Tests (m): unit hash a53c70a8 matches an independent Python FNV, order-independent, empty set 811c9dc5, rank 1 silent; registry check 266 rows, 0 problems locally and on aac6; 3 runs on an aac6 CPX node at 1e9 all VERIFY OK, digits identical (totals 8.45, 8.17, 8.52 s, single runs, not a timing claim); config hash stable (8072f8a3 twice, a099ed30 with `ECALC_BG_THREADS=48`). `gate.sh` cannot drive a CPX node (6 devices vs `--gpus-per-node=4`).
-
-Follow-ups listed: profile loading (done in O3), validation of ranges and combinations, registry gaps (range only on hand rows, 57 derived defaults), README generation (done in T27 for the review table), gate wiring (done in O3), prefix rows for dynamic names. Merge needed the usual 2-node aac7 gate because `ecalc.c` and the Makefile changed.
-
 ## T27 — parameter system: computed size values and review dates for settings
 
 Question: (A) can every setting that depends on digits or node count be computed in one place from (digits, nodes, profile), equal to today's hand values at tested sizes? (B) can every experimental, test-only or fallback switch carry an owner and review date, warning (not failing) when it passes?
@@ -109,48 +97,11 @@ Gates (m, aac7 2 nodes, 2026-10-12, commit 569b486): `gate.sh --build --nodes 2`
 
 Part B review classes: experiment 9 (coordinator, review 2026-11-11); fallback 10 (the six D1e switches, three CAND switches, `ECALC_OUT_PACKED`; review 2026-11-11); diagnostic 47 (2027-04-12); test 27 (2027-04-12). Checks (m): clean tree 0 problems 0 warnings; `--today 2026-11-12` gives 19 warnings, exit 0; each negative case gives one WARN, exit 0.
 
-Verdict: both parts built; one entry point for size-dependent values, equal to hand values at every tested size, and it found the runbook's pool/heap stale. Open: the target runbook (private) still types stale values; `MN_GROUPS` at 576 - k nodes is not computed (the structured form cuts the top group, which user decision D4 "no uneven groups for now" leaves open; default schedule modelled +34 s at 575 nodes, 245.4 vs 211.3 s, results/NODE_SLOWMODE.md §B04 and C09); the aac7 1-node line goes through mnrun's SHMEM fallback (pool 8192, heap 8704M, harmless); a removed switch's review row prints a "gone" warning until deleted from `switches_review.tsv`.
+Verdict: both parts built; one entry point for size-dependent values, equal to hand values at every tested size, and it found the runbook's pool/heap stale. Open: the target runbook (private) still types stale values; `MN_GROUPS` at 576 - k nodes is not computed (the structured form cuts the top group, which user decision D4 "no uneven groups for now" leaves open; default schedule modelled +34 s at 575 nodes, 245.4 vs 211.3 s, archive:results_merged_2026-10-24/NODE_SLOWMODE.md §B04 and C09); the aac7 1-node line goes through mnrun's SHMEM fallback (pool 8192, heap 8704M, harmless); a removed switch's review row prints a "gone" warning until deleted from `switches_review.tsv`.
 
 Decisions (user): (1) target launch block: options (a) `eval "$(tools/plan_values.py --profile target --exports <digits> <nodes>)"` (recommended: always the plan's values), (b) launch through `mnrun.sh` (same path as every aac7 run, different form than the runbook srun), (c) keep typing 2304 / 2816M (goes stale again). (2) `MN_GROUPS` with excluded nodes: (a) leave as is (recommended until an exclusion is expected), (b) a default-off switch cutting the full machine's schedule at N (C change, gates needed, about 34 s at 575 nodes mod).
 
-## C04 - environment probe (`archive:scripts_2026-10-23/envprobe.sh`) and the probe covariate in `ecalc/calib_table.py`
-
-Task c04 (2026-10-11, base bc80001, branch c04).
-
-Built: `archive:scripts_2026-10-23/envprobe.sh` runs `tests/t_comm --bw 4 REPS(100) 256` over all nodes of the hold with fixed settings (caller's COMM_/MN_/RNS_/ECALC_/DM_/FI_ variables removed), reads NIC counters (`oxe_mcu_meas_18..25` group A vs `28..33` group B, `oxe_stall_fgfc_start_0`) before and after, prints `ENVPROBE r64=.. r256=.. group=A|B|NA fgfc=.. nn=.. t=.. wall=..`; modes `--snap` and `--group PRE POST` bracket a real run. Expected cost 35-45 s (A13: 43 s at 250 reps; 100 reps assumed 30-35 s, not timed). `calib_table.py` (c04 copy of b07's plus probe additions; merge with b07's) parses `ENVPROBE` lines, adds `pr64 pr256 pgroup pfgfc`, `--covariate probe`, `--probe-check`. `tools/envprobe_offline.py` rebuilds probe lines from A13 data.
-
-Offline validation on A13 (6 runs, 7 probes; m): the group reader reproduces A13 (runs r004, r005 group A). Run rates 12.00 13.10 13.07 10.99 11.60 13.68 GB/s (raw sd 1.04). Correlation of probe rate with run rate (n=6, mod):
-| probe covariate | corr with run r | leave-one-out sd of r (GB/s) |
-|---|---|---|
-| r64 before | -0.71 | 0.91 |
-| r64 after | +0.09 | 1.81 |
-| r256 before | -0.69 | 1.19 |
-| r256 after | -0.76 | 0.85 |
-| r256 mean of before+after | -0.98 | 0.37 |
-| r64 mean of before+after | -0.47 | 1.02 |
-The sign is negative (a higher 256 MiB probe goes with a slower run). With n=6, six covariate variants tried and no known mechanism, it is not proven. The probe group does not predict the run group (A13 finding 3 confirmed: p004 B -> r005 A); the run's own NIC group (via `--snap/--group`, no extra cost) matches slow/fast 6/6 and is the better-founded post-hoc covariate.
-
-Queue item (aac7, 4 nodes, EST 30 min): 6 probes and 5 real runs (6.441e10 digits/node, aac7 line, uffd, xstats, no digit writes), each run bracketed by two probes. Dry-run passed (stub); the node-side counter reader was tested only on a fake sysfs tree. Decision rule: adopt the probe as covariate only if the pooled 11 pairs keep |corr| > 0.8 with LOO sd well under the raw sd, for the column fixed beforehand (r256 bracket mean). Open: probe at REPS=100 untimed (compare within one REPS only); fgfc on a probe (35 s) vs a run (200 s) not comparable; what picks the group (a14's question) is not answered. Result of the queued item is not recorded here.
-
-## S18M: AAC7 profile calibration against the 2026-10-06/07 10-node comm_ofi runs (branch `s18-m`)
-
-Local model only (`ecalc/estimate.py`, `mn_model.py`). Checks `mn_model.AAC7` (bw_apu = 3.6 GB/s per APU thread, Phase 16 C's 2-node SHMEM put-path measurement) against three measured no-write 10-node walls (job 12287, comm_ofi on, all VERIFY OK; aac7 walls vary +-25 % between jobs at the same config):
-| run | digits | measured wall (m) |
-|---|---|---|
-| b0 | 8.1e11 | 721.90 s |
-| b' (`ECALC_VSLOT_BUDGET=1`) | 8.1e11 | 679.16 s |
-| c | 6.441e11 | 457.15 s |
-b0 vs b' (same config) are 6.3 % apart, which brackets the noise.
-
-Old profile (bw 3.6; `mn_model.py estimate --g 10 --D <D/node> --fabric aac7`), mod vs m: b0 797.9 vs 721.90 s (+10.5 %); b' +17.5 %; c 645.0 vs 457.15 s (+41.1 %). The error grows as digits shrink. `AAC7_CONSTS` NODE_SCALE/INIT_SCALE (1.12/1.20) set to 1.0 only moves 797.9 -> 780.7 s (-2.2 %), not the dominant term; `exposed` fabric time is 641.3 of 797.9 s (80 %), so the fabric constant is what is off.
-
-New profile `aac7_s18` (`AAC7_S18` in `ecalc/mn_model.py`; `AAC7_CONSTS` untouched): `bw_apu` refit to 4.25 GB/s per APU thread, centering b0 and b'. Mod vs m: b0 699.6 vs 721.90 s (-3.1 %); b' +3.0 %; c 564.8 vs 457.15 s (+23.5 %, improved from 41.1 % but not closed; a single flat `bw_apu` cannot fit two different digit counts, an open residual).
-
-The a4 comm-mark rates do not explain the residual (m, GB-received-weighted over all comm-mark phases): n=2 14.43 GB/s per APU thread (373.02 GB, 25.84 s); n=8 9.44 GB/s (814.58 GB, 86.33 s). Both are far above 3.6 and 4.25; plugging 9.76 into `--bw` gives 392.4 s at 8.1e11 vs 721.90 s measured (-45.6 %). So the comm-mark all-to-all rate is not a 1:1 stand-in for the model's `bw_apu`, the wall also carries bs/dm compute, init and dc.
-
-`--target` output is byte-identical before and after. (Retired 2026-10-23: `aac7_s18` = `--fabric aac7_c16 --bw 6`.) `aac7_s18` was off by default (`--fabric aac7_s18` or `MN_MODEL_PROFILE=aac7_s18`); `apply_profile()` applies `AAC7_CONSTS` to it as to `aac7`. Files: `ecalc/mn_model.py`, `ecalc/estimate.py` (choices and help).
-
-## B07 - `ecalc/calib_table.py` (step 1 of the calibration plan in results/TOOLS_PROFILES.md §B05)
+## B07 - `ecalc/calib_table.py` (step 1 of the calibration plan in archive:results_merged_2026-10-24/TOOLS_PROFILES.md §B05)
 
 Task b07 (2026-10-11, base bc80001, branch b07). CPU only. 99 logs from aac7 (S47 48, S50 abba4_0024 16, S51 abba4 12 and abba4b 23) plus driver tsv files.
 
@@ -175,49 +126,6 @@ Stages (adjusted): T2048 dm -0.09, bs -0.69, recip +0.15; X2 dm +0.41, bs +0.24,
 
 Files: `ecalc/calib_table.py` (new, about 400 lines, stdlib), `ecalc/README.md` (one row). Open: `--table` output for `archive:scripts_2026-10-23/refit_s48.py` and the ABBA stop rule on the adjusted CI not wired; `config` is `-` for all current logs (drivers should echo an `env:` line, else pass `--config`); xstats/wait columns not validated against T09 logs.
 
-## B05 - a faster calibration process (design; CPU + reading only)
-
-Task b05 (Wave B, 2026-10-11, main bc80001). Goal: calibrate time and memory of a full-size run with far fewer full runs. Sources: results/NODE_SLOWMODE.md §T05 (93 four-node runs) and §T09, results/CHECKPOINT.md §N13, the code, aac7 logs.
-
-Answer in five lines:
-1. The noise is explained by the run's own all-to-all rate. In the 63 clean 4-node T05 runs `total = 80.8 s + 1388 / r`, residual sd 1.6 s against 11.9 s raw (mod on m; fitted on S47 only it predicts S50/S51 with bias -0.9 s, sd 1.8 s out of sample). Every run carries information; no pairing is needed to cancel the mode.
-2. The cheapest gain is software: one parser (log -> row) plus the rate-adjusted estimator. The same 10 ABBA pairs (254 node-min at 4 nodes) give CI half-width about 1.6 s instead of ~17 s (mod).
-3. Per-run overhead is small: wall minus `total` is 6-7.5 s (m, 9 runs); init (30 s) is inside `total` (16 % of a 4-node run, m). Skipping eviction/verify/guard buys at most 3 %; a persistent process would buy 16 % but is a large, risky change.
-4. Memory needs no full run per point: `MN_PLAN_ONLY` + `BS_LAYOUT_ONLY` + `mem_model.py --check-c` predict the device layout exactly (335.6 GB planned vs 335.0 GB in use after init, t09 rank 0, m); one `ECALC_INIT_ONLY=1` run confirms it. Only host peak and pool-live peak need one full run per config.
-5. Restarting at the top tree set works in code but nets only 20-40 s per run (mod) and is untested at scale.
-
-Where a run's wall goes (4 nodes, 6.441e10 digits/node, fast mode, m): launch/teardown 6-7.5 s (3.5 %); init 29.8 s (16 %: VMM arena mapping 7-8 s per APU, plane pools 6.5-7.3 s, transport 2.3 s); bs 70.7 s (39 %); dm 76.8 s (42 %, reciprocal 22 s inside); dc + other 3-4 s; total 181.4 s (sd 1.4). Driver add-ons: eviction ~1 s (skip for no-write runs); MemAvailable guard is free (keep); the 20 s poll quantisation adds about 10 s per run (a, 0.7 node-min per 4-node run, 5 %), removable with `wait $pid`. A warm process (K configs per launch) would remove 36 s of 188 s (19 %, mod) but needs a re-entrant main and biases memory calibration; days of effort, high risk, not recommended.
-
-One calibration table: every run already prints what is needed (`total` line, `ECALC_INIT_TL=1` timeline, `COMM_XSTATS=1`, `MN_WAIT_STATS=1`, `comm_shmem` all-to-all rate, `budget:`, `mem[r]`, `live:`, memsample). t09 runs (stats on) average 183.2 s vs T05's stats-off fast mean 181.4 s (+1.8 s, n=6 vs 47, about 1.3 SE, not significant, up to ~2 s cost not excluded). Proposed default calibration line: `COMM_XSTATS=1 MN_WAIT_STATS=1 ECALC_INIT_TL=1 ECALC_LIVE=1 ECALC_MEM_SAMPLE=1`. Table columns: identity, wall and stage times, per-phase network rates, mode/chain/cold flags, memory peaks, derived adjusted stage times. Feed `archive:scripts_2026-10-23/refit_s48.py` through `--table` and use the measured rate as fixed input to its bw_apu search.
-
-Stage-targeted calibration by checkpoint restart (m in N13 at small sizes): `BS_CKPT_DIR` with `BS_CKPT_TREE_EVERY=64` writes the top tree set; a second launch with `BS_RESTART=1` and the same dir, node count and `MN_GROUPS` skips seeds and bs and runs reciprocal + division + output + VERIFY; a different node count or schedule is refused (rc 4/5). Digits identical at 1e8 and 1e9. At 2.576e11 digits the set is 57 GB per node (mod), saving bs + tree 70.7 s and paying a 36-52 s read at 1.1-1.6 GB/s (write rates from N13; read not measured) or about 12 s warm: net 20-35 s of 181 s (11-19 %, mod). Gaps: never run at scale; where to put 57 GB per node (aac7 `/tmp` is RAM, an 80 GB file there tripped the 6 GB MemAvailable guard; NFS home 0.1-0.3 GB/s; local NVMe unknown); P/Q come from the read path so memory figures are not representative; valid only for knobs acting after the tree (dm, Newton, output).
-
-Noise, T05 (93 four-node runs, 63 clean; slow share 29 %, 27 of 93, independent between runs; m): fast mode 181.4 s sd 1.42 (n=47); slow mode 208.3 s sd 1.80 (n=16); raw sd 11.9 s. Fits (mod): total a=80.8 b=1388 sd 1.61; bs a=46.3 b=337 sd 1.55; dm a=2.1 b=1030 sd 1.06 (97 % exchange-bound at these rates); out of sample bias -0.87 s sd 1.81; a fit from 6 random clean runs errs 1.5 s mean abs on the other 57. Runs needed for a single configuration's absolute time (mod): half-width 1 s needs 577 (ignore mode), 12 (fast only, 9 fast), 10 (rate-adjusted); 2 s needs 144, 3, 3. For A/B pairs: 1 s needs about 17 pairs fast-only or about 20 rate-adjusted; 2 s needs 4-5 pairs. Ten 4-node ABBA pairs (254 node-min) give about 1.6 s rate-adjusted (mod) against ~17 s measured (S47). Cautions: the covariate must not be moved by the arm (for dm-only arms use the bs-phase rate; bs x0.81-0.84 and dm x0.70-0.72 together in T09; for exchange-changing arms use a stand-alone probe, 30 s on 4 nodes = 2 node-min, which became C04); refit a, b after any code change (6 runs spanning both modes, 1.5 s); the chain spike (31 % of runs in some holds, +3-89 s) is outside the model, flag it; the first 1-2 runs of a hold have init 46-53 s.
-
-Real-size component benchmarks (mod): dm is exchange-bound, so the all-to-all at real message sizes predicts dm and 31 % of bs; `a4` at 5-10 min per node count is too slow as a proxy. A 30 s probe costs 2 node-min against 12.7 for a full run (6x cheaper) and predicts total only where a, b are already fitted; it cannot rank two switch settings alone. A `mn_core` dm-sized product benchmark (3 reps, 20 s each) would rank exchange parameters (a, unvalidated; about 60 node-min once; 1-2 days).
-
-Memory with zero or one full run (m, t09 rank 0, 4 nodes, 2.576e11 digits): device in use after init 335.0 GB (planes 103.1, regions 55.8, block pool 176.1); `budget:` peak 380.3 GB (device 335.6 + host 44.7) of 480 GB; host RSS 11.5 GB after init (HWM 29.0). Procedure: plan + layout check (0 node-min), `ECALC_INIT_ONLY=1` at boundary digits (about 30 s + launch, 0.6 node-min at 1 node, 2.5 at 4, mod), one shared full run per layout for host and pool-live peaks; a residual over 1 % flags a model error before a memory kill (rc 9).
-
-Ranked plan (calibration point = one config at one node count, CI about 2 s; baseline 10 ABBA pairs = 254 node-min with ~17 s CI):
-| rank | step | gain | effort / risk |
-|---|---|---|---|
-| 1 | `calib_table.py` with adjusted A/B stats and stop rule | CI 17 -> 1.6 s, or 2 s CI for 5 pairs = 127 node-min saved (mod) | one session / low (done as B07) |
-| 2 | stats switches in the default calibration line; poll fix | 0.7 node-min per 4-node run | 2 h / low |
-| 3 | memory by plan + init-only | 12.7 -> 0 or 2.5 node-min per layout | half a day / low |
-| 4 | environment probe before each run for exchange-changing arms | keeps rank 1 valid there; 2 node-min each | 1 day / medium (C04) |
-| 5 | top-set restart for dm sweeps | 1.4-2.3 node-min per run (11-19 %) | 1 day + trial / medium |
-| 6 | exchange-stage benchmark | 4 -> 0.3 node-min per candidate (a) | 1-2 days + 60 node-min / medium |
-| 7 | warm process | 2.4 node-min per run (19 %) | days / high |
-Rule of thumb after steps 1-4: a new setting costs 6 runs spanning both modes = 76 node-min at 4 nodes for time to about 2 s, memory included.
-
-Test speed, `tests/t_ntt 24` on one aac6 node (m, one 20-minute job): no variant finished in 150-300 s (`-c` unset/48/96/192, with and without `-n1`), so the question is not answered. Two findings: `srun -N1 --mem=0 --gpus=4` without `-n1` starts 4 tasks on this partition (four copies of every test; `mnaccept.sh`'s `R()` used that form, a candidate cause of slow tests; N13's regression passed 13 tests in 1263 s, so the explanation is partial); section 3 (convolution) of `t_ntt` stalls on that node even with one task, cause not found. Cheap next step (10 min): `-n1` with `-c` unset/48/96, `OMP_NUM_THREADS` 4/48, per-section timestamps, compared with a second node. Not done.
-
-## A04: mnaccept.sh fixes (branch a04, 2026-10-11)
-
-Changes in `ecalc/mnaccept.sh`: (1) TMP defaults to a shared per-job directory under the home session dir on a multi-node hold, node-local `/tmp` on 1 node (`MNACCEPT_TMP` overrides). (2) Reference dir: `ECALC_REF`, else the clone's `ref/` if it has the 1e9 file, else the home `ref` dirs; dangling `ref/e_*` links replaced. (3) `refneed`: an absent reference gives `FAIL <step>: reference missing: <file>` and skips the step (checked on a stub only, rc 1). (4) R/N steps get `--mem=0` (a default-memory step with `-c 192` was very slow or hung). (5) t_mn_grid uses `COMM_TRANSPORT=shmem` when `/opt/cray/pe/sma` exists; new `--skip-grid` / `MNACCEPT_SKIP_GRID=1` and step name `grid`.
-
-Tests (m): aac7 2-node `--skip-grid --only unit,e9`: 10 passed, 0 failed, 894 s, e9 identical; aac7 1-node same: 10 passed, 913 s; aac6 PPAC 1 node (old ref path): 10 passed, 1240 s; aac7 2-node `--only grid`: PASS t_mn_grid 2 procs, 200 checks, 126 s. aac7 sets `MNRUN_CPUS_PER_TASK=auto` (-c 192); with `--mem=0` unit steps ran fine, `t_ntt 24` alone takes about 5 min there. Verdict: done, merge (later results/TESTING_VERIF.md work builds on this script).
-
 ## A06 (N6): target_kit.sh hand-off items
 
 Branch a06 (from main 6d80ef1). Files: `ecalc/target_kit.sh`, `ecalc/README.md` (3 rows), `tools/initchk.py` (unchanged from branch a03). Rehearsal numbers are m on aac7, 2 nodes (`--site aac7`).
@@ -240,40 +148,3 @@ Rehearsal (m): build 39 s PASS (ROCm 7.2.4); env PASS; uffd PASS in 22 s (the sy
 Not done or open: crash/hang auto-capture; initchk with >= 3 nodes never run on a real kit log (a03 tested on 8 historical runs); not rehearsed: the 2-NIC a3 form (needs 8 NICs), 8-node a4, s2chk, `--spares` STOP path, plan REFUSED path. Blocking items for the hand-off are target-side (ROCm/module names, 8-NIC form, 576-node run, operator runbook), not kit code. Decision: whether the target launch line should name `RNS_DIST_CACHE_MN` explicitly (README documents only FIT=1 or MN=0).
 
 a12 merge note: stage a4 now runs with `RNS_DIST_CACHE_FIT=1` (the README's safe setting; the default costs +37.5 % at 1e10 on 2 processes, m earlier; matches the s2chk guard); digits unaffected. Correction: `MN_WAIT_STATS` exists in main (D3, comm_util.c); s2chk is merely not rehearsed.
-
-## S18KIT — `ecalc/target_kit.sh`: one script for the next target session (branch `s18-kit`)
-
-Purpose: the user has no time to read docs on the target. The script is self-contained (`-h` gives usage, time estimates and the one file to send back), runs each stage behind its own flag and timeout, never stops other stages when one fails, writes one `KIT_SUMMARY.txt` (logs under `logs/` are backup). It never uses `oshrun`: multi-process stages are Slurm-native `srun --ntasks ... --ntasks-per-node=1` (`mnrun.sh` for ecalc runs, direct `srun` for `t_edge`/`t_comm`). It sets `FI_UNIVERSE_SIZE` (max(4096, 4 x ntasks)) and `FI_LOG_LEVEL=warn` only if the caller has not (TGTBENCH2-proposed defaults, adopted for its own probe runs only).
-
-Stages (expected wall once the allocation is live; `--only`/`--skip`, `--nodes-a4`):
-| stage | nodes | expected | what it answers / runs |
-|---|---|---|---|
-| `env` | 1 | < 1 min | hostnames, ROCm version, modules, `fi_info -p cxi` domain count, Slurm geometry |
-| `build` | 0 | 3-10 min | `make SHMEM_CRAY=1` for `ecalc`, `t_comm`, `t_edge`, tools; target-generic module detection |
-| `edge` | 1, alone | 5-10 min | device-memory edge (`t_edge dev`/`vmm`), init footprint, VMM arena map rate per APU and per node, single-node 1e10 wall |
-| `a3` | 2 | 3-5 min | injection bandwidth with `comm_ofi`, 1 NIC/APU vs 2 NICs/APU (`COMM_OFI_NICS`), GB/s per node |
-| `a4` | 2, 8, 64 (skips what the allocation cannot hold) | 5-10 min per count | all-to-all rate with `MN_COMM_MARK=1`, VERIFY, wall |
-Full run with a 64-node allocation: roughly 30-55 min. A3 and A4 were the top uncertainties per results/TARGET.md §TGTBENCH2 §0.
-
-Validation (local/login, no job touched): `bash -n` OK; `shellcheck` not available; `-h` prints usage; `--dry-run --site aac7 --jobid <id>` prints every stage's commands and one DRY-RUN block per stage; node-count selection and per-count `mnrun.sh` lines (digits = n x 1e10) confirmed. The aac7 rehearsal was a `--dry-run` on the login node only (no srun against the busy hold); 64 nodes are not available on aac7, the dry-run prints the 64-node line unconditionally.
-
-Open items: the VMM map-rate unit (per APU-GB vs per node-GB, TGTBENCH2 Q5) is unsettled, so `edge` reports per-APU figures as printed and flags the per-node figure as a naive sum; `a4` does not request dragonfly placement (a `--switches=1@<time>` option for the call site if the admins confirm the syntax); the SMA/DSMML auto-detection is newest-wins (override with `TARGET_SMA_MODULE`/`TARGET_DSMML_MODULE`).
-
-Module handling (two bugs found by rehearsing, results/AAC7_PORT.md §V16):
-1. ROCm choice. The newest `rocm` module on aac7 (7.14.0) fails to link ecalc (7.12-7.14 and rocm-new/10.0.0 hit the same `-fPIC` device-link error; 7.2.4 is the newest that links). `stage_build` now tries `$TARGET_ROCM` alone if set; else `rocm/7.2.4`, `7.2.3`, `7.0.3` in that order, then any other version newest first; keeps the first that builds `ecalc`, `t_comm`, `t_edge` and tools; `make clean` between attempts; unloads any default `rocm/*` first (the V16 trap); every attempt is logged.
-2. Runtime stages never loaded modules. `stage_build` now writes `kit_modules.env` (`TARGET_ROCM`, `TARGET_SMA_MODULE`, `TARGET_DSMML_MODULE`, `TARGET_ROCM_UNLOAD`); `edge`, `a3`, `a4` source it (failing clearly if missing, so `--only edge` needs a prior build in the same `--out`), load the same modules inside their `srun` and record the runtime ROCm (`hipconfig --version`); `a4` also exports `MNRUN_MODULES`/`MNRUN_UNLOAD` to `mnrun.sh`.
-Validated on the aac7 login node (no srun): dry-run lists candidates `rocm/7.2.4 7.2.3 7.0.3 7.14.0 7.13.0 7.12.0`; a real `--only build` chose 7.2.4 on the first try and built all targets, matching V16.
-
-## S18KITFIX — three bugs in `ecalc/target_kit.sh`, found in the aac7 rehearsal, fixed and verified for real
-
-Branch `s18-kitfix` (fix commit `ef22f22`, merged to main by another process during validation). Code change: `ecalc/target_kit.sh` only. Numbers m.
-
-Bugs: (1) stage a3 (and the rehearsal driver's own `t_comm` sweep) ran `t_comm --bw` by bare `srun` with the SHMEM heap at the library default; every launch failed ("shmem_malloc of 8192 MiB failed: heap must be >= 8704 MiB"). (2) a4's summary for a later node count repeated an earlier count's lines because all counts appended to one shared log. (3) edge printed no VMM map-rate number: `dbig.c`'s "VMM arena ... s/GB" line is gated by `DB_POOL_VERBOSE` / `RNS_VERBOSE`, never set.
-
-Fixes: (1) a3 launches `t_comm` through `mnrun.sh` (its `<procs> <command...>` interface; the same way results/OFI_FABRIC.md §OFI17 and §TUNE17 launch it); `COMM_SHMEM_POOL_MB` = `2 x A3_THREADS x A3_MAXMB x nodes` MiB and `COMM_OFI_POOL_MB` = `2 x nodes x A3_MAXMB + 256`; `mnrun.sh` sizes the heap at pool + 512 MiB. (2) a4 writes `04_a4_n<n>.log` per node count and parses only that file (then concatenates into the combined log). (3) edge sets `DB_POOL_VERBOSE=1` for the 1e9 run and computes both forms from the per-APU lines: mean of per-APU s/GB ("per APU-GB") and sum(seconds)/sum(GB) ("per node-GB", a serialized-equivalent sum, not a parallel wall rate).
-
-Validation: `bash -n` clean; dry-run shows the a3 pool (`COMM_SHMEM_POOL_MB=4608 COMM_OFI_POOL_MB=1280` at defaults) via `mnrun.sh` and a distinct a4 log per n. Real runs on aac7 (job 12287, ROCm 7.2.4):
-- a3 PASS. With the kit's default 2-NIC form (`0,4;1,5;2,6;3,7`, the target's 8-NIC form) it correctly failed at the fabric (`fi_getinfo = -61`: aac7 has 4 NICs); with `0,1;1,2;2,3;3,0` (results/OFI_FABRIC.md §TUNE17 form A) it ran. GB/s per node at 256 MiB, both PEs: 1 NIC/APU 20.94 / 20.95; 2 NICs/APU 20.92 / 20.91. No gain from the 2-NIC form on aac7 (one NIC per APU, as TUNE17 found); its rate gain needs the target's real wiring.
-- edge PASS: `t_edge dev`/`vmm` 400.0 GB committed and touched (the cap); host RSS 7.5 GB after init (staging 4.3 GB pinned + device regions 11 GB; init 6.0 s); single-node 1e10 wall 25.43 s, VERIFY OK. Per-APU VMM arena map rate (s/GB): APU 0 0.227 (4.29 GB, 0.49 s), APU 1 0.263, APU 2 0.244, APU 3 0.283 (2.15 GB each). Per APU-GB form 0.2542 s/GB; per node-GB form 0.2039 s/GB (10.74 GB, 2.19 s summed). Both reported because TGTBENCH2 Q5 never settled which is the target figure.
-
-A fire-and-forget placement sweep (t_comm at 2/4/6/8/10 nodes, packed vs spread, 3 reps) was armed behind a gate on another driver's steps; the first reps saw a transient libfabric "Failed to allocate TGQ" / "Invalid resource domain" (cxi domain cleanup lag after back-to-back launches), recorded as rc 3 / NA. The sweep ran while Phase 2 used the same hold and is not used; the sweep of record is RESULTS §117, and the collision it caused is RESULTS §118 (coordinator note 2026-10-07).

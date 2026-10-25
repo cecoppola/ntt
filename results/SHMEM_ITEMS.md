@@ -1,6 +1,8 @@
 # SHMEM_ITEMS — the SHMEM fallback transport: pool sizing and strided PE sets
 
-Scope: per-item records of the OpenSHMEM transport `COMM_TRANSPORT=shmem` (`ecalc/comm_shmem.c`): the design and portability contract (§S, §S12), the symmetric pool and its sizing law (§P214, §V114, §SHM). The proxy-mode records (§N7, §MEAS-N7, §N7B-§N7G) were archived 2026-10-23 (`archive:results_merged_2026-10-23/SHMEM_ITEMS_full.md`); the summary of that work is `results/SHMEM.md`. Condensed from the former per-item files (old IDs resolve through `results/INDEX.md`); raw data and drivers in `archive:results_raw_2026-10-19/`. Labels: m = measured, mod = modelled, a = assumed.
+Scope: per-item records of the OpenSHMEM transport `COMM_TRANSPORT=shmem` (`ecalc/comm_shmem.c`): the design and portability contract (§S, §S12), the symmetric pool and its sizing law (§P214, §V114, §SHM). The proxy-mode records (§N7, §MEAS-N7, §N7B-§N7G) were archived 2026-10-23 (`archive:results_merged_2026-10-23/SHMEM_ITEMS_full.md`); the summary of that work is `results/SHMEM.md`. Condensed from the former per-item files (old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`); raw data and drivers in `archive:results_raw_2026-10-19/`. Labels: m = measured, mod = modelled, a = assumed.
+
+Sections moved to `archive:results_merged_2026-10-24/SHMEM_ITEMS.md` (2026-10-24 cleanup): §S; §S12; §SHM.
 
 ## Topic summary
 
@@ -14,106 +16,6 @@ Scope: per-item records of the OpenSHMEM transport `COMM_TRANSPORT=shmem` (`ecal
 | P214 | the SHMEM pool: measured, modelled, sized (PLAN §33 A2, TASKS 2.4, TARGET_TASKS T0) |
 | V114 | the SHMEM pool by default, and the exchanges in rounds (Phase 14 agent V1) |
 | SHM | the SHMEM pool under `COMM_OFI=0` is too small at 6 nodes (bug A of NIGHT) |
-
-## §S — the SHMEM transport (M8-s), strided PE sets per tree level, the dragonfly third layer (2026-09-20)
-
-Branch `s11` (from `main` @ 72aa2e9), PLAN agent S. New `ecalc/comm_shmem.c`; additive changes in `comm.h`, `mn.c`
-(communicator creation, `MN_TOPO_GROUP`), `mnrun.sh`, `Makefile` (`SHMEM=1`), `tests/t_comm.c`, `tests/t_dist.c`;
-`comm_layered.c` got the intra-minor form for the third layer. Size 1 untouched (`shmem_init` is only called under
-`COMM_TRANSPORT=shmem`).
-
-**Transport.** `COMM_TRANSPORT=shmem` (default stays TCP), one PE per node-process. OpenSHMEM 1.4 subset only:
-`shmem_init_thread`, `shmem_malloc`/`free`, `barrier_all` (the only collective), `ctx_create/destroy`,
-`ctx_putmem_nbi` (every data transfer), `ctx_long_p` (signal, count, offset words), `ctx_fence`/`ctx_quiet`,
-`long_wait_until`/`long_test`. Not used: `put_signal` (1.5), teams, library reductions (process-level collectives cannot
-be driven by four threads).
-- *Memory*: one symmetric pool (`COMM_SHMEM_POOL_MB`, default 8192; heap 512 MiB above it): a mailbox table `[1024 ids][PEs]`
-  plus a per-PE first-fit allocator. Offsets are always chosen and published by the **receiver**, so allocators run
-  locally. On aac6 (OSHMEM host heap) the pool is `hipHostRegister`ed (H2D/D2H DMA 57 GB/s m); `COMM_SHMEM_DEVHEAP=1`
-  skips registration (device heaps).
-- *Push model*: per peer `roff` (receiver's published offset, `seq<<40|offset`), `sig`, `cnt`, tiny-exchange `val/vseq`
-  (two parities), rings (`COMM_SHMEM_RING_KB`, 256) for point-to-point. `alltoall` stages D2H, publishes `roff`, a helper
-  thread waits for each peer's `roff`, puts, quiets, signals; returns after the staging copy (slab pipeline needs that);
-  `wait()` polls `sig >= seq`, checks `cnt`, H2D. `alltoallv`/`allgather` use the same words; barrier/`allreduce` are a
-  tiny all-to-all of 8-byte values (parity double-buffer).
-- *Sub-communicators* are strided PE sets `{start + stride*r}` (`comm_shmem_create_at`) with a run-unique id (mailbox row);
-  `mn.c` ids: base meshes 0-3, level meshes `NA + NA*slot + d`.
-- *Threads*: `SHM_LOCK` no-op with real `THREAD_MULTIPLE` and `COMM_SHMEM_SERIAL=0`; default serial (one mutex, polled
-  `long_test`) because OSHMEM 4.1.6 reports MULTIPLE but four threads in `long_wait_until` crash in
-  `spml_ucx_ctx_progress`. Lock cost not measurable on aac6.
-- *`mnrun.sh`*: `srun --mpi=pmix`, `setarch x86_64 -L`, heap = pool + 512 MiB, `OMPI_MCA_memheap_base_max_segments=64`;
-  TCP port base moved to 20000-26000 (ephemeral range 32768+ collided once in ~4 runs at 8 processes).
-
-**Third layer (`MN_TOPO_GROUP=T`).** `comm_layered_create_minor`: layered communicator for any intra size in intra-minor
-rank order (node = T*a + b): three-layer all-to-all = APU (xGMI) x node-in-group x group, one aggregated message per peer
-group on the global links; `mn.c` builds `tr[d]` this way when T divides the group's transform-node count and `gt > T`.
-
-**OSHMEM traps found (probes, not in tree).** (1) `shmem_init` crashed in `mca_memheap_modex_recv_all` about half the time:
-the static memheap registers every `rw-p` mapping below `_end` and counts differ per PE; `setarch -L` gives 4 segments on
-every PE (20/20 clean inits m). (2) `ctx_fence` does not order an nbi put before a later put to the same PE (receiver saw
-0.5-2.6 MB of a 3 MB slab m); transport orders by `quiet` (`COMM_SHMEM_FENCE=1` for conforming libraries). (3) four threads
-in `wait_until` SIGSEGV; mutex plus polled `test` is clean. (4) A context created after another was destroyed lost puts:
-default context under the lock. (5) `srun --mpi=pmix` works with OSHMEM, pmi2 does not. Also: `hipcc` link needs
-`-lopen-rte -lopen-pal`; TCP port base below 32768; a communicator id may be used once per run.
-
-**Tests (aac6, m).** `t_comm` at 2/4/8 PEs VERIFY OK; `t_dist 24` x4 (54 checks); layered at 2/3/4 and 8 (plain and
-three-layer) OK; `ecalc` 1e8 at sizes 2/3/4 identical (15.6/17.5/16.7 s), 1e9 at 2/4 identical (43.4/42.9 s). Regression
-`COMM_TRANSPORT=shmem ./mnaccept.sh` at 8441d38: **16 passed, 0 failed** (e9 size 1 15.7/25.7 s; mn 1e8 at 2/3/4 22.4/19.3/18.5 s,
-1e9 at 2/4 43.9/43.8 s; ckpt restart identical). An earlier pass at d8949bf had e9 size 1 failing (`mn_init` called
-`shmem_init` for a single process); fixed in 8441d38.
-
-**Open at the time.** 2-3 real nodes not exercised (nodes taken); staging copies every slab through the pool (target:
-callers' slabs in the pool); `COMM_SHMEM_SERIAL=0` and device heap had no library here to test on; L's `MN_GROUPS`
-schedule plugs in at `mn_group_at`. Follow-ups are in §S12.
-
-## §S12 — the SHMEM transport's target forms, tested for real on Sandia OpenSHMEM (2026-09-21)
-
-Branch `s12` (from `main` @ 7aded87). Files: `comm_shmem.c`, `comm.h` (two ops, two inlines, one query), `Makefile`
-(`SHMEM_HOME=`), `mnrun.sh` (SOS launch), `ntt_dist.c` (slab allocation), `tests/t_comm.c`; minimal edits to `comm_layered.c`.
-
-**Sandia OpenSHMEM (SOS) 1.5.3 on aac6**, built against libfabric 1.20.1 (tcp, sockets, shm, rxm, udp, rxd providers), simple
-PMI (`srun --mpi=pmi2`), `FI_PROVIDER=sockets` (the `tcp` provider is rejected by SOS's fabric query; sockets is
-correctness-only). SOS provides real `THREAD_MULTIPLE`, contexts, `putmem_signal_nbi`: the three things OSHMEM 4.1.6 lacked.
-A local patch (`SHMEMX_EXTERNAL_HEAP_HOST`, `-DUSE_EXT_HEAP_HOST`, `--enable-ofi-mr=basic`) registers a HIP fine-grained device
-buffer (`hipExtMallocWithFlags`; or managed with `COMM_SHMEM_DEVHEAP=2`) as the symmetric heap: the target's form
-(`shmem_malloc` returns device memory) exercised end to end.
-
-**Target forms (`comm_shmem.c`), what changed from §S:**
-
-| switch | now |
-|---|---|
-| `COMM_SHMEM_SERIAL` | 0 by default when the library provides MULTIPLE (OSHMEM stays 1): a context per communicator, no lock |
-| `COMM_SHMEM_ORDER` | `putsig` default on 1.5 headers (`ctx_putmem_signal_nbi`); `fence` (1.4); `quiet` (OSHMEM form) |
-| puts | inline: caller polls each peer's `roff` for at most `COMM_SHMEM_SPIN_US` (2000), a helper thread only for peers not ready; `COMM_SHMEM_THREAD=1` forces the thread |
-| `COMM_SHMEM_DEVHEAP` | 1 = the pool is a HIP device buffer (SOS external heap), 2 = managed, 0 = host `shmem_malloc` |
-| `comm_sym_alloc` | callers' buffers in the pool: no staging, no copy (`DIST_SYM_SLABS=0` / `COMM_SHMEM_NOSYM=1` restore staging) |
-| staging | per exchange, released at completion (`COMM_SHMEM_KEEP_STAGING=1` restores per-communicator staging) |
-
-The signal word carries the count: `sig = seq<<40 | count` (sequences bounded 2^23 per communicator). One bug the target form
-exposed (1e8 at size 4, meshes 1 and 2 wrong): with a pool-resident receive buffer the receiver must not publish offsets
-before its **own stream** is done with the buffer (the GPU lags the host by whole passes); fixed by a stream sync before
-publication. Portability contract (Cray OpenSHMEMX / rocSHMEM): all 1.4 calls above plus `shmem_ctx_putmem_signal_nbi`
-(1.5; rocSHMEM host API unverified, `COMM_SHMEM_ORDER=fence` is the one-switch fallback). `mnrun.sh` picks SOS or OSHMEM from
-`ldd` (`COMM_SHMEM_IMPL=` overrides).
-
-**Tests (aac6, m).** `t_comm` SOS at 2/4/8 OK and every other mode at 8 PEs (fence, quiet, thread, serial, spin 0, nosym) 8/8 OK;
-OSHMEM `t_comm` OK with the quiet default, **`COMM_SHMEM_ORDER=fence` on OSHMEM: VERIFY FAILED on every PE** (the §S trap
-reconfirmed). `t_dist` and layered at 2/3/4/8 OK on SOS (host and device heap) and OSHMEM (T=4 on OSHMEM needs the 8 GiB pool).
-`ecalc` 1e8 at 2/3/4 on SOS 10.1/12.9/11.5 s (host heap), 9.0/10.3/11.3 s (device heap, **identical**, VmHWM 17.4 GB against
-26 GB with the host pool); 1e9 at 2/4 identical, 39.9/41.3 s (host), 37.8/41.4 s (device). Regression over SOS (job 20883):
-**16 passed, 0 failed**, 1607 s; the `mn` step with `COMM_SHMEM_DEVHEAP=1` 5/5 identical.
-
-**Pool memory per PE (m, PE 0, SOS one node).** 1e8 size 4: control 6 MiB, staging 42, symmetric 64, peak 68 MiB; 1e9 size 4:
-staging 423, peak 429 MiB; with `NOSYM=1 KEEP_STAGING=1` (Phase 11 form) staging 627, peak 633 MiB. Control blocks are
-`8 words*n + n*256 KiB ring` per communicator (`COMM_SHMEM_RING_KB` is the knob). The tree's exchanges in `ecalc` were still
-staged: `rns_dist.c` hands the layered communicator pool-1 slabs; the one-line change (`sl = comm_sym_alloc(...)`) was left to
-the integrator, and §P214 §3 measured it and kept it off.
-
-**Third layer (m, `t_dist 26` layered at 8 PEs):** SOS 2.20-2.22 s (two layers) vs 2.55-2.58 s (T=4); OSHMEM 2.13-2.18 vs
-2.58-2.61 s: on one node the third layer costs 16-20 %. It stays behind its switch (off), in case the target's per-message cost
-is 10x the assumption.
-
-**Open then.** Two real nodes over SHMEM not run (never two idle nodes; done in §P214); rocSHMEM host put-with-signal unverified.
 
 ## §P214 — the SHMEM pool: measured, modelled, sized (PLAN §33 A2, TASKS 2.4, TARGET_TASKS T0)
 
@@ -225,20 +127,3 @@ switch 434.3). Plan `MN_PLAN_ONLY` 4.25e13:576: 43008 -> 9472 MiB. **Recommended
 (2) `t_bs` segfault (rc 139, "P, Q vs the GMP-free reference recursion") in `mnaccept --only unit,e9,mn` on b4: same on the
 integrator's `ntt-def14` and V2's branch, so it predates V1 (Phase 14 defaults). (3) The rounds' law is an upper bound (side =
 (g-1)/g of the whole, bounded by m), exact at measured points. (4) The 1e11 reference did not exist; 1e9/1e10 references used.
-
-## §SHM — the SHMEM pool under `COMM_OFI=0` is too small at 6 nodes (bug A of NIGHT)
-
-Question: why does a 6-node 1e10 run with `COMM_OFI=0` stop after init on every rank with rc 3 ("the symmetric pool (2816 MiB) cannot hold 87 MiB more (in use 372 MiB:
-control 24, staging 0, symmetric buffers 348)", `archive:results_merged_2026-10-23/NIGHT_RUNS.md` §NIGHT failure A) while 2 nodes pass? Branch `shm` (c5aae92c, 30891e2b), no new switch (model output only);
-merged to main 2026-10-13.
-**Cause.** `comm_shmem` cuts the pool into four per-APU staging regions at its end (§V114) plus a general area in front; v-slots (`comm_sym_alloc`) come from the general area
-only; the pool rule still used M3's `max(4 x staging, 4 x slots)` (results/GRID_GROUPS.md §C06), which no longer holds with separate regions, leaving the general area at control +
-mailbox + 256 MiB margin. At 6 nodes, 1e10 (m): pool 2816 = 4 x 591 + 452 MiB general; 8 slots of 87 MiB + 24 MiB control need 720 MiB. It hits every node count with a cut group
-(3, 5, 6, ..., 576); at 2 and 4 nodes there are no v-slots. `mnrun.sh` was right (it passes `COMM_OFI=0` to the planner).
-**Fix.** `binsplit_shmem_pool_need` adds the v-slots (`sym += 4 x vsp`) under `COMM_OFI=0` also with `COMM_LAYER_VSLOT_RELEASE=1`; `plan pool` names the slots; `mem_model.shmem_pool` the same; README `COMM_LAYER_VSLOT_RELEASE` row: the
-"larger, not the sum" rule holds under `COMM_OFI` only.
-**Results.** Pool per node-process (mod, MiB, base -> fix): 1e10 2 nodes 4608 -> 4608; 4 nodes 3584 -> 3584; 6 nodes 2816 -> **3328** (v-slots 688 = 4 x 172); 3.82e13 on 576 (target template)
-10240 -> **17664** (v-slots 7312 = 4 x 1828; +7.25 GiB per node; plan check OK, 1240 products); `COMM_OFI=1` 512 (2304 at the target). Runs (m, aac7, 1e10, `COMM_OFI=0`): base at 6 nodes rc 3
-(reproduces NIGHT); fix at 6 / 4 / 2 nodes rc 0, VERIFY OK, digits identical (40.28 / 39.20 / 47.66 s, single runs, no timing claim); `gate.sh --build --nodes 2` and `--nodes 1` PASS identical.
-**Verdict.** Fixed. **Open.** The slots and staging no longer share space (+7.25 GiB host per node at the target, mod); restoring M3's sharing needs a thread's slots to use its own staging region (behaviour
-change behind a switch, not done); model control 14 MiB vs measured 24 MiB at 6 nodes (the margin covers it); 3 and 5 nodes (cut groups) not run.

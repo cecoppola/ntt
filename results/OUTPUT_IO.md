@@ -1,6 +1,8 @@
 # OUTPUT_IO — output
 
-Scope: output: streamed chunks, 60-bit packed digits, write scheduling on a network file system, the correction patch, spill and I/O. Each section below condenses the former `results/<ID>.md` (old IDs resolve through `results/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`; unabridged text: `archive:results_merged_2026-10-19/`. Times Eastern; numbers are measured unless marked modelled (mod) or assumed (a).
+Scope: output: streamed chunks, 60-bit packed digits, write scheduling on a network file system, the correction patch, spill and I/O. Each section below condenses the former `results/<ID>.md` (old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`; unabridged text: `archive:results_merged_2026-10-19/`. Times Eastern; numbers are measured unless marked modelled (mod) or assumed (a).
+
+Sections moved to `archive:results_merged_2026-10-24/OUTPUT_IO.md` (2026-10-24 cleanup): §A-out; §C05; §IO215; §S114.
 
 | item | title |
 |---|---|
@@ -21,34 +23,6 @@ Scope: output: streamed chunks, 60-bit packed digits, write scheduling on a netw
 - **Fixed defects.** §KP15: the K patch aimed ASCII byte offsets at the packed file (VERIFY FAILED with the uncorrected digits on any correction after the writer started); fixed by a packed-form patch plus `t2_defer` in the packed writer; `mnaccept` has a `corr` step and `t_patch` in `unit`.
 - **Unmeasured / open.** Everything about Lustre (O_DIRECT rate, aggregate at 64 / 576 nodes, stripes, waves; TARGET §6 item 5); more than 2-4 nodes for the packed multi-node writer beyond aac7's 4-node 10^10 check; corrections spanning several limbs end to end (only unit tests); a mode with forced correction under `ECALC_OUT_MODE`.
 - **Superseded.** §IO15's packed v1 default (`=1`) is superseded by v2; §O4's "pending" state is closed by its section 4 (and 4.1).
-
-## §A-out — per-node output streamed in chunks, rank-local T1/T2 (Phase 9, PLAN §19: M5 + C1)
-
-Branch `a-out` (from main a75474d). Files: `verify.c/.h`, new `mn_out.c/.h`, the output tail of `ecalc.c`, `tests/t_out.c`.
-
-**Design.** X < 10^(d+1) in base 10^18 has nl = ceil((d+1)/18) limbs; digits are limbs from the top, 18 each, leading `pad` zeros dropped. A node with limbs [lo, lo+cnt) holds digits [k0, k1). `mn_out_run` formats top-down in chunks of `MN_OUT_CHUNK_MB`: fetch limbs (host pointer, or `hipMemcpy` per quarter of the device share into a pinned buffer), format (OpenMP), residue-check, T2-window, and hand to a writer thread that `pwrite`s (8 segments) while the next chunk formats (two buffers). Peak per node: two chunk buffers plus the limb buffer, about 0.75 GB instead of 40 GB at 4 x 10^10.
-- **Part files:** `<outfile>.part<k>`, k = size-1-rank, four digits; part 0000 carries "2." and the leading digits, the last part the newline; the trailing d - d_out computed digits are formatted but not written; size 1 writes `<outfile>` itself. `cat` of the parts is byte-identical to the single file.
-- **Digit residue (T1 `digits == X mod q`):** per chunk `vf_digits_mods` (eight primes in one pass), Horner over chunks (`vf_digits_join`), all-gathered and joined top node first. **T2 windows** are checked by the piece the window ends in (`tier2_range`), with the previous 49 digits as `head` (inside a node: the last chunk; at a node's first chunk: tails of the nodes above, `mn_out_boundaries`). **T1 rank-local:** `vf_pq_range_mod` over each node's own range in the background thread after its seeds; `mn_out_pq_combine` joins (P_r, Q_r) in node order (P = P_A Q_B + P_B, Q = Q_A Q_B); X's residues per share by the device kernel (`db_mod_qs`) placed with `vf_shift_res` and summed; each node runs the full T1 identity and prints its own lines, node 0 adds "mn: all n nodes: VERIFY OK".
-- **`out_stage`** runs at the end of the dm flow on node 0 and right after the gather on others. `total` is printed after T1, before the writer is joined (as before, when the `fwrite` came after `total`). Formatting compute about 8 s at 4 x 10^10 (residues 2.8, format 2.2, digit residue 3.1) hides under the low product. `mn_out_scatter_standin` scatters node 0's host X as a stand-in for A-div's sharded X (two `HOOK A-div` comments say what plugs in).
-
-**Tests** (job 20726, `aout_test.sh`; every run VERIFY OK on every node; `cmp` against the reference or the `cat` of the parts): `t_out` 2860 host checks, 0 failures; `t_verify` 334 checks; 10^8 and 10^9 at sizes 1 / 2 / 3 / 4 identical (also `ECALC_OVERLAP=0`, `MN_OUT_CHUNK_MB=8`, `MN_COMBINE=host`, `LIMB_BASE=2` at 10^7); 10^8 / 10^9 on 2 real nodes identical (10.7 s / 50.5 s, 1 GbE). **4 x 10^10, size 1, output on NFS:** identical, VERIFY OK, 8 windows, peak host **48.7 GB** (was 70.8); with the writer joined before T1 (first version) total 116.5 s with T1 waiting 23.1 s, the 40 GB going into the NFS client cache at 1.4 GB/s and `close` flushing it for 339 s. **On the node NVMe:** identical, **total 95.2 s** (bs 43.3, dm 33.2; init 18.7), writer thread 77.9 s (0.5 GB/s, page cache throttled to the disk; `dd` gets 1.3 GB/s). VmHWM 48.7 GB is now the bs phase (47.4 GB), no longer the output.
-
-**Open issues.** The file write on aac6 cannot hide (40 GB at 0.5-1.4 GB/s = 30-80 s against a ~10 s low product); `total` stops before the join and dc reports the wait; wall with the write about 175 s on a local disk; omit `<outfile>` when no file is needed. Three real nodes not idle together (3 processes on one node cover the non-power-of-two logic). The A-div hooks: X's share from `Xm.sh` with `mdb_share`, per-share P/Q/R residues; with the device X the size-1 writer could drop the 17.8 GB host X. `ECALC_OVERLAP=0` at size 1 formats and writes after `total`.
-
-## §C05 — M5, the 60-bit packed digit output (`ECALC_OUT_PACKED=2`)
-
-Session 2026-10-11c, branch `c05` (from origin/main bc80001). aac6 SH5 CPX node, one APU, NFS, O_DIRECT writer unless noted.
-
-**Result: SUCCESS.** Behind `ECALC_OUT_PACKED=2` (made the default on 2026-10-12, §O4). Digits byte-identical in all tests.
-- **Bytes -6.25 % exactly** (7.5 B per 18 digits): 4e9 digits 1 777 782 789 B -> 1 666 671 677 B on disk (ratio 0.93750, with header and the 886-byte `.t1` sidecar); 1e9: 444 449 443 -> 416 671 665 B.
-- **Write time at 4e9, single node (NFS ~0.11 GB/s): packed v1 15.80 s -> v2 14.80 s; paired ABBA, 5 rounds, v2 - v1 = -1.00 s, 95 % CI +-0.33 s (t, df 4), every round negative** (-0.60, -1.08, -1.11, -0.94, -1.30); the wait in `dc` moves by -0.98 +-0.27 s; format time unchanged (-0.002 +-0.022 s); total wall -0.04 +-0.39 s (not significant: the write is overlapped at one node). The saving is proportional to bytes: 0.111 GB in 1.00 s = 0.111 GB/s = the NFS rate.
-- **Model at 576 nodes (mod; rate assumed 0.6-0.8 GB/s):** 5.276e13 digits (9.160e10 per node): v1 40.71 GB, v2 38.17 GB, 2.54 GB saved = 4.2 s at 0.6, 3.2 s at 0.8, 2.5 s at 1.0 GB/s; 5.167e13: 2.49 GB saved (4.2 / 3.1 / 2.5 s). PLAN §38.4's "about -4 s" is the 0.6-0.65 GB/s end. All parts: 23.4 TB -> 22.0 TB.
-
-**Design.** `packed_fmt.h` version 2 = the same 4096-byte header (`reserved0` = 60), then limbs (file order, most significant first, each < 2^60) as a little-endian 60-bit stream: 15 bytes per pair (`a | b<<60`, then `b>>4`), a last odd limb 8 bytes; `ecp60_bytes(n) = 15 (n/2) + 8 (n&1)`; pairs are byte-aligned so a part of any limb count is self-contained. `mn_out.c`: `out_packed()` returns 0/1/2; the writer packs after the reversal; residues, T2 windows and tails read the limbs unchanged (same checks as v1); `packed_patch` and RECHECK read both versions. `tools/unpack_digits.c` reads v1 and v2 (`-o`, `--cmp`, `-n`, subsets, residue check). README row extended.
-
-**Tests (all pass).** `tools/test_pack60` (round trip n = 0..70, extremes, 3000 random chunked streams); `tools/test_unpack.py` (8 shapes x {v1, v2} + 2 tiny, parts at odd/even edges, corruption -> residue failure); 1e8 formats 0/1/2, 1e9 formats 0/1/1/2/2 and odd writer chunks (`MN_OUT_CHUNK_MB=1,5,7`) identical, VERIFY OK; 511461828 with `ECALC_CORR_PATCH=1 ECALC_TEST_CORR=14` identical in formats 1 and 2; RECHECK OK on 1e8 in all formats; 4e9 formats 1 and 2 x 10 runs identical to the ASCII run of the same build (no independent 4e9 reference; prefix matches the 1e9 reference). Drivers: `archive:drivers/c05/`.
-
-**aac7 multi-node check (queued 2026-10-11; collected 2026-10-11 21:10, items 46 and 73, 2 nodes, build 5248c31).** 1e9 formats 2 and 1: 3 x VERIFY OK each, `digcmp` identical, RECHECK OK; total 28.9 s (f2) / 29.5 s (f1). 1e10 formats 2 and 1: identical to the reference; 4 166 679 852 B packed-2 vs 4 444 457 630 B packed-1 (-6.25 %); total 65.2 / 62.5 s (single runs, no timing claim); writer 25.1 / 26.6 s. Patch at size 2 (`ECALC_CORR_PATCH=1 ECALC_TEST_CORR=36`, 108 388 422 digits): item 46's DIFFERS was a harness error (format-0 output is `out.c_f0.part000N`); item 73 with the f0 parts concatenated: **f1 and f2 identical to f0, RECHECK OK on both nodes, 2 x "redoing the part file"**. The multi-node gap is closed for 2 nodes; untested: more than 2 nodes and the target write rate. Open: adoption changes the on-disk format (readers of `ECPACK18` version 1 only must be updated; headers carry version 2); the target rate (0.6-0.8 GB/s prior) decides the 2.5-4.2 s saving; reader cost not timed separately (4e9 compare about 5 s for both versions).
 
 ## §O4 — packed output adoption path, write rate and round trip
 
@@ -125,14 +99,6 @@ PLAN §36.4 row 1f, branch `p15-IO` from int15 0b80ca3. Every switch off by defa
 
 **6. Open issues.** Everything about Lustre is unmeasured (TARGET §6 item 5 (a)-(d); `tools/wbench` measures (a) and (b) without a GPU). Corrections rewrite the file (size 1 always; size > 1 with `MN_OUT_EARLY`; doubled the write at 10^11 on NFS; replaced by §KP15's patch). `MN_OUT_EARLY` holds about 0.9 GB of host buffers (about 0.2 % of 480 GB; `MN_OUT_CHUNK_MB=64` quarters it). (`MN_OUT_WAVES` was removed 2026-10-20.) The packed file has no per-chunk checksum beyond the part residues (a flipped bit is found, not located). Minimal edits outside the IO files: `verify.c`, `newton_db.c` / `newton.h`, `ecalc.c`.
 
-## §IO215 — per-part conversion of the packed digit files
-
-Branch `p15-IO2` from int15b c2aedc2. **Problem:** `tools/unpack_digits` refused a single part, so the target's ASCII file needed one stream over all 576 parts (42.5 TB through one node, about 20 h at 0.6 GB/s, mod). **Change** (`tools/unpack_digits.c`, be2723d): any **consecutive subset** of a run's parts is accepted (a gap is refused, rc 2); the output is exactly the subset's byte range of the ASCII file ("2." only from part 0, the newline only from the last part), so **`cat` of the per-part outputs in part order is the exact file**; the per-part residue check is unchanged; `--cmp <ref>` with a subset seeks to the subset's first byte. TARGET §7 and the README row updated (per-node conversion with `srun -N576 --ntasks-per-node=1`, then `cat`).
-
-**Tests.** Host `tools/test_unpack.py` PASS (1-7 parts alone, `cat` == file, `--cmp` alone, one changed byte differs in exactly one part, non-consecutive refused). Node (job 21592, binary be2723d): size 2 and size 4 at 10^9, each part alone, `cat` **IDENTICAL**, per-part `--cmp` identical to the right byte ranges; size 2 at 10^10 `cat | sha1sum` = 3fc02547... = `e_1e10.out`'s (one part 8.46 s, both in parallel 10.25 s); size 1 at 10^11: VERIFY OK, total 196.88 s, 44.44 GB written in 25.25 s, `unpack_digits f | sha1sum` = **578f5efb...** (72.6 s), `-o` 173.4 s.
-
-**Per-part rate (local NVMe):** one 5 GB part to a file 0.59 GB/s; two at once 0.98 GB/s together; 10^11 to a pipe 1.38 GB/s (sha1sum's rate); to a file 0.58 GB/s (the disk's write rate; converter's own work 2.5 s format + 4.4 s residues per 10^11 digits). **At the target (mod):** each node converts its 73.8 GB part at 0.6-0.8 GB/s: **92-123 s per node, all 576 in parallel** (about 2 min instead of about 20 h) if the aggregate carries 576 writers; a per-part `--cmp` reads 32.8 + 73.8 GB per node (about 2-2.5 min at 0.8 GB/s). Open: the aggregate rate for 576 concurrent converters is unmeasured.
-
 ## §KP15 — the correction patch on packed output (a defect on main, B2 44c1642)
 
 Agent KP, branch `p15-KP` from main 44c1642; aac6.
@@ -148,32 +114,3 @@ Agent KP, branch `p15-KP` from main 44c1642; aac6.
 - *Standard sizes on defaults (job 21775):* 4 x 10^10 size 1: identical to `e_4e10.out`, total 61.23 s; 10^11: identical to `e_1e11.out`, 215.26 s; both 0 corrections (patch not exercised; covered above).
 
 **4. Open issues.** End-to-end chains are one limb long (chains across limbs, chunks, parts only in unit tests); a crash between the limb write and the header write leaves limbs corrected but residues not, which cannot pass silently (`unpack_digits` residue check rc 1); `ECALC_OUT_MODE=direct|buffered|sync|drop` with a forced correction not run; mnaccept `ckpt`, `full`, `stress` not run; no timing study. Done: merge `p15-KP`; the fix is on the default path.
-
-## §S114 — spill and I/O: E1, E3, E4, E12 of the internal apumult study (Phase 14, S1)
-
-Branch `p14-S1` from main ae1d872; aac6. Every new behavior behind a switch, off by default (only always-on change: the background writer's and fallback checkpoint buffers come from `posix_memalign`).
-
-**Design.**
-- *E1 live column* (`ECALC_LIVE=1` or `ECALC_VERBOSE=2`, `memsample.c`): one `live:` line per bs level, tree level (size > 1), Newton doubling and division end: per APU the block pool's live bytes, the window peak since the previous line (`g_win_peak` in `dbig.c`), pool size, peak share, MemAvailable / Cached.
-- *E3 `ECALC_ODIRECT=1`* (`sp_file` in `spill.c`): sequential file through 4 KiB-aligned buffers with a < 4 KiB carry; `spf_close` pads the last block, `ftruncate`s, `fsync`s; device memory through pinned buffers with `hipMemcpyAsync` on the file's own stream, double-buffered; falls back to buffered + `fsync` + DONTNEED if O_DIRECT is refused (tmpfs). Used by the checkpoint writer (level sets, tree sets, top set, background writer with its cancel contract), the output file writer (`ECALC_OUT_ODIRECT=0` keeps it buffered), the recheck read (DONTNEED), the binary-base output (`fsync` + DONTNEED), and `mnaccept.sh cmpref` (`dd iflag=direct`).
-- *E4 spill primitive* (`spill.h`): `spill_start / _done / _wait / _restore / _drop / spill_prealloc`; limbs [lo, hi) split by quarter, four threads, each through two pinned 256 MiB bounce buffers (`SPILL_CHUNK_MB`) with O_DIRECT into `<dir>/<name>.<pid>.<seq>.q<d>`; `SPILL_FREE` returns the blocks in `spill_wait` (caller's thread, so the pool layout stays deterministic); a per-APU mutex serializes two spills.
-- *E12 memory sampler* (`ECALC_MEM_SAMPLE=<s>`, `ECALC_MEM_SAMPLE_FILE`): a thread started before `rns_init`, one line per period (RSS, MemFree, MemAvailable, Cached, Dirty, Writeback, pool live per APU) from `/proc/meminfo` (sees the page cache; `hipMemGetInfo` does not), summary at exit.
-- Files: `spill.c/.h`, `memsample.c/.h`, `tests/t_spill.c`, `s14_batch.sh`, `binsplit.c` (checkpoint I/O + one live line), `mn_out.c`, `ecalc.c`, `mnaccept.sh`; minimal edits in `dbig.c/.h`, `newton_db.c`, `mn.c`.
-
-**Tests (node batch job 21130; aac6 s24-30).** `t_spill` VERIFY OK (70 checks) at 1, 8, 32 GiB; `sp_file` carry logic identical on the login node; `cmpref_direct` logic checked. **t_spill rates (four APUs in parallel, `/tmp` = Samsung 980 PRO):** at 32 GiB **write 2.05 / read 3.53 GB/s** (16.7 s / 9.7 s), `SPILL_FREE` 2.02 / 3.53, partial range O_DIRECT 2.03 / 3.52, buffered + fsync + DONTNEED 1.32 / 2.73; 1 GiB write 3.00 GB/s (drive SLC cache); the page cache did not grow in any test. The write matches agent M's single-APU bounce rate (2.0-2.2 GB/s); the read is below M's 5.0 GB/s (maybe the 256 MiB chunk or four files at once; try `SPILL_CHUNK_MB=1024` in W2). Pinning the bounce took 0.31 s.
-
-**E3: 4 x 10^10 with the top-level checkpoint on, O_DIRECT vs buffered (same node, back to back, digits identical):**
-
-| | `ECALC_ODIRECT=1` | buffered |
-|---|---|---|
-| `total` | 65.02 s | 65.20 s |
-| elapsed (process start to exit) | **82 s** | **154 s** |
-| top set 35.56 GB, background | **16.78 s, 2.12 GB/s**, 0 s waited | 111.31 s (data 41.8 s at 0.85 GB/s, then **fsync 69.6 s**); 4.9 s waited |
-| output file 40 GB (writer) | **20.7 s** (1.93 GB/s); dc waited 15.7 s | 89.0 s; dc waited 83.9 s |
-| page cache max | **Cached 0.56 GB**, Dirty 0.01 | **Cached 76.2 GB**, Dirty 28.9 GB |
-
-O_DIRECT **halves the elapsed time with the top set on (154 -> 82 s)** and leaves nothing in the page cache; the buffered run's 76 GB cached (28.9 GB dirty) forced the eviction rule on later runs; computed phases unchanged (bs 24.7 vs 24.8 s, dm 23.5 vs 24.0 s). Adoption proposal (user decides): `ECALC_ODIRECT` whenever a file is written (later: `auto`, §IO15).
-
-**E1: the live column at 4 x 10^10 (per APU, identical on four APUs).** bs levels 1-22 use region pools (block-pool live 0); bs level 23 mdev peak 8.89 GB (26.9 % of the 33.07 GB pool), level 24 20.55 (62.1 %), level 25 19.30 (58.4 %); reciprocal 26.67 GB constant, peak 29.78 GB in the last doubling (**90.1 %**); division peak 26.67 GB (80.6 %). The reciprocal's reservations (r, r2, t1 at final capacity, 26.67 GB) are live from the first doubling: the plateau E2 (L1's `DM_TIGHT`) removes; 3.3 GB per APU is unused slack at 4e10.
-
-**Open issues.** `mem.c`'s registry (`mem_is_registered`) is read without its lock (`spill_prealloc` from the main thread avoids a realloc under a reader); the bounce buffers cost 2 GiB host memory at the default chunk (`dm_layout` must count them if E5 spills inside dm); a restore is synchronous (an asynchronous restore can be added like the background spill if E5 needs it). Driver: `archive:drivers/ecalc/s14_batch.sh`.

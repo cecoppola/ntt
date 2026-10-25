@@ -1,7 +1,7 @@
 # PRIMES_STRATEGY — prime count and strategy
 
 Condensed 2026-10-19 (task 8b) from the merged per-item reports; originals in `archive:results_merged_2026-10-19/`, raw data in
-`archive:results_raw_2026-10-19/` (and `archive:results-raw/`). Old IDs resolve through `results/INDEX.md`. Labels: **m** measured,
+`archive:results_raw_2026-10-19/` (and `archive:results-raw/`). Old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`. Labels: **m** measured,
 **mod** modelled, **a** assumed, **plan** = the C code's own `MN_PLAN_ONLY` decision (exact for the code at predicted sizes).
 Times Eastern.
 
@@ -39,7 +39,7 @@ Times Eastern.
 
 ## §P2415 — four primes at 24 digits per transform point in the mn tier (Phase 15 Batch 3, agent P24)
 
-**Question/change.** SC's §3.1 (results/TARGET.md §SC15, user-approved 2026-09-28): with four primes (p0p1p2p3 = 2^206.55) a transform
+**Question/change.** SC's §3.1 (archive:results_merged_2026-10-24/TARGET.md §SC15, user-approved 2026-09-28): with four primes (p0p1p2p3 = 2^206.55) a transform
 point carries 24 digits instead of 18, so 4 limbs (72 digits) become 3 points and a plane of pa + pb limbs holds P(pa) + P(pb) =
 ceil(3n/4) points each (3/4 of today's). Branch `p15-P24`; the switch `MN_P24` (default 0) is now built in (see topic summary).
 
@@ -130,34 +130,6 @@ default); four-prime products at target sizes (2^34-2^40) run the same code as t
 grid preferring pieces under the bound; pa + pb vs min(pa, pb) (-> §MPB15); `t_newton` size-1 prints no verbose line; cosmetic
 `planes:` line prints `np 3` under auto.
 
-## §MPB15 — the `ECALC_NP=auto` switch-over on min(pa, pb) (`ECALC_NP_AUTO_MIN=1`)
-
-**Question/change.** A coefficient of a product sums at most min(na, nb) terms, so three primes are exact up to min = 58 424 467 928;
-the old rule used nc = na + nb. Switch `ECALC_NP_AUTO_MIN=1` (off by default; only under `ECALC_NP=auto`, decimal limbs): `ec_np_terms`
-returns min(na, nb), used in `dist_core`, `mn_core`, `plan_pieces`, the plan functions; `b_fits` still prices the grid by pa + pb
-(conservative, grids unchanged); `mn_plan.c` prints `by min(pa, pb)`; `mn_model.py` reads the same variable. Branch `p15-MPB`.
-
-**Exactness argument.** (1) c_k <= min(na, nb) (10^18 - 1)^2 because each i gives at most one j. (2) No wrap: every caller passes nc =
-na + nb and the cyclic length n >= nc (`dist_core`, B form, B4 split, `mn_shape`), gathers zero-fill. (3) Cuts only skip whole pieces or
-truncate operands; the added X enters after Garner as an exact add; a shorter normalized view only lowers min. (4) Three primes: exact
-iff c < M = p0 p1 p2; `np3_max_terms` = floor((M - 1) / (10^18 - 1)^2) = 58 424 467 928; `ec_np_auto_terms` <= bound; `ec_np_prod` still
-runs `ec_np_check(min)`. (5) The one-node tiers (`rns_mul_mdev`, `rns_mul_batch`) already checked min.
-
-**Plan at the target (plan).** At 5.1e13: pieces at four primes pa + pb rule 151 of 264 (tree 76 of 108, recip 35 of 74, div 40 of 40)
--> min rule **124 of 264** (tree 52, recip 32, div 40); at 4.74e13 tree 68 -> 60, recip 29 -> 26; at 4.25e13 tree 56 -> 48, recip 26 -> 24.
-Grids identical (125 plan lines agree). What moves: tree level 5 pieces (e.g. 5.85e10, min 2.42e10) go to three primes (planes 68.72 ->
-51.54 GB per node), level 6 and 3 reciprocal pieces. The division stays at four (min >> bound).
-
-**Node tests (m).** mnaccept `unit,e9,mn` with the switch (real bound): **15 passed, 0 failed**; forced (`ECALC_NP_AUTO_TERMS=2000000`)
-`e9,mn`: 7 passed; forced runs at sizes 1-4 (10^8, 10^9): all **identical**, every product with min <= k < na + nb ran at three primes (0
-violations of the rule; moved products e.g. 712 / 1068 / 1440 in `t_mn_grid` sizes 2/3/4, 21 at 10^8 size 3). (A first batch was void:
-the job was cancelled from outside after 75 s.) No timing pair run.
-
-**Estimate at 5.1e13 (mod, cache 2, auto):** 330.7 / 360.2 s -> **324.0 / 353.4 s** (-6.7 / -6.8 s); 4.74e13 -6.8; 4.25e13 -2.4; 5.57e13
--8.9; by phase distributed levels 140.8 -> 134.2 s, reciprocal 45.3 -> 45.1, division 53.3 unchanged; memory and pieces unchanged (455.4
-GB, 242 pieces); agrees with SC's -6.7 s at cache 2 (its -9.3 is cache 0). **Open:** adoption (user); `b_fits` prices by pa + pb;
-`ECALC_NP=3`'s refusal still uses pa + pb; pool 0's four planes could be tied to 2x the bound.
-
 ## §P15 — roots above 2^33 and the prime bound at the 576 target (Phase 15, Batch 1 from L8's findings)
 
 **Question/change.** L8 found three primes cannot hold the target's pieces, and `ec_root(i, logn)` = w33^(2^(33 - logn)) has a negative
@@ -212,48 +184,6 @@ GB = **+34.4 (+8.6)**: planes +17.2 (+4.3), block pool +17.2 (+4.3); host RSS un
 **Verdict.** P24 is faster at 2 nodes (-6.6 %), at twice the earlier modelled +4 GiB per APU. The target uses P24 from 32 nodes; whether
 the target is memory-bound decides the trade. D18 later made P24 the multi-node default and kept `ECALC_NP_MN3=1` as the fallback (removed 2026-10-19, D56); the
 gate compares digits at 10^9 (results/CODE_REDUCTION.md §AUD3).
-
-## §S13 — Phase 13a, agent S: E0 (the A/B/C strategy boundary) and E2 (plane cap against grid cost)
-
-**Question.** For one dependent product on one node (four APUs), which strategy is fastest: A product-per-APU, B prime-per-APU (pull
-broadcast of operands over xGMI, transform, CRT gather), C four-step (the library's dm product)? Where is the boundary and what does a
-lower plane cap cost? New files `t_strategy.c` (E0), `t_cap.c` (E2); no library change. Median of 5 (15 at 2^20-2^22); all strategies
-compared limb for limb (GMP at 2^26).
-
-**Headline (m, P = 4).**
-1. **B is fastest at every size 2^20..2^32**: C/B 1.24-1.52 from 2^26 to 2^31, 3.74 at 2^32 (C must grid), A/B 1.6-2.1; no A->B or B->C
-   crossover in time; A is only for batches of >= 4 independent products.
-2. **The boundary is memory:** B needs 2n points (16 n bytes) per APU, C 7n/4 (14 n), A 5n on one APU (40 n). At the 28 GiB per APU
-   plane budget (pool 0 + pool 1 at POOL_LOG 31) B fits to 2^30 (3 x 2^29 with radix-3), C to 2^31, A to 2^29; B at 2^31 needs 32 GiB.
-
-| n | A s | B s | C s | C/B | A/B | B GiB/APU | C GiB/APU |
-|---|---|---|---|---|---|---|---|
-| 2^20 | 0.0011 | 0.0008 | 0.0046 | 5.75 | 1.38 | 0.02 | 0.01 |
-| 2^24 | 0.0100 | 0.0057 | 0.0091 | 1.60 | 1.75 | 0.25 | 0.22 |
-| 2^26 | 0.0438 | 0.0238 | 0.0294 | 1.24 | 1.84 | 1.00 | 0.88 |
-| 2^28 | 0.173 | 0.0873 | 0.115 | 1.31 | 1.98 | 4.00 | 3.50 |
-| 2^30 | 0.689 | 0.337 | 0.464 | 1.38 | 2.05 | 16.0 | 14.0 |
-| 2^31 | 1.498 | 0.705 | 1.073 | 1.52 | 2.12 | 32.0 (over budget) | 28.0 |
-| 2^32 | -- | 1.466 | 5.484 | 3.74 | -- | 64.0 | 28.0 (2x2 grid) |
-
-Spread <= 3 % at >= 2^23; rows 2^20-2^22 are +/-50 % (latency-bound). Where the time goes at 2^31 (s): B load 0.252 / transforms 0.330 /
-CRT 0.129; C load 0.345 / 0.620 / 0.077 (+ spills 0.030); C's blocked all-to-all 0.44 s (36 GiB per APU, about 88 GB/s). B's load is 24
-GiB over xGMI at about 51 GB/s per APU (pull); variant b (128-bit loads) gains nothing (<= 1 %). Decimal limbs: same ranking (2^31: A
-1.571, B 0.714, C 1.090 s). C above 2^31 forms a 2x2 grid: 5.48 s vs 4 x 1.07 = 4.3 s of products.
-
-3. **P = 3 (m, decimal):** order unchanged, C closes in: 2^31 B 0.629, C 0.827, A 1.165 s (C/B 1.31, was 1.51 at P = 4); P = 3 saves 26 %
-   of A, 23-24 % of C, 12 % of B at 2^30-2^31; C's planes 12 n bytes (24 GiB at 2^31).
-4. **E2 (mod, from E0 medians), big products at the 2^31 cap, 28 GiB budget:** 4e10: C 32.2-32.5 s; cap 2^30 (every piece exchange-free
-   under B) 29.3 s (-7 %); 3 x 2^29 24.4 s (-22 %); B at 2^31 with 32 GiB 21.4 s (-34 %). At 1e11 the lowered 2^30 cap *loses* (150-154
-   vs 129-131 s); only 3 x 2^29 (113-116 s, -10 %) or the 32 GiB budget (85.7 s, -34 %) wins. P = 3: 4e10 C 24.7 s vs B 18.9 / 21.9 s.
-   Largest plane per strategy at 28 GiB: A 2^29, B 3 x 2^29, C 2^31; at 32 GiB B 2^31.
-5. **Implications:** E4 (device-resident prime-per-APU path for the reciprocal) justified at every size the reciprocal forms, with the
-   memory boundary (B where 2n points fit, C above); the better lever is +4 GiB per APU of plane budget (pool 1 from 3q + 16 to 4q at 2^31),
-   modelled -33 %; B's broadcast should push rather than pull (not built).
-
-Regression: `mnaccept --only unit,e9` 10 passed, 0 failed (1226 s). Raw: `results/S13_e0.txt`, `archive:results-raw/loose/S13_e2.txt`. Open:
-only 2^k planes built in B (3 x 2^k modelled at 1.575 x the 2^(k+1) time); push broadcast and a P = 3 form using all four APUs not built;
-E2 omits the grid's shifted adds (about 1.2 s of C's 5.4 s at 2^32) and the cache.
 
 ## §B13b — Phase 13b, agent B: strategy B in the library, and B4 (PLAN §31, axis S)
 
@@ -312,3 +242,6 @@ at 2, 4 identical).
 **Open at close.** Size > 1: the mn tier's products stay C (a prime-per-APU form there would need a cross-node operand broadcast at 25-50 GB/s
 per APU vs 51 over xGMI; not built; node-local products at size > 1 take the strategy); the grid cost may prefer 2^31 pieces under auto
 (S13's E2); B4's transfer as an overlapped push (modelled no gain).
+
+
+Sections moved to `archive:results_merged_2026-10-24/PRIMES_STRATEGY.md` (2026-10-24 cleanup): §MPB15; §S13.
