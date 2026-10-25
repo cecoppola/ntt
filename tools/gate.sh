@@ -4,8 +4,8 @@
 # USAGE
 #   tools/gate.sh [--build] [--nodes 1..6] [--digits 1e9] [--hold JOBID | --alloc] [--line aac7|target|none|file:PATH]
 #                 [--profile NAME|PATH] [--env "K=V ..."] [--out DIR] [--ref FILE] [--timeout SEC] [--wait SEC]
-#     --build     first `make -B` in the repo's ecalc/ (aac7 with Cray SHMEM: SHMEM_CRAY=1 GMP_HOME=~/gmp, the log must have
-#                 -DCOMM_SHMEM for --nodes > 1; elsewhere a plain build, and --nodes > 1 is refused)
+#     --build     first `make -B` in the repo's ecalc/ (aac7: GMP_HOME=~/gmp, the log must have -DXSHMEM_OFI or -DXSHMEM_CRAY for
+#                 --nodes > 1; elsewhere a plain build, and --nodes > 1 is refused)
 #     --hold J    run inside the existing allocation J (srun --overlap through mnrun.sh with SLURM_JOB_ID=J, no -w); never cancelled.
 #                 Without --hold/--alloc an exported SLURM_JOB_ID is used as the hold.
 #     --alloc     submit its own short sbatch sleep job of --nodes nodes (MNRUN_EXCLUDE_HOSTS -> sbatch -x), run, scancel only that id
@@ -108,8 +108,8 @@ if [ $BUILD = 1 ]; then
   if [ $CRAY = 1 ]; then
     module load cray-dsmml cray-openshmemx >/dev/null 2>&1
     say "build (Cray SHMEM) in $E, log $OUT/build.log"
-    make -B -j8 SHMEM_CRAY=1 GMP_HOME=$HOME/gmp > "$OUT/build.log" 2>&1 || fail "build failed (see build.log)"
-    [ "$NODES" = 1 ] || grep -q -e -DCOMM_SHMEM "$OUT/build.log" || fail "build log lacks -DCOMM_SHMEM (multi-node needs SHMEM)"
+    make -B -j8 GMP_HOME=$HOME/gmp > "$OUT/build.log" 2>&1 || fail "build failed (see build.log)"
+    [ "$NODES" = 1 ] || grep -q -e -DXSHMEM_OFI -e -DXSHMEM_CRAY "$OUT/build.log" || fail "build log lacks -DXSHMEM_OFI / -DXSHMEM_CRAY (multi-node needs the xshmem engine)"
   else
     [ "$NODES" = 1 ] || fail "no Cray SHMEM here: --nodes > 1 refused"
     command -v hipcc >/dev/null 2>&1 || module load rocm >/dev/null 2>&1
@@ -119,7 +119,7 @@ if [ $BUILD = 1 ]; then
 fi
 [ -x "$E/ecalc" ] && [ -x "$ROOT/tools/unpack_digits" ] || fail "ecalc or tools/unpack_digits missing (use --build)"
 if [ "$NODES" != 1 ]; then
-  [ $CRAY = 1 ] && readelf -d "$E/ecalc" 2>/dev/null | grep -q libsma || fail "ecalc is not linked with SHMEM (multi-node refused)"
+  [ $CRAY = 1 ] && grep -aq comm_xshmem_init "$E/ecalc" || fail "ecalc has no xshmem engine (multi-node refused)"
 fi
 [ -r "$REF" ] || fail "reference $REF not readable (--ref)"
 
