@@ -86,9 +86,10 @@ On both launch lines (`profiles/aac7.conf` `LAUNCH_LINE_KEYS`; `profiles/target.
 
 | setting | effect | label | evidence |
 |---|---|---|---|
-| `MN_T_CHUNK_MB=2048` | aac7: 24 paired rounds, mean -42.3 s, p ≈ 0.04; 4-node recheck inconclusive (+6.98 s [-10.3, +24.3]) | m | results/SESSIONS.md §S22, results/LAUNCH_DEFAULTS.md §S47 |
+| `MN_T_CHUNK_MB=2048` | aac7: 24 paired rounds, mean -42.3 s, p ≈ 0.04; 4-node recheck inconclusive (+6.98 s [-10.3, +24.3]); 2 n 5e10 under P: 1024 vs 2048 +0.62 s over 9 pairs (2026-10-25, §AAC7OPT) | m | results/SESSIONS.md §S22, results/LAUNCH_DEFAULTS.md §S47, §AAC7OPT |
 | X2: `COMM_LAYER_VSLOT_POOL=1` (code default) | -31.7 s at 10 nodes (CI -55.7 .. -7.8) | m | results/SESSIONS.md §S31 |
 | `ECALC_SEGV_TRACE=1` | crash-trace handler only | - | results/LAUNCH_DEFAULTS.md §B01 |
+| aac7 fastest settings (2026-10-25): layout by size -- 1 n 6.6e10 the defaults (P +9.6 s), 2 n up to 5e10 `ECALC_PE_PER_GPU=1` on the default build (-14.7 s, -27 %), above that D; path 2 +13.9 s vs P; `ECALC_NP`, `BS_SEED_CHUNK_MB`, `ECALC_BG_THREADS`, `MN_T_CHUNK_MB`, `XSHMEM_ROUND_MB` within noise; `ECALC_NP=4` +7.5 s | m | results/LAUNCH_DEFAULTS.md §AAC7OPT |
 
 ## Open measurement questions
 

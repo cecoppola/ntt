@@ -1,6 +1,6 @@
 # LAUNCH_DEFAULTS — launch-line decisions and defaults adopted
 
-Owner of items B01, L1, T08, ADOPT2, DEF, FIT, S47 (old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`; originals: `archive:results_merged_2026-10-19/`. Labels: m measured, mod modelled, a assumed. Times Eastern.
+Owner of items B01, L1, T08, ADOPT2, DEF, FIT, S47, AAC7OPT (old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`; originals: `archive:results_merged_2026-10-19/`. Labels: m measured, mod modelled, a assumed. Times Eastern.
 
 ## Topic summary
 
@@ -128,5 +128,33 @@ Both CIs include 0; no difference shown; neither setting confirmed or refuted. A
 - Queue bug fixed in the driver: `OUT` and `HOLD` were exported and inherited by queue items; `run_item` now uses `env -u OUT -u HOLD`.
 - Verdict: inconclusive; point estimates (+7.0 s, −2.7 s) well inside the noise (±17, ±10 s). Both settings stay on the aac7 line (evidence: the 10-node S22/S31 runs). To resolve at 4 nodes: remove the cause of the bimodality (per-host stage times, nodechk, fixed node set via `-w`); or about 30+ pairs for (i) (about 3.5 h per comparison, mod); or a paired design with A and B back to back on the same nodes using stage-level times. Rule (user): adopt/keep only on a CI that excludes 0 with identical digits. Raw: aac7 `<cluster work dir>/s47/run/`.
 
+
+## AAC7OPT — the fastest settings on aac7 (main 815b7a0 = 208ae18 code, 2026-10-25 13:53-14:31 ET)
+
+Question (user 2026-10-25): the optimal ecalc settings on aac7. Items b5g_opt1n, b5h_opt1n2 (4 NIC-free nodes, 1 n), b5o_opt and
+b5p_tchunk (the two networked nodes); one build each of path 1 (`XSHMEM=ofi`) and path 2 (`XSHMEM=cray`); base env = the aac7 profile line
+(`ECALC_NODE_GB=420 ECALC_DEVICE_GB=444.0 MN_T_CHUNK_MB=2048 ECALC_MEM_GUARD_GB=6`); arms in Latin / ABBA order, paired by round;
+`ecalc total` of PE 0; no digit file; every run VERIFY OK except the `POOL_LOG=30` arm (rc 6 at start). Labels: all m.
+
+| question | size | pairs | result (arm - base, 95 % CI) |
+|---|---|---|---|
+| D (default layout) vs P (`ECALC_PE_PER_GPU=1`, path 1) | 1 n 6.6e10 | 4 | P +9.62 s [+4.98, +14.26] (D 74.2, P 83.8 s; dm 16.9 vs 28.4 s) |
+| `ECALC_NP=3` / `=4` vs auto | 1 n 6.6e10, D | 8 | -0.19 [-1.23, +0.85] / +7.51 [+4.89, +10.13] (auto = 3 primes here) |
+| `BS_SEED_CHUNK_MB=2048` | 1 n 6.6e10, D | 8 | +0.25 [-0.66, +1.17] |
+| `ECALC_BG_THREADS=96` / `=24` (default 48) | 1 n 6.6e10, D | 8 | +1.12 [-2.42, +4.65] / -0.39 [-2.16, +1.37] |
+| `POOL_LOG=30` | 1 n 6.6e10, D | - | fails at start (rc 6) |
+| P vs D | 2 n 5e10 | 3 | P -14.71 s [-21.13, -8.30] (D 54.4, P 39.7 s, -27 %) |
+| path 2 (`XSHMEM=cray`, P, `XSHMEM_LANES=2`) vs P (path 1) | 2 n 5e10 | 3 | +13.85 s [+10.76, +16.94] (53.5 s; vs D -0.86 [-8.78, +7.06]) |
+| `MN_T_CHUNK_MB=1024` vs 2048 under P | 2 n 5e10 | 3 + 6 | +0.62 s over the 9 pairs (b5o -2.36 [-10.1, +5.4], b5p +2.11 [-1.03, +5.25]) |
+| `XSHMEM_ROUND_MB=512` vs 128 under P | 2 n 5e10 | 3 | -0.65 [-11.15, +9.85] |
+
+Capacity (planner, `plan_values.py --fit`, same base env): P fits 2 n up to 5e10 (node 412.5 GB of 420; 5.5e10 refused at 425.8 GB, the
+host terms of four processes per node + Q110's staging); D fits 2 n to about 1.2e11 (1.32e11 refused by 1.7 GB); 1 n 6.6e10 fits both.
+
+Verdict. On aac7: 1 node at the target's per-node share (6.6e10) runs fastest with the defaults (layout D, three primes); P wins at 1 n only
+at smaller sizes (3.3e10: -5.5 s, §PEER of `results/SINGLE_NODE.md`). On 2 nodes P on the default build is fastest (-27 %) wherever it
+fits (to 5e10); above that, D. Path 2 is the target's shape, not aac7's fastest. No other setting tested moves the time beyond noise: the
+profile stays as it is (`MN_T_CHUNK_MB=2048` kept, no evidence either way under P). aac7's slow mode (one run in three, dm +4 s) is the
+noise floor of these pairs (`results/NODE_SLOWMODE.md §BM`).
 
 Sections moved to `archive:results_merged_2026-10-24/LAUNCH_DEFAULTS.md` (2026-10-24 cleanup): T08; ADOPT2.
