@@ -60,6 +60,7 @@
 #   ecalc_xt_rows TAG KIND         the ROW lines of one t_xshmem table (lat|stream|a2a)
 #   ecalc_q TQnn TEXT...           q.TQnn=TEXT (one line)       ecalc_end STATUS    write status=STATUS and exit 0
 # Replay (parser tests without a cluster): ECALC_REPLAY=<saved ecalc log> makes ecalc_run copy that log instead of launching (rc 0).
+# TGT_NO_NIC=1: the allocation has no usable NICs (aac7 rehearsal holds): ecalc_run of shape P/C or on > 1 node and ecalc_xt are skipped (rc 99, E_SKIP=1).
 # Site: TGT_SITE=target (default) | aac7 (the sister system: smaller digit counts, items skip what needs the target's hardware).
 
 [ -n "${_ECALC_SH_LOADED:-}" ] && return 0
@@ -197,6 +198,9 @@ ecalc_run() {         # TAG SHAPE NODES DIGITS [VAR=VALUE ...]
     case $shape in D) pn=1;; P) pn=1; shapew=(ECALC_PE_PER_GPU=1);; C) pn=2; shapew=(ECALC_PE_PER_GPU=1 XSHMEM_LANES=2);; *) echo "ecalc_run $tag: shape D|P|C, not $shape" > "$lg"; E_RC=97; _ec_save "$tag"; return 97;; esac
     if ! _ec_path "$pn" >/dev/null 2>&1 && [ -z "${ECALC_REPLAY:-}" ]; then
         echo "ecalc_run $tag: no binary for path $pn (bld0$pn not done): skipped" > "$lg"; E_SKIP=1; E_RC=99; _ec_save "$tag"; return 99
+    fi
+    if [ "${TGT_NO_NIC:-0}" = 1 ] && { [ "$shape" != D ] || [ "$n" -gt 1 ]; } && [ -z "${ECALC_REPLAY:-}" ]; then
+        echo "ecalc_run $tag: skipped: TGT_NO_NIC=1 (the allocation has no usable NICs; shape $shape on $n node(s) needs the communication layer)" > "$lg"; E_SKIP=1; E_RC=99; _ec_save "$tag"; return 99
     fi
     for w in "$@"; do case $w in MNRUN_*=*) lw+=("$w");; *=*) words+=("$w");; esac; done
     # reporting settings unless the caller or target.conf set them
@@ -336,6 +340,7 @@ ecalc_end() {
         else why="no measurement: no counted ecalc run and no numeric m.* metric"; fi
         if [ -n "$why" ]; then
             [ "$nm" -gt 0 ] && st=PARTIAL || st=FAIL
+            [ "${TGT_NO_NIC:-0}" = 1 ] && why="$why (TGT_NO_NIC=1: runs needing NICs are skipped)"
             tgt_kv note "status lowered from PASS to $st: $why"
         fi
     fi
@@ -358,6 +363,7 @@ ecalc_xt() {
     local tag=$1 pn=$2 n=$3 sec=$4 w h t0 rc lg=$OUT/raw/$1.log words=() lw=() mx=${XT_MAXMB:-64} hm np; shift 4
     X_RC= X_RESULT=NONE X_SKIP=0 X_WALL_S=
     _ec_path "$pn" >/dev/null 2>&1; local T; T=$(ecalc_tool "$pn" tests/t_xshmem)
+    if [ "${TGT_NO_NIC:-0}" = 1 ]; then echo "ecalc_xt $tag: skipped: TGT_NO_NIC=1 (no usable NICs in the allocation)" > "$lg"; X_SKIP=1; X_RC=99; return 99; fi
     if [ ! -x "$T" ]; then echo "ecalc_xt $tag: no t_xshmem for path $pn" > "$lg"; X_SKIP=1; X_RC=99; return 99; fi
     h=$(_ec_hosts_of "$n") || true; [ -n "$h" ] || { echo "ecalc_xt $tag: fewer than $n hosts" > "$lg"; X_RC=98; return 98; }
     for w in "$@"; do case $w in MNRUN_*=*) lw+=("$w");; *=*) words+=("$w"); case $w in XT_MAXMB=*) mx=${w#*=};; esac;; esac; done

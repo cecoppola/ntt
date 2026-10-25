@@ -25,5 +25,6 @@ ecalc_run uffd_off $S $N "$(ecalc_digits 1e9)" FI_MR_CACHE_MONITOR=disabled; eca
 tgt_kv e.monitor_line "${MON:-none}"
 GOT=no; echo "$MON" | grep -q 'uffd' && GOT=yes
 ecalc_q TQ08 "userfaultfd syscall: ${SYS:-none}; libfabric 'memory monitor' line: ${MON:-not seen}; ecalc 1e9 with monitor=userfaultfd: $(ecalc_load uffd_info; ecalc_brief uffd_info); with monitor disabled: $(ecalc_load uffd_off; ecalc_brief uffd_off)"
+[ "$E_SKIP" = 1 ] && { tgt_kv note "ecalc arms skipped (TGT_NO_NIC=1)"; ecalc_end PARTIAL; }
 case "$SYS" in *"fd=-1"*|"") ecalc_end PARTIAL;; esac
 [ "$GOT" = yes ] && ecalc_end PASS || ecalc_end PARTIAL
