@@ -62,7 +62,14 @@ one() {       # ARM ROUND SHAPE NODES DIGITS [VARS]
     rec "${arm,,}_r${rd}" "$arm" "$rd"
 }
 runseq() {    # SHAPE NODES DIGITS "A B B A" [VARS]  (runs on the first NODES hosts)
-    local sh=$1 n=$2 d=$3 order=$4 a i=0 last=0; shift 4
+    local sh=$1 n=$2 d=$3 order=$4 a i=0 last=0 w1; shift 4
+    # warm-up: one discarded full-size run with the first arm's settings (tag <arm>_warm, not in runs.tsv, so not counted): the first run on a
+    # host set pays the cold start (page cache, module load, memory registration) and would bias a sequential ABBA.  Concurrent arms (conc) need
+    # none: both arms are equally cold.  RUNSEQ_WARM=0 turns it off.
+    if [ "${RUNSEQ_WARM:-1}" = 1 ]; then
+        w1=${order%% *}; ecalc_run "${w1}_warm" "$sh" "$n" "$d" ${ARMV[$w1]-} "$@" || true
+        ecalc_load "${w1}_warm" && ecalc_kv "${w1}_warm"; [ "$E_SKIP" = 1 ] && return 1; last=${E_WALL_S:-0}
+    fi
     for a in $order; do
         i=$((i + 1))
         if [ "$last" -gt 0 ] && [ $(( $(elapsed_s) + last * 12 / 10 )) -gt $(( ${TGT_ITEM_MIN:-30} * 60 * 95 / 100 )) ]; then note "stopped before run $i ($a): time budget"; return 1; fi
@@ -174,7 +181,7 @@ xt_run() {    # TAG PATHNO NODES SECTIONS [VAR=VALUE ...]  -> rc ; log raw/TAG.l
     words=(XT_MAXMB=$mb "${words[@]}")
     local heap=$(( 2 * 4 * n * mb + 96 ))
     local p2=(); [ "$pn" = 2 ] && p2=(XSHMEM_LANES=2 MNRUN_SYMHEAP_XSHMEM=1 XSHMEM_HEAP_SLACK_MB=192)
-    local lenv=(SLURM_JOB_ID="$JOBID" MNRUN_NODELIST="$h" MNRUN_UNLOAD="$EC_UNLOAD"); [ -n "$EC_MODS" ] && lenv+=(MNRUN_MODULES="$EC_MODS")
+    local lenv=(SLURM_JOB_ID="$JOBID" MNRUN_NODELIST="$h" MNRUN_UNLOAD="$EC_UNLOAD" MNRUN_EXCLUDE_MODE=warn); [ -n "$EC_MODS" ] && lenv+=(MNRUN_MODULES="$EC_MODS")
     tl=${XT_TMO:-${TGT_ITEM_MIN:-10}}
     t0=$(date +%s)
     timeout -k 20 $(( tl * 60 )) env "${lenv[@]}" "${lw[@]}" "$EC_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=xshmem ECALC_PE_PER_GPU=1 XSHMEM_HEAP_MB=$heap XT_TIMEOUT=100 "${p2[@]}" "${words[@]}" "$tb" $sec > "$lg" 2>&1 < /dev/null

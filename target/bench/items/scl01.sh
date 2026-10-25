@@ -5,6 +5,8 @@
 ecalc_have 1 || { tgt_kv note "no path-1 binary"; ecalc_end SKIP; }
 ecalc_refresh 900 && P2=1 || P2=0
 D=$(ecalc_digits 1e10); TA=; TB=; N=0; BAD=0
+# warm-up (discarded, tag r0_warm, not in TA/TB): the first run on these hosts is cold and would bias the sequence
+ecalc_run r0_warm D 2 "$D" > /dev/null; ecalc_load r0_warm; ecalc_kv r0_warm
 for s in A B B A A B B A; do N=$((N + 1)); sh=D; [ $s = B ] && [ $P2 = 1 ] && sh=C
     ecalc_run "r${N}_$s" $sh 2 "$D" > /dev/null; ecalc_load "r${N}_$s"; ecalc_kv "r${N}_$s"
     if ecalc_ok && [ -n "$E_TOTAL" ]; then case $s in A) TA="$TA $E_TOTAL";; B) TB="$TB $E_TOTAL";; esac; else BAD=1; fi

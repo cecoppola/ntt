@@ -1,2 +1,0 @@
-status=SKIP
-note=no binary for path 1 (build item bld01 not done)

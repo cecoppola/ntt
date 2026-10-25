@@ -47,6 +47,12 @@ class T(unittest.TestCase):
         self.assertEqual(pr.parse(log(verify="FAILED"), 2)["verify"], "FAIL")
         self.assertEqual(pr.parse("total 5 s\n", 2)["verify"], "NONE")
 
+    def test_per_pe_phases_take_max(self):
+        t = "RESULT ecalc bs s 40.0\nRESULT ecalc bs s 44.0\nRESULT ecalc bs s 41.0\nRESULT ecalc total s 100.0\nRESULT ecalc total s 120.0\n"
+        r = pr.parse(t, 1)
+        self.assertEqual(float(r["bs_s"]), 44.0)
+        self.assertEqual(float(r["total_s"]), 100.0)
+
     def test_wrong_prefix(self):
         r = pr.parse(log(head="2718281828459045235360287471352662497757247093699959574966968"), 2)
         self.assertTrue(r["e_prefix_check"].startswith("FAIL"))

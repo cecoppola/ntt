@@ -68,7 +68,8 @@ _ec_here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$_ec_here/../../lib/common.sh"
 tgt_init
 tgt_conf 2>/dev/null
-: "${OUT:=$PWD}"; mkdir -p "$OUT/raw"
+[ -n "${OUT:-}" ] || { echo "_ecalc.sh: OUT is not set (the item runner exports it; no \$PWD default)" >&2; return 1 2>/dev/null || exit 1; }
+mkdir -p "$OUT/raw"
 : "${TGT_SUM_DIR:=$OUT}"; export TGT_SUM_DIR
 TGT_SITE=${TGT_SITE:-target}
 if [ -z "${TGT_DIGITS_SCALE:-}" ]; then [ "$TGT_SITE" = aac7 ] && TGT_DIGITS_SCALE=0.1 || TGT_DIGITS_SCALE=1; fi
@@ -127,7 +128,11 @@ ecalc_srun() {        # TAG PATHNO NODES CMD...
     lg=$OUT/raw/$tag.log
     _ec_path "$pn" >/dev/null 2>&1
     h=$(_ec_hosts_of "$n") || true; [ -n "$h" ] || { echo "ecalc_srun $tag: fewer than $n hosts" > "$lg"; return 98; }
-    [ -n "${CPT:-}" ] && copt=(-c "$CPT")
+    # cpus per task: CPT, else the node's CPUs / tasks per node (mnrun.sh's `auto`; srun may otherwise confine a task to 2 CPUs)
+    local cpt=${CPT:-} nc
+    if [ -z "$cpt" ]; then nc=${SLURM_CPUS_ON_NODE:-$(scontrol show node "${h%%,*}" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p')}
+        [ -n "$nc" ] && [ "$nc" -ge "$ppn" ] && cpt=$((nc / ppn)); fi
+    [ -n "$cpt" ] && copt=(-c "$cpt")
     t0=$(date +%s)
     timeout -k 20 $(( ${TMO:-${TGT_ITEM_MIN:-10}} * 60 )) srun --jobid="$JOBID" --export=ALL -N "$n" -w "$h" --ntasks=$((n * ppn)) --ntasks-per-node="$ppn" --gpus-per-node="$gpus" "${copt[@]}" --overlap \
         bash -lc "$(_ec_pre)"'exec "$@"' _ "$@" > "$lg" 2>&1 < /dev/null
@@ -201,11 +206,11 @@ ecalc_run() {         # TAG SHAPE NODES DIGITS [VAR=VALUE ...]
     if [ -z "$h" ] && [ -z "${ECALC_REPLAY:-}" ]; then echo "ecalc_run $tag: fewer than $n hosts in HOSTS_SUB/HOSTS" > "$lg"; E_RC=98; _ec_save "$tag"; return 98; fi
     E_HOSTS=$h
     if [ "${WRITE:-0}" = 1 ]; then
-        local sd=${TGT_SCRATCH:-${ECALC_OUT_DIR:-$TGT_ROOT/build/scratch}}/${ID:-item}-$$
+        local sd=${TGT_SCRATCH:-${ECALC_OUT_DIR:-$TGT_ROOT/build/scratch}}/${ID:-item}-$$-$tag
         mkdir -p "$sd" && of=$sd/$tag.out
     fi
     local ltm=${TMO:-${TGT_ITEM_MIN:-10}}
-    local lenv=(SLURM_JOB_ID="$JOBID" MNRUN_NODELIST="$h" MNRUN_UNLOAD="$EC_UNLOAD")
+    local lenv=(SLURM_JOB_ID="$JOBID" MNRUN_NODELIST="$h" MNRUN_UNLOAD="$EC_UNLOAD" MNRUN_EXCLUDE_MODE=warn)   # warn: mnrun never drops a host (a drop shrinks the node count); the runner already left excluded hosts out of HOSTS
     [ -n "$EC_MODS" ] && lenv+=(MNRUN_MODULES="$EC_MODS")
     t0=$(date +%s)
     if [ -n "${ECALC_REPLAY:-}" ]; then
@@ -218,6 +223,11 @@ ecalc_run() {         # TAG SHAPE NODES DIGITS [VAR=VALUE ...]
     [ "$rc" = 124 ] || [ "$rc" = 137 ] && echo "ecalc_run $tag: killed by the call timeout (${ltm} min)" >> "$lg"
     _ec_parse "$lg" "$shape"
     [ "$rc" = 4 ] && E_REFUSED=1
+    # the node count mnrun used must be the requested one (never a silent shrink): "mn: pe i of M (node k of K" lines carry K
+    local seen; seen=$(ecalc_grab "$lg" 'mn: pe [0-9]+ of [0-9]+ \(node [0-9]+ of [0-9]+' | sed -nE 's/.*\(node [0-9]+ of ([0-9]+).*/\1/p')
+    if [ -n "$seen" ] && [ "$seen" != "$n" ] && [ -z "${ECALC_REPLAY:-}" ]; then
+        echo "ecalc_run $tag: FAIL: mnrun used $seen node(s), $n requested (node count shrunk)" >> "$lg"; E_VERIFY=FAIL; [ "$rc" = 0 ] && rc=96; E_RC=$rc
+    fi
     if [ "$rc" != 0 ] && [ "$E_VERIFY" = OK ]; then E_VERIFY=FAIL; fi
     # digit hash (on the first host, where the parts are readable)
     if [ -n "$of" ] && [ "$rc" = 0 ]; then
@@ -323,7 +333,7 @@ ecalc_brief() {
 # (and SHMEM_SYMMETRIC_SIZE / XT_SYMMETRIC_HEAP_SIZE on path 2) = 2 x PEs x XT_MAXMB + 256 MiB unless given; XT_MAXMB default 64.
 # MNRUN_* words go to the launcher.  Log raw/TAG.log (rank labels on).  Sets X_RC, X_RESULT (PASS|FAIL|NONE), X_SKIP, X_WALL_S; rc 99 = no binary.
 ecalc_xt() {
-    local tag=$1 pn=$2 n=$3 sec=$4 w h t0 rc lg=$OUT/raw/$1.log words=() lw=() mx=64 hm np; shift 4
+    local tag=$1 pn=$2 n=$3 sec=$4 w h t0 rc lg=$OUT/raw/$1.log words=() lw=() mx=${XT_MAXMB:-64} hm np; shift 4
     X_RC= X_RESULT=NONE X_SKIP=0 X_WALL_S=
     _ec_path "$pn" >/dev/null 2>&1; local T; T=$(ecalc_tool "$pn" tests/t_xshmem)
     if [ ! -x "$T" ]; then echo "ecalc_xt $tag: no t_xshmem for path $pn" > "$lg"; X_SKIP=1; X_RC=99; return 99; fi
@@ -336,7 +346,7 @@ ecalc_xt() {
         case $have in *" XSHMEM_LANES="*) ;; *) words+=(XSHMEM_LANES=2);; esac
         case $have in *" SHMEM_SYMMETRIC_SIZE="*) ;; *) words+=(SHMEM_SYMMETRIC_SIZE=${hm}M XT_SYMMETRIC_HEAP_SIZE=${hm}M);; esac
     fi
-    local lenv=(SLURM_JOB_ID="$JOBID" MNRUN_NODELIST="$h" MNRUN_UNLOAD="$EC_UNLOAD" MNRUN_PLAN_POOL=0 MNRUN_LABEL=1)
+    local lenv=(SLURM_JOB_ID="$JOBID" MNRUN_NODELIST="$h" MNRUN_UNLOAD="$EC_UNLOAD" MNRUN_PLAN_POOL=0 MNRUN_LABEL=1 MNRUN_EXCLUDE_MODE=warn)
     [ -n "$EC_MODS" ] && lenv+=(MNRUN_MODULES="$EC_MODS")
     t0=$(date +%s)
     timeout -k 20 $(( ${TMO:-${TGT_ITEM_MIN:-10}} * 60 )) env "${lenv[@]}" "${lw[@]}" "$EC_DIR/mnrun.sh" "$n" env ECALC_PE_PER_GPU=1 COMM_TRANSPORT=xshmem "${words[@]}" "$T" $sec > "$lg" 2>&1 < /dev/null

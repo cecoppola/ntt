@@ -3,6 +3,8 @@
 . "$(dirname "${BASH_SOURCE[0]}")/_opt.sh"
 need_path 1; need_path 2
 D=$(dig 1e10 2); i=0
+# warm-up (discarded, not in runs.tsv): the first run on these hosts is cold and would bias the sequential P C C P
+ecalc_run P_warm P 2 "$D" ECALC_INIT_TL=1 || true
 for a in P C C P; do
     i=$((i + 1)); tleft_ok 0.85 || break
     ecalc_run "${a}_r$i" "$a" 2 "$D" ECALC_INIT_TL=1 || true; rec "${a,,}_r$i" "$a" "$i"; tl_kv "$OUT/raw/${a,,}_r$i.log" "tl_${a,,}$i" || true

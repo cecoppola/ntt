@@ -1,6 +1,6 @@
 #!/bin/bash
 # bench/run.sh - the worker loop of the bench (contract: target/FORMATS.md §4, §5).  Run it inside (or next to) a Slurm allocation:
-#   run.sh --jobid J [--max-min M] [--once] [--only id,...] [--tier 1|2] [--worker NAME] [--dry-run]
+#   run.sh --jobid J [--max-min M] [--once] [--only id,...] [--tier 1|2] [--worker NAME] [--wait-min M] [--dry-run]
 #   run.sh --jobid none ...        a login-node worker: only items with nodes=0 (the builds, sys facts of the login node)
 #   run.sh --status                table of all items: id, state (unclaimed / claimed / done-PASS|FAIL|...), worker, wall
 #   run.sh --plan N [--max-nodes K]  how many workers of which allocation sizes drain the manifest fastest (list scheduling on est_min)
@@ -8,8 +8,8 @@
 #                                  FAIL/SKIP (the old dir is moved to results/bench/_old/)
 #   run.sh --validate              check the manifest (ids, deps, columns, item scripts) and exit
 # Each loop: take the eligible item with the lowest prio (deps DONE with PASS/PARTIAL; nodes <= hosts of J; est_min <= minutes left
-# of J and <= --max-min), claim it (tgt_claim on results/bench/<id>/), give it the first NODES hosts of J in physical order, run it
-# under tgt_timeout (2*est_min+2) with the §5 environment, finish summary.txt/DONE.  When nothing fits: wait up to 2 min if items
+# of J and <= --max-min; hosts in MNRUN_EXCLUDE_HOSTS or results/ladder/exclude.txt are dropped from the pool first), claim it (tgt_claim on results/bench/<id>/), give it the first NODES hosts of J in physical order, run it
+# under tgt_timeout (2*est_min+2) with the §5 environment, finish summary.txt/DONE.  When nothing fits: wait up to --wait-min minutes (default 30) if items
 # wait for dependencies that other workers are running, else exit with one line saying what is left and why.
 # Item scripts get TGT_SUM_DIR=$OUT exported, so `tgt_kv key value` (after sourcing lib/common.sh) appends to summary.txt; the runner
 # writes id/start/host/commit before and end/wall_s/status/rc after (status: the item's own status= line when rc=0, else FAIL).
@@ -26,7 +26,7 @@ RB=$TGT_RES/bench
 export TGT_BENCH_DIR=$BENCH TGT_RES_DIR=$TGT_RES
 MP="python3 $here/manifest.py"
 
-JOBID= MAXMIN=- ONCE=0 ONLY= TIER=0 WORKER= DRY=0
+JOBID= MAXMIN=- ONCE=0 ONLY= TIER=0 WORKER= DRY=0 WAITMIN=30
 while [ $# -gt 0 ]; do
     case $1 in
         --jobid) JOBID=$2; shift;;
@@ -35,13 +35,14 @@ while [ $# -gt 0 ]; do
         --only) ONLY=$2; shift;;
         --tier) TIER=$2; shift;;
         --worker) WORKER=$2; shift;;
+        --wait-min) WAITMIN=$2; shift;;
         --dry-run) DRY=1;;
         --status) exec $MP status;;
         --validate) exec $MP validate;;
         --plan) shift; exec $MP plan "$@";;
         --reclaim) RECLAIM=$2; shift;;
         --force) FORCE=1;;
-        -h|--help) sed -n 2,19p "$0"; exit 0;;
+        -h|--help) sed -n 2,20p "$0"; exit 0;;
         *) echo "run.sh: unknown argument $1" >&2; exit 2;;
     esac
     shift
@@ -97,6 +98,13 @@ remaining_min() {   # minutes left of the allocation (squeue %L), "-" when unlim
     echo $(( 10#$d * 1440 + 10#$h * 60 + 10#$m + (10#$s > 30 ? 1 : 0) ))
 }
 mapfile -t ALLH < <(hosts_of)
+# excluded hosts (MNRUN_EXCLUDE_HOSTS, results/ladder/exclude.txt; one per line or comma separated) leave the pool BEFORE any item gets its hosts,
+# so no item runs on one and mnrun never has to shrink a node count
+EXH=$( { echo "${MNRUN_EXCLUDE_HOSTS:-}"; sed 's/#.*//' "$TGT_RES/ladder/exclude.txt" 2>/dev/null; } | tr ', \t' '\n\n\n' | grep . || true)
+if [ -n "$EXH" ] && [ "${#ALLH[@]}" -gt 0 ]; then
+    mapfile -t ALLH < <(printf '%s\n' "${ALLH[@]}" | grep -Fvxf <(echo "$EXH") || true)
+    tgt_log "excluded hosts dropped from the pool: $(echo $EXH)"
+fi
 NH=${#ALLH[@]}
 [ "$JOBID" = none ] && NH=0
 tgt_log "run.sh worker $TGT_WORKER: job $JOBID, $NH host(s), commit $TGT_SHA${ONLY:+, only $ONLY}${TIER:+, tier $TIER}"
@@ -168,7 +176,7 @@ while :; do
         if [ -n "$got" ]; then WAITED=0; [ "$ONCE" = 1 ] && break; continue; fi
         sleep 1; continue          # all candidates were claimed under our hands: re-pick
     fi
-    if [ "$prc" = 3 ] && [ "$WAITED" -lt 120 ] && [ "$DRY" != 1 ]; then
+    if [ "$prc" = 3 ] && [ "$WAITED" -lt $((WAITMIN * 60)) ] && [ "$DRY" != 1 ]; then
         sleep 10; WAITED=$((WAITED + 10)); continue
     fi
     break

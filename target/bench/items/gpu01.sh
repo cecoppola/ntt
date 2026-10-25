@@ -19,6 +19,8 @@ fi
 tgt_kv m.alt_build_s "$(( $(date +%s) - T1 )) s"
 [ -x "$B/ecalc/ecalc" ] || { tgt_kv note "build under $ALT failed (raw/make_alt.log: $(grep -m2 -E 'error' "$OUT/raw/make_alt.log" | tr '\n' ' ' | cut -c1-200))"; tgt_kv status FAIL; exit 1; }
 D=$(dig 1e10); i=0
+# warm-up (discarded, not in runs.tsv): the first run on this host is cold and would bias the sequential A B B A
+ecalc_run A_warm D 1 "$D" || true
 for a in A B B A; do
     i=$((i + 1))
     tleft_ok 0.9 || { note "stopped before run $i: time budget"; break; }

@@ -15,7 +15,7 @@ here. Entry point for a new session: `target/RESTART.md`.
 | `lib/common.sh` | shared shell functions (§3); every script sources it | here |
 | `probe/` | step 2: `probe.sh` (fast system facts), `probe_shmem.c`, `gen_conf.py` (facts → `config/target.conf`) | here |
 | `config/` | `target.conf.template`; `target.conf` (generated on the target, committed) | template here, conf on target |
-| `bench/` | step 3: `manifest.tsv`, `QUESTIONS.md` (question register), `run.sh` (claiming runner), `items/<id>.sh`, `aggregate.py` | here |
+| `bench/` | step 3: `manifest.d/*.tsv`, `QUESTIONS.md` (question register), `run.sh` (claiming runner), `items/<id>.sh`, `aggregate.py` | here |
 | `ladder/` | step 4: `ladder.sh`, `locality.py`, `parse_run.py` (log parser, replica collect), `levels/L0..L3.conf`, `ADJUST.md` (rules for changes between runs); tests `tests/test_locality.py`, `tests/test_ladder_parse.py` | here |
 | `kit/` | `target_kit.sh` (the older staged kit; bench items call its stages) | moved here |
 | `build/` | binaries built on the target (`build/<sha7>-<variant>/ecalc`); never committed | target |
@@ -57,9 +57,9 @@ results/LOG.md                          the coordinator's dated log of the sessi
 | `tgt_timeout MIN CMD...` | runs CMD under `timeout` with MIN minutes, kills the process group on expiry, returns 124 |
 | `tgt_hosts JOBID` | prints the allocation's hosts one per line (`scontrol show hostnames`) |
 
-## 4. Bench manifest — `bench/manifest.tsv`
+## 4. Bench manifest — `bench/manifest.d/*.tsv`
 
-`bench/manifest.tsv` plus every `bench/manifest.d/*.tsv` (one fragment per author or area, so parallel authors never edit
+Every `bench/manifest.d/*.tsv` (a plain `bench/manifest.tsv`, if present, is read too; one fragment per author or area, so parallel authors never edit
 the same file; the runner reads them all, ids must be unique across them). Tab-separated, one item per line, header line
 first, `#` lines are comments:
 

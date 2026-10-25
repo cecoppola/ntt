@@ -19,6 +19,10 @@
 # Binaries: ECALC1 / ECALC2 (environment) or the newest target/build/*-p1|p2/ecalc (bench items bld01 / bld02); --site aac7 falls
 # back to ecalc/ecalc of this tree for path 1.  Other environment: KEEP_OUT=1 keeps written digit files, REF=<ASCII reference>
 # makes a written run be compared with ecalc/digcmp.sh, TGT_SBATCH_OPTS (default "--exclusive --gpus-per-node=4").
+# Launcher: the SOURCE TREE's ecalc/mnrun.sh (not the build tree's copy), with MNRUN_MODULES from target.conf (the bld summary's module line
+# is not used here: set MNRUN_MODULES in target.conf to the line the binary was built with).  Partition: TARGET_PARTITION of target.conf unless
+# --partition.  Excluded hosts (--exclude, results/ladder/exclude.txt, MNRUN_EXCLUDE_HOSTS) leave the pool before the groups are picked; mnrun
+# runs with MNRUN_EXCLUDE_MODE=warn, and a run whose node count differs from NODES is marked bad.
 set -u
 OUT=${OUT-}   # common.sh tgt_log reads $OUT
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -57,10 +61,14 @@ replica_main() {
             echo "# ladder.sh: mnrun.sh $NODES env ${words[*]} $bin $DIGITS ${out:+$out} (job $J, hosts $HOSTS)" > "$log"
             ( cd "$REPO_/ecalc" || exit 99
               [ "$SITE" = aac7 ] && [ -f ./aac7env.sh ] && . ./aac7env.sh >/dev/null 2>&1
-              export SLURM_JOB_ID=$J MNRUN_NODELIST=$HOSTS
+              export SLURM_JOB_ID=$J MNRUN_NODELIST=$HOSTS MNRUN_EXCLUDE_MODE=warn
               tgt_timeout "$rmin" bash "$REPO_/ecalc/mnrun.sh" "$NODES" env "${words[@]}" "$bin" "$DIGITS" ${out:+"$out"} ) >> "$log" 2>&1 < /dev/null
             rc=$?
             wall=$(( $(date +%s) - t0 ))
+            seen=$(grep -a -m1 -oE 'mn: pe [0-9]+ of [0-9]+ \(node [0-9]+ of [0-9]+' "$log" | sed -nE 's/.*\(node [0-9]+ of ([0-9]+)/\1/p')
+            if [ -n "$seen" ] && [ "$seen" != "$NODES" ]; then
+                tgt_kv "$P.nodes_seen" "$seen"; tgt_kv "note_$P" "FAIL: mnrun used $seen node(s), $NODES requested"; [ "$rc" = 0 ] && rc=96
+            fi
             while IFS='=' read -r k v; do [ -n "$k" ] && tgt_kv "$P.$k" "$v"; done < <(python3 "$PARSE" parse "$log" --nodes "$NODES" --hosts "$HOSTS" --pernode "$DIR/raw/$P.pernode.tsv" 2>/dev/null)
             tgt_kv "$P.path" "$p"; tgt_kv "$P.rc" "$rc"; tgt_kv "$P.wall_s" "$wall"
             tgt_kv "$P.env" "${words[*]}"
@@ -132,6 +140,8 @@ case "$SITE" in target|aac7) ;; *) die "--site target|aac7" ;; esac
 [ -f "$HERE/levels/$LEVEL.conf" ] || die "no $HERE/levels/$LEVEL.conf"
 
 tgt_conf
+[ -n "$PART" ] || PART=${TARGET_PARTITION:-}
+[ "$PART" = __FILL__ ] && PART=
 [ "$SITE" = aac7 ] && for kv in ECALC_NODE_GB=420 ECALC_DEVICE_GB=444.0 MN_T_CHUNK_MB=2048 ECALC_MEM_GUARD_GB=6; do
     k=${kv%%=*}; [ -n "${!k+x}" ] || export "$k=${kv#*=}"; done
 
@@ -211,9 +221,12 @@ if [ -n "$JOBID" ]; then
     HF=$(mktemp); if [ "$DRY" = 1 ] && ! command -v squeue >/dev/null 2>&1; then : > "$HF"; else tgt_hosts "$JOBID" > "$HF"; fi
     pickargs+=(--only-hosts "$HF" --state any)
 elif [ -n "$NLF" ]; then pickargs+=(--only-hosts "$NLF" --state any)
-else pickargs+=(--state idle); [ -n "$PART" ] && pickargs+=(--partition "$PART"); fi
+else pickargs+=(--state idle); [ -n "$PART" ] && pickargs+=(--partition "$PART"); fi   # PART: --partition or TARGET_PARTITION
 [ -z "$EXCL" ] && [ -f "$LADDER_RES/exclude.txt" ] && EXCL=$LADDER_RES/exclude.txt
-[ -n "$EXCL" ] && pickargs+=(--exclude "$EXCL")
+if [ -n "${MNRUN_EXCLUDE_HOSTS:-}" ] || [ -n "$EXCL" ]; then    # one exclude file: the file's hosts plus MNRUN_EXCLUDE_HOSTS
+    EXF=$(mktemp); { [ -n "$EXCL" ] && sed 's/#.*//' "$EXCL"; echo "${MNRUN_EXCLUDE_HOSTS:-}"; } | tr ', \t' '\n\n\n' | grep . > "$EXF" || true
+    pickargs+=(--exclude "$EXF")
+fi
 [ -n "$NFROM" ] && pickargs+=(--from "$NFROM")
 GRP=(); mapfile -t GRP < <(python3 "$LOC" pick "${pickargs[@]}" 2> >(sed 's/^/  /' >&2))
 [ ${#GRP[@]} -ge 1 ] || { RC=3; die "no group of $NODES adjacent nodes available (locality.py pick found none)"; }

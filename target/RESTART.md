@@ -167,12 +167,13 @@ to `raw/scontrol_nodes.txt` (input of `ladder/locality.py`).
 
 ```bash
 cd <clone>
-target/probe/probe.sh --only login --out target/results/probe/login-$(date +%Y%m%d-%H%M)          # login node, ~5 s on aac7 (m)
+L=target/results/probe/login-$(date +%Y%m%d-%H%M); N=target/results/probe/node-$(date +%Y%m%d-%H%M)   # set once, used below
+target/probe/probe.sh --only login --out "$L"          # login node, ~5 s on aac7 (m)
 salloc -N1 --no-shell -p <partition> -t 30          # or sbatch a hold; note the job id J
-target/probe/probe.sh --only node --jobid J --out target/results/probe/node-$(date +%Y%m%d-%H%M)  # inside J; srun on the node
+target/probe/probe.sh --only node --jobid J --out "$N"  # inside J; srun on the node
 #   (if the APUs are hidden from the step: PROBE_SRUN_EXTRA="--gpus-per-node=4" target/probe/probe.sh ...)
-target/probe/gen_conf.py target/results/probe/login-* target/results/probe/node-* -o target/config/target.conf
-python3 target/ladder/locality.py nodes --from target/results/probe/login-*/raw/scontrol_nodes.txt --save
+target/probe/gen_conf.py "$L" "$N" -o target/config/target.conf          # exactly two positional dirs: the login and the node probe
+python3 target/ladder/locality.py nodes --from "$L/raw/scontrol_nodes.txt" --save
 ```
 
 Check at once (they decide the first runs): `gpu.count` = 4, `net.cxi_count` = 8 and `net.nics_per_apu` = 2,
@@ -211,14 +212,15 @@ run once each; arms of an A/B run at the same time on disjoint hosts of the item
 target/bench/run.sh --validate                    # manifest check (ids, deps, scripts)
 target/bench/run.sh --plan 8                      # how many workers of which sizes drain the list fastest
 # one worker = one allocation (the runner gives each item the FIRST hosts of its allocation: never two workers in one job)
-sbatch -N <n> -p <partition> -t <min> --exclusive --gpus-per-node=4 --wrap "cd $PWD && target/bench/run.sh --jobid \$SLURM_JOB_ID --worker w<k>"
+mkdir -p target/results/bench/_slurm      # sbatch logs: kept and committed (Q112), never at the clone root
+sbatch -N <n> -p <partition> -t <min> --exclusive --gpus-per-node=4 -o target/results/bench/_slurm/%j.out --wrap "cd $PWD && target/bench/run.sh --jobid \$SLURM_JOB_ID --worker w<k>"
 target/bench/run.sh --status                      # who runs what, what is done
 python3 target/bench/aggregate.py                 # results/bench/METRICS.tsv + ANSWERS.md (+ coverage warnings, progress line)
 ```
 
 Worker sizes: a few 1-node and 2-node workers take the many small items; one 8-node and one 64-node worker take the
 scaling items (`net04`, `net05`, `scl02`, `scl04`, the `cal0*` multi-node points); start the large ones as soon as their
-dependencies pass (the runner waits up to 2 min for dependencies, then exits saying what is left: restart it later).
+dependencies pass (the runner waits up to `--wait-min M` minutes, default 30, for dependencies, then exits saying what is left: restart it later).
 Stale claim (a worker died): `run.sh --reclaim <id>`; redo a FAIL after a fix: `--reclaim <id> --force` (old results move
 to `results/bench/_old/`). A failed path-2 build does not block anything: path-2 arms SKIP with a note. After every few
 items: `aggregate.py`, commit `target/results/` (coordinator). Read `ANSWERS.md` as it fills: answers in band 0-99 can

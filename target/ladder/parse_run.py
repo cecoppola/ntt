@@ -48,8 +48,12 @@ def parse(text, nodes=None, hosts=None):
         if mm:
             penode[int(mm.group(1))] = int(mm.group(2))
         mm = re.match(r"RESULT ecalc (\S+) (\S+) (\S+)", line)
-        if mm and mm.group(1) not in res:
-            res[mm.group(1)] = _num(mm.group(3))
+        if mm:
+            k, v = mm.group(1), _num(mm.group(3))
+            if k not in res:
+                res[k] = v
+            elif k in ("bs", "dm") and v is not None and (res[k] is None or v > res[k]):
+                res[k] = v        # per-PE phases: the critical path is the max over PEs (total stays rank 0's)
             continue
         mm = re.match(r"mnrun\.sh: plan fit +FITS: .*?device ([0-9.]+) / ([0-9.]+) GB \(([-+0-9.]+)\), node ([0-9.]+) / ([0-9.]+) GB \(([-+0-9.]+)\)", raw)
         if mm and "plan_device_gb" not in r:

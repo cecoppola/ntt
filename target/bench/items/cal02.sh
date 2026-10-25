@@ -7,8 +7,9 @@ for x in 1e9 1e10 3e10 6.6e10 1e11; do
     i=$((i + 1)); D=$(fitd 1 D "$(dig $x)")
     tleft_ok 0.8 || { note "stopped before $x: time budget"; break; }
     WRITE=0 one "S$x" 1 D 1 "$D" ECALC_INIT_TL=1
-    tl_kv "$OUT/raw/s${x}_r1.log" "tl_s$x" || true
-    _cat "$OUT/raw/s${x}_r1.log" | grep -a -E '^(total|bs|dm|recip|10dP) ' | head -8 > "$OUT/raw/s${x}.phase_lines"
+    LG=$E_LOG   # ecalc_run sanitises the tag; E_LOG is the real log path
+    tl_kv "$LG" "tl_s$x" || true
+    _cat "$LG" | grep -a -E '^(total|bs|dm|recip|10dP) ' | head -8 > "$OUT/raw/s${x}.phase_lines"
     ROW="$ROW $x:${E_TOTAL:-NA}s"
 done
 tgt_kv q.TQ71 "total s per 1-node size:$ROW (phase split m.s<size>_r1.*)"
