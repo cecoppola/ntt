@@ -56,6 +56,8 @@
 #                                  but not DONE it waits up to SECONDS (default 900), then re-reads ECALC2 / MNRUN_DIR2 / MNRUN_MODULES_P2 from
 #                                  results/bench/bld02/summary.txt.  Returns 0 when path 2 is usable, 1 when not (the item then skips its arms).
 #   ecalc_ok / ecalc_brief TAG     the loaded run is good (rc 0, VERIFY OK, no hash mismatch) / one phrase about it for q.* lines
+#   ecalc_xt TAG PATHNO NODES "SECTIONS" [VAR=VALUE...]   t_xshmem on NODES hosts x 4 PEs (heap and lanes set; see its comment); sets X_RC X_RESULT X_SKIP X_WALL_S
+#   ecalc_xt_rows TAG KIND         the ROW lines of one t_xshmem table (lat|stream|a2a)
 #   ecalc_q TQnn TEXT...           q.TQnn=TEXT (one line)       ecalc_end STATUS    write status=STATUS and exit 0
 # Replay (parser tests without a cluster): ECALC_REPLAY=<saved ecalc log> makes ecalc_run copy that log instead of launching (rc 0).
 # Site: TGT_SITE=target (default) | aac7 (the sister system: smaller digit counts, items skip what needs the target's hardware).
@@ -315,3 +317,35 @@ ecalc_brief() {
     [ -n "$E_HASH" ] && printf ' sha=%s(%s)' "$E_HASH" "$E_HASH_MATCH"
     [ -n "$E_TOTAL" ] && printf ' total=%s s' "$E_TOTAL"; echo
 }
+
+# ecalc_xt TAG PATHNO NODES "SECTIONS" [VAR=VALUE ...]: tests/t_xshmem on NODES hosts, 4 PEs per node (ECALC_PE_PER_GPU=1 COMM_TRANSPORT=xshmem;
+# path 2 adds XSHMEM_LANES=2 unless given), through the build's mnrun.sh with the planner skipped (MNRUN_PLAN_POOL=0).  Heap: XSHMEM_HEAP_MB
+# (and SHMEM_SYMMETRIC_SIZE / XT_SYMMETRIC_HEAP_SIZE on path 2) = 2 x PEs x XT_MAXMB + 256 MiB unless given; XT_MAXMB default 64.
+# MNRUN_* words go to the launcher.  Log raw/TAG.log (rank labels on).  Sets X_RC, X_RESULT (PASS|FAIL|NONE), X_SKIP, X_WALL_S; rc 99 = no binary.
+ecalc_xt() {
+    local tag=$1 pn=$2 n=$3 sec=$4 w h t0 rc lg=$OUT/raw/$1.log words=() lw=() mx=64 hm np; shift 4
+    X_RC= X_RESULT=NONE X_SKIP=0 X_WALL_S=
+    _ec_path "$pn" >/dev/null 2>&1; local T; T=$(ecalc_tool "$pn" tests/t_xshmem)
+    if [ ! -x "$T" ]; then echo "ecalc_xt $tag: no t_xshmem for path $pn" > "$lg"; X_SKIP=1; X_RC=99; return 99; fi
+    h=$(_ec_hosts_of "$n") || true; [ -n "$h" ] || { echo "ecalc_xt $tag: fewer than $n hosts" > "$lg"; X_RC=98; return 98; }
+    for w in "$@"; do case $w in MNRUN_*=*) lw+=("$w");; *=*) words+=("$w"); case $w in XT_MAXMB=*) mx=${w#*=};; esac;; esac; done
+    np=$((n * 4)); hm=$(( 2 * np * mx + 256 ))
+    local have=" ${words[*]} "
+    case $have in *" XSHMEM_HEAP_MB="*) ;; *) words+=(XSHMEM_HEAP_MB=$hm);; esac
+    if [ "$pn" = 2 ]; then
+        case $have in *" XSHMEM_LANES="*) ;; *) words+=(XSHMEM_LANES=2);; esac
+        case $have in *" SHMEM_SYMMETRIC_SIZE="*) ;; *) words+=(SHMEM_SYMMETRIC_SIZE=${hm}M XT_SYMMETRIC_HEAP_SIZE=${hm}M);; esac
+    fi
+    local lenv=(SLURM_JOB_ID="$JOBID" MNRUN_NODELIST="$h" MNRUN_UNLOAD="$EC_UNLOAD" MNRUN_PLAN_POOL=0 MNRUN_LABEL=1)
+    [ -n "$EC_MODS" ] && lenv+=(MNRUN_MODULES="$EC_MODS")
+    t0=$(date +%s)
+    timeout -k 20 $(( ${TMO:-${TGT_ITEM_MIN:-10}} * 60 )) env "${lenv[@]}" "${lw[@]}" "$EC_DIR/mnrun.sh" "$n" env ECALC_PE_PER_GPU=1 COMM_TRANSPORT=xshmem "${words[@]}" "$T" $sec > "$lg" 2>&1 < /dev/null
+    rc=$?; X_RC=$rc; X_WALL_S=$(( $(date +%s) - t0 ))
+    if grep -aq 'XT_RESULT PASS' "$lg"; then X_RESULT=PASS; elif grep -aq 'XT_RESULT FAIL\|<<< FAIL' "$lg"; then X_RESULT=FAIL; fi
+    _ec_clean_log "$lg"; return $rc
+}
+# ecalc_xt_rows TAG KIND: the data rows of one table of a t_xshmem log (kind lat|stream|a2a|a2a_pairs), rank labels stripped, "|" kept
+ecalc_xt_rows() { local f=$OUT/raw/$1.log; [ -f "$f" ] || f=$f.gz; { zcat -f "$f"; } 2>/dev/null | sed -E 's/^ *[0-9]+: //' | grep -a "^ROW $2 "; }
+# ecalc_xt_col TAG KIND COL REGEX MODE: field COL (1 = "ROW kind", 2 = the label column "split|nbi ... bytes", 3.. the numbers: lat 3 = us mean, 4 = min;
+# stream 6 = GB/s per PE mean, 8 = node GB/s; a2a 5 = total ms, 7 = GB/s per PE mean, 9 = node GB/s) of the rows whose label matches REGEX, MODE max|min|first|last
+ecalc_xt_col() { ecalc_xt_rows "$1" "$2" | awk -F' [|] ' -v c="$3" -v re="${4:-.}" -v mode="${5:-max}" '$2 ~ re { v = $c + 0; if (!n++ || mode == "last" || (mode == "max" && v > r) || (mode == "min" && v < r)) r = v; if (mode == "first" && n == 1) { r = v; exit } } END { if (n) printf "%.4g\n", r }'; }
