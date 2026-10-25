@@ -93,7 +93,7 @@ static void pack60_selftest(int *pf, int *pc)
 {
     int fails = 0;
     for (size_t n = 0; n <= 70; n++) {
-        uint64_t *l = malloc((n + 1) * 8), *u = calloc(n + 1, 8); uint8_t *b = calloc(ecp60_bytes(n) + 16, 1);
+        uint64_t *l = (uint64_t *)malloc((n + 1) * 8), *u = (uint64_t *)calloc(n + 1, 8); uint8_t *b = (uint8_t *)calloc(ecp60_bytes(n) + 16, 1);
         if (!l || !u || !b) { printf("out of memory\n"); exit(1); }
         for (size_t i = 0; i < n; i++) l[i] = p60_limb();
         ecp60_pack(l, n, b); ecp60_unpack(b, n, u);
@@ -102,7 +102,7 @@ static void pack60_selftest(int *pf, int *pc)
         free(l); free(u); free(b);
     }
     for (int it = 0; it < 3000; it++) {
-        size_t n = 1 + p60_rnd() % 3000; uint64_t *l = malloc(n * 8), *u = malloc(n * 8); uint8_t *one = malloc(ecp60_bytes(n) + 16), *st = malloc(ecp60_bytes(n) + 64), *ob = malloc(ecp60_bytes(n) + 64);
+        size_t n = 1 + p60_rnd() % 3000; uint64_t *l = (uint64_t *)malloc(n * 8), *u = (uint64_t *)malloc(n * 8); uint8_t *one = (uint8_t *)malloc(ecp60_bytes(n) + 16), *st = (uint8_t *)malloc(ecp60_bytes(n) + 64), *ob = (uint8_t *)malloc(ecp60_bytes(n) + 64);
         if (!l || !u || !one || !st || !ob) { printf("out of memory\n"); exit(1); }
         for (size_t i = 0; i < n; i++) l[i] = p60_limb();
         ecp60_pack(l, n, one);
