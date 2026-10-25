@@ -1,0 +1,12 @@
+# calibration items (prio >= 200): inputs for ecalc/mn_model.py and mem_model.py after target access
+id	tier	prio	nodes	est_min	deps	questions	cmd
+cal01	2	200	1	15	ntt01	TQ70	cal01.sh
+cal02	2	205	1	40	ntt01	TQ71	cal02.sh
+cal04	2	210	8	20	net04	TQ73	cal04.sh
+cal05	2	215	16	15	net04	TQ74	cal05.sh
+cal03	2	220	8	45	net04	TQ72	cal03.sh
+cal06	1	225	64	8	net04	TQ75	cal06.sh
+cal07	1	226	64	10	net04	TQ76	cal07.sh
+cal08	1	230	1	5	ntt01	TQ77	cal08.sh
+cal09	1	235	2	10	ntt01	TQ78	cal09.sh
+cal10	1	240	1	10	ntt01	TQ79	cal10.sh

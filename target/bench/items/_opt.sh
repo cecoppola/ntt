@@ -111,7 +111,7 @@ tl_kv() {     # LOG PREFIX : init timeline (ECALC_INIT_TL=1) -> m.PREFIX.* ; the
         /background mapping done:/ { if (!nm++ || t > ml) ml = t
             if (match(line, /done: [0-9]+ chunks in [0-9.]+ s/)) { split(substr(line, RSTART + 6, RLENGTH - 6), a, " "); bgc += a[1]; bgt += a[4] }
             if (match(line, /mapper lock [0-9.]+/)) q += substr(line, RSTART + 12, RLENGTH - 12) }
-        /arena: [0-9]+ chunks mapped in/ { if (match(line, /arena: [0-9]+ chunks mapped in [0-9.]+ s/)) { split(substr(line, RSTART + 7, RLENGTH - 7), a, " "); fgc += a[1]; fgt += a[5]; fgn++; if (a[5] / a[1] > fgmax) fgmax = a[5] / a[1] }
+        /arena: [0-9]+ chunks mapped in/ { if (match(line, /arena: [0-9]+ chunks mapped in [0-9.]+ s/)) { split(substr(line, RSTART + 7, RLENGTH - 7), a, " "); fgc += a[1]; fgt += a[5]; fgn++; if (a[5] + 0 > fgw) fgw = a[5] + 0; if (a[5] / a[1] > fgmax) fgmax = a[5] / a[1] }
             if (t > ml2) ml2 = t }
         /plane pools done \(/ { if (match(line, /\([0-9.]+/)) pp = substr(line, RSTART + 1, RLENGTH - 1) + 0; ppt = t }
         /peer access done \(/ { if (match(line, /\([0-9.]+/)) peer = substr(line, RSTART + 1, RLENGTH - 1) + 0 }
@@ -121,7 +121,7 @@ tl_kv() {     # LOG PREFIX : init timeline (ECALC_INIT_TL=1) -> m.PREFIX.* ; the
         END {
             if (ns) { kv("seed_end_t_s", sprintf("%.2f s", se)); kv("seed_dur_s", sprintf("%.2f s", sd)) }
             if (nm) { kv("last_bgmap_done_t_s", sprintf("%.2f s", ml)); kv("bgmap_chunks", bgc); kv("bgmap_sum_s", sprintf("%.1f s", bgt)); kv("bgmap_lockqueue_sum_s", sprintf("%.1f s", q)) }
-            if (fgn) { kv("arena_fg_chunks", fgc); kv("arena_fg_sum_s", sprintf("%.1f s", fgt)); kv("arena_fg_s_per_gb_apu", sprintf("%.4f s/GB", fgt / (fgc * 2.147))); kv("arena_fg_worst_s_per_chunk", sprintf("%.3f s", fgmax)) }
+            if (fgn) { kv("arena_fg_chunks", fgc); kv("arena_fg_sum_s", sprintf("%.1f s", fgt)); kv("arena_fg_s_per_gb_apu", sprintf("%.4f s/GB", fgt / (fgc * 2.147))); kv("arena_fg_node_s_per_gb", sprintf("%.4f s/GB", fgw / (fgc * 2.147))); kv("arena_fg_worst_s_per_chunk", sprintf("%.3f s", fgmax)) }
             if (pp != "") { kv("plane_pools_s", sprintf("%.2f s", pp)); kv("plane_pools_done_t_s", sprintf("%.2f s", ppt)) }
             if (peer != "") kv("peer_access_s", sprintf("%.2f s", peer))
             if (stg != "") kv("staging_s", sprintf("%.2f s", stg))
@@ -206,7 +206,7 @@ xt_peak() {   # TAG TABLE -> the peak node GB/s of the table (number only)
 build_test() { # PATHNO NAME [NAME ...] : make the test programs in the build tree of that path (login node, flock, own module line)
     local pn=$1 nm rc=0; shift
     _ec_path "$pn" >/dev/null 2>&1; [ -n "$EC_DIR" ] || return 1
-    local xs=ofi; [ "$pn" = 2 ] && xs=cray
+    local xs=ofi; [ "$pn" = 2 ] && xs=cray; mkdir -p "$TGT_ROOT/build"
     for nm in "$@"; do
         [ -x "$EC_DIR/tests/$nm" ] && continue
         ( flock -w 600 9
@@ -252,4 +252,18 @@ ab_main() {   # SHAPE NODES DIGITS "ORDER" BASE TQ : the common A/B item (arms i
     arms_report "$base"
     tgt_kv q.$tq "${AB_LINE:-no counted run} (shape $sh, $n nodes, $d digits)"
     finish
+}
+
+# ------------------------------------------------------------------------------------------------------------ wbench (io items)
+wb_bin() { local w; w=$(tool 1 tools/wbench); if [ "$w" = 0 ]; then
+        _ec_path 1 >/dev/null 2>&1; bash -lc "cd '$EC_DIR/../tools' && make wbench unpack_digits" > "$OUT/raw/make_tools.log" 2>&1; w=$(tool 1 tools/wbench); fi; echo "$w"; }
+wb_dir() { local d=${TGT_SCRATCH:-${ECALC_OUT_DIR:-$TGT_ROOT/build/scratch}}/${ID:-io}-$$; mkdir -p "$d" && echo "$d"; }
+wb_kv() {     # LOG PREFIX : wbench lines (one per rank) -> nodes, write/read GB/s aggregate (sum), mean, min, max per node
+    _cat "$1" | grep -a '^wbench ' > "$OUT/raw/$2.wb" || true
+    [ -s "$OUT/raw/$2.wb" ] || { note "$2: no wbench lines"; return 1; }
+    awk -v p="$2" '{ n++; if (match($0, /write [0-9.]+ s = [0-9.]+ GB\/s/)) { split(substr($0, RSTART, RLENGTH), a, " "); w = a[5] + 0; sw += w; if (n == 1 || w < mw) mw = w; if (w > xw) xw = w }
+            if (match($0, /read [0-9.]+ s = [0-9.]+ GB\/s/)) { split(substr($0, RSTART, RLENGTH), a, " "); r = a[5] + 0; sr += r; nr++; if (nr == 1 || r < mr) mr = r; if (r > xr) xr = r } }
+        END { printf "m.%s.writers=%d\nm.%s.write_sum_gbs=%.3f GB/s\nm.%s.write_mean_gbs=%.3f GB/s\nm.%s.write_min_gbs=%.3f GB/s\nm.%s.write_max_gbs=%.3f GB/s\n", p, n, p, sw, p, sw / n, p, mw, p, xw
+              if (nr) printf "m.%s.read_sum_gbs=%.3f GB/s\nm.%s.read_mean_gbs=%.3f GB/s\nm.%s.read_min_gbs=%.3f GB/s\n", p, sr, p, sr / nr, p, mr }' "$OUT/raw/$2.wb" | while IFS='=' read -r k v; do tgt_kv "$k" "$v"; done
+    awk -v p="$2" '{ if (match($0, /write [0-9.]+ s = [0-9.]+ GB\/s/)) { split(substr($0, RSTART, RLENGTH), a, " "); sw += a[5] } } END { printf "%.3f", sw }' "$OUT/raw/$2.wb"
 }
