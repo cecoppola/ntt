@@ -16,7 +16,7 @@
 #
 # --set KEY=VALUE: a conf key (NODES DIGITS PATH RUNS REPLICAS WRITE TIME_MIN KEEP_OUT REF) or any other name = an ecalc environment
 # word (ENV_ prefix optional; an empty value drops the word of the conf), e.g. --set MN_T_CHUNK_MB=1024 --set ECALC_NP=4 --set NODES=2 --set DIGITS=5e10.
-# Binaries: ECALC1 / ECALC2 (environment) or the newest target/build/*-p1|p2/ecalc (bench items bld01 / bld02); --site aac7 falls
+# Binaries: ECALC1 / ECALC2 (environment) or the newest target/build/*-p1|p2/ecalc/ecalc (bench items bld01 / bld02); --site aac7 falls
 # back to ecalc/ecalc of this tree for path 1.  Other environment: KEEP_OUT=1 keeps written digit files, REF=<ASCII reference>
 # makes a written run be compared with ecalc/digcmp.sh, TGT_SBATCH_OPTS (default "--exclusive --gpus-per-node=4").
 # Launcher: the SOURCE TREE's ecalc/mnrun.sh (not the build tree's copy), with MNRUN_MODULES from target.conf (the bld summary's module line
@@ -173,7 +173,7 @@ find_bin() {     # path number -> binary
     local v=ECALC$1 d
     [ -n "${!v:-}" ] && { echo "${!v}"; return 0; }
     d=$(ls -td "$TGT_ROOT"/build/*-p"$1" 2>/dev/null | head -1)
-    [ -n "$d" ] && [ -x "$d/ecalc" ] && { echo "$d/ecalc"; return 0; }
+    [ -n "$d" ] && [ -f "$d/ecalc/ecalc" ] && [ -x "$d/ecalc/ecalc" ] && { echo "$d/ecalc/ecalc"; return 0; }   # build/<sha7>-pN/ecalc/ecalc (bench/items/_build.sh)
     [ "$SITE" = aac7 ] && [ "$1" = 1 ] && [ -x "$REPO/ecalc/ecalc" ] && { echo "$REPO/ecalc/ecalc"; return 0; }
     return 1
 }
@@ -181,7 +181,7 @@ BIN1=; BIN2=; keep=
 for p in $PATHS; do
     if b=$(find_bin "$p"); then eval "BIN$p=\$b"; keep="$keep $p"
     elif [ "$DRY" = 1 ]; then eval "BIN$p=\"<ECALC$p: no binary yet>\""; keep="$keep $p"; echo "ladder.sh: path $p: no binary (set ECALC$p or build bld0$p); dry run goes on" >&2
-    else echo "ladder.sh: path $p: no binary (ECALC$p unset, no target/build/*-p$p/ecalc)" >&2; fi
+    else echo "ladder.sh: path $p: no binary (ECALC$p unset, no target/build/*-p$p/ecalc/ecalc)" >&2; fi
 done
 PATHS=${keep# }; [ -n "$PATHS" ] || { RC=2 die "no binary for any requested path"; }
 

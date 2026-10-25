@@ -21,7 +21,7 @@ only after all levels pass on both paths).
 | L2 | 64 (256) | 5.12e11 | 25.8 s | 27.6 s | 2.5 s | 178 / 216 GB |
 | L3 | 576 (2304) | 4.608e12 | 32.0 s | 33.2 s | 6.5 s | 181 / 328.69 GB |
 | L3 s2 | 576 (2304) | 1e13 | 52.3 s | 55.3 s | 12.5 s | 229 / refused (380.23) |
-| L3 s3 | 576 (2304) | 3.82e13 | 187.1 s | 191.2 s | 51.6 s | 390 (planner 354.66 with cap 0) / refused |
+| L3 s3 | 576 (2304) | 3.82e13 | 187.1 s | 191.2 s | 51.6 s | 390 (planner 358.96 with cap 0) / refused |
 
 Assumptions inside the model (a): 100 GB/s per APU, 2 us per message, dragonfly group 64, part files 1 GB/s per node. The
 model was calibrated on aac7/aac6 compute at larger sizes; at 8e9 per node start-up is a large share of the wall, so a

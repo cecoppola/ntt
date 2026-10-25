@@ -248,13 +248,13 @@ layout D (path 1), P (path 1, one process per GPU) and path 2 (Cray SHMEM) — w
 
 L3 is a staircase on 576 nodes (user decision Q121): each step only after the previous one passed the ADJUST.md gate.
 Path 2 (and P) fits at 576 nodes up to about 1.3e10 digits per node with a 480 GB node budget (device +10.39 GB) and
-below 1.1e10 with 414 GB; layout D fits up to the headline with `MN_NONPOW2_CAP=0` (mod, planner 2026-10-25):
+about 9.1e9 with 414 GB (5.23e12 on 576 nodes); layout D fits up to the headline with `MN_NONPOW2_CAP=0` (mod, planner 2026-10-25):
 
 | step | digits (per node) | paths | write | model wall (mod, D, no write / write) | plan at 576 nodes (mod) |
 |---|---|---|---|---|---|
 | s1 | 4.608e12 (8e9) | both | yes | 32.0 / 33.2 s | path 2 device 328.69 GB (+44.75) |
 | s2 | 1e13 (1.74e10) | 1 (path 2 refused, dropped by `ladder.sh`) | no | 52.3 / 55.3 s | D device 238.97 GB (+134.47); path 2 device 380.23 (−6.79) |
-| s3 | 3.82e13 (6.632e10) | 1 | no | 187.1 / 191.2 s | D device 354.66 GB (+18.78), node 390.75 GB |
+| s3 | 3.82e13 (6.632e10) | 1 | no | 187.1 / 191.2 s | D device 358.96 GB (+14.48), node 395.04 GB |
 
 ```bash
 target/ladder/ladder.sh --level L3 --run-tag s1
