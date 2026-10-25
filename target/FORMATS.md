@@ -107,6 +107,7 @@ was taken (also when the answer is unfavourable), nonzero when it failed. Never 
 ```
 id=net01                       item / run id
 status=PASS|PARTIAL|FAIL|SKIP  PARTIAL: some sub-measurements missing; SKIP: precondition absent (say why in note)
+                               Fail-safe (ecalc_end): PASS stands only with a counted ecalc run (rc 0, VERIFY OK; warm-ups excluded) or, for items that run no ecalc, a numeric m.* metric; otherwise it is lowered to PARTIAL / FAIL with a note.  TGT_NO_NIC=1 (NIC-free allocation) skips P/C shapes, multi-node runs and t_xshmem.
 rc=0
 start=2026-11-03T14:05:11-05:00   ISO 8601 with offset
 end=...    wall_s=412
