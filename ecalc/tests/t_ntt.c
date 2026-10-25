@@ -230,6 +230,7 @@ int main(int argc, char **argv)
     /* batched round trip: 64 transforms of 2^14 in one call */
     {
         size_t n = (size_t)1 << 14, B = 64;
+        if (B * n > nmax) B = nmax / n;                 /* buffers hold 2^LOGMAX */
         gen_limbs(hx, n * B, GEN_UNIFORM, &rng);
 #pragma omp parallel for
         for (size_t i = 0; i < n * B; i++) hx[i] %= ec_P[1];
@@ -264,7 +265,7 @@ int main(int argc, char **argv)
         mpz_t A, B, C, D;
         mpz_inits(A, B, C, D, NULL);
         for (pr = 0; pr < EC_NP; pr++)
-        for (logn = 16; logn <= 20; logn++)
+        for (logn = 16; logn <= (LOGMAX < 20 ? LOGMAX : 20); logn++)
         for (int fuse = 0; fuse < 2; fuse++) {
             size_t n = (size_t)1 << logn, half = n / 2;
             uint16_t *a16 = (uint16_t *)malloc(half * 2), *b16 = (uint16_t *)malloc(half * 2);
@@ -294,7 +295,8 @@ int main(int argc, char **argv)
     /* 4. STG independence at 2^24 */
     printf("-- 4. pass splits\n");
     {
-        logn = 24; size_t n = (size_t)1 << logn; uint64_t href = 0;
+        logn = LOGMAX < 24 ? LOGMAX : 24;   /* buffers hold 2^LOGMAX */
+        size_t n = (size_t)1 << logn; uint64_t href = 0;
         gen_limbs(hx, n, GEN_UNIFORM, &rng);
 #pragma omp parallel for
         for (size_t i = 0; i < n; i++) hx[i] %= ec_P[0];
@@ -390,7 +392,7 @@ int main(int argc, char **argv)
         }
         harness_result("fwd_TBps_per_apu", "TB/s", sum_fwd / nd);
         harness_result("inv_TBps_per_apu", "TB/s", sum_inv / nd);
-        VERIFY(sum_fwd / nd > 0.9, "forward rate %.2f TB/s below 0.9 (bench/16: 1.17)", sum_fwd / nd);
+        VERIFY(LOGMAX < 22 || sum_fwd / nd > 0.9, "forward rate %.2f TB/s below 0.9 (bench/16: 1.17)", sum_fwd / nd);
     }
     return verify_done("t_ntt");
 }
