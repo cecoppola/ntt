@@ -1,4 +1,4 @@
-/* pe_geo.c -- per-PE topology (see pe_geo.h).  NIC logic follows comm_ofi.c dev_numa/nic_list (copied, not shared). */
+/* pe_geo.c -- per-PE topology (see pe_geo.h).  NIC logic was copied from the removed comm_ofi.c (dev_numa/nic_list; see archive:code_2026-10-25/). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

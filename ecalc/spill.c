@@ -63,7 +63,7 @@ void sp_drop_cache(int fd)
 {
     if (fd < 0) return;
     fsync(fd);
-    posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);     /* only clean pages go: hence the fsync first (apumult_M.md 2) */
+    posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);     /* only clean pages go: hence the fsync first (results/APUMULT.md) */
 }
 /* every device's queued work complete (the DMA of this file runs on its own non-blocking streams, which are not ordered
  * after the pipeline's null-stream work the way a hipMemcpy is); the calling thread's device kept */

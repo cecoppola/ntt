@@ -64,7 +64,7 @@ size_t newton_recip_cut(size_t v) { cut_init(); return v > (size_t)recip_guard ?
 size_t newton_recip_mid(size_t j, size_t take) { return j <= take && j >= MID_HI ? take + MID_HI : (size_t)-1; }   /* Q_t r's high cut ((size_t)-1: none; j >= MID_HI: w < take + j + 1, the top has something to skip) */
 struct newton_mid_stats newton_mid_st;
 /* u from its low j + 4 limbs ul (u mod B^(j+4), normalised), given |u - B^(2j)| < B^(j+3): e = ul when ul < B^(j+3), e = ul - B^(j+4)
- * when ul > B^(j+4) - B^(j+3); d = |e| -> r2; returns neg (e > 0, i.e. u > B^(2j)).  Anything else means the bound failed: fatal (R415.md 1.4) */
+ * when ul > B^(j+4) - B^(j+3); d = |e| -> r2; returns neg (e > 0, i.e. u > B^(2j)).  Anything else means the bound failed: fatal (archive:results_merged_2026-10-24/DIVISION.md §R415 1.4) */
 static int mid_d(dbig *r2, const dbig *ul, size_t j)
 {
     int neg;
@@ -139,7 +139,7 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
             size_t hw = mid_ok ? newton_recip_mid(j, take) : (size_t)-1;   /* Phase 15 R4: the high cut (the middle product) when the previous round bounds |e| */
             mul_band_db(&t1, &qt, &r, c1, hw);                 /* Q_t r (the pieces below the cut skipped; c1 = 0: whole, as before; R4: mod B^hw) */
             dbig u; int neg;                                        /* u ~ B^(2j): t1 >> (take - j) as a view, or << (j - take) (rare) */
-            if (hw != (size_t)-1) {                                 /* R4: u from u mod B^(j+4) (R415.md 1.2) */
+            if (hw != (size_t)-1) {                                 /* R4: u from u mod B^(j+4) (archive:results_merged_2026-10-24/DIVISION.md §R415 1.2) */
                 u = db_view(&t1, take - j, t1.n > take - j ? t1.n - (take - j) : 0); db_norm(&u);
                 neg = mid_d(&r2, &u, j); newton_mid_st.mid++;
             } else {
@@ -150,7 +150,7 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
                 newton_mid_st.whole++;
             }
             size_t dn = r2.n;
-            mid_ok = dn <= j + 1;                                   /* R4: |e| < B^(j+1) here bounds the next round's |e| < B^(j'+3) (R415.md 1.3); an overshoot clears it */
+            mid_ok = dn <= j + 1;                                   /* R4: |e| < B^(j+1) here bounds the next round's |e| < B^(j'+3) (archive:results_merged_2026-10-24/DIVISION.md §R415 1.3); an overshoot clears it */
             rns_mul_high_db(&t1, &r, &r2, newton_recip_cut(j));    /* r |d| -> t1 (u is consumed); E7: the pieces below j - guard skipped */
             dbig corr = db_view(&t1, j, t1.n > j ? t1.n - j : 0); db_norm(&corr);   /* |corr| = t1 >> j */
             int converged = corr.n <= j + 1;
@@ -787,8 +787,8 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
         if (!member) { j = jn; NST(newton_st.iters++); continue; }
         for (;;) {
             double s0 = mem_now();
-            size_t c1 = j <= take ? newton_recip_cut(take - j) : 0;   /* Phase 14 R1 (E7): the same cut over shares (R114.md 1.7) */
-            size_t hw = mid_ok ? newton_recip_mid(j, take) : (size_t)-1;   /* Phase 15 R4: the middle product (R415.md 1.6) -- the result in basis hw */
+            size_t c1 = j <= take ? newton_recip_cut(take - j) : 0;   /* Phase 14 R1 (E7): the same cut over shares (results/DIVISION.md §R114 1.7) */
+            size_t hw = mid_ok ? newton_recip_mid(j, take) : (size_t)-1;   /* Phase 15 R4: the middle product (archive:results_merged_2026-10-24/DIVISION.md §R415 1.6) -- the result in basis hw */
             if (take == nq && Gs == G) mn_prod_cut(&t, Q, &r, Gs, c1, hw);
             else mn_prod_cut(&t, &qt, &r, Gs, c1, hw);                 /* Q_t r */
             int neg;
@@ -816,7 +816,7 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
             mdb_shift(&rs, &r, -(long)j, NB, Gs);                       /* r << j */
             if (neg) {
                 int over = rs.n < corr.n || (rs.n == corr.n && mdb_cmp(&rs, &corr, Gs) <= 0);
-                if (!over && rs.n == corr.n) {             /* E7 (R114.md 1.4): rs <= corr + 1 -- rs - corr == 1 also overshoots */
+                if (!over && rs.n == corr.n) {             /* E7 (results/DIVISION.md §R114 1.4): rs <= corr + 1 -- rs - corr == 1 also overshoots */
                     mdb df; memset(&df, 0, sizeof df); mdb_addsub(&df, &rs, &corr, 1, Gs); over = df.n == 1 && mdb_limb(&df, 0, Gs) == 1; mfree(&df); }
                 if (over) {                                             /* overshoot: r -= r / 16, through the host (rare) */
                     NST(newton_st.overshoots++); bigint h, dd; bi_init(&h); bi_init(&dd); mdb_to_host_all(&h, &r, Gs);

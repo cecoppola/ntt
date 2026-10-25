@@ -37,7 +37,7 @@ void comm_wst_barrier(comm *c)
     if (!comm_wst_enabled() || wst_depth) { c->ops->barrier(c); return; }
     wst_depth++; double t0 = wst_now(); c->ops->barrier(c); wst_add(0, t0); wst_depth--;
 }
-/* S22: 'ready' = the peer-ready mailbox/flag waits inside the SHMEM transport (wait_ge / wait_ne); a subset of the wait/barrier time, so skew
+/* S22: 'ready' = the peer-ready mailbox/flag waits inside the xshmem transport (signal waits); a subset of the wait/barrier time, so skew
  * (a peer not yet there) can be told from transfer.  comm_wst_t0() is 0 when off; comm_wst_ready_end(t0) adds the elapsed time. */
 double comm_wst_t0(void) { return comm_wst_enabled() ? wst_now() : 0; }
 void comm_wst_ready_end(double t0) { if (t0 != 0) wst_add(2, t0); }

@@ -527,9 +527,9 @@ static size_t as_seedbuf(unsigned long N)             /* seeds_stream's two pinn
     return 2 * (bytes / span_bytes * span_bytes);
 }
 size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t bylen);
-static int xsh_on(void) { const char *t = getenv("COMM_TRANSPORT"); return t && !strcmp(t, "xshmem"); }   /* COMM_TRANSPORT=xshmem (make XSHMEM=ofi): planned as shmem with comm_ofi's pools, one heap per device (XSHMEM_HEAP_MB), no rounds */
-static __thread size_t g_ofi_dev_mb;                           /* the last need's comm_ofi pool per device (MiB; 0 = not an OFI run) */
-static size_t ofi_pool_mb(void)                       /* the comm_ofi pool per device this run will have (MiB): COMM_OFI_POOL_MB, else the need */
+static int xsh_on(void) { const char *t = getenv("COMM_TRANSPORT"); return t && !strcmp(t, "xshmem"); }   /* COMM_TRANSPORT=xshmem (make XSHMEM=ofi): the pool rule's model: one DATA heap per device (XSHMEM_HEAP_MB = the OFI device pool law), rounds from XSHMEM_ROUND_MB */
+static __thread size_t g_ofi_dev_mb;                           /* the last need's device pool per device (MiB; 0 = no need computed) */
+static size_t ofi_pool_mb(void)                       /* the device pool per device this run will have (MiB): COMM_OFI_POOL_MB, else the need */
 {
     const char *e = getenv("COMM_OFI_POOL_MB");
     return g_ofi_dev_mb ? (e ? (size_t)atol(e) : g_ofi_dev_mb) : 0;
@@ -550,7 +550,7 @@ static size_t as_host_bytes(unsigned long N, int size, size_t pool, size_t ofi, 
 {
     size_t sb = size > 1 ? as_seedbuf(N) * (size_t)bs_lanes() : 0, host;
     if (size == 1) { double D = lgamma((double)N + 1.0) / log(10.0) / 1e9 - 40.0; host = (size_t)((25.85 + 0.0208 * (D > 0 ? D : 0.0)) * 1e9) + (bs_ppn_proc() - 1) * (size_t)7000000000; }   /* S2c: + a runtime per further process */
-    else { size_t base = bs_ppn_proc() * ((size_t)7000000000 + (size_t)6000000000) + bs_staging() + pool + ofi;   /* OFIMEM: + the comm_ofi pools */
+    else { size_t base = bs_ppn_proc() * ((size_t)7000000000 + (size_t)6000000000) + bs_staging() + pool + ofi;   /* OFIMEM: + the device pools */
            int early = getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) != 0 : 1;
            size_t hi = base + sb, hd = base + (size_t)bs_lanes() * ((size_t)650000000 + (early ? (size_t)900000000 : 0)); host = hi > hd ? hi : hd; }
     if (sb_) *sb_ = sb;
@@ -673,11 +673,11 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
             printf("bs: BS_ARENA_TRIM_GB: dm need %.2f -> %.2f GB per APU (trim %.2f of the %.2f asked; the largest live set %.2f GB%s)\n", (L->need_dev + L->trim) * 1e-9, L->need_dev * 1e-9,
                    L->trim * 1e-9, bs_arena_trim_gb(), floor_ * 1e-9, L->trim < want_t ? "; clamped" : ""); fflush(stdout); } }
 }
-/* the SHMEM transport's symmetric pool this run needs per node-process, in bytes (mem_model.py
+/* the xshmem transport's pool this run needs per node-process, in bytes (mem_model.py
  * shmem_pool is the same law): 4 APU threads x the largest staged exchange's send + receive over the run's products (the tree's
  * levels as tree_need_dev forms them; the division's A_h mu -- nq x nq, C of 2 nq limbs, the largest -- and the reciprocal's last
  * Q_t r; mdb_shift at MDB_SHIFT_CHUNK_MB) + the communicators' control blocks (4 per level of size S < size, 4 meshes of size:
- * 8 words and a COMM_SHMEM_RING_KB ring per member) + the mailbox + a 256 MiB margin.
+ * 8 words per member) + the mailbox + a 256 MiB margin.
  * by: the product that sets the staging. */
 /* limbs of the last `nodes` of `size` nodes' term ranges of the series (N terms, equal term counts per node; Q's limbs nq in all): lgamma weights -- later terms are longer, so the last node's
  * share is above the average nq / size (bs_pe_b1's ranges) */
@@ -743,9 +743,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
 }
 /* the pool rule before the transport starts (ecalc.c, after rns_init, before mn_init; plan = MN_PLAN_ONLY's line).
  * It sets COMM_SHMEM_POOL_MB to the model's need when that exceeds the pool asked for (8192 by default).  Returns the need in MiB
- * (0: not a SHMEM run).  always.  When the pool is carved
- * from the library's heap (comm_shmem_pool_in_heap: always, the heap sized by the launch line) and the launch line's heap variable is set, a heap below the pool + 512 MiB stops every rank here, before shmem_init,
- * naming both sizes (rc EC_RC_BUDGET): mnrun.sh sizes the heap from MN_PLAN_ONLY's `plan pool` line; internal target notes 4. */
+ * (0: not a multi-node run).  mnrun.sh sizes the heap (XSHMEM_HEAP_MB, and for the Cray backend the libsma heap) from MN_PLAN_ONLY's `plan pool` line. */
 size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
 {
     if (size < 2 && vpe_ppg()) size = vpe_lanes();   /* S2fix: one node under ECALC_PE_PER_GPU=1 still exchanges among its PEs (the lanes): the model of that group, so the plan prints `plan pool` and mnrun sizes the heap (the default path: size < 2 = 0, as before); memfix: under any transport (before, only xshmem: plain shmem got no `plan pool` line and kept the 8192 MiB default) */
@@ -756,17 +754,17 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
     size_t need = binsplit_shmem_pool_need(N, size, by, sizeof by), mb = (need + ((size_t)1 << 20) - 1) >> 20;
     if (rset) { bs_a0 = ra0; bs_b1 = rb1; }
     mb = (mb + 255) / 256 * 256;                          /* whole 256 MiB */
-    size_t have = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : g_ofi_dev_mb ? mb : 8192;   /* OFIMEM: under COMM_OFI unset = the need */
+    size_t have = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : g_ofi_dev_mb ? mb : 8192;   /* OFIMEM: unset = the need */
     const char *er = getenv("COMM_RANK"); int rank0 = !er || atoi(er) == 0;
     if (plan) { printf("plan pool   the SHMEM pool per node-process: COMM_SHMEM_POOL_MB=%zu (%s); the SHMEM heap (SHMEM_SYMMETRIC_SIZE / SHMEM_SYMMETRIC_HEAP_SIZE) >= %zu MiB", mb, by, mb + 512);
                 if (g_ofi_dev_mb) printf("; the comm_ofi pools 4 x COMM_OFI_POOL_MB=%zu", ofi_pool_mb());
                 if (g_ofi_dev_mb && xsh_on()) printf("; XSHMEM_HEAP_MB=%zu", getenv("XSHMEM_HEAP_MB") ? (size_t)atol(getenv("XSHMEM_HEAP_MB")) : ofi_pool_mb());
                 printf("\n"); return mb; }
-    if (g_ofi_dev_mb) {   /* the comm pools sized by the rule (comm_ofi.c's own default, COMM_SHMEM_POOL_MB / 4 + 256, assumed the full pool) */
+    if (g_ofi_dev_mb) {   /* the device pools sized by the rule */
         if (!getenv("COMM_SHMEM_POOL_MB")) { char v[32]; snprintf(v, sizeof v, "%zu", mb); bs_setenv("COMM_SHMEM_POOL_MB", v, 1); have = mb; }
         if (!getenv("COMM_OFI_POOL_MB")) { char v[32]; snprintf(v, sizeof v, "%zu", g_ofi_dev_mb); bs_setenv("COMM_OFI_POOL_MB", v, 1); }
         else if ((size_t)atol(getenv("COMM_OFI_POOL_MB")) < g_ofi_dev_mb && rank0) fprintf(stderr, "comm_ofi pool: WARNING: COMM_OFI_POOL_MB=%s is below the modelled need of this run, %zu MiB per device\n", getenv("COMM_OFI_POOL_MB"), g_ofi_dev_mb);
-        if (xsh_on() && !getenv("XSHMEM_HEAP_MB")) { char v[32]; snprintf(v, sizeof v, "%zu", ofi_pool_mb()); bs_setenv("XSHMEM_HEAP_MB", v, 1); }   /* the xshmem DATA heap per loopback PE = the comm_ofi pool law */
+        if (xsh_on() && !getenv("XSHMEM_HEAP_MB")) { char v[32]; snprintf(v, sizeof v, "%zu", ofi_pool_mb()); bs_setenv("XSHMEM_HEAP_MB", v, 1); }   /* the xshmem DATA heap per loopback PE = the device pool law */
         if (rank0) printf("comm_shmem pool: COMM_OFI: the SHMEM pool %zu MiB (need %zu MiB) + 4 comm_ofi pools of COMM_OFI_POOL_MB=%zu (%s)\n", mb > have ? mb : have, mb, ofi_pool_mb(), by);
     }
     if (mb > have) {
@@ -810,7 +808,7 @@ static size_t layout_arena(unsigned long N, int g, size_t *bs2_)
 const char *const bs_cap_name[2] = { "2^30", "2^31" };   /* the cap index c = pool_log - 30 */
 #define BS_TABLES_BYTES ((size_t)610000000)
 #define BS_HOST_INIT_BYTES ((size_t)7000000000 + ((size_t)8 << 30))
-/* the comm_ofi pools of the node (bytes; as_shmem_pool's ofi term): allocated by the transport at init, so ecalc.c budget_check counts them as already taken (plq2) */
+/* the device pools of the node (bytes; as_shmem_pool's ofi term): allocated by the transport at init, so ecalc.c budget_check counts them as already taken (plq2) */
 size_t binsplit_comm_resident_bytes(unsigned long N, int g) { size_t ofi = 0; (void)as_shmem_pool(N, g, &ofi); return ofi; }
 size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *planes_, size_t *arena_, size_t *host_)
 {
@@ -822,7 +820,7 @@ size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *plan
     size_t host;
     if (g > 1) {
         size_t ofi = 0, pool = as_shmem_pool(N, g, &ofi), sb = as_seedbuf(N) * (size_t)bs_lanes();
-        size_t base = bs_ppn_proc() * ((size_t)7000000000 + (size_t)6000000000) + bs_staging() + pool + ofi;   /* OFIMEM: + the comm_ofi pools */
+        size_t base = bs_ppn_proc() * ((size_t)7000000000 + (size_t)6000000000) + bs_staging() + pool + ofi;   /* OFIMEM: + the device pools */
         int early = getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) != 0 : 1;
         size_t hd = base + (size_t)bs_lanes() * ((size_t)650000000 + (early ? (size_t)900000000 : 0)), hi = base + sb;
         host = hi > hd ? hi : hd;
@@ -849,12 +847,12 @@ void binsplit_layout_comm_size(int g)
  * The device memory of a node against the machine's device edge (ECALC_DEVICE_GB, the profile's measured figure; code default
  * 373.44 = the target's, 93.36 GB per APU, results/TARGET.md §TGTBENCH2) and the node against the node budget (ECALC_NODE_GB, 480), from the
  * layout's own terms at rank 0's range (the BS_LAYOUT_ONLY convention, so every rank decides alike):
- *   device = max(the dm phase: planes + arena + comm_ofi pools + 4 v-slots,  the bs phase: planes + arena + comm_ofi pools + the VMM
+ *   device = max(the dm phase: planes + arena + device pools + 4 v-slots,  the bs phase: planes + arena + device pools + the VMM
  *            pool's bs growth (AS_VMM_BS_GROW, 6.0 GB measured) + 4 v-slots of the tree's top level)   (mem_model.py dev_max's form)
  *   node   = planes + arena + the bs growth + host (as_host_bytes: the room's host, the comm pools in it) + 4 v-slots
  * DM_MN_WRAP unset: the run takes the wrap (1) when the device with it is at most ECALC_DEVICE_GB - ECALC_DEVICE_MARGIN_GB (5.0 GB per
  * node by default), else 0; an explicit DM_MN_WRAP wins (a warning when its device is over the edge).  Size 1: the wrap is not used
- * (the mn division only), the value stays 1 as before.  The comm_ofi pools are device memory unless COMM_OFI_POOL=host. */
+ * (the mn division only), the value stays 1 as before.  The device pools (COMM_OFI_POOL_MB) are device memory. */
 static __thread int g_wrap_force = -1;                          /* the arm binsplit_fit lays out (-1: none) */
 static __thread int g_wrap_run = -1;                            /* the run's automatic decision (-1: not decided: 1, D22's default) */
 static int dm_wrap_env(int *v)
@@ -1112,7 +1110,7 @@ static uint64_t *ckpt_buf(int r, int *own, const struct ckpt_io *io)
 }
 /* a checkpoint data file -- the stdio stream as before, or with ECALC_ODIRECT=1 spill.c's sp_file: O_DIRECT
  * through the (aligned) DMA buffer, the 1 GiB buffer split in two halves so the DMA of one runs under the write of the
- * other; nothing is left in the page cache (on the APU the cache is HBM, results/apumult/apumult_M.md) */
+ * other; nothing is left in the page cache (on the APU the cache is HBM, results/APUMULT.md, apumult_M) */
 typedef struct { FILE *f; sp_file sf; int direct; } ckf;
 static size_t ck_halves(uint64_t *buf, void *b2[2], size_t bytes) { b2[0] = buf; b2[1] = (char *)buf + bytes / 2; return bytes / 2; }
 static ckf *ckpt_open(const char *kind, int level, int r, int write, char *tmp, char *final)

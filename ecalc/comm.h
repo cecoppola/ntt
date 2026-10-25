@@ -56,7 +56,7 @@ struct comm_ops {
     /* the same for host buffers, complete on return */
     void (*alltoallv_host)(comm *c, const void *sendbuf, const size_t *scnt, const size_t *sdsp, void *recvbuf, const size_t *rcnt, const size_t *rdsp);
     /* symmetric memory for the callers' slabs.  A transport that puts straight from and into buffers of its own
-     * pool (SHMEM: the symmetric pool, device-accessible) hands out such buffers here; an exchange whose send / receive
+     * pool (xshmem: the DATA heap, device-accessible) hands out such buffers here; an exchange whose send / receive
      * buffer lies in the pool is not staged.  0 (the field or the result): the caller allocates the buffer itself
      * (hipMalloc) and the transport stages it.  The layered communicator forwards to its inter transport. */
     void *(*sym_alloc)(comm *c, size_t bytes);

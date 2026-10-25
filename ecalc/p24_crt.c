@@ -6,7 +6,7 @@
  * kept as the tails -- the carry chain is a carry-lookahead over
  * wave ballot masks (as k_crt_batch; K4c, results/KERNELS.md §K4c; the serial chain was removed 2026-10-23, Q87), and the limbs go to the column's out-run.  The
  * contributions past the column's last own limb L(x0 + rows) - 1 form its 4-limb spill at L(x0 + rows) (the next out-run's first
- * limbs), added by the caller like k_crt_batch's.  Bound (P2415.md 1.1): min(Pa, Pb) <= 10^12 points gives c < 10^60, so c 10^s < 10^72
+ * limbs), added by the caller like k_crt_batch's.  Bound (results/PRIMES_STRATEGY.md §P2415 1.1): min(Pa, Pb) <= 10^12 points gives c < 10^60, so c 10^s < 10^72
  * (four limbs, e4 = 0) and the spill's top limb holds the final carry; the device flag says otherwise (1: e4 != 0, 2: a spill carry). */
 #include <hip/hip_runtime.h>
 #include <stdio.h>

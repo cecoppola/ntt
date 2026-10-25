@@ -38,7 +38,7 @@
  *  7. rate: 8-chain issue throughput per APU, all devices (bench/15 gave
  *     1 330 Gmodmul/s per APU; a regression here means the library changed)
  *
- * Usage: t_modarith [pairs, millions (default 1000)]
+ * Usage: t_arith modarith [pairs, millions (default 1000)]
  */
 /* ===== roots ===== (was t_roots)
  t_roots - the roots of unity above 2^33 (modarith.h ec_root / ec_root3), host only.
@@ -55,7 +55,7 @@
  *   5. the refusal: ec_root(i, v2 + 1) and ec_root3(i, v2 + 1) stop the process through ec_fatal (rc 3), in a child;
  *   6. ec_logn_limit(3) = ec_logn_limit(4) = 44 (the WP8 set), and L8's measurement reproduced for the old formula
  *      (logn 34 gives 1 or garbage, never a root of order 2^34) -- only printed.
- * Build (no GPU): gcc -O2 -fopenmp -DEC_FATAL_NO_HIP -I. tests/t_roots.c fatal.c -lgmp -lpthread -o tests/t_roots */
+ * Usage: t_arith roots (host code only, but linked with the rest of t_arith by make) */
 /* ===== primes ===== (was t_primes)
  t_primes - three primes instead of four for base-10^18 limbs.
  *
@@ -76,7 +76,7 @@
  *     host tier rns_mul by it) -- checked against the closed form B^2n - 2 B^n + 1 (GMP-checked itself at n <= 2^20) and
  *     against each other; random operands through both and the batch tier against the test reference (tests/tref.h)
  *
- * Usage: t_primes [gpu [LOGMAX (30)]]      (parts 1-3 need no GPU; ECALC_NP is read by part 4 only)
+ * Usage: t_arith primes [gpu [LOGMAX (30)]]      (parts 1-3 need no GPU; ECALC_NP is read by part 4 only)
  */
 
 /* ---------- modarith ---------- */
