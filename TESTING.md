@@ -24,14 +24,14 @@ covers it; its log shows the `I3:` line.
     tools/gate.sh --nodes 2 --alloc --line aac7            # own short allocation instead of a hold
 
 **Path 2 gate (the Cray SHMEM path, user rule Q85; run when `xshmem*`, `comm_xshmem.c`, `pe_geo.c`, the launcher's P branch or shared multi-node code changed).**
-Build with `make -B -C ecalc XSHMEM=cray SHMEM_CRAY=1 GMP_HOME=<gmp>` (aac7: `module load cray-dsmml cray-openshmemx`; rebuild with `-B` when
+Build with `make -B -C ecalc XSHMEM=cray GMP_HOME=<gmp>` (aac7: `module load cray-dsmml cray-openshmemx`; rebuild with `-B` when
 switching `XSHMEM`). Then 10⁹ digits identical to the reference at 1 node and at 2 nodes with
 `--env "ECALC_PE_PER_GPU=1 XSHMEM_LANES=2"` (the gate passes `--env` words to `mnrun.sh`), and `tests/t_xshmem correct` with `XSHMEM_LANES=2` at 1, 2 and 3 nodes
-x 4 PEs (build `make XSHMEM=cray SHMEM_CRAY=1 GMP_HOME=<gmp> tests/t_xshmem`; every PE must print `XT_RESULT PASS`). Path 1 is the plain gate above and must stay digit-identical and no
+x 4 PEs (build `make XSHMEM=cray GMP_HOME=<gmp> tests/t_xshmem`; every PE must print `XT_RESULT PASS`). Path 1 is the plain gate above and must stay digit-identical and no
 slower after any shared-code change. A timing claim between the paths needs interleaved pairs (ABBA) and an A/A control: aac7 run times are bimodal, so single runs prove nothing (`results/NODE_SLOWMODE.md §BM`, `results/XSHMEM.md` craylane). Digit reference at production size: 2 n 1e11 on both paths gives sha 578f5efb0ff2b9af of the part files' concatenated output (main after Q96, `results/XSHMEM.md §XWLAT`).
 
-- `--build` runs `make -B` in `ecalc/` (path 1; add `SHMEM_CRAY=1` for a multi-node run: the gate checks the build log
-  for `-DCOMM_SHMEM` and refuses a multi-node run without it). It also runs `tools/switch_registry.py --check` and
+- `--build` runs `make -B` in `ecalc/` (path 1; `GATE_XSHMEM=cray` builds path 2; for a multi-node run the gate checks the
+  build log for `-DXSHMEM_OFI` or `-DXSHMEM_CRAY` and refuses the run without it). It also runs `tools/switch_registry.py --check` and
   `tools/profile_load.py --validate-all`; either failing is a FAIL. The registry check's review-date `WARN` lines (a
   setting past its review date in `ecalc/switches_review.tsv`, or an experiment without one) are printed, never a FAIL.
 - `--line` selects the launch line (the test system's is the `LAUNCH_LINE_KEYS` of `profiles/aac7.conf`, printed by
@@ -91,15 +91,15 @@ question open, and killed runs have been followed by nodes draining for a reboot
 | the engine (NTT, CRT, products, binary splitting, Newton, memory layout) | `mnaccept.sh <hold> --only unit,e9` plus the touched steps (`mn`, `grid`, `ckpt`, `recheck`, `corr`); `t_newton`, `t_mul`; 4 × 10¹⁰ digits identical to the reference; `ecalc/mem_model.py --check-c` exact if sizing changed |
 | switches or defaults | `tools/switch_registry.py --check`; the switch row in `ecalc/README.md` |
 | PE identity and process-per-GPU (`ecalc/vpe.{h,c}`, the `vpe_*` part of `mn.c`, `ECALC_PE_PER_GPU`) | `tests/t_vpe host` (login node is enough; checks the fatal paths in forked children); under `mnrun.sh` with `ECALC_PE_PER_GPU=1 COMM_TRANSPORT=xshmem` (4 tasks per node) `tests/t_vpe all` / `probe` at 1, 2, 3 nodes (one `T_VPE_RESULT PASS` per PE: 4, 8, 12), `t_vpe info` (launch and binding probe: `PPG_INFO` line per PE), `t_vpe die` and `t_vpe badlayout` (the step must end nonzero within 120 s, no task left); the flow's writers: `tests/t_out --ppg` (host only: one process per PE writes its part, parts / residues / windows vs the reference); the switch-off path must stay byte-identical (gate at 1 node, digits and log text); the form S product on lane 0 of the forced PE view: `tests/t_dist --vpe`, `tests/t_dbig --vpe` (no network). The thread mode (`ECALC_VPE`) and its tests were removed 2026-10-23 (Q86; branch `vpe-int`) |
-| the xshmem layer (`xshmem*.{h,c}`, `comm_xshmem.c`, `pe_geo.c`) | build with the plain `make ecalc` (XSHMEM=ofi is the default where libfabric is found; `XSHMEM=0` for the old build); `tests/t_pe_geo` (host only); `tests/t_xshmem` at 1, 2 and 3 nodes x 4 PEs (the default `correct` set: `basic exch deadlock layer limit tail`); then the gate at 1, 2 and 3 nodes with no transport variables (the default is xshmem with `XSHMEM_ROUND_MB=128`; digits identical) and at 2 and 3 nodes with `COMM_TRANSPORT=shmem COMM_OFI=1` (the fallback), and `mnaccept.sh <hold> --only mn` (default env) (`results/XSHMEM.md` §5, §6) |
+| the xshmem layer (`xshmem*.{h,c}`, `comm_xshmem.c`, `pe_geo.c`) | build with the plain `make ecalc` (XSHMEM=ofi is the default where libfabric is found; `XSHMEM=0` for the old build); `tests/t_pe_geo` (host only); `tests/t_xshmem` at 1, 2 and 3 nodes x 4 PEs (the default `correct` set: `basic exch deadlock layer limit tail`); then the gate at 1, 2 and 3 nodes with no transport variables (xshmem with `XSHMEM_ROUND_MB=128`; digits identical), and `mnaccept.sh <hold> --only mn` (default env) (`results/XSHMEM.md` §5, §6) |
 | process layout P and lanes (`ECALC_PE_PER_GPU`, `XSHMEM_LANES`, `RNS_BATCH_SPLIT`, `xshmem_cray.h`, the launcher's P branch) | the path 2 gate (section 2) at 1 and 2 nodes, and D against P digits at 1, 2 and 3 nodes (`sha` of the output file) |
 | speed claims | the timing method in section 6, on top of the above |
 
 ## 5. Unit tests and digit comparison
 
 Local unit tests are `ecalc/tests/t_*.c`, built by `make` in `ecalc/` (`make tests/t_<name>`), one GMP-checked program per
-module (`t_ntt`, `t_ntt3`, `t_modarith`, `t_primes`, `t_crt`, `t_mul`, `t_dbig`, `t_bs`, `t_newton`, `t_dist`, `t_mn_grid`,
-`t_p24`, `t_verify`, `t_out`, `t_patch`, `t_comm`, `t_vpe`, …). Run one inside a one-node allocation with 4 GPUs (or `mnaccept.sh <hold> --only unit` for the standard set):
+module (`t_ntt`, `t_arith`, `t_crt`, `t_mul`, `t_dbig`, `t_bs`, `t_newton`, `t_dist`, `t_mn_grid`,
+`t_p24`, `t_verify`, `t_out`, `t_patch`, `t_vpe`, …). Run one inside a one-node allocation with 4 GPUs (or `mnaccept.sh <hold> --only unit` for the standard set):
 
     srun --jobid=<hold> -N1 --gpus=4 --overlap ./tests/t_ntt 24            # arguments are the test's size
     srun --jobid=<hold> -N1 --gpus=4 --overlap ./ref/gen_e 1000000000 ref  # reference digits by GMP
@@ -110,8 +110,8 @@ OpenMP-parallel) and above that by the residue form -- every limb below B, the l
 the low 64 limbs exactly and the top limbs within the exact bounds of the leading 64 x 64 limb product; `tref_mul` gives a
 reference value (GMP, or the one-node device product at the default plane checked by the residue form); `tref_faults`
 checks the reference itself (one limb changed low, in the middle or at the top must fail; `t_mul` runs it on every product
-of sections 1 and 2). The two Phase 15 model replays (`archive:scripts_2026-10-23/t2_seed_model.py`, `archive:scripts_2026-10-23/as_pool_replay.py`) are archived; `tools/test_unpack.py` and `tools/test_pack60.c` test the packed format.
-Python unit tests of the tools (`trace_report.py`, `switch_registry.py`, `doccheck.py`; stdlib, numpy only for the first, each < 5 s): `python3 -m unittest discover -s tests` from the repository root (`tests/test_tools.py`).
+of sections 1 and 2). The two Phase 15 model replays (`archive:scripts_2026-10-23/t2_seed_model.py`, `archive:scripts_2026-10-23/as_pool_replay.py`) are archived; `tools/test_unpack.py` and `tests/t_out` test the packed format.
+Python unit tests of the tools (`switch_registry.py`, `doccheck.py`, the models; stdlib, each < 5 s): `python3 -m unittest discover -s tests` from the repository root (`tests/test_tools.py`).
 
 Digits against a reference:
 

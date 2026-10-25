@@ -17,8 +17,6 @@ Nothing is launched: the planner touches no device (a login node is enough; the 
                 (device GB per node and per APU against the device limit ECALC_DEVICE_GB, the node against ECALC_NODE_GB, the margins,
                 the largest consumers, the DM_MN_WRAP decision and why).  Exit 0 = fits, 1 = does not fit (or a plan REFUSED): a
                 launch is refused.  ecalc/mnrun.sh and tools/gate.sh print the same lines before every launch.
-                (Every mode: when neither COMM_OFI nor COMM_OFI_PLAN_CXI is set, COMM_OFI_PLAN_CXI=1 is assumed -- the compute nodes of
-                aac7 and the target have cxi NICs, as mnrun.sh finds at a launch -- so the comm_ofi pools are counted.)
   --exports     print only `export K=V` lines of the computed launcher values (for an srun launch without mnrun.sh:
                 eval "$(tools/plan_values.py --profile target --exports 38200000000000 576)")
 Exit: 0 values computed (and the memory fits), 1 `plan REFUSED` or a memory that does not fit,
@@ -107,10 +105,6 @@ def main(argv):
         for k in COMPUTED:
             env.pop(k, None)
 
-    cxi_note = ""
-    if g > 1 and "COMM_OFI" not in env and "COMM_OFI_PLAN_CXI" not in env:   # FIT: the compute nodes' cxi NICs (mnrun.sh asks a compute node at a launch)
-        env["COMM_OFI_PLAN_CXI"] = "1"; cxi_note = "COMM_OFI_PLAN_CXI=1 assumed (cxi NICs on the compute nodes: the comm_ofi pools counted)"
-
     # 1. the launcher values: mnrun.sh's own computation, printed instead of launched
     cmd = [os.path.join(ROOT, "ecalc", "mnrun.sh"), str(g), ecalc, str(d)]
     r = subprocess.run(cmd, env=dict(env, MNRUN_PRINT_ENV="1"), capture_output=True, text=True)
@@ -123,7 +117,7 @@ def main(argv):
 
     # 2. the plan itself: schedule, pool_log, verdict (same environment, same modules as mnrun.sh's plan call)
     penv = dict(env)
-    penv.update({k: v for k, v in ex.items() if k in ("COMM_TRANSPORT", "COMM_SHMEM_POOL_MB", "COMM_OFI_PLAN_CXI", "MNRUN_MODULES", "MNRUN_UNLOAD")})
+    penv.update({k: v for k, v in ex.items() if k in ("COMM_TRANSPORT", "COMM_SHMEM_POOL_MB", "MNRUN_MODULES", "MNRUN_UNLOAD")})
     if g > 1:
         penv.setdefault("COMM_TRANSPORT", "xshmem")   # (mnrun.sh's print-env gave the transport it picks: xshmem with the engine, Q73)
     penv["MN_PLAN_ONLY"] = "%d:%d" % (d, g)
@@ -149,8 +143,6 @@ def main(argv):
                                                              "; env " + a["env"] if a["env"] else ""))
         for l in fit:
             print("  " + l)
-        if cxi_note:
-            print("  note: " + cxi_note)
         if "REFUSED" in verdict and verdict not in fit:
             print("  " + verdict)
         print("  verdict: %s" % ("FITS -- the launch may proceed" if fits and "REFUSED" not in verdict else "DOES NOT FIT -- a launch is refused"))
@@ -161,7 +153,7 @@ def main(argv):
     if a["exports"]:
         print("# tools/plan_values.py: %d digits on %d node-process%s%s; %s" % (d, g, "es" if g > 1 else "", " (profile %s)" % a["profile"] if a["profile"] else "", verdict))
         for k, v in ex.items():
-            if k not in ("MNRUN_MODULES", "MNRUN_UNLOAD", "COMM_OFI_PLAN_CXI"):
+            if k not in ("MNRUN_MODULES", "MNRUN_UNLOAD"):
                 print("export %s=%s" % (k, shlex.quote(v)))
         print("# MN_GROUPS: the code's default schedule (%s) -- nothing to export" % groups)
         print("# %s" % (fit_last or "plan fit: -"))
@@ -177,8 +169,6 @@ def main(argv):
         print("  " + l.strip())
     if caller:
         print("  note: the caller's environment set %s; ignored here (computed), a launch would take the typed value" % ",".join(sorted(caller)))
-    if cxi_note:
-        print("  note: " + cxi_note)
     return 1 if "REFUSED" in verdict or not fits else 0
 
 

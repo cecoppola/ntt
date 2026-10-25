@@ -303,14 +303,13 @@ budget).
 |---|---|
 | `comm_local.c` | one rank (size 1): no-ops and copies; the single-node pipeline runs through it |
 | `comm_xgmi.c` | the node's four APUs: peer copies over the xGMI mesh, driven by four host threads |
-| `comm_ofi.c` | libfabric (`cxi`): the device exchanges' data plane over every NIC of the node, one domain per APU thread, chunks striped over the NICs; the reference arm (`COMM_TRANSPORT=ofi`); the default path has its own data plane in `xshmem_ofi.c` |
-| `comm_xshmem.c` | `COMM_TRANSPORT=xshmem` (the default multi-node transport since Q73, 2026-10-21; built by default where libfabric is found, `XSHMEM=0` omits it): the inter-node meshes over `xshmem.h`, the 1:1 mapping of the Cray SHMEM 12.1 calls (libfabric backend `xshmem_ofi.c` on aac7, `xshmem_cray.h` on the target); one node-process hosts one loopback PE per APU thread; the receiver publishes offsets, a worker thread (default in every layout, Q96; `ECALC_XEX_THREAD=0` polls instead) puts and signals, rounds (`XSHMEM_ROUND_MB`, default 128); `results/XSHMEM.md` |
+| `comm_xshmem.c` | `COMM_TRANSPORT=xshmem` (the only multi-node transport; built by default where libfabric is found, `XSHMEM=0` omits it): the inter-node meshes over `xshmem.h`, the 1:1 mapping of the Cray SHMEM 12.1 calls (libfabric backend `xshmem_ofi.c` on aac7, `xshmem_cray.h` on the target); one node-process hosts one loopback PE per APU thread; the receiver publishes offsets, a worker thread (every layout, Q96) puts and signals, rounds (`XSHMEM_ROUND_MB`, default 128); `results/XSHMEM.md` |
 | `xshmem.h`, `xshmem_ofi.c`, `xshmem_boot.c`, `xshmem_cray.h`, `pe_geo.c` | the API (the 1:1 mapping of the Cray SHMEM 12.1 calls) and its two backends: libfabric cxi with PMI2 bootstrap (`XSHMEM=ofi`, path 1) and Cray SHMEM (`XSHMEM=cray`, static inline, path 2); `pe_geo.c` reports each PE's GPU, NUMA node and NICs. `vpe.c` holds the PE identity of the one-process-per-GPU layout |
 | `comm_layered.c` | the layered composition of an intra (xGMI) and an inter (SHMEM/OFI) communicator, §6.3 |
 | `comm_sim4.c`, `comm_util.c` | a synthetic four-rank layout in one APU's memory for tests; shared helpers |
 | `comm_copy.c` | N7D: the GPU copy kernel for copies that touch a host-registered pool (called from `comm_xshmem.c`'s `COPY`) |
 
-Builds: the default build (`XSHMEM=ofi`, where libfabric and the PMI2 header are found) runs `COMM_TRANSPORT=xshmem` multi-node; `XSHMEM=cray SHMEM_CRAY=1` builds path 2 (`README.md`). The plain SHMEM transport (`COMM_TRANSPORT=shmem`) was removed 2026-10-25 (Q103): the transport is xshmem on both paths. The transport, the meshes and the
+Builds: the default build (`XSHMEM=ofi`, where libfabric and the PMI2 header are found) runs `COMM_TRANSPORT=xshmem` multi-node; `XSHMEM=cray` builds path 2 (`README.md`). The plain SHMEM transport (`COMM_TRANSPORT=shmem`) was removed 2026-10-25 (Q103): the transport is xshmem on both paths. The transport, the meshes and the
 communicators are opened before any HIP thread exists, because opening them after the arenas crashed in a vendor
 initialisation (8 of 78 runs, m).
 

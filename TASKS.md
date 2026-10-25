@@ -27,7 +27,6 @@ One line each (what, why, size); nothing here is started without the user's word
 - Default start-up time (measured 2026-10-22, results/XSHMEM.md §PPG S2d): layout D spends 25-31 s in init at 3 n 1e11 (region pools / VMM arenas 13.5-15 s, plane pools ~5 s, layered self-test 3.7-4.2 s, staging ~2 s) against ~10 s with one process per GPU: one process mapping memory for 4 GPUs is serialised in the HIP runtime (D ~20 GB/s per node vs P ~150 GB/s). Tried and not adopted: skip the layered self-test (`MN_SELFTEST`, 3 n 1e11 -1.55 s [-4.25, +1.14], the cost is building the meshes), `DB_POOL_VMM=0` (init -6.0 s but bs +4.8 s), plane pools mapped in a helper thread (`RNS_INIT_OVERLAP`, no gain: the runtime serialises the mappings; results/APUMULT.md §INIT). Remaining lever: per-device allocator processes so D maps like P (L-A, ~20 s, modelled), not started.
 - 6 n paired ABBA of grid [2,6] against [6], at least 8 runs per arm (earlier data +23 +/- 12 s, unexplained, m); aac7, one item.
 - Watch item, start-up hang at 7.7e10 (A114 E1): not reproduced on current main, 0 in 301 runs (95 % bound 1.0 %, 2026-10-25, results/CRASHES_HANGS.md §A114); any hang caught by `ECALC_INIT_TL=1` plus `eu-stack` reopens it.
-- Switch audit ASK list (1 switch left): `COMM_XSTATS` after the parser migration; kept until the target session (D56, user 2026-10-19).
 
 ## Decisions (user) still acting
 

@@ -102,7 +102,7 @@ Open work in this repository is in `TASKS.md`.
 
 **Target session** (the user runs it; the steps are in `ecalc/target_kit.sh -h`):
 1. Fill `profiles/target.conf` from the template (modules, ROCm, NICs, partition, memory); `tools/profile_load.py target --check`.
-2. Kit preflight: environment record, build (path 2: `make XSHMEM=cray SHMEM_CRAY=1`), libfabric memory monitor (uffd), plan check
+2. Kit preflight: environment record, build (path 2: `make XSHMEM=cray`), libfabric memory monitor (uffd), plan check
    (`MN_PLAN_ONLY` must end with `plan check ... OK`), the memory edge, a node screen (`tools/nodescreen.sh`).
 3. Measurements: A3 (`comm_ofi` injection per NIC, one vs two NICs per APU) and A4 (all-to-all scaling with node count).
    These replace the assumed fabric rate in the model; re-run `mn_model.py estimate` and recheck the size against the grid steps.

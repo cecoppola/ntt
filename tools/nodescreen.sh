@@ -98,7 +98,7 @@ NK=$(echo "$KEEP" | tr , '\n' | grep -c .)
 if [ "$DO_MN" = 1 ] && [ "$NK" -ge 2 ]; then
   DM=$((DIGM * NK)); S=$(date +%s.%N)
   ( cd "$E" && export SLURM_LABELIO=1 SLURM_JOB_ID="$HOLD" MNRUN_NODELIST="$KEEP" MNRUN_LABEL=1 MNRUN_MODULES="$MODS" MNRUN_UNLOAD="$UNL"
-    exec timeout -s TERM "$TMO_M" ./mnrun.sh "$NK" env COMM_TRANSPORT=shmem ECALC_VERBOSE=2 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=2 "$E/ecalc" "$DM" "${TMPDIR:-/tmp}/ns_mn_$$.out" ) > "$OUT/mn.log" 2>&1 < /dev/null &
+    exec timeout -s TERM "$TMO_M" ./mnrun.sh "$NK" env ECALC_VERBOSE=2 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=2 "$E/ecalc" "$DM" "${TMPDIR:-/tmp}/ns_mn_$$.out" ) > "$OUT/mn.log" 2>&1 < /dev/null &
   SPID=$!; wait "$SPID"; RC_M=$?; SPID=
   rm -f "${TMPDIR:-/tmp}"/ns_mn_$$.out* 2>/dev/null
   W_M=$(awk -v a="$S" -v b="$(date +%s.%N)" 'BEGIN{printf "%.1f", b-a}')

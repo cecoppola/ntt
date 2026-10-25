@@ -92,7 +92,7 @@ script defaults to another value; the profile wins), PROFILE-ONLY (no script def
    `MODULE_LOAD_RC=rc=0` and `MODULES_AFTER_LOAD` in the facts: a ROCm module loaded by default conflicts and the later `module load` silently
    fails (results/AAC7_PORT.md §ROCM), so `MNRUN_UNLOAD` = every default-loaded ROCm module (`MOD_LOADED_ROCM`); empty only if none is loaded.
    Expected: three names; the SHMEM library's libfabric (`SMA_LIBFABRIC_RESOLVED`) is the stated libfabric version.
-2. **Build** (`GMP_HOME`; path 1 is the default build `make -B GMP_HOME=...` with `XSHMEM=ofi`; path 2 of `README.md` is `make -B XSHMEM=cray GMP_HOME=...`). `tools/gate.sh --build` on a login node or in the allocation; the log must show `-DCOMM_SHMEM`. `GMP_HOME`: a
+2. **Build** (`GMP_HOME`; path 1 is the default build `make -B GMP_HOME=...` with `XSHMEM=ofi`; path 2 of `README.md` is `make -B XSHMEM=cray GMP_HOME=...`). `tools/gate.sh --build` on a login node or in the allocation; the log must show `-DXSHMEM_OFI` (path 1) or `-DXSHMEM_CRAY` (path 2). `GMP_HOME`: a
    `gmp.h` on the include path (probe note "a gmp.h is available") means delete the key; otherwise build GMP from source and set it to the
    prefix (`ls $GMP_HOME/include/gmp.h`). The Makefile's `CRAY_SMA`/`CRAY_DSMML` defaults point at one version: let the module's
    `CRAY_OPENSHMEMX_PREFIX`/`CRAY_DSMML_PREFIX` win (the probe prints both as `SMA_PREFIX`, `DSMML_PREFIX`). Expected: the build passes with the

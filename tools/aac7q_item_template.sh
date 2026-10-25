@@ -24,7 +24,7 @@ source aac7env.sh >/dev/null 2>&1
 # or, path 1 (libfabric, the default build `make -C ecalc`; layout D, no other setting; README "two supported multi-node paths"):
 #     SLURM_JOB_ID=$J ./mnrun.sh $AQ_NODES env ./ecalc <digits>
 # or, path 2 (Cray SHMEM, the target shape): build once with
-#     module load cray-dsmml cray-openshmemx; make -C ecalc XSHMEM=cray SHMEM_CRAY=1 GMP_HOME=$HOME/gmp   (add -B when switching XSHMEM)
+#     module load cray-dsmml cray-openshmemx; make -C ecalc XSHMEM=cray GMP_HOME=$HOME/gmp   (add -B when switching XSHMEM)
 #   then run one process per GPU with two lanes (mnrun.sh adds the NUMA placement, heap and plan):
 #     SLURM_JOB_ID=$J ./mnrun.sh $AQ_NODES env ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 ./ecalc <digits>
 echo "replace me"; exit 1
