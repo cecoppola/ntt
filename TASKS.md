@@ -12,7 +12,8 @@ Rewritten 2026-10-19, cleaned 2026-10-23 and 2026-10-25 (finished rows and settl
 Classes: 1 bugs, 2 shrink, 3 simplify, 4 performance, 5 docs (definitions in the project instructions). Within a class,
 rows are in the order to do them.
 
-- Cleanup round 4 (user order 2026-10-25 ~11:30 ET, Q103-Q111 all (a)): in progress. Code, tools, configuration and docs branches; Q103 removed the plain SHMEM transport and `COMM_TRACE`, Q110 made `RNS_BATCH_SPLIT` automatic under `ECALC_PE_PER_GPU=1`; docs: results index tables, SHMEM_ITEMS folded into SHMEM, TESTING_VERIF into CHECKPOINT, PLAN / OPPORTUNITIES / TASKS trimmed. Gate and totals: `results/CODE_REDUCTION.md §CR4` (numbers filled at the merge).
+- Target memory fit (class 1, found 2026-10-25): the planner now refuses 3.82e13 on 576 (device 407.41 GB per node vs 373.44, -33.97 GB; m, planner) where it reported +14.48 GB on 2026-10-19; same on main 0d052a9 and after cleanup round 4, so a change between 10-19 and 10-25 (or a different configuration then) moved it; find which, then fix the plan or the docs.
+- Cleanup round 4 (user order 2026-10-25, Q103-Q111 all (a)): done, merged 2026-10-25 (@GATE@). 185 -> 162 files, 46508 -> 39817 lines, switches 194 -> 145 (m); path 1 no slower (-0.91 s [-3.20, +1.39], m); `results/CODE_REDUCTION.md §CR4`. Left for later: `vpe_on` collapse, Garner `dmod128/192` dedupe, comment shortening, `t_pe_geo_live` merge; `ecalc/target_kit.sh` still names `t_comm` and `COMM_TRANSPORT=shmem` (kit on hold).
 
 ## Proposed (needs the user's priority)
 

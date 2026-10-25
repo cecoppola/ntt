@@ -61,8 +61,8 @@ Timings (all m, current engine, after the 2026-10-21 default change Q73).
 
 Older figures (comm_ofi era, 1 n 1e11 129.3 s before the 2026-10-12 defaults, the 1 / 2 / 4 / 6 n scaling at 6.441e10 per node 67.6 / 119.4 / 172.2 / 204.6 s, 6 n 3.8646e11 190.7 to 202.1 s) are in `results/TIME_MODEL.md §M2a`, `§SCALE35` and `archive:results_merged_2026-10-23/NIGHT_RUNS.md`; the 4-6 node figures have not been re-measured on the current engine.
 
-**Not yet done.** ecalc has not run on the target machine. The 576-node layout fits with 14.48 GB of device margin
-(mod, planner, section 3); the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
+**Not yet done.** ecalc has not run on the target machine. The 576-node layout fitted with 14.48 GB of device margin
+(mod, planner, 2026-10-19, section 3; re-check 2026-10-25 (m, planner, `plan_values.py --fit` with `ECALC_NP=auto MN_T_CHUNK_MB=2048`): device 407.41 GB per node, margin -33.97 GB, refused; identical on main 0d052a9 and after cleanup round 4; cause open (TASKS)); the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
 `results/TARGET.md §TGT`; at the user-supplied 100 GB/s injection peak per APU, a for the achieved rate); the write adds
 12.8 s at ecalc's assumed 1.0 GB/s per node and 1.0 s at the file system's 1 TB/s (mod); the target has run only the
 memory and exchange benchmarks (`results/TARGET.md §TGTBENCH2`).
@@ -93,7 +93,7 @@ nodes, profile) the device peak per node and per APU against `ECALC_DEVICE_GB` (
 in `profiles/aac7.conf`), the node against `ECALC_NODE_GB`, the margins and the largest consumers;
 `tools/plan_values.py --fit`, `mnrun.sh`, `tools/gate.sh` and the kit's plan stage print it and refuse a run that does not
 fit (`results/LAUNCH_DEFAULTS.md §FIT`). At 3.82 × 10¹³ digits on 576 nodes (target profile): device 358.96 GB per node,
-margin +14.48 GB (the current figure; the 12.9 GB of earlier notes is the superseded L1 estimate, `results/LAUNCH_DEFAULTS.md`); node 395.85 GB, margin +84.15 GB; `DM_MN_WRAP` off (with it: 384.73 GB, over the edge; m, planner). Every setting that is not a plain
+margin +14.48 GB (2026-10-19; re-check 2026-10-25 (m, planner, `plan_values.py --fit` with `ECALC_NP=auto MN_T_CHUNK_MB=2048`): device 407.41 GB per node, margin -33.97 GB, refused; identical on main 0d052a9 and after cleanup round 4; cause open (TASKS); the 12.9 GB of earlier notes is the superseded L1 estimate, `results/LAUNCH_DEFAULTS.md`); node 395.85 GB, margin +84.15 GB; `DM_MN_WRAP` off (with it: 384.73 GB, over the edge; m, planner). Every setting that is not a plain
 default has an owner and a review date (`tools/switch_registry.py --check`).
 
 ## 4. Plan to the target run
@@ -116,7 +116,7 @@ Open work in this repository is in `TASKS.md`.
 |---|---|
 | fabric rate at 576 nodes below the assumption | the kit measures it first; the size can drop to the next grid step |
 | a slow or faulty node | node screen and `initchk.py` before the run; exclusion only (`MNRUN_EXCLUDE_HOSTS`), no spares; any 572-576 nodes pass the plan check |
-| device memory near the edge | budget check (rc 8) before compute; guard (rc 9) during; 14.48 GB margin (mod, planner) |
+| device memory near the edge | budget check (rc 8) before compute; guard (rc 9) during; 14.48 GB margin (mod, planner, 2026-10-19; -33.97 GB on the 2026-10-25 re-check, open) |
 | hangs in the ROCr / libfabric memory registration | `FI_MR_CACHE_MONITOR=userfaultfd` (0/104 hangs against 22/105, m) |
 | crash without a trace | `ECALC_SEGV_TRACE=1` on the launch line |
 | wrong digits | T1/T2 in the run, RECHECK and `unpack_digits` after it |
