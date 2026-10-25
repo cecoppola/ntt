@@ -16,9 +16,9 @@ net14	1	128	2	10	scl01	TQ43	net14.sh
 prm01	2	130	8	30	scl02	TQ44	prm01.sh
 prm02	2	135	2	15	scl01	TQ45	prm02.sh
 prm03	2	140	8	30	scl02	TQ46	prm03.sh
-prm04	2	140	1	20	ntt02	TQ47	prm04.sh
+prm04	2	140	1	20	ntt02	TQ47,TQ80	prm04.sh
 prm05	2	145	1	30	ntt02	TQ48	prm05.sh
-prm06	2	146	1	20	ntt02	TQ49	prm06.sh
+prm06	2	146	1	20	ntt02	TQ49,TQ80	prm06.sh
 net09	2	150	4	25	scl02	TQ50	net09.sh
 net10	2	155	16	20	scl02	TQ51	net10.sh
 scl03	2	160	8	20	scl02	TQ52	scl03.sh
