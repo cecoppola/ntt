@@ -290,5 +290,19 @@ fi
 # COMM_KILL_ON_BAD_EXIT=0 is the only override.
 kopt=(); { [ "$nn" -gt 1 ] || [ "$MNRUN_PPG" = 1 ]; } && [ "${COMM_KILL_ON_BAD_EXIT:-1}" != 0 ] && kopt=(--kill-on-bad-exit=1)   # (S2a: also on one node: a dead PE must end the step)
 # the one launch of every path: the tasks block-placed on the listed nodes; each task loads the modules, sets its rank and runs the command
-exec srun --jobid="$SLURM_JOB_ID" "${kopt[@]}" "${mpi[@]}" -N "$nn" -w "$list" --ntasks="$((P * PPN))" --ntasks-per-node="$((per * PPN))" "${copt[@]}" --distribution=block "${gopt[@]}" --overlap --export=ALL \
-     bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; k=${MNRUN_PPN:-1}; export COMM_RANK=$((SLURM_PROCID / k)) COMM_SIZE=$((SLURM_NTASKS / k)); [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec '"$pre"'"$@"' _ "$@"
+launch=(srun --jobid="$SLURM_JOB_ID" "${kopt[@]}" "${mpi[@]}" -N "$nn" -w "$list" --ntasks="$((P * PPN))" --ntasks-per-node="$((per * PPN))" "${copt[@]}" --distribution=block "${gopt[@]}" --overlap --export=ALL \
+     bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; k=${MNRUN_PPN:-1}; export COMM_RANK=$((SLURM_PROCID / k)) COMM_SIZE=$((SLURM_NTASKS / k)); [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec '"$pre"'"$@"' _ "$@")
+# MNRUN_NICGRP=1 (default off; results/NODE_SLOWMODE.md §A14): log which NIC launch group (A = oxe_mcu_meas 18-25, B = 28-33) carried this
+# launch's traffic: per node, the counter deltas around the srun, one line "mnrun.sh: nicgrp <host> A=<bytes> B=<bytes> -> <A|B|none>" and a
+# summary "nicgrp: <A|B|mixed|none>"; log only, the exit status is the run's.  The group is per launch (§A13) and sets the 4-node rate, so
+# this lets a multi-node timing be split by group (the layv factor 0.92 of TIME_MODEL.md §L4 assumed B).
+if [ "${MNRUN_NICGRP:-0}" = 1 ]; then
+    nicsnap() { timeout 120 srun --jobid="$SLURM_JOB_ID" -N "$nn" -w "$list" --ntasks="$nn" --ntasks-per-node=1 --overlap bash -c 'a=0; b=0; for d in /sys/class/cxi/cxi[0-9]*/device/telemetry; do for k in 18 19 20 21 22 23 24 25; do v=$(grep -m1 -o "^[0-9]*" $d/oxe_mcu_meas_$k 2>/dev/null); a=$((a + ${v:-0})); done; for k in 28 29 30 31 32 33; do v=$(grep -m1 -o "^[0-9]*" $d/oxe_mcu_meas_$k 2>/dev/null); b=$((b + ${v:-0})); done; done; echo "$(hostname -s) $a $b"' 2>/dev/null | sort; }
+    snap0=$(nicsnap); "${launch[@]}"; rc=$?; snap1=$(nicsnap)
+    { echo "$snap0" | sed 's/^/P /'; echo "$snap1" | sed 's/^/Q /'; } | awk '
+        $1=="P"{pa[$2]=$3; pb[$2]=$4; next}
+        {h=$2; da=$3-pa[h]; db=$4-pb[h]; g=(da+db<1e6)?"none":(da>db)?"A":"B"; printf "mnrun.sh: nicgrp %s A=%d B=%d -> %s\n", h, da, db, g; seen[g]=1; n++}
+        END{m=""; for (g in seen) m=(m==""?g:"mixed"); printf "mnrun.sh: nicgrp: %s\n", (n? (m ~ /^(A|B|none)$/ ? m : "mixed") : "none")}'
+    exit $rc
+fi
+exec "${launch[@]}"
