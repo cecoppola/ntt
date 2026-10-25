@@ -4,11 +4,11 @@
   tools/plan_values.py [--profile NAME|PATH] [--env "K=V ..."] [--ecalc PATH] [--exports | --fit] DIGITS NODES
 
 What it computes, from (digits, node-processes, machine profile + the line's settings), with nothing typed:
-  - the SHMEM pool COMM_SHMEM_POOL_MB, the library heap (SHMEM_SYMMETRIC_SIZE = XT_SYMMETRIC_HEAP_SIZE, Cray) and FI_UNIVERSE_SIZE: ecalc/mnrun.sh with MNRUN_PRINT_ENV=1 (mnrun.sh asks the
+  - the pool COMM_SHMEM_POOL_MB (the planner's pool figure, also the XSHMEM_HEAP_MB sizing), the library heap (SHMEM_SYMMETRIC_SIZE = XT_SYMMETRIC_HEAP_SIZE, Cray) and FI_UNIVERSE_SIZE: ecalc/mnrun.sh with MNRUN_PRINT_ENV=1 (mnrun.sh asks the
     planner, `MN_PLAN_ONLY=<digits>:<nodes>`, for the pool and adds 512 MiB for the heap -- the rule every launch through mnrun.sh
     already uses);
   - the tree schedule MN_GROUPS, the plane pools' pool_log and the plan's verdict: the planner's own header and `plan check` line.
-Nothing is launched: the planner touches no device (a login node is enough; the binary must be the SHMEM build of the run).
+Nothing is launched: the planner touches no device (a login node is enough; the binary must be the xshmem build of the run).
 
   --profile P   load profiles/P.conf first (tools/profile_load.py: explicit environment > profile > code default)
   --env WORDS   K=V words (a launch line) applied before the profile: they shape the plan (explicit > profile > code default)

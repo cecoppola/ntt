@@ -1,7 +1,7 @@
 /* spill.h - file I/O that leaves nothing in the page cache (the spill of a device
  * number's limb range to disk and back is not provided: no production caller).
  *
- * On the APU the page cache is HBM (results/apumult/apumult_M.md: a 64 GiB buffered write took 64 GiB of MemFree and
+ * On the APU the page cache is HBM (results/APUMULT.md, apumult_M: a 64 GiB buffered write took 64 GiB of MemFree and
  * kept it after fsync).  Two remedies, both measured there: O_DIRECT (never enters the cache; 2.0 GB/s write, 5.9 GB/s
  * read on aac6's NVMe) and fsync + posix_fadvise(DONTNEED) (gives the cache back after the write).  O_DIRECT needs
  * 4 KiB-aligned buffers, lengths and offsets, and cannot DMA from hipMalloc memory (EFAULT): device data goes through a

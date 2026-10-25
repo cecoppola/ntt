@@ -653,7 +653,7 @@ static void a2a_table(xcomm *c, const char *name, uint64_t tagb)
 {
     int reps = getenv("XT_REPS") ? atoi(getenv("XT_REPS")) : 5; if (reps > 16) reps = 16; if (getenv("XT_QUICK") && reps > 2) reps = 2;
     static xex x; size_t cn[MAXM];
-    if (me == 0) printf("HDR %s | form, members, bytes_per_slab, post_ms, wait_ms, total_ms(median), min_ms, GB/s_per_PE(received, comparable to t_comm --bw per thread), min_PE, node_GB/s_mean\n", name);
+    if (me == 0) printf("HDR %s | form, members, bytes_per_slab, post_ms, wait_ms, total_ms(median), min_ms, GB/s_per_PE(received, per PE), min_PE, node_GB/s_mean\n", name);
     for (size_t b = 64u << 10; b <= maxslab; b *= 4) {
         for (int i = 0; i < c->n; i++) { cn[i] = b; pfill(dsb + (size_t)i * maxslab, b, pbase(tagb + b, me, c->pe[i])); }
         double tp[16], tw[16], tt[16];

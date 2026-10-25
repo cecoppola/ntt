@@ -329,7 +329,7 @@ static void budget_check(unsigned long N, int verbose)
     size_t pb = 0, ab = 0, hb = 0; binsplit_node_bytes(N, gn, cap, ec_np_init(), &pb, &ab, &hb);
     if (vpe_ppg()) { const size_t pp = (size_t)binsplit_ppn_proc(); pb /= pp; ab /= pp; hb /= pp; L = 1; }   /* (S2c's PPN_PROC: the host model already counts a runtime and a comm pool per process, so the per-process share is node / ppn_proc, the planner's own term) */   /* S2 (one process per PE): the model is per node, so each PE takes 1/ppn of it; the measured device bytes and VmRSS are this process's own (its device, its runtime): already one PE's, not divided again */
     size_t dev = mem_report_dev_total(), rss = mem_vmrss();
-    size_t cres = binsplit_comm_resident_bytes(N, gn); if (vpe_ppg()) cres /= (size_t)binsplit_ppn_proc();   /* the comm_ofi pools exist already (the transport opened before rns_init) and are in the model's host term: not still to come (plq2: 2 n 1e10 Q2 was refused for 62 GB of them) */
+    size_t cres = binsplit_comm_resident_bytes(N, gn); if (vpe_ppg()) cres /= (size_t)binsplit_ppn_proc();   /* the device pools exist already (the transport opened before rns_init) and are in the model's host term: not still to come (plq2: 2 n 1e10 Q2 was refused for 62 GB of them) */
     size_t dpk = (dev > pb + ab ? dev : pb + ab), hpk = rss > hb ? rss : hb, peak = dpk + hpk, now = dev + rss + cres;
     struct meminfo mi; memset(&mi, 0, sizeof mi); mem_meminfo(&mi);
     const int K = 7;

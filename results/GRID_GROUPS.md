@@ -16,7 +16,7 @@ Current state (main; cross-checked against `ecalc/README.md`):
 - `DIST_COALESCE` (message bundling, §S52) was not built (user decision 2026-10-11) unless the target's per-message cost is shown >= 8.5 us.
 
 Live conclusions:
-- Memory is the limit at 576 nodes, not time: the real v-slot term (B7ACCT, 6.707 GB per APU before sharing) broke the device bar; SHARE (-5.79 GB per node, mod, S36/S45) and RELEASE (comm_ofi pool 4352 -> 2304 MiB per APU, C06) bring it back. Largest safe size at 576 is 3.82e13 (§S52, mod); above it the plan adds pieces (+20 s at 3.83e13).
+- Memory is the limit at 576 nodes, not time: the real v-slot term (B7ACCT, 6.707 GB per APU before sharing) broke the device bar; SHARE (-5.79 GB per node, mod, S36/S45) and RELEASE (the transport pool 4352 -> 2304 MiB per APU (then comm_ofi's), C06) bring it back. Largest safe size at 576 is 3.82e13 (§S52, mod); above it the plan adds pieces (+20 s at 3.83e13).
 - The cut-group pool-offset asymmetry (G5) does not bite (§C06); uneven last groups work (digits identical, §B06) but give no speed gain (§B06, §O1: `[6]` vs `[2,6]` at 6 nodes inconclusive, raw +2.4 s, CI [-3.9, +8.7]).
 - The §C09 tables are modelled; the model-best uneven tops are unmeasured extrapolations.
 - A bug found by forcing tree grids (`mdb_add_shifted` windows of the wrong nodes for g0 > 0, §G12 2b) was fixed before any run could reach it.

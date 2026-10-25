@@ -3,7 +3,7 @@
 Scope: the xshmem layer (API, backends, boot and topology, tests), what Cray SHMEM 11.8 and the cxi provider were measured to do, the engine
 `comm_xshmem.c` behind `COMM_TRANSPORT=xshmem`, its gates and first timing, and the open items for the target port. Merged from the former reports
 B1-B4 and S3A_A1/A2 (the six `XSHMEM_*.md` files). Labels: m measured, mod modelled, I inferred, a assumed. All numbers are single aac7 runs unless a count is given.
-The sections PPG (one process per GPU, S2d timing) and BSPLIT (`RNS_BATCH_SPLIT`) follow the craylane section. Settings: `ecalc/README.md` (rows `XSHMEM*`, `ECALC_XEX_THREAD`, `COMM_TRANSPORT`). Design source and trace data are kept outside the repository.
+The sections PPG (one process per GPU, S2d timing) and BSPLIT (`RNS_BATCH_SPLIT`) follow the craylane section. Settings: `ecalc/README.md` (rows `XSHMEM*`, `COMM_TRANSPORT`; `ECALC_XEX_THREAD` was removed 2026-10-25, the exchange worker always runs). Design source and trace data are kept outside the repository.
 
 Sections moved to `archive:results_merged_2026-10-24/XSHMEM.md` (2026-10-24 cleanup): §3 (Cray SHMEM 11.8 on cxi), §4 (cxi probe facts), §9 (open items of 2026-10-21), the full PPG and BSPLIT texts and the RESUME block.
 
@@ -17,7 +17,7 @@ signal_set / put_signal / signal wait and test, barrier, topology and capability
 - `XSHMEM=cray` (target): `xshmem_cray.h`, static inline forwarding to cray-shmem; no libfabric. The four places that differ in 12.1 (device-heap allocator,
   signal set, signal wait, context creation) are selector blocks (`XSHMEM_CRAY_DEFS=-DXSHMEM_CRAY_HEAP|_SIGSET|_WAIT|_TEST|_PUTSIG_SPLIT`); with the 11.8 headers it compiles and
   links with a host-heap fallback (m, aac7 login node). The engine and the tests include only `xshmem.h`, so the port changes no engine file.
-- Default build (`XSHMEM` unset or 0): nothing is built or linked; `make -n all|ecalc|tests/t_comm` are byte-identical to before (m).
+- Build default (since 2026-10-25, Q103): `XSHMEM=ofi` wherever libfabric and the PMI2 header are found, else `XSHMEM=0` (no engine; `COMM_TRANSPORT=xshmem` is then a fatal at start). When this section was written the engine was opt-in and `make -n` of the default build was byte-identical to before (m).
 
 ## 2. API contract and switches (frozen in B1)
 

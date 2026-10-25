@@ -11,7 +11,7 @@ chains and cuts the code forms) from the measured 2^31-point piece product and t
     ./mn_model.py estimate --max             the largest D per node that fits at each g
     ./mn_model.py estimate --help            every option (fabric profile, design, cache, write bandwidth)
 
-The default design is DEFAULT15C (the code's defaults of 2026-09-28 on the target's launch line: ECALC_NP=auto, COMM_SHMEM_ROUND_MB=1024,
+The default design is DEFAULT15C (the code's defaults of 2026-09-28 on the target's launch line: ECALC_NP=auto, XSHMEM_ROUND_MB=1024,
 BS_ARENA_ROOM=0.16, RNS_DIST_CACHE_FIT=1); Two walls everywhere: without
 the disk write and with it (part file at --write-bw GB/s per node).  Everything printed as "modelled" is this script's arithmetic;
 "measured" cites the RESULTS section; the fabric figures of the target are assumed until measured there.
@@ -101,7 +101,7 @@ class Fabric:
     staging_bw: GB/s HBM copy rate for a D2H + H2D staging copy of every inter-node byte, None = off (06 EVALUATION item 13 /
     04 open item: ASSUMED -- no transport on the target stages through host memory today; CLI --staging, default off so the
     standing estimate does not move). fall_off: exponent a on a per-group-size fabric fall-off, rate x (g/2)^(-a), None/0 = off
-    (CLI --fall-off <a>; WISHLIST / B2's open item 9 -- no aac7 t_comm fall-off measurement is fed in by default)."""
+    (CLI --fall-off <a>; WISHLIST / B2's open item 9 -- no aac7 t_comm (removed, Q103) fall-off measurement is fed in by default)."""
     def __init__(self, name, bw_apu, lat, group=64, layers=2, taper=1.0, gpu_share=1, fixed=0.0, write_bw=2.0, tcp_exp=0.0, coll_fixed=None, target=True,
                  staging_bw=None, fall_off=0.0, v_factor=1.0, k_other=1.0):
         self.k_other = k_other   # L4: the operand-redistribution / result / spill all-to-alls' rate as a fraction of the bulk (transform) exchange's; 1.0 = off (all profiles but aac7_l4)
@@ -166,7 +166,7 @@ TARGET_WRITE_BWS = (2.0, 1.0, 0.6)     # the rates every target estimate prints:
 # measured ceiling per node (1000 / 576 = 1.736 GB/s), reached only by a writer of that shape (OPPORTUNITIES N8).
 TARGET_FS_SINGLE_FILE_GBS = 1000.0     # user-supplied: aggregate GB/s into one file at 32 writers per node (all 576 nodes)
 TARGET_WRITE_BW_FS = TARGET_FS_SINGLE_FILE_GBS / 576   # 1.736 GB/s per node (modelled from the user-supplied aggregate)
-TARGET_NICS_PER_APU = 2                # user-supplied (8 NICs per node): two NIC endpoints per APU; comm_ofi stripes over the NUMA node's NICs by default
+TARGET_NICS_PER_APU = 2                # user-supplied (8 NICs per node): two NIC endpoints per APU; the engine stripes over the NUMA node's NICs by default
 TARGET_NIC_GBS = 50.0                  # user-supplied: 400 Gb/s per NIC (100 GB/s injection peak per APU, 400 GB/s per node); the achieved rate is still for A3 to measure
 TARGET_BW_APU = TARGET_NICS_PER_APU * TARGET_NIC_GBS   # 100 GB/s per APU: now the user-supplied peak (was the assumed design value; number unchanged)
 TARGET_WRITE_BWS = (TARGET_WRITE_BW_FS,) + TARGET_WRITE_BWS   # every target estimate also prints the file system ceiling (user-supplied 1 TB/s / 576)
@@ -254,7 +254,7 @@ def apply_profile(name):
 #   TCP (comm_tcp.c): one stream per mesh pair; per process ~3.3-3.7 GB/s aggregate at 1 GiB exchanges, slower below
 #   (exponent), plus a fixed cost per chunk exchange that grows with the process count (the threads of g x 4 meshes x
 #   (g - 1) peers contend on one node: 1 ms at 2, 8 ms at 9 processes) and a per-collective cost of the same kind.
-#   OSHMEM (comm_shmem.c on OpenMPI 4.1.6, the serial lock, staging through the host-registered pool): the puts are
+#   OSHMEM (comm_shmem.c, removed in Q103, on OpenMPI 4.1.6, the serial lock, staging through the host-registered pool): the puts are
 #   memcpys through shared memory, slower per byte (the D2H/H2D staging on both sides), with a larger fixed cost.
 
 # ------------------------------------------------------------------------------------------------------------
@@ -864,7 +864,7 @@ class Design:
         self.shift_mb = chunk_mb if chunk in ('shift', 'both') else 0
         self.t_mb = chunk_mb if chunk == 'both' else 0
         # Phase 15 (agent MD): p15 = the code since Phase 14 (DEFAULT15()): the memory forms (DM_TIGHT, MN_TREE_EARLY_FREE, the SHMEM pool from the
-        # plan, DB_POOL_VMM's host and bs terms, COMM_SHMEM_ROUND_MB = round_mb: 1024 on the target's launch line, the user's D2), NEWTON_RECIP_CUT
+        # plan, DB_POOL_VMM's host and bs terms, XSHMEM_ROUND_MB = round_mb: 1024 on the target's launch line, the user's D2), NEWTON_RECIP_CUT
         # in the fabric's reciprocal, CAL15 (the one-node compute refitted on the Phase 14 defaults, the seed wait as its own term) and the part
         # file as the code writes it (size > 1: after T1, not overlapped; out_overlap='half' = the model before: hidden under half the division).
         # p15 False: exactly the Phase 13/14 model (every memory form as before, no cut, no CAL15, the part file beyond half the division).
@@ -924,20 +924,20 @@ class Design:
         if self.shift_mb: e['MDB_SHIFT_CHUNK_MB'] = int(self.shift_mb)
         if self.t_mb: e['MN_T_CHUNK_MB'] = int(self.t_mb)
         e['COMM_ALLTOALLV_DEPTH'] = self.depth
-        if self.p15 and self.round_mb: e['COMM_SHMEM_ROUND_MB'] = int(self.round_mb)   # the target's launch line (D2); the rest are the code's defaults
+        if self.p15 and self.round_mb: e['COMM_SHMEM_ROUND_MB'] = int(self.round_mb)   # the model env's key for the 'shmem' pool model (the C's name is XSHMEM_ROUND_MB); the target's launch line (D2); the rest are the code's defaults
         if self.cache_fit: e['RNS_DIST_CACHE_FIT'] = 1                    # Phase 15 DOC2: the launch line (the user's decision 2 of 2026-09-28)
         if self.p15b and not self.p15c: e['BS_ARENA_ROOM'] = 0; e['DIST_TWREC_G'] = 0   # B1 on today's code
         return e
 
 def DEFAULT15B(**kw):
     """Phase 15 (agent DOC): the code's defaults of 2026-09-27 (the user's decisions: BS_SEED_FILL=128, BI_MUL1_FAST, NEWTON_RECIP_MID, DIST_TWREC,
-    RNS_AUTO_PIECE_COST, ECALC_CORR_PATCH=2, ECALC_OUT_PACKED, MN_OUT_EARLY, ECALC_ODIRECT=auto) on the target's launch line (COMM_SHMEM_ROUND_MB=1024,
+    RNS_AUTO_PIECE_COST, ECALC_CORR_PATCH=2, ECALC_OUT_PACKED, MN_OUT_EARLY, ECALC_ODIRECT=auto) on the target's launch line (XSHMEM_ROUND_MB=1024,
     ECALC_NP=4 at size > 1; three primes, the code's default, at size 1)"""
     o = dict(np=3, np_mn=4, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1, p15=True, p15b=True); o.update(kw)   # (np_mn 4: B1's launch line; TARGET_NP is 'auto' since 2026-09-28)
     return Design(**o)
 def DEFAULT15C(**kw):
     """Phase 15 (agent DOC2): the code's defaults of 2026-09-28 (main B2: + BS_ARENA_ROOM=0.16, DIST_TWREC_G=1, RNS_POOL1_4Q=1) on the target's launch line
-    (ECALC_NP=auto at size > 1, RNS_DIST_CACHE_FIT=1, COMM_SHMEM_ROUND_MB=1024; three primes at size 1)"""
+    (ECALC_NP=auto at size > 1, RNS_DIST_CACHE_FIT=1, XSHMEM_ROUND_MB=1024; three primes at size 1)"""
     o = dict(np=3, np_mn=mem_model.TARGET_NP, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1, p15=True, p15b=True, p15c=True); o.update(kw)
     return Design(**o)
 DEFAULT = DEFAULT15C()                 # Phase 15 (2026-09-28): the estimate's design (DEFAULT15B() on 2026-09-27; DEFAULT15() before)
@@ -1888,14 +1888,14 @@ Phase 13b (agent D): the estimate is of the code after step 0 (three primes, NTT
 --modmul.  archive:scripts_2026-10-23/design_table.py prints every design.
 
 Phase 15 (agent MD): the default is the code's defaults since Phase 14 on the target's launch line (mn_model.DEFAULT15: auto, 2^31, both chunks
-at 1024 MB, depth 2, DM_TIGHT, MN_TREE_EARLY_FREE, NEWTON_RECIP_CUT, the SHMEM pool from the plan, COMM_SHMEM_ROUND_MB=1024 = the user's D2;
+at 1024 MB, depth 2, DM_TIGHT, MN_TREE_EARLY_FREE, NEWTON_RECIP_CUT, the SHMEM pool from the plan, XSHMEM_ROUND_MB=1024 = the user's D2;
 --round-mb 0 without it).  Every estimate prints two walls (the user's D3): without the disk write (the digits
 computed and verified) and with it, the part file at --write-bw GB/s per node (default 0.6: the target's /ssd0 is Lustre, 0.58-0.64 GB/s
 single-stream, measured there; --target prints 2.0 (the old assumption), 0.8 and 0.6).  mn_model.py estimate --target is the standing estimate.
 
 Phase 15 (agent DOC, the user's decisions of 2026-09-27): the default is mn_model.DEFAULT15B -- the code's defaults of 2026-09-27 (BS_SEED_FILL=128,
 BI_MUL1_FAST, NEWTON_RECIP_MID, DIST_TWREC, RNS_AUTO_PIECE_COST, ECALC_CORR_PATCH=2, ECALC_OUT_PACKED, MN_OUT_EARLY, ECALC_ODIRECT=auto) on the target's
-launch line (ECALC_NP=4 at size > 1: --np-mn; COMM_SHMEM_ROUND_MB=1024): the part file packed (0.444 B/digit; --ascii for 1 B/digit) and, at size > 1,
+launch line (ECALC_NP=4 at size > 1: --np-mn; XSHMEM_ROUND_MB=1024): the part file packed (0.444 B/digit; --ascii for 1 B/digit) and, at size > 1,
 started at the division's hook (MN_OUT_EARLY: it overlaps the low product as the size-1 writer does).
 
 Phase 15 (agent DOC2, the user's decisions of 2026-09-28): the default is mn_model.DEFAULT15C -- main B2 (B1 + BS_ARENA_ROOM=0.16, DIST_TWREC_G=1,
@@ -1968,7 +1968,7 @@ def estimate_main(argv=None):
     ap.add_argument("--layers", type=int, default=2, choices=(2, 3))
     ap.add_argument("--taper", type=float, default=1.0)
     ap.add_argument("--write-bw", type=float, default=None, help="GB/s per node for the part file (Phase 15: 0.6 = the target's Lustre /ssd0 single-stream, measured there; 2.0 was assumed before)")
-    ap.add_argument("--round-mb", type=float, default=1024, help="COMM_SHMEM_ROUND_MB on the launch line (D2: 1024; 0 = the code's default, off)")
+    ap.add_argument("--round-mb", type=float, default=1024, help="exchange round size (the code's XSHMEM_ROUND_MB; D2: 1024; 0 = the code's default, off)")
     ap.add_argument("--out-overlap", default="none", choices=("none", "half"), help="size > 1: the part file after T1 (none: the code) or under half the division (half: the model before Phase 15)")
     ap.add_argument("--corrections", type=int, default=0, help="size 1: the division's corrections (data-dependent; 2 at 1e11 on the defaults)")
     ap.add_argument("--max", action="store_true", help="the largest D per node that fits 502 and 480 GB at each g, with its wall")

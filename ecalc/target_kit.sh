@@ -35,9 +35,8 @@
 #                           on overlap).
 #   --nodes-a4 LIST         node counts for stage a4, comma list (default: 2,8,64; 2,8 with --site aac7).
 #                           A count bigger than the allocation is skipped, not failed.
-#   --nics1 LIST            COMM_OFI_NICS form for "1 NIC per APU" (default: "0;1;2;3")
-#   --nics2 LIST            COMM_OFI_NICS form for "2 NICs per APU, the target's form" (default per 07_COMM_OFI.md:
-#                           "0,4;1,5;2,6;3,7")
+#   --nics1 LIST            COMM_OFI_NICS form for "1 NIC per APU" (default: "0;1;2;3"; read by stage a3 only, which is disabled)
+#   --nics2 LIST            COMM_OFI_NICS form for "2 NICs per APU, the target's form" (default "0,4;1,5;2,6;3,7"; stage a3 only, disabled)
 #   --nodes-s2chk LIST      node counts for the opt-in stage s2chk (default: 2,8 = the smallest multi-node count a4 uses
 #                           plus its larger one).  A count bigger than the allocation is skipped, not failed.
 #   --s2chk-per-node N      digits per node for s2chk (default 64410000000 = 6.441e10, the largest node share of the
@@ -55,7 +54,7 @@
 #   env    (<1 min, no GPU, 1 node of the allocation probed):
 #            hostname list, Slurm job geometry, ROCm version, module list, fi_info -p cxi domain count.
 #   build  (3-10 min, login node or any node with the toolchain, no GPU needed):
-#            `make SHMEM_CRAY=1` for ecalc, tests/t_comm, tests/t_edge, tools/.  ROCm version is unknown ahead
+#            `make XSHMEM=cray` (path 2) for ecalc, tests/t_edge, tests/t_nodechk, tools/.  ROCm version is unknown ahead
 #            of time on the target, so this tries candidates in order and keeps the first that links: just
 #            $TARGET_ROCM if set, else rocm/7.2.4, rocm/7.2.3, rocm/7.0.3 (whichever are available), then any
 #            other rocm/<version> module newest first (picking blindly-newest once chose rocm/7.14.0 on aac7,
@@ -81,8 +80,7 @@
 #   initchk (seconds; default on after a4): runs tools/initchk.py (slow-host check: flag a node > 3x the median and >= 2 s above it; exit 0 ok, 3 flagged, 2 cannot parse)
 #            the first a4 log (a4 sets ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=2 MNRUN_LABEL=1: extra timestamp lines and rank labels only; the
 #            host-attributed upload line is where the known slow host stalls).  Post-run diagnosis: rerun without the host.  SKIPPED if absent.
-#   a3     (3-5 min, 2 nodes):
-#            tests/t_comm --bw with comm_ofi, 1 NIC per APU vs 2 NICs per APU (COMM_OFI_NICS), GB/s per node.
+#   a3     DISABLED (it ran tests/t_comm --bw, removed with the plain SHMEM transport, Q103): prints a notice and skips.
 #   a4     (5-10 min PER node count, 2/8/64 nodes, skips what the allocation can't hold):
 #            ecalc at 1e10 digits/node with MN_COMM_MARK=1, VERIFY, wall, the comm-mark fabric rates.
 #   s2chk  (OPT-IN, off unless named in --only; about 5-15 min PER node count, default 2 and 8 nodes; needs stage build's
@@ -313,7 +311,7 @@ plan_check() {   # plan_check <logfile> <digits> <procs> [VAR=val words...] -- M
     # 0 only if the LAST plan line is `plan check ... OK` (a `plan REFUSED` line, or no plan line, is a refusal: 1).  Dry-run: prints, 0.
     local lf=$1 d=$2 g=$3; shift 3
     local plf="$LOGDIR/plan_${d}_${g}.log"; : > "$plf"
-    exec_cmd "$plf" "$TO_PLAN" srun --jobid="$JOBID" --export=ALL -N1 -n1 --overlap bash -lc "$(module_preamble)"'p=$1; shift; export MN_PLAN_ONLY=$p; exec env "$@"' _ "$d:$g" COMM_TRANSPORT=shmem "$@" "$SELF_DIR/ecalc"
+    exec_cmd "$plf" "$TO_PLAN" srun --jobid="$JOBID" --export=ALL -N1 -n1 --overlap bash -lc "$(module_preamble)"'p=$1; shift; export MN_PLAN_ONLY=$p; exec env "$@"' _ "$d:$g" COMM_TRANSPORT=xshmem "$@" "$SELF_DIR/ecalc"
     [ "$DRY_RUN" = 1 ] && { cat "$plf" >> "$lf"; return 0; }
     cat "$plf" >> "$lf"
     local last; last=$(grep -aE '^plan (check|REFUSED)' "$plf" | tail -1)
@@ -391,7 +389,7 @@ stage_env() {
 # =============================================================================================================
 stage_build() {
     local lf="$LOGDIR/01_build.log"; : > "$lf"
-    summary "## Stage build: make SHMEM_CRAY=1"
+    summary "## Stage build: make XSHMEM=cray"
     (
         cd "$SELF_DIR" || exit 1
         : "${TARGET_ROCM:=}"; : "${TARGET_SMA_MODULE:=}"; : "${TARGET_DSMML_MODULE:=}"; : "${GMP_HOME:=}"; : "${MAKE_JOBS:=4}"
@@ -427,7 +425,7 @@ stage_build() {
         echo "TARGET_SMA_MODULE=$TARGET_SMA_MODULE TARGET_DSMML_MODULE=$TARGET_DSMML_MODULE GMP_HOME=${GMP_HOME:-<system>} default_rocm(unload list)=${default_rocm:-<none>}" >> "$lf"
         echo "ROCm candidates (in try order): ${rocm_candidates[*]}" | tee -a "$lf"
 
-        local mk_extra=(SHMEM_CRAY=1)
+        local mk_extra=(XSHMEM=cray)
         [ -n "$GMP_HOME" ] && mk_extra+=("GMP_HOME=$GMP_HOME")
 
         unload_load_cmd() {   # unload_load_cmd <rocm-candidate> -- the module unload/load line, as plain text (no nested quoting)
@@ -445,7 +443,7 @@ stage_build() {
             fi
             ul=$(unload_load_cmd "$cand")
             exec_cmd "$lf" "$TO_BUILD" bash -lc "$ul; module list 2>&1"
-            exec_cmd "$lf" "$TO_BUILD" bash -lc "$ul >/dev/null 2>&1; cd '$SELF_DIR' && make ${mk_extra[*]} -j${MAKE_JOBS} ecalc tests/t_comm tools"
+            exec_cmd "$lf" "$TO_BUILD" bash -lc "$ul >/dev/null 2>&1; cd '$SELF_DIR' && make ${mk_extra[*]} -j${MAKE_JOBS} ecalc tools"
             rc1=$?
             exec_cmd "$lf" "$TO_BUILD" bash -lc "$ul >/dev/null 2>&1; cd '$SELF_DIR' && make ${mk_extra[*]} -j${MAKE_JOBS} tests/t_edge tests/t_nodechk"
             rc2=$?
@@ -454,9 +452,9 @@ stage_build() {
                 echo "[dry-run] assuming the first candidate ($chosen) builds; the rest are not tried" | tee -a "$lf"
                 break
             fi
-            if [ $rc1 -eq 0 ] && [ $rc2 -eq 0 ] && [ -x "$SELF_DIR/ecalc" ] && [ -x "$SELF_DIR/tests/t_comm" ] && [ -x "$SELF_DIR/tests/t_edge" ] && [ -x "$SELF_DIR/tests/t_nodechk" ]; then
+            if [ $rc1 -eq 0 ] && [ $rc2 -eq 0 ] && [ -x "$SELF_DIR/ecalc" ] && [ -x "$SELF_DIR/tests/t_edge" ] && [ -x "$SELF_DIR/tests/t_nodechk" ]; then
                 chosen="$cand"
-                echo "== ROCm candidate $cand: build OK (ecalc, tests/t_comm, tests/t_edge, tests/t_nodechk, tools)" >> "$lf"
+                echo "== ROCm candidate $cand: build OK (ecalc, tests/t_edge, tests/t_nodechk, tools)" >> "$lf"
                 break
             else
                 failed+=("$cand")
@@ -479,8 +477,8 @@ stage_build() {
     )
     local rc=$?
     if [ "$DRY_RUN" = 1 ]; then summary "status: DRY-RUN (not executed)";
-    elif [ $rc -eq 0 ] && [ -x "$SELF_DIR/ecalc" ] && [ -x "$SELF_DIR/tests/t_comm" ] && [ -x "$SELF_DIR/tests/t_edge" ]; then
-        summary "status: PASS (ecalc, tests/t_comm, tests/t_edge built)"
+    elif [ $rc -eq 0 ] && [ -x "$SELF_DIR/ecalc" ] && [ -x "$SELF_DIR/tests/t_edge" ]; then
+        summary "status: PASS (ecalc, tests/t_edge built)"
     else
         summary "status: FAIL (see log -- no ROCm candidate linked, or a missing binary)"
     fi
@@ -519,7 +517,7 @@ print(\"uffd syscall: permitted\" if fd >= 0 else \"uffd syscall: refused, errno
     echo "== tiny run: $n node(s), $tiny digits, FI_LOG_LEVEL=info FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR" >> "$lf"
     exec_cmd "$lf" "$TO_UFFD" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$n" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL=info FI_MR_CACHE_MONITOR="$FI_MR_CACHE_MONITOR" \
         MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" \
-        "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem ECALC_SEGV_TRACE=1 "$SELF_DIR/ecalc" "$tiny" "$TMPDIR/uffd.out"
+        "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=xshmem ECALC_SEGV_TRACE=1 "$SELF_DIR/ecalc" "$tiny" "$TMPDIR/uffd.out"
     local rc=$?
     rm -f "$TMPDIR"/uffd.out*
     if [ "$DRY_RUN" = 1 ]; then summary "status: DRY-RUN (not executed)"; summary ""; return; fi
@@ -664,56 +662,13 @@ stage_edge() {
 }
 
 # =============================================================================================================
-# Stage: a3 -- 2 nodes, t_comm --bw with comm_ofi, 1 NIC/APU vs 2 NICs/APU
+# Stage: a3 -- DISABLED (it ran tests/t_comm --bw with COMM_TRANSPORT=shmem; both were removed, Q103)
 # =============================================================================================================
 stage_a3() {
     local lf="$LOGDIR/03_a3.log"; : > "$lf"
-    summary "## Stage a3: fabric injection, comm_ofi, 2 nodes (1 NIC/APU vs 2 NICs/APU)"
-    if [ -z "$JOBID" ] && [ "$DRY_RUN" != 1 ]; then summary "status: FAIL (no --jobid / SLURM_JOB_ID)"; summary ""; return; fi
-    if ! require_kit_modules a3 "$lf"; then summary "status: FAIL ($KIT_MODULES_ENV missing -- run stage build first)"; summary ""; return; fi
-    local alloc; alloc=$(alloc_usable_count); export_exclude
-    if [ "$DRY_RUN" != 1 ] && [ "$alloc" -gt 0 ] && [ "$alloc" -lt 2 ]; then
-        summary "status: SKIPPED (allocation has $alloc node(s); a3 needs 2)"; summary ""; return
-    fi
-
-    fi_defaults_for 2
-    # Phase S18 kit fix (archive:results_merged_2026-10-24/TOOLS_PROFILES.md §S18KITFIX, bug 1): bare srun left the SHMEM heap at its library default,
-    # far below t_comm --bw's own symmetric-buffer request at A3_MAXMB -- every launch failed with
-    # "comm_shmem: pe N: shmem_malloc of 8192 MiB failed: the SHMEM heap ... must be >= 8704 MiB (the pool +
-    # 512)".  t_comm fits mnrun.sh's <procs> <command...> interface exactly (as results/OFI_FABRIC.md §OFI17 ยง3's and
-    # archive:results_merged_2026-10-24/OFI_FABRIC.md §TUNE17's own bw() driver functions launch it), so launch through mnrun.sh instead and give it
-    # the pool t_comm's --bw actually needs, from the same formula those drivers used: t_comm allocates 2
-    # symmetric buffers (sb, rb) per thread, each A3_MAXMB MiB x the node count (the all-to-all peer count);
-    # with A3_THREADS threads that is 2 x A3_THREADS x A3_MAXMB x nodes MiB (OFI17.md/TUNE17.md's
-    # "8 * g * mx + 512" at their default 4 threads).  mnrun.sh then sizes SHMEM_SYMMETRIC_SIZE /
-    # XT_SYMMETRIC_HEAP_SIZE itself at pool + 512 MiB; COMM_OFI_POOL_MB sizes comm_ofi's device staging pool
-    # the same way OFI17/TUNE17 size it (2 x nodes x A3_MAXMB + 256).
-    local g=2
-    local pool=$((2 * A3_THREADS * A3_MAXMB * g + 512))
-    local ofipool=$((2 * g * A3_MAXMB + 256))
-    export MNRUN_MODULES="${MNRUN_MODULES:-$TARGET_DSMML_MODULE $TARGET_SMA_MODULE $TARGET_ROCM}"
-    export MNRUN_UNLOAD="${MNRUN_UNLOAD-${TARGET_ROCM_UNLOAD:-}}"
-    local rc=0
-    echo "== 1 NIC per APU: COMM_OFI_NICS=$NICS1 (COMM_SHMEM_POOL_MB=$pool COMM_OFI_POOL_MB=$ofipool via mnrun.sh)" >> "$lf"
-    exec_cmd "$lf" "$TO_A3" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$g" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL="$FI_LOG_LEVEL" \
-        MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" COMM_SHMEM_POOL_MB="$pool" COMM_OFI_POOL_MB="$ofipool" \
-        "$SELF_DIR/mnrun.sh" "$g" env COMM_TRANSPORT=shmem COMM_OFI=1 COMM_OFI_NICS="$NICS1" \
-        "$SELF_DIR/tests/t_comm" --bw "$A3_THREADS" "$A3_REPS" "$A3_MAXMB" || rc=1
-    echo "== 2 NICs per APU (the target's form): COMM_OFI_NICS=$NICS2 (COMM_SHMEM_POOL_MB=$pool COMM_OFI_POOL_MB=$ofipool via mnrun.sh)" >> "$lf"
-    exec_cmd "$lf" "$TO_A3" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$g" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL="$FI_LOG_LEVEL" \
-        MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" COMM_SHMEM_POOL_MB="$pool" COMM_OFI_POOL_MB="$ofipool" \
-        "$SELF_DIR/mnrun.sh" "$g" env COMM_TRANSPORT=shmem COMM_OFI=1 COMM_OFI_NICS="$NICS2" \
-        "$SELF_DIR/tests/t_comm" --bw "$A3_THREADS" "$A3_REPS" "$A3_MAXMB" || rc=1
-
-    if [ "$DRY_RUN" = 1 ]; then summary "status: DRY-RUN (not executed)";
-    else summary "status: $([ $rc -eq 0 ] && echo PASS || echo 'FAIL (see log)')"; fi
-    if [ "$DRY_RUN" != 1 ]; then
-        summary "  FI_UNIVERSE_SIZE=$FI_UNIVERSE_SIZE FI_LOG_LEVEL=$FI_LOG_LEVEL COMM_SHMEM_POOL_MB=$pool COMM_OFI_POOL_MB=$ofipool (kit chose ROCm: $TARGET_ROCM)"
-        grep "t_comm bw:" "$lf" | sed 's/^/  /' >> "$SUMMARY"
-        grep -E ": pe [0-9]+ .*B per slab: .*aggregate [0-9.]+ GB/s" "$lf" | sed 's/^/  per-node (1 PE\/node) /' >> "$SUMMARY"
-    fi
-    summary "  full log: $lf"
-    summary ""
+    summary "## Stage a3: DISABLED (its test t_comm and the plain SHMEM transport were removed in Q103; use tests/t_xshmem bw by hand)"
+    echo "a3 disabled: t_comm and the plain SHMEM transport no longer exist (Q103)" >> "$lf"
+    summary "status: SKIPPED (stage disabled)"; summary "  full log: $lf"; summary ""
 }
 
 # =============================================================================================================
@@ -758,7 +713,7 @@ stage_a4() {
         fi
         exec_cmd "$nlf" "$TO_A4" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$n" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL="$FI_LOG_LEVEL" \
             MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" \
-            MNRUN_LABEL=1 "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem ECALC_SEGV_TRACE=1 MN_COMM_MARK=1 ECALC_VERBOSE=2 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=2 "$SELF_DIR/ecalc" "$digits" "$out"
+            MNRUN_LABEL=1 "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=xshmem ECALC_SEGV_TRACE=1 MN_COMM_MARK=1 ECALC_VERBOSE=2 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=2 "$SELF_DIR/ecalc" "$digits" "$out"
         local rc=$?
         cat "$nlf" >> "$lf"
         [ $rc -ne 0 ] && any_fail=1
@@ -790,7 +745,7 @@ stage_a4() {
 S2_SEED_LATE=18        # s: A37-R1 trigger (seed end)
 S2_SEED_AFTER=2        # s: A37-R1 trigger (seed end minus the last mapping)
 S2_WAIT_LIMIT=30       # s per APU thread: S-2 trigger
-S2_LINE_DEFAULT="COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_NP=auto MN_T_CHUNK_MB=2048 ECALC_SEGV_TRACE=1 COMM_SHMEM_ROUND_MB=1024 ECALC_MEM_GUARD_GB=6 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1"
+S2_LINE_DEFAULT="COMM_TRANSPORT=xshmem ECALC_NP=auto MN_T_CHUNK_MB=2048 ECALC_SEGV_TRACE=1 ECALC_MEM_GUARD_GB=6 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1"
 
 s2chk_verdict() {   # s2chk_verdict <log> <n> -- appends the A37-R1 / S-2 verdict lines for one run to the summary
     local f=$1 n=$2

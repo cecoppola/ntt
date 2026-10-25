@@ -1918,8 +1918,8 @@ size_t rns_mul_dist_mn_vslot(size_t na, size_t nb, int g)
     }
     return vslot_shape(logR, logC, g);
 }
-/* Phase 14 P2 (results/SHMEM.md §P214): the SHMEM transport's staging for the same product, limbs per APU thread = the send + receive of
- * its largest staged exchange (comm_shmem.c stages every buffer outside its symmetric pool, per exchange, released after it; the
+/* Phase 14 P2 (results/SHMEM.md §P214): the xshmem transport's staging for the same product, limbs per APU thread = the send + receive of
+ * its largest staged exchange (with XSHMEM_ROUND_MB 0 comm_xshmem.c stages every buffer per exchange, released after it; the
  * four APU threads run the same exchange at once, so the pool holds 4 of these): the result exchange (xb -> rbO: my rows of the
  * piece RT(nc), and my window's part win / NL()), the redistribution of A or B (my share's part va / NL() + 2 g rows out, my rows RT(pa)
  * in), the transform's inter-node stage (q / NL() each way).  mem_model.py mn_stage is the same formula; measured to the MiB at 1e8 -
@@ -1957,7 +1957,7 @@ size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t
     size_t va = share_a < pa ? share_a : pa, vb = share_b < pb ? share_b : pb;
     size_t win = share_c < nc ? share_c : nc, send = RT(nc);
     { size_t Wt = mn_t_chunk_limbs(); if (Wt && win > Wt) { win = Wt; size_t sc = Wt / NL() + 2 * (size_t)g * rows; if (send > sc) send = sc; } }   /* MN_T_CHUNK_MB: the rounds */
-    /* Phase 14 V1: COMM_SHMEM_ROUND_MB = m -- comm_shmem.c carries an all-to-all whose pair exceeds m / (n - 1) in rounds that
+    /* Phase 14 V1: XSHMEM_ROUND_MB = m -- comm_xshmem.c carries an all-to-all whose pair exceeds m / (n - 1) in rounds that
      * stage at most m each way, and leaves the self slab out of the staging: each side of each exchange is its peers' part
      * (modelled as (g - 1) / g of it) bounded by m (RMIN) */
     const char *er = round_env(); size_t Rl = er && atof(er) > 0 ? (size_t)(atof(er) * 1048576.0) / 8 : 0;

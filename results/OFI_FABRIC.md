@@ -6,7 +6,7 @@ from measured numbers, **mod** modelled, **a** assumed. Times Eastern.
 
 ## Topic summary
 
-- **Superseded in part (2026-10-25, Q103).** `comm_ofi.c` (`COMM_OFI`, `COMM_OFI_POOL`, `COMM_XSTATS`) was removed; the libfabric data plane is now `xshmem_ofi.c` (path 1, `README.md`). The fabric measurements below stay valid; the switch names in them refer to the removed transport.
+- **Superseded in part (2026-10-25, Q103).** `comm_ofi.c` (`COMM_OFI`, `COMM_OFI_POOL`, `COMM_XSTATS`) was removed; the libfabric data plane is now `xshmem_ofi.c` (path 1, `README.md`). The fabric measurements below stay valid; the switch names in them refer to the removed transport, and the bullets "Why comm_ofi exists", "Adopted and current" and "Memory" describe it as it was (`COMM_OFI` no longer exists; `COMM_OFI_POOL_MB` and `COMM_OFI_NICS` remain, README).
 - **Why comm_ofi exists.** Cray OpenSHMEMX binds one NIC per PE, and ecalc runs one process per node with four APU threads, so
   all of a node's exchange data went through one 200 Gb/s NIC (23.3 GB/s raw, m). One process can drive all four cxi NICs through
   libfabric (93.3 GB/s per node, m, §NIC16_experiments). `comm_ofi` does that for the data of every device exchange of

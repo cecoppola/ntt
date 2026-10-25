@@ -4,7 +4,7 @@
  * domain per NIC in use, per domain one AV; per PE 1 default endpoint + N lane endpoints (+2 spares for xshmem_ctx_create), every endpoint with its
  * own CQ (selective completion, only errors surface) and write counter.  Two heaps (DATA, CTRL), each one collective allocation (device, fine-grained,
  * or CTRL in pinned host memory with XSHMEM_CTRL=host), each registered once per domain (FI_HMEM_ROCR / SYSTEM).
- * Copied from comm_ofi.c (not edited there): the NIC choice (pe_geo does it), getinfo hints, fi_mr_regattr of fine-grained memory, the lock discipline.
+ * Copied from the removed comm_ofi.c (archive:code_2026-10-25/): the NIC choice (pe_geo does it), getinfo hints, fi_mr_regattr of fine-grained memory, the lock discipline.
  * Facts copied from libsma 11.8 (RB 8): mr_mode ALLOCATED|ENDPOINT(+HMEM) with client keys and offset addressing (the
  * default; the mode actually in force is the one the provider returns, logged once: VIRT_ADDR / PROV_KEY in it switch to base+key addressing, the
  * heap blob that is all-gathered at xshmem_heap_alloc always carries base and keys), FI_INJECT for n <= inject_size, one writemsg per put (cut only at
