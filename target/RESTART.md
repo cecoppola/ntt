@@ -4,8 +4,6 @@ Scope: everything an agent needs to start work on the target system at once: the
 them, the project as we understand it, and steps 1-4 with exact commands. Written 2026-10-25 (Eastern time) by the
 coordinator on the development side, which has no access to the target. Conventions: `target/FORMATS.md`.
 
-> DRAFT — sections marked [OPEN] are filled before the push.
-
 ## 0. First five minutes
 
 1. `git clone` this repository (or `git pull` the existing clone) on the target login node; `cd` into it.
@@ -204,7 +202,27 @@ binaries itself.
 
 ## 7. Step 3 — the bench (parallel workers)
 
-[OPEN]
+The bench answers the questions in `target/bench/QUESTIONS.md` (63+ rows: band 0-99 ladder-critical, 100-199
+optimization, 200+ calibration for offline work; each row names the decision it drives and the model constant it
+feeds). Items are listed in `target/bench/manifest.d/*.tsv` (id, tier, prio, nodes, est_min, deps, questions, cmd) and
+run once each; arms of an A/B run at the same time on disjoint hosts of the item's allocation instead of repeats.
+
+```bash
+target/bench/run.sh --validate                    # manifest check (ids, deps, scripts)
+target/bench/run.sh --plan 8                      # how many workers of which sizes drain the list fastest
+# one worker = one allocation (the runner gives each item the FIRST hosts of its allocation: never two workers in one job)
+sbatch -N <n> -p <partition> -t <min> --exclusive --gpus-per-node=4 --wrap "cd $PWD && target/bench/run.sh --jobid \$SLURM_JOB_ID --worker w<k>"
+target/bench/run.sh --status                      # who runs what, what is done
+python3 target/bench/aggregate.py                 # results/bench/METRICS.tsv + ANSWERS.md (+ coverage warnings, progress line)
+```
+
+Worker sizes: a few 1-node and 2-node workers take the many small items; one 8-node and one 64-node worker take the
+scaling items (`net04`, `net05`, `scl02`, `scl04`, the `cal0*` multi-node points); start the large ones as soon as their
+dependencies pass (the runner waits up to 2 min for dependencies, then exits saying what is left: restart it later).
+Stale claim (a worker died): `run.sh --reclaim <id>`; redo a FAIL after a fix: `--reclaim <id> --force` (old results move
+to `results/bench/_old/`). A failed path-2 build does not block anything: path-2 arms SKIP with a note. After every few
+items: `aggregate.py`, commit `target/results/` (coordinator). Read `ANSWERS.md` as it fills: answers in band 0-99 can
+change the ladder's settings (ADJUST.md) before L1.
 
 ## 8. Step 4 — the ladder (1, 8, 64, 576 nodes)
 
