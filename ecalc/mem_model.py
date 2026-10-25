@@ -703,7 +703,6 @@ VMM_DM_GROW_FILL = 16.3 * GB                            # MEASURED (RESULTS 86's
                                                         # regions' there); at size > 1 the arena is the dm need's and the fill leaves it unchanged (ASSUMED: no growth)
 HOST_EARLY = int(0.9 * GB)                              # MN_OUT_EARLY (results/OUTPUT_IO.md §IO15 6): 2 chunks + the pinned limbs + the O_DIRECT staging at 256 MB, held
                                                         # during the division's low product at size > 1 (modelled from the code's buffers)
-POOLS = ('plan', 'auto', 'off', 'max')                  # plan: = the need (256 MiB steps; mnrun.sh / TARGET.md 4); auto: max(COMM_SHMEM_POOL_MB 8192, the need);
                                                         # off: COMM_SHMEM_POOL_AUTO=0, 8192 flat; max: the pre-Phase-15 model (max(8192, the need unrounded))
 HOST_SEEDBUF_VMM = 8 << 30                               # DB_POOL_VMM: seeds_stream's two pinned buffers of min(BS_SEED_CHUNK_MB 8192, the largest region's spans) each
                                                         # (binsplit.c; measured 21.5 GB pinned at init = 4 GiB staging + 2 x 8 GiB at 4e10-1.3e11 on one node)
