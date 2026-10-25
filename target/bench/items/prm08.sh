@@ -11,7 +11,7 @@ D0=$(dig "${PRM08_PER_NODE:-5e10}" "$N")
 D=$(fitd "$N" "$SH" "$D0" MN_NONPOW2_CAP=1)
 ecalc_plan "$N" "$D" "$SH" MN_NONPOW2_CAP=1; P1=$P_DEV_GB; N1G=$P_NODE_GB; F1=$P_FIT
 ecalc_plan "$N" "$D" "$SH" MN_NONPOW2_CAP=0; P0=$P_DEV_GB; N0G=$P_NODE_GB; F0=$P_FIT
-tgt_kv m.plan_dev_cap1_gb "$P1 GB"; tgt_kv m.plan_dev_cap0_gb "$P0 GB"; tgt_kv m.plan_node_cap1_gb "$N1G GB"; tgt_kv m.plan_node_cap0_gb "$N0G GB"
+[ -n "$P1" ] && { tgt_kv m.plan_dev_cap1_gb "$P1 GB"; tgt_kv m.plan_dev_cap0_gb "$P0 GB"; tgt_kv m.plan_node_cap1_gb "$N1G GB"; tgt_kv m.plan_node_cap0_gb "$N0G GB"; }
 tgt_kv e.digits "$D"; tgt_kv e.nodes_per_arm "$N"; tgt_kv e.shape "$SH"; tgt_kv e.plan_fit "cap1=$F1 cap0=$F0"
 R=1; ORD="N1 N0"
 while [ "$R" -le "${PRM08_ROUNDS:-1}" ]; do

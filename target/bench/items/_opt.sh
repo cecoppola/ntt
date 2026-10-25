@@ -199,7 +199,7 @@ xt_kv() {     # TAG TABLE : stream / a2a / lat rows -> m.TAG.<table>.<form>.<byt
     _cat "$lg" | grep -a '^CTRSUM' | head -4 > "$OUT/raw/$tag.ctrsum" || true
 }
 xt_peak() {   # TAG TABLE -> the peak node GB/s of the table (number only)
-    awk -F'\t' -v c="$([ "$2" = stream ] && echo 7 || echo 8)" '{ if ($c + 0 > mx) mx = $c + 0 } END { if (NR) printf "%.1f", mx }' "$OUT/raw/${1,,}.$2.tsv" 2>/dev/null
+    awk -F'\t' -v c="$([ "$2" = stream ] && echo 7 || echo 8)" -v st="$([ "$2" = stream ] && echo 1 || echo 0)" 'st && $1 !~ /off-node/ { next } { if ($c + 0 > mx) mx = $c + 0 } END { if (NR) printf "%.1f", mx }' "$OUT/raw/${1,,}.$2.tsv" 2>/dev/null
 }
 
 # ------------------------------------------------------------------------------------------------------------ builds

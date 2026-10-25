@@ -5,7 +5,7 @@ need_path 1
 D=$(fitd 1 P "$(dig 5e10)")
 for s in D P C; do
     [ "$s" = C ] && ! ecalc_have 2 && continue
-    ecalc_plan 1 "$D" $s; tgt_kv m.plan_$s.dev_gb "$P_DEV_GB GB"; tgt_kv m.plan_$s.node_gb "$P_NODE_GB GB"; tgt_kv e.plan_$s.fit "$P_FIT"
+    ecalc_plan 1 "$D" $s; [ -n "$P_DEV_GB" ] && { tgt_kv m.plan_$s.dev_gb "$P_DEV_GB GB"; tgt_kv m.plan_$s.node_gb "$P_NODE_GB GB"; }; tgt_kv e.plan_$s.fit "$P_FIT"
     tleft_ok 0.8 || break
     one "$s" 1 $s 1 "$D"
 done
