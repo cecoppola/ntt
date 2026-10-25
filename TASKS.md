@@ -12,7 +12,7 @@ Rewritten 2026-10-19, cleaned 2026-10-23 (closed rows, the proxy-mode decisions 
 Classes: 1 bugs, 2 shrink, 3 simplify, 4 performance, 5 docs (definitions in the project instructions). Within a class,
 rows are in the order to do them.
 
-- Cleanup round 3 (user order 2026-10-24 22:10 ET: declutter, remove unnecessary folders and files, consolidate, update all documentation), three parts in parallel: (2/3) code, tools, tests and data files (branch clncode; gate on aac7 before merge, both paths); (5) root docs and results/ (branch clndocs; archive superseded detail); (2) private workspace and own aac7 directories (archive small results, delete bulk). Then one final doc sync after both branches merge.
+- Cleanup round 3 (user order 2026-10-24 22:10 ET): code, docs and final pass merged 2026-10-24 (gate 9zz8 PASS 1 n + 2 n both paths, unit 9/9; path 1 speed unchanged, results/CODE_REDUCTION.md §CR3S); tracked code 156 -> 143 files, 41.6k -> 39.5k lines; root docs + results/ 8.2k -> 5.2k lines (m); workspace and own aac7 directories decluttered (aac7 home 134 -> 96 GB, m). Open: further reduction needs the user (Q97: protected code Q79/Q88; Q98: the user's own files in the workspace).
 
 ## Proposed (needs the user's priority)
 
