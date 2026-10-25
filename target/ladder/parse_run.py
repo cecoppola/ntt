@@ -2,7 +2,7 @@
 """parse_run.py - read an ecalc run log (one mnrun.sh launch) and gather ladder replicas (target/FORMATS.md section 10).
 
   parse_run.py parse LOG [--nodes N] [--pernode OUT.tsv]   KEY=VALUE lines on stdout (times s, memory GB)
-  parse_run.py collect DIR... [--model-nowrite S] [--model-write S] [--md FILE --label TEXT]
+  parse_run.py collect DIR... [--expect N] [--model-nowrite S] [--model-write S] [--md FILE --label TEXT]
         DIR = ladder replica dirs (results/ladder/<level>/<run>/ with summary.txt): per path mean/min/max/spread of
         the wall (`total`), verify, digit-hash agreement; the table goes to stdout (and is appended to FILE with --md)
 
@@ -162,7 +162,7 @@ def read_summary(path):
     return d
 
 
-def collect(dirs, model_nw=None, model_w=None):
+def collect(dirs, model_nw=None, model_w=None, expect=None):
     rows = {}                                   # path -> list of (dir, runtag, dict)
     meta = {}
     for d in dirs:
@@ -181,6 +181,7 @@ def collect(dirs, model_nw=None, model_w=None):
     out = []
     allok = True
     heads = set()
+    allhash = set()
     for p in sorted(rows):
         runs = rows[p]
         tot = [float(v["total_s"]) for v in runs.values() if "total_s" in v and v.get("verify") == "OK"]
@@ -189,9 +190,11 @@ def collect(dirs, model_nw=None, model_w=None):
         for v in runs.values():
             if "e_head" in v:
                 heads.add(v["e_head"])
+        allhash |= hashes
         nok = sum(1 for x in ver if x == "OK")
-        allok = allok and nok == len(ver) and len(ver) > 0 and len(hashes) <= 1
-        line = "path %s: runs %d, VERIFY OK %d" % (p[1], len(ver), nok)
+        nbadrc = sum(1 for v in runs.values() if v.get("rc", "0") != "0")
+        allok = allok and nok == len(ver) and len(ver) > 0 and nbadrc == 0
+        line = "path %s: runs %d, VERIFY OK %d" % (p[1], len(ver), nok) + (", rc != 0 in %d" % nbadrc if nbadrc else "")
         if tot:
             mean = sum(tot) / len(tot)
             line += ", total mean %.1f min %.1f max %.1f s, spread %.1f %%" % (mean, min(tot), max(tot), 100.0 * (max(tot) - min(tot)) / mean)
@@ -210,6 +213,12 @@ def collect(dirs, model_nw=None, model_w=None):
         if slow:
             line += "; slow hosts " + ",".join(slow)
         out.append(line)
+    if len(allhash) != 1:                       # one digit string across all runs of all paths
+        out.append("digit hash across paths: %s" % ("none (no digit lines)" if not allhash else "DIFFER %s" % ",".join(sorted(allhash))))
+        allok = False
+    if expect and len(dirs) < expect:
+        out.append("replicas finished %d of %d" % (len(dirs), expect))
+        allok = False
     if len(heads) > 1:
         out.append("e head DIFFERS across runs: %s" % ",".join(sorted(heads)))
         allok = False
@@ -231,6 +240,7 @@ def main(argv=None):
     s.add_argument("dirs", nargs="+")
     s.add_argument("--model-nowrite", type=float)
     s.add_argument("--model-write", type=float)
+    s.add_argument("--expect", type=int, help="replica dirs of the tag (finished or not): fewer finished = NOT PASS")
     s.add_argument("--md")
     s.add_argument("--label", default="")
     a = p.parse_args(argv)
@@ -243,7 +253,7 @@ def main(argv=None):
         for k, v in r.items():
             print("%s=%s" % (k, v))
         return 0
-    lines, ok = collect(a.dirs, a.model_nowrite, a.model_write)
+    lines, ok = collect(a.dirs, a.model_nowrite, a.model_write, a.expect)
     print("\n".join(lines))
     if a.md:
         with open(a.md, "a") as f:

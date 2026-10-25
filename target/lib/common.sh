@@ -18,6 +18,7 @@ tgt_conf() {
         line=${line%%#*}; line=${line%"${line##*[![:space:]]}"}
         [[ $line =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
         k=${line%%=*}; v=${line#*=}
+        [[ $v =~ ^\"(.*)\"$ || $v =~ ^\'(.*)\'$ ]] && v=${BASH_REMATCH[1]}   # KEY="a b" as a shell would read it (gen_conf.py quotes lists)
         if [ "$v" = __FILL__ ]; then bad="$bad $k"; continue; fi
         [ -n "${!k+x}" ] || export "$k=$v"          # the caller's environment wins
     done < "$f"

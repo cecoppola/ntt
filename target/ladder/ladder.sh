@@ -44,6 +44,7 @@ replica_main() {
     tgt_sum_init "$DIR" "ladder-$LEVEL-$TAG-r$K"
     J=${SLURM_JOB_ID:-$JOBID_}
     tgt_kv level "$LEVEL"; tgt_kv nodes "$NODES"; tgt_kv digits "$DIGITS"; tgt_kv replica "$K"; tgt_kv hosts "$HOSTS"
+    tgt_kv model_nowrite_s "${MODEL_NOWRITE_S:-}"; tgt_kv model_write_s "${MODEL_WRITE_S:-}"
     tgt_kv jobid "$J"; tgt_kv paths "$PATHS"; tgt_kv runs "$RUNS"; tgt_kv write "$WRITE_THIS"; tgt_kv site "$SITE"
     for kv in ${ENVW}; do tgt_kv "e.${kv%%=*}" "${kv#*=}"; done
     for v in ECALC_NP MN_T_CHUNK_MB FI_MR_CACHE_MONITOR ECALC_DEVICE_GB ECALC_MEM_GUARD_GB; do [ -n "${!v+x}" ] && tgt_kv "e.$v" "${!v}"; done
@@ -54,8 +55,9 @@ replica_main() {
         for i in $(seq 1 "$RUNS"); do
             P=p${p}r${i}; log=$DIR/raw/$P.log; nrun=$((nrun + 1))
             bin=$BIN1; words=($ENVW); [ "$p" = 2 ] && { bin=$BIN2; words+=($PATH2_WORDS); }
-            out=; if [ "$WRITE_THIS" = 1 ] || { [ "$WRITE_THIS" = first ] && [ "$i" = 1 ]; }; then
+            out=; wfail=0; if [ "$WRITE_THIS" = 1 ] || { [ "$WRITE_THIS" = first ] && [ "$i" = 1 ]; }; then
                 od=${ECALC_OUT_DIR:-${TMPDIR:-/tmp}/ladder_out}/ladder_${LEVEL}_${TAG}_r${K}_${P}; mkdir -p "$od" && out=$od/e
+                [ -n "$out" ] || { tgt_kv "note_$P" "FAIL: cannot create the write directory $od"; wfail=1; }
             fi
             t0=$(date +%s); tgt_log "$P: $NODES node(s) $DIGITS digits path $p${out:+, writing $out}"
             echo "# ladder.sh: mnrun.sh $NODES env ${words[*]} $bin $DIGITS ${out:+$out} (job $J, hosts $HOSTS)" > "$log"
@@ -63,7 +65,7 @@ replica_main() {
               [ "$SITE" = aac7 ] && [ -f ./aac7env.sh ] && . ./aac7env.sh >/dev/null 2>&1
               export SLURM_JOB_ID=$J MNRUN_NODELIST=$HOSTS MNRUN_EXCLUDE_MODE=warn
               tgt_timeout "$rmin" bash "$REPO_/ecalc/mnrun.sh" "$NODES" env "${words[@]}" "$bin" "$DIGITS" ${out:+"$out"} ) >> "$log" 2>&1 < /dev/null
-            rc=$?
+            rc=$?; [ "$wfail" = 1 ] && [ "$rc" = 0 ] && rc=95
             wall=$(( $(date +%s) - t0 ))
             seen=$(grep -a -m1 -oE 'mn: pe [0-9]+ of [0-9]+ \(node [0-9]+ of [0-9]+' "$log" | sed -nE 's/.*\(node [0-9]+ of ([0-9]+)/\1/p')
             if [ -n "$seen" ] && [ "$seen" != "$NODES" ]; then
@@ -98,13 +100,11 @@ collect_main() {
     local L=$1 tag=${2:-}
     [ -n "$tag" ] || tag=$(ls -t "$LADDER_RES/$L" 2>/dev/null | grep -- '-r[0-9]*$' | head -1 | sed 's/-r[0-9]*$//')
     [ -n "$tag" ] || die "no runs of $L under $LADDER_RES/$L"
-    local dirs=() d; for d in "$LADDER_RES/$L/$tag"-r*/; do [ -f "$d/DONE" ] && dirs+=("${d%/}") || echo "ladder.sh: $d not DONE yet (skipped)" >&2; done
+    local dirs=() d nall=0; for d in "$LADDER_RES/$L/$tag"-r*/; do [ -d "$d" ] || continue; nall=$((nall + 1)); [ -f "$d/DONE" ] && dirs+=("${d%/}") || echo "ladder.sh: $d not DONE yet (skipped)" >&2; done
     [ ${#dirs[@]} -gt 0 ] || die "no finished replica of $L / $tag"
-    local mnw= mw= cf=$HERE/levels/$L.conf
-    mnw=$(sed -n 's/^MODEL_NOWRITE_S=\([0-9.]*\).*/\1/p' "$cf"); mw=$(sed -n 's/^MODEL_WRITE_S=\([0-9.]*\).*/\1/p' "$cf")
-    local cd; cd=$(sed -n 's/^DIGITS=\([0-9]*\).*/\1/p' "$cf" | head -1)         # the model is for the conf's digits only
-    [ "$(sed -n 's/^digits=//p' "${dirs[0]}/summary.txt" | head -1)" = "$cd" ] || { mnw=; mw=; echo "ladder.sh: digits differ from $L.conf: no model comparison" >&2; }
-    python3 "$PARSE" collect "${dirs[@]}" ${mnw:+--model-nowrite "$mnw"} ${mw:+--model-write "$mw"} --md "$LADDER_RES/LADDER.md" --label "$L $tag $(date '+%F %T %Z')"
+    local mnw= mw=                                 # the model figures the replicas ran with (the level conf's, or --set MODEL_*)
+    mnw=$(sed -n 's/^model_nowrite_s=\([0-9.]*\)$/\1/p' "${dirs[0]}/summary.txt" | head -1); mw=$(sed -n 's/^model_write_s=\([0-9.]*\)$/\1/p' "${dirs[0]}/summary.txt" | head -1)
+    python3 "$PARSE" collect "${dirs[@]}" --expect "$nall" ${mnw:+--model-nowrite "$mnw"} ${mw:+--model-write "$mw"} --md "$LADDER_RES/LADDER.md" --label "$L $tag $(date '+%F %T %Z')"
     exit $?
 }
 
@@ -164,6 +164,7 @@ DIGITS=$(sci "${C[DIGITS]}"); [ -n "$DIGITS" ] || die "DIGITS=${C[DIGITS]} is no
 case "${C[PATH]:-both}" in 1|2) PATHS=${C[PATH]};; both) PATHS="1 2";; *) die "PATH must be 1, 2 or both";; esac
 for v in NODES RUNS REPL TIME_MIN; do [[ ${!v} =~ ^[0-9]+$ ]] && [ "${!v}" -ge 1 ] || die "$v=${!v}: a positive integer"; done
 case "$WRITE" in 0|1|first) ;; *) die "WRITE must be 0, 1 or first";; esac
+[ "$WRITE" = 0 ] || [ "$SITE" = aac7 ] || [ -n "${ECALC_OUT_DIR:-}" ] || die "WRITE=$WRITE needs ECALC_OUT_DIR (target.conf: a parallel file system directory), or --set WRITE=0"
 PATH2_WORDS=${C[PATH2_WORDS]:-ECALC_PE_PER_GPU=1 XSHMEM_LANES=2}
 ENVW=; for k in "${!C[@]}"; do case "$k" in ENV_*) [ -n "${C[$k]}" ] && ENVW="$ENVW ${k#ENV_}=${C[$k]}";; esac; done   # an empty value (--set ENV_X=) drops the word
 ENVW=$(echo $ENVW | tr ' ' '\n' | sort | tr '\n' ' '); ENVW=${ENVW% }
@@ -172,8 +173,9 @@ ENVW=$(echo $ENVW | tr ' ' '\n' | sort | tr '\n' ' '); ENVW=${ENVW% }
 find_bin() {     # path number -> binary
     local v=ECALC$1 d
     [ -n "${!v:-}" ] && { echo "${!v}"; return 0; }
-    d=$(ls -td "$TGT_ROOT"/build/*-p"$1" 2>/dev/null | head -1)
-    [ -n "$d" ] && [ -f "$d/ecalc/ecalc" ] && [ -x "$d/ecalc/ecalc" ] && { echo "$d/ecalc/ecalc"; return 0; }   # build/<sha7>-pN/ecalc/ecalc (bench/items/_build.sh)
+    for d in $(ls -td "$TGT_ROOT"/build/*-p"$1" 2>/dev/null); do    # newest build that holds the binary: build/<sha7>-pN/ecalc/ecalc (bench/items/_build.sh)
+        [ -f "$d/ecalc/ecalc" ] && [ -x "$d/ecalc/ecalc" ] && { echo "$d/ecalc/ecalc"; return 0; }
+    done
     [ "$SITE" = aac7 ] && [ "$1" = 1 ] && [ -x "$REPO/ecalc/ecalc" ] && { echo "$REPO/ecalc/ecalc"; return 0; }
     return 1
 }
@@ -207,10 +209,13 @@ else
         mkdir -p "$LADDER_RES/$LEVEL"
         plan_fits "$p" "$DIGITS" "$LADDER_RES/$LEVEL/$TAG.plan-p$p.txt"; rc=$?
         if [ $rc = 0 ]; then echo "ladder.sh: plan path $p: $DIGITS digits on $NODES node(s) FITS ($(grep -m1 'FITS:' "$LADDER_RES/$LEVEL/$TAG.plan-p$p.txt" | sed 's/.*FITS: //' | cut -c1-120))" >&2
+        elif [ $rc != 1 ]; then
+            sed -n '1,6p' "$LADDER_RES/$LEVEL/$TAG.plan-p$p.txt" | cut -c1-220 | sed 's/^/    /' >&2
+            RC=4; die "plan check of path $p FAILED (rc $rc, not a memory refusal; details $LADDER_RES/$LEVEL/$TAG.plan-p$p.txt): fix the environment (modules, target.conf) first"
         else
             echo "ladder.sh: REFUSED path $p: $DIGITS digits on $NODES node(s) rc=$rc (details $LADDER_RES/$LEVEL/$TAG.plan-p$p.txt):" >&2
             grep -a -E 'REFUSED|FATAL|verdict|margin' "$LADDER_RES/$LEVEL/$TAG.plan-p$p.txt" | head -4 | cut -c1-220 | sed 's/^/    /' >&2
-            [ $rc = 1 ] && { lf=$(largest_fit "$p"); echo "ladder.sh: largest digit count that fits path $p on $NODES node(s): $lf  (re-run with --set DIGITS=$lf)" >&2; }
+            { lf=$(largest_fit "$p"); echo "ladder.sh: largest digit count that fits path $p on $NODES node(s): $lf  (re-run with --set DIGITS=$lf)" >&2; }
             # with two paths requested, a refused path is dropped and the level runs on the other one (path 2 needs one process per GPU,
             # which does not fit the per-node share from 8 nodes on: planner 2026-10-25, device 447.93 GB at 8 n vs 373.44)
             refused="$refused $p"

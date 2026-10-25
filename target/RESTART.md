@@ -294,7 +294,9 @@ machine, so schedule it when the bench prio < 200 items are done or the session 
 | `fi_enable(-28)` with several PEs per node | launch Slurm-native (`srun --ntasks`), as `mnrun.sh` does (TGTBENCH2, m target) |
 | a task gets only 2 CPUs | `MNRUN_CPUS_PER_TASK=auto` (mnrun.sh: CPUs / tasks per node) (A16, m aac7) |
 | link or load errors after `module load rocm` | a versioned ROCm conflicts with the login default: `MNRUN_UNLOAD` in target.conf (the probe fills it) |
-| APUs invisible inside a job step | `--gpus-per-node=4 --gpu-bind=none` (the ladder's default sbatch options; probe: `PROBE_SRUN_EXTRA`) |
+| APUs invisible inside a job step | `--gpus-per-node=4` in the job (the ladder's default sbatch options) and `--gpu-bind=none` on the step (`mnrun.sh` adds it; probe: `PROBE_SRUN_EXTRA`) |
+| `locality: no node with an xname` / ladder `no group` | `scontrol show node` carries no HPE xname: write a host → xname map (one `host xname` per line, e.g. from `/etc/cray/xname` on each node), `python3 target/ladder/locality.py nodes --map MAP --save`, then `ladder.sh ... --nodes-from target/results/probe/topology.tsv` (its node states are those of the save: re-save before each level) |
+| ladder `plan check of path N FAILED (rc 2, not a memory refusal)` | the planner could not run (module load, binary, `target.conf`); the plan file it names has the first error. A memory refusal is rc 1: that path is dropped and the level runs on the other |
 | one node slow (a replica 5-10 % behind) or a NIC missing | `tools/nodescreen.sh` / kit stage `nodechk`; add the host to `results/ladder/exclude.txt` (`MNRUN_EXCLUDE_HOSTS`, mode drop); no spares |
 | NICs lost after jobs end (aac7: needs_reboot after our jobs) | use long allocations and run many items inside them; check `fi_info -p cxi` counts at the start of each allocation |
 | the first run on a fresh allocation is slow | cold start: on aac7 the first run took 154.9 s, later runs on the same node 76.9-85.5 s (m, 2026-10-25); time from run 2 on (ADJUST rule 11). `ECALC_VERBOSE=2` costs at most a few seconds (+2.0 s mean over 4 pairs, not resolved, m) |
