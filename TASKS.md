@@ -12,7 +12,7 @@ Rewritten 2026-10-19, cleaned 2026-10-23 (closed rows, the proxy-mode decisions 
 Classes: 1 bugs, 2 shrink, 3 simplify, 4 performance, 5 docs (definitions in the project instructions). Within a class,
 rows are in the order to do them.
 
-No open work in classes 1-5; see Proposed.
+- Cleanup round 3 (user order 2026-10-24 22:10 ET: declutter, remove unnecessary folders and files, consolidate, update all documentation), three parts in parallel: (2/3) code, tools, tests and data files (branch clncode; gate on aac7 before merge, both paths); (5) root docs and results/ (branch clndocs; archive superseded detail); (2) private workspace and own aac7 directories (archive small results, delete bulk). Then one final doc sync after both branches merge.
 
 ## Proposed (needs the user's priority)
 
