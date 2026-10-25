@@ -187,7 +187,20 @@ results and `target/config/target.conf` right away (Q112).
 
 ## 6. Step 2 — build
 
-[OPEN]
+Both paths build on the login node in under a minute each (aac7: 24 s and 20 s, m), as bench items `bld01` (path 1)
+and `bld02` (path 2) into `target/build/<sha7>-p1|p2/` (copies of `ecalc/` and `tools/`, so both build at once and
+`mnrun.sh` sits next to its binary):
+
+```bash
+target/bench/run.sh --jobid none --only bld01,bld02      # login-node worker: runs only nodes=0 items
+cat target/results/bench/bld0?/summary.txt               # status=PASS, e.binary=build/<sha7>-pN/ecalc/ecalc
+```
+
+Modules come from `target/config/target.conf` (`MNRUN_MODULES`, `MNRUN_UNLOAD`; path 2 needs the Cray SHMEM 12.1 and
+dsmml modules, `make -B XSHMEM=cray`). GMP: `GMP_HOME` (if the site has none: build GMP 6.x from source into `$APU/gmp`,
+about 5 min). If path 2 fails to build, carry on with path 1 (every item and the ladder accept a missing path) and fix
+path 2 in parallel. Once both pass, the runner hands `ECALC1` / `ECALC2` to every item, and the ladder finds the newest
+binaries itself.
 
 ## 7. Step 3 — the bench (parallel workers)
 
@@ -195,7 +208,32 @@ results and `target/config/target.conf` right away (Q112).
 
 ## 8. Step 4 — the ladder (1, 8, 64, 576 nodes)
 
-[OPEN]
+Sizes are fixed (Q114) at the target run's share per node, 6.632 × 10¹⁰ digits per node:
+
+| level | nodes (APUs) | digits | replicas in parallel | paths | write | model wall (mod, no write / write) |
+|---|---|---|---|---|---|---|
+| L0 | 1 (4) | 6.632e10 | 8, 2 runs each | both, order alternating | no | 102.7 / 116.9 s |
+| L1 | 8 (32) | 5.306e11 | 4 | both | no | 118.2 / 129.6 s |
+| L2 | 64 (256) | 4.244e12 | 2 | both | first replica | 149.6 / 160.4 s |
+| L3 | 576 (2304) | 3.82e13 | 1 | 2 (or the winner below) | yes | 187.1 / 191.2 s |
+
+The model is calibrated on aac7 compute, which measured 74-76 s for L0's size (m): expect the target to beat the model
+at L0. `levels/L3.conf` carries `MN_NONPOW2_CAP=0` (Q119: 3.82e13 fits only with it, device 358.96 of 373.44 GB, mod).
+
+```bash
+python3 target/ladder/locality.py nodes --save                  # physical table -> results/probe/topology.tsv (once)
+target/ladder/ladder.sh --level L0 --dry-run                    # plan check, the groups it would use, the job lines
+target/ladder/ladder.sh --level L0                              # submits 8 replicas (one sbatch each, adjacent groups)
+target/ladder/ladder.sh --collect L0                            # after the DONE markers: mean/min/max, spread, VERIFY, hash agreement
+#   then L1, L2, L3 the same way; inside an allocation you hold: --jobid J; overrides: --set KEY=VALUE (e.g. --set ECALC_NP=4)
+```
+
+Each replica is a fire-and-forget driver writing `results/ladder/<L>/<tag>-r<k>/{summary.txt,raw/,DONE}`; nothing waits.
+Between runs follow `target/ladder/ADJUST.md`: the gate to move up (every replica VERIFY OK, hashes agree, spread and
+time against the model), and the rules (slow node → exclude it in `results/ladder/exclude.txt`; path 1 vs path 2 → keep
+the faster for the next level; memory near the edge; init share; the `MN_NONPOW2_CAP` cost from bench `prm08`, with
+the fallback of about 2.67e13 digits with it on). L0-L2 can run while bench workers use other nodes; L3 needs the whole
+machine, so schedule it when the bench prio < 200 items are done or the session is ending.
 
 ## 9. Known problems and their fixes
 
