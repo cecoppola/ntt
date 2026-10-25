@@ -58,7 +58,9 @@ results/LOG.md                          the coordinator's dated log of the sessi
 
 ## 4. Bench manifest — `bench/manifest.tsv`
 
-Tab-separated, one item per line, header line first, `#` lines are comments:
+`bench/manifest.tsv` plus every `bench/manifest.d/*.tsv` (one fragment per author or area, so parallel authors never edit
+the same file; the runner reads them all, ids must be unique across them). Tab-separated, one item per line, header line
+first, `#` lines are comments:
 
 ```
 id	tier	prio	nodes	est_min	deps	questions	cmd
