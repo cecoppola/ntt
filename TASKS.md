@@ -12,6 +12,7 @@ Rewritten 2026-10-19, cleaned 2026-10-23 (closed rows, the proxy-mode decisions 
 Classes: 1 bugs, 2 shrink, 3 simplify, 4 performance, 5 docs (definitions in the project instructions). Within a class,
 rows are in the order to do them.
 
+- Short tasks (user order 2026-10-24 23:20 ET: check off all short tasks, debugging, consolidation, simplification), three branches in parallel: memfix (BS_ARENA_TRIM_GB hardening, memory budget honesty + 1 n P pool rule, BS_ARENA_ROOM 0.14 replay and A/B), simpl (bs_Pd_ptr, vidx through vpe_adopt, mn_model DKM_HI default, thread-mode leftovers), dbgt (P at 1 n phase profile, NIC launch-group probe; session-hold template fix, private). Each gated on aac7 before merge; the matching Proposed rows close when merged.
 - Cleanup round 3 (user order 2026-10-24 22:10 ET): code, docs and final pass merged 2026-10-24 (gate 9zz8 PASS 1 n + 2 n both paths, unit 9/9; path 1 speed unchanged, results/CODE_REDUCTION.md §CR3S); tracked code 156 -> 143 files, 41.6k -> 39.5k lines; root docs + results/ 8.2k -> 5.2k lines (m); workspace and own aac7 directories decluttered (aac7 home 134 -> 96 GB, m). Q97 (a): Q79/Q88 code stays until the target session; Q98 (b): the user's files moved to a reference folder.
 
 ## Proposed (needs the user's priority)
