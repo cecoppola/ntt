@@ -13,7 +13,7 @@ Classes: 1 bugs, 2 shrink, 3 simplify, 4 performance, 5 docs (definitions in the
 rows are in the order to do them.
 
 - Target memory fit (class 1, found 2026-10-25): the planner now refuses 3.82e13 on 576 (device 407.41 GB per node vs 373.44, -33.97 GB; m, planner) where it reported +14.48 GB on 2026-10-19; same on main 0d052a9 and after cleanup round 4, so a change between 10-19 and 10-25 (or a different configuration then) moved it; find which, then fix the plan or the docs.
-- Cleanup round 4 (user order 2026-10-25, Q103-Q111 all (a)): done, merged 2026-10-25 (@GATE@). 185 -> 162 files, 46508 -> 39817 lines, switches 194 -> 145 (m); path 1 no slower (-0.91 s [-3.20, +1.39], m); `results/CODE_REDUCTION.md §CR4`. Left for later: `vpe_on` collapse, Garner `dmod128/192` dedupe, comment shortening, `t_pe_geo_live` merge; `ecalc/target_kit.sh` still names `t_comm` and `COMM_TRANSPORT=shmem` (kit on hold).
+- Cleanup round 4 (user order 2026-10-25, Q103-Q111 all (a)): done, merged 2026-10-25 (gate b4i_cl4g3 (208ae18: tools, path 1 1 n + 2 n, unit 18/18, path 2 1 n PASS) + b4j_cl4p2 (d64e00e: path 2 1 n + 2 n PASS), digits identical). 185 -> 162 files, 46508 -> 39817 lines, switches 194 -> 145 (m); path 1 no slower (-0.91 s [-3.20, +1.39], m); `results/CODE_REDUCTION.md §CR4`. Left for later: `vpe_on` collapse, Garner `dmod128/192` dedupe, comment shortening, `t_pe_geo_live` merge; `ecalc/target_kit.sh` still names `t_comm` and `COMM_TRANSPORT=shmem` (kit on hold).
 
 ## Proposed (needs the user's priority)
 
