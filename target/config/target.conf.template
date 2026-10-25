@@ -59,6 +59,7 @@ ECALC_DEVICE_GB=373.44                # FIT (D26): the device edge per node, 93.
 
 # ---- [adopted switches, pending move to built-in defaults] ------------------------------------------------------------
 ECALC_NP=auto                         # user decision 1, 2026-09-28
+MN_NONPOW2_CAP=0                      # user decision Q119 2026-10-25: 3.82e13 on 576 fits only with it off (device 358.96 GB vs 407.41 with the auto default; +14.48 GB margin, mod planner); NPCAP's time cost is measured by a target bench item
 MN_T_CHUNK_MB=2048                    # T2048, user decision 2026-10-11 (aac7: S22 D2, mean -42.3 s, m; the target had 1024 -- confirm on the target when its A/B runs)
 # no spare nodes (user decision 2026-10-11): bad nodes are excluded, not replaced -- see [host exclusions].
 
