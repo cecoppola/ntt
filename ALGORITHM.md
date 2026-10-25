@@ -84,7 +84,7 @@ is chosen per level from the largest node length `max_nl`:
 | 2·max_nl + 1 ≤ 2³⁰ points (`BS_MDEV_LOGL`) | **batch** | one `rns_mul_batch` of all 2·npairs products of the level (`rns_mul.c`) |
 | otherwise | **device top levels** | each pair as `dbig` numbers through `rns_mul_dist_db` (`rns_dist.c`); inputs freed as consumed |
 
-(The CPU schoolbook tier below `bs_school_nl` is set to 0: the batch tier is faster at every size. Since D20 (the `BS_BATCH_PIPE=0` fallback was removed 2026-10-23, Q87) the batch tier's host side runs without needless gaps: a level's layout and the products' scans in parallel and each device's tiles issued back to back through pinned descriptor slots, one length read-back per level, `results/KERNELS.md §N3`; `BS_BATCH_PIPE=0` keeps the old host side.)
+(The CPU schoolbook tier below `bs_school_nl` is set to 0: the batch tier is faster at every size. The batch tier's host side (D20) runs without needless gaps: a level's layout and the products' scans in parallel and each device's tiles issued back to back through pinned descriptor slots, one length read-back per level, `results/KERNELS.md §N3`.)
 
 **Across nodes.** With size > 1, node r takes the term range [1 + N·r/size, 1 + N·(r+1)/size) and runs the whole leaf tree
 on it, leaving (P_r, Q_r) on its devices. `mn_tree` then combines nodes in groups (§6.5), so after the last level P and Q
@@ -261,7 +261,7 @@ Two layouts exist (both supported, user rule Q85):
   heap, and the PE's place (GPU, NUMA node, NICs) comes from the backend's topology (`pe_geo.c`). `XSHMEM_LANES=N`
   gives each PE N SHMEM contexts (lane k on NIC k) and stripes every payload put over them (`comm_xshmem.c`). With no
   striped tier on one device, batch products larger than one device's plane pool are split over the PE's own device
-  (`RNS_BATCH_SPLIT`, `rns_mul.c`). The virtual-PE thread mode (`ECALC_VPE`) was removed from main on 2026-10-23 (Q86; the code is on branch `vpe-int`, archive:branches_2026-10-24/). P cuts start-up, so
+  (`RNS_BATCH_SPLIT`, `rns_mul.c`). (The virtual-PE thread mode was removed 2026-10-23, Q86.) P cuts start-up, so
   it wins at small sizes and is equal within noise at 3 nodes, 10¹¹ digits (`results/XSHMEM.md`).
 
 ### 6.2 The four-step transform
@@ -307,8 +307,8 @@ budget).
 | `comm_xgmi.c` | the node's four APUs: peer copies over the xGMI mesh, driven by four host threads |
 | `comm_shmem.c` | OpenSHMEM, `COMM_TRANSPORT=shmem` (the fallback and the reference): a communicator is a strided PE set; one symmetric pool holds every remote-writable buffer; the sender puts a slab at an offset the receiver chose, then a signal word; the receiver polls signals. Its heap is in 2 MiB pages (`COMM_SHMEM_NP_HEAP_THP`, default 1: a 4 KiB pinned heap let kernel compaction evict the GPU queues, `results/SHMEM.md`). The switches are in `ecalc/README.md`; `COMM_TRACE` records per-message traces |
 | `comm_ofi.c` | libfabric (`cxi`): the device exchanges' data plane over every NIC of the node, one domain per APU thread, chunks striped over the NICs; completion is signalled through SHMEM. The data plane of the `COMM_TRANSPORT=shmem` fallback (there `COMM_OFI` follows the presence of a cxi NIC) and the reference arm; the default path has its own data plane in `xshmem_ofi.c`. ×2.1 over plain SHMEM at 10 nodes (m; `results/OFI_FABRIC.md §OFI17`) |
-| `comm_xshmem.c` | `COMM_TRANSPORT=xshmem` (the default multi-node transport since Q73, 2026-10-21; built by default where libfabric is found, `XSHMEM=0` omits it): the inter-node meshes over `xshmem.h`, the 1:1 mapping of the Cray SHMEM 12.1 calls (libfabric backend `xshmem_ofi.c` on aac7, `xshmem_cray.h` on the target); one node-process hosts one loopback PE per APU thread; the receiver publishes offsets, a worker thread puts and signals, rounds (`XSHMEM_ROUND_MB`, default 128); `results/XSHMEM.md` |
-| `xshmem.h`, `xshmem_ofi.c`, `xshmem_boot.c`, `xshmem_cray.h`, `pe_geo.c` | the API (the 1:1 mapping of the Cray SHMEM 12.1 calls) and its two backends: libfabric cxi with PMI2 bootstrap (`XSHMEM=ofi`, path 1) and Cray SHMEM (`XSHMEM=cray`, static inline, path 2); `pe_geo.c` reports each PE's GPU, NUMA node and NICs. `vpe.c` is the shelved virtual-PE mode |
+| `comm_xshmem.c` | `COMM_TRANSPORT=xshmem` (the default multi-node transport since Q73, 2026-10-21; built by default where libfabric is found, `XSHMEM=0` omits it): the inter-node meshes over `xshmem.h`, the 1:1 mapping of the Cray SHMEM 12.1 calls (libfabric backend `xshmem_ofi.c` on aac7, `xshmem_cray.h` on the target); one node-process hosts one loopback PE per APU thread; the receiver publishes offsets, a worker thread (default in every layout, Q96; `ECALC_XEX_THREAD=0` polls instead) puts and signals, rounds (`XSHMEM_ROUND_MB`, default 128); `results/XSHMEM.md` |
+| `xshmem.h`, `xshmem_ofi.c`, `xshmem_boot.c`, `xshmem_cray.h`, `pe_geo.c` | the API (the 1:1 mapping of the Cray SHMEM 12.1 calls) and its two backends: libfabric cxi with PMI2 bootstrap (`XSHMEM=ofi`, path 1) and Cray SHMEM (`XSHMEM=cray`, static inline, path 2); `pe_geo.c` reports each PE's GPU, NUMA node and NICs. `vpe.c` holds the PE identity of the one-process-per-GPU layout |
 | `comm_layered.c` | the layered composition of an intra (xGMI) and an inter (SHMEM/OFI) communicator, §6.3 |
 | `comm_sim4.c`, `comm_util.c` | a synthetic four-rank layout in one APU's memory for tests; shared helpers |
 | `comm_copy.c` | N7D: the GPU copy kernel for copies that touch a host-registered pool (called from `comm_xshmem.c`'s `COPY`) |
@@ -489,4 +489,4 @@ assumed (a).
 | seeds / span | the leaf (P, Q) of a few hundred terms each, computed on the CPU during init |
 | T1 / T2 / RECHECK | residue check modulo eight 62-bit primes / digit windows / re-verification of finished files |
 | v-slots | the general map's exchange buffers, counted in the node budget |
-| X2 | the layered exchange with two inter-node stages and pooled slots |
+| X2 | the layered exchange with pooled, shared and released v-slots |

@@ -19,7 +19,7 @@ node and over node groups. The goal is 3.82 × 10¹³ digits on 576 nodes; the c
 | `RESULTS.md` | what is in force, with the evidence file of each adopted change |
 | `TASKS.md` | open work (by priority class), proposed items, decisions still acting, target-session items |
 | `OPPORTUNITIES.md` | every performance idea (time, memory, concurrency, algorithm), open or tried, with its evidence and a ranking |
-| `results/` | agent reports (`<ID>.md`) cited by the files above |
+| `results/` | measurement reports by topic, cited by the files above (index: `RESULTS.md`) |
 
 History (the old plan, measurement logs, older reports, moved drivers) is kept outside the repository; notes cite it as
 `archive:<path>`.
@@ -32,40 +32,38 @@ History (the old plan, measurement logs, older reports, moved drivers) is kept o
 | `ecalc/tests/` | one GMP-checked test program per module (`t_ntt`, `t_mul`, `t_dbig`, `t_newton`, `t_mn_grid`, …) and the test harness headers |
 | `tools/` | `gate.sh`, `unpack_digits`, the profile loader and checks, node screen, `target_probe.sh` (target bring-up facts, profiles/README.md runbook) |
 | `profiles/` | machine profiles: `aac7.conf`, `target.conf.template` |
-| `tests/` | two model scripts (seed-span model, block-pool replay) |
+| `tests/` | Python unit tests of the tools (`test_tools.py`) |
 
-## Build
+## Build and run
 
-One node (any ROCm system with GMP):
+Needs ROCm (`module load rocm`) and GMP. One node:
 
-    cd ecalc && module load rocm && make
-
-Multi-node (Cray OpenSHMEMX, GMP built from source); the build log must show `-DCOMM_SHMEM`:
-
-    cd ecalc && source aac7env.sh && module load cray-dsmml cray-openshmemx
-    make -B SHMEM_CRAY=1 GMP_HOME=<path to GMP>
-
-## Run
-
-One node, inside an allocation of one node with 4 GPUs:
-
+    cd ecalc && make
     ./ecalc 1000000000 /tmp/e9.out                  # 10^9 digits, packed output, prints VERIFY OK
     ./digcmp.sh /tmp/e9.out ref/e_1000000000.txt    # compare with a reference: "identical"
     ../tools/unpack_digits -o /tmp/e9.txt /tmp/e9.out    # packed -> ASCII
 
-Multi-node, one process per node:
+Multi-node, one launch per allocation of `<nodes>` nodes (`SLURM_JOB_ID=<hold>` names the allocation):
 
     SLURM_JOB_ID=<hold> ./mnrun.sh <nodes> env <settings> ./ecalc <digits> [outfile]
 
-**The two supported multi-node paths (user rule Q85, 2026-10-23): both stay working; a change to shared code must leave path 1 digit-identical and no slower.**
+**Two supported multi-node paths (user rule Q85, 2026-10-23): both stay working; a change to shared code must leave
+path 1 digit-identical and no slower.** Current figures are in `PLAN.md` section 2.
 
-1. Libfabric (the most performant libfabric path; the default build). Build `make -C ecalc` (default `XSHMEM=ofi`, libfabric and the PMI2 header found; add `SHMEM_CRAY=1 GMP_HOME=<gmp>` as on aac7).
-   Run `SLURM_JOB_ID=<hold> ./mnrun.sh <nodes> env ./ecalc <digits>`: default layout D (one process per node, four APU threads), `COMM_TRANSPORT=xshmem`, no other setting. Measured 3 n 1e11: 81.2 to 83 s (D and the one-process-per-GPU layout P are equal within noise).
-2. Cray SHMEM (the most performant SHMEM path, the target shape). Build `make -C ecalc XSHMEM=cray SHMEM_CRAY=1 GMP_HOME=<gmp>` (aac7: `module load cray-dsmml cray-openshmemx`; rebuild with `-B` when switching `XSHMEM`).
-   Run `SLURM_JOB_ID=<hold> ./mnrun.sh <nodes> env ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 ./ecalc <digits>`: one process per GPU (P), two lanes (PL2). `mnrun.sh` adds, for a Cray build under `ECALC_PE_PER_GPU=1`, the NUMA placement (`MNRUN_PPG_CPUBIND=ldom`, `XSHMEM_CRAY_NUMA=1`), the automatic libsma heap and the plan. Measured 3 n 1e11: 85 to 93 s, +7.5 % against path 1 (11 interleaved pairs, CI +3.4 to +11.5 %; the whole gap is init, +8 s, aac7-specific) (`results/XSHMEM.md` section "craylane"); digits identical to D.
+1. **Libfabric** (default build). Build `make -C ecalc SHMEM_CRAY=1 GMP_HOME=<gmp>` (default `XSHMEM=ofi`: libfabric and the
+   PMI2 header must be found; `SHMEM_CRAY=1` is also what the fallback `COMM_TRANSPORT=shmem` needs, and `tools/gate.sh`
+   requires `-DCOMM_SHMEM` in the build log of a multi-node build).
+   Run `./mnrun.sh <nodes> env ./ecalc <digits>`: layout D (one process per node, four APU threads), `COMM_TRANSPORT=xshmem`,
+   no other setting.
+2. **Cray SHMEM** (the target shape). Build `make -B -C ecalc XSHMEM=cray SHMEM_CRAY=1 GMP_HOME=<gmp>` (aac7: `module load
+   cray-dsmml cray-openshmemx`; rebuild with `-B` when switching `XSHMEM`).
+   Run `./mnrun.sh <nodes> env ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 ./ecalc <digits>`: one process per GPU, two lanes.
+   `mnrun.sh` adds, for a Cray build under `ECALC_PE_PER_GPU=1`, the NUMA placement (`MNRUN_PPG_CPUBIND=ldom`,
+   `XSHMEM_CRAY_NUMA=1`), the automatic libsma heap and the plan. Digits are identical to path 1.
 
-`mnrun.sh` sets the communicator environment. The launch lines (test system and target) are in `PLAN.md` section 3;
-`ecalc/target_kit.sh -h` describes the target session. Cluster access is described in the private protocol.
+The exchange worker (`ECALC_XEX_THREAD=1`) is the default in every layout. `mnrun.sh` sets the communicator environment; the
+launch lines (test system and target) are in `PLAN.md` section 3; `ecalc/target_kit.sh -h` describes the target session.
+Cluster access is described in the private protocol.
 
 ## Test
 
