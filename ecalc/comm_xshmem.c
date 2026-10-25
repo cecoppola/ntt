@@ -56,6 +56,8 @@
 #define MAXID 1024                         /* communicator ids (control blocks) */
 #define MAXID_VPE 512                      /* ... with ECALC_PE_PER_GPU (flat PE communicators: the control block grows with the PE count) */
 #define MAXL 4                             /* lane contexts per PE (XSHMEM_LANES) */
+#define MAXPST 8                           /* XSHMEM_PEER copy streams per PE */
+#define PEERBIT (1u << 8)                  /* lane_put's mask: a same-node device copy is outstanding (lane_quiet syncs the copy streams) */
 #define MAXLPE 8                           /* loopback PEs per process */
 #define MAXPEND 256                        /* exchanges one worker can hold */
 #define ALIGN 256
@@ -72,6 +74,7 @@ typedef struct xpe {                       /* one loopback PE of this process */
     int lpe; xshmem_ctx_t lane; xshmem_ctx_t lanes[MAXL];   /* lane = lanes[0] */
     char *data; size_t dlen; uint64_t *ctrl;
     pthread_mutex_t alock; struct xblk *blocks; size_t cur, peak, symcur, sympeak;
+    hipStream_t pst[MAXPST]; unsigned pst_made, pst_used;   /* XSHMEM_PEER: one stream per same-node peer (pe mod MAXPST) for the device copies */
     double lqt[MAXL]; double lqlast[MAXL];                  /* XSHMEM_LANE_TRACE: summed and last quiet time per lane */
     pthread_t th; int th_on, stop; volatile int busy; pthread_mutex_t qm; pthread_cond_t qcv; struct xpriv *queue[MAXPEND]; volatile int nq;
 } xpe;
@@ -82,6 +85,8 @@ static struct {
     uint64_t maxseq; size_t dbytes;
     xpe pe[MAXLPE]; unsigned char used[MAXLPE][MAXID];
     double t00; int ltrace, lpoll, sigl, lctx; double lslow; int nslow; double lqmax[MAXL]; long lqn[MAXL];   /* XSHMEM_LANE_TRACE / _POLL / _SIG_LANES / _CTX (the Cray stall diagnosis, all off by default) */
+    unsigned long long pbytes;      /* payload bytes put by device copy (XSHMEM_PEER) */
+    int peer;                       /* XSHMEM_PEER=1 under the ofi backend: same-node payload by device copy through xshmem_ptr */
     int nl; size_t lmin; unsigned long long lb[MAXL];   /* XSHMEM_LANES > 1: lanes in use, the smallest chunk per lane, payload bytes put per lane */
 } X = { 1, {0}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, PTHREAD_MUTEX_INITIALIZER, 0, 0, {}, {} };
 
@@ -170,6 +175,11 @@ static void leave(xpriv *p)
 static unsigned lane_put(xpe *lp, void *dst, const void *src, size_t len, int pe)
 {
     int N = X.nl;
+    if (X.peer) { void *dp = xshmem_ptr(dst, pe);
+        if (dp) { int k = pe % MAXPST;
+            if (!(lp->pst_made >> k & 1)) { HIP_CHECK(hipStreamCreateWithFlags(&lp->pst[k], hipStreamNonBlocking)); lp->pst_made |= 1u << k; }
+            HIP_CHECK(hipMemcpyAsync(dp, src, len, hipMemcpyDefault, lp->pst[k])); lp->pst_used |= 1u << k;
+            __atomic_add_fetch(&X.pbytes, len, __ATOMIC_RELAXED); return PEERBIT; } }
     if (N <= 1) { xshmem_ctx_putmem_nbi(lp->lane, dst, src, len, pe); return 1; }
     if (len < (size_t)N * X.lmin) { xshmem_ctx_putmem_nbi(lp->lanes[0], dst, src, len, pe); __atomic_add_fetch(&X.lb[0], len, __ATOMIC_RELAXED); return 1; }
     size_t ch = (((len + (size_t)N - 1) / (size_t)N) + 255) & ~(size_t)255; unsigned m = 0;
@@ -179,6 +189,7 @@ static unsigned lane_put(xpe *lp, void *dst, const void *src, size_t len, int pe
 }
 static void lane_quiet(xpe *lp, unsigned m)
 {
+    if (m & PEERBIT) { for (int k = 0; k < MAXPST; k++) if (lp->pst_used >> k & 1) HIP_CHECK(hipStreamSynchronize(lp->pst[k])); lp->pst_used = 0; }   /* the device copies are complete (before any signal) */
     for (int k = 0; k < (X.nl > 1 ? X.nl : 1); k++) if (m >> k & 1) {
         if (!X.ltrace) { xshmem_ctx_quiet(lp->lanes[k]); continue; }
         double t = now_s(); xshmem_ctx_quiet(lp->lanes[k]); t = now_s() - t; lp->lqlast[k] = t; lp->lqt[k] += t;
@@ -600,6 +611,11 @@ int comm_xshmem_init(void)
     X.K = K; XSHMEM_SELECT(0);
     int np = xshmem_n_pes(); if (np % K) ec_fatal(EC_RC_FATAL, "comm_xshmem: %d PEs are not whole processes of %d loopback PEs\n", np, K);
     X.nodes = np / K; X.q = xshmem_my_pe() / K;
+    X.peer = cfg.peer && K == 1;
+#ifdef XSHMEM_CRAY
+    if (cfg.peer && xshmem_my_pe() == 0) fprintf(stderr, "comm_xshmem: XSHMEM_PEER=1 is inert on the Cray backend (the node-local path is the library's)\n");
+    X.peer = 0;
+#endif
     int nlw = cfg.lanes > 1 ? (cfg.lanes > MAXL ? MAXL : cfg.lanes) : 1; X.nl = nlw; if (cfg.lanes > MAXL && xshmem_my_pe() == 0) fprintf(stderr, "comm_xshmem: XSHMEM_LANES=%d clamped to %d (the limit)\n", cfg.lanes, MAXL);
     { const char *e;
       e = getenv("XSHMEM_LANE_TRACE"); X.ltrace = e && atof(e) > 0; X.lslow = X.ltrace ? atof(e) : 0;       /* seconds: an exchange slower than this is described */
@@ -698,13 +714,15 @@ void comm_xshmem_finalize(void)
     }
     for (int l = 0; l < X.K; l++) { XSHMEM_SELECT(l); lane_quiet(&X.pe[l], (1u << (X.nl > 1 ? X.nl : 1)) - 1); }
     XSHMEM_SELECT(0); xshmem_barrier_all();
+    if (X.q != 0 && X.K == 1) fprintf(stderr, "comm_xshmem: pe %d: DATA heap peak %zu MiB of %zu\n", xshmem_my_pe(), X.pe[0].peak >> 20, X.dbytes >> 20);   /* every PE's own peak (the engine's summary below is PE 0's) */
     if (X.q == 0) {
         size_t pk = 0; for (int l = 0; l < X.K; l++) if (X.pe[l].peak > pk) pk = X.pe[l].peak;
         xsplit_print();
         if (X.ltrace) { fprintf(stderr, "comm_xshmem: node-process %d: lane quiets (n, max s, PE0 sum s):", X.q); for (int k = 0; k < X.nl; k++) fprintf(stderr, " lane %d: %ld %.3f %.2f;", k, X.lqn[k], X.lqmax[k], X.pe[0].lqt[k]); fprintf(stderr, "\n"); }
+        if (X.peer) fprintf(stderr, "comm_xshmem: node-process %d: XSHMEM_PEER: %.2f GB put by device copy to same-node PEs (this process)\n", X.q, X.pbytes / 1e9);
         if (X.nl > 1) { fprintf(stderr, "comm_xshmem: node-process %d: lanes %d (chunk >= %zu KiB), payload GB put per lane (this process):", X.q, X.nl, X.lmin >> 10); for (int k = 0; k < X.nl; k++) fprintf(stderr, " %.2f", X.lb[k] / 1e9); fprintf(stderr, "\n"); }
-        fprintf(stderr, "comm_xshmem: node-process %d: %ld exchanges, %.2f s post to completion (summed over the APU threads), %.2f GB received = %.2f GB/s per APU thread; DATA heap peak %zu MiB of %zu; largest exchange sequence %llu of %llu; %ld exchanges in rounds (%ld rounds)\n",
-                X.q, X.nev, X.tv, X.bv / 1e9, X.tv > 0 ? X.bv / 1e9 / X.tv : 0.0, pk >> 20, X.dbytes >> 20, (unsigned long long)X.maxseq, (unsigned long long)SEQ_LIMIT, X.nrex, X.nrounds);
+        fprintf(stderr, "comm_xshmem: node-process %d: %ld exchanges, %.2f s post to completion (summed over the APU threads), %.2f GB received = %.2f GB/s per APU thread; DATA heap peak %zu MiB of %zu (%s); largest exchange sequence %llu of %llu; %ld exchanges in rounds (%ld rounds)\n",
+                X.q, X.nev, X.tv, X.bv / 1e9, X.tv > 0 ? X.bv / 1e9 / X.tv : 0.0, pk >> 20, X.dbytes >> 20, X.K == 1 ? "PE 0" : "max of its PEs", (unsigned long long)X.maxseq, (unsigned long long)SEQ_LIMIT, X.nrex, X.nrounds);
     }
     for (int l = 0; l < X.K; l++) { XSHMEM_SELECT(l); xshmem_heap_free(X.pe[l].ctrl); }
     for (int l = 0; l < X.K; l++) { XSHMEM_SELECT(l); xshmem_heap_free(X.pe[l].data); }
