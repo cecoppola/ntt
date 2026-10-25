@@ -72,7 +72,7 @@ runseq() {    # SHAPE NODES DIGITS "A B B A" [VARS]  (runs on the first NODES ho
     fi
     for a in $order; do
         i=$((i + 1))
-        if [ "$last" -gt 0 ] && [ $(( $(elapsed_s) + last * 12 / 10 )) -gt $(( ${TGT_ITEM_MIN:-30} * 60 * 95 / 100 )) ]; then note "stopped before run $i ($a): time budget"; return 1; fi
+        if [ "$last" -gt 0 ] && [ $(( $(elapsed_s) + last * 12 / 10 )) -gt $(awk -v e="${TGT_ITEM_MIN:-30}" 'BEGIN { printf "%d", e * 60 * 0.95 }') ]; then note "stopped before run $i ($a): time budget"; return 1; fi
         one "$a" "$i" "$sh" "$n" "$d" "$@"
         [ "$E_SKIP" = 1 ] && return 1
         last=${E_WALL_S:-0}
@@ -93,14 +93,14 @@ arms_report() {   # BASE [METRIC [PREFIX]]
     echo "$out" | grep -v '^LINE ' | while IFS='=' read -r k v; do [ -n "$k" ] && tgt_kv "$k" "$v"; done
 }
 runs_ok() { awk -F'\t' 'NR > 1 && $6 == 0 && $7 == "OK" { n++ } END { print n + 0 }' "$RUNS"; }
-runs_bad() { awk -F'\t' 'NR > 1 && !($6 == 0 && $7 == "OK") { n++ } END { print n + 0 }' "$RUNS"; }
+runs_bad() { awk -F'\t' 'NR > 1 && $6 != 99 && !($6 == 0 && $7 == "OK") { n++ } END { print n + 0 }' "$RUNS"; }
 finish() {
     local ok bad; ok=$(runs_ok); bad=$(runs_bad); local extra=${OPT_EXTRA_FAIL:-0}
     [ "${OPT_NOTES[*]:-}" ] && tgt_kv note "$(printf '%s; ' "${OPT_NOTES[@]}")${1:-}" || { [ -n "${1:-}" ] && tgt_kv note "$1"; }
     tgt_kv m.runs_ok "$ok"; tgt_kv m.runs_failed "$bad"
     if [ "$ok" = 0 ] && [ "${OPT_NO_RUNS_OK:-0}" != 1 ]; then tgt_kv status FAIL; exit 1; fi
     if [ "$bad" != 0 ] || [ "$extra" != 0 ]; then tgt_kv status PARTIAL; exit 0; fi
-    tgt_kv status PASS; exit 0
+    ecalc_end PASS
 }
 
 # ------------------------------------------------------------------------------------------------------------ log parsers

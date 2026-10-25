@@ -134,7 +134,7 @@ run_item() {        # ID: the item is claimed by us
     tgt_log "START $id nodes=$nodes est=${est}min timeout=${tmo}min hosts=${hl:--}"
     (
         cd "$d" || exit 99
-        export OUT=$d ID=$id JOBID NODES=$nodes HOSTS=$hl TGT_SUM_DIR=$d TGT_ITEM_MIN=$est
+        export OUT=$d ID=$id JOBID NODES=$nodes HOSTS=$hl TGT_SUM_DIR=$d TGT_ITEM_MIN=$(python3 -c "import math; print(max(1, math.ceil($est)))")
         export ECALC1=$(bin_of bld01) ECALC2=$(bin_of bld02)
         [ -n "$ECALC1" ] && export MNRUN_DIR1=$(dirname "$ECALC1")
         [ -n "$ECALC2" ] && export MNRUN_DIR2=$(dirname "$ECALC2")

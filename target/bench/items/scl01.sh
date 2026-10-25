@@ -16,5 +16,7 @@ read -r MA MB DF PC <<< "$(ecalc_stat "$TA" "$TB")"
 [ -n "$MA" ] && { tgt_kv m.mean_A_s "$MA s"; tgt_kv m.mean_B_s "$MB s"; tgt_kv m.B_minus_A_s "$DF s"; tgt_kv m.B_vs_A_pct "$PC %"; }
 ecalc_q TQ20 "2 nodes $D digits, ABBA x2: A (path 1 D) mean $MA s [${TA# }], B ($([ $P2 = 1 ] && echo 'path 2' || echo 'path 1 control')) mean $MB s [${TB# }]; B vs A $PC % ($DF s)"
 [ -n "$TA" ] || ecalc_end FAIL
-[ $BAD = 1 ] || [ $P2 = 0 ] && ecalc_end PARTIAL
+[ $BAD = 1 ] && ecalc_end PARTIAL
+[ $P2 = 0 ] && ! ecalc_aac7 && ecalc_end PARTIAL
+[ $P2 = 0 ] && tgt_kv note "path 2 absent (aac7): A/A control only"
 ecalc_end PASS

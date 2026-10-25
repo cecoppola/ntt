@@ -6,16 +6,20 @@
 PN=1; ecalc_have 1 || PN=2
 T=$(ecalc_tool $PN tests/t_edge)
 [ -x "$T" ] || { tgt_kv note "no t_edge in the build tree (bld01/bld02 absent)"; ecalc_end SKIP; }
-STEP_D=${MEM01_STEP_DEV:-4}; CAP_D=${MEM01_CAP_DEV:-400}; STEP_H=${MEM01_STEP_HOST:-16}; CAP_H=${MEM01_CAP_HOST:-520}
+STEP_D=${MEM01_STEP_DEV:-4}; CAP_D=${MEM01_CAP_DEV:-520}; STEP_H=${MEM01_STEP_HOST:-16}; CAP_H=${MEM01_CAP_HOST:-520}
 { echo "== meminfo"; grep -E '^(MemTotal|MemFree|MemAvailable|Cached|HugePages_Total|Hugepagesize|Shmem|SwapTotal)' /proc/meminfo
   echo "== ulimit"; ulimit -a; echo "== THP"; cat /sys/kernel/mm/transparent_hugepage/enabled 2>&1; echo "== overcommit"; cat /proc/sys/vm/overcommit_memory /proc/sys/vm/overcommit_ratio 2>&1
   echo "== numa"; command -v numactl >/dev/null && numactl -H 2>&1 | head -20; } > raw/snapshot_login.txt 2>&1
 srun --jobid="$JOBID" -N1 -n1 -w "$(ecalc_hosts 0 1)" --overlap bash -c 'grep -E "^(MemTotal|MemFree|MemAvailable|HugePages_Total)" /proc/meminfo; ulimit -l; cat /sys/kernel/mm/transparent_hugepage/enabled' > raw/snapshot_node.txt 2>&1
 edge() {   # FORM STEP CAP
-    TMO=${MEM01_TMO:-3} ecalc_srun edge_$1 $PN 1 "$T" "$1" "$2" "$3"
+    TMO=${MEM01_TMO:-6} ecalc_srun edge_$1 $PN 1 "$T" "$1" "$2" "$3"
     local lg=$OUT/raw/edge_$1.log v fl av
     v=$(sed -n "s/^t_edge: the edge in form $1: \([0-9.]*\) GB.*/\1/p" "$lg" | tail -1)
     fl=$(grep -a -m1 'failed' "$lg" | cut -c1-200); av=$(sed -n 's/.*MemAvailable \([0-9.]*\) GB at the start.*/\1/p' "$lg" | head -1)
+    if [ -z "$v" ]; then   # the kernel's OOM killer (host / malloc forms) ends the program before it reports: the last committed step is a lower bound of the edge
+        v=$(sed -n 's/^t_edge: *\([0-9.]*\) GB committed in [0-9]* steps.*/\1/p' "$lg" | tail -1)
+        [ -n "$v" ] && fl="killed by the kernel (OOM) after the step that committed $v GB; the edge lies within one step above"
+    fi
     if [ -n "$v" ]; then tgt_kv m.edge_$1_gb "$v GB"; [ -n "$fl" ] && tgt_kv e.edge_$1_stop "$fl" || tgt_kv e.edge_$1_stop "cap $3 GB reached"
     else tgt_kv e.edge_$1_stop "no result: $(tail -1 "$lg" | cut -c1-160)"; fi
     [ -n "$av" ] && tgt_kv m.memavail_before_$1_gb "$av GB"

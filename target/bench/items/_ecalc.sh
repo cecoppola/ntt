@@ -317,8 +317,30 @@ ecalc_refresh() {
     MNRUN_MODULES_P2=$(grep -E '^e\.MNRUN_MODULES=' "$sf/summary.txt" | tail -1 | cut -d= -f2-); export MNRUN_MODULES_P2
     return 0
 }
+ecalc_aac7() { [ "${TGT_SITE:-target}" = aac7 ]; }   # the sister system: no path 2 (no Cray SHMEM 12), so skipped path-2 arms do not lower the status
 ecalc_q() { local k=$1; shift; tgt_kv "q.$k" "$*"; }
-ecalc_end() { tgt_kv status "$1"; exit 0; }
+# ecalc_end STATUS: write the status and exit 0.  Fail-safe: a requested PASS stands only when the item has a key measurement: at least one
+# counted ecalc run (raw/*.res of a run that is not a warm-up: rc 0 and VERIFY OK), or, when the item ran no ecalc at all, at least one numeric
+# m.* metric in summary.txt.  Otherwise PARTIAL (some numeric m.* metrics) or FAIL (none), with a note naming the reason.
+ecalc_end() {
+    local st=$1 f ok=0 att=0 nm why=
+    if [ "$st" = PASS ]; then
+        for f in "$OUT"/raw/*.res; do [ -f "$f" ] || continue
+            case ${f##*/} in *_warm.res) continue;; esac
+            ( . "$f"; [ "$E_SKIP" = 1 ] && exit 2; [ "$E_RC" = 0 ] && [ "$E_VERIFY" = OK ] && exit 0; exit 1 ); case $? in 0) ok=$((ok + 1));; 1) att=$((att + 1));; esac
+        done
+        nm=$(grep -E '^m\.' "$OUT/summary.txt" 2>/dev/null | grep -vE '^m\.[^=]*\.(rc|runs_ok|runs_failed)=|^m\.runs_' | grep -cE '=[ ]*[-+]?[0-9.]+([eE][-+]?[0-9]+)?([ ]|$)')
+        if [ "$ok" -gt 0 ]; then :
+        elif [ "$att" -gt 0 ]; then why="no ecalc run was good (rc 0 and VERIFY OK) of $att attempted"
+        elif [ "$nm" -gt 0 ]; then :
+        else why="no measurement: no counted ecalc run and no numeric m.* metric"; fi
+        if [ -n "$why" ]; then
+            [ "$nm" -gt 0 ] && st=PARTIAL || st=FAIL
+            tgt_kv note "status lowered from PASS to $st: $why"
+        fi
+    fi
+    tgt_kv status "$st"; exit 0
+}
 # ecalc_ok: the loaded run is good (rc 0, VERIFY OK, no digit-hash mismatch).  ecalc_brief TAG: one phrase for q.* lines.
 ecalc_ok() { [ "$E_RC" = 0 ] && [ "$E_VERIFY" = OK ] && [ "$E_HASH_MATCH" != no ]; }
 ecalc_brief() {

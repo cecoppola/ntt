@@ -21,5 +21,7 @@ arm c_1e10 C 10000000000
 [ -n "$HD" ] && [ -n "$HC" ] && { [ "$HD" = "$HC" ] && tgt_kv e.paths_equal_1e9 yes || tgt_kv e.paths_equal_1e9 no; }
 ecalc_q TQ06 "1 node:${SUM#;} (refs 1e9 bf9f4b08758b40d9, 1e10 3fc025473586ed22)"
 if [ $BAD1 = 1 ]; then tgt_kv note "a path-1 arm is wrong: do not run the ladder before this is understood"; ecalc_end FAIL
-elif [ $BAD2 = 1 ] || [ $SK2 = 1 ]; then ecalc_end PARTIAL
+elif [ $BAD2 = 1 ]; then ecalc_end PARTIAL
+elif [ $SK2 = 1 ] && ! ecalc_aac7; then ecalc_end PARTIAL
+elif [ $SK2 = 1 ]; then tgt_kv note "path 2 arms skipped (aac7 has no path-2 build)"; ecalc_end PASS
 else ecalc_end PASS; fi

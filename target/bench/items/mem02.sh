@@ -61,8 +61,9 @@ if ct:
     if tt: put('m.cold_touch_median_s', '%.2f s' % st.median(tt)); put('m.cold_touch_max_s', '%.2f s' % max(tt))
 open(out + '/_mem02.kv', 'w').write('\n'.join(kv) + '\n')
 print('per-APU 1 GB upload median %.3f s (%.1f GB/s), min %.3f, max %.3f over %d node(s); MemAvailable median %.0f GB; %d node(s) flagged (flagged_hosts.txt)' %
-        (med, 1.0 / med if med else 0, min(allu or [0]), max(allu or [0]), len(R), mav, len(flag))))
+        (med, 1.0 / med if med else 0, min(allu or [0]), max(allu or [0]), len(R), mav, len(flag)))
 PY
+[ $? = 0 ] || { tgt_kv note "the aggregation script failed (see raw/item.out)"; ecalc_end FAIL; }
 [ -f _mem02.kv ] && { while IFS= read -r l; do tgt_kv "${l%%=*}" "${l#*=}"; done < _mem02.kv; rm -f _mem02.kv; }
 n=$(grep -c . flagged_hosts.txt); ms=$(grep '^m.upload_1gb_median_s=' summary.txt | cut -d= -f2); mx=$(grep '^m.upload_1gb_max_s=' summary.txt | cut -d= -f2); ma=$(grep '^m.memavail_median_gb=' summary.txt | cut -d= -f2)
 ecalc_q TQ07 "per-APU 1 GB host-to-device upload median $ms, max $mx over $(wc -l < nodechk.tsv) node(s); MemAvailable median $ma; $n node(s) flagged (flagged_hosts.txt)"

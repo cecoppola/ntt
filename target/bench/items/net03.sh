@@ -13,7 +13,7 @@ echo "== numactl"; command -v numactl >/dev/null && numactl -H 2>&1 | head -14
 PROBE
 ecalc_have 1 && PN=1 || PN=2
 ecalc_srun probe $PN 1 bash raw/nic_probe.sh
-NSYS=$(grep -c '^/sys/class/cxi/' raw/probe.log); NDOM=$(grep -a -c 'domain: cxi' raw/probe.log)
+NSYS=$(grep -c '^/sys/class/cxi/' raw/probe.log); NDOM=$(grep -a -c 'domain: cxi' raw/probe.log); NSYS=${NSYS:-0}; NDOM=${NDOM:-0}
 NUMAS=$(grep -a '^/sys/class/cxi/' raw/probe.log | sed -n 's/.*numa=\([-0-9]*\).*/\1/p' | tr '\n' ' ')
 tgt_kv m.cxi_sysfs_devices "$NSYS devices"; tgt_kv m.fi_info_cxi_domains "$NDOM domains"; tgt_kv e.cxi_numa_nodes "${NUMAS:-NA}"
 MAPQ=
