@@ -249,12 +249,12 @@ Next: user decision on adoption and on the open items above (TASKS "Proposed").
 
 | arm A vs B | A s | B s | B - A s | 95 % CI |
 |---|---|---|---|---|
-| P poll-only (default) vs `ECALC_XEX_THREAD=1` | 40.17 | 31.96 | -8.21 | [-9.43, -6.99] |
+| P poll-only (default then) vs `ECALC_XEX_THREAD=1` | 40.17 | 31.96 | -8.21 | [-9.43, -6.99] |
 | D default vs `XSHMEM_WORKER_SPIN=1` | 39.23 | 38.50 | -0.73 | [-1.53, 0.08] |
 
 P = `ECALC_PE_PER_GPU=1 XSHMEM_LANES=2` (path 2). Single screening runs (9zw4_xwprobe3): `XSHMEM_YIELD=0` D 38.62 s, P+worker 30.67 s; spin+yield0 D 40.53, P 30.63: all within the noise of the arms above. The poll split at P shows 26.9 ms in "peers posted" (the receiver waits for the slowest peer: skew, not worker cost). Digits: gate 1e9 identical for P + worker (9zw6 g9_thr) and D + spin (g9_spin). Gate 9zw5_xwlat1 (wave3 gate on the branch): gd1, gd2, unit 9 PASS, gc1, gc2 PASS. Note: 1e10 arms print "digits DIFFERS": gate.sh compares with the 1e9 reference only; VERIFY OK on all.
 
-**Switch.** `XSHMEM_WORKER_SPIN` (an idle worker polls the queue instead of sleeping on the condvar): tried, no gain, removed again (commit after b47edce). **Open for the user:** default `ECALC_XEX_THREAD=1` under P (-20 % at 2 n 1e10); not changed here (default change).
+**Switch.** `XSHMEM_WORKER_SPIN` (an idle worker polls the queue instead of sleeping on the condvar): tried, no gain, removed again (commit after b47edce). Default `ECALC_XEX_THREAD=1` under P: adopted (Q96), see the recommendation below.
 
 **1e11 confirmation (2 n, PG settings of the BSPLIT section: `ECALC_NODE_GB=420 ECALC_PE_PER_GPU=1 DIST_CHUNKS=8 ECALC_PLANE_CAP=2^30 MN_T_CHUNK_MB=512 BS_SEED_CHUNK_MB=1024 COMM_SHMEM_POOL_MB=512 RNS_BATCH_SPLIT=1`, path 2 adds `XSHMEM_LANES=2`; `ecalc total`, measured; items 9zwa_xwconf3, 9zwb_xwconf4, commit 75d4ea4).** Plain P with the default plan was refused before launch (node fit; with `ECALC_PLANE_CAP=2^30` also the largest batch product) until `RNS_BATCH_SPLIT=1` was added.
 
@@ -275,5 +275,5 @@ Without a digit file (VERIFY only, 9zwb): path 2 worker 154.49 s, poll 145.06 s 
 
 The worker's gain is the start-up: init is 6.5-7.5 s shorter in all five pairs' runs (no overlap between the groups), because the rounds path (128 MiB) needs a 960 MiB DATA heap per PE where the poll-only whole-exchange path needs 9408 MiB (heap allocation, registration and first touch) and half the host memory. bs and dm differ by less than their run-to-run spread (about +-7 s; worker dm 55.5 / 67.0 / 67.3 against poll 70.3 / 71.8 / 54.7), so no per-exchange gain is shown at 1e11; the 1e10 gain of 8.2 s is the same init effect. Pair 3 (worker +9.4 s) is dm 12.6 s slower in that run plus bs +3.2 s, against init -6.4 s: dm noise, not a warm-up effect (it was the first run after the build, but init and bs behave like the others). The same worker runs on ofi P did not gain (default lanes, 2 pairs, CI [-85, +92]).
 
-**Recommendation.** Adopt `ECALC_XEX_THREAD=1` as the default under P on path 2: a robust 6.5-7.5 s start-up saving and half the host memory, digits identical (sha 578f5efb0ff2b9af at 1e11, 1e9 gates), bs / dm neutral within noise. It is a default change and stays the user's decision; not made on this branch.
+**Recommendation.** Adopt `ECALC_XEX_THREAD=1` as the default under P on path 2: a robust 6.5-7.5 s start-up saving and half the host memory, digits identical (sha 578f5efb0ff2b9af at 1e11, 1e9 gates), bs / dm neutral within noise. Adopted by the user (Q96, 2026-10-24): the worker is now the default in every layout (branch xexdef).
 
