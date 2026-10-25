@@ -7,3 +7,7 @@ ini01	1	15	1	5	bld01	TQ08	ini01.sh
 cor05	1	16	1	3	bld01	TQ22	cor05.sh
 cor02	1	20	2	10	bld01,cor01	TQ12	cor02.sh
 net01	1	21	2	8	bld01,cor01	TQ11	net01.sh
+net02	1	22	2	20	bld01,cor01	TQ13,TQ14,TQ15	net02.sh
+ini05	2	26	8	15	bld01	TQ23	ini05.sh
+ntt01	2	30	1	12	bld01,cor01	TQ18	ntt01.sh
+ntt02	2	31	1	40	bld01,cor01	TQ19	ntt02.sh

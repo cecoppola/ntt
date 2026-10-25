@@ -349,3 +349,5 @@ ecalc_xt_rows() { local f=$OUT/raw/$1.log; [ -f "$f" ] || f=$f.gz; { zcat -f "$f
 # ecalc_xt_col TAG KIND COL REGEX MODE: field COL (1 = "ROW kind", 2 = the label column "split|nbi ... bytes", 3.. the numbers: lat 3 = us mean, 4 = min;
 # stream 6 = GB/s per PE mean, 8 = node GB/s; a2a 5 = total ms, 7 = GB/s per PE mean, 9 = node GB/s) of the rows whose label matches REGEX, MODE max|min|first|last
 ecalc_xt_col() { ecalc_xt_rows "$1" "$2" | awk -F' [|] ' -v c="$3" -v re="${4:-.}" -v mode="${5:-max}" '$2 ~ re { v = $c + 0; if (!n++ || mode == "last" || (mode == "max" && v > r) || (mode == "min" && v < r)) r = v; if (mode == "first" && n == 1) { r = v; exit } } END { if (n) printf "%.4g\n", r }'; }
+# ecalc_phases: "init X bs Y recip Z dm W total T" of the loaded run (seconds; NA when not printed)
+ecalc_phases() { printf 'init %s bs %s recip %s dm %s total %s' "${E_INIT:-NA}" "${E_BS:-NA}" "${E_RECIP:-NA}" "${E_DM:-NA}" "${E_TOTAL:-NA}"; }
