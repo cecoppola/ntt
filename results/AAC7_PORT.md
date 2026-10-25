@@ -4,14 +4,6 @@ Scope: the aac7 port (Phase 16): bring-up at 2 to 10 nodes, the A/Bs, the scaled
 
 Sections moved to `archive:results_merged_2026-10-24/AAC7_PORT.md` (2026-10-24 cleanup): §A16; §B16.
 
-| item | title |
-|---|---|
-| §A16 | ecalc on aac7 (Cray OpenSHMEMX 11.8.0, ROCm 7.0.3, Slingshot-11): port, single node, 2 nodes |
-| §B16 | bring-up at 4 / 8 / 10 nodes (10^10 digits per node) |
-| §D16 | A/Bs on aac7, RCCL vs push kernel, the scaled headline (E) |
-| §V16 | fastest stack on aac7 (ROCm 7.2.4 default), survey, brief A/Bs |
-| §ROCM | ROCm 7.14.0 against 7.2.4 at 1 node |
-
 ## Topic summary
 
 - **What it is.** ecalc runs on aac7 (MI300A nodes, 4 APUs per node, 4 Cassini NICs, Slingshot-11, Cray OpenSHMEMX 11.8.0 over cxi) through `make SHMEM_CRAY=1 GMP_HOME=<gmp>`; the launch wrappers are `ecalc/mnrun.sh` (impl `cray`) and `ecalc/aac7env.sh`; switch and variable rows are in `ecalc/README.md` (authoritative for defaults).

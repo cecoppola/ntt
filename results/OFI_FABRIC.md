@@ -4,17 +4,6 @@ Condensed 2026-10-19 (task 8b) from the merged per-item reports; originals in `a
 drivers in `archive:results_raw_2026-10-19/`. Old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`. Labels: **m** measured, **d** derived
 from measured numbers, **mod** modelled, **a** assumed. Times Eastern.
 
-| item | title |
-|---|---|
-| §OFI17 | `comm_ofi`: a multi-NIC bulk path for ecalc (Phase 17) |
-| §STD17 | OFI memory accounting (OFIMEM) and the standard 10-node run with all NICs |
-| §TUNE17 | comm_ofi tuning: chunk size x writes in flight, two NICs per device |
-| §NIC16_experiments | one process driving all Slingshot NICs of a node |
-| §P16 | the fabric limit as an algorithm-design problem: four PEs per node |
-| §C02 | the gap between the layered exchange rate and the NIC rate; peer schedules |
-| §XEFF | why the exchanges underuse the transport, and what to change (+ X3 verdict) |
-| §T12 | 4-node uffd soak (FI_MR_CACHE_MONITOR=userfaultfd) |
-
 ## Topic summary
 
 - **Why comm_ofi exists.** Cray OpenSHMEMX binds one NIC per PE, and ecalc runs one process per node with four APU threads, so

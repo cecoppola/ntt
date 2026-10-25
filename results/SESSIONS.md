@@ -2,12 +2,6 @@
 
 Owner of the items below (condensed 2026-10-19; full originals in `archive:results_merged_2026-10-19/`, raw data and drivers in `archive:results_raw_2026-10-19/`; old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Labels: (m) measured, (d) derived by arithmetic from measured numbers, (i) inferred, (mod) modelled, (a) assumed. Times Eastern.
 
-| item | title |
-|---|---|
-| S22 | / S23 / S24: T2048 sequential A/B (D2), 10-node scaling sweep with wait + ready stats (E1), Q1 seed sensitivity, NTT sweep and NTT_SIZE_STATS, 13/9/9 prototype (E0) |
-| S27 | / S25 / S26: COMM_XSTATS decomposition, X1 rot ABBA, share ladder, A37-Q9, soak counts |
-| S31 | / S32 / S33 -- X2 second try, host-vs-rank, VMM_SAFE soak: the comm pool failure of S28 and its fix (2026-10-08) |
-
 ## Topic summary
 
 These are the aac7 10-node (6.441e10 digits per node, no write) and one/two-node sessions of 2026-10-07/09 that decided four code items and measured where the 10-node wall goes. Results that still hold:

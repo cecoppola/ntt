@@ -18,7 +18,7 @@ node and over node groups. The goal is 3.82 × 10¹³ digits on 576 nodes; the c
 | `ecalc/README.md` | every environment switch with its default and evidence; the files of `ecalc/` |
 | `RESULTS.md` | what is in force, with the evidence file of each adopted change |
 | `TASKS.md` | open work (by priority class), proposed items, decisions still acting, target-session items |
-| `OPPORTUNITIES.md` | every performance idea (time, memory, concurrency, algorithm), open or tried, with its evidence and a ranking |
+| `OPPORTUNITIES.md` | every performance idea (time, memory, concurrency, algorithm), open or tried, with its evidence |
 | `results/` | measurement reports by topic, cited by the files above (index: `RESULTS.md`) |
 
 History (the old plan, measurement logs, older reports, moved drivers) is kept outside the repository; notes cite it as
@@ -51,8 +51,7 @@ Multi-node, one launch per allocation of `<nodes>` nodes (`SLURM_JOB_ID=<hold>` 
 path 1 digit-identical and no slower.** Current figures are in `PLAN.md` section 2.
 
 1. **Libfabric** (default build). Build `make -C ecalc SHMEM_CRAY=1 GMP_HOME=<gmp>` (default `XSHMEM=ofi`: libfabric and the
-   PMI2 header must be found; `SHMEM_CRAY=1` is also what the fallback `COMM_TRANSPORT=shmem` needs, and `tools/gate.sh`
-   requires `-DCOMM_SHMEM` in the build log of a multi-node build).
+   PMI2 header must be found; `tools/gate.sh` requires `-DCOMM_SHMEM` in the build log of a multi-node build).
    Run `./mnrun.sh <nodes> env ./ecalc <digits>`: layout D (one process per node, four APU threads), `COMM_TRANSPORT=xshmem`,
    no other setting.
 2. **Cray SHMEM** (the target shape). Build `make -B -C ecalc XSHMEM=cray SHMEM_CRAY=1 GMP_HOME=<gmp>` (aac7: `module load
@@ -61,7 +60,7 @@ path 1 digit-identical and no slower.** Current figures are in `PLAN.md` section
    `mnrun.sh` adds, for a Cray build under `ECALC_PE_PER_GPU=1`, the NUMA placement (`MNRUN_PPG_CPUBIND=ldom`,
    `XSHMEM_CRAY_NUMA=1`), the automatic libsma heap and the plan. Digits are identical to path 1.
 
-The exchange worker (`ECALC_XEX_THREAD=1`) is the default in every layout. `mnrun.sh` sets the communicator environment; the
+The exchange worker (`ECALC_XEX_THREAD=1`) is the default in every layout; `RNS_BATCH_SPLIT` is automatic under `ECALC_PE_PER_GPU=1`. The plain SHMEM transport and `COMM_TRACE` were removed 2026-10-25 (Q103). `mnrun.sh` sets the communicator environment; the
 launch lines (test system and target) are in `PLAN.md` section 3; `ecalc/target_kit.sh -h` describes the target session.
 Cluster access is described in the private protocol.
 
