@@ -277,6 +277,12 @@ The worker's gain is the start-up: init is 6.5-7.5 s shorter in all five pairs' 
 
 **Recommendation.** Adopt `ECALC_XEX_THREAD=1` as the default under P on path 2: a robust 6.5-7.5 s start-up saving and half the host memory, digits identical (sha 578f5efb0ff2b9af at 1e11, 1e9 gates), bs / dm neutral within noise. Adopted by the user (Q96, 2026-10-24): the worker is now the default in every layout (branch xexdef).
 
+**Check on main after the merge (item 9zz5_main11, main bef6a16, 2 n 1e11, measured 2026-10-24 21:18-21:57 ET).** Digit identity at production
+size: path 1 (layout D, default launch) and path 2 (cray, P, lanes 2, BSPLIT settings) both give sha 578f5efb0ff2b9af, the reference of
+xwconf3. Q96 at 1e11 on path 2 (no digit file, 3 ABBA pairs): worker (default) 137.16 / 136.68 / 158.40 s, `ECALC_XEX_THREAD=0` 145.92 /
+144.91 / 153.79 s; poll - worker +4.13 s, 95 % CI [-14.68, 22.94] (two pairs +8.2 to +8.8 s, one -4.6 s): same direction as the start-up
+gain, not resolved at n = 3.
+
 
 ## XDIAG: day-one checks T1-T8 triage and diagnostic arms (branch xdiag, 2026-10-24, aac7 2 n, measured)
 
