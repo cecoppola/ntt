@@ -18,7 +18,7 @@ Nothing is launched: the planner touches no device (a login node is enough; the 
                 the largest consumers, the DM_MN_WRAP decision and why).  Exit 0 = fits, 1 = does not fit (or a plan REFUSED): a
                 launch is refused.  ecalc/mnrun.sh and tools/gate.sh print the same lines before every launch.
   --exports     print only `export K=V` lines of the computed launcher values (for an srun launch without mnrun.sh:
-                eval "$(tools/plan_values.py --profile target --exports 38200000000000 576)", once profiles/target.conf is filled from the template)
+                eval "$(tools/plan_values.py --profile target --exports 38200000000000 576)", once target/config/target.conf is filled by target/probe/gen_conf.py)
 Exit: 0 values computed (and the memory fits), 1 `plan REFUSED` or a memory that does not fit,
 2 usage or planner failure.
 """

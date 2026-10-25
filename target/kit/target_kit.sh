@@ -13,7 +13,7 @@
 #                           nothing is executed, nothing is submitted, no job is touched
 #   --site aac7|target      aac7: rehearsal defaults (2 and 8 nodes for stage a4; 64 skipped -- aac7 has no
 #                           576-node allocation).  target (default): no node-count cap, 2/8/64 for a4.
-#   --out DIR               where KIT_SUMMARY.txt and logs/ go (default: ./kit_out_<timestamp>)
+#   --out DIR               where KIT_SUMMARY.txt and logs/ go (default: target/kit/kit_out_<timestamp>)
 #   --jobid ID              the Slurm allocation (default: $SLURM_JOB_ID).  Required by every stage that
 #                           runs srun, i.e. every stage except --dry-run.
 #   --only LIST             run only these stages (comma list of: env,build,uffd,plan,edge,a3,a4,initchk,s2chk,nodechk, or the
@@ -120,7 +120,9 @@
 
 set -u
 
-SELF_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+KIT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)      # target/kit
+REPO_DIR=$(cd "$KIT_DIR/../.." && pwd)                      # repository root
+SELF_DIR=$REPO_DIR/ecalc                                    # mnrun.sh, Makefile, ecalc, tests/ live here (moved kit: formerly the kit's own dir)
 
 # ---- defaults ---------------------------------------------------------------------------------------------
 DRY_RUN=0
@@ -200,7 +202,7 @@ case "$SITE" in
     *) echo "target_kit.sh: --site must be aac7 or target" >&2; exit 2 ;;
 esac
 
-[ -z "$OUT" ] && OUT="$SELF_DIR/kit_out_$(date +%Y%m%d_%H%M%S)"
+[ -z "$OUT" ] && OUT="$KIT_DIR/kit_out_$(date +%Y%m%d_%H%M%S)"
 LOGDIR="$OUT/logs"
 TMPDIR="$OUT/tmp"
 SUMMARY="$OUT/KIT_SUMMARY.txt"
@@ -559,7 +561,7 @@ stage_plan() {
 # =============================================================================================================
 # Stage: initchk -- first-run init-time slow-host check (tools/initchk.py; policy: flag a node whose init is > 3x the median)
 # =============================================================================================================
-INITCHK_SCRIPT="$SELF_DIR/../tools/initchk.py"
+INITCHK_SCRIPT="$REPO_DIR/tools/initchk.py"
 stage_initchk() {
     local lf="$LOGDIR/04b_initchk.log"; : > "$lf"
     summary "## Stage initchk: init-time slow-host check on the first multi-node run's log (flag > 3x median)"

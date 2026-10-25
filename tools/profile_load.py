@@ -123,7 +123,7 @@ CHECK_DOC = """profile_load.py PROFILE --check [-q] [--strict]   (read-only drif
     -q        only the problems (SAME-AS-SCRIPT, UNKNOWN, UNFILLED), no OVERRIDE / PROFILE-ONLY lines
     --strict  exit 1 if any UNKNOWN or SAME-AS-SCRIPT is found (default exit 0: it reports, it does not gate)
   Per profile key (value read by sourcing the profile in an `env -i` subshell):
-    SAME-AS-SCRIPT  a literal ${NAME:-value} default in ecalc/mnrun.sh, aac7env.sh or target_kit.sh equals the profile value: delete the key (Q107)
+    SAME-AS-SCRIPT  a literal ${NAME:-value} default in ecalc/mnrun.sh, aac7env.sh or target/kit/target_kit.sh equals the profile value: delete the key (Q107)
     OVERRIDE        the scripts default to another value; the profile wins when it is loaded
     PROFILE-ONLY    no script defaults it (the code default, or a launch-line value)
     UNFILLED        the value is __FILL__
@@ -180,7 +180,7 @@ def check(argv):
         return 2
     # the literal defaults the scripts apply: ${NAME:-value} / ${NAME-value} (values containing $ are computed, never compared)
     dflt = {}
-    for f in ("mnrun.sh", "aac7env.sh", "target_kit.sh"):
+    for f in ("mnrun.sh", "aac7env.sh", os.path.join("..", "target", "kit", "target_kit.sh")):
         p = os.path.join(E, f)
         if os.access(p, os.R_OK):
             for m in set(re.findall(r"\$\{[A-Z][A-Z0-9_]*:?-[^}]*\}", open(p, errors="replace").read())):

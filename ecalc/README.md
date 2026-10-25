@@ -47,7 +47,7 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 | `switches.tsv`, `switches_manual.tsv`, `switches_gen.h` | the switch registry (`tools/switch_registry.py`; never hand-merge the generated files) |
 | `mnrun.sh`, `aac7env.sh` | the multi-process launcher (both xshmem paths); the aac7 environment (the aac7 launch line is in `profiles/aac7.conf`) |
 | `mnaccept.sh`, `digcmp.sh` | the standing regression; digit compare |
-| `target_kit.sh` | the target session in stages (`-h`; `--dry-run` prints every command): environment, build, uffd, plan, memory edge, node screen (slow nodes; NIC count vs `SHMEM_OFI_NUM_NICS`, `--want-nics`), A3/A4 fabric tests, init check; one `KIT_SUMMARY.txt` |
+| `../target/kit/target_kit.sh` | the target session in stages (`-h`; `--dry-run` prints every command): environment, build, uffd, plan, memory edge, node screen (slow nodes; NIC count vs `SHMEM_OFI_NUM_NICS`, `--want-nics`), A3/A4 fabric tests, init check; one `KIT_SUMMARY.txt` |
 | `mn_model.py` (with its `estimate` subcommand), `mem_model.py`, `aac7_fit.json` (the refit and design-table generators are archived: `archive:scripts_2026-10-23/`) | time and memory models and their fits |
 | `ref/`, `tests/` | reference generator; unit tests (`tests/harness.h`) |
 

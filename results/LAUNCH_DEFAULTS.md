@@ -18,7 +18,7 @@ What is current (see `ecalc/README.md` Switches table, which wins on any differe
 ## B01 -- launch-line decisions of 2026-10-11 (branch b01 from main bc80001)
 
 Changes (no code default changed):
-- Target line: `MN_T_CHUNK_MB=2048`, X2, `ECALC_SEGV_TRACE=1`, `RNS_DIST_CACHE_FIT=1` (no `RNS_DIST_CACHE_MN`; `cache_guard` accepts FIT=1), carried in `target_kit.sh` `S2_LINE_DEFAULT`. aac7 line `e16_headline.sh` already had T2048 + X2 + FIT (only stale comments changed); `tools/gate.sh` always sets SEGV_TRACE.
+- Target line: `MN_T_CHUNK_MB=2048`, X2, `ECALC_SEGV_TRACE=1`, `RNS_DIST_CACHE_FIT=1` (no `RNS_DIST_CACHE_MN`; `cache_guard` accepts FIT=1), carried in `target/kit/target_kit.sh` `S2_LINE_DEFAULT`. aac7 line `e16_headline.sh` already had T2048 + X2 + FIT (only stale comments changed); `tools/gate.sh` always sets SEGV_TRACE.
 - `ECALC_SEGV_TRACE` (`segv_trace.c`): off = one getenv; on = installs SIGSEGV/SIGBUS/SIGABRT handlers that print and re-raise. Nothing else.
 - `mn_model.py` `aac7` is now an alias of `aac7_s48` (previous profile `aac7_c16`); 4 nodes, 1.6e11: aac7 107.5 s = aac7_s48, aac7_c16 232.3 s (mod). `estimate.py` default is still `target`. `--spares N` kept, documented "not used".
 
@@ -38,7 +38,7 @@ Memory at 576 nodes (mod unless noted; `mn_model.py estimate --fabric target-m -
 ## L1 -- COMM_LAYER_VSLOT_RELEASE=1 on the launch lines (user, 2026-10-11)
 
 Code default unchanged at the time (0; later built in, see summary).
-- Changes: `COMM_LAYER_VSLOT_RELEASE=1` after `COMM_LAYER_VSLOT_POOL=1` in `e16_headline.sh` LINE, `target_kit.sh` `S2_LINE_DEFAULT`, `profiles/aac7.conf`, `profiles/target.conf.template`, `tools/c04_queue_item.sh`, README launch table. `tools/profile_check.sh profiles/aac7.conf -q`: 34 keys, MATCH 24, MISMATCH 0, UNKNOWN 0 (m).
+- Changes: `COMM_LAYER_VSLOT_RELEASE=1` after `COMM_LAYER_VSLOT_POOL=1` in `e16_headline.sh` LINE, `target/kit/target_kit.sh` `S2_LINE_DEFAULT`, `profiles/aac7.conf`, `profiles/target.conf.template`, `tools/c04_queue_item.sh`, README launch table. `tools/profile_check.sh profiles/aac7.conf -q`: 34 keys, MATCH 24, MISMATCH 0, UNKNOWN 0 (m).
 - Memory at 576 nodes, full target line (T2048 + X2 + RELEASE), C code on the aac7 login node (`MN_PLAN_ONLY`, `BS_LAYOUT_ONLY`, `COMM_OFI_PLAN_CXI=1`): plan check OK at three sizes, 1236 products; comm_ofi pool 4352 → 2304 MiB per APU (m). Rank-0 estimate = B01's figure minus the measured layout delta:
 
 | digits | layout device_with RELEASE 0 → 1 (m) | delta | rank-0 before (B01, mod) | rank-0 with RELEASE (mod) | margin to 373.44 (mod) |
