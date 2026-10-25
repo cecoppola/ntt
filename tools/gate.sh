@@ -112,7 +112,7 @@ if [ $BUILD = 1 ]; then
     make -B -j8 XSHMEM=$XS GMP_HOME=$HOME/gmp > "$OUT/build.log" 2>&1 || fail "build failed (see build.log)"
     [ "$NODES" = 1 ] || grep -q -e "-DXSHMEM_$XSU" "$OUT/build.log" || fail "build log lacks -DXSHMEM_$XSU (multi-node needs the xshmem build)"
   else
-    [ "$NODES" = 1 ] || fail "no Cray SHMEM here: --nodes > 1 refused"
+    [ "$NODES" = 1 ] || fail "not a Cray EX system (no /opt/cray/pe/sma): --nodes > 1 refused (the multi-node builds need the Cray PMI and libfabric there)"
     command -v hipcc >/dev/null 2>&1 || module load rocm >/dev/null 2>&1
     say "build (plain) in $E, log $OUT/build.log"
     make -B -j16 > "$OUT/build.log" 2>&1 || fail "build failed (see build.log)"
