@@ -294,7 +294,8 @@ int main(int argc, char **argv)
     /* 4. STG independence at 2^24 */
     printf("-- 4. pass splits\n");
     {
-        logn = 24; size_t n = (size_t)1 << logn; uint64_t href = 0;
+        logn = LOGMAX < 24 ? LOGMAX : 24;   /* buffers hold 2^LOGMAX */
+        size_t n = (size_t)1 << logn; uint64_t href = 0;
         gen_limbs(hx, n, GEN_UNIFORM, &rng);
 #pragma omp parallel for
         for (size_t i = 0; i < n; i++) hx[i] %= ec_P[0];
