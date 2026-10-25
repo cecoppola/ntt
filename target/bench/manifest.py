@@ -129,7 +129,7 @@ def state(i, est_min=0.0):
         who = os.path.join(d, "claim.d", "who")
         try:
             w = open(who).read().split()
-            r["worker"] = w[5] if len(w) > 5 else (w[0] if w else "")
+            r["worker"] = w[4] if len(w) > 4 else (w[0] if w else "")
         except OSError:
             pass
         age = time.time() - os.path.getmtime(os.path.join(d, "claim.lock"))

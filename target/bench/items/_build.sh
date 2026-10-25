@@ -102,7 +102,7 @@ ul=${chosen%%|*}; ld=${chosen#*|}
 BIN=$B/ecalc/ecalc
 
 # ---- what was built
-sig=$( (readelf -d "$BIN" 2>/dev/null | grep -oE 'lib(sma|fabric|pmi2?|dsmml|amdhip64)[^ ]*' | sort -u | tr '\n' ' ') )
+sig=$( (readelf -d "$BIN" 2>/dev/null | grep NEEDED | grep -oE '\[lib[^]]*\]' | tr -d '[]' | sort -u | tr '\n' ' ') )
 case $V in
     p2) echo "$sig" | grep -q libsma || fail "p2 binary is not linked with libsma (XSHMEM=cray not in effect): $sig";;
     p1) echo "$sig" | grep -q libfabric || fail "p1 binary is not linked with libfabric (XSHMEM=ofi not in effect): $sig"
