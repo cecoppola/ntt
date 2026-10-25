@@ -132,3 +132,32 @@ engine is the loss: dm (4 sharded products of 2.5e8-5.6e8 limbs) and the top two
 **Fix (not small, TASKS):** an intra-node peer path inside the xshmem engine (hipIpc / device-mapped peer copies for same-node PEs instead of the NIC; at multi-node the same-node PEs are also exchange partners, so it would speed 2 n and 3 n too).
 Until then D stays the 1 n layout (default). Per-PE DATA heap peak: 256 MiB of 768 at 1 n 1e10 (one PE, m); 2 n / 3 n peaks not measured.
 **NIC launch-group probe (`MNRUN_NICGRP=1`, first aac7 use):** all 10 P runs (Po and Pc) report group A on the node's NICs; the D runs, which use no NIC, report none; the probe works, 1 node says nothing about the multi-node group split.
+
+## §PEER - `XSHMEM_PEER=1`: same-node PEs exchange by device copy instead of the NIC (branch peer 78015d4; aac7 2026-10-25 02:10-03:05 ET; m)
+
+**What.** Under P (`ECALC_PE_PER_GPU=1`) the 4 PEs of a node used the NIC loopback (§P1N: 14.5 GB/s per PE). With `XSHMEM_PEER=1` (default 0) the libfabric backend exports its DATA heap with `hipIpcGetMemHandle` (in the heap blob,
+all-gathered at `xshmem_heap_alloc`), opens the node-local peers' heaps with `hipIpcOpenMemHandle` (lazy peer access) and `xshmem_ptr(p, pe)` returns the peer's byte at p's offset; `comm_xshmem.c` `lane_put` then issues
+`hipMemcpyAsync` into that address on one stream per peer, and `lane_quiet` syncs those streams before any signal (a put that went by copy returns the mask bit `PEERBIT`). Signals and control words stay on the NIC; a PE of another
+node, a failed export or open, `XSHMEM_LOOPBACK_PES>1` (layout D: notice, off) or the Cray backend (inert, notice) use the old path unchanged. Code: `xshmem_ofi.c` (`xshmem_ptr`, blob, open/close), `comm_xshmem.c`, `xshmem.h` (`cfg.peer`).
+Also new: every PE prints its own `DATA heap peak` line at finalize (PE 0's summary line was the only one).
+
+**Correctness (a1a_peerchk, a1g_peerg; digits identical to the GMP reference).** gate.sh 1e9 under P with `XSHMEM_PEER=1`: 1 n PASS (13.11 GB put by copy, 3 peer heaps mapped), 2 n PASS (5.06 GB); layout D with the switch PASS (notice, nothing mapped). Wave gate on 78015d4 (`gen_wave3.sh`): path 1 D 1 n + 2 n PASS, unit set 9/9 PASS, path 2 (`XSHMEM=cray`, P, lanes 2) 1 n + 2 n PASS (2026-10-25 02:52 ET). Every timing run below is VERIFY OK.
+
+**Timing (seconds, PE 0; same binary, the switch is the only difference Po vs Pp; ABBA-rotated).** Po = P without, Pp = P with the switch, Do = layout D (default).
+
+| size | pairs | Do | Po | Pp | Pp - Po (95 % CI) | Pp - Do (95 % CI) |
+|---|---|---|---|---|---|---|
+| 1 n 3.3e10 | Po/Pp 3 (a1b), Do/Pp 4+3 | 38.59 (n 3) / 39.71 (n 4) | 51.64 (n 3) | 34.87 (n 3) / 34.18 (n 4) | -16.77 [-21.7, -11.9] (t, df 2) | -5.53 [-6.9, -4.1] (4 pairs, a1h) |
+| 1 n 1e10 | Do/Pp 4 (a1h) | 19.20 | - | 13.56 | - | -5.64 [-6.9, -4.4] |
+| 2 n 2e10 (8 PEs) | 4 (a1c) | - | 26.56 | 19.40 | -7.16 [-9.9, -4.4] | - |
+| 2 n 6e10 (8 PEs) | 2 (a1h) | - | 69.74 | 49.03 | -20.7 (pairs -16.9, -24.5) | - |
+
+Phases at 1 n 3.3e10 (means, a1b): Po dm 23.01 / bs 16.53 / recip 7.64 / init 10.73; Pp dm 9.88 / bs 12.03 / recip 3.15 / init 11.67; Do dm 6.41 / bs 14.93 / recip 1.97 / init 17.13. The engine's exchange line (PE 0, 611 exchanges): 31.97 s post to
+completion (13.6 GB/s per PE) without the switch, 14.1 s (30.8 GB/s) with it; 427 GB of the payload went by copy. 2 n 2e10: 17.8 -> 8.5 s (10.5 -> 22.0 GB/s), 97 GB by copy per PE 0 process. Pp is still 3.5 s (dm +3.5) behind D in dm and
+wins on init (-6 to -7 s: P has no in-process 4-thread start-up) and bs (-3.2 s at 3.3e10), so at 1 n P+peer is now FASTER than D from 1e10 up (the -5.6 s of both sizes is mostly init, which the switch does not touch: it is the P-vs-D init gap of §P1N);
+the rest of the dm gap (3.5 s at 3.3e10) is the signals still on the NIC and the three-peer copy serialisation.
+
+**Per-PE DATA heap peak (second part of the TASKS row).** 256 MiB of 768 on every PE in every run: 1 n 1e10 and 3.3e10 (4 PEs), 2 n 2e10 and 6e10 (8 PEs), with and without the switch. The peak does not move with size or node count
+(the exchange rounds bound the staging), so the `RNS_BATCH_SPLIT` largest-node heap model is not exceeded: the heap has 3 x headroom at 2 n. (3 n needs a third NIC node: not measured.)
+
+**Verdict.** Digits identical, no memory cost, no regression at 1-2 nodes; Pp - Po -16.8 s at 1 n 3.3e10 and -7.2 s (2 n 2e10) / -20.7 s (2 n 6e10). Adoption (switch default on for P, or tie it to `ECALC_PE_PER_GPU=1`) is the user's decision. **Not done:** 3 n; signals / control words by direct writes; a copy kernel using several SDMA engines; Path 2 (Cray 12.1 `shmem_ptr` with xpmem) is untested (the switch is inert there).
