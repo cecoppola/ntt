@@ -2,11 +2,11 @@
 
 Scope: audits, shrink passes, settings-removal waves, validation of the reduction, the limb-format study (decimal vs binary) and the host product tier removal. Old item IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`; raw data and drivers are in `archive:results_raw_2026-10-19/`. Labels: m measured, mod modelled, a assumed.
 
-Sections moved to `archive:results_merged_2026-10-24/CODE_REDUCTION.md` (2026-10-24 cleanup): §AUD2; §SHR2; §H1; §H2; §H5.
+Sections moved to `archive:results_merged_2026-10-24/CODE_REDUCTION.md` (2026-10-24 cleanup): §AUD2; §SHR2; §H1; §H2; §H5; to `archive:results_merged_2026-10-25/CODE_REDUCTION_removed.md` (2026-10-25): §L2; §O8; the done part of §AUD3.
 
 ## Topic summary
 
-- **What this is.** The 2026-10-11..13 campaign to make ecalc smaller without changing a digit: two read-only audits (AUD2 dead code, AUD3 structure), four removal merges (SHR2, SH3, SIMP, TREF), two settings-removal waves (W2A, W2B), a speed/size validation (L2), a backlog clean-up (O8) and the decimal-vs-binary limb study (H1, H2, H4, H5).
+- **What this is.** The 2026-10-11..13 campaign to make ecalc smaller without changing a digit: two read-only audits (AUD2 dead code, AUD3 structure), four removal merges (SHR2, SH3, SIMP, TREF), two settings-removal waves (W2A, W2B), a speed/size validation (L2, removed 2026-10-25), a backlog clean-up (O8, removed), the fourth cleanup round (CR4) and the decimal-vs-binary limb study (H1, H2, H4, H5).
 - **Current state (all merged to main unless noted).**
   - Settings: 269 registry rows before wave 2 lane B, 185 after lane A, 170 after SHR2 (m); W2A removed 42 switches + 1 value, W2B 42 rows, SHR2 16.
   - Code: SHR2 -1531 lines, SH3 -261, SIMP -418 (ecalc sources), TREF -404 production, W2A about -1800 (removed minus added about -1500). Every step gated: 1 and 2 nodes, digits identical.
@@ -14,37 +14,22 @@ Sections moved to `archive:results_merged_2026-10-24/CODE_REDUCTION.md` (2026-10
   - Only the top-level checkpoint set (`ECALC_CKPT_TOP`) remains; no restart inside a run (D11).
   - TCP transport, SOS/OSHMEM build branches, spill primitive, 3·2^k distributed planes, `B4` strategy form, host product tier (`rns_mul` etc.) are gone. `ECALC_OUT_PACKED` default is 2 (60-bit packed, D5).
   - Limbs are decimal only (H4, branch `h4`, tag `pre-28.5-binary`): `LIMB_BASE` other than 10 fails loudly. Evidence: binary is 1.9x (10^9) to 2.2x (10^10) slower (H5, m). Check ecalc/README.md for the current `LIMB_BASE` row; if this summary and main disagree, main wins.
-- **Live conclusions.** The reduction was digit-safe at 10^11 and speed-neutral at 6.441e10 (L2); removed paths were off at the defaults, so no timing was needed except SIMP, B3 (null) and H4/H5.
-- **Still open (not done).** Dead `struct acc` `flat` branches in `rns_dist.c` (about 25 lines); `rns_stats` host-tier fields and ecalc's `n_mdev` / `n_split` print lines; duplicate Garner `dmod128/192`; `mn_powmod` / `powmod_h`; `k_store`/`k_copy_h2d` partly merged (SH3); AUD3 items 5-10 (size 1 through the sharded driver, P24 only, `tree_level` fold, one writer, one `mdb_add_shifted`, one transform cache); AUD3 decisions 11-13 (11 and 12 done as D5/D11; 13, the SHMEM data path, kept until the target's A3 stage); `LIMB_BASE` guard row. X2 + cut last group symmetric-offset hazard (O8) is documented, no guard built.
+- **Live conclusions.** The reduction was digit-safe at 10^11 and speed-neutral at 6.441e10 (L2: 1e11 identical, new - old -0.18 s [-0.88, +0.52], 16 + 16 runs, m); removed paths were off at the defaults, so no timing was needed except SIMP, B3 (null) and H4/H5.
+- **Still open (not done).** Dead `struct acc` `flat` branches in `rns_dist.c` (about 25 lines); `rns_stats` host-tier fields and ecalc's `n_mdev` / `n_split` print lines; duplicate Garner `dmod128/192`; `mn_powmod` / `powmod_h`; `k_store`/`k_copy_h2d` partly merged (SH3); AUD3 items 5-10 (size 1 through the sharded driver, P24 only, `tree_level` fold, one writer, one `mdb_add_shifted`, one transform cache); AUD3 decisions 11-13 (11 and 12 done as D5/D11; 13, the SHMEM data path, kept until the target's A3 stage); `LIMB_BASE` guard row. X2 + cut last group symmetric-offset hazard (the last group, when cut, makes a different pool allocation sequence under `COMM_LAYER_VSLOT_POOL=1` with two exchanges in flight; text in `archive:results_merged_2026-10-25/CODE_REDUCTION_removed.md §O8`) is documented, no guard built.
 - **Superseded.** AUD2 items 1, 4, 5 (part), 6, 8 (part) by SHR2/SH3; AUD3 items 1-4 by SIMP; the host tier open issue of SH3/SHR2 by TREF; H1's t_mul decimal stall by TREF's residue reference and H4 §7.2.
 
-## §AUD3 — where ecalc's algorithms and code structure can be simpler and smaller (read-only audit, 2026-10-12)
+## §AUD3 — where ecalc's algorithms and code structure can be simpler and smaller (audit, 2026-10-12; open items only)
 
-Question: which duplicate paths, tiers and layers can be merged or removed and at what time/memory cost. Base main 4f7a103 (18 885 lines of `ecalc/*.c|h`, m). Time and memory effects are **mod**, no runs.
+Audit of base main 4f7a103 (18 885 lines of `ecalc/*.c|h`, m); time and memory effects are **mod**. Items 1-4 (one single-node division flow, DKM only, no 3·2^k distributed planes, one grid planner, about -450 lines) are done in §SIMP; decisions 11 (60-bit packed output default) and 12 (top checkpoint set only) are done (W2A D5, SHR2 D11). The full audit text is in `archive:results_merged_2026-10-25/CODE_REDUCTION_removed.md`.
 
-**Coverage findings.**
-1. The 1-node 10^9 gate did not run the production single-node flow: P, Q went to the device flow only if the top level ran on the device tier (below about 1.9e10 digits, mod, it ran the batch tier), so the gate ran the host flow with the full-length-reciprocal division, not DKM. Fixed by SIMP item 1.
-2. No aac7 gate at <= 16 nodes ran the target's P24 product form (four primes): pool 0 holds four planes automatically only for g >= 32. A gate step with `ECALC_NP_AUTO_TERMS=1000000` at 2 nodes is the stopgap. (Since D18, P24 is the multi-node default; see `results/PRIMES_STRATEGY.md §P2415`.)
-3. Gates run only power-of-two node counts; the target's top levels (192, 576) use the general map, exercised only by 3- and 6-process runs.
+**Open items** (lines net removed, mod time/memory):
+- **5** Size 1 through the sharded driver: about -310 net; memory is the risk (one-node peak laid out for the dbig flow; `mdb_shift` at g = 1 copies, 29 GB per copy of Q at 6.44e10); needs 1-node ABBA and `mem_report`.
+- **6** P24 as the only multi-node product form: about -50 (partly overtaken by D18: P24 is the multi-node default); +4 GiB per APU in pool 0 at 2-16 nodes.
+- **7** `tree_level` into `tree_level_k` (about -25); **8** one output-writer machinery (about -70); **9** `mdb_add_shifted` one body (about -50); **10** one transform cache (about -60; 1-node ABBA needed).
+- **13** (user decision) drop the SHMEM data path of device exchanges (about -120): kept until the target's A3 stage has run.
+- Smaller: `mn_group`'s transform-node subset (`gt`, `tr`) is a leftover of `MN_TOPO_GROUP`; `mn_prod_cut_x1` never triggers at target sizes; two start-up self-tests (`mn_selftest`, `mn_selftest_layered`) overlap.
 
-**Ranked items** (lines net removed, mod time/memory):
-- **1** One single-node division flow, drop the host-P/Q flow: about -120; ~0 time at >= 1.9e10, small sizes get faster (DKM -25.7 s at 10^11, `results/DIVISION.md §DKM15`). Low risk. Done in SIMP.
-- **2** DKM only: about -130; 0 cost (DKM runs above about 72 digits). Done in SIMP.
-- **3** Drop the distributed tier's 3·2^k planes (`dist3`, `DIST_R3`, `RNS_PLANES_3Q30`, two plane-cap values): about -140; best case for the removed form 80.8 +- 1.3 vs 82.0 +- 0.3 s at 4e10 on one node (`archive:results_merged_2026-10-24/MEMORY.md §I` item 4, m), within noise. Done in SIMP.
-- **4** One grid planner and loop (six shape functions to one; `mul_grid`/`mn_grid` loops): about -60; identical by construction. Done in SIMP.
-- **5** Size 1 through the sharded driver: about -310 net; memory is the risk (one-node peak laid out for the dbig flow; `mdb_shift` at g = 1 copies, 29 GB per copy of Q at 6.44e10); medium-high, needs 1-node ABBA and `mem_report`. **Open.**
-- **6** P24 as the only multi-node product form: about -50; time about equal per product (mod, unmeasured at aac7 sizes), +4 GiB per APU in pool 0 at 2-16 nodes. **Open** (partly overtaken by D18).
-- **7** `tree_level` into `tree_level_k` (about -25), **8** one output-writer machinery (about -70), **9** `mdb_add_shifted` one body (about -50), **10** one transform cache (about -60; 1-node ABBA needed). **Open.**
-
-**Decisions for the user.** 11: write only the 60-bit packed form (about -120 in `mn_out.c`): the default became 2 in W2A D5, ASCII/64-bit kept. 12: keep only the top checkpoint set (about -350 lines of leaf/tree restart): done in SHR2 D11. 13: drop the SHMEM data path of device exchanges (about -120): no fallback if libfabric fails; kept until the target's A3 stage has run.
-
-Smaller items: `mn_group`'s transform-node subset (`gt`, `tr`) is a leftover of `MN_TOPO_GROUP`; `mn_prod_cut_x1` never triggers at target sizes; two start-up self-tests (`mn_selftest`, `mn_selftest_layered`) overlap.
-
-Considered and not recommended: general map for every group size (its exchange is 2.3-2.4x slower per APU thread at 6 nodes, `results/TIME_MODEL.md §S48`, m); one batch form (striped form serves the few large upper-level products); fewer NTT kernels (`plan_auto` needs the partial passes, `archive:results_merged_2026-10-24/KERNELS.md §K13b`).
-
-Handed to AUD2: the host product tier (about 270 lines of `rns_mul.c`, only caller an unreachable branch; tests use it as reference), `ckpt_hdr.mdev_host`, `mn_out_scatter_standin`.
-
-Verdict: do items 1-4 first (about -450 lines, no time cost at the defaults); 5 later after 8; 6 mainly as a coverage fix; 11-13 are user decisions.
+Considered and not recommended: general map for every group size (its exchange is 2.3-2.4x slower per APU thread at 6 nodes, `results/TIME_MODEL.md §S48`, m); one batch form; fewer NTT kernels (`plan_auto` needs the partial passes).
 
 ## §SIMP — AUD3 items 1-4: one single-node division flow, DKM only, no 3·2^k distributed planes, one grid planner
 
@@ -132,29 +117,6 @@ Registry (m): 269 rows before lane B -> 204 on main with lane A's A1, A3, A4 (la
 
 Open: after the final rebase B2..D1e were only build-checked; single 2-node totals are single runs, only B3 had a paired timing (null); aac6 multi-process runs need OSHMEM; old experiment drivers (`pc_j*`, `ofi17*`, `std17*`) set removed keys (ignored).
 
-## §L2 — validation of the code reduction (B02) at full size and for speed, aac6 (2026-10-11)
-
-New = main a1569d5 (B02: -36 switches, -1354 core lines) vs old = tag `archive/pre-reduction-2026-10-11` (bc80001); both have K2+K3, so the comparison isolates the reduction. One aac6 node (4 APUs), plain launch line.
-
-- **Correctness at 1e11 (m):** `./ecalc 100000000000` rc 0, total 129.3 s, VmHWM 27.5 GB, **VERIFY OK**; digits identical to the 1e11 reference (`digcmp.sh`), which also covers the first 4e10 digits (no separate 4e10 run).
-- **Speed, paired ABBA at 64 410 000 000 digits, 8 rounds, 32 runs, all VERIFY OK (m):** mean total new 73.11 s, old 73.29 s (n = 16 each, sd 0.78 s and 1.24 s); **new - old = -0.18 s, 95 % CI [-0.88, +0.52], t = -0.62**; stop rule: round cap 8.
-
-**Verdict.** Digit-safe at 1e11 and speed-neutral at 6.441e10 on one node (CI excludes anything beyond about 0.9 s, 1.2 % of the run). Not covered: multi-node, a separate 4e10 run.
-
-## §O8 — TASKS backlog clean-up (local only, no cluster use; 2026-10-11, branch o8 off main 0298fe2)
-
-1. **X2 cut-group pool-offset asymmetry (TASKS #4, from `results/GRID_GROUPS.md §S45`; host emulation, cxi not run).** `COMM_LAYER_INTER2=1` needs `COMM_LAYER_VSLOT_POOL=1` (v-slots carved from the symmetric comm pool); a symmetric block is valid only if every member of the top group made the same allocation sequence. In a cut last group (g not divisible by the group size, e.g. 6,6,3): OFI pool with `SHARE=1` is symmetric (same slot size), with `SHARE=0` asymmetric (15 nodes, groups 6,6,3: 288 mismatches, m emulated); SHMEM single pool is asymmetric for SHARE 0 and 1 (39, 150, 15 nodes; control size emulated, a). Without X2 nothing is affected. **Consequence:** latent hazard for non-dividing group schedules, not a corruption path on the target's 576-node schedule (no cut group; S45 mod). X2 is now on the target launch line (b01, 2f2675c), so the S45 sentence "X2 is not on the launch line" is out of date. Re-check before any uneven-group schedule (TASKS 31: 572-576 nodes; TASKS 34); an offset-equality allreduce at slot creation would be a cheap guard, not built.
-2. **K2/K3 in the time model (TASKS #5).** Fixed on the way: `ecalc/mn_model.py estimate --target` crashed (`NameError: prof`); fix `a.k_other = prof.k_other` in `main()`. Model change: `mn_model.K23_S = 2.03` s per node (env `MN_MODEL_K23_S`, flag `--k23-s`, 0 = old), applied after `mn_model.run()` so `--calib*` is unchanged. Basis: S51 ABBA at 1 node, 6.441e10 digits: -2.03 +- 1.38 s (aac7), -1.22 +- 0.84 s (aac6) (m); carrying it to 576 nodes is **a**. At 4 nodes the kernel metric is -8.4 s (K2 -2.0, K3 -6.4) but run totals not significant (-6.0 +- 21.9 s): not used.
-
-   | digits (576 nodes, `mn_model.py estimate --target`, mod) | no write before / after | write @0.6 GB/s before / after |
-   |---|---|---|
-   | 3.71e13 | 181.7 / 179.7 s | 216.5 / 214.4 s |
-   | 3.60e13 | 179.1 / 177.0 s | 212.5 / 210.5 s |
-
-   Saving -2.0 s (about -1.1 %), mod from a measured 1-node figure. Not modelled: T2048, RELEASE, single-level `[6]` schedule (item 34), DIST_COALESCE (item 15). The 2/4/6-node scaling study stays "later".
-3. **Branches (TASKS #8; proposal only, nothing deleted).** Tags `archive/s24`, `s25`, `s37`, `s50-gather-tile` kept; s35 fully on main (remove worktree and branch); s50 (DIST_GATHER_TILE, null at all scales, do not adopt) branch deletable after user agrees; remote `claude/confident-mayer-yx23pt` ancestor of main (delete); c07, t12 unmerged (leave); h1 at main.
-4. **Stale rows.** #3 (S39 candidates) all built and measured: k_addsub2 -> K2 `DBIG_ADDSUB3`, k_modq -> K3 `DBIG_MODQ_MONT` (both default), k_crt_batch -> K4 `RNS_CRT_SUB` (no gain); closed. #11/#19/#30/#32 (4-node bimodality): A13 (4 nodes, aac7): NIC MCU counter group A (oxe_mcu_meas 18-25) 10.2 vs group B (28-33) 12.1 GB/s, group drawn per launch; A14 (2 nodes, 86 launches): p(A) about 0.5 but the 2-node rate is the same in both groups (6.59 vs 6.59 GB/s); cause of the draw unknown, not arm/node/rank/order; a pre-run probe has no predictive value (C04 corr -0.06 / -0.20). #20/#14 superseded by `tools/initchk.py` (A03/A06); #38 closed.
-
 ## §H4 — PLAN 28.5 on branch `h4`: the binary limb pipeline archived, decimal limbs only
 
 Branch `h4` off main 0298fe2 (the user decides the merge after measured results). Readiness plan `archive:results/H3.md`.
@@ -215,3 +177,18 @@ Removed (pre-change files in `archive:removed_2026-10-13/tref/ecalc/`): `rns_mul
 **Verdict.** The reference catches every injected fault (0 missed, both forms) and agrees with the old reference on every case (83 products by value, 6 large by cross-acceptance); the host tier is removed; merged to main.
 
 **Open.** `struct acc`'s `flat` branches in `rns_dist.c` are dead (about 25 lines, kernel code, not touched); `rns_stats` keeps host-tier fields (always 0) and `ecalc.c` prints `n_mdev` / `n_split` in three summary lines (dropping them changes output lines; left to the coordinator). The tests lost the host tier as an independent code path; replacement independence is the residue form and the device path at two plane sizes (`t_mul` §1, §2; `t_primes`; `t_dbig`).
+
+## §CR4 — cleanup round 4 (user order 2026-10-25, Q103-Q111 all (a))
+
+Branches `cl4code`, `cl4cfg`, `cl4docs`, integrated on `cl4` and merged to main 2026-10-25. Q103 removed the plain SHMEM transport (`comm_shmem.c`, `COMM_TRANSPORT=shmem`, `COMM_SHMEM_*`, `COMM_TRACE`); Q110 made `RNS_BATCH_SPLIT` automatic under `ECALC_PE_PER_GPU=1`.
+
+Docs part (m, `git diff --shortstat` of `cl4docs` against 0d052a9): see the numbers row below.
+
+| item | what went | lines (m) |
+|---|---|---|
+| code (cl4code) | `comm_shmem.c`, `comm_ofi.c/.h`, `comm_trace.h`, `comm_phase.h`, `trace_report.py`, `t_comm`, `t_trace`, `t_ofi_alloc` archived (`archive:code_2026-10-25/`); diagnostics `NTT_SIZE_STATS` and others removed (Q105); `ECALC_VPE_BG_THREADS`, `XSHMEM_ORDER`, `XSHMEM_LANE_MIN_KB`, `ECALC_XEX_THREAD` fixed to their defaults; tests merged (`t_arith` = modarith + roots + primes, `t_ntt3` into `t_ntt`, `test_pack60` into `t_out`); unit set 9 -> 18 (Q104); `RNS_BATCH_SPLIT` automatic under P (Q110) | +918 / -5179 in 55 files (m); ecalc C/C++ sources 28549 -> 25827 lines (m) |
+| tools / config (cl4cfg) | `ecalc/README.md` switch table generated by `tools/switch_registry.py` (87.6 -> 43.6 KB); `profiles/aac7.conf` non-default values only; models pruned (outputs identical); fit JSONs merged into `ecalc/aac7_fit.json`; `gate.sh --line`, `plan_values.py --env` | +776 / -1552 (m); registry 194 -> 145 rows (m) |
+| docs (cl4docs) | `results/V314/*.log` moved to the archive; in-file index tables of 19 results files; `results/SHMEM_ITEMS.md` folded into `results/SHMEM.md`; `results/TESTING_VERIF.md` merged into `results/CHECKPOINT.md`; TARGET §TGT15 and §DOC215, CODE_REDUCTION §L2, §O8 and the done part of §AUD3 removed; PLAN, OPPORTUNITIES, TASKS trimmed | -1569 net lines in root docs and `results/` (git shortstat against 0d052a9: +255 / -1824 in 35 files, including the six V314 logs moved out; m); results/ markdown 5.0k lines before the round (m) |
+| gate | gate b4i_cl4g3 (208ae18: tools, path 1 1 n + 2 n, unit 18/18, path 2 1 n PASS) + b4j_cl4p2 (d64e00e: path 2 1 n + 2 n PASS), digits identical; path 1 speed (b4s, 1 n 3.3e10, 4 nodes x 8 runs, ABBA): cl4 - main 0d052a9 total -0.91 s [-3.20, +1.39], bs -0.14 s, dm +0.01 s, 32/32 VERIFY OK (m); `t_bs` section 3 now counts Q110's +4 GiB staging under P | whole repository: 185 -> 162 files, 46508 -> 39817 lines, +1870 / -8564 (m) |
+
+Totals (tracked files and lines before 0d052a9 and after the merge): to be filled by the coordinator.

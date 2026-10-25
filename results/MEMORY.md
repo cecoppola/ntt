@@ -19,26 +19,6 @@ Current state (cross-checked with `ecalc/README.md`; where an item below says "o
 - **Superseded within this file:** §M B4/A3 (C3 `ECALC_DM_POOL`) by §M11 tail, then §I item 5; §A-mem and §M open issues by §M B5/B6 and §M11; §M11's tail v1–v3 by v4; §M11 g > 1 estimate by §M13/§DL15; §L114 first and second forms by the third.
 - Live open items: spill buffers and top-level plane growth at g = 576 (§M11, §M13), host term at size > 1 on the target (§M13 issue 1), the mn division peak at 576 counted not measured (§DL15), intermittent leaf fault seen once (§T114), the §L114 batch 6 gate and the §K8b re-armed ABBA not recorded here.
 
-| item | title |
-|---|---|
-| M | device memory: B5, B6, B4 / A3, the 8 × 10¹⁰ attempt (Phase 10) |
-| H | host memory: X never on the host (B1), the seeds streamed to the regions (B2) |
-| A-mem | M9 memory accounting, C4 init sizing, C2 the region imbalance (Phase 9) |
-| M11 | the arena's reserved tail, the tree's slabs in the arena, the per-node model, 10¹¹ on one node |
-| M13 | memory truth: one ceiling, the two O(share) terms bounded (Phase 13a) |
-| P13b | sizing follows the prime count; the plane cap switch; the one-node ceiling at three primes |
-| R16 | the region-pool sizing abort at 10¹¹ digits on 4 nodes |
-| AS15 | arena sizing for `BS_SEED_FILL=128` (the division's VMM remaps) |
-| MAP15 | the arena's mapping, the seeds and level 1 (stopped) |
-| PS15 | plane pool 1 at four primes (the rc 6 at 9.17 × 10¹⁰) |
-| DL15 | the arena sized to DKM's division, and the room check on the model's node |
-| I | the initialisation floor: every allocation form measured |
-| K8 | init and the seed wait at one node (diagnosis) |
-| K8b | seed transfers without the HIP runtime inside init's mapping window |
-| P3 | shorten the start-up mapping phase (stopped, no change) |
-| T114 | E10a, the early free in the multi-node tree (`MN_TREE_EARLY_FREE`) |
-| L114 | E2 tight reservation (`DM_TIGHT`) and E5's layout half (`DM_TAIL_DEAD`) |
-
 ## §AS15 — Phase 15 Batch 2, row 2: arena sizing for `BS_SEED_FILL=128` (the division's VMM remaps)
 
 Agent AS, branch `p15-AS` from main f184d51 (B1). Labels: measured, replayed (an exact port of the pool driven by a measured trace), modelled.

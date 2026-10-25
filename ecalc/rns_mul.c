@@ -658,14 +658,14 @@ static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t
 /* ======================================================================== */
 /* RNS_BATCH_SPLIT (Q75 a): own-device split of batch products larger than the one device's plane pool (ECALC_PE_PER_GPU=1)                 */
 /* ======================================================================== */
-/* 0 (default) = off, byte-identical; 1 = on under ECALC_PE_PER_GPU=1 when the local tier cannot hold a product (the striped tier would be fatal there);
+/* 0 = off (the default without ECALC_PE_PER_GPU=1), byte-identical; 1 = automatic under ECALC_PE_PER_GPU=1 (unset = 1) when the local tier cannot hold a product (the striped tier would be fatal there);
  * k in 20..29 = forced in any mode: products of more than 2^k limbs are split into pieces of at most 2^k (tests).  Each product A B (+ X) is cut into a grid of
  * ka x kb operand pieces whose products fit the local tier (all sharing one B piece go through rns_mul_batch_local as one grpB batch, device g_d0, outputs in the
  * pinned staging buffer); the piece products are added into C at their offsets (exact decimal-limb addition with carries: bsp_add), X last.  Same digits. */
 int rns_batch_split_mode(void)
 {
     const char *e = getenv("RNS_BATCH_SPLIT");
-    int v = e && *e ? atoi(e) : 0; if (v == 0) return 0;
+    int v = e && *e ? atoi(e) : vpe_ppg() ? 1 : 0; if (v == 0) return 0;   /* unset: on under ECALC_PE_PER_GPU=1 (Q110), off otherwise; 0 forces off */
     if (v != 1 && (v < 20 || v > 29)) { ec_fatal(EC_RC_FATAL, "RNS_BATCH_SPLIT=%s: 0, 1 or 20..29\n", e); }
     return v;
 }

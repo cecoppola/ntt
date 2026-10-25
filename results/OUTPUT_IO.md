@@ -4,16 +4,6 @@ Scope: output: streamed chunks, 60-bit packed digits, write scheduling on a netw
 
 Sections moved to `archive:results_merged_2026-10-24/OUTPUT_IO.md` (2026-10-24 cleanup): §A-out; §C05; §IO215; §S114.
 
-| item | title |
-|---|---|
-| §A-out | per-node output streamed in chunks, rank-local T1/T2 (Phase 9) |
-| §C05 | M5, the 60-bit packed digit output (`ECALC_OUT_PACKED=2`) |
-| §O4 | packed output adoption path, write rate and round trip |
-| §IO15 | output I/O on a network file system, packed digits, write scheduling, the memory guard |
-| §IO215 | per-part conversion of the packed digit files |
-| §KP15 | the correction patch on packed output (a defect on main) |
-| §S114 | spill and I/O: E1 live column, E3 O_DIRECT, E4 spill primitive, E12 memory sampler |
-
 ## Topic summary
 
 - **What it is.** How a run writes and verifies its digits: the digit string never exists whole; each node formats its share in chunks (`MN_OUT_CHUNK_MB`, 256 MB), a writer thread `pwrite`s `<outfile>.part<k>` (k = size-1-rank, so `cat <outfile>.part*` is the exact file), and T1 (digit residues, term recurrence over each node's range) and T2 (windows) run rank-locally in the output stage (§A-out). Switch rows and defaults: `ecalc/README.md` (authoritative); format and checks: `ALGORITHM.md` §9.

@@ -2,12 +2,6 @@
 
 Owner of the items below (condensed 2026-10-19; full originals in `archive:results_merged_2026-10-19/`, raw data and drivers in `archive:results_raw_2026-10-19/`; old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Labels: **(m)** measured, **(mod)** modelled, **(a)** assumed, **(f)** fitted. Times Eastern.
 
-| item | title |
-|---|---|
-| CX15 | what the multi-node transform cache is worth (hit model fit, aac6 end-to-end, 5.1e13 estimate, proposals) |
-| TC15 | the cache's allocation (what the code takes, the memory it does not count, `RNS_DIST_CACHE_FIT`) |
-| PC15 | a partial transform cache inside 480 GB (`RNS_DIST_CACHE_PARTIAL`) |
-
 ## Topic summary
 
 The multi-node (mn) tier can keep an operand piece's forward transform in a "slot" across the pieces of a grid product, so a later piece that reuses that operand skips its gather and forward transform. This topic is about what that is worth and how it may use memory.

@@ -3,11 +3,9 @@
  * A "rank" is one APU slot p (prime p) of one node.  The communicator groups
  * the ranks that hold the same prime across nodes: every distributed
  * operation below acts within one prime's plane.  Implementations:
- *   comm_local   one rank (size 1): every call is a no-op or a memcpy — the
- *                single-node pipeline runs unchanged through it
- *   comm_sim4    a synthetic four-rank layout inside one APU's HBM, for
- *                testing the distributed transform without a network (WP5)
- *   comm_fabric  the target system's transport (GPU-direct RDMA), later
+ *   comm_xshmem  the multi-node transport (comm_xshmem.c, on xshmem.h)
+ *   comm_layered the node-process layers over it (comm_layered.c)
+ *   tests/comm_local.c, tests/comm_sim4.c: one rank / four synthetic ranks in one APU, test-only (t_dist)
  *
  * Distributed numbers are limb arrays sharded by rank: rank r holds limbs
  * [r n/size, (r+1) n/size).  A distributed transform (four-step) uses the
@@ -18,12 +16,8 @@
 #define EC_COMM_H
 #include <stddef.h>
 #include <stdint.h>
-#include "comm_phase.h"
-#ifdef COMM_HOST_ONLY
-typedef void *hipStream_t;              /* host-only build of the TCP communicator (no GPU) */
-#else
 #include <hip/hip_runtime.h>
-#endif
+#define HIP_SYNC(s) HIP_CHECK(hipStreamSynchronize(s))   /* where HIP_CHECK exists */
 
 #ifdef __cplusplus
 extern "C" {
@@ -85,14 +79,13 @@ void comm_wst_wait(comm *c); void comm_wst_barrier(comm *c);
 int comm_wst_set_phase(int p);                       /* returns the previous phase */
 int comm_wst_enabled(void);
 void comm_wst_totals(uint64_t ns[WST_NP][3], uint64_t n[WST_NP][3]);   /* [phase][0 barrier, 1 wait, 2 ready]: ns summed over the threads */
-/* X1 (COMM_XSTATS=1, default off; comm_shmem.c prints the `xstats` lines at finalize): the kind of the exchange a caller is about to post,
- * thread-local, captured by the SHMEM transport at post time.  Callers set it before comm_alltoall[v] and restore the previous value after;
+/* X1: the kind of the exchange a caller is about to post, thread-local, captured by the transport at post time (comm_xshmem.c: the lane trace).  Callers set it before comm_alltoall[v] and restore the previous value after;
  * the default is XK_OTHER.  Layered exchanges (comm_layered.c's inter stage) are XK_LAYEQ / XK_LAYV; everything else is direct. */
 enum { XK_OTHER, XK_REDIST, XK_RESULT, XK_SPILL, XK_ADDSH, XK_LAYEQ, XK_LAYV, XK_NK };
 extern __thread int comm_xtag;
 static inline int comm_xtag_set(int k) { int o = comm_xtag; comm_xtag = k; return o; }
-int comm_wst_get_phase(void);                         /* the current WST_ phase (for the xstats tables) */
-double comm_wst_t0(void); void comm_wst_ready_end(double t0);   /* S22: timing of the SHMEM peer-ready waits (wait_ge / wait_ne) */
+int comm_wst_get_phase(void);                         /* the current WST_ phase  */
+double comm_wst_t0(void); void comm_wst_ready_end(double t0);   /* S22: timing of the peer-ready waits */
 static inline void comm_wait(comm *c) { if (comm_wst_on != 0) comm_wst_wait(c); else c->ops->wait(c); }
 static inline void comm_barrier(comm *c) { if (comm_wst_on != 0) comm_wst_barrier(c); else c->ops->barrier(c); }
 static inline size_t comm_allreduce_max(comm *c, size_t v) { return c->ops->allreduce_max(c, v); }
@@ -109,31 +102,14 @@ static inline void comm_recv(comm *c, int from, void *b, size_t n) { c->ops->rec
 static inline void *comm_sym_alloc(comm *c, size_t bytes) { return c->ops->sym_alloc ? c->ops->sym_alloc(c, bytes) : 0; }   /* S12: a device-accessible buffer of the transport's symmetric pool, or 0 */
 static inline void comm_sym_free(comm *c, void *p) { if (p && c->ops->sym_free) c->ops->sym_free(c, p); }
 
-comm *comm_local_create(void);                 /* size 1 */
-comm *comm_sim4_create(int rank_of_this_apu);  /* WP5: four synthetic ranks sharing one APU (created four times, one per simulated rank) */
-#ifndef COMM_HOST_ONLY
 hipError_t comm_copy_async(void *d, const void *s, size_t n, hipStream_t st);   /* N7D: copy kernel (comm_copy.c) for copies that touch host-registered pools */
-#endif
 comm *comm_xgmi_create(int rank);              /* WP5: four real ranks = four APUs of one node, driven by four host threads; safe to create concurrently */
 /* M3: the layered communicator of a node group: intra (the four APUs, xGMI, size 4) x inter (mesh d over the
  * g nodes, rank = node); this APU thread d is global rank g d + node, size 4 g (comm_layered.c) */
 comm *comm_layered_create(comm *intra, comm *inter, int d);
-/* the SHMEM transport (comm_shmem.c; COMM_TRANSPORT=shmem, launched by oshrun / srun).  One PE
- * per node-process; a communicator is a strided PE set {pe_start + pe_stride r : r < n} -- the shim for OpenSHMEM 1.5
- * teams -- created by all its members with a run-unique id (mn.c: per level slot and APU thread).  comm_shmem_init
- * (shmem_init_thread, the symmetric pool) is called once per process, by mn_init or the first create. */
-int   comm_shmem_available(void);              /* 1 when built with SHMEM (make SHMEM=1) */
-const char *comm_shmem_impl(void);             /* "shmem" in a SHMEM build, "none" without */
-int   comm_shmem_init(void);                   /* returns the PE count */
-int   comm_shmem_rank(void);
-void  comm_shmem_counters(double *t, long *n, double *bytes);   /* the all-to-all totals so far (post-to-completion s summed over the APU threads, count, bytes received); 0 without SHMEM */
-comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id);
-void  comm_shmem_finalize(void);
-size_t comm_shmem_heap_env(const char **name);   /* the SHMEM heap's size from the launch line's variable (0: unset); *name = the variable */
-int   comm_shmem_pool_in_heap(void);
 #ifdef XSHMEM_ENGINE
 /* the xshmem transport (comm_xshmem.c; COMM_TRANSPORT=xshmem, make XSHMEM=ofi): the target-shaped engine over xshmem.h, one PE per APU (loopback PEs in a node-process).
- * Same shape as the SHMEM block above; the PE set of create_at is NODE indices (the process rank).  comm_xshmem_counters: as comm_shmem_counters. */
+ * The PE set of create_at is NODE indices (the process rank).  comm_xshmem_counters: the all-to-all totals so far (post-to-completion s summed over the APU threads, count, bytes received). */
 int   comm_xshmem_available(void);
 int   comm_xshmem_init(void);                  /* returns the node-process count */
 int   comm_xshmem_rank(void);
@@ -148,9 +124,6 @@ void  comm_xshmem_counters(double *t, long *n, double *bytes);
 void  comm_layered_scratch(comm *c, void *p, size_t bytes);
 void  comm_layered_release_vslots(comm *c);   /* M3: free the pool v-slots after a product's v-exchanges  */
 size_t comm_layered_vbytes(int dev);   /* B7ACCT: the v-exchange scratch hipMalloc'd now on device dev (all layered communicators) */
-
-/* the shard of an n-limb number held by rank r of size ranks: [lo, hi) */
-static inline void comm_shard(size_t n, int r, int size, size_t *lo, size_t *hi) { *lo = n * (size_t)r / size; *hi = n * (size_t)(r + 1) / size; }
 
 #ifdef __cplusplus
 }

@@ -5,7 +5,7 @@
  * own CQ (selective completion, only errors surface) and write counter.  Two heaps (DATA, CTRL), each one collective allocation (device, fine-grained,
  * or CTRL in pinned host memory with XSHMEM_CTRL=host), each registered once per domain (FI_HMEM_ROCR / SYSTEM).
  * Copied from comm_ofi.c (not edited there): the NIC choice (pe_geo does it), getinfo hints, fi_mr_regattr of fine-grained memory, the lock discipline.
- * Facts copied from libsma 11.8 (RB 8): mr_mode ALLOCATED|ENDPOINT(+HMEM) with client keys and offset addressing (XSHMEM_MRMODE=libsma, the
+ * Facts copied from libsma 11.8 (RB 8): mr_mode ALLOCATED|ENDPOINT(+HMEM) with client keys and offset addressing (the
  * default; the mode actually in force is the one the provider returns, logged once: VIRT_ADDR / PROV_KEY in it switch to base+key addressing, the
  * heap blob that is all-gathered at xshmem_heap_alloc always carries base and keys), FI_INJECT for n <= inject_size, one writemsg per put (cut only at
  * max_msg_size), counter-based completion polled with a deadline, quiet = counter wait.
@@ -17,7 +17,7 @@
  * domains, endpoints, heaps and mutex (pe_t below).  The PE of a context call is the context's owner; calls without a context use the
  * calling thread's PE (xshmem_ofi_loopback_select).  Boot is per process: one allgather of K address blobs, one of K heap blobs (heap_alloc is called
  * by the K local PEs in order 0..K-1 from one thread); barrier_all and finalize are once per process.
- * xshmem_ptr (XSHMEM_PEER=1 or XSHMEM_IPC=1, one PE per process): the DATA heaps of the PEs of the same node are exported with hipIpcGetMemHandle (in the
+ * xshmem_ptr (XSHMEM_PEER=1, one PE per process): the DATA heaps of the PEs of the same node are exported with hipIpcGetMemHandle (in the
  * heap blob), opened after the allgather, and xshmem_ptr(p, pe) returns the peer's byte at p's offset (NULL for another node's PE, the CTRL heap, or when the
  * export or the open failed: the engine then uses the NIC).  Heap release closes the mappings. */
 #ifndef _GNU_SOURCE
@@ -75,7 +75,6 @@ typedef struct {
     struct fid_mr *mr[2]; void *desc[2]; uint64_t key[2];   /* one MR per endpoint and heap: cxi binds an MR to one endpoint only (FI_MR_ENDPOINT) */
     uint64_t issued;                           /* posted operations (under pe lock) */
     fi_addr_t *fa;                             /* [pe] */
-    unsigned char *touch; int *tlist; int nt;  /* flush mode: target PEs written since the last quiet */
 } lane_t;
 typedef struct { uint32_t nics, nep; struct { uint32_t alen; char addr[MAXADDR]; } ep[MAXEP]; } ablob_t;
 typedef struct { uint64_t base, len; uint64_t key[MAXEP]; uint32_t has_ipc, pad; hipIpcMemHandle_t ipc; } hblob_t;   /* ipc: XSHMEM_PEER, DATA heap only */
@@ -87,7 +86,7 @@ typedef struct pe_s {
     size_t inject, maxmsg;
     pthread_mutex_t lock;
     dom_t dom[MAXD]; lane_t lane[MAXEP];
-    char *hbase[2]; size_t hlen[2]; int hhost[2]; size_t flush_off;   /* flush mode: 8 B flush slot (and a source word at +64) in the DATA heap tail beyond hlen */
+    char *hbase[2]; size_t hlen[2]; int hhost[2];
     hblob_t *peer[2];                          /* [space][pe] */
     char **pmap;                               /* XSHMEM_PEER: [pe] the node-local peer's DATA heap mapped here by hipIpc (NULL: not mapped, use the NIC) */
     xshmem_ofi_cnt_t cnt;
@@ -107,8 +106,7 @@ static void xfatal(const char *fmt, ...)
     fprintf(stderr, "xshmem_ofi: pe %d: %s\n", g->mype, b); fflush(stderr); boot_abort(b); abort();
 }
 #define CK(x) do { int r_ = (int)(x); if (r_) xfatal("%s = %d (%s) at line %d", #x, r_, fi_strerror(-r_), __LINE__); } while (0)
-static int g_yield = 1;
-#define YIELD() do { if (g_yield) sched_yield(); } while (0)
+#define YIELD() sched_yield()
 static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (double)t.tv_sec + 1e-9 * (double)t.tv_nsec; }
 
 /* ---- completion bookkeeping (under g->lock) ---- */
@@ -176,7 +174,6 @@ static void post1(lane_t *L, int pe, int space, size_t off, const void *src, siz
     L->issued++; g->cnt.writes++;
     pthread_mutex_unlock(&g->lock);
 }
-static uint64_t payload_flags(const pe_t *g) { return g->cfg.sig == XSHMEM_SIG_FLUSH ? FI_TRANSMIT_COMPLETE : FI_DELIVERY_COMPLETE; }   /* dc: delivery-complete payload; flush: transmit-complete (libsma 11.8 default) */
 
 void xshmem_ctx_putmem_nbi(xshmem_ctx_t ctx, void *dest, const void *src, size_t n, int pe)
 {
@@ -190,9 +187,8 @@ void xshmem_ctx_putmem_nbi(xshmem_ctx_t ctx, void *dest, const void *src, size_t
     void *desc = L->desc[ss];
     for (size_t o = 0; o < n; o += g->maxmsg) {
         size_t len = n - o < g->maxmsg ? n - o : g->maxmsg;
-        post1(L, pe, ds, doff + o, (const char *)src + o, len, desc, payload_flags(g));
+        post1(L, pe, ds, doff + o, (const char *)src + o, len, desc, FI_DELIVERY_COMPLETE);
     }
-    if (g->cfg.sig == XSHMEM_SIG_FLUSH) { pthread_mutex_lock(&g->lock); if (!L->touch[pe]) { L->touch[pe] = 1; L->tlist[L->nt++] = pe; } pthread_mutex_unlock(&g->lock); }
 }
 void xshmem_ctx_signal_set(xshmem_ctx_t ctx, uint64_t *sig, uint64_t val, int pe)
 {
@@ -218,41 +214,6 @@ static void wait_cntr(lane_t *L, uint64_t target, const char *what)
         if (++spins > 200) { YIELD(); if (now_s() - t0 > g->quiet_s) xfatal("quiet (%s) on lane %d: %llu of %llu operations complete after %.0f s (deadline)", what, L->e, (unsigned long long)done, (unsigned long long)target, g->quiet_s); }
     }
 }
-/* flush mode, as libsma 11.8 measured (RB 8.4): per touched target one 8 B fi_writemsg FI_MORE|FI_DELIVERY_COMPLETE to the target's flush slot, then a 0 B fi_inject_write
- * that closes the chain; the delivery-complete write drains every earlier write of this endpoint to that target.  Two counter units per target. */
-static void flush_targets(lane_t *L)
-{
-    pe_t *g = L->pe;
-    int s = L->slot; size_t off = g->flush_off;
-    pthread_mutex_lock(&g->lock);
-    int nt = L->nt;
-    for (int k = 0; k < nt; k++) {
-        int pe = L->tlist[k]; L->touch[pe] = 0;
-        const hblob_t *pb = &g->peer[0][pe];
-        uint64_t raddr = (g->vaddr ? pb->base : 0) + off, key = pb->key[L->e];
-        const char *srcw = g->hbase[0] + off + 64; struct iovec iov = { (void *)srcw, 8 }; void *dsc = L->desc[0];
-        struct fi_rma_iov rio = { raddr, 8, key };
-        struct fi_msg_rma m; memset(&m, 0, sizeof m);
-        m.msg_iov = &iov; m.desc = &dsc; m.iov_count = 1; m.addr = L->fa[pe]; m.rma_iov = &rio; m.rma_iov_count = 1;
-        for (unsigned spins = 0;; spins++) {
-            ssize_t rc = fi_writemsg(L->ep, &m, FI_MORE | FI_DELIVERY_COMPLETE | (8 <= g->inject ? FI_INJECT : 0));
-            if (!rc) break;
-            if (rc != -FI_EAGAIN) xfatal("flush fi_writemsg to pe %d: %zd (%s)", pe, rc, fi_strerror((int)-rc));
-            drain_locked(L); if (spins > 64) { pthread_mutex_unlock(&g->lock); YIELD(); pthread_mutex_lock(&g->lock); }
-        }
-        L->issued++;
-        for (unsigned spins = 0;; spins++) {
-            ssize_t rc = fi_inject_write(L->ep, srcw, 0, L->fa[pe], raddr, key);
-            if (!rc) break;
-            if (rc != -FI_EAGAIN) xfatal("flush fi_inject_write to pe %d: %zd (%s)", pe, rc, fi_strerror((int)-rc));
-            drain_locked(L); if (spins > 64) { pthread_mutex_unlock(&g->lock); YIELD(); pthread_mutex_lock(&g->lock); }
-        }
-        L->issued++; g->cnt.flush_chains++;
-    }
-    L->nt = 0;
-    pthread_mutex_unlock(&g->lock);
-    (void)s;
-}
 static void quiet_lane(lane_t *L)
 {
     pe_t *g = L->pe;
@@ -261,11 +222,6 @@ static void quiet_lane(lane_t *L)
     pthread_mutex_unlock(&g->lock);
     g->cnt.quiets++;
     wait_cntr(L, target, "payload");
-    if (g->cfg.sig == XSHMEM_SIG_FLUSH && L->nt) {
-        flush_targets(L);
-        pthread_mutex_lock(&g->lock); target = L->issued; pthread_mutex_unlock(&g->lock);
-        wait_cntr(L, target, "flush");
-    }
 }
 void xshmem_ctx_quiet(xshmem_ctx_t ctx) { quiet_lane(lane_of(ctx)); }
 void xshmem_ctx_fence(xshmem_ctx_t ctx) { quiet_lane(lane_of(ctx)); }
@@ -321,7 +277,7 @@ static void open_dom(pe_t *g, int s)
         h->fabric_attr->prov_name = strdup("cxi"); h->domain_attr->name = strdup(name);
         h->ep_attr->type = FI_EP_RDM;
         h->caps = FI_RMA | FI_MSG | FI_HMEM;
-        int libsma = g->cfg.mrmode == XSHMEM_MR_LIBSMA ? attempt == 0 : attempt != 0;   /* the other set is the fallback */
+        int libsma = attempt == 0;   /* the libsma mr_mode first, the other set is the fallback */
         h->domain_attr->mr_mode = libsma ? (FI_MR_ALLOCATED | FI_MR_ENDPOINT | FI_MR_HMEM)
                                          : (FI_MR_LOCAL | FI_MR_VIRT_ADDR | FI_MR_ALLOCATED | FI_MR_PROV_KEY | FI_MR_ENDPOINT | FI_MR_HMEM);
         h->domain_attr->threading = FI_THREAD_DOMAIN;
@@ -354,7 +310,6 @@ static void open_ep(pe_t *g, int e)
     CK(fi_enable(L->ep));
     if (D->first_ep < 0) D->first_ep = e;
     L->fa = (fi_addr_t *)calloc((size_t)g->npes, sizeof(fi_addr_t));
-    L->touch = (unsigned char *)calloc((size_t)g->npes, 1); L->tlist = (int *)calloc((size_t)g->npes, sizeof(int));
 }
 
 /* open one PE: its NIC domains, endpoints (default + lanes + spares); the address exchange is done by the caller (one allgather per process) */
@@ -378,14 +333,11 @@ int xshmem_init_thread(int req, int *prov)
 {
     (void)req;
     if (W.init) xfatal("xshmem_init_thread called twice");
-    xshmem_cfg_t cfg; xshmem_cfg_load(&cfg); g_yield = !cfg.noyield;
-    { const char *e = getenv("XSHMEM_OFI_SIG"); if (e && *e && strcmp(e, "dc") && strcmp(e, "flush") && strcmp(e, "waw")) { fprintf(stderr, "xshmem_ofi: XSHMEM_OFI_SIG=%s: use dc, flush or waw\n", e); abort(); } }
-    if (cfg.sig == XSHMEM_SIG_WAW) { fprintf(stderr, "xshmem_ofi: XSHMEM_OFI_SIG=waw is not yet implemented (dc and flush)\n"); abort(); }
+    xshmem_cfg_t cfg; xshmem_cfg_load(&cfg); 
     int K = cfg.loopback_pes;
     if (K < 1 || K > MAXLPE) { fprintf(stderr, "xshmem_ofi: XSHMEM_LOOPBACK_PES=%d: use 1..%d\n", K, MAXLPE); abort(); }
     pe_topo t0; pe_geo_init(&t0);              /* process level: boot rank and size, node placement */
-    if (getenv("XSHMEM_LOCAL") && atoi(getenv("XSHMEM_LOCAL"))) fprintf(stderr, "xshmem_ofi: XSHMEM_LOCAL is ignored by this backend (XSHMEM_PEER=1 is the node-local path)\n");
-    if ((cfg.peer == 1 || cfg.ipc) && K > 1) fprintf(stderr, "xshmem_ofi: XSHMEM_PEER / XSHMEM_IPC need one PE per process (XSHMEM_LOOPBACK_PES=1): off\n");
+    if (cfg.peer == 1 && K > 1) fprintf(stderr, "xshmem_ofi: XSHMEM_PEER needs one PE per process (XSHMEM_LOOPBACK_PES=1): off\n");
     int q = t0.pe, P = t0.npes;
     memset(&W, 0, sizeof W); W.K = K; W.q = q; W.P = P;
     int npes = P * K;
@@ -435,9 +387,9 @@ int xshmem_init_thread(int req, int *prov)
     if (prov) *prov = XSHMEM_THREAD_SERIALIZED;   /* issued counts, ctx_create and the counters are not locked per lane */
     pe_t *g = &G[0]; struct fi_info *i0 = g->dom[0].info; int nl = g->topo.nlanes < 1 ? 1 : g->topo.nlanes;
     if (g->mype == 0) {
-        fprintf(stderr, "xshmem_ofi: %d PEs (%d nodes), sig %s, mrmode requested %s, in force mr_mode %#x (%s%s), inject %zu B, max_msg %zu, lanes %d + default + %d spare, NICs/PE %d (cxi%d..), "
+        fprintf(stderr, "xshmem_ofi: %d PEs (%d nodes), sig dc, mrmode requested libsma, in force mr_mode %#x (%s%s), inject %zu B, max_msg %zu, lanes %d + default + %d spare, NICs/PE %d (cxi%d..), "
                 "ctrl %s, quiet deadline %.0f s, caps dev_heap 1 host_pollable 1 src_any 0 ptr 0\n",
-                g->npes, g->nnodes, g->cfg.sig == XSHMEM_SIG_FLUSH ? "flush" : "dc", g->cfg.mrmode == XSHMEM_MR_LIBSMA ? "libsma" : "ofi", (unsigned)i0->domain_attr->mr_mode, g->vaddr ? "VIRT_ADDR " : "offset ", g->pkey ? "PROV_KEY" : "client keys",
+                g->npes, g->nnodes, (unsigned)i0->domain_attr->mr_mode, g->vaddr ? "VIRT_ADDR " : "offset ", g->pkey ? "PROV_KEY" : "client keys",
                 g->inject, g->maxmsg, nl, SPARE, g->nics, g->dom[0].cxi, g->cfg.ctrl_host ? "host" : "heap", g->quiet_s);
         if (K > 1) fprintf(stderr, "xshmem_ofi: loopback: %d PEs per process (XSHMEM_LOOPBACK_PES), %d processes\n", K, P);
     }
@@ -478,7 +430,6 @@ void *xshmem_heap_alloc(size_t bytes, int space)
     if (space == XSHMEM_SPACE_DATA && g->cfg.heap_mb > 0) bytes = (size_t)g->cfg.heap_mb << 20;
     bytes = (bytes + HALIGN - 1) & ~(HALIGN - 1); if (!bytes) bytes = HALIGN;
     size_t user = bytes; int host = space == XSHMEM_SPACE_CTRL && g->cfg.ctrl_host; void *p = 0;
-    if (space == XSHMEM_SPACE_DATA && g->cfg.sig == XSHMEM_SIG_FLUSH) { g->flush_off = user; bytes += HALIGN; }   /* hidden tail: flush slot, not addressable by the engine */
     if (K > 1) (void)hipGetDevice(&dev_prev);
     { int d = g->topo.gpu < 0 ? 0 : g->topo.gpu; if (hipSetDevice(d) != hipSuccess) xfatal("hipSetDevice(%d)", d); }
     if (host) {
@@ -494,7 +445,7 @@ void *xshmem_heap_alloc(size_t bytes, int space)
     }
     if ((uintptr_t)p & (HALIGN - 1)) fprintf(stderr, "xshmem_ofi: pe %d: heap %d base %p is not 2 MiB aligned\n", g->mype, space, p);
     hblob_t mine; memset(&mine, 0, sizeof mine); mine.base = (uint64_t)(uintptr_t)p; mine.len = user;
-    if (space == XSHMEM_SPACE_DATA && K == 1 && (g->cfg.peer || g->cfg.ipc) && !host) {
+    if (space == XSHMEM_SPACE_DATA && K == 1 && g->cfg.peer && !host) {
         hipError_t ie = hipIpcGetMemHandle(&mine.ipc, p);
         if (ie == hipSuccess) mine.has_ipc = 1; else { (void)hipGetLastError(); fprintf(stderr, "xshmem_ofi: pe %d: hipIpcGetMemHandle of the DATA heap: %s: XSHMEM_PEER off for this PE\n", g->mype, hipGetErrorString(ie)); }
     }
@@ -509,7 +460,7 @@ void *xshmem_heap_alloc(size_t bytes, int space)
             rc = fi_mr_regattr(D->dom, &ma, 0, &L->mr[space]);
             if (!rc) { if (attempt && !g->log_key) { g->log_key = 1; if (g->mype == 0) fprintf(stderr, "xshmem_ofi: duplicate client key refused, distinct keys per endpoint\n"); } break; }
         }
-        if (rc) xfatal("registering the %s heap (%zu MiB) with cxi%d endpoint %d: %d (%s); XSHMEM_MRMODE=%s may work", space ? "CTRL" : "DATA", bytes >> 20, D->cxi, e, rc, fi_strerror(-rc), g->cfg.mrmode == XSHMEM_MR_LIBSMA ? "ofi" : "libsma");
+        if (rc) xfatal("registering the %s heap (%zu MiB) with cxi%d endpoint %d: %d (%s)", space ? "CTRL" : "DATA", bytes >> 20, D->cxi, e, rc, fi_strerror(-rc));
         if (D->info->domain_attr->mr_mode & FI_MR_ENDPOINT) {
             rc = fi_mr_bind(L->mr[space], &L->ep->fid, 0); if (rc) xfatal("fi_mr_bind of the %s heap to endpoint %d on cxi%d: %d (%s)", space ? "CTRL" : "DATA", e, D->cxi, rc, fi_strerror(-rc));
             CK(fi_mr_enable(L->mr[space]));
@@ -531,7 +482,7 @@ void *xshmem_heap_alloc(size_t bytes, int space)
         h->peer[space] = (hblob_t *)malloc((size_t)h->npes * sizeof(hblob_t)); memcpy(h->peer[space], all, (size_t)h->npes * sizeof(hblob_t));
         for (int r = 0; r < h->npes; r++) if (all[r].len != user) xfatal("heap %d: pe %d has %llu B, I have %zu B (same size on every PE)", space, r, (unsigned long long)all[r].len, user);
     }
-    if (space == XSHMEM_SPACE_DATA && K == 1 && (g->cfg.peer || g->cfg.ipc) && !host) {        /* open the node-local peers' DATA heaps on my device */
+    if (space == XSHMEM_SPACE_DATA && K == 1 && g->cfg.peer && !host) {        /* open the node-local peers' DATA heaps on my device */
         g->pmap = (char **)calloc((size_t)g->npes, sizeof(char *)); int nmap = 0, ppn = g->topo.pes_per_node;
         int d = g->topo.gpu < 0 ? 0 : g->topo.gpu; if (hipSetDevice(d) != hipSuccess) xfatal("hipSetDevice(%d)", d);
         for (int r = 0; r < g->npes; r++) if (r != g->mype && r / ppn == g->topo.node && all[r].has_ipc) {
@@ -583,7 +534,7 @@ void xshmem_finalize(void)        /* once per process */
         heap_release(g, 0); heap_release(g, 1);
         for (int e = 0; e < g->nep; e++) {
             lane_t *L = &g->lane[e]; if (!L->ep) continue;
-            fi_close(&L->ep->fid); fi_close(&L->cq->fid); fi_close(&L->cn->fid); free(L->fa); free(L->touch); free(L->tlist); L->ep = 0;
+            fi_close(&L->ep->fid); fi_close(&L->cq->fid); fi_close(&L->cn->fid); free(L->fa); L->ep = 0;
         }
         for (int s = 0; s < MAXD; s++) {
             dom_t *D = &g->dom[s]; if (!D->open) continue;

@@ -115,8 +115,7 @@ primes give p₀p₁p₂ = 2^155.36 against (B − 1)² = 2^119.59, so three pri
 - one-node tiers use three primes (`ECALC_NP` defaults to 3 in `ecalc.c`);
 - multi-node products use `ECALC_NP=auto` (`ecalc.c` sets it when `ECALC_NP` is unset at size > 1): since the user's
   decision D18 (2026-10-12, `results/LAUNCH_DEFAULTS.md §DEF`) plane pool 0 holds four planes in every run of more than one node-process
-  (`ec_np_planes`), so every multi-node product runs four primes in the P24 form (below). The former three-prime multi-node
-  path (`ECALC_NP_MN3`) was removed 2026-10-19 (D56). `ec_np_check` refuses a
+  (`ec_np_planes`), so every multi-node product runs four primes in the P24 form (below). `ec_np_check` refuses a
   product above the bound for its prime count.
 
 `mn_plan.c` (`MN_PLAN_ONLY`) checks every planned product of a run against these bounds before any device is used.
@@ -145,7 +144,7 @@ digits (`ec_words_to_dec`, at most four). Limb k of the product is
 
 where Cj are the j-th base-10¹⁸ digits of the coefficients and x_k the added operand; the carry chain is resolved in LDS
 (per 256-coefficient chunk, as a carry-lookahead over the waves'
-ballot masks, `results/KERNELS.md §K4b`; the serial chain was removed 2026-10-23, Q87).
+ballot masks, `results/KERNELS.md §K4b`).
 On the GPU (`k_crt_batch`) a product's coefficients are cut into S stripes (a block per stripe, coalesced reads, 256
 coefficients per chunk); each stripe emits a 4-limb *spill* past its end, and the spills are merged into the limbs
 (`k_spill_merge`, or chunked-carry adds in the distributed tiers). A CPU Garner is kept for small products and tests.
@@ -154,9 +153,9 @@ coefficients per chunk); each stripe emits a 4-limb *spill* past its end, and th
 to 3 points, so a view of n limbs has ⌈3n/4⌉ points and a piece is 3/4 as long. A coefficient is then at most
 min·(10²⁴ − 1)², which fits four primes while min(Pa, Pb) ≤ 10¹² (`P24_MIN_MAX`); the coefficient of point x, shifted by
 s = 6·(x mod 3) digits, lands on limbs L(x) … L(x)+3 with L(x) = ⌊4x/3⌋. Gain: −38 % at 10¹⁰ digits on 2 processes (m;
-`results/PRIMES_STRATEGY.md §P2415`). It applies to every multi-node product whose plane pool holds four primes (built in; since D18 every multi-node product; the 18-digit form of the removed `ECALC_NP_MN3` path is gone, D56).
+`results/PRIMES_STRATEGY.md §P2415`). It applies to every multi-node product whose plane pool holds four primes (since D18 every multi-node product).
 Its CRT kernel `k_crt24` (`p24_crt.c`, one block per column, 256 points per chunk) sums the at most three points meeting
-each of a chunk's up to 342 limbs and resolves the chunk's carry chain on one thread; as a carry-lookahead (D24; the serial chain was removed 2026-10-23, Q87;
+each of a chunk's up to 342 limbs and resolves the chunk's carry chain on one thread; as a carry-lookahead (D24;
 `results/KERNELS.md §K4c`) over wave ballot masks as in `k_crt_batch` (two limbs per thread, 512-bit masks).
 
 ### 4.4 Product tiers
@@ -222,7 +221,7 @@ reciprocal of Q's top limbs (`newton_seed_top`). Functions: `recip_db2` (one nod
 error (≤ 2M + 3 units at 2j) by ≥ 1 limb; a doubling with jn = 2j (the anchored chain does this whenever the target is even)
 keeps it, and a run of such doublings squares it (k = 2^m: up to two limbs lost, modelled). The division's corrections
 absorb it unless the run is long and μ's top limbs are used uncut (DKM with h = k₁, i.e. an odd quotient length); then the
-step-1 estimate can be off by more than the 64-correction limit (fatal, never wrong digits). The chain guard (since D25; the `NEWTON_CHAIN_GUARD=0` old chain was removed 2026-10-23, Q87) anchors the chain at k, ⌈k/2⌉ + 1, … so every doubling is cut: |error| ≤ 8 units at any M (results/DIVISION.md §RECIP).
+step-1 estimate can be off by more than the 64-correction limit (fatal, never wrong digits). The chain guard (since D25) anchors the chain at k, ⌈k/2⌉ + 1, … so every doubling is cut: |error| ≤ 8 units at any M (results/DIVISION.md §RECIP).
 
 ### 5.2 Division in two quotient halves ("DKM")
 
@@ -261,7 +260,7 @@ Two layouts exist (both supported, user rule Q85):
   heap, and the PE's place (GPU, NUMA node, NICs) comes from the backend's topology (`pe_geo.c`). `XSHMEM_LANES=N`
   gives each PE N SHMEM contexts (lane k on NIC k) and stripes every payload put over them (`comm_xshmem.c`). With no
   striped tier on one device, batch products larger than one device's plane pool are split over the PE's own device
-  (`RNS_BATCH_SPLIT`, `rns_mul.c`). (The virtual-PE thread mode was removed 2026-10-23, Q86.) P cuts start-up, so
+  (`RNS_BATCH_SPLIT`, `rns_mul.c`; automatic under `ECALC_PE_PER_GPU=1`, Q110). P cuts start-up, so
   it wins at small sizes and is equal within noise at 3 nodes, 10¹¹ digits (`results/XSHMEM.md`).
 
 ### 6.2 The four-step transform
@@ -292,8 +291,7 @@ boundaries are resolved by a scan over (carry, propagate) flags (`mn_core`, `db_
 Fabric bytes equal a flat all-to-all's; messages per APU fall from 4g − 1 to g − 1; the on-node quarter never touches a NIC.
 Two exchanges are in flight (depth 2), so one exchange's xGMI stage hides under the previous one's fabric stage.
 `alltoallv` has the same stages with per-peer counts (the node's send counts are all-gathered over the four APU threads).
-All-gather runs the inter stage first and the xGMI stage second, so the fabric moves 4× less. One inter stage is in flight at a time (the two-in-flight variant `COMM_LAYER_INTER2` was removed 2026-10-23: slower on both
-transports, results/SHMEM.md), and `COMM_LAYER_VSLOT_*` take
+All-gather runs the inter stage first and the xGMI stage second, so the fabric moves 4× less. One inter stage is in flight at a time (two in flight was slower on both transports, `results/SHMEM.md`), and `COMM_LAYER_VSLOT_*` take
 the v-exchange slots from the communicator pool and share and release them between products (they are counted in the node
 budget).
 
@@ -305,15 +303,13 @@ budget).
 |---|---|
 | `comm_local.c` | one rank (size 1): no-ops and copies; the single-node pipeline runs through it |
 | `comm_xgmi.c` | the node's four APUs: peer copies over the xGMI mesh, driven by four host threads |
-| `comm_shmem.c` | OpenSHMEM, `COMM_TRANSPORT=shmem` (the fallback and the reference): a communicator is a strided PE set; one symmetric pool holds every remote-writable buffer; the sender puts a slab at an offset the receiver chose, then a signal word; the receiver polls signals. Its heap is in 2 MiB pages (`COMM_SHMEM_NP_HEAP_THP`, default 1: a 4 KiB pinned heap let kernel compaction evict the GPU queues, `results/SHMEM.md`). The switches are in `ecalc/README.md`; `COMM_TRACE` records per-message traces |
-| `comm_ofi.c` | libfabric (`cxi`): the device exchanges' data plane over every NIC of the node, one domain per APU thread, chunks striped over the NICs; completion is signalled through SHMEM. The data plane of the `COMM_TRANSPORT=shmem` fallback (there `COMM_OFI` follows the presence of a cxi NIC) and the reference arm; the default path has its own data plane in `xshmem_ofi.c`. ×2.1 over plain SHMEM at 10 nodes (m; `results/OFI_FABRIC.md §OFI17`) |
-| `comm_xshmem.c` | `COMM_TRANSPORT=xshmem` (the default multi-node transport since Q73, 2026-10-21; built by default where libfabric is found, `XSHMEM=0` omits it): the inter-node meshes over `xshmem.h`, the 1:1 mapping of the Cray SHMEM 12.1 calls (libfabric backend `xshmem_ofi.c` on aac7, `xshmem_cray.h` on the target); one node-process hosts one loopback PE per APU thread; the receiver publishes offsets, a worker thread (default in every layout, Q96; `ECALC_XEX_THREAD=0` polls instead) puts and signals, rounds (`XSHMEM_ROUND_MB`, default 128); `results/XSHMEM.md` |
+| `comm_xshmem.c` | `COMM_TRANSPORT=xshmem` (the only multi-node transport; built by default where libfabric is found, `XSHMEM=0` omits it): the inter-node meshes over `xshmem.h`, the 1:1 mapping of the Cray SHMEM 12.1 calls (libfabric backend `xshmem_ofi.c` on aac7, `xshmem_cray.h` on the target); one node-process hosts one loopback PE per APU thread; the receiver publishes offsets, a worker thread (every layout, Q96) puts and signals, rounds (`XSHMEM_ROUND_MB`, default 128); `results/XSHMEM.md` |
 | `xshmem.h`, `xshmem_ofi.c`, `xshmem_boot.c`, `xshmem_cray.h`, `pe_geo.c` | the API (the 1:1 mapping of the Cray SHMEM 12.1 calls) and its two backends: libfabric cxi with PMI2 bootstrap (`XSHMEM=ofi`, path 1) and Cray SHMEM (`XSHMEM=cray`, static inline, path 2); `pe_geo.c` reports each PE's GPU, NUMA node and NICs. `vpe.c` holds the PE identity of the one-process-per-GPU layout |
 | `comm_layered.c` | the layered composition of an intra (xGMI) and an inter (SHMEM/OFI) communicator, §6.3 |
 | `comm_sim4.c`, `comm_util.c` | a synthetic four-rank layout in one APU's memory for tests; shared helpers |
 | `comm_copy.c` | N7D: the GPU copy kernel for copies that touch a host-registered pool (called from `comm_xshmem.c`'s `COPY`) |
 
-Builds: the default build (`XSHMEM=ofi`, where libfabric and the PMI2 header are found) runs `COMM_TRANSPORT=xshmem` multi-node; `XSHMEM=cray SHMEM_CRAY=1` builds path 2; `SHMEM_CRAY=1` is also what `COMM_TRANSPORT=shmem` needs (without it that transport is a fatal), and `tools/gate.sh` requires `-DCOMM_SHMEM` in the log of a multi-node build (`README.md`). The transport, the meshes and the
+Builds: the default build (`XSHMEM=ofi`, where libfabric and the PMI2 header are found) runs `COMM_TRANSPORT=xshmem` multi-node; `XSHMEM=cray` builds path 2 (`README.md`). The plain SHMEM transport (`COMM_TRANSPORT=shmem`) was removed 2026-10-25 (Q103): the transport is xshmem on both paths. The transport, the meshes and the
 communicators are opened before any HIP thread exists, because opening them after the arenas crashed in a vendor
 initialisation (8 of 78 runs, m).
 
@@ -354,7 +350,7 @@ The T2 head tails (the 49 digits before each node's range) are all-gathered befo
 | # | phase | what runs | why |
 |---|---|---|---|
 | 0 | plan | `MN_PLAN_ONLY=<digits>:<nodes>` and `BS_LAYOUT_ONLY` print piece counts, the SHMEM pool and the node bytes without a device | the pool is sized before `shmem_init`; the layout is checked against the memory edges |
-| 1 | transport | xshmem or SHMEM, meshes, communicators open | before any HIP thread exists |
+| 1 | transport | xshmem meshes and communicators open | before any HIP thread exists |
 | 2 | pools | per APU: plane pools 0 and 1, then the region arena (HIP virtual memory, 2 GiB chunks) mapped in the background | nothing is allocated inside a later phase |
 | 3 | seeds | spans computed on the CPU and pulled into the arenas | hidden under the mapping |
 | 4 | self-tests | transport and layered-exchange self-tests (size > 1) | a broken transport fails in seconds |
@@ -414,14 +410,14 @@ digits 1…d_out + newline.
 **Packed form.** The default output is **packed** (`ECALC_OUT_PACKED=2` since 2026-10-12): each node writes its limbs as a
 60-bit little-endian stream, 15 bytes per two limbs (0.4167 B/digit), most significant limb first, behind a 4096-byte `ECPACK18` header giving the part's limb and digit range,
 the T1 primes and the part's digit residues. No ASCII formatting happens in the run; `tools/unpack_digits` makes the ASCII
-file off the clock (`--cmp` compares without writing). `ECALC_OUT_PACKED=0` writes ASCII; the 8-byte form (`=1`, 0.444 B/digit) was removed 2026-10-23, Q87 (the readers still take its files).
+file off the clock (`--cmp` compares without writing). `ECALC_OUT_PACKED=0` writes ASCII; the readers still take the old 8-byte files.
 
 **Parts.** At size 1 the file is `<outfile>`. At size > 1 each node writes `<outfile>.part<k>`, k = size − 1 − rank (part 0
 holds the leading digits), so the sorted parts are the file; each node writes two parts (its share of
 X_hi and of X_lo; nparts = 2·size). The converter takes the set in any order.
 
 **Early writer.** The writer is a background thread started by the division: right after step 1 on X_hi (final: step 2 changes only limbs below s) and later on
-X_lo (the older start at the division hook, `MN_OUT_DKM_HI=0`, was removed 2026-10-23, Q87). Writes use O_DIRECT through aligned buffers (`ECALC_ODIRECT=auto` chooses by file system). Division **corrections**
+X_lo. Writes use O_DIRECT through aligned buffers (`ECALC_ODIRECT=auto` chooses by file system). Division **corrections**
 that arrive after the writer started are not applied to X; the output stage patches only the tail the carry or borrow
 reaches (`mn_out_tail_fix`): it rewrites the 4 KiB blocks holding the changed limbs and moves the header's residues by the
 same change, so the file stays consistent.

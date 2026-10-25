@@ -5,18 +5,9 @@ HIPFLAGS = -g -O3 --offload-arch=$(ARCH) -fopenmp -I. -I../bench
 HIPC     = $(HIPCC) $(HIPFLAGS) -x hip
 CFLAGS   = -O2 -Wall -fopenmp -I.
 ifeq ($(origin CC),default)
-CC       = gcc                       # Phase 16 A: tests/t_comm with gcc unless CC is given (make's built-in `cc` is Cray's wrapper on aac7)
+CC       = gcc                       # gcc unless CC is given (make's built-in `cc` is Cray's wrapper on aac7)
 endif
-# The SHMEM transport (comm_shmem.c) is compiled in with SHMEM_CRAY=1, or with SHMEM=1 and SHMEM_CFLAGS (-DCOMM_SHMEM and the
-# include path) / SHMEM_LIBS given on the make line (another Cray-compatible OpenSHMEM 1.5); without either the build has no
-# SHMEM (COMM_TRANSPORT=shmem then aborts at start).  Only Cray OpenSHMEMX is launched by mnrun.sh (D14, 2026-10-12).
-# SHMEM_CRAY=1 builds against Cray OpenSHMEMX (aac7: `module load cray-dsmml cray-openshmemx`,
-# OpenSHMEM 1.5, SHMEM_THREAD_MULTIPLE, contexts, put-with-signal) through comm_shmem.c's generic branch (-DCOMM_SHMEM only);
-# the prefixes come from the modules (CRAY_OPENSHMEMX_PREFIX, CRAY_DSMML_PREFIX) or CRAY_SMA / CRAY_DSMML on the make line.
-# The link is the minimum of `cc --cray-print-opts=libs` (-lsma -lpmi -lpmi2 -ldsmml; PMI from /opt/cray/pe/lib64) with rpaths,
-# so the binary runs without the modules; mnrun.sh launches it with plain srun (it detects /opt/cray/pe/sma in the binary).
 # GMP_HOME=<prefix> points the tests, tools and ref/gen_e at a GMP built from source (aac7 has libgmp.so.10 but no headers).
-SHMEM_CRAY ?= 0
 GMP_HOME   ?=
 ifneq ($(GMP_HOME),)
 HIPFLAGS += -I$(GMP_HOME)/include
@@ -25,196 +16,83 @@ GMP_LIBS  = -L$(GMP_HOME)/lib -lgmp -Wl,-rpath,$(GMP_HOME)/lib
 else
 GMP_LIBS  = -lgmp
 endif
-ifneq ($(SHMEM_CRAY),0)
-SHMEM = 1
-CRAY_SMA   ?= $(if $(CRAY_OPENSHMEMX_PREFIX),$(CRAY_OPENSHMEMX_PREFIX),/opt/cray/pe/sma/11.8.0/ofi/sma)
-CRAY_DSMML ?= $(if $(CRAY_DSMML_PREFIX),$(CRAY_DSMML_PREFIX),/opt/cray/pe/dsmml/0.3.1/dsmml)
-SHMEM_CFLAGS ?= -DCOMM_SHMEM -I$(CRAY_SMA)/include -I$(CRAY_DSMML)/include
-SHMEM_LIBS   ?= -L$(CRAY_SMA)/lib64 -L$(CRAY_DSMML)/lib -L/opt/cray/pe/lib64 -lsma -lpmi -lpmi2 -ldsmml -Wl,-rpath,$(CRAY_SMA)/lib64 -Wl,-rpath,$(CRAY_DSMML)/lib -Wl,-rpath,/opt/cray/pe/lib64
-else
-SHMEM ?= 0
-endif
-# Phase 17 (internal code notes): comm_ofi.c, the libfabric data plane of the SHMEM transport (COMM_OFI=1 at run time, off by
-# default).  OFI=1 (automatic where $(LIBFABRIC)/include/rdma/fabric.h exists: aac7's /opt/cray/libfabric/2.3.1) compiles it in;
-# OFI=0 builds the stubs (COMM_OFI=1 then aborts at start).
+# libfabric (OFI=1 automatic where $(LIBFABRIC)/include/rdma/fabric.h exists: aac7's /opt/cray/libfabric/2.3.1) is the data plane of XSHMEM=ofi.
 LIBFABRIC ?= $(if $(CRAY_LIBFABRIC_PREFIX),$(CRAY_LIBFABRIC_PREFIX),/opt/cray/libfabric/2.3.1)
 OFI ?= $(if $(wildcard $(LIBFABRIC)/include/rdma/fabric.h),1,0)
 ifeq ($(OFI),1)
-OFI_CFLAGS = -DCOMM_OFI -I$(LIBFABRIC)/include
+OFI_CFLAGS = -I$(LIBFABRIC)/include
 OFI_LIBS   = -L$(LIBFABRIC)/lib64 -lfabric -Wl,-rpath,$(LIBFABRIC)/lib64
-SHMEM_LIBS += $(OFI_LIBS)
 endif
 
-TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_strategy tests/t_cap tests/t_primes tests/t_seed tests/t_patch tests/t_p24 tests/t_crtk tests/t_vpe
-OBJS  = ntt.o ntt3.o mem.o crt.o comm_local.o comm_sim4.o comm_xgmi.o comm_copy.o comm_shmem.o comm_ofi.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o rns_local.o dbig.o newton_db.o newton.o binsplit.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o config_line.o vpe.o
+TESTS = tests/t_arith tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_strategy tests/t_cap tests/t_seed tests/t_patch tests/t_p24 tests/t_crtk tests/t_vpe
+OBJS  = ntt.o ntt3.o mem.o crt.o comm_xgmi.o comm_copy.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o rns_local.o dbig.o newton_db.o newton.o binsplit.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o config_line.o vpe.o
 REF   = ref/gen_e
+HDRS  = $(wildcard *.h)                 # every object and test depends on every header (one rule instead of a dependency line per file)
 
 all: $(REF) $(OBJS) $(TESTS) ecalc tools
 
-# Phase 15: the packed digit converter / checker (default output since Phase 15) is part of every build
+# the packed digit converter / checker (default output) is part of every build
 tools:
 	$(MAKE) -s -C ../tools
 
-ecalc: ecalc.c $(OBJS) rns_mul.h newton.h binsplit.h verify.h mem.h ntt.h mn.h mdb.h mn_out.h mn_plan.h
-	$(HIPC) $< -x none $(OBJS) -o $@ $(SHMEM_LIBS)
+ecalc: ecalc.c $(OBJS) $(HDRS)
+	$(HIPC) $< -x none $(OBJS) -o $@ $(XSHMEM_LIBS)
 
-# The identical rules, once: LINK_TESTS = tests linked with OBJS, OBJ_* = objects by compile line (hipcc -x hip with -o first, with -o last,
-# and the host-C objects); the per-file lines below carry only the extra prerequisites (headers).
-LINK_TESTS = tests/t_p24 tests/t_crtk tests/t_dbig tests/t_out tests/t_patch tests/t_mn_grid tests/t_vpe tests/t_mul tests/t_newton tests/t_strategy tests/t_ntt3 tests/t_verify
+# objects by compile line: hipcc -x hip with -o first / -o last, and the host-C objects
 OBJ_HIP1 = config_line.o ntt.o ntt3.o rns_mul.o rns_local.o rns_dist.o p24_crt.o mn_plan.o dbig.o spill.o fatal.o segv_trace.o newton_db.o mem.o vpe.o
-OBJ_HIP2 = comm_local.o comm_sim4.o comm_layered.o mn.o mn_out.o comm_copy.o comm_util.o comm_xgmi.o ntt_dist.o
+OBJ_HIP2 = comm_layered.o mn.o mn_out.o comm_copy.o comm_util.o comm_xgmi.o ntt_dist.o
 OBJ_C = memsample.o crt.o verify.o binsplit.o newton.o bigint.o
-$(LINK_TESTS): %: %.c $(OBJS)
-	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
-$(OBJ_HIP1): %.o: %.c
+$(OBJ_HIP1): %.o: %.c $(HDRS)
 	$(HIPC) -c -o $@ $<
-$(OBJ_HIP2): %.o: %.c
+$(OBJ_HIP2): %.o: %.c $(HDRS)
 	$(HIPC) -c $< -o $@
-$(OBJ_C): %.o: %.c
+$(OBJ_C): %.o: %.c $(HDRS)
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
 
+# tests linked with OBJS (and the engine), one rule; the rest below
+LINK_TESTS = tests/t_arith tests/t_p24 tests/t_crtk tests/t_dbig tests/t_out tests/t_patch tests/t_mn_grid tests/t_vpe tests/t_mul tests/t_newton tests/t_strategy tests/t_verify tests/t_seed tests/t_bs
+$(LINK_TESTS): %: %.c $(OBJS) $(HDRS) tests/harness.h tests/tref.h tests/sha256.h
+	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) -lm $(XSHMEM_LIBS)
 
-# L5: the print-only `config:` line; switches_gen.h is generated by tools/switch_registry.py
-config_line.o: config_line.h switches_gen.h
-ntt.o: ntt.h modarith.h env_int.h
-ntt3.o: ntt.h modarith.h
-rns_mul.o: rns_mul.h rns_int.h ntt.h mem.h crt.h bigint.h modarith.h
+# t_dist drives the test-only communicators (tests/comm_local.c, tests/comm_sim4.c: one rank / four synthetic ranks in one APU)
+tests/t_dist: tests/t_dist.c tests/comm_local.c tests/comm_sim4.c $(OBJS) $(HDRS) tests/harness.h
+	$(HIPC) -fopenmp $< tests/comm_local.c tests/comm_sim4.c -x none $(OBJS) -o $@ $(GMP_LIBS) -lm $(XSHMEM_LIBS)
 
-rns_local.o: rns_mul.h rns_int.h ntt.h dbig.h mem.h vpe.h
-rns_dist.o: xshmem_round.h rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h dbig.h mdb.h mn_plan.h p24.h
-# Phase 15 Batch 3 P24 (results/PRIMES_STRATEGY.md §P2415): the 24-digit CRT of the mn tier
-p24_crt.o: p24.h rns_int.h modarith.h
-tests/t_p24: p24.h
-# K4b / K4c (results/KERNELS.md): k_crt_batch's and k_crt24's carry-lookahead against the host sum
-tests/t_crtk: rns_int.h p24.h tests/harness.h
-# Phase 13d L: the plan printer (MN_PLAN_ONLY; ecalc.c calls it before rns_init)
-mn_plan.o: mn_plan.h mdb.h bigint.h binsplit.h rns_mul.h modarith.h
-
-dbig.o: dbig.h bigint.h mem.h p24.h
-# Phase 14 S1: O_DIRECT file I/O and the spill primitive (E3, E4); the memory sampler and the live-bytes lines (E12, E1)
-spill.o: spill.h dbig.h mem.h
-fatal.o: fatal.h
-# s18w task 2: ECALC_SEGV_TRACE=1 (default 0) -- see segv_trace.h
-segv_trace.o: segv_trace.h
-memsample.o: memsample.h dbig.h mem.h
-
-newton_db.o: newton.h dbig.h rns_mul.h mem.h mdb.h mn.h comm.h mn_plan.h
-
-tests/t_dbig: dbig.h tests/harness.h
-tests/t_out: mn_out.h verify.h tests/harness.h
-tests/t_patch: mn_out.h verify.h tests/harness.h
-tests/t_mn_grid: dbig.h mdb.h mn.h tests/harness.h
-mem.o: mem.h
-# PE identity (vpe.h; ECALC_PE_PER_GPU=1 at run time, off by default: the object is always linked, never called with the switch off)
-vpe.o: vpe.h mem.h fatal.h comm.h
-tests/t_vpe: vpe.h mn.h comm.h
-comm_local.o: comm.h
-
-comm_sim4.o: comm.h
-
-
-comm_shmem.o: comm_shmem.c comm.h comm_ofi.h comm_trace.h comm_phase.h env_int.h
-	$(HIPC) $(SHMEM_CFLAGS) -c $< -o $@
-
-comm_ofi.o: comm_ofi.c comm_ofi.h fatal.h
-	$(HIPC) $(OFI_CFLAGS) -c $< -o $@
-
-comm_layered.o: comm.h
-
-mn.o: mn.h mdb.h comm.h ntt_dist.h ntt.h mem.h dbig.h vpe.h
-
-mn_out.o: mn_out.h verify.h dbig.h comm.h mem.h
-
-comm_copy.o: comm.h
-
-comm_util.o: comm.h
-
-comm_xgmi.o: comm.h
-
-tests/t_trace: tests/t_trace.c comm_trace.h comm_phase.h
-	$(CC) -O2 -I. $< -lpthread -o $@
-
-tests/t_comm: tests/t_comm.c comm_shmem.c comm_ofi.c comm_util.c fatal.c comm.h comm_ofi.h comm_trace.h fatal.h
-	$(CC) -O2 -DCOMM_HOST_ONLY -DEC_FATAL_NO_HIP $(SHMEM_CFLAGS) $(OFI_CFLAGS) -I. $< comm_shmem.c comm_ofi.c comm_util.c fatal.c -lpthread $(SHMEM_LIBS) -o $@
-
-ntt_dist.o: ntt_dist.h vpe.h ntt.h comm.h modarith.h
-crt.o: crt.h modarith.h
-verify.o: verify.h bigint.h
-binsplit.o: xshmem_round.h binsplit.h bigint.h rns_mul.h mem.h spill.h memsample.h
-newton.o: newton.h bigint.h rns_mul.h mem.h
-bigint.o: bigint.h
-
-tests/t_mul: rns_mul.h tests/harness.h
-
-tests/t_newton: newton.h tests/harness.h
-
-# Phase 13a S: E0 (the A/B/C strategy boundary, node) and E2 (the plane cap against the grid's cost, arithmetic only)
-tests/t_strategy: rns_mul.h rns_int.h dbig.h ntt.h tests/harness.h
+# tests with fewer objects: the plane cap (host only), the CRT, the transforms, the allocator
 tests/t_cap: tests/t_cap.c tests/harness.h
 	gcc $(CFLAGS) -o $@ $< $(GMP_LIBS) -lm
-tests/t_ntt3: ntt.h tests/harness.h
-
-tests/t_dist: tests/t_dist.c $(OBJS) ntt_dist.h tests/harness.h
-	$(HIPC) -fopenmp $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
-
-# Phase 15 S1: the fast decimal mul_1 and the fused seed span against the serial path
-tests/t_seed: tests/t_seed.c $(OBJS) bigint.h tests/harness.h
-	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) -lm $(SHMEM_LIBS)
-
-tests/t_bs: tests/t_bs.c $(OBJS) binsplit.h tests/harness.h tests/sha256.h
-	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) -lm $(SHMEM_LIBS)
-
-
-tests/t_verify: verify.h tests/harness.h
-
-tests/t_primes: tests/t_primes.c $(OBJS) crt.h modarith.h rns_mul.h tests/harness.h
-	$(HIPC) -DT_PRIMES_GPU $< -x none $(OBJS) -o $@ $(GMP_LIBS) -lm $(SHMEM_LIBS)
-
-tests/t_crt: tests/t_crt.c crt.o mem.o bigint.o fatal.o crt.h mem.h tests/harness.h
+tests/t_crt: tests/t_crt.c crt.o mem.o bigint.o fatal.o $(HDRS) tests/harness.h
 	$(HIPC) $< -x none crt.o mem.o bigint.o fatal.o -o $@ $(GMP_LIBS)
-
-tests/t_ntt: tests/t_ntt.c ntt.o ntt3.o bigint.o fatal.o ntt.h modarith.h tests/harness.h
+tests/t_ntt: tests/t_ntt.c ntt.o ntt3.o bigint.o fatal.o $(HDRS) tests/harness.h
 	$(HIPC) $< -x none ntt.o ntt3.o bigint.o fatal.o -o $@ $(GMP_LIBS)
-
-tests/t_alloc: tests/t_alloc.c ntt.o ntt3.o bigint.o mem.o fatal.o ntt.h mem.h tests/harness.h
+tests/t_alloc: tests/t_alloc.c ntt.o ntt3.o bigint.o mem.o fatal.o $(HDRS) tests/harness.h
 	$(HIPC) $< -x none ntt.o ntt3.o bigint.o mem.o fatal.o -o $@ $(GMP_LIBS) -lpthread
 
-tests/t_edge: tests/t_edge.c     # Phase 16 C: the memory-edge probe (results/TIME_MODEL.md §C16); built on demand, not in TESTS
+# built on demand (target_kit.sh), not in TESTS
+tests/t_edge: tests/t_edge.c     # the memory-edge probe
 	$(HIPC) $< -o $@
-
-tests/t_nodechk: tests/t_nodechk.c     # target_kit.sh stage nodechk: per-node meminfo + 1 GB host->device upload per APU; built on demand, not in TESTS
+tests/t_nodechk: tests/t_nodechk.c     # target_kit.sh stage nodechk: per-node meminfo + 1 GB host->device upload per APU
 	$(HIPC) $< -o $@
 
 ref/gen_e: ref/gen_e.c tests/sha256.h
 	gcc $(CFLAGS) -o $@ $< $(GMP_LIBS) -lm
 
-# Phase 15 P: the roots above 2^33 (host only, no GPU: runs on the login node)
-tests/t_roots: tests/t_roots.c fatal.c fatal.h modarith.h
-	gcc $(CFLAGS) -DEC_FATAL_NO_HIP $< fatal.c -o $@ $(GMP_LIBS) -lpthread
-
-tests/t_modarith: tests/t_modarith.c bigint.o fatal.o modarith.h tests/harness.h bigint.h
-	$(HIPC) $< -x none bigint.o fatal.o -o $@ $(GMP_LIBS)
-
 clean:
 	rm -f $(REF) $(TESTS) $(OBJS) ecalc
 
 .PHONY: all clean tools
-tests/t_ofi_alloc: tests/t_ofi_alloc.c comm_ofi.c comm_ofi.h fatal.c fatal.h
-	$(CC) -O2 -DCOMM_HOST_ONLY -DEC_FATAL_NO_HIP $(OFI_CFLAGS) -I. $< fatal.c -lpthread -L$(LIBFABRIC)/lib64 -lfabric -o $@
 
-# ---- XSHMEM (plan TARGET1, design TARGET12_DESIGN; B1): the target-shaped communication layer behind xshmem.h.  On by default
-# (Q73, 2026-10-21): XSHMEM=ofi wherever libfabric (OFI=1) and the PMI2 header are found, else 0 (the build without the engine: it still builds,
-# COMM_TRANSPORT=xshmem is then a fatal at start).  With XSHMEM=0 nothing below adds a prerequisite, object or flag to OBJS / `all` / ecalc.
-#   make XSHMEM=ofi  tests/t_xshmem tests/t_pe_geo   libfabric cxi backend (xshmem_ofi.c, xshmem_boot.c PMI2, pe_geo.c); aac7, needs OFI=1
-#   make XSHMEM=ofi ecalc                            + the engine comm_xshmem.c (COMM_TRANSPORT=xshmem; S3a)
-#   make XSHMEM=cray tests/t_xshmem                  Cray SHMEM backend (xshmem_cray.h, static inline); 11.8 on aac7, 12.1 on the target
-# XSHMEM_CRAY_DEFS = -D selectors of
-# xshmem_cray.h (XSHMEM_CRAY_HEAP, _SIGSET, _WAIT, _TEST, _PUTSIG_SPLIT).  XTEST_OBJS = extra objects for tests/t_xshmem (e.g. comm_ofi.o).
+# ---- XSHMEM: the communication layer behind xshmem.h (the only multi-node transport).  On by default wherever libfabric (OFI=1) and the PMI2
+# header are found, else 0 (the build without the engine: it still builds, COMM_TRANSPORT=xshmem is then a fatal at start).
+#   make                                             XSHMEM=ofi (path 1): libfabric cxi backend (xshmem_ofi.c, xshmem_boot.c PMI2, pe_geo.c)
+#   make XSHMEM=cray                                 (path 2): Cray SHMEM backend (xshmem_cray.h, static inline); aac7: `module load cray-dsmml cray-openshmemx`
+#   make XSHMEM=ofi tests/t_xshmem tests/t_pe_geo    the engine tests (build with -B when switching XSHMEM)
+# XSHMEM_CRAY_DEFS = -D selectors of xshmem_cray.h (XSHMEM_CRAY_HEAP, _SIGSET, _WAIT, _TEST, _PUTSIG_SPLIT).  XTEST_OBJS = extra objects for tests/t_xshmem.
 PMI_HOME ?= /opt/cray/pe/pmi/default
 XSHMEM ?= $(if $(and $(filter 1,$(OFI)),$(wildcard $(PMI_HOME)/include/pmi2.h)),ofi,0)
 XSHMEM_CRAY_DEFS ?=
 XTEST_OBJS ?=
-XTEST_RUN_DEPS =
+XSHMEM_LIBS =
 ifeq ($(XSHMEM),ofi)
 ifneq ($(OFI),1)
 $(error XSHMEM=ofi needs libfabric headers: OFI=1 (LIBFABRIC=$(LIBFABRIC)))
@@ -233,32 +111,29 @@ $(error XSHMEM must be 0, ofi or cray)
 endif
 
 ifneq ($(XSHMEM),0)
-xshmem_ofi.o: xshmem_ofi.c xshmem.h xshmem_boot.h pe_geo.h
+xshmem_ofi.o: xshmem_ofi.c $(HDRS)
 	$(HIPC) $(XSHMEM_CFLAGS) -c $< -o $@
-xshmem_boot.o: xshmem_boot.c xshmem_boot.h env_int.h
+xshmem_boot.o: xshmem_boot.c $(HDRS)
 	$(HIPC) $(XSHMEM_CFLAGS) -c $< -o $@
-pe_geo.o: pe_geo.c pe_geo.h env_int.h
+pe_geo.o: pe_geo.c $(HDRS)
 	$(HIPC) $(XSHMEM_CFLAGS) -c $< -o $@
-pe_geo_nb.o: pe_geo.c pe_geo.h env_int.h
+pe_geo_nb.o: pe_geo.c $(HDRS)
 	$(HIPC) $(XSHMEM_CFLAGS) -DPE_GEO_NOBOOT -c $< -o $@
-tests/t_xshmem: tests/t_xshmem.c xshmem.h xshmem_cray.h $(XOBJS) tests/harness.h
-	$(HIPC) $(XSHMEM_CFLAGS) $< -x none $(XOBJS) $(XTEST_OBJS) -o $@ $(XSHMEM_LIBS) $(SHMEM_LIBS)
+tests/t_xshmem: tests/t_xshmem.c $(XOBJS) $(HDRS) tests/harness.h
+	$(HIPC) $(XSHMEM_CFLAGS) $< -x none $(XOBJS) $(XTEST_OBJS) -o $@ $(XSHMEM_LIBS)
 ifeq ($(XSHMEM),ofi)
-tests/t_pe_geo: tests/t_pe_geo.c pe_geo.c pe_geo.h xshmem_boot.o
-	$(HIPC) $(XSHMEM_CFLAGS) -I. $< pe_geo.c -x none xshmem_boot.o -o $@ $(XSHMEM_LIBS)
-tests/t_pe_geo_live: tests/t_pe_geo_live.c pe_geo.c pe_geo.h xshmem_boot.o xshmem_boot.h
+tests/t_pe_geo: tests/t_pe_geo.c pe_geo.c $(HDRS) xshmem_boot.o
 	$(HIPC) $(XSHMEM_CFLAGS) -I. $< pe_geo.c -x none xshmem_boot.o -o $@ $(XSHMEM_LIBS)
 endif
-# S3a (plan TARGET1): with XSHMEM=ofi or cray every binary that links OBJS (ecalc and the tests) also links the xshmem engine (comm_xshmem.c:
-# COMM_TRANSPORT=xshmem) and the backend; mn.o is compiled with -DXSHMEM_ENGINE (without it COMM_TRANSPORT=xshmem is a fatal at start).
-# (P5: XSHMEM=cray builds the SAME engine, XOBJS empty: the backend is the inline xshmem_cray.h and -lsma.)  The object list and flags below are applied only under XSHMEM=ofi|cray; rebuild with -B when switching.
-comm_xshmem.o: comm_xshmem.c xshmem_round.h comm.h vpe.h xshmem.h xshmem_boot.h pe_geo.h comm_trace.h comm_phase.h
+# every binary that links OBJS (ecalc and the tests) also links the engine (comm_xshmem.c) and the backend; mn.o is compiled with -DXSHMEM_ENGINE
+# (without it COMM_TRANSPORT=xshmem is a fatal at start).  XSHMEM=cray builds the SAME engine, XOBJS = pe_geo_nb.o: the backend is the inline
+# xshmem_cray.h and -lsma.  Rebuild with -B when switching XSHMEM.
+comm_xshmem.o: comm_xshmem.c $(HDRS)
 	$(HIPC) $(XSHMEM_CFLAGS) -DXSHMEM_ENGINE -c $< -o $@
 OBJS += comm_xshmem.o $(XOBJS)
-SHMEM_LIBS += $(XSHMEM_LIBS)
 mn.o: comm_xshmem.o $(XOBJS)
 mn.o: HIPFLAGS += -DXSHMEM_ENGINE
 else
-tests/t_xshmem tests/t_pe_geo tests/t_pe_geo_live:
+tests/t_xshmem tests/t_pe_geo:
 	@echo "set XSHMEM=ofi or XSHMEM=cray (XSHMEM=0 here: libfabric or PMI2 not found)"; false
 endif

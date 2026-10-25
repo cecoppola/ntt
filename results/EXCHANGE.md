@@ -4,18 +4,6 @@ Scope: the all-to-all exchange in every transport: all-gather, layered exchange 
 
 Sections moved to `archive:results_merged_2026-10-24/EXCHANGE.md` (2026-10-24 cleanup): A-comm; C; X13b.
 
-| item | title |
-|---|---|
-| A-comm | M7: all-gather in every transport, the layered exchange two-deep, slab pipelining (2026-09-19) |
-| C | B7 `alltoallv` in every transport, C4 the two-plane pipeline, C5 `DIST_STATS` under pipelining (2026-09-20) |
-| X13 | xGMI and the fabric at the same time (PLAN.md §29 E9 part 1, H4), Phase 13a |
-| X13b | the uneven exchange two deep, one-kernel transposes, faster packs (PLAN.md §31 row X, axis A) |
-| A07 | (N7 / opportunity C6): the result-exchange rank gradient in the dm / bs products |
-| K1b | raw-once gather (S39 candidate A, O7b lever 3), `DIST_GATHER_RAW` |
-| S50 | k_gather coalesced write (`DIST_GATHER_TILE`) |
-| P2 | speed up k_gather: stopped after a micro-probe |
-| K6 | single-node C-tier all-to-all: overlap across primes (`RNS_DIST_OVERLAP`) |
-
 ## Topic summary
 
 What this is: how data moves between ranks (APUs over xGMI, nodes over the fabric, the layered combination) and how that movement is hidden under compute, plus the gather kernels that feed the single-node product.

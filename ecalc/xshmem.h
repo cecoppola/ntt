@@ -26,7 +26,7 @@
  * XAPI xshmem_ctx_create         int  (long opt, xshmem_ctx_t *c)
  * XAPI xshmem_ctx_destroy        void (ctx)
  * XAPI xshmem_barrier_all        void (void)                          init/finalize/test only
- * XAPI xshmem_ptr                void*(const void *p, int pe)         NULL unless the backend can map it (XSHMEM_PEER / XSHMEM_IPC hipIpc in ofi, shmem_ptr in cray)
+ * XAPI xshmem_ptr                void*(const void *p, int pe)         NULL unless the backend can map it (XSHMEM_PEER hipIpc in ofi, shmem_ptr in cray)
  * XAPI xshmem_progress           void (void)                          engine hook, no SHMEM name; safe from 1 worker thread + 1 caller
  * XAPI xshmem_topo               int  (xshmem_topo_t *t)              0 = ok; no SHMEM name; ofi: from pe_geo
  * XAPI xshmem_caps_query         void (xshmem_caps_t *c)              no SHMEM name
@@ -123,17 +123,10 @@ typedef struct xshmem_topo {
 } xshmem_topo_t;
 
 /* ---- configuration: every XSHMEM_* switch is read here and nowhere else (registry sites; defaults all "off / unset") ---- */
-enum { XSHMEM_SIG_DC = 0, XSHMEM_SIG_FLUSH = 1, XSHMEM_SIG_WAW = 2 };
-enum { XSHMEM_MR_LIBSMA = 0, XSHMEM_MR_OFI = 1 };
 typedef struct xshmem_cfg {
-    int sig;          /* XSHMEM_OFI_SIG   dc|flush|waw            (ofi backend; default dc) */
     int lanes;        /* XSHMEM_LANES     lanes per PE, default 1 (same literal as pe_geo.c) */
     long heap_mb;     /* XSHMEM_HEAP_MB   0 = backend / planner default */
-    int mrmode;       /* XSHMEM_MRMODE    libsma|ofi              (ofi backend; default libsma, B2 reports the other) */
     int ctrl_host;    /* XSHMEM_CTRL      heap|host               (default heap) */
-    int local;        /* XSHMEM_LOCAL     0|1  engine uses xshmem_ptr paths (default 0) */
-    int ipc;          /* XSHMEM_IPC       0|1  ofi backend maps node-local heaps with hipIpc (default 0) */
-    int noyield;      /* XSHMEM_YIELD     0 = the waits and the worker never sched_yield (default 1: they do) */
     int loopback_pes; /* XSHMEM_LOOPBACK_PES  PEs hosted by one process (ofi backend; default 1 = one PE per process) */
     int peer;         /* XSHMEM_PEER      0|1  node-local PEs exchange payload by device copies through hipIpc-mapped heaps, not the NIC (ofi backend + engine; unset = -1 = on with one PE per process (Q100), off with loopback PEs; inert on the Cray backend) */
 } xshmem_cfg_t;
@@ -142,15 +135,9 @@ static inline void xshmem_cfg_load(xshmem_cfg_t *c)
 {
     const char *e;
     memset(c, 0, sizeof *c);
-    e = getenv("XSHMEM_OFI_SIG");
-    if (e && !strcmp(e, "flush")) c->sig = XSHMEM_SIG_FLUSH; else if (e && !strcmp(e, "waw")) c->sig = XSHMEM_SIG_WAW;
     e = getenv("XSHMEM_LANES");    c->lanes = e ? atoi(e) : 1;
     e = getenv("XSHMEM_HEAP_MB");  c->heap_mb = e ? atol(e) : 0;
-    e = getenv("XSHMEM_MRMODE");   c->mrmode = (e && !strcmp(e, "ofi")) ? XSHMEM_MR_OFI : XSHMEM_MR_LIBSMA;
     e = getenv("XSHMEM_CTRL");     c->ctrl_host = (e && !strcmp(e, "host")) ? 1 : 0;
-    e = getenv("XSHMEM_LOCAL");    c->local = e ? atoi(e) : 0;
-    e = getenv("XSHMEM_IPC");      c->ipc = e ? atoi(e) : 0;
-    e = getenv("XSHMEM_YIELD");    c->noyield = e && atoi(e) == 0;
     e = getenv("XSHMEM_LOOPBACK_PES"); c->loopback_pes = e ? atoi(e) : 1;
     e = getenv("XSHMEM_PEER");     c->peer = e ? atoi(e) : -1;
 }

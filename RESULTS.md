@@ -31,26 +31,25 @@ Run times at the current engine are in `PLAN.md` §2; this table holds the figur
 | 4-node run-to-run modes (libfabric era, `comm_ofi`) | fast ≈ 181-185 s, slow ≈ 208-214 s: the inter-node all-to-all rate is set per launch | m | results/NODE_SLOWMODE.md §T05, §T09 |
 | 4-node calibration (libfabric era) | total ≈ 80.8 s + 1388 / r (r = all-to-all GB/s per APU thread), residual sd 1.6 s | m/mod | results/TOOLS_PROFILES.md §B07 |
 | target: 576 nodes, 3.82 × 10¹³ digits | ≈ 182-185.5 s without the write (profile `target_l4`; fabric rate assumed; 182 s in results/TIME_MODEL.md §L4, `PLAN.md` §2 quotes 185.5 s; the two differ by the model version, not re-reconciled here) | mod | results/TIME_MODEL.md §L4, `PLAN.md` §2 |
-| target device memory, rank 0, 3.82 × 10¹³ | margin 12.9 GB under the 373.44 GB/node edge (`MN_T_CHUNK_MB=2048`, X2, slot release) | mod | results/LAUNCH_DEFAULTS.md §L1 |
+| target device memory, rank 0, 3.82 × 10¹³ | margin +14.48 GB under the 373.44 GB/node edge (device 358.96 GB per node; `MN_T_CHUNK_MB=2048`, X2, slot release; the planner figure of 2026-10-19 that replaced the 12.9 GB of L1; not re-run since `BS_ARENA_ROOM` 0.14; re-check 2026-10-25 (m, planner, `plan_values.py --fit` with `ECALC_NP=auto MN_T_CHUNK_MB=2048`): device 407.41 GB per node, margin -33.97 GB, refused; identical on main 0d052a9 and after cleanup round 4; cause open (TASKS)) | mod | results/LAUNCH_DEFAULTS.md §FIT |
 | target device edge | 93.36 GB per APU = 373.44 GB per node (n = 5, 0 % spread) | m (target) | results/TARGET.md §TGTBENCH2 |
 | `BS_ARENA_TRIM_GB=8` (opt-in, default 0), 2 n 1.2882e11 | arena -34.4 GB per node (266.3 -> 231.9); 115.2 s (7 runs) vs 111.4 s (5 runs); 3 n 1.9323e11: 149.4 vs 149.6 s; 0 remaps | m | results/MEMORY.md §ATRIM |
-| `comm_ofi` vs plain SHMEM, 10 nodes, 8.1 × 10¹¹ (fallback transport) | 1669.98 vs 3532.05 s (× 2.1) | m | results/OFI_FABRIC.md §OFI17 |
 | memory fit before every launch (D26): the planner refuses a run that does not fit | target 3.82e13:576: 358.96 GB device vs 373.44 (`DM_MN_WRAP` off; with it 384.73, refused); aac7 6 nodes 374.22 vs 444 | mod/m | results/LAUNCH_DEFAULTS.md §FIT |
 | node screen NIC check `tools/nodescreen.sh --want-nics N` | flags nodes whose runtime sees fewer cxi NICs; 4-node check: 4 seen, all flagged at want 8 (positive control) | m | results/NODE_SLOWMODE.md §NIC |
 | checkpoint recheck at scale | 6 n 3.8646e11: write 1473 s, VERIFY OK, RECHECK OK on all nodes; recheck 7380 s (model ≈ 1 h); "short read" was NFS EIO under 512 MiB reads, reads now ≤ 64 MiB with retries | m/mod | results/CHECKPOINT.md §CKPT |
 
-## Multi-node transport in force (Q73, Q85, Q96)
+## Multi-node transport in force (Q73, Q85, Q96, Q100, Q103)
 
 | change | since | effect | label | evidence |
 |---|---|---|---|---|
-| `COMM_TRANSPORT=xshmem`, `XSHMEM_ROUND_MB=128`, `XSHMEM_ORDER=rot` is the default multi-node transport (default build `XSHMEM=ofi`; `COMM_TRANSPORT=shmem` is the fallback) | 2026-10-21 | 3 n 1.9323e11: xshmem 149.3 s (sd 1.2, n 8) vs libfabric reference 157.3 s (sd 6.8, n 9), paired -8.5 s [-14.0, -3.0], 8/8 pairs; default 153.2 vs explicit shmem 161.3 s; gates 1/2/3 n PASS, mnaccept mn 5/5, unit 9/9; whole-exchange staging fails the memory budget at full size, hence the rounds | m | results/XSHMEM.md §10, §7 |
+| `COMM_TRANSPORT=xshmem`, `XSHMEM_ROUND_MB=128` is the only multi-node transport (`XSHMEM_ORDER` fixed to `rot` 2026-10-25) (default build `XSHMEM=ofi`); the plain SHMEM transport (`COMM_TRANSPORT=shmem`, `comm_shmem.c`) and `COMM_TRACE` were removed 2026-10-25 (Q103) | 2026-10-21 | 3 n 1.9323e11: xshmem 149.3 s (sd 1.2, n 8) vs libfabric reference 157.3 s (sd 6.8, n 9), paired -8.5 s [-14.0, -3.0], 8/8 pairs; default 153.2 vs plain shmem 161.3 s (10 n 8.1e11: libfabric 1669.98 vs shmem 3532.05 s, `results/OFI_FABRIC.md §OFI17`); gates 1/2/3 n PASS, mnaccept mn 5/5, unit 9/9; whole-exchange staging fails the memory budget at full size, hence the rounds | m | results/XSHMEM.md §10, §7 |
 | Cray SHMEM backend `xshmem_cray.h` (`XSHMEM=cray`), zero engine changes | 2026-10-21 | 1e9 identical at 1, 2, 3 n; `t_xshmem` PASS; first-run failure (unregistered heap tail page) fixed | m | results/XSHMEM.md §8 |
-| one process per GPU `ECALC_PE_PER_GPU=1` (path 2 layout; default layout stays D), `XSHMEM_LANES`, `RNS_BATCH_SPLIT` | 2026-10-23 | digits identical to D at 1, 2, 3 n on both backends; P faster at small sizes, equal at 3 n 1e11 (path 1) | m | results/XSHMEM.md §PPG, §BSPLIT |
+| one process per GPU `ECALC_PE_PER_GPU=1` (path 2 layout; default layout stays D), `XSHMEM_LANES`, `RNS_BATCH_SPLIT` (automatic under `ECALC_PE_PER_GPU=1`, Q110, 2026-10-25) | 2026-10-23 | digits identical to D at 1, 2, 3 n on both backends; P faster at small sizes, equal at 3 n 1e11 (path 1) | m | results/XSHMEM.md §PPG, §BSPLIT |
 | NUMA placement for Cray builds under P (`XSHMEM_CRAY_NUMA=1`, `MNRUN_PPG_CPUBIND=ldom`, set by `mnrun.sh`) | 2026-10-23 | cured the Cray stalls (40-107 s runs -> 35-38 s at 3 n 1e10); THP disable did not | m | results/XSHMEM.md craylane |
-| exchange worker `ECALC_XEX_THREAD=1` in every layout | 2026-10-24 | see Current figures | m | results/XSHMEM.md §XWLAT |
-| `COMM_SHMEM_NP_HEAP_THP=1` (fallback transport's node-process heap in 2 MiB pages, D48) | 2026-10-18 | stalls 0 in 16 runs vs 9 in 24 | m | results/SHMEM.md |
+| exchange worker thread in every layout (`ECALC_XEX_THREAD` removed 2026-10-25, always on) | 2026-10-24 | see Current figures | m | results/XSHMEM.md §XWLAT |
+| `XSHMEM_PEER` default on with one PE per process (Q100); `=0` restores the NIC path; layout D and the Cray backend unaffected | 2026-10-25 | same-node PEs exchange by hipIpc device copies: P at 1 n 3.3e10 51.6 -> 34.9 s, 2 n 6e10 69.7 -> 49.0 s; per-PE DATA heap peak 256 of 768 MiB | m | results/SINGLE_NODE.md §PEER |
 | `COMM_LAYER_INTER2` removed: one exchange in flight is faster on both transports | 2026-10-21 | SHMEM 143.2 vs 149.9 s, libfabric 137.2 vs 140.2 s (3 n 1.9323e11) | m | results/SHMEM.md |
-| Cray SHMEM 11.8 tuning phase closed (2026-10-21): the 3 n gap was the layered variable-count exchange (SHMEM 157.0 vs libfabric 143.0 s, 6 pairs); 21 environment settings, DEVHEAP2, DEVSRC, zero-copy and NUMA flush gave nothing | 2026-10-21 | proxy mode (one helper PE per APU) measured, then removed in P7 (Q78) | m | results/SHMEM.md |
+| Cray SHMEM 11.8 tuning phase closed (2026-10-21): the 3 n gap of the plain SHMEM transport was the layered variable-count exchange (SHMEM 157.0 vs libfabric 143.0 s, 6 pairs); 21 environment settings, DEVHEAP2, DEVSRC, zero-copy and NUMA flush gave nothing | 2026-10-21 | proxy mode measured, then removed (Q78); the transport itself went in Q103 | m | results/SHMEM.md |
 
 ## Adopted changes in force (code defaults)
 
@@ -74,10 +73,11 @@ names identify the change only.
 | transport opened before the arenas (`COMM_INIT_EARLY`, built in) | 2026-10-05 | init segfault 8/78 before; ≥ 32 processes start | m | results/CRASHES_HANGS.md §S16 |
 | `DIST_CHUNKS=8` (was 4) | 2026-10-07 | device -13.4 GB at 576 nodes for +2.4 s | mod | results/GRID_GROUPS.md §S45 |
 | exchange slots in the node budget; `COMM_LAYER_VSLOT_SHARE` and `_RELEASE` always on; transform cache sized and counted | 2026-10-07..19 | -8.4 GB per node (share) and -8.60 GB device peak (release) at 4 n; cache required at the target | m/mod | results/GRID_GROUPS.md §S36, §C06, §B7ACCT, results/CACHE.md §TC15 |
-| `BS_SEED_FILL=128`, `DB_POOL_VMM=1`, `MN_T_CHUNK_MB=1024` code default | Phase 14/15 | seeds fill their lengths; no in-phase allocation; pool 81.6 -> 45.0 GB per node | m/mod | results/SINGLE_NODE.md §T215, results/DIVISION.md §R114, results/SHMEM_ITEMS.md §P214 |
+| `BS_SEED_FILL=128`, `DB_POOL_VMM=1`, `MN_T_CHUNK_MB=1024` code default | Phase 14/15 | seeds fill their lengths; no in-phase allocation; pool 81.6 -> 45.0 GB per node | m/mod | results/SINGLE_NODE.md §T215, results/DIVISION.md §R114, results/SHMEM.md §P214 |
 | `MN_NONPOW2_CAP` auto from 4.5e10 digits per node-process (Q58) | 2026-10-20 | 6 n 3.70e11 -18.3 s (libfabric), +41.3 GB plane memory per node; 3 n 6e10 +8.9 s with it on | m | results/DIVISION.md §NPCAP |
+| `BS_ARENA_ROOM` 0.14 (was 0.16; Q99) | 2026-10-25 | -8.6 GB device memory per node at the 2 n bs-phase peak, 0 remaps, time neutral (4 ABBA pairs); `BS_ARENA_ROOM=0.16` restores | m | results/MEMORY.md §AS15 |
 | `ECALC_BUDGET_CHECK=1`, `ECALC_MEM_GUARD_GB` | Phase 14 | named stop (rc 8 / rc 9) instead of the OOM killer | m | results/MEMORY.md §L114 |
-| T1 moduli: the first eight primes above 2⁶² | Phase 11 | earlier moduli were composite | m | results/TESTING_VERIF.md §V |
+| T1 moduli: the first eight primes above 2⁶² | Phase 11 | earlier moduli were composite | m | results/CHECKPOINT.md §V |
 | two-deep v-exchange (built in) | Phase 13 | xGMI stage hidden under the fabric (1.4 -> 74 %) | m | results/EXCHANGE.md §X13 |
 
 ## Launch-line settings in force (not code defaults)
@@ -88,7 +88,6 @@ On both launch lines (`profiles/aac7.conf` `LAUNCH_LINE_KEYS`; `profiles/target.
 |---|---|---|---|
 | `MN_T_CHUNK_MB=2048` | aac7: 24 paired rounds, mean -42.3 s, p ≈ 0.04; 4-node recheck inconclusive (+6.98 s [-10.3, +24.3]) | m | results/SESSIONS.md §S22, results/LAUNCH_DEFAULTS.md §S47 |
 | X2: `COMM_LAYER_VSLOT_POOL=1` (code default) | -31.7 s at 10 nodes (CI -55.7 .. -7.8) | m | results/SESSIONS.md §S31 |
-| `COMM_SHMEM_ROUND_MB=128` (fallback transport only; was 1024, Q60) | SHMEM pool 45.0 -> 9.8 GB per node at 1024; host staging 10.2 -> 3.1 GB per node at 2 n at 128 | m | results/SHMEM_ITEMS.md §V114 |
 | `ECALC_SEGV_TRACE=1` | crash-trace handler only | - | results/LAUNCH_DEFAULTS.md §B01 |
 
 ## Open measurement questions

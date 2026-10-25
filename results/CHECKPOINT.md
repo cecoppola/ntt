@@ -1,16 +1,8 @@
-# CHECKPOINT — checkpoint and restart of the binary-splitting phase
+# CHECKPOINT — checkpoint, restart and the verification record
 
-Scope: checkpoint and restart of the binary-splitting phase: per-node checkpoints, hardening, restart under another MN_GROUPS. | Owner of the items below (condensed 2026-10-19 from the merged per-item reports; originals in `archive:results_merged_2026-10-19/`; old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers are in `archive:results_raw_2026-10-19/`.
+Scope: checkpoint and restart of the binary-splitting phase (per-node checkpoints, hardening, restart under another MN_GROUPS) and how the project proves its digits right (§V: T1 moduli, the standalone recheck; the former TESTING_VERIF, merged 2026-10-25). | Owner of the items below (condensed 2026-10-19 from the merged per-item reports; originals in `archive:results_merged_2026-10-19/`; old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers are in `archive:results_raw_2026-10-19/`.
 
-Sections moved to `archive:results_merged_2026-10-24/CHECKPOINT.md` (2026-10-24 cleanup): WP7; A-ckpt; G6 (TASKS 1.6 / 1.7).
-
-| item | title |
-|---|---|
-| WP7 | checkpoint and restart of the binary-splitting phase |
-| A-ckpt | M6, per-node checkpoints of the binary-splitting phase (PLAN.md §19) |
-| N13 | Phase 13a agent N — checkpoint hardening (TASKS 1.7, 4.1, 1.4) |
-| G6 | (TASKS 1.6 / 1.7): checkpoint restart under another MN_GROUPS / node count |
-| CKPT | the recheck could not read the top-level set of the 6-node 3.8646 × 10¹¹ run |
+Sections moved to `archive:results_merged_2026-10-24/CHECKPOINT.md` (2026-10-24 cleanup): WP7; A-ckpt; G6 (TASKS 1.6 / 1.7); from the verification record: W; T; WP6; CX; WM15; N414; FIX117 (`archive:results_merged_2026-10-24/TESTING_VERIF.md`).
 
 ## Topic summary
 
@@ -21,6 +13,14 @@ Sections moved to `archive:results_merged_2026-10-24/CHECKPOINT.md` (2026-10-24 
 - aac7 compute nodes mount the home file system NFS soft; a huge single O_DIRECT `pread` can fail with EIO under load (CKPT). The reader now reads ≤ 64 MiB per call with retries; confirmed at scale 2026-10-14 (0 retries).
 - A recheck at 6 nodes / 3.8646 × 10¹¹ takes 7380 s (m); use a timeout of ≥ 3 h (TESTING.md §3). The part-file pass at 12.5 MB/s per node is the recheck's main cost (TASKS "Proposed" candidate).
 - Never run at 10¹⁰ / 4 × 10¹⁰ for the removed restart; extrapolations there were by the measured per-node rate only.
+
+## Verification summary (from the former TESTING_VERIF)
+
+- **The "intermittent size > 1 verification failure" (D5) is closed.** (a) §V found seven of the eight T1 moduli composite (two divide every Q, so T1 was blind there) and replaced them by the first eight primes above 2^62 (digits unchanged); (b) the real fault was a timing-dependent wrong leaf P, Q on node 0 or 1 under forced growth of plane pool 1, localised in §V and fixed in Phase 12 R (the batch tier's odd-node copy `mem_dev_copy_on` did not wait for its copy; `archive:results_merged_2026-10-24/CRASHES_HANGS.md §R`).
+- Standing tools: `mnaccept.sh` (the gate per TESTING.md owns the step list); `ECALC_RECHECK=1` standalone recheck of a finished run from its part files and the top-level P, Q set (§V); per-level check switches `ECALC_RES_LOG`, `ECALC_RES_LOG_LEVEL`, `ECALC_LEAF_DUMP` (debug).
+- `RNS_PLANES_FIRST`: 2.01x at 1.42 x 10^11 on a node with a small 2 MiB-block supply (1349.7 -> 672.0 s, m); an adopted default. `mnrun.sh` detects SOS vs OSHMEM from the binary's ELF dependencies.
+- Weak-memory audit (Phase 15): about 60 sites read, one real hazard (WAR between a sender's xGMI push and the receiver's unpack of the previous transform), fixed by an event wait (`DIST_RB_WAIT`, default on), demonstrated failing 52/52 under an induced lag (`DIST_TEST_LAG_MS`), no measurable cost.
+- `mnaccept` unit tests cannot pass on a GPU-partitioned (CPX) node (about 22.9 GB per logical GPU); `t_ntt 24` always fails its speed check on CPX (hardware).
 
 ## N13 — Phase 13a agent N — checkpoint hardening (TASKS 1.7, 4.1, 1.4)
 
@@ -84,3 +84,31 @@ Cause: compute nodes mount the home file system NFS soft (`timeo=600,retrans=2`,
 **Proof at scale (2026-10-14, commit 34175cf, 6 nodes, 3.8646 × 10¹¹, `ECALC_CKPT_TOP=1`, one run, m).** Whole run 1473.26 s, VERIFY OK, first 10¹¹ digits identical; standalone `ECALC_RECHECK=1`: RECHECK OK on all nodes (7 OK, 0 FAILED), 0 `spill: read at offset` retries, wall 7380 s (2 h 3 min) against ≈ 3330 s modelled (2140 s parts + 1190 s set): the model was low by ≈ 2.2 ×, as 6-node file-system rates are below the 2-node rates (mod). The 16 short reads did not recur. TESTING.md §3 keeps ≥ 3 h for the 6-node large run (twice the model, 2 h, would be below the measured 2 h 3 min).
 
 **Open issues.** The part-file pass at 12.5 MB/s per node (a quarter of the set's O_DIRECT rate) is the recheck's main cost (TASKS "Proposed" candidate). The writer waited 499 s for P before S = P + Q at 3.8646 × 10¹¹ (57 GB at 56 MB/s per node): `=1` costs run time on this file system, `=2` drops the set instead. Nothing else open.
+
+## V — verification and cleanup (Phase 11, PLAN.md §26 row V: D5, ECALC_RECHECK, E1 (c), E2)
+
+Branch `v11` from `main` 72aa2e9. Files: `verify.c`, `mn_out.c/.h`, the residue kernel of `dbig.c`, the output tail of `ecalc.c`, `t_dist.c`, deletions in `ntt_dist.c` and `binsplit.c`, `.gitignore`, README; minimal touches in `newton_db.c`, `mem.c` (`MEM_DPOOL_FILL` test knob), `binsplit.c` (`bs_res_check` per level).
+
+#### D5 — the intermittent size > 1 verification failure
+**The checker's signature was a composite-moduli artefact.** Three failures (A-mem x2, T's d5b) printed `P BAD, Q BAD, T(P+Q) == XQ+R BAD` at q0, q1, q3, q4, q5, q7 and ok at q2, q6, with wrong digits each time. PLAN §23-6 read this as "the residue path's fault, not a wrong number": wrong. **Seven of the eight "primes" in `verify.c` were composite** (2^62 + {135, 179, 183, 247, 315, 319, 349, 397}; only 2^62 + 135 prime). q2 = 2^62 + 183 and q6 = 2^62 + 349 have all factors below 2.5 x 10^7, so every node's Q(a, b) (a product of >= 2.9 x 10^8 consecutive integers) is 0 mod q2 and q6; there T1 is blind (0 == 0, X drops out, P sees only the top node's range). So a wrong P or Q from any node below the top is caught at the six other moduli and passes at q2, q6: exactly the observed pattern, i.e. a genuinely wrong bs result correctly flagged.
+**Fix (verify.c, commit 66ee599):** `t1_q` is now the true first eight primes above 2^62 (2^62 + 135 ... 277). T1 numbers, `RES` logs and `.t1` sidecar residues change; digits do not (10^9 and 4 x 10^10 identical). A wrong P now shows BAD at all eight.
+**The real fault, localised** (instrumentation `ECALC_RES_LOG=1`, `ECALC_RES_LOG_LEVEL`, `ECALC_LEAF_DUMP=<dir>`; reproducer 10^10 at size 4, `POOL_LOG=29 RNS_POOL1_GB=3.2213`: pool 1 at 3 GiB grows to 4 GiB at the first batch-local level; `v11_d5.sh <job> 14 shard`):
+
+| batches | runs | result (m) |
+|---|---|---|
+| 1 (old moduli) | 5 | 4 identical, shard5 failed (digits differ from byte 2 287 655 016; wrong P and Q) |
+| 2 (new moduli, leaf check) | 4 | 2 identical; node 0's leaf P/Q BAD in one, node 1's in another; other leaves agree with the recurrence |
+| 5 (no level checks, leaf dumps) | 13 | 11 identical; two wrong leaves (node 1: P differs from limb 131 584 up, Q from 4 092 871; node 0: P from limb 131 072, Q from 4 092 358) |
+| 3, 6, 7 (per-level checks from level 17 / 11; batch 7 CPU-only read) | 5 + 12 + 14 | 31 of 31 identical, every level ok |
+
+Without per-level checks 21 identical and 5 failed of 26 forced-growth runs, every failure a **wrong leaf P_r, Q_r of node 0 or 1** (never 2 or 3), wrong from a limb ~2^17 (P) / 2^22 (Q) to the top, everything downstream consistent with it; the hand-over copy agrees. With any per-level check 0 of 31 failed (0.15 % if the check were neutral): a **timing-dependent error in the leaf's level loop under in-phase growth of plane pool 1**, hidden by anything separating one level's end from the next level's start. Default-configuration runs (~15 at 10^10/4) never failed (A-mem's rule: pool 1 at full pool for `POOL_LOG` <= 30). Localisation delivered: the CPU-to-GPU hand-over in the batch tier (CPU `spill_merge` writes, then the next level's scatter). It was later found and fixed in Phase 12 R (`archive:results_merged_2026-10-24/CRASHES_HANGS.md §R`).
+Verdict at the time: (1) the checker was not at fault and is now stronger (the digits were wrong in every failing run; PLAN §23-6's "digits right" was mistaken); (2) a second, real fault exists (5/26 unperturbed runs), then open. The gate "20 forced-growth runs all VERIFY OK" was met only with the probe (31/31), not without (21/26): both reported.
+
+#### `ECALC_RECHECK=1` — the standalone recheck (mn_out.c)
+The run writes `<outfile>.t1` (node 0: N, d, d_out, size, moduli, residues of X, R, P, Q, and the d - d_out computed digits after d_out). `ECALC_RECHECK=1 ./ecalc <digits> <outfile>` (through `mnrun.sh <size>` at size > 1, same `BS_CKPT_DIR`) then, with no pools and no computation: reads each node's part file in 256 MB chunks (digit residues by Horner; counts and 49-char tails all-gathered), forms X mod q from the file, checks the T2 windows, takes P and Q mod q from the checkpointed top-level shares (`bs_ckpt_tree_read` of level ceil(log2 size); size 1: the level-0 set written with `ECALC_CKPT_TOP=1`), recomputes the term recurrence per node, and runs T1 with R's residues from the sidecar (the one value not recomputable without redoing the division) plus `digits -> X mod q == the run's` and `P, Q from the checkpoint == the run's`. Prints `RECHECK OK` / `FAILED` per node. Without a checkpoint it says so and takes P, Q from the sidecar (only the file and the recurrence are then independent).
+Formats: T1 moduli changed (sidecar records them; the recheck refuses others); new `<outfile>.t1` (~400 B) and optional `tree_000.{hdr,r0..r3}`; `mn_out` gained `tail[24]`, `pq_bg` a `joined` flag.
+Also E1 (c) deleted: `DIST_PLANE2` (`dist_fwd2/inv2`, see `results/EXCHANGE.md §C`), `BS_SEED_DIRECT=0`, the `ECALC_OVERLAP_COPY` remnant; **`MN_DM=host` / `MN_COMBINE=host` stand-ins kept** (the only cross-check of the sharded division). E2: `.gitignore` `results/*` + `!results/*.md`.
+
+#### Gate runs (m)
+Regression (`mnaccept.sh --full`, 45ef12e): **17 passed, 0 failed, 1904 s**; 10^9 size 1 both bases identical (14.3 / 25.1 s); 10^8 sizes 2/3/4 and 10^9 sizes 2/4 identical; ckpt restart identical; **4 x 10^10 size 1 identical to the stored reference, VERIFY OK, total 86.21 s** (171 s with the write). Recheck mode (`v11_recheck.sh`; run, recheck, recheck of a file with one digit flipped): 10^8 and 10^9 at sizes 1 and 2 all RECHECK OK (10^8: 100 000 001 digits read in 0.1 s; size 2: P, Q from the checkpoint == recurrence == the run's) and every corrupted copy RECHECK FAILED (size 1 P, Q from the sidecar in that build). Forced-growth runs in total: 57 (26 without probe: 21 identical, 5 VERIFY FAILED with a wrong leaf; 31 with probe: 31 identical; the `MN_DM=host` runs identical).
+Open at the time: the leaf race (now fixed); size-1 recheck needs `ECALC_CKPT_TOP=1` at run time (2 x top-level P, Q: 35 GB at 4 x 10^10); the recheck reads part files where written (node-local `/tmp` means the same nodes); `ECALC_RES_LOG=1` is a debug mode (~30 s of bs per run with the level probe).

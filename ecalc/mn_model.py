@@ -12,7 +12,7 @@ chains and cuts the code forms) from the measured 2^31-point piece product and t
     ./mn_model.py estimate --help            every option (fabric profile, design, cache, write bandwidth)
 
 The default design is DEFAULT15C (the code's defaults of 2026-09-28 on the target's launch line: ECALC_NP=auto, COMM_SHMEM_ROUND_MB=1024,
-BS_ARENA_ROOM=0.16, RNS_DIST_CACHE_FIT=1); --b1 / --b0 / --p13 / --legacy give the older designs.  Two walls everywhere: without
+BS_ARENA_ROOM=0.16, RNS_DIST_CACHE_FIT=1); Two walls everywhere: without
 the disk write and with it (part file at --write-bw GB/s per node).  Everything printed as "modelled" is this script's arithmetic;
 "measured" cites the RESULTS section; the fabric figures of the target are assumed until measured there.
 """
@@ -171,7 +171,7 @@ TARGET_NIC_GBS = 50.0                  # user-supplied: 400 Gb/s per NIC (100 GB
 TARGET_BW_APU = TARGET_NICS_PER_APU * TARGET_NIC_GBS   # 100 GB/s per APU: now the user-supplied peak (was the assumed design value; number unchanged)
 TARGET_WRITE_BWS = (TARGET_WRITE_BW_FS,) + TARGET_WRITE_BWS   # every target estimate also prints the file system ceiling (user-supplied 1 TB/s / 576)
 # T06 (adopted by the user 2026-10-11): the layv exchange (general-map groups, g not a power of 2) at 65.5 % of the layeq rate, part of the
-# standing 576-node estimate (aac7 fit, aac7_s48_fit.json; one parameter, modelled). Only the non-power-of-2 groups are affected.
+# standing 576-node estimate (aac7 fit, aac7_fit.json (s48); one parameter, modelled). Only the non-power-of-2 groups are affected.
 TARGET_LAYV_FACTOR = 0.655
 TARGET = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=TARGET_BW_APU, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
 TARGET_DIGITS = mem_model.TARGET_DIGITS   # Phase 15 TGT (the user's decision of 2026-09-27 23:50 EDT): 5.1e13 on 576 nodes (was 4.25e13); mem_model.py holds it
@@ -194,19 +194,18 @@ AAC7 = Fabric("aac7 Slingshot-11 / Cray OpenSHMEMX (C16)", bw_apu=3.6, lat=8.5e-
 TARGET_M_CONSTS = dict(MAP_RATE=0.010)
 TARGET_DEVICE_EDGE_GB = 373.44
 TARGET_M = Fabric("Slingshot-2 dragonfly (PLAN 25), TGTBENCH2 measured constants", bw_apu=TARGET_BW_APU, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
-# S48 (2026-10-11): 'aac7_s48' = the aac7 profile refit to the 1/2/4/6-node scaling runs by archive:scripts_2026-10-23/refit_s48.py; it reads ecalc/aac7_s48_fit.json
+# S48 (2026-10-11): 'aac7_s48' = the aac7 profile refit to the 1/2/4/6-node scaling runs by archive:scripts_2026-10-23/refit_s48.py; it reads ecalc/aac7_fit.json (s48)
 # (written by `archive:scripts_2026-10-23/refit_s48.py --write-profile`; absent = the profile is refused).  Selected by --fabric aac7_s48 or its alias --fabric aac7 / MN_MODEL_PROFILE (B01, 2026-10-11: the aac7 default; the old one is aac7_c16).  The estimate.py default (no --fabric) stays the target profile.
-AAC7_S48_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aac7_s48_fit.json')
-AAC7_S48 = Fabric("aac7 S48 refit (placeholder until aac7_s48_fit.json is read)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
+AAC7_FIT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aac7_fit.json')   # {"s48": ..., "l4": ...}: the two refits
+AAC7_S48 = Fabric("aac7 S48 refit (placeholder until aac7_fit.json (s48) is read)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
 # B01 (the user's decision of 2026-10-11): 'aac7' now means the S48 refit (an alias of 'aac7_s48'); the previous aac7 profile (C16: 3.6 GB/s per
 # APU thread, AAC7_CONSTS) stays selectable by the name 'aac7_c16'.  No code default of ecalc changes (this is the model only).
 # L4 (2026-10-11, results/TIME_MODEL.md §L4): 'aac7_l4' / 'aac7_l4a' = the aac7 profile refit to ALL of 2026-10-11's multi-node runs with the corrected structure
 # (tree level = its slowest group, TREE_CRIT; operand/result/spill exchanges at k_other of the bulk rate; layv factor on the non-pow2 groups), per NIC
-# launch group: aac7_l4 = the fast group B (bulk rate bw_apu), aac7_l4a = the slow group A (bw_apu x alpha_slow).  Read from ecalc/aac7_l4_fit.json
+# launch group: aac7_l4 = the fast group B (bulk rate bw_apu), aac7_l4a = the slow group A (bw_apu x alpha_slow).  Read from ecalc/aac7_fit.json (l4)
 # (archive:scripts_2026-10-23/refit_s48.py --l4 --write-profile).  'target_l4' = the target fabric (100 GB/s ASSUMED, as 'target') with the L4 layv factor instead of T06's 0.655.
 # aac7_s48 and every other profile stay selectable and unchanged.
-AAC7_L4_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aac7_l4_fit.json')
-AAC7_L4 = Fabric("aac7 L4 refit, NIC group B (placeholder until aac7_l4_fit.json is read)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
+AAC7_L4 = Fabric("aac7 L4 refit, NIC group B (placeholder until aac7_fit.json (l4) is read)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
 AAC7_L4A = Fabric("aac7 L4 refit, NIC group A (placeholder)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
 TARGET_L4 = Fabric("Slingshot-2 dragonfly (PLAN 25), L4 layv factor (placeholder)", bw_apu=TARGET_BW_APU, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
 PROFILES = {'target': TARGET, 'aac7_c16': AAC7, 'target-m': TARGET_M, 'aac7_s48': AAC7_S48, 'aac7_l4': AAC7_L4, 'aac7_l4a': AAC7_L4A, 'target_l4': TARGET_L4}
@@ -223,13 +222,13 @@ def apply_profile(name):
         if 'MN_MODEL_MAP_RATE' not in os.environ: MAP_RATE = TARGET_M_CONSTS['MAP_RATE']
     if name == 'aac7_s48':
         import json
-        if not os.path.exists(AAC7_S48_FILE): raise SystemExit('mn_model: profile aac7_s48 needs %s (restore archive:scripts_2026-10-23/refit_s48.py and run it with --write-profile)' % AAC7_S48_FILE)
-        j = json.load(open(AAC7_S48_FILE))
+        if not os.path.exists(AAC7_FIT_FILE): raise SystemExit('mn_model: profile aac7_s48 needs %s (restore archive:scripts_2026-10-23/refit_s48.py and run it with --write-profile)' % AAC7_FIT_FILE)
+        j = json.load(open(AAC7_FIT_FILE))['s48']
         PROFILES[name] = Fabric("aac7 S48 refit (archive:scripts_2026-10-23/refit_s48.py)", bw_apu=j['bw_apu'], lat=j['lat'], group=64, layers=2, taper=1.0, write_bw=j.get('write_bw', 0.116), v_factor=j.get('layv_factor', 1.0))
     if name in ('aac7_l4', 'aac7_l4a', 'target_l4'):
         import json
-        if not os.path.exists(AAC7_L4_FILE): raise SystemExit('mn_model: profile %s needs %s (restore archive:scripts_2026-10-23/refit_s48.py and run it with --l4 --write-profile)' % (name, AAC7_L4_FILE))
-        j = json.load(open(AAC7_L4_FILE))
+        if not os.path.exists(AAC7_FIT_FILE): raise SystemExit('mn_model: profile %s needs %s (restore archive:scripts_2026-10-23/refit_s48.py and run it with --l4 --write-profile)' % (name, AAC7_FIT_FILE))
+        j = json.load(open(AAC7_FIT_FILE))['l4']
         if name == 'target_l4':
             PROFILES[name] = Fabric("Slingshot-2 dragonfly (PLAN 25), L4 layv factor", bw_apu=TARGET_BW_APU, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=j.get('layv_factor_nopen', j['layv_factor']))   # (the factor fitted without the multi-node-children level penalty: the target runs without it)
             return PROFILES[name]                                          # the target's constants stay as they are; only the layv factor comes from the aac7 fit
@@ -849,6 +848,9 @@ BATCH_CAP = {1 << 30: 18.9 / 17.45, 3 << 29: 18.9 / 17.45, 1 << 31: 22.65 / 22.3
 STRATEGIES = ('C', 'B', 'B4', 'auto')
 CHUNKS = ('off', 'shift', 'both')
 
+_OLD13 = dict(tight=False, early_free=False, t_chunk_mb=0, shift_chunk_mb=0, pool='max', vmm=False, round_mb=0, cap=None, seed_fill=0, out_early=False, pool1_np=3, arena_room=0.0, dkm=False)   # the Phase 13 memory forms (the calibrated designs)
+_P15 = dict(_OLD13, tight=True, early_free=True, t_chunk_mb=1024, shift_chunk_mb=1024, pool='plan', vmm=True, cap=1 << 31)
+
 class Design:
     """one row of the design space.  np: ECALC_NP; strategy: RNS_STRATEGY (C | B | B4 | auto); cap: the plane cap in points
     (None = the code's own rule: 3 2^30 below 5e10 digits of the run, else 2^31); chunk: 'off' | 'shift'
@@ -902,7 +904,7 @@ class Design:
     def cap_at(self, digits): return self.cap if self.cap is not None else mem_model.code_cap(digits)
     def pool_log(self, digits=1e12): return mem_model.cap_pool(self.cap_at(digits))[0]
     def mem_opts(self, digits):
-        o = dict(mem_model.DEFAULTS15 if self.p15 else mem_model.OLD13)
+        o = dict(_P15 if self.p15 else _OLD13)
         if self.p15: o.update(tight=self.tight, early_free=self.early_free, round_mb=self.round_mb, pool=self.pool, vmm=self.vmm,
                               seed_fill=mem_model.SEED_FILL if self.p15b else 0, out_early=bool(self.early), arena_room=self.arena_room)   # Phase 15 (2026-09-27): BS_SEED_FILL, MN_OUT_EARLY; (2026-09-28) BS_ARENA_ROOM
         if self.p15c: o['pool1_np'] = None                          # Phase 15 DOC2: RNS_POOL1_4Q=1 (PS, B2's default): pool 1 at the one-node primes (4 q under ECALC_NP=4); B1 and before: 3 q + 16 (OLD13's pool1_np 3)
@@ -1297,7 +1299,7 @@ def _run_phases(r):
     return dict(init=r['init'], batch=batch, top=top, recip=r['recip'], div=div, other=max(0.0, r['total'] - r['init'] - r['bs'] - r['dm']))
 
 def _dev_init_ref(D, np, cap):
-    return mem_model.mem_per_node(int(D), 1, dict(mem_model.OLD13, np=np, cap=cap))['dev_init'] / 1e9
+    return mem_model.mem_per_node(int(D), 1, dict(_OLD13, np=np, cap=cap))['dev_init'] / 1e9
 
 @functools.lru_cache(maxsize=None)
 def phase_table(exclude=None):
@@ -1488,12 +1490,12 @@ CAL15_RANGE = (4e10, 1.3e11)
 CAL15_LAW = {'init': (0.6589, 0.2432), 'bs': (1.0154, -0.206), 'recip': (0.8657, -0.1572), 'div': (1.1631, -0.0625)}   # FITTED by fit15() on CAL15_RUNS (`mn_model.py --fit15`)
 SEED15 = (7.589, 0.28189)               # FITTED by fit15(): seeds end = a + b x span digits / 1e9 (s after the start)
 SLOW_K = 1 << 33                       # binsplit.c mul1_serial: the Barrett step only for m < 2^33
-SLOW_F = 1.29                          # MEASURED (V314 1: the u128 path's cost per limb-step against the fast one, Zen 4)
+SLOW_F = 1.29                          # MEASURED (archive:results_merged_2026-10-24/SINGLE_NODE.md §V314 1: the u128 path's cost per limb-step against the fast one, Zen 4)
 OVL1 = 0.577                           # FITTED by fit15(): size 1 -- the writer runs under this fraction of the division (it starts at the hook, before the low product)
 DC_FIX = 1.6                           # MEASURED (the corrected 1e11 runs): dc's residues + fetch beside the write (0.7 + 0.9 s)
-DC_FMT1 = 0.0545                       # MEASURED (V314 e11_def / e11_def2 without a file: dc 5.55 / 5.43 s at 1e11, the digits redone after the corrections): s per 1e9 digits
+DC_FMT1 = 0.0545                       # MEASURED (archive:results_merged_2026-10-24/SINGLE_NODE.md §V314 e11_def / e11_def2 without a file: dc 5.55 / 5.43 s at 1e11, the digits redone after the corrections): s per 1e9 digits
 DC_FMT_MN = 0.061                      # s per 1e9 digits: size > 1, mn_out_run's formatting + digit residues + fetch, pipelined with the write -- MEASURED at size 1,
-                                       # 1e11 without a file (format 1.86 + digit residue 2.7 + fetch 0.86 + residues 0.7 = 6.1 s, V314), ASSUMED to carry to the target's
+                                       # 1e11 without a file (format 1.86 + digit residue 2.7 + fetch 0.86 + residues 0.7 = 6.1 s, archive:results_merged_2026-10-24/SINGLE_NODE.md §V314), ASSUMED to carry to the target's
                                        # 7.4e10 per node; 2 nodes at 5e9 per node measured 0.104 (V114 b2: 0.23 + 0.22 + 0.07 s, the small size's fixed costs)
 # ---- Phase 15 (agent DOC): the user's decisions of 2026-09-27 (p15b designs), calibrated on RESULTS 86's paired 1e11 series (jobs 21550 with the digit
 # file on s24-16, 21563 without it on s24-26; B0 = the Phase 14 defaults, "cand" = every candidate on = the defaults of 2026-09-27; logs ~/fin15/ on aac6).
@@ -1568,7 +1570,7 @@ def seed_wait15(Dt, g, T, init, fast=False):
 def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, staging="code", design=None):
     """the per-node memory model (mem_model.mem_per_node): GB of device at the dm peak, host (with the SHMEM pool), the node peak"""
     if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1
-    o = dict(mem_model.OLD13); o.update(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging)   # Phase 15: the old forms unless the design is p15
+    o = dict(_OLD13); o.update(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging)   # Phase 15: the old forms unless the design is p15
     if design is not None and not design.legacy: o.update(design.mem_opts(D * g)); o.update(p24=P24, dkm=DKM)   # MS: MN_P24's scratch (mem_model's P24 branch); DL: dm_layout follows NEWTON_DKM (DKM)
     elif design is None: o.update(np=4, host_fit=False)                                 # the legacy path: four primes (before step 0)
     r = mem_model.mem_per_node(int(D), g, o)
@@ -1586,7 +1588,7 @@ def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=Non
     if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1 on the target's launch line
     saved = DZ; DZ = design; saved_c = CACHE_RUN_SLOTS
     if design is not None and getattr(design, 'cache_fit', False) and g > 1:   # Phase 15 DOC2: RNS_DIST_CACHE_FIT -- the slots the code's budget rule allows
-        o = dict(mem_model.OLD13); o.update(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging); o.update(design.mem_opts(D * g)); o.update(p24=P24, dkm=DKM)
+        o = dict(_OLD13); o.update(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging); o.update(design.mem_opts(D * g)); o.update(p24=P24, dkm=DKM)
         CACHE_RUN_SLOTS = min(CACHE_MN_SLOTS, mem_model.mem_per_node(int(D), g, o)['cache_fit_slots'])
     else: CACHE_RUN_SLOTS = None
     try:
@@ -1702,7 +1704,7 @@ def print_run(fab, r, rule):
 def max_digits(g, node_gb, form="grid", groups=None, transport="shmem", staging="code", design=None):
     """the largest D per node (to 1e8) whose modelled node peak fits node_gb (design None: the legacy four-prime memory)"""
     if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1
-    o = dict(mem_model.OLD13, form=form, groups=groups, transport=transport, staging=staging)   # Phase 15: a p15 design's mem_opts override the old forms
+    o = dict(_OLD13, form=form, groups=groups, transport=transport, staging=staging)   # Phase 15: a p15 design's mem_opts override the old forms
     if design is None: o.update(np=4, host_fit=False)
     elif not design.legacy:
         o.update(design.mem_opts(1e12 * g))                     # the cap rule at the run's digits: 2^31 above 5e10 (every 576-node size)
@@ -1883,24 +1885,23 @@ the general map's exchange overlap).  internal target notes says what to measure
 
 Phase 13b (agent D): the estimate is of the code after step 0 (three primes, NTT_MODMUL=1) and of a design -- --np, --strategy
 (C | B | B4 | auto), --cap (2^30 | 3*2^29 | 2^31 | 3*2^30; default the code's rule), --chunk (off | shift | both), --depth (1 | 2),
---modmul; --legacy gives the Phase 12 model (four primes, the Phase 10/11 phase table).  archive:scripts_2026-10-23/design_table.py prints every design.
+--modmul.  archive:scripts_2026-10-23/design_table.py prints every design.
 
 Phase 15 (agent MD): the default is the code's defaults since Phase 14 on the target's launch line (mn_model.DEFAULT15: auto, 2^31, both chunks
 at 1024 MB, depth 2, DM_TIGHT, MN_TREE_EARLY_FREE, NEWTON_RECIP_CUT, the SHMEM pool from the plan, COMM_SHMEM_ROUND_MB=1024 = the user's D2;
---round-mb 0 without it; --p13 = the Phase 13/14 model).  Every estimate prints two walls (the user's D3): without the disk write (the digits
+--round-mb 0 without it).  Every estimate prints two walls (the user's D3): without the disk write (the digits
 computed and verified) and with it, the part file at --write-bw GB/s per node (default 0.6: the target's /ssd0 is Lustre, 0.58-0.64 GB/s
 single-stream, measured there; --target prints 2.0 (the old assumption), 0.8 and 0.6).  mn_model.py estimate --target is the standing estimate.
 
 Phase 15 (agent DOC, the user's decisions of 2026-09-27): the default is mn_model.DEFAULT15B -- the code's defaults of 2026-09-27 (BS_SEED_FILL=128,
 BI_MUL1_FAST, NEWTON_RECIP_MID, DIST_TWREC, RNS_AUTO_PIECE_COST, ECALC_CORR_PATCH=2, ECALC_OUT_PACKED, MN_OUT_EARLY, ECALC_ODIRECT=auto) on the target's
 launch line (ECALC_NP=4 at size > 1: --np-mn; COMM_SHMEM_ROUND_MB=1024): the part file packed (0.444 B/digit; --ascii for 1 B/digit) and, at size > 1,
-started at the division's hook (MN_OUT_EARLY: it overlaps the low product as the size-1 writer does).  --b0 gives the Phase 14 defaults (DEFAULT15).
+started at the division's hook (MN_OUT_EARLY: it overlaps the low product as the size-1 writer does).
 
 Phase 15 (agent DOC2, the user's decisions of 2026-09-28): the default is mn_model.DEFAULT15C -- main B2 (B1 + BS_ARENA_ROOM=0.16, DIST_TWREC_G=1,
 RNS_POOL1_4Q=1) on the target's launch line with ECALC_NP=auto (--np-mn auto) and RNS_DIST_CACHE_FIT=1: the mn transform cache priced at the slots FIT
 allows (0 at 5.1e13 and 4.74e13: the code's rule, mem_model.cache_fit_slots); --cache-slots n prices n slots whatever FIT allows (their bytes added to the
-node: "does not fit" over 480 GB); --room F (BS_ARENA_ROOM), --no-twrec-g; --b1 gives B1 (DEFAULT15B: ECALC_NP=4, no room, TWREC_G off, the code's
-default 2 cache slots as the time assumed before TC / CX).  --target prints the standing figures, the cache at 1 / 2 slots and ECALC_NP=4 beside them.
+node: "does not fit" over 480 GB); --room F (BS_ARENA_ROOM), --no-twrec-g.  --target prints the standing figures, the cache at 1 / 2 slots and ECALC_NP=4 beside them.
 """
 
 EST_LABELS = {
@@ -1960,7 +1961,7 @@ def estimate_main(argv=None):
     ap.add_argument("--staging", default="code", choices=("code", "sym", "resident", "per_exchange", "cached"), help="Phase 14 P2: code (the default: the measured law, mem_model.shmem_pool -- the staged exchanges' largest send + receive x 4 APU threads + the control blocks; results/SHMEM_ITEMS.md §P214), sym (DIST_MN_SYM_SLABS=1: + 3 q per APU of resident slabs); the hypotheses before: the SHMEM transport's staging in its pool: resident (Phase 12 S: the callers' slabs in the pool, no staging), per_exchange (the staging freed after each wait), cached (the code at 7aded87: kept per live communicator -- 345 GB per node at 576)")
     ap.add_argument("--as-is", action="store_true", help="the code at main 7aded87: --tree flat --staging cached")
     ap.add_argument("--rule", default="model", choices=("model", "full"))
-    ap.add_argument("--fabric", default=os.environ.get("MN_MODEL_PROFILE", "target_l4"), choices=("target", "aac7", "aac7_c16", "target-m", "aac7_s48", "aac7_l4", "aac7_l4a", "target_l4"), help="Phase 16 C: the fabric profile -- target_l4 (the DEFAULT since 2026-10-11, user-adopted: the target fabric with the L4 refit layv factor, results/TIME_MODEL.md §L4); target (the previous default: the constants as before, layv 0.655) or aac7 (B01, 2026-10-11: the S48 refit, an alias of aac7_s48, aac7_s48_fit.json; the previous aac7, mn_model.AAC7, is aac7_c16: the measured Slingshot-11 / Cray OpenSHMEMX rates and AAC7_CONSTS; --bw / --lat / --write-bw given explicitly still win); TGTBENCH2: target-m = the target fabric (still ASSUMED) with the constants measured on the target (mn_model.TARGET_M_CONSTS: MAP_RATE 0.010) and a line comparing the modelled device with the measured 373.44 GB/node edge")
+    ap.add_argument("--fabric", default=os.environ.get("MN_MODEL_PROFILE", "target_l4"), choices=("target", "aac7", "aac7_c16", "target-m", "aac7_s48", "aac7_l4", "aac7_l4a", "target_l4"), help="Phase 16 C: the fabric profile -- target_l4 (the DEFAULT since 2026-10-11, user-adopted: the target fabric with the L4 refit layv factor, results/TIME_MODEL.md §L4); target (the previous default: the constants as before, layv 0.655) or aac7 (B01, 2026-10-11: the S48 refit, an alias of aac7_s48, aac7_fit.json (s48); the previous aac7, mn_model.AAC7, is aac7_c16: the measured Slingshot-11 / Cray OpenSHMEMX rates and AAC7_CONSTS; --bw / --lat / --write-bw given explicitly still win); TGTBENCH2: target-m = the target fabric (still ASSUMED) with the constants measured on the target (mn_model.TARGET_M_CONSTS: MAP_RATE 0.010) and a line comparing the modelled device with the measured 373.44 GB/node edge")
     ap.add_argument("--bw", type=float, default=None, help="GB/s per APU injection (default 100: assumed, PLAN 25's two 400 Gb/s NICs; the profile's value under --fabric aac7)")
     ap.add_argument("--lat", type=float, default=None, help="seconds per message (default 2e-6 assumed; the profile's under --fabric aac7)")
     ap.add_argument("--group", type=int, default=64, help="nodes per dragonfly group (MN_TOPO_GROUP)")
@@ -1970,26 +1971,22 @@ def estimate_main(argv=None):
     ap.add_argument("--round-mb", type=float, default=1024, help="COMM_SHMEM_ROUND_MB on the launch line (D2: 1024; 0 = the code's default, off)")
     ap.add_argument("--out-overlap", default="none", choices=("none", "half"), help="size > 1: the part file after T1 (none: the code) or under half the division (half: the model before Phase 15)")
     ap.add_argument("--corrections", type=int, default=0, help="size 1: the division's corrections (data-dependent; 2 at 1e11 on the defaults)")
-    ap.add_argument("--p13", action="store_true", help="the Phase 13/14 model (no Phase 15 terms: the old memory forms, no recip cut, no CAL15, the part file under half the division)")
     ap.add_argument("--max", action="store_true", help="the largest D per node that fits 502 and 480 GB at each g, with its wall")
     ap.add_argument("--target", action="store_true", help="the standing estimate at 576 nodes -- the target (mn_model.TARGET_DIGITS: 3.82e13 since the user's decision of 2026-10-12, results/TARGET.md §TGT), its step, and history: 3.71e13 (2026-10-06 to 2026-10-12, TGTBENCH2/s18-target), 4.08e13 (TGT17, a few hours on 2026-10-06), 5.276e13 (B3 2026-09-29 to 2026-10-06) and its former second test size 5.167e13 (2026-10-03), 5.1e13 (2026-09-27 23:50 EDT), 4.25e13 (Phase 13d), 4.4e13 (Phase 13c)")
     ap.add_argument("--verbose", action="store_true", help="the per-phase, per-level breakdown of every run")
     ap.add_argument("--np", type=int, default=3, choices=(3, 4), help="ECALC_NP at size 1 (Phase 13b step 0: 3)")
     ap.add_argument("--np-mn", type=lambda v: v if v == 'auto' else int(v), default='auto', choices=(3, 4, 'auto'), help="ECALC_NP at size > 1 (Phase 15, the user's decision 1 of 2026-09-28: auto on the target's launch line -- Phase 15 NP's per-product count, four only over the three-prime bound; 4 was the launch line of 2026-09-27 (+17.2 GB per node: 489 GB at 5.1e13 with the room, over 480); 3 is refused by the plan check at 4.25e13 and 5.1e13 on 576)")
-    ap.add_argument("--b1", action="store_true", help="Phase 15 DOC2: B1 (mn_model.DEFAULT15B: the defaults of 2026-09-27 on their launch line -- ECALC_NP=4, no arena room, DIST_TWREC_G=0, the code's 2 cache slots priced as before TC / CX)")
     ap.add_argument("--room", type=float, default=None, help="BS_ARENA_ROOM (default 0.16: the code's default since 2026-09-28; 0 = off)")
     ap.add_argument("--no-twrec-g", action="store_true", help="DIST_TWREC_G=0 (the default is 1 since 2026-09-28)")
     ap.add_argument("--cache-slots", type=int, default=None, choices=(0, 1, 2), help="price n mn transform-cache slots whatever RNS_DIST_CACHE_FIT allows (default: what FIT allows -- 0 at the target; the slots' bytes are added to the node)")
     ap.add_argument("--no-cache-fit", action="store_true", help="without RNS_DIST_CACHE_FIT on the launch line: the code's default 2 slots priced (137.4 GB per node at the target that no budget holds: TC15)")
     ap.add_argument("--ascii", action="store_true", help="ECALC_OUT_PACKED=0: the ASCII part file (1 B/digit) instead of the packed default (0.444 B/digit)")
-    ap.add_argument("--b0", action="store_true", help="the Phase 14 defaults (B0, mn_model.DEFAULT15: three primes, the ASCII part file after T1, no fill / fast mul_1 / middle product / TWREC)")
     ap.add_argument("--strategy", default="auto", choices=STRATEGIES, help="RNS_STRATEGY (agent B, Phase 13b)")
     ap.add_argument("--cap", default="2^31", choices=list(mem_model.CAPS) + ["rule"], help="the plane cap (default 2^31 since Phase 13c; rule = the pre-13c size rule)")
     ap.add_argument("--chunk", default="both", choices=CHUNKS, help="off | shift (MDB_SHIFT_CHUNK_MB) | both (+ MN_T_CHUNK_MB, the default since Phase 14), at --chunk-mb")
     ap.add_argument("--chunk-mb", type=float, default=CHUNK_MB)
     ap.add_argument("--depth", type=int, default=2, choices=(1, 2), help="the uneven exchange's depth (agent X, Phase 13b)")
     ap.add_argument("--modmul", type=int, default=1, choices=(0, 1), help="NTT_MODMUL (step 0: 1)")
-    ap.add_argument("--legacy", action="store_true", help="the Phase 12 model: four primes, the Phase 10/11 phase table")
     ap.add_argument("--hide-pow2", type=float, default=None, help="Phase 16 F: HIDE_POW2, the equal-slab path's hidden xGMI fraction (default 0.75 measured on aac6; 0.72 measured on aac7 at depth 2, C16); = MN_MODEL_HIDE_POW2")
     ap.add_argument("--t-round", type=float, default=None, help="Phase 16 F: T_ROUND, the fixed cost of one chunk round in s (default 0.030 fitted on aac6 loopback; <= 0.015 measured on aac7, C16); = MN_MODEL_T_ROUND")
     ap.add_argument("--local-factor", type=float, default=None, help="Phase 16 F: one factor on the local (non-fabric) terms -- the node's compute and init (NODE_SCALE and INIT_SCALE together; default 1.0 = aac6's calibration at ROCm 7.2.4; the ROCm 7.0.3 toolchain measured +22 %% on bs / dm at 1e11 on aac7, C16 2.7; the profile's fit 1.12 / 1.20); = MN_MODEL_LOCAL_F; MN_MODEL_NODE_SCALE / MN_MODEL_INIT_SCALE set them apart")
@@ -2012,16 +2009,12 @@ def estimate_main(argv=None):
     if a.lat is None: a.lat = prof.lat
     if a.write_bw is None: a.write_bw = prof.write_bw
     if a.as_is: a.tree, a.staging = "flat", "cached"
-    p15b = not (a.p13 or a.b0)
-    p15c = p15b and not a.b1                                              # Phase 15 DOC2: B2 on the launch line (the default)
-    if a.b1 and a.np_mn == 'auto': a.np_mn = 4                            # (B1's launch line)
-    TWREC_G = not (a.no_twrec_g or a.b1 or not p15b)                    # DIST_TWREC_G (a global of the model)
+    TWREC_G = not a.no_twrec_g                                          # DIST_TWREC_G (a global of the model)
     CACHE_FORCE = a.cache_slots
     if a.dkm1_fix: B3_DIV1_FIX = True                                   # 06 EVALUATION item 13 / 04 D15: off by default
-    design = None if a.legacy else Design(np=a.np, strategy=a.strategy, cap=mem_model.CAPS[a.cap] if a.cap and a.cap != "rule" else None, chunk=a.chunk, depth=a.depth, modmul=a.modmul, chunk_mb=a.chunk_mb,
-                                            p15=not a.p13, round_mb=a.round_mb, out_overlap=a.out_overlap if not a.p13 else None,
-                                            p15b=p15b, np_mn=a.np_mn if p15b else None, packed=(not a.ascii) if p15b else False,
-                                            p15c=p15c, arena_room=a.room if p15c else None, cache_fit=p15c and not a.no_cache_fit)
+    design = Design(np=a.np, strategy=a.strategy, cap=mem_model.CAPS[a.cap] if a.cap and a.cap != "rule" else None, chunk=a.chunk, depth=a.depth, modmul=a.modmul, chunk_mb=a.chunk_mb,
+                    p15=True, round_mb=a.round_mb, out_overlap=a.out_overlap, p15b=True, np_mn=a.np_mn, packed=not a.ascii,
+                    p15c=True, arena_room=a.room, cache_fit=not a.no_cache_fit)
     fab = Fabric(TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=a.write_bw, staging_bw=a.staging_copy, fall_off=a.fall_off, v_factor=a.layv_factor, k_other=prof.k_other)
     print("ecalc estimate -- %s; tree form %s, SHMEM staging %s, MN_GROUPS %s, fabric %.0f GB/s per APU, %.1f us per message, dragonfly group %d, %d layers, taper %.2f, part files %.2f GB/s per node%s"
           % ("legacy (Phase 12: four primes)" if design is None else "design %s, ECALC_NP=%d%s, NTT_MODMUL=%d%s" % (design.name(), design.np,

@@ -5,16 +5,6 @@ Condensed 2026-10-19 (task 8b) from the merged per-item reports; originals in `a
 **mod** modelled, **a** assumed, **plan** = the C code's own `MN_PLAN_ONLY` decision (exact for the code at predicted sizes).
 Times Eastern.
 
-| item | title |
-|---|---|
-| §P2415 | four primes at 24 digits per transform point in the mn tier (P24; Phase 15 Batch 3) |
-| §NP15 | four primes only where needed (`ECALC_NP=auto`; Phase 15 Batch 2) |
-| §MPB15 | the `ECALC_NP=auto` switch-over on min(pa, pb) (`ECALC_NP_AUTO_MIN=1`) |
-| §P15 | roots above 2^33 and the prime bound at the 576 target (Phase 15 Batch 1) |
-| §MEAS-P24 | P24 for all multi-node products against the default, 2 nodes |
-| §S13 | E0 (A/B/C strategy boundary) and E2 (plane cap against grid cost), Phase 13a |
-| §B13b | strategy B in the library, and B4 (Phase 13b) |
-
 ## Topic summary
 
 - **Why more than three primes.** Three primes (p0 p1 p2) hold a product piece of at most 58 424 467 928 terms (pa + pb, 18-digit

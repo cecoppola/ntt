@@ -2,17 +2,17 @@
 # tools/gate.sh - the standard build-and-digit gate of ecalc on aac7 (Cray SHMEM, 1..4 nodes) and aac6 (single node).
 #
 # USAGE
-#   tools/gate.sh [--build] [--nodes 1..6] [--digits 1e9] [--hold JOBID | --alloc] [--line aac7|target|none|file:PATH]
+#   tools/gate.sh [--build] [--nodes 1..6] [--digits 1e9] [--hold JOBID | --alloc] [--line aac7|none]
 #                 [--profile NAME|PATH] [--env "K=V ..."] [--out DIR] [--ref FILE] [--timeout SEC] [--wait SEC]
-#     --build     first `make -B` in the repo's ecalc/ (aac7 with Cray SHMEM: SHMEM_CRAY=1 GMP_HOME=~/gmp, the log must have
-#                 -DCOMM_SHMEM for --nodes > 1; elsewhere a plain build, and --nodes > 1 is refused)
+#     --build     first `make -B` in the repo's ecalc/ (aac7: path 1 XSHMEM=ofi, the default build, or path 2 XSHMEM=cray; GATE_XSHMEM=cray
+#                 selects path 2, default ofi; GMP_HOME=~/gmp; for --nodes > 1 the log must have -DXSHMEM_OFI / -DXSHMEM_CRAY and the
+#                 binary the matching library (without --build and GATE_XSHMEM, a binary linked with libsma counts as path 2); elsewhere a plain build, and --nodes > 1 is refused)
 #     --hold J    run inside the existing allocation J (srun --overlap through mnrun.sh with SLURM_JOB_ID=J, no -w); never cancelled.
 #                 Without --hold/--alloc an exported SLURM_JOB_ID is used as the hold.
 #     --alloc     submit its own short sbatch sleep job of --nodes nodes (MNRUN_EXCLUDE_HOSTS -> sbatch -x), run, scancel only that id
 #     --line      launch line: aac7 = the launch line of profiles/aac7.conf (LAUNCH_LINE_KEYS, via
-#                 tools/profile_load.py aac7 --line; the one source; default on aac7), none = plain (default
-#                 elsewhere), target = the target export block, which is NOT in this repo: use file:PATH (K=V per line, # comments),
-#                 e.g. --line file:~/target_line.env.   --env words are appended; ECALC_SEGV_TRACE=1 is always set.
+#                 tools/profile_load.py aac7 --line; the one source; default on aac7), none = plain (default elsewhere).
+#                 --env words are appended; ECALC_SEGV_TRACE=1 is always set.
 #     --profile P load profiles/P.conf (tools/profile_load.py) into the gate's environment: explicit env > profile > code default; writes
 #                 config_src.txt (config-src: line). Unknown/misspelled key or __FILL__ = FAIL. Not given = behaviour unchanged.
 #                 --build also runs `tools/switch_registry.py --check`, `tools/profile_load.py --validate-all`, `tools/xshmem_api_check.py` and
@@ -50,6 +50,7 @@ case $NODES in [1-6]) ;; *) echo "gate.sh: --nodes must be 1..6 (aac7 QOS)" >&2;
 [ -n "$HOLD" ] || [ "$ALLOC" = 1 ] || { echo "gate.sh: give --hold JOBID or --alloc" >&2; exit 2; }
 DIG=$(awk -v d="$DIGITS" 'BEGIN { printf "%.0f", d }'); [ "$DIG" -gt 0 ] 2>/dev/null || { echo "gate.sh: bad --digits $DIGITS" >&2; exit 2; }
 CRAY=0; [ -d /opt/cray/pe/sma ] && CRAY=1
+XS=${GATE_XSHMEM:-ofi}; case $XS in ofi) XSU=OFI; XSLIB=libfabric;; cray) XSU=CRAY; XSLIB=libsma;; *) echo "gate.sh: GATE_XSHMEM must be ofi or cray" >&2; exit 2;; esac
 [ -n "$LINE_SEL" ] || { [ $CRAY = 1 ] && LINE_SEL=aac7 || LINE_SEL=none; }
 [ -n "$OUT" ] || OUT=$HOME/gate/$(date +%Y%m%d_%H%M%S); mkdir -p "$OUT" || exit 2; OUT=$(cd "$OUT" && pwd)
 if [ -z "$REF" ]; then
@@ -107,9 +108,9 @@ if [ $BUILD = 1 ]; then
   cd "$E" || fail "no $E"
   if [ $CRAY = 1 ]; then
     module load cray-dsmml cray-openshmemx >/dev/null 2>&1
-    say "build (Cray SHMEM) in $E, log $OUT/build.log"
-    make -B -j8 SHMEM_CRAY=1 GMP_HOME=$HOME/gmp > "$OUT/build.log" 2>&1 || fail "build failed (see build.log)"
-    [ "$NODES" = 1 ] || grep -q -e -DCOMM_SHMEM "$OUT/build.log" || fail "build log lacks -DCOMM_SHMEM (multi-node needs SHMEM)"
+    say "build (XSHMEM=$XS) in $E, log $OUT/build.log"
+    make -B -j8 XSHMEM=$XS GMP_HOME=$HOME/gmp > "$OUT/build.log" 2>&1 || fail "build failed (see build.log)"
+    [ "$NODES" = 1 ] || grep -q -e "-DXSHMEM_$XSU" "$OUT/build.log" || fail "build log lacks -DXSHMEM_$XSU (multi-node needs the xshmem build)"
   else
     [ "$NODES" = 1 ] || fail "no Cray SHMEM here: --nodes > 1 refused"
     command -v hipcc >/dev/null 2>&1 || module load rocm >/dev/null 2>&1
@@ -119,7 +120,8 @@ if [ $BUILD = 1 ]; then
 fi
 [ -x "$E/ecalc" ] && [ -x "$ROOT/tools/unpack_digits" ] || fail "ecalc or tools/unpack_digits missing (use --build)"
 if [ "$NODES" != 1 ]; then
-  [ $CRAY = 1 ] && readelf -d "$E/ecalc" 2>/dev/null | grep -q libsma || fail "ecalc is not linked with SHMEM (multi-node refused)"
+  [ $BUILD = 1 ] || [ -n "${GATE_XSHMEM:-}" ] || ! readelf -d "$E/ecalc" 2>/dev/null | grep -q libsma || { XS=cray; XSLIB=libsma; }   # an existing binary: path 2 when it links libsma
+  [ $CRAY = 1 ] && readelf -d "$E/ecalc" 2>/dev/null | grep -q "$XSLIB" || fail "ecalc is not linked with $XSLIB (XSHMEM=$XS; multi-node refused)"
 fi
 [ -r "$REF" ] || fail "reference $REF not readable (--ref)"
 
@@ -128,9 +130,6 @@ LINE=
 case $LINE_SEL in
   aac7) LINE=$(python3 "$ROOT/tools/profile_load.py" aac7 --line 2>"$OUT/line.err") ; [ -n "$LINE" ] || fail "no launch line in profiles/aac7.conf: $(head -c 200 "$OUT/line.err")";;
   none) ;;
-  target) fail "--line target: target values are not in the repo; use --line file:PATH";;
-  file:*) lf=${LINE_SEL#file:}; lf=${lf/#\~/$HOME}; [ -r "$lf" ] || fail "line file $lf unreadable"
-          LINE=$(sed -e 's/#.*//' -e 's/^[[:space:]]*//;s/[[:space:]]*$//' -e 's/^export //' "$lf" | grep -v '^$' | tr '\n' ' ');;
   *) fail "bad --line $LINE_SEL";;
 esac
 CHECK_NP=0; [ "$NODES" -gt 1 ] && CHECK_NP=1     # D18: the multi-node product form is checked in the log at --nodes > 1
@@ -143,8 +142,7 @@ ENVSHOW=$(echo $ENVSHOW)
 # ---- FIT (user decision D26, results/LAUNCH_DEFAULTS.md §FIT): the memory fit of this run (tools/plan_values.py --fit: the planner's `plan fit` lines),
 # before any node time is used; a run that does not fit is refused here (GATE_FIT=0 skips: deliberate edge tests only)
 if [ "${GATE_FIT:-1}" != 0 ]; then
-  printf '%s\n' $LINE $EXTRA ECALC_SEGV_TRACE=1 > "$OUT/fit_line.env"
-  python3 "$ROOT/tools/plan_values.py" --fit --line "$OUT/fit_line.env" --ecalc "$E/ecalc" "$DIG" "$NODES" > "$OUT/fit.txt" 2>&1; frc=$?
+  python3 "$ROOT/tools/plan_values.py" --fit --env "$LINE $EXTRA ECALC_SEGV_TRACE=1" --ecalc "$E/ecalc" "$DIG" "$NODES" > "$OUT/fit.txt" 2>&1; frc=$?
   sed 's/^/gate.sh: /' "$OUT/fit.txt"
   [ $frc = 0 ] || fail "memory does not fit (refused before launch; see fit.txt): $(grep -m1 -E 'REFUSED|plan_values:' "$OUT/fit.txt" | cut -c1-200)"
 fi

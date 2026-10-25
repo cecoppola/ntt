@@ -19,4 +19,3 @@ __pycache__/
 # built by tools/Makefile
 tools/unpack_digits
 tools/wbench
-tools/test_pack60

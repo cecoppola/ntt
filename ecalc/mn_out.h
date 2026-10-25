@@ -61,7 +61,6 @@ typedef struct mn_out_s {
 } mn_out;
 void mn_out_boundaries(mn_out *o, const mn_out_src *src, comm *c);   /* size > 1: all-gather the nodes' tails (49 digits) -> this node's head */
 int  mn_out_run(mn_out *o, const mn_out_src *src);                   /* format, residues, T2, write (streamed); 0 = ok.  Returns with the last chunk's write in flight */
-int  mn_out_dc_stats(void);                                          /* S21: DC_STATS=1 -- the output stage's fine timers (print only; default off) */
 void mn_out_finish(mn_out *o);                                       /* wait for the writes, close the part file */
 /* the division's corrections (X + dx, |dx| <= 64) applied to digits already written from the uncorrected X.
  * Only the tail its carry / borrow reaches changes: the low limbs of X (gathered over the nodes, more until the carry ends inside
@@ -84,7 +83,7 @@ int  mn_out_tail_core(mn_out *o, const uint64_t *low, size_t w, long dx, mn_out_
  * part file (mn_out_run again), as at size 1. */
 typedef struct mn_out_early mn_out_early;
 struct mdb_s;
-void mn_out_bg_threads(int n);                                        /* S1e: the writer threads' OpenMP team (ECALC_VPE_BG_THREADS per PE); 0 = ECALC_BG_THREADS, else 48 */
+void mn_out_bg_threads(int n);                                        /* S1e: the writer threads' OpenMP team (the PE's CPUs); 0 = ECALC_BG_THREADS, else 48 */
 mn_out_early *mn_out_early_start(const struct mdb_s *X, unsigned long d, unsigned long d_out, const char *outfile, int rank, int size, int verbose, comm *c, size_t t2_defer);
 mn_out *mn_out_early_join(mn_out_early *e, double *t_run);            /* the thread joined; t_run: its seconds */
 void mn_out_early_free(mn_out_early *e);                              /* after mn_out_finish */

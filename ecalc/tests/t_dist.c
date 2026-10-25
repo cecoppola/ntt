@@ -10,10 +10,11 @@
 #include "../mn.h"
 #include "../dbig.h"
 #include "../rns_mul.h"
+comm *comm_local_create(void);                 /* tests/comm_local.c: one rank (size 1) */
+comm *comm_sim4_create(int rank_of_this_apu);  /* tests/comm_sim4.c: four synthetic ranks sharing one APU (created four times, one per simulated rank) */
 #include "../vpe.h"
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
 static rng_t rg = { 12345 };
-static comm *shm;            /* set when run as one process per rank over SHMEM (COMM_RANK and COMM_TRANSPORT=shmem) */
 static int xgmi;             /* DIST_XGMI=1: four real APUs, four host threads */
 static int tinv;             /* DIST_TINV=1: the transposed inverse (result in contiguous ownership) */
 static int one_xgmi(int prime, int logR, int logC);
@@ -155,7 +156,7 @@ static double tnow(void) { return omp_get_wtime(); }
 static int one(int prime, int logR, int logC)
 {
     if (xgmi) return one_xgmi(prime, logR, logC);
-    int logn = logR + logC, nr = shm ? comm_size(shm) : 4; size_t n = (size_t)1 << logn, rows = n / nr;
+    int logn = logR + logC, nr = 4; size_t n = (size_t)1 << logn, rows = n / nr;
     uint64_t p = ec_P[prime];
     uint64_t *hx = (uint64_t *)malloc(n * 8), *hy = (uint64_t *)malloc(n * 8), *ref = (uint64_t *)malloc(n * 8), *got = (uint64_t *)malloc(n * 8);
     for (size_t i = 0; i < n; i++) { hx[i] = rng_next(&rg) % p; hy[i] = rng_next(&rg) % p; }
@@ -168,9 +169,9 @@ static int one(int prime, int logR, int logC)
     size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr;
     uint64_t *tmp = (uint64_t *)malloc(rows * 8);
     comm *cm[64]; dist_plan pl[64]; uint64_t *rx[64], *ry[64];
-    int r0 = shm ? comm_rank(shm) : 0, r1 = shm ? r0 + 1 : 4;     /* the ranks this process holds */
+    int r0 = 0, r1 = 4;     /* the ranks this process holds */
     for (int r = r0; r < r1; r++) {
-        cm[r] = shm ? shm : comm_sim4_create(r); dist_plan_create(&pl[r], cm[r], ctx, prime, logR, logC);
+        cm[r] = comm_sim4_create(r); dist_plan_create(&pl[r], cm[r], ctx, prime, logR, logC);
         HIP_CHECK(hipMalloc(&rx[r], rows * 8)); HIP_CHECK(hipMalloc(&ry[r], rows * 8));
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hx[(r * rr + il) + R * j];
         HIP_CHECK(hipMemcpy(rx[r], tmp, rows * 8, hipMemcpyHostToDevice));
@@ -192,9 +193,9 @@ static int one(int prime, int logR, int logC)
     for (int r = r0; r < r1; r++) {
         HIP_CHECK(hipMemcpy(tmp, rx[r], rows * 8, hipMemcpyDeviceToHost));
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) got[(r * rr + il) + R * j] = tmp[il * C + j];   /* both inverses: block-cyclic */
-        dist_plan_free(&pl[r]); if (!shm) comm_destroy(cm[r]); HIP_CHECK(hipFree(rx[r])); HIP_CHECK(hipFree(ry[r]));
+        dist_plan_free(&pl[r]); comm_destroy(cm[r]); HIP_CHECK(hipFree(rx[r])); HIP_CHECK(hipFree(ry[r]));
     }
-    for (size_t i = 0; i < n; i++) if (shm && (size_t)((i % R) / rr) != (size_t)r0) continue; else if (got[i] != ref[i]) { if (first == n) first = i; bad++; }
+    for (size_t i = 0; i < n; i++) if (got[i] != ref[i]) { if (first == n) first = i; bad++; }
     if (bad) printf("  prime %d logR %d logC %d: %zu of %zu points differ (first at %zu)\n", prime, logR, logC, bad, n, first);
     free(tmp);
     ntt_ctx_free(ctx); HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy)); free(hx); free(hy); free(ref); free(got);
@@ -500,15 +501,8 @@ int main(int argc, char **argv)
         mn_barrier(); mn_finalize();
         return verify_done("t_dist");
     }
-    if (!xgmi && getenv("COMM_RANK") && getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem")) {   /* one process per rank over SHMEM (mnrun.sh); rank r uses APU r mod 4 */
-        int rk = atoi(getenv("COMM_RANK")), nd = 1; HIP_CHECK(hipGetDeviceCount(&nd)); HIP_CHECK(hipSetDevice(rk % nd));
-        shm = comm_shmem_create_at(0, 1, comm_shmem_init(), 0);
-        printf("t_dist: rank %d of %d over SHMEM\n", rk, comm_size(shm));
-        VERIFY(check_allgather(shm, 0), "shm allgather");
-        VERIFY(check_alltoallv(shm), "shm alltoallv");
-    }
-    if (!xgmi && !shm) { VERIFY(check_allgather_sim4(), "sim4 allgather"); VERIFY(check_alltoallv_sim4(), "sim4 alltoallv"); }
-    if (!xgmi && !shm) { comm *lc = comm_local_create(); VERIFY(check_alltoallv(lc), "local alltoallv"); comm_destroy(lc); }
+    if (!xgmi) { VERIFY(check_allgather_sim4(), "sim4 allgather"); VERIFY(check_alltoallv_sim4(), "sim4 alltoallv"); }
+    if (!xgmi) { comm *lc = comm_local_create(); VERIFY(check_alltoallv(lc), "local alltoallv"); comm_destroy(lc); }
     for (int prime = 0; prime < 4; prime++)
         for (int logR = 10; logR <= 13; logR++)
             for (int logC = 10; logC <= 13; logC++)
@@ -516,6 +510,5 @@ int main(int argc, char **argv)
     if (logmax >= 26) VERIFY(one(0, 13, 13), "dist conv 2^26");
     if (logmax >= 30) VERIFY(one(1, 15, 15), "dist conv 2^30");
     if (logmax >= 31) VERIFY(one(2, 16, 15), "dist conv 2^31");
-    if (shm) { comm_destroy(shm); comm_shmem_finalize(); }
     return verify_done("t_dist");
 }

@@ -4,24 +4,9 @@ Scope: the time model and the 576-node estimates: refits to measured runs, scali
 
 Sections moved to `archive:results_merged_2026-10-24/TIME_MODEL.md` (2026-10-24 cleanup): Q; X; D213d; TARGET_HW_REVIEW.
 
-| item | title |
-|---|---|
-| Q | the target plan: the models completed for 576 nodes, `estimate(g, D)`, the runbook (Phase 12, PLAN.md §27 row Q; 2026-09 |
-| X | cross-fabric traffic and the 576-node model (Phase 11, PLAN.md §26 row X) |
-| L4 | refit of the time model to all of 2026-10-11's multi-node aac7 runs; what it got wrong and why (wave L, agent L4) |
-| T06 | layeq / layv rate in the time model, and the 576-node estimate redone |
-| M2a | time-model refit, scaling study, 1- and 2-node points (aac7 queue items 77 / 78) |
-| S48 | scaling study (1/2/4/6 nodes at 6.441e10 digits per node) and refit of the aac7 model profile |
-| SCALE35 | scaling points at 3 and 5 nodes |
-| S19B | profile analysis of S19A (2 → 10 nodes) and the S19C switch A/B, with a 576-node projection |
-| D213d | D2 13d — the model: steps for G, the 13c recalibration, the 576 piece counts, the estimate (Phase 13d, PLAN.md §32 row D |
-| C16 | Phase 16 C: the model's inputs measured on aac7 (Slingshot-11, Cray OpenSHMEMX 11.8.0) and `mn_model.py` recalibrated |
-| F16 | the 576-node figures re-estimated from the inputs measured on aac7 (Phase 16 C), with bands |
-| TARGET_HW_REVIEW | the target's microbenchmark report against the model (desk review, 2026-10-03, 22:52 EDT) |
-
 ## Topic summary
 
-- Topic: `ecalc/mn_model.py`, `mem_model.py`, and its `estimate` subcommand (was `estimate.py`) and their fits (`aac7_s48_fit.json`, `aac7_l4_fit.json`), the 576-node time estimates, and what was measured to feed them. Model only: nothing here is in the engine, and no number below is a measurement of the target (fabric 100 GB/s per APU, the part-file rate and the taper are assumed).
+- Topic: `ecalc/mn_model.py`, `mem_model.py`, and its `estimate` subcommand (was `estimate.py`) and their fits (`ecalc/aac7_fit.json`, keys s48 and l4; the two files were merged 2026-10-25), the 576-node time estimates, and what was measured to feed them. Model only: nothing here is in the engine, and no number below is a measurement of the target (fabric 100 GB/s per APU, the part-file rate and the taper are assumed).
 - **Current model and estimate (ecalc/README.md, RESULTS.md):** profile `target_l4` (§L4), 576 nodes, 3.82e13 digits **about 182 s without the write** (3.71e13: 176.3 s), modelled, fabric assumed. aac7 profiles `aac7_l4` / `aac7_l4a` fit all of 2026-10-11's multi-node runs (rms log residual 0.062; was 0.156). Run `ecalc/mn_model.py estimate --fabric target_l4` for current rows.
 - **Superseded:** Q's and X's 576 tables (4.4e13 / 3.9e13 per-node-limit headlines; §Q's memory accounting already corrected X's), T06's layv factor 0.655 (L4: 0.919) and its 189.1 / 195.3 s rows, S48's profile and its 6-node miss (-20 %), S19B's 737 s projection and B = 6 GB/s fit (early transport), C09's "model-best" schedules `2,4,8,16,80,560,576` (a level-costing bug, §L4), D213d's 4.25e13 / 234 s and 4.4e13 / 275 s rows and F16's 290 / 336 s rows (older inputs, kept for the band structure), C16's `AAC7` profile (bw 3.6 GB/s, lat 8.5 us: early transport).
 - **Live conclusions:** (1) a tree level costs its slowest group, so explicit `MN_GROUPS` balanced tops (`2,4,8,16,64,192,576`, or `2,4,8,40,200,N`, `5,35,140,N`, `4,24,96,N` for N < 576) are 0-25 s better than the standing form and the code's default schedule is far worse at almost every N != 576 (8 s to 2000 s): any node exclusion needs an explicit `MN_GROUPS`; at 576 the standing `2,4,8,16,32,64,192,576` is within 0.2 s of the best. (2) Non-power-of-2 groups run the slower `layv` kind (rate x0.92 of layeq in the model, raw per-thread ratio 0.41). (3) The 4-node bimodality (fast 181 s, slow 208 s) is the NIC launch group (rate x0.82). (4) The 6-node default `[2,6]` is slower and more variable than the model (+23 +- 12 s vs `[6]`), unexplained. (5) Fabric at 576 is not the bottleneck if 100 GB/s per APU holds (exposed communication 13-19 % of the wall); distributed tree levels are 33-40 %; the injection bandwidth per APU is the one input that moves the wall by more than +-20 s.

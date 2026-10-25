@@ -4,22 +4,6 @@ Scope: the distributed division and the reciprocal: Newton error, DKM halves, mi
 
 Sections moved to `archive:results_merged_2026-10-24/DIVISION.md` (2026-10-24 cleanup): A-div; R415; EW15; K15; M615.
 
-| item | title |
-|---|---|
-| A-div | M4: the distributed division, with B2/B3/C3 (Phase 9, PLAN.md §19) |
-| P1 | the distributed division multiply: the low product X·Q as a low part + one cyclic plane (`DM_MN_WRAP`) |
-| NPCAP | non-power-of-two node groups on the next power-of-two plane (`MN_NONPOW2_CAP`, default auto from 2026-10-20: on from 4.5e10 digits per node) |
-| RECIP | the Newton reciprocal's error: the t_newton bound or the reciprocal? |
-| R415 | R4 (Phase 15, row 1b): the reciprocal's Q_t·r as a middle product (V3 item 4 = PLAN §33 B2) |
-| R114 | R1 (Phase 14, W1): E7 the reciprocal's products cut to the band read; E9 Karatsuba over the grid (model); E10 the 576 tree-level spill (model) |
-| DKM15 | the division in two quotient halves with a half-length reciprocal (Phase 15 Batch 3, agent DKM) |
-| EW15 | the writer starts on X_hi's digits after DKM's step 1 (Phase 15 Batch 3, agent EW) |
-| DKMHI | `mn_model` size-1 price of the writer start with `MN_MODEL_DKM_HI` off (2026-10-25) |
-| K15 | a correction without a rewrite (PLAN §36, row 1d) |
-| M615 | Phase 15 Batch 2, agent M6: item 6 (E11, band-sized products and the chunked division window) with the Q/S margin trim |
-| O2 | the reciprocal-gather stall: why `db_to_bi` of 0.2 MB takes 2.2 s (2026-10-11/12) |
-| O5 | K7-a GPU-3 rebalance -- the B5 form (B4 with APU 3 given a share of the inverse) |
-
 ## Topic summary
 
 - **What this is.** How the quotient e = P/Q-style division at the end of the binary-splitting phase is computed (`newton_db.c`: `newton_mn_divmod` over shares at size > 1, `newton_db_divmod_shifted` at size 1): Newton reciprocal by an anchored doubling chain, a high product A_h·μ, a low product X·Q mod B^w for the remainder, and a correction loop (≤ 64 steps, fatal beyond; digits are exact whenever a run completes, the corrections make X exact). dm is the largest multi-node cost (+94 s at 6 nodes vs 1, m; §P1).

@@ -2,7 +2,7 @@
  * single-node pipeline does; `size` node-processes are connected by four inter-node meshes, one per APU
  * thread d (its members: thread d of every node; rank = node).  A transform over the whole machine is the
  * node's four-APU exchange over xGMI composed with the mesh exchange.  The meshes are SHMEM PE sets
- * (COMM_TRANSPORT=shmem, a SHMEM build; several node-processes may share one node).
+ * (COMM_TRANSPORT=xshmem; several node-processes may share one node).
  *   COMM_RANK   this node-process (0 .. size-1)        COMM_SIZE   node-processes (unset or 1: single node) */
 #ifndef EC_MN_H
 #define EC_MN_H
@@ -17,7 +17,7 @@ void  mn_wait_stats_print(void);   /* D3: MN_WAIT_STATS=1 -- per node, the barri
 void  mn_comm_mark(const char *what);   /* MN_COMM_MARK=1 -- node 0 prints the all-to-all traffic since the previous mark (default off) */
 int   mn_size(void);
 comm *mn_comm(int apu);           /* mesh apu: this node among the nodes (rank = node); 0 when size 1 */
-int   mn_transport_shmem(void);   /* 1 when the meshes are SHMEM PE sets (COMM_TRANSPORT=shmem) */
+int   mn_transport_shmem(void);   /* 1 when the meshes are xshmem PE sets (COMM_TRANSPORT=xshmem) */
 int   mn_selftest(int logR, int logC, int verbose);   /* a distributed convolution over each mesh against the one-rank engine; 1 = ok */
 void  mn_barrier(void);
 /* M3 (archive:PLAN §17): node groups per tree level, the layered communicator's self-test, the distributed top levels */

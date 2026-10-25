@@ -30,6 +30,9 @@
 #include "../bigint.h"
 #pragma GCC diagnostic ignored "-Wunused-function"   /* each test uses a subset of these helpers */
 
+/* the shard of an n-limb number held by rank r of size ranks: [lo, hi) */
+static inline void comm_shard(size_t n, int r, int size, size_t *lo, size_t *hi) { *lo = n * (size_t)r / size; *hi = n * (size_t)(r + 1) / size; }
+
 static int hv_fails = 0, hv_checks = 0;
 __attribute__((constructor)) static void hv_linebuf(void) { setvbuf(stdout, NULL, _IOLBF, 0); }
 #define VERIFY(cond, ...) do { hv_checks++; if (!(cond)) { hv_fails++;                      \

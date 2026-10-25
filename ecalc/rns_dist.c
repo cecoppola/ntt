@@ -282,7 +282,6 @@ static int cache_lookup(const void *key, size_t lo, size_t n, size_t q, int mn, 
 static int cache_find(const struct acc *a, size_t q, int np) { return !cache_slots() ? -1 : cache_lookup(a->q[0], a->lo, a->n, q, 0, np, 0); }
 /* the slots of the two operands of one product: hits taken anywhere, misses filled in the designated slots (never the slot
  * the other operand hits in); the misses' keys set here (the planes are allocated by the ranks) */
-static int g_cache_last[2];                                   /* Phase 15 CX (RNS_DIST_CACHE_TRACE): the last product's operands A, B: 2 hit, 1 cached (a miss into a slot), 0 not cached */
 static void cache_plan(int *sa, int *sb, int ha, int hb, const void *ka, size_t la, size_t na, const void *kb, size_t lb, size_t nb, size_t q, int mn, int np, int p24)
 {
     if (np > rns_pool0_np() && !g_cache.pc) *sa = *sb = -1;   /* NP: the slots hold rns_pool0_np() planes (never fewer than a product of the run needs; a guard); PC: a pool slot holds k of any np */
@@ -299,7 +298,6 @@ static void cache_plan(int *sa, int *sb, int ha, int hb, const void *ka, size_t 
         g_cache.misses++;
         s->key = k ? kb : ka; s->lo = k ? lb : la; s->n = k ? nb : na; s->q = q; s->mn = mn; s->np = np; s->p24 = p24;
     }
-    g_cache_last[0] = ha >= 0 ? 2 : *sa >= 0 ? 1 : 0; g_cache_last[1] = hb >= 0 ? 2 : *sb >= 0 ? 1 : 0;
 }
 /* ---- Phase 15 Batch 3 PC (archive:results_merged_2026-10-24/CACHE.md §PC15): RNS_DIST_CACHE_PARTIAL=1 -- partial slots that fit, drawn per grid product from the block pool ----
  * At the 5.1e13 target a full slot (68.7 GB per node) fits no phase; the block pool (the arena, mapped at init and inside the budget) has
@@ -387,10 +385,6 @@ static void cache_pc_report(void)                             /* the run's parti
                g_pcst.grown ? " -- the pool GREW (RNS_DIST_CACHE_PARTIAL_FORCE)" : ", no growth");
     memset(&g_pcst, 0, sizeof g_pcst);
 }
-/* Phase 15 CX (results/CACHE.md §CX15; instrumentation, off by default): RNS_DIST_CACHE_TRACE=1 -- mn_grid prints one line per piece of a grid
- * product (its (i, j), limbs, the operands' cache state, the piece's wall and mn_core's parts; with DIST_STATS=1 also the transforms'
- * event-timed parts, summed over the four APU threads / 4) */
-static int cache_trace_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("RNS_DIST_CACHE_TRACE"); v = e ? atoi(e) != 0 : 0; } return v; }
 /* ---- Phase 13b B (archive:PLAN §29 E4, 31 axis S): the prime-per-APU product ("B form") ------------------------------------
  * RNS_STRATEGY selects the product strategy of dist_core, the single-node product under every size-1 dist product (the
  * top tree levels, the reciprocal's doublings, the division's products) and the node-local products at size > 1:
@@ -599,21 +593,6 @@ static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc, c
     if (getenv("RNS_VERBOSE")) printf("dist %s %s2^%d (%zu limbs = %zu x %zu%s): load %.3f ntt %.3f crt %.3f spills %.3f total %.3f s\n", strat_name(f), T == 3 ? "3*" : "", logk, nc, A.n, B.n, ec_np_auto ? (np == 4 ? ", 4 primes" : ", 3 primes") : "", ml, mf, mc, mem_now() - tsp, mem_now() - t0);
     return 1;
 }
-/* RNS_STRATEGY_CHECK=1 (test): every B-form product formed again by C into a temporary and compared (abort on a difference) */
-static int b_check_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("RNS_STRATEGY_CHECK"); v = e ? atoi(e) : 0; } return v; }
-static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int sa, int sb);
-static void b_check(int f, struct acc A, struct acc B, struct acc Cw, size_t nc)
-{
-    dbig T; db_init(&T); db_reserve(&T, nc + 8);
-    int s = g_strat; g_strat = STRAT_C; dist_core(A, B, acc_db(&T, 0, nc), nc, -1, -1); g_strat = s;
-    T.n = nc;
-    bigint x, y; bi_init(&x); bi_init(&y); db_to_bi(&x, Cw.owner); db_to_bi(&y, &T); bi_norm(&x); bi_norm(&y);
-    size_t k = 0, m = x.n < y.n ? x.n : y.n; while (k < m && x.l[k] == y.l[k]) k++;
-    int T3; int lk; (void)b_len(nc, &T3, &lk);
-    if (x.n != y.n || k < m) { ec_fatal(7, "RNS_STRATEGY_CHECK: %s differs from C: %zu x %zu limbs (views at %zu, %zu), nc %zu, n %s2^%d: first limb %zu of %zu / %zu\n", strat_name(f), A.n, B.n, A.lo, B.lo, nc, T3 == 3 ? "3*" : "", lk, k, x.n, y.n); }
-    static size_t nchk; if (++nchk % 16 == 1 && getenv("RNS_VERBOSE")) printf("RNS_STRATEGY_CHECK: %zu products identical\n", nchk);
-    bi_free(&x); bi_free(&y); db_free(&T);
-}
 /* the core: C = A B, na + nb limbs of result through accessors; nc limbs written.  sa, sb: the cache slots for A and B
  * (-1: not cached; a hit anywhere in the cache is taken regardless) */
 static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int sa, int sb)
@@ -628,7 +607,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
     size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rows = R / NR, q = n / NR;
     double t0 = mem_now();
     if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
-    { int f = b_choose(A, B, Cw, nc, sa, sb, np); if (f != STRAT_C && b_core(f, A, B, Cw, nc, np)) { if (b_check_on()) b_check(f, A, B, Cw, nc); return; } }   /* Phase 13b B: RNS_STRATEGY */
+    { int f = b_choose(A, B, Cw, nc, sa, sb, np); if (f != STRAT_C && b_core(f, A, B, Cw, nc, np)) return; }   /* Phase 13b B: RNS_STRATEGY */
     /* A1: the cache slots -- hits anywhere, misses filled in the designated slots (never the slot the other operand hits in) */
     int ha = cache_find(&A, q, np), hb = cache_find(&B, q, np);
     cache_plan(&sa, &sb, ha, hb, A.q[0], A.lo, A.n, B.q[0], B.lo, B.n, q, 0, np, 0);
@@ -1044,9 +1023,7 @@ static void seg_tables(const struct mn_ctx *X, const mdbv *op, int d, struct seg
 static void seg_bytes(const struct seg *sg, int g, size_t *cnt, size_t *dsp) { for (int r = 0; r < g; r++) { cnt[r] = (sg[r].t1 - sg[r].t0) * 8; dsp[r] = sg[r].off * 8; } }
 /* one operand: pack my part, exchange over mesh d (an alltoallv of the segments), the received sequence in rb */
 struct rdst { struct seg *hs, *ds; size_t *cnt; uint64_t *sb, *rb; size_t tend; };   /* per operand and APU: the tables, the buffers, the received sequence's end */
-static void redistribute_i(const struct mn_ctx *X, const mdbv *op, struct rdst *o, int d, hipStream_t s);
-static void redistribute(const struct mn_ctx *X, const mdbv *op, struct rdst *o, int d, hipStream_t s) { int ph_ = ec_ph(EC_PH_RD_REDIST); redistribute_i(X, op, o, d, s); ec_ph(ph_); }   /* (comm_phase.h) */
-static void redistribute_i(const struct mn_ctx *X, const mdbv *op, struct rdst *o, int d, hipStream_t s)
+static void redistribute(const struct mn_ctx *X, const mdbv *op, struct rdst *o, int d, hipStream_t s)
 {
     int g = X->g; size_t stot, rtot, S;
     struct seg *ss = o->hs, *rs = o->hs + g;
@@ -1419,7 +1396,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         oA.hs = hseg; oA.ds = dseg; oA.cnt = cnt; oB.hs = hseg + 2 * g; oB.ds = dseg + 2 * g; oB.cnt = cnt + 4 * g; oX.hs = hseg + 4 * g; oX.ds = dseg + 4 * g; oX.cnt = cnt + 8 * g;
         comm *cl = lay_get(G, d);
         /* (Phase 14 P2's DIST_MN_SYM_SLABS=1, the slabs and scratch in the transport's symmetric pool, was removed 2026-10-12: not the
-         * design, results/SHMEM_ITEMS.md §P214) */
+         * design, results/SHMEM.md §P214) */
         uint64_t *cx = X ? db_pool_alloc(dv, q * 8) : 0, *tmp = (gen || vpe_on()) ? 0 : db_pool_alloc(dv, q * 8);   /* (vPE: the flat communicator needs no layered scratch) */
         /* A1: the cache planes of A and B on this rank: cache_pl(slA / slB, d, p, q) for primes p < kA / kB (Phase 15 PC) */
         /* planes: xa[4] in pool 0, xb (q + 16: the CRT's carry limb) | sbuf | rbuf in pool 1 */
@@ -1433,7 +1410,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             if (!v->plan[p].built || v->plan[p].logR != logR || v->plan[p].logC != logC || v->plan[p].cm != cl || v->plan[p].sl != sl) {
                 npl++;
                 if (v->plan[p].built) dist_plan_free(&v->plan[p].pl);
-                { int ph_ = ec_ph(EC_PH_PLAN_CREATE); dist_plan_create_shared(&v->plan[p].pl, cl, v->ctx[p], p, logR, logC, sl, sl + q); ec_ph(ph_); }
+                { dist_plan_create_shared(&v->plan[p].pl, cl, v->ctx[p], p, logR, logC, sl, sl + q); }
                 v->plan[p].logR = logR; v->plan[p].logC = logC; v->plan[p].built = 1; v->plan[p].cm = cl; v->plan[p].sl = sl;
             }
         }
@@ -1462,7 +1439,6 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         HIP_SYNC(s);
         if (oA.rb) { db_pool_free(dv, oA.rb); oA.rb = 0; } if (oX.rb) { db_pool_free(dv, oX.rb); oX.rb = 0; }
         double s1 = mem_now(); tr[d] = s1 - s0;
-        int phf_ = ec_ph(EC_PH_RD_FWD);
         for (int p = 0; p < np; p++) {
             const int ah = ha >= 0 && p < kA, bh = hb >= 0 && p < kB, ac = slA >= 0 && p < kA;   /* Phase 15 PC: prime p's hit / A's plane to cache (full slots: every p) */
             uint64_t *yb = slB >= 0 && p < kB ? cache_pl(slB, d, p, q) : xb;
@@ -1483,13 +1459,11 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             }
             HIP_SYNC(s);
         }
-        ec_ph(phf_);
         if (oB.rb) { db_pool_free(dv, oB.rb); oB.rb = 0; }
         if (gen && !vpe_on()) comm_layered_release_vslots(cl);           /* M3 v-slot release (comm_layered.c): the v-exchanges of this product are all waited for; the pool's slots go before the staged result exchange (no-op otherwise) */
         double s2 = mem_now(); tf[d] = s2 - s1;
         if (getenv("RNS_VERBOSE") && !gen) dist_phase_dump(rho);
         if (getenv("RNS_VERBOSE") && !gen) printf("   mn_core pe %d: plans created %d (%.3f s), per prime sums: fwd A %.3f fwd B %.3f inv %.3f s\n", rho, npl, tpl, tfa, tfb, tiv);
-        int phc_ = ec_ph(EC_PH_RD_CRT);
         for (int p = 0; p < np; p++) {
             dim3 grid((unsigned)((C + 31) / 32), (unsigned)((rows + 31) / 32)), blk(32, 8);
             k_transpose<<<grid, blk, 0, s>>>(xa[p], xt, rows, C);
@@ -1508,7 +1482,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         } else
         k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, qs, gc, v->spill);
         HIP_SYNC(s);
-        tc[d] = mem_now() - s2; ec_ph(phc_);
+        tc[d] = mem_now() - s2;
         /* the result's rows -> the nodes' windows: the segments of every node's window in my sequence are sent straight from
          * the CRT output (back to back in node order); the received segments of my window from the ranks (r, d) at prefix offsets.
          * Phase 13a M: in Kt rounds when chunked (each round = every node's chunk rc of its window, then this node's chunk added
@@ -1520,7 +1494,6 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
           HIP_CHECK(hipSetDevice(dv));
         }
         for (int rc = 0; rc < Kt; rc++) {
-        int phq_ = ec_ph(EC_PH_RD_RESULT);
         size_t wlo, whi; mn_win_chunk(Cn, node, shift, Np, rc, Wt, chunked, &wlo, &whi); size_t wn = whi - wlo;
         size_t *scnt = ocnt, *sdsp = ocnt + g, *rcnt = ocnt + 2 * g, *rdsp = ocnt + 3 * g, rtot = 0;
         const size_t nlim = p24 ? p24_L(n) : n;             /* the plane's limbs (P24: its out-runs tile [0, L(n))) */
@@ -1559,7 +1532,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             HIP_SYNC(s);
             sp[d] = spill_rb[d]; sptab[d] = sptab_d[d]; }
           to[d] += mem_now() - s3;
-          db_pool_free(dv, rbO); ec_ph(phq_); }
+          db_pool_free(dv, rbO); }
         if (chunked) {
 #pragma omp barrier
 #pragma omp single
@@ -1575,7 +1548,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     HIP_CHECK(hipSetDevice(LD(0)));
     /* the spills into the windows, then the carries across the nodes */
     { size_t b = (T.cap ? T.cap * 8 : 0); for (int d = 0; d < NL(); d++) b += rbo_max[d]; if (b > rns_dist_tscratch_max) rns_dist_tscratch_max = b; }   /* Phase 13a M: measured T + rbO */
-    double t4 = mem_now(); int phk_ = ec_ph(EC_PH_RD_CARRY); int co = 0, pr = 1;                /* an empty window propagates (the windows tile the piece) */
+    double t4 = mem_now(); int co = 0, pr = 1;                /* an empty window propagates (the windows tile the piece) */
     if (chunked) {                                            /* Phase 13a M: the rounds added the chunks into C; the two carry scans */
         if (rd.kc > 1) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: %d carries out of a share in one piece (the bound is 1)\n", rd.kc); }
         share_carry_fix(G, &Cn->sh, cn, rd.kc, rd.pr);        /* C's own carries, with the propagate flag of its last add */
@@ -1593,7 +1566,6 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         share_carry_fix(G, &Cn->sh, cn, co, pr);
         db_free(&T);
     }
-    ec_ph(phk_);
     Cn->sh.n = cn;                                            /* the fixed-length adds set sh.n to their length */
     double mr = 0, mf = 0, mc = 0, mo = 0; for (int d = 0; d < NL(); d++) { if (tr[d] > mr) mr = tr[d]; if (tf[d] > mf) mf = tf[d]; if (tc[d] > mc) mc = tc[d]; if (to[d] > mo) mo = to[d]; }
     double tcar = mem_now() - t4, tt = mem_now() - t0;
@@ -1662,20 +1634,7 @@ static int mn_piece_form(void *ctx, int i, int j, int sa, int sb, int formed)
     size_t oa = (size_t)i * c->pa, ob = (size_t)j * c->pb;
     if (!a->len || !b->len) return -1;                                               /* nothing */
     if (grid_piece_skipped(oa, ob, a->len, b->len, c->lowcut, c->w)) return 0;       /* nothing of it below w, or all of it below the low cut */
-    struct mn_times t_b = *c->tm; double tp = mem_now(); g_cache_last[0] = g_cache_last[1] = 0;
-    if (cache_trace_on() && dist_st.on) dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_xfer = dist_st.t_a2a = dist_st.t_total = 0;
     mn_core(c->C, a, b, 0, c->G, oa + ob, oa + ob == 0 && !formed, c->tm, sa, sb, c->p24, 0);
-    if (cache_trace_on()) {
-        static const char *st[3] = { "-", "cached", "HIT" };
-        const struct mn_times *tm = c->tm;
-        printf("cache_trace node %d: piece (%d, %d) of %d x %d, %zu + %zu limbs at %zu, slots %d: A %s B %s | %.3f s: redistribute %.3f ntt %.3f crt %.3f out %.3f carry %.3f",
-               g_node_of(c->G), i, j, c->ka, c->kb, a->len, b->len, oa + ob, c->NS, st[g_cache_last[0]], st[g_cache_last[1]], mem_now() - tp,
-               tm->redistribute - t_b.redistribute, tm->ntt - t_b.ntt, tm->crt - t_b.crt, tm->out - t_b.out, tm->carry - t_b.carry);
-        if (dist_st.on) { printf(" | ntt parts rows %.3f cols %.3f pack %.3f xfer %.3f a2a %.3f", dist_st.t_local1 / 4, dist_st.t_local2 / 4, dist_st.t_pack / 4, dist_st.t_xfer / 4, dist_st.t_a2a / 4);
-                          dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_xfer = dist_st.t_a2a = dist_st.t_total = 0; }
-        if (c->pc) printf(" | partial: %d prime%s per slot%s", c->pck, c->pck == 1 ? "" : "s", c->p24 ? ", P24" : "");   /* Phase 15 PC */
-        printf("\n");
-    }
     return 1;
 }
 /* P1 (DM_MN_WRAP): wskip -- pieces starting at or above it are skipped (the callers before P1: w); basis > 0 -- C in that basis
@@ -1959,13 +1918,13 @@ size_t rns_mul_dist_mn_vslot(size_t na, size_t nb, int g)
     }
     return vslot_shape(logR, logC, g);
 }
-/* Phase 14 P2 (results/SHMEM_ITEMS.md §P214): the SHMEM transport's staging for the same product, limbs per APU thread = the send + receive of
+/* Phase 14 P2 (results/SHMEM.md §P214): the SHMEM transport's staging for the same product, limbs per APU thread = the send + receive of
  * its largest staged exchange (comm_shmem.c stages every buffer outside its symmetric pool, per exchange, released after it; the
  * four APU threads run the same exchange at once, so the pool holds 4 of these): the result exchange (xb -> rbO: my rows of the
  * piece RT(nc), and my window's part win / NL()), the redistribution of A or B (my share's part va / NL() + 2 g rows out, my rows RT(pa)
  * in), the transform's inter-node stage (q / NL() each way).  mem_model.py mn_stage is the same formula; measured to the MiB at 1e8 -
  * 1e10 on 2 nodes and 1e9 - 1e10 on 4 processes.  *qmax = the product's plane q (DIST_MN_SYM_SLABS keeps 3 q per APU). */
-static const char *round_env(void) { const char *t = getenv("COMM_TRANSPORT"); return t && !strcmp(t, "xshmem") ? xshmem_round_env() : getenv("COMM_SHMEM_ROUND_MB"); }   /* the planner: the round size of the transport (xshmem: XSHMEM_ROUND_MB, 0 = whole-exchange staging) */
+static const char *round_env(void) { const char *t = getenv("COMM_TRANSPORT"); return t && !strcmp(t, "xshmem") ? xshmem_round_env() : NULL; }   /* the planner: the round size of the transport (xshmem: XSHMEM_ROUND_MB, 0 = whole-exchange staging) */
 size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t share_b, size_t share_c, size_t *qmax)
 {
     if (qmax) *qmax = 0;
