@@ -883,7 +883,7 @@ class Design:
         self.np_auto = np_auto
         self.packed = p15b if packed is None else packed
         self.early = p15b if early is None else early
-        # Phase 15 (agent DOC2): p15c = the user's decisions of 2026-09-28 on top of p15b (main B2) -- BS_ARENA_ROOM (arena_room, default 0.16 with p15c:
+        # Phase 15 (agent DOC2): p15c = the user's decisions of 2026-09-28 on top of p15b (main B2) -- BS_ARENA_ROOM (arena_room, default mem_model.ARENA_ROOM (0.16 until 2026-10-25, 0.14 since Q99) with p15c:
         # mem_model's arena term; at size 1 the division without the fill's remaps, P15C_DIV1), DIST_TWREC_G=1 (the global TWREC_G), RNS_POOL1_4Q=1 (mem_model);
         # cache_fit = RNS_DIST_CACHE_FIT=1 on the launch line (the mn cache's slots as FIT allows them; default with p15c)
         self.p15c = p15c
@@ -1839,7 +1839,10 @@ def cache_partial(T=None, g=None, keep_room=False, loops=('code', 'long'), arena
     finally: CACHE_P24 = saved
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "estimate": return estimate_main(sys.argv[2:])   # the standing estimate (was estimate.py)
+    if len(sys.argv) > 1 and sys.argv[1] == "estimate":
+        try: return estimate_main(sys.argv[2:])
+        except mem_model.NoGrid as e:                                   # a size no grid holds: the code would stop with the same fatal (--D is digits PER NODE)
+            print("mn_model.py estimate: %s -- that size cannot run (note: --D is the digits per node, e.g. 3.82e13 on 576 nodes is --D 6.63e10)" % e, file=sys.stderr); return 2   # the standing estimate (was estimate.py)
     sys.exit("usage: mn_model.py estimate [options]   (estimate --help)")
 
 
@@ -1976,7 +1979,7 @@ def estimate_main(argv=None):
     ap.add_argument("--verbose", action="store_true", help="the per-phase, per-level breakdown of every run")
     ap.add_argument("--np", type=int, default=3, choices=(3, 4), help="ECALC_NP at size 1 (Phase 13b step 0: 3)")
     ap.add_argument("--np-mn", type=lambda v: v if v == 'auto' else int(v), default='auto', choices=(3, 4, 'auto'), help="ECALC_NP at size > 1 (Phase 15, the user's decision 1 of 2026-09-28: auto on the target's launch line -- Phase 15 NP's per-product count, four only over the three-prime bound; 4 was the launch line of 2026-09-27 (+17.2 GB per node: 489 GB at 5.1e13 with the room, over 480); 3 is refused by the plan check at 4.25e13 and 5.1e13 on 576)")
-    ap.add_argument("--room", type=float, default=None, help="BS_ARENA_ROOM (default 0.16: the code's default since 2026-09-28; 0 = off)")
+    ap.add_argument("--room", type=float, default=None, help="BS_ARENA_ROOM (default mem_model.ARENA_ROOM = the code's default, 0.14 since Q99, 2026-10-25; 0 = off)")
     ap.add_argument("--no-twrec-g", action="store_true", help="DIST_TWREC_G=0 (the default is 1 since 2026-09-28)")
     ap.add_argument("--cache-slots", type=int, default=None, choices=(0, 1, 2), help="price n mn transform-cache slots whatever RNS_DIST_CACHE_FIT allows (default: what FIT allows -- 0 at the target; the slots' bytes are added to the node)")
     ap.add_argument("--no-cache-fit", action="store_true", help="without RNS_DIST_CACHE_FIT on the launch line: the code's default 2 slots priced (137.4 GB per node at the target that no budget holds: TC15)")
@@ -2157,4 +2160,4 @@ def est_by_phase(a, design, groups, fabs, T):
           " / ".join("%.1f @%.1f" % (gbn / b, b) for b, f in fabs)))
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
