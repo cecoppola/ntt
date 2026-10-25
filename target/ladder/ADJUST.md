@@ -9,19 +9,24 @@ appended to `results/ladder/LADDER.md`) -> read the table below -> change at mos
 (`--set KEY=VALUE`, one change per re-run, so the effect is attributable) -> re-run at the same level, or move up.
 Commit `results/` after every collect (the coordinator does the git work).
 
-## 1. Predictions (mod): `python3 ecalc/mn_model.py estimate --g 1 8 64 576 --D 6.632e10 --fabric target`
+## 1. Predictions (mod): `python3 ecalc/mn_model.py estimate --g 1 8 64 576 --D 8e9 --fabric target`
 
-| level | nodes (APUs) | digits | wall without write (mod) | wall with write (mod) | exposed fabric (mod) | device per node (mod) |
+The first campaign runs 8e9 digits per node (user decision Q120: every code path fits at every level; raise the size
+only after all levels pass on both paths).
+
+| level | nodes (APUs) | digits | wall without write (mod) | wall with write (mod) | exposed fabric (mod) | device per node (mod, D / path 2 planner) |
 |---|---|---|---|---|---|---|
-| L0 | 1 (4) | 6.632e10 | 102.7 s | 116.9 s | 0 | 290 GB |
-| L1 | 8 (32) | 5.306e11 | 118.2 s | 129.6 s | 17.8 s | 359 GB |
-| L2 | 64 (256) | 4.244e12 | 149.6 s | 160.4 s | 28.4 s | 359 GB |
-| L3 | 576 (2304) | 3.82e13 | 187.1 s | 191.2 s | 51.6 s | 390 GB (planner, NPCAP off: 358.96 GB) |
+| L0 | 1 (4) | 8e9 | 16.8 s | 19.9 s | 0 | 155 / 144 GB |
+| L1 | 8 (32) | 6.4e10 | 22.6 s | 24.6 s | 1.5 s | 178 / 216 GB |
+| L2 | 64 (256) | 5.12e11 | 25.8 s | 27.6 s | 2.5 s | 178 / 216 GB |
+| L3 | 576 (2304) | 4.608e12 | 32.0 s | 33.2 s | 6.5 s | 181 / 328.69 GB |
 
 Assumptions inside the model (a): 100 GB/s per APU, 2 us per message, dragonfly group 64, part files 1 GB/s per node. The
-model was calibrated on aac7/aac6 compute, where one node at 6.6e10 measured 74-76 s (m, aac7 `total`, layout D; model for
-the target 102.7 s), so a L0 result below the model is normal; what matters is the growth from level to level: model L0 -> L1
-+15 %, L1 -> L2 +27 %, L2 -> L3 +25 % of wall. A level that grows much more than that has a fabric or placement problem.
+model was calibrated on aac7/aac6 compute at larger sizes; at 8e9 per node start-up is a large share of the wall, so a
+measured/model ratio away from 1 at L0 is expected; what matters is the growth from level to level: model L0 -> L1 +35 %,
+L1 -> L2 +14 %, L2 -> L3 +24 % of wall. A level that grows much more than that has a fabric, launch or placement problem.
+For the 3.82e13 headline (later): L0-L3 at 6.632e10 per node model 102.7 / 118.2 / 149.6 / 187.1 s without write, layout D
+only, `MN_NONPOW2_CAP=0` at L3 (Q119).
 `collect` prints the measured / model ratio per path; the model figure of `L<n>.conf` is for the conf's digits only.
 
 ## 2. Gate: move up when all of these hold (a: thresholds are ours, change them on evidence)
@@ -58,7 +63,7 @@ Keys in the summary are `p<path>r<run>.<key>` (`raw/<id>.log` is the full output
 | 10 | `rc` 124 (timeout) | too slow or hung | Look at the last phase in `raw/*.log`; a hang in registration: confirm `FI_MR_CACHE_MONITOR=userfaultfd`; then raise `TIME_MIN` only if the log shows progress. |
 | 11 | run 1 of a fresh allocation much slower than run 2 on the same host | cold start (aac7 rehearsal 2026-10-25, m: first run 154.9 s, later runs on the same node 76.9-85.5 s; init 47.4 vs 23.6-24.2 s) | Time only from run 2 on (L0 has RUNS=2 for this); compare replicas at the same run index; do not exclude a host for its first run alone |
 
-NPCAP bench (another agent's target bench item measures `MN_NONPOW2_CAP` on vs off at a non-power-of-two node count): if it
+NPCAP (matters only from 4.5e10 digits per node, i.e. for the 3.82e13 headline later, not for the 8e9 campaign; bench item `prm08` measures `MN_NONPOW2_CAP` on vs off at a non-power-of-two node count): if it
 shows a large time cost for NPCAP off, the fallback for L3 is a smaller digit count with NPCAP on (about 2.67e13 fits, mod
 planner): `ladder.sh --level L3 --set ENV_MN_NONPOW2_CAP= --set DIGITS=26700000000000` (the empty value drops the conf's
 word, so the code default applies; `ladder.sh` refuses a size that does not fit and prints the largest one).

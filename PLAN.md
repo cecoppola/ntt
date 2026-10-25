@@ -14,6 +14,10 @@ Labels: **m** measured, **mod** modelled, **a** assumed.
 
 - Compute ⌊10^d · e⌋ in decimal, for d = **3.82 × 10¹³** digits, on **576 nodes** of four AMD MI300A APUs each (user
   decision 2026-10-12). The target machine is never accessed from this project; the user runs the test kit there.
+- First target campaign (user decision Q120, 2026-10-25): "reduce the number of digits until all the code paths work, and then
+  plan to run those. We can always increase the number of digits later if the smaller runs succeed." It runs 8 × 10⁹ digits
+  per node (4.608 × 10¹² on 576 nodes), where layout D, P and path 2 all fit at 1, 8, 64 and 576 nodes (mod, planner); the
+  3.82 × 10¹³ run follows once the small runs succeed.
 - Constraints per node: device memory ≤ **373.44 GB** (the measured `hipMalloc` edge on the target, 93.36 GB per APU, m),
   host total ≤ **480 GB** (the budget check's default). Each node has 8 NICs (two per APU) on the target and one per APU on aac7.
 - What is known about the target (user-supplied 2026-10-12, a; re-assessed in `results/TARGET.md §TGT`):
@@ -109,9 +113,9 @@ Open work in this repository is in `TASKS.md`.
 3. Bench (`target/bench/run.sh`, one worker per allocation, 57 items run once each in priority order; questions and the
    model constants they feed: `target/bench/QUESTIONS.md`): memory edge, correctness, fabric (injection, latency,
    all-to-all at 2/8/64 nodes), paths, launch shape, init, write, `MN_NONPOW2_CAP` cost (`prm08`), calibration.
-4. Ladder (`target/ladder/ladder.sh`): 1, 8, 64, 576 nodes on physically adjacent nodes at 6.632e10 digits per node,
+4. Ladder (`target/ladder/ladder.sh`): 1, 8, 64, 576 nodes on physically adjacent nodes at 8e9 digits per node (Q120), both paths,
    replicas in parallel at the lower levels, adjustments between runs by `target/ladder/ADJUST.md`; every run VERIFY OK.
-5. The 576-node run with the write, RECHECK and `unpack_digits` off the clock, and a prefix compare against a reference;
+5. Larger sizes step by step toward 3.82e13 (layout D; path 2 to about 1.2e10 per node at 576, mod); the 576-node run with the write, RECHECK and `unpack_digits` off the clock, and a prefix compare against a reference;
    raw results committed in `target/results/` for the offline work afterwards.
 
 **Risks.**

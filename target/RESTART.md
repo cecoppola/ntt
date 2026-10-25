@@ -97,7 +97,9 @@ T2 windows: `VERIFY OK` on every node); `ECALC_RECHECK=1` re-checks a finished f
 packed output (0.417 B per digit) into ASCII. Design: `ALGORITHM.md`; switches: `ecalc/README.md`; plan: `PLAN.md`;
 how to test: `TESTING.md`; open work: `TASKS.md`; ideas: `OPPORTUNITIES.md`; evidence: `results/`.
 
-**The goal.** d = 3.82 × 10¹³ digits on all 576 nodes (6.63 × 10¹⁰ digits per node), digits right without a
+**The goal.** First (user decision Q120): ecalc running efficiently on all 576 nodes on every code path, at a small size
+(8 × 10⁹ digits per node, 4.608 × 10¹² digits on 576 nodes); then larger sizes up to the long-standing headline
+d = 3.82 × 10¹³ digits on all 576 nodes (6.63 × 10¹⁰ digits per node), digits right without a
 reference, as fast as possible. Standing estimate 182-185.5 s without the write (mod, fabric assumed at the 100 GB/s
 injection peak per APU); the write adds 1.0 s at the file system's 1 TB/s or 12.8 s at 1.0 GB/s per node (mod).
 The fabric numbers are the biggest unknown: the bench measures them first.
@@ -228,19 +230,26 @@ change the ladder's settings (ADJUST.md) before L1.
 
 ## 8. Step 4 — the ladder (1, 8, 64, 576 nodes)
 
-Sizes are fixed (Q114) at the target run's share per node, 6.632 × 10¹⁰ digits per node:
+Sizes are fixed (Q114). The digits are the first campaign's share of **8 × 10⁹ digits per node** (user decision Q120,
+2026-10-25: "reduce the number of digits until all the code paths work, and then plan to run those. We can always
+increase the number of digits later if the smaller runs succeed"): at 8e9 per node every shape fits at every level —
+layout D (path 1), P (path 1, one process per GPU) and path 2 (Cray SHMEM) — while at the 3.82e13 headline's share
+(6.632e10 per node) P and path 2 are refused from 8 nodes on (mod, planner 2026-10-25):
 
-| level | nodes (APUs) | digits | replicas in parallel | paths | write | model wall (mod, no write / write) |
-|---|---|---|---|---|---|---|
-| L0 | 1 (4) | 6.632e10 | 8, 2 runs each | both, order alternating | no | 102.7 / 116.9 s |
-| L1 | 8 (32) | 5.306e11 | 4 | both | no | 118.2 / 129.6 s |
-| L2 | 64 (256) | 4.244e12 | 2 | both | first replica | 149.6 / 160.4 s |
-| L3 | 576 (2304) | 3.82e13 | 1 | 1 (path 2 does not fit, see below) | yes | 187.1 / 191.2 s |
+| level | nodes (APUs) | digits | replicas in parallel | paths | write | model wall (mod, D, no write / write) | worst plan (path 2, mod) |
+|---|---|---|---|---|---|---|---|
+| L0 | 1 (4) | 8e9 | 8, 2 runs each | both, order alternating | no | 16.8 / 19.9 s | device 144 GB, node 191 GB |
+| L1 | 8 (32) | 6.4e10 | 4, 2 runs | both | no | 22.6 / 24.6 s | device 216 GB, node 293 GB |
+| L2 | 64 (256) | 5.12e11 | 2, 2 runs | both | first replica | 25.8 / 27.6 s | device 216 GB, node 293 GB |
+| L3 | 576 (2304) | 4.608e12 | 1, 2 runs | both | yes | 32.0 / 33.2 s | device 328.69 GB (+44.75), node 406.32 GB (+7.68 vs 414) |
 
-The model is calibrated on aac7 compute, which measured 74-76 s for L0's size (m): expect the target to beat the model
-at L0. Path 2 and P (one process per GPU) fit the per-node share only at L0: from 8 nodes on the planner refuses them
-(8 n: device 447.93 GB, 64 n: 473.70 GB, 576 n at 3e13: 517.67 GB vs 373.44; mod, planner 2026-10-25), so `ladder.sh`
-drops a refused path and runs L1-L3 on path 1 (layout D: 360.95 GB at 8 and 64 n). `levels/L3.conf` carries `MN_NONPOW2_CAP=0` (Q119: 3.82e13 fits only with it, device 358.96 of 373.44 GB, mod).
+When all four levels pass on both paths, raise the share step by step (`--set DIGITS=...`; the plan check refuses what
+does not fit and prints the largest size that does): the planner's limits per shape at 576 nodes are about 1.2e10 per
+node for path 2 (device +18.98 GB, node 440 GB: needs a node budget ≥ 440), and 6.632e10 per node (the 3.82e13
+headline) for layout D only with `MN_NONPOW2_CAP=0` (Q119; device 358.96 of 373.44 GB). Short runs make start-up a
+large share of the wall: that is what the campaign measures first (init, launch, fabric), so record every phase.
+Run 1 of a fresh allocation is a cold start (ADJUST rule 11): every level does 2 runs and is timed from run 2.
+`ladder.sh` drops a path whose plan is refused and runs the level on the other one.
 
 ```bash
 python3 target/ladder/locality.py nodes --save                  # physical table -> results/probe/topology.tsv (once)
