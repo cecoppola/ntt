@@ -4,21 +4,6 @@ Scope: the time model and the 576-node estimates: refits to measured runs, scali
 
 Sections moved to `archive:results_merged_2026-10-24/TIME_MODEL.md` (2026-10-24 cleanup): Q; X; D213d; TARGET_HW_REVIEW.
 
-| item | title |
-|---|---|
-| Q | the target plan: the models completed for 576 nodes, `estimate(g, D)`, the runbook (Phase 12, PLAN.md §27 row Q; 2026-09 |
-| X | cross-fabric traffic and the 576-node model (Phase 11, PLAN.md §26 row X) |
-| L4 | refit of the time model to all of 2026-10-11's multi-node aac7 runs; what it got wrong and why (wave L, agent L4) |
-| T06 | layeq / layv rate in the time model, and the 576-node estimate redone |
-| M2a | time-model refit, scaling study, 1- and 2-node points (aac7 queue items 77 / 78) |
-| S48 | scaling study (1/2/4/6 nodes at 6.441e10 digits per node) and refit of the aac7 model profile |
-| SCALE35 | scaling points at 3 and 5 nodes |
-| S19B | profile analysis of S19A (2 → 10 nodes) and the S19C switch A/B, with a 576-node projection |
-| D213d | D2 13d — the model: steps for G, the 13c recalibration, the 576 piece counts, the estimate (Phase 13d, PLAN.md §32 row D |
-| C16 | Phase 16 C: the model's inputs measured on aac7 (Slingshot-11, Cray OpenSHMEMX 11.8.0) and `mn_model.py` recalibrated |
-| F16 | the 576-node figures re-estimated from the inputs measured on aac7 (Phase 16 C), with bands |
-| TARGET_HW_REVIEW | the target's microbenchmark report against the model (desk review, 2026-10-03, 22:52 EDT) |
-
 ## Topic summary
 
 - Topic: `ecalc/mn_model.py`, `mem_model.py`, and its `estimate` subcommand (was `estimate.py`) and their fits (`aac7_s48_fit.json`, `aac7_l4_fit.json`), the 576-node time estimates, and what was measured to feed them. Model only: nothing here is in the engine, and no number below is a measurement of the target (fabric 100 GB/s per APU, the part-file rate and the taper are assumed).

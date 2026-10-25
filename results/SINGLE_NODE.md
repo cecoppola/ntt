@@ -4,17 +4,6 @@ Scope: single-node speed and options: init, level pairing, remaining options on 
 
 Sections moved to `archive:results_merged_2026-10-24/SINGLE_NODE.md` (2026-10-24 cleanup): §P; §V214; §V314; §B08.
 
-| item | title |
-|---|---|
-| §P | single-node speed: B3 planes at init, A2 level-22 pairing, DM_POOL default, I11 init, A4 tile budget (Phase 11) |
-| §V214 | remaining one-node options on the Phase 14 defaults: auto's per-piece cost, DIST_TWREC, checkpoints with O_DIRECT |
-| §V314 | the remaining development items (PLAN §33.2 B1-B7, APUMULT E11), with numbers |
-| §P1N | one process per GPU at one node: which phase loses (D vs P, ofi and Cray) |
-| §T215 | `BS_SEED_TERMS` chosen per run so the batch tier fills its transform lengths |
-| §CAND | the three off-by-default speed switches combined |
-| §S21 | single-node A37 measurements (seed microbench, init timeline, dc split, small-j doublings, NTT structure) |
-| §B08 | how fast can the unit tests be? |
-
 ## Topic summary
 
 - **What it is.** Single-node (one MI300A node, 4 APUs) speed work from Phase 11 to the Oct-2026 switches: what happens in init, the seed thread, the batch and mdev tiers, the reciprocal and the division, and which switches were adopted. Switch rows and defaults are in `ecalc/README.md`; the adopted list is in `RESULTS.md`.

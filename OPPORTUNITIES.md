@@ -2,7 +2,7 @@
 
 Scope: every known opportunity to improve performance (time, memory, concurrency, algorithm), open or closed, with its evidence. | Maintained: updated when an idea is found, tried, adopted or rejected.
 
-Revised 2026-10-24: finished and removed ideas pruned (adopted changes live in `RESULTS.md`; the code is the status).
+Revised 2026-10-25: finished and removed ideas pruned (adopted changes live in `RESULTS.md`; the code is the status).
 Older sources: `archive:docs/OPPORTUNITIES.md` (2026-10-10..12), `archive:TASKS_HISTORY_2026-10-12.md`. Old IDs are kept (G = robustness,
 C = fabric/exchange, K = per-node kernels, M = memory/model/target levers, S-/A37- = idea sweeps); new IDs are N1, N2, ….
 
@@ -30,14 +30,10 @@ Target facts: `PLAN.md` section 1.
 | N4 | fabric/exchange | Slow launch mode (libfabric): the inter-node all-to-all rate is set by a fair, memoryless per-launch draw of the NIC outbound-engine bank group (A or B, ≈ 50 % each, the same bank on all NICs of the job); hard-slow (< 9.7 GB/s per thread) in 6 of 28 = 21 % of 4 n launches (m, items 9cg, 9ch). Not controllable from our side (no launch variable predicts it), so pinning is closed and detect-and-relaunch loses (mod); the SHMEM fixed layout (NIC 1, 2 on bank A, NIC 0, 3 on B) runs at ≈ 9.8 GB/s (m). Report the mode in every 4 n comparison and use interleaved arms | ≈ 20 s in ≈ 30 % of 4 n runs (mod); −12 % exchange rate in slow launches (m); 576 n unknown (the target's Slurm 25.11.8 is aac7's 25.11 series, a; whether the per-launch NIC group exists there is unknown) | M | aac7 4 n | `results/NODE_SLOWMODE.md §A13`, `results/NODE_SLOWMODE.md §A14`, `results/NODE_SLOWMODE.md §T05` |
 | C9 | fabric/exchange | dm "blow-ups" (dm > 290 s in 1 of 8–16 ten-node runs) and ±12–25 % job-to-job fabric noise: diagnose the cause | 50–100 s per affected 10-node run (m); 576 n unknown | M | aac7 (if it shows at ≤ 6 n) | `results/SESSIONS.md §S31`, `results/TIME_MODEL.md §S19B` |
 | N6 | fabric/exchange | RCCL or MPI all-to-all across nodes as an alternative transport | worth building only if > 1.2× over `comm_ofi` at scale (a); in-node RCCL is 0.24× our push kernel (m) | L | target | target measurement list §1.8 (private) |
-| M2 | model | Refit the time model to the current code with the M2a scaling points (1/2/4/6 n, stage split) so 576 n rankings rest on current data | no seconds; the model was 1 n 109.5 vs 78 s (m) before K2/K3 entered it | M | local + aac7 | `results/TIME_MODEL.md §M2a`, `results/CODE_REDUCTION.md §O8` |
+| M2 | model | Refit the time model to the current code with the M2a scaling points (1/2/4/6 n, stage split) so 576 n rankings rest on current data | no seconds; the model was 1 n 109.5 vs 78 s (m) before K2/K3 entered it | M | local + aac7 | `results/TIME_MODEL.md §M2a` |
 | M4 | memory | Re-check the old Phase-12 memory items: `mdb_shift` exchange scratch (copies Q at g = 1, 29 GB at 6.44 × 10¹⁰), the O(share) window temporary | unknown; probably absorbed by the lean division set (built in) and T_CHUNK (a) | S | local | `archive:docs/OPPORTUNITIES.md` M4, `results/CODE_REDUCTION.md §AUD3` item 5 |
 | AUD3-10 | memory | One transform cache (partial slots for `mul_grid` too) | unknown at 1 n (needs ABBA); at 576 n the full slots already get 0 slots (m) | M | aac7 1 n | `results/CODE_REDUCTION.md §AUD3` item 10, `results/CACHE.md §TC15` |
 | N8 | output | Writer design gap: the target's file system reaches ≈ 1 TB/s only with 32 writers per node into ONE file (user-supplied); ecalc writes two part files per node (1152 files) from one process with 8 pwrite threads per 256 MB chunk (`MN_OUT_THREADS=8`, O_DIRECT, `MN_OUT_DKM_HI`). Steps: (a) `tools/wbench` on the target at 64+ nodes with `-t 8` vs `-t 32` per-node files and striping (no code; `MN_OUT_THREADS=32` is a setting); (b) if per-node files fall short, one shared striped file with each node writing its byte range at a computed offset (the packed form makes offsets exact; the 4 KiB part headers move to a sidecar) | 15.9 TB packed: 15.9 s at 1 TB/s, 27.6 s at 1.0 GB/s per node, 63.7 s at 0.43 GB/s per node (8 of 32 writers, linear a); exposed write 1.0 / 12.8 / 48.8 s (mod, `target_l4`): −11.8 s against the 1.0 GB/s prior, up to −47.8 s | S (a), M (b) | target | `results/TARGET.md §TGT`, `ALGORITHM.md` §9, `mn_out.c`, `results/OUTPUT_IO.md §IO15` |
-
-## Tried — adopted
-
-Moved to `RESULTS.md` (adopted changes in force, with their evidence).
 
 ## Tried — not adopted / rejected
 
@@ -45,27 +41,17 @@ Moved to `RESULTS.md` (adopted changes in force, with their evidence).
 |---|---|---|---|
 | A15 | Batch to device-tier crossover `BS_MDEV_LOGL` 28 / 29 / 30 (apumult A15) | 1 n 1e11 layout D, one run each (m, item 9zu4): totals 135.1 / 127.5 / 136.9 s, default repeated 131.6 s (A/A spread 5.3 s, mostly init); bs 61.3 / 57.0 / 57.1 / 56.5 s: 28 is about 4 s slower, 29 equals 30; the default stays | `results/APUMULT.md §AP34` |
 | N2 | Gather layout: each rank holds its own rows so the 3/4 remote pull in `k_gather` / `k_bload` disappears | best saving 1.7 s of about 73 s at 1 n and at most 0.4 s of 184.5 s at 6 n (mod, upper bounds): not worth it (scoping 2026-10-19) | `results/EXCHANGE.md §P2`, `§K1b` |
-| S1 vPE | virtual PEs as threads of one process (`ECALC_VPE`, branch `vpe-int`) | 6-12 % of 1 n 1e8 runs gave wrong digits, root cause not found after about 25 items; process mode never fails; removed 2026-10-23 (Q80 shelved, Q86 removed); one process per GPU is the supported form | `results/XSHMEM.md §PPG` |
 | SEEDNUMA | `BS_SEED_NUMA` (NUMA-pinned seed workers) | correct (1e9 identical) but no start-up gain at 1 n 1e11: the seed ends 13.8-14.4 s after the region pools exist in both arms (n 2 each, m); the seed waits for the pools; dropped 2026-10-23 (Q94 b) | `results/APUMULT.md §AP34`, `TASKS.md` |
+| REUSE / REGFIRST / INITOV | `RNS_PAIR_REUSE` (shared-operand transform reuse, apumult A16), `RNS_REGIONS_FIRST` (region pools before plane pools), `RNS_INIT_OVERLAP` (plane pools mapped in a helper thread) | reuse: 1 n 7.7e10 total -0.33 s [-4.04, 3.39] (m); regions first 2 x slower at 1 n 1e11; overlap init 35.5 -> 34.7 s, total 140.4 -> 140.1 s (8 runs per arm, m); not merged (Q101, Q102), code in `archive:branches_2026-10-25/` | `results/APUMULT.md §AP34-reuse`, `§INIT` |
 | S-A / VMM0 | skip the layered self-test (`MN_SELFTEST`); `DB_POOL_VMM=0` | self-test: -1.55 s [-4.25, +1.14] (4 pairs, 3 n 1e11), the cost is building the meshes, not the test; VMM0: init -6.0 s but bs +4.8 s (4 pairs); neither merged | `TASKS.md` Proposed (start-up row) |
 | XSPIN | `XSHMEM_WORKER_SPIN` (idle worker polls), `XSHMEM_OFI_SIG=flush`, `XSHMEM_LANES` 1 vs 2 on aac7 | spin -0.73 s [-1.53, +0.08] (removed); flush +0.13 s [-1.35, +1.61]; lanes +0.45 s [-1.43, +2.32] (one NIC per PE on aac7, so no gain is expected; the target has two) (m, 2 n 1e10) | `results/XSHMEM.md §XWLAT`, `§XDIAG` |
-| N7 / N7B-N7G / N9 | the SHMEM proxy mode (one helper PE per APU, `COMM_SHMEM_PE_PER_APU`, `PX_*` switches, peer order, NUMA, copy kernel, huge-page helper heaps) and SHMEM as primary transport; hugetlb for helper heaps | best 1.43× comm_ofi at 6 n in one run, 1.68× over 28 pairs (m); plain SHMEM 3.0× (698.5 vs 230.5 s), one PE per APU 2.9×; the stalls were compaction of the 4 KiB node-process heap, cured by `COMM_SHMEM_NP_HEAP_THP=1` (0/16 vs 9/24, m); proxy mode removed in P7 (Q78); N7 and N9 closed: on the target SHMEM is the xshmem engine (`XSHMEM=cray`, path 2), hugetlb is a target-session test of the libsma heap (TASKS target row 29) | `results/SHMEM.md`, `results/XSHMEM.md`, `archive:results_merged_2026-10-23/SHMEM_ITEMS_full.md` |
-| K1 / P2 | `k_gather` tiled / coalesced write (`DIST_GATHER_TILE`, removed) and a kernel rewrite | S50 −0.08 ± 0.88 s at 1 n; P2 probe: floor is the remote read, ≤ 0.6 s headroom (m, mod) → N2 | `results/EXCHANGE.md §S50`, `results/EXCHANGE.md §P2` |
 | P3 / K8 | Shorter init mapping: early publish of mapped chunks to the seed DMA (`ECALC_VMM_PUBLISH`, not built); K8 init reorderings | P3: ≤ 1–1.5 s at 1 n, 0 at 2–6 n and at the target (mod); K8: each reordering +2.0 … +11.5 s (m) | `results/MEMORY.md §P3`, `results/MEMORY.md §K8` |
 | S52 / C3 | `DIST_COALESCE` message aggregation | 1.0–4.5 s at 576 n (mod); dropped for now by the user; reopen if the target's per-message cost is ≥ 8.5 µs | `results/GRID_GROUPS.md §S52` |
-| K6 | `RNS_DIST_OVERLAP` (overlap the single-node C-tier all-to-all across primes; removed) | −0.11 ± 0.15 s of 73.4 s (m) | `results/EXCHANGE.md §K6` |
 | K7 / O5 | B5 balanced 4-way B form (APU 3 rebalance) | +0.08 s [−0.75, +0.91] at 10¹⁰ (m) | `results/DIVISION.md §O5` |
-| K4 | `k_crt_batch` B-form occupancy (`RNS_CRT_SUB`, removed) | no gain (m) → K4b for the C form | `results/KERNELS.md §S51`, `results/CODE_REDUCTION.md §W2B` |
-| C4 | `COMM_SHMEM_RPIPE` two-deep rounds (removed) | +1.82 s [−14.35, +17.99] at 4 n (m) | `results/DIVISION.md §O2`, `results/CODE_REDUCTION.md §W2B` |
-| C5 | `MN_REDIST_FUSE` one all-to-all for A, B, X (removed) | −0.78 s [−40.89, +39.34] at 4 n (m) | `results/DIVISION.md §O2`, `results/CODE_REDUCTION.md §W2B` |
 | C6 | Result-exchange rank-gradient rebalancing | ≈ −7 s at 10 n (mod), below noise; needs a re-layout | `results/EXCHANGE.md §A07` |
 | C8 | Peer schedules to close the layered-vs-NIC gap (`rot`, `rr`, `winK`) | `rot` null (+3.1 s, S27); the others no gain, not built | `results/OFI_FABRIC.md §C02`, `results/SESSIONS.md §S27` |
 | O1 | `MN_GROUPS=6` instead of `2,6` at 6 n | +2.4 s [−3.9, +8.7], p 0.35 (m) | `results/GRID_GROUPS.md §O1` |
 | B06 | Uneven node groups | correct, not faster (m) | `results/GRID_GROUPS.md §B06` |
-| layv | Non-power-of-two exchange path; `COMM_SHMEM_LAYV_ANY` (layered exchange for any group size, removed) | no path penalty (−0.36 s, m); the 6-node slowdown is the group size; LAYV_ANY +4.6 s [−174, +183] (4 pairs) and no effect over 8 pairs (m) | `results/TIME_MODEL.md §S48`, `archive:results/O9.md`, `results/SHMEM.md` |
-| VMM_BG | `ECALC_VMM_BG=0` (synchronous mapping), `=2` (lock, removed), `ECALC_VMM_SAFE` (removed), `=auto` | `=0` +20 s at 2 n; `=2` 9/9 reproducer fails; `auto` saves ≈ 0 at the target map rate (m, mod) | `results/CRASHES_HANGS.md §S34`, `results/CRASHES_HANGS.md §S46`, `archive:results/A09.md` |
-| A5 | Device overlap flow `ECALC_OVERLAP` and device Newton `NEWTON_DEVICE` (removed as losing flows) | losing flows; removed 2026-10-12 | `results/CODE_REDUCTION.md §W2A` |
-| RNS_PLANES_3Q30 | 3·2^k planes in the distributed tier | 80.8 ± 1.3 vs 82.0 ± 0.3 s at 4 × 10¹⁰ (m), within noise; mapping cost | archive:results_merged_2026-10-24/MEMORY.md §I, `results/CODE_REDUCTION.md §AUD3` item 3 |
 | NTT3P | 3-pass 2^31 NTT (13/9/9) | 90.6 vs 89.9 ms (m); gate ≤ 80 ms; shelved | `results/KERNELS.md §NTT3P`, `results/SESSIONS.md §S22` |
 | S-3 / S-6 | Barrett constant for decimal seeds; HIP graphs for small dispatches | dropped after measurement | `archive:results/S37.md` |
 | S-5 | Push-form broadcast for B | below 1 s (S38) | `results/KERNELS.md §S38` |
@@ -82,25 +68,4 @@ Moved to `RESULTS.md` (adopted changes in force, with their evidence).
 | A37CMP | apumult a37v1 choices rejected: skip the remainder check (T1 needs it), Stirling-balanced leaves, P/Q arenas split over dies, and the other items of its rejected list | verdicts item by item, each with its reason (m / mod as labelled there) | `results/APUMULT.md §A37CMP` |
 | AP34 | apumult A1-A34 optimization list against ecalc: items already done (have), closed (measured or rejected before) or not applicable (n/a) | per-item verdict table; the three live items (shared-operand transform reuse, seed under P, batch/device crossover) are in TASKS Proposed | `results/APUMULT.md §AP34` |
 
-## Ranking
-
-Top 9 open for the target run, by payoff per effort (payoffs as in the Open table; ranking dated 2026-10-12 on the user-supplied target facts, closed rows dropped 2026-10-23; `TASKS.md` owns the order of work):
-
-| # | ID | why here |
-|---|---|---|
-| 1 | M7c | the 100 GB/s per APU of every estimate rests on both NICs working: +37 s (mod) if one does; one kit stage |
-| 2 | N8 | write −11.8 … −47.8 s (mod) to reach the file system's 1 TB/s; step (a) is a benchmark and a setting |
-| 3 | N1 | the largest measured multi-node cost (+94 s at 6 n); open, not started |
-| 4 | M7d | ROCm 7.14.0 builds; its speed is one aac7 ABBA away (a release moved +46 s before, mod) |
-| 5 | M7a | −4.7 s (mod) for one launch-line value |
-| 6 | C7 | −6 … −17 s realistic (mod/a); built only if the target gate opens |
-| 7 | C3 | 0 … −18.5 s (mod), depends on the target's per-message cost |
-| 8 | N4 | ≈ 20 s in a third of 4-node runs (mod); unknown at 576 |
-| 9 | M2 | no seconds, but every 576 ranking depends on it |
-
-Top 5 testable on ≤ 6 aac7 nodes now:
-
-| # | ID | test |
-|---|---|---|
-| 10 | N1 | division multiply: stage and wait split at 2/4/6 n with `MN_WAIT_STATS`, then a fix and ABBA |
-| 11 | M7d | ROCm 7.14.0 (the target's) against 7.2.4 at 1 n: gate, then ABBA |
+Rows for removed code (proxy mode, virtual PEs, `DIST_GATHER_TILE`, `RNS_DIST_OVERLAP`, `RNS_CRT_SUB`, `COMM_SHMEM_RPIPE`, `MN_REDIST_FUSE`, `ECALC_OVERLAP`, `LAYV_ANY`, `ECALC_VMM_BG`/`_SAFE`, `RNS_PLANES_3Q30`) were dropped 2026-10-25 (cleanup round 4; their numbers stay in the `results/` section named in `RESULTS.md` or in `archive:results_merged_2026-10-25/OPPORTUNITIES_removed.md`). The order of work is in `TASKS.md`.

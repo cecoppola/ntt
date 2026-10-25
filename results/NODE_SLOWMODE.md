@@ -12,19 +12,6 @@ Sections moved to `archive:results_merged_2026-10-24/NODE_SLOWMODE.md` (2026-10-
 - **Node screens.** `tools/nodescreen.sh` (+ `nodescreen_tab.py`, `initchk.py`) is the fast pre-run screen (44-58 s at 2 nodes, lean 25 s); it excludes nodes that fail, run >3x the median init or first-upload time (and >= 2 s above it), or see fewer cxi NICs than `--want-nics` (§NIC). The 1 GB upload probe and the cold-path probe do not catch the aac7-n01 stall because the host was healthy when tested (no positive control, §S49, §T10); the adopted slow-host policy is the 3x init/upload check of `initchk.py`. Not caught by any quick screen: slow mode, minutes-in stalls, intermittent `shmem_init` segfaults.
 - **Superseded or open.** §T05's "mechanism unidentified" is narrowed by §A13/§A14 to a launch-time NIC state. The "65 corrections" report (§A13 part B) is not reproducible on main (settle with an aac6 TCP 4-process rerun). Uneven `MN_GROUPS` for excluded nodes (§B04) is modelled only.
 
-| item | title |
-|---|---|
-| T05 | why 4-node run totals are bimodal (fast ~181 s / slow ~208 s) |
-| T09 | the bimodal 4-node totals (2026-10-11, aac7, session task t09) |
-| A13 | 4-node slow mode on a quiet aac7 (part A) and the DIST_LOGN_TEST 4-node "65 corrections" (part B) |
-| A14 | what picks the "slow mode" NIC group at launch? (aac7, 2026-10-11) |
-| B04 | fast node screen before the long run (2026-10-11, Wave B) |
-| T10 | cold-path node-check probe vs the known slow host aac7-n01 (2026-10-11) |
-| S49 | slow-host policy: per-host `nodechk` rehearsal (aac7 all hosts, aac6 PPAC) |
-| NIC | node screen catches nodes with fewer NICs than the launch asks for |
-| L1 | the NIC bank group is a fair per-launch coin (items 9cg, 9ch, 2026-10-19) |
-| RAMDISK | node RAM-disk leftovers (`Shmem` in /proc/meminfo; items 9cj-9cm, 2026-10-19) |
-
 ## §T05 - why 4-node run totals are bimodal (fast ~181 s / slow ~208 s)
 
 Analysis of existing logs only (no cluster jobs), session 2026-10-11: 93 four-node runs at 6.441e10 digits per node on aac7 (same 4 hosts in every run; sources: 40 runs of hold

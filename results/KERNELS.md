@@ -4,25 +4,6 @@ Scope: single-node kernels (NTT constants and passes, dbig add/sub, maxidx, quar
 
 Sections moved to `archive:results_merged_2026-10-24/KERNELS.md` (2026-10-24 cleanup): K13; K13b; S39; S40; S41; S43; T11; G515; S115.
 
-| item | title |
-|---|---|
-| K13 | Phase 13a agent K: kernel constants (PLAN §29 H2, H3, H6, H7) |
-| K13b | Phase 13b agent K: the b1 pass and the stride penalty (PLAN §31, row K) |
-| K4b | `k_crt_batch`: the per-chunk carry chain as a parallel carry-lookahead |
-| K4c | `k_crt24`: the P24 CRT's per-chunk carry chain as a parallel carry-lookahead |
-| S38 | the next single-node speed lever: the dbig add/sub kernel (k_addsub), `DBIG_ADDSUB2=1` |
-| S39 | kernel survey of the 6.441e10 single-node profile (read-only) |
-| S40 | `DBIG_MAXIDX_TOP` (top-down k_maxidx) and the k_gather micro-test |
-| S41 | `DBIG_QSEL` (scalar-select quarter pointers), gates and ABBA |
-| S43 | multi-node A/B of the three dbig kernel defaults (aac7, 2 and 4 nodes) |
-| S44 | aac6 SH5_MI300A nodes: regression and ABBA of the three dbig switches |
-| S51 | kernel round 2, part b (K2 k_addsub3, K3 k_modq_m, K4 k_crt_batch_m) |
-| T11 | aac6 SH5 CPX paired ABBA of K2 + K3 at 4e9 digits |
-| NTT3P | can ecalc's large transforms run in 3 memory passes instead of 4? (design study) |
-| G515 | Phase 15 Batch 2, item 5 (PLAN §37 row 6): the general map's twiddle packs |
-| S115 | Phase 15 agent S1: the decimal `mul_1` and the fused seed span (`BI_MUL1_FAST`) |
-| N3 | host gaps in the batch tier (`BS_BATCH_PIPE`) |
-
 ## Topic summary
 
 Single-node GPU and host kernels of the e-digit run, from the NTT constants (Phase 13) to the dbig add/sub family (October). Current state (checked against `ecalc/README.md`, RESULTS.md, and the code):

@@ -22,24 +22,6 @@ Live conclusions:
 - A bug found by forcing tree grids (`mdb_add_shifted` windows of the wrong nodes for g0 > 0, §G12 2b) was fixed before any run could reach it.
 - §C215: the piece-cost grid (`RNS_AUTO_PIECE_COST`, C2) gains -31 s (-13 %) of `total` at 1e11 on one node; neutral at the 576 target (0.0 s, mod).
 
-| item | title |
-|---|---|
-| A-grid | the grid of piece products over shares (A3) and the 3·2^30 plane variant measured (C5) (2026-09-19) |
-| M3 | the top levels of the binary-splitting tree as distributed products over node groups (2026-09-18) |
-| L | the layout at 576: a block-cyclic map for a group of any size (C3-576), the four `alltoallv` consumers (B7), `MN_GROUPS` |
-| G | grid/dm: A5 the division's cuts over shares, A1 the transform cache, A6 the dist tier's fused pointwise (Phase 10) |
-| G12 | the top product at scale: tree levels as piece grids for any g, exact spills, k-way schedule, per-node profile independent of g |
-| B7ACCT | counting the general map's v-exchange slots in the layout (2026-10-06) |
-| C06 | G5 (cut-group pool-offset asymmetry) and M3 (release the v-slots) (2026-10-11) |
-| S36 | idea S-1: share the v-slots between the tree levels (2026-10-10) |
-| S45 | CPU-only validation of `COMM_LAYER_VSLOT_SHARE=1` at the 576-node shape (2026-10-10) |
-| S52 | more digits at 576 nodes (layout checks) and message aggregation (design) (2026-10-10/11) |
-| B06 | uneven node-group schedules (`MN_GROUPS` with a non-dividing last group), 2026-10-11 |
-| O1 | overnight 6-node paired ABBA, `MN_GROUPS` `2,6` vs `6` (TASKS 42) |
-| C09 | best `MN_GROUPS` for every usable node count (N = 576 .. 544) |
-| c09_groups | the full C09 table as generated (no title in the original); kept as a pointer |
-| C215 | the paired series for D1 (`RNS_AUTO_PIECE_COST`, C2), with `DIST_TWREC`, other sizes, and the 576 model (Phase 15) |
-
 ## B7ACCT — counting the general map's v-exchange slots in the layout (branch `b7-vslot`, 2026-10-06)
 
 Login-node work only (aac7, `BS_LAYOUT_ONLY` / `MN_PLAN_ONLY`; C-binary prints are measured layout figures, the code's sizing, not memory readings). Branch `b7-vslot` pushed, not merged. Question: STD17's 10-node run showed about 3.3-3.5 GB per APU of memory the layout did not count; are they the v-slots of the layered communicator?

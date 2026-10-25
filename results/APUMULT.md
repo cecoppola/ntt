@@ -2,17 +2,6 @@
 
 Owner of the items below (condensed 2026-10-19; full originals in `archive:results_merged_2026-10-19/`, raw data in `archive:results_raw_2026-10-19/`; old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Labels: **(m)** measured, **(mod)** modelled, **(a)** assumed.
 
-| item | title |
-|---|---|
-| A37CMP | apumult a37v1 spec against ecalc, item by item (139 rows) |
-| apumult_summary | the apumult doc's own executive summary (claims, later checked by F1/F2) |
-| apumult_F1 | categories A (SSD spill) and D (trim), ranked port list, architecture note, against ntt/ |
-| apumult_F2 | categories B (madvise), C (in-place), E (instrumentation), F (kernel variants) against ntt/ |
-| apumult_M | disk and APU memory measurements (aac6) |
-| apumult_R | research: spilling to SSD and releasing memory on MI300A |
-| AP34 | the later apumult optimization list (items A1-A34) against ecalc `main` 4b5bb14 (2026-10-23) |
-| INIT | start-up switches `RNS_REGIONS_FIRST`, `RNS_INIT_OVERLAP`, and the removed `BS_SEED_EARLY` (2026-10-25) |
-
 ## Topic summary
 
 apumult is a host-resident reference multiplier/e pipeline (spec "a37v1") that reached 2.35e11 digits per node (475 GB, SSD spill, madvise) but is 3.2-3.7x slower per digit than ecalc at 4e10 (234.8 s against 63.5-73.1 s (m)). Its doc claimed that porting its spill/madvise stack would lift ecalc's 576-node target from 4.0e13 to about 1.3e14 digits. The study checked every apumult technique against ecalc `main` of that date and measured the disk and memory behaviour of the APU. Conclusions that still hold:
