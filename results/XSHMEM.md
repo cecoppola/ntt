@@ -5,6 +5,8 @@ Scope: the xshmem layer (API, backends, boot and topology, tests), what Cray SHM
 B1-B4 and S3A_A1/A2 (the six `XSHMEM_*.md` files). Labels: m measured, mod modelled, I inferred, a assumed. All numbers are single aac7 runs unless a count is given.
 The sections PPG (one process per GPU, S2d timing) and BSPLIT (`RNS_BATCH_SPLIT`) follow the craylane section. Settings: `ecalc/README.md` (rows `XSHMEM*`, `ECALC_XEX_THREAD`, `COMM_TRANSPORT`). Design source and trace data are kept outside the repository.
 
+Sections moved to `archive:results_merged_2026-10-24/XSHMEM.md` (2026-10-24 cleanup): §3 (Cray SHMEM 11.8 on cxi), §4 (cxi probe facts), §9 (open items of 2026-10-21), the full PPG and BSPLIT texts and the RESUME block.
+
 ## 1. Purpose and shape
 
 After the aac7 Cray SHMEM tuning phase (closing record in `results/SHMEM.md`) the project builds the communication the target will have:

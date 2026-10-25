@@ -30,7 +30,7 @@ Run times at the current engine are in `PLAN.md` §2; this table holds the figur
 | budget check with two PEs per GPU (plq2) | `budget_check` counted the transport's comm_ofi pools, already allocated at init, as still to come: the 2 n 1e10 Q2 run was refused (rc 8) though it fits; fixed (merged 3d39601), gate 9zx5 PASS; no unmodelled per-process host term (VmRSS 2.6-5.5 GB) | m | TASKS.md (item row); `ecalc.c` budget_check |
 | 4-node run-to-run modes (libfabric era, `comm_ofi`) | fast ≈ 181-185 s, slow ≈ 208-214 s: the inter-node all-to-all rate is set per launch | m | results/NODE_SLOWMODE.md §T05, §T09 |
 | 4-node calibration (libfabric era) | total ≈ 80.8 s + 1388 / r (r = all-to-all GB/s per APU thread), residual sd 1.6 s | m/mod | results/TOOLS_PROFILES.md §B07 |
-| target: 576 nodes, 3.82 × 10¹³ digits | ≈ 182-185.5 s without the write (profile `target_l4`; fabric rate assumed) | mod | results/TIME_MODEL.md §L4, `PLAN.md` §2 |
+| target: 576 nodes, 3.82 × 10¹³ digits | ≈ 182-185.5 s without the write (profile `target_l4`; fabric rate assumed; 182 s in results/TIME_MODEL.md §L4, `PLAN.md` §2 quotes 185.5 s; the two differ by the model version, not re-reconciled here) | mod | results/TIME_MODEL.md §L4, `PLAN.md` §2 |
 | target device memory, rank 0, 3.82 × 10¹³ | margin 12.9 GB under the 373.44 GB/node edge (`MN_T_CHUNK_MB=2048`, X2, slot release) | mod | results/LAUNCH_DEFAULTS.md §L1 |
 | target device edge | 93.36 GB per APU = 373.44 GB per node (n = 5, 0 % spread) | m (target) | results/TARGET.md §TGTBENCH2 |
 | `BS_ARENA_TRIM_GB=8` (opt-in, default 0), 2 n 1.2882e11 | arena -34.4 GB per node (266.3 -> 231.9); 115.2 s (7 runs) vs 111.4 s (5 runs); 3 n 1.9323e11: 149.4 vs 149.6 s; 0 remaps | m | results/MEMORY.md §ATRIM |
@@ -88,7 +88,7 @@ On both launch lines (`profiles/aac7.conf` `LAUNCH_LINE_KEYS`; `profiles/target.
 |---|---|---|---|
 | `MN_T_CHUNK_MB=2048` | aac7: 24 paired rounds, mean -42.3 s, p ≈ 0.04; 4-node recheck inconclusive (+6.98 s [-10.3, +24.3]) | m | results/SESSIONS.md §S22, results/LAUNCH_DEFAULTS.md §S47 |
 | X2: `COMM_LAYER_VSLOT_POOL=1` (code default) | -31.7 s at 10 nodes (CI -55.7 .. -7.8) | m | results/SESSIONS.md §S31 |
-| `COMM_SHMEM_ROUND_MB=128` (fallback transport only) | host staging 10.2 -> 3.1 GB per node at 2 n | m | results/SHMEM_ITEMS.md §V114 |
+| `COMM_SHMEM_ROUND_MB=128` (fallback transport only; was 1024, Q60) | SHMEM pool 45.0 -> 9.8 GB per node at 1024; host staging 10.2 -> 3.1 GB per node at 2 n at 128 | m | results/SHMEM_ITEMS.md §V114 |
 | `ECALC_SEGV_TRACE=1` | crash-trace handler only | - | results/LAUNCH_DEFAULTS.md §B01 |
 
 ## Open measurement questions

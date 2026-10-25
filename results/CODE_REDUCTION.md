@@ -30,7 +30,7 @@ Question: which duplicate paths, tiers and layers can be merged or removed and a
 **Ranked items** (lines net removed, mod time/memory):
 - **1** One single-node division flow, drop the host-P/Q flow: about -120; ~0 time at >= 1.9e10, small sizes get faster (DKM -25.7 s at 10^11, `results/DIVISION.md §DKM15`). Low risk. Done in SIMP.
 - **2** DKM only: about -130; 0 cost (DKM runs above about 72 digits). Done in SIMP.
-- **3** Drop the distributed tier's 3·2^k planes (`dist3`, `DIST_R3`, `RNS_PLANES_3Q30`, two plane-cap values): about -140; best case for the removed form 80.8 +- 1.3 vs 82.0 +- 0.3 s at 4e10 on one node (`results/MEMORY.md §I` item 4, m), within noise. Done in SIMP.
+- **3** Drop the distributed tier's 3·2^k planes (`dist3`, `DIST_R3`, `RNS_PLANES_3Q30`, two plane-cap values): about -140; best case for the removed form 80.8 +- 1.3 vs 82.0 +- 0.3 s at 4e10 on one node (`archive:results_merged_2026-10-24/MEMORY.md §I` item 4, m), within noise. Done in SIMP.
 - **4** One grid planner and loop (six shape functions to one; `mul_grid`/`mn_grid` loops): about -60; identical by construction. Done in SIMP.
 - **5** Size 1 through the sharded driver: about -310 net; memory is the risk (one-node peak laid out for the dbig flow; `mdb_shift` at g = 1 copies, 29 GB per copy of Q at 6.44e10); medium-high, needs 1-node ABBA and `mem_report`. **Open.**
 - **6** P24 as the only multi-node product form: about -50; time about equal per product (mod, unmeasured at aac7 sizes), +4 GiB per APU in pool 0 at 2-16 nodes. **Open** (partly overtaken by D18).

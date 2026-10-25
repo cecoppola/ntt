@@ -107,13 +107,13 @@ nodes, profile) the device peak per node and per APU against `ECALC_DEVICE_GB` (
 in `profiles/aac7.conf`), the node against `ECALC_NODE_GB`, the margins and the largest consumers;
 `tools/plan_values.py --fit`, `mnrun.sh`, `tools/gate.sh` and the kit's plan stage print it and refuse a run that does not
 fit (`results/LAUNCH_DEFAULTS.md §FIT`). At 3.82 × 10¹³ digits on 576 nodes (target profile): device 358.96 GB per node,
-margin +14.48 GB; node 395.85 GB, margin +84.15 GB; `DM_MN_WRAP` off (m, planner). Every setting that is not a plain
+margin +14.48 GB; node 395.85 GB, margin +84.15 GB; `DM_MN_WRAP` off (with it: 384.73 GB, over the edge; m, planner). Every setting that is not a plain
 default has an owner and a review date (`ecalc/switches_review.tsv`; `tools/switch_registry.py --check` warns once a date
 has passed).
 
 ## 4. Plan to the target run
 
-**Remaining work in this repository** is in `TASKS.md`: no open items; the Proposed list holds performance and robustness candidates (start-up of path 2, shared-operand transform reuse, memory-budget honesty) that wait for the user's priority.
+**Remaining work in this repository** is in `TASKS.md`: no open items in classes 1-5 apart from the repository cleanup (round 3, which includes this documentation pass); target-session rows remain; the Proposed list holds performance and robustness candidates (start-up of path 2, shared-operand transform reuse, memory-budget honesty) that wait for the user's priority.
 
 **Target session** (the user runs it; the steps are in `ecalc/target_kit.sh -h`):
 1. Fill `profiles/target.conf` from the template (modules, ROCm, NICs, partition, memory); `tools/profile_load.py target --check`.
