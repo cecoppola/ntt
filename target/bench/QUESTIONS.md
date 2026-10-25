@@ -78,6 +78,7 @@ aac7 only, (u) user-supplied. Paths: path 1 = default build (XSHMEM=ofi, libfabr
 | TQ78 | What is the per-NIC counter volume for a full exchange (aac7 2.47-2.63 TB per NIC at 10 nodes) and is it balanced over the 8 NICs? | confirms the volume model (18.6 TB per node at 4.08e13) | cal09: cxi counters before and after ecalc 1e10 on 2 nodes, 10 min | NIC volume term; `COMM_XSTATS` model | cal09 | 235 |
 | TQ79 | Does the memory edge move with the process layout (path 2 four processes per node vs path 1 one process): per-process overhead (28 GB harness vs 86 GB modelled per engine process)? | `ECALC_NODE_GB` under P, plan host terms (TASKS P capacity: 5.5e10 refused on aac7) | cal10: planner fit and a peak-RSS run at 1e10, 1 node path 1 and 2, MEM_REPORT_DEVS=1, 10 min | host-term constants of mem_model.py, `PROCESS_OVERHEAD` | cal10 | 240 |
 | TQ80 | Do the aac7 AAC7OPT defaults carry: D vs P at 1 node and P at 2 nodes, NP, BS_SEED_CHUNK_MB=2048 (no gain on aac7), POOL_LOG 30 (fails on aac7) | confirms or changes the launch defaults of profiles/target.conf | covered by ntt02, scl01, prm04, prm06; this row tracks the verdict | `profiles/target.conf` LAUNCH_LINE_KEYS | ntt02, scl01, prm04, prm06 | 245 |
+| TQ81 | What does MN_NONPOW2_CAP=1 cost in time and plane memory at non-power-of-two node counts (planner: about +41 GB per node at 12 nodes on aac7 numbers)? | whether the 576-node run keeps MN_NONPOW2_CAP=0 (Q119) or drops to ~2.67e13 digits with it on | prm08: ecalc on 2 x 12 nodes at the same time, CAP 1 vs 0, same digits, 25 min (tier 2) | `MN_NONPOW2_CAP`, `MN_NONPOW2_MIN`, plane pool terms of mem_model.py | prm08 | 102 |
 
 ## Planned items
 
@@ -95,6 +96,7 @@ The items the register names, with the planning numbers (nodes, est minutes, pri
 | cor02 net01 net02 | 2 | 10 / 8 / 15 | 20 / 21 / 22 | cor01, bld02 | digits 2 nodes; t_xshmem correct; lat, stream, a2a, lanes |
 | ntt01 ntt02 scl01 | 1 / 1 / 2 | 12 / 40 / 20 | 30 / 31 / 32 | cor01 | phases and layouts; per-node share; path ABBA at 2 nodes |
 | net04 net05 scl02 | 8 / 64 / 8 | 15 / 20 / 30 | 40 / 41 / 42 | net02, scl01 | A4 scaling; 64-node a2a; ecalc at 8 nodes |
+| prm08 | 24 | 25 | 102 | scl01 | NPCAP 1 vs 0 at 2 x 12 nodes (Q119) |
 | gpu01 ntt03 gpu02 | 1 | 25 / 20 / 15 | 100 / 105 / 108 | ntt01 | ROCm compare; A/A spread; kernel and clock lines |
 | ini02 ini03 ini04 | 1 / 2 / 2 | 15 / 20 / 15 | 110 / 112 / 113 | ntt01, bld02 | init timeline; init path 1 vs 2; heap THP |
 | net06 net07 net13 net14 prm07 | 2 | 20 / 20 / 12 / 10 / 20 | 120 / 121 / 123 / 128 / 126 | scl01 | lanes; NIC maps; SHMEM NIC env; peer path; launch arms |
