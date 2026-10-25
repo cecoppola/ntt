@@ -1,5 +1,5 @@
 #!/bin/bash
-# tools/gate.sh - the standard build-and-digit gate of ecalc on aac7 (Cray SHMEM, 1..4 nodes) and aac6 (single node).
+# tools/gate.sh - the standard build-and-digit gate of ecalc on aac7 (xshmem: libfabric or Cray SHMEM, 1..6 nodes) and aac6 (single node).
 #
 # USAGE
 #   tools/gate.sh [--build] [--nodes 1..6] [--digits 1e9] [--hold JOBID | --alloc] [--line aac7|none]
