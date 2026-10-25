@@ -235,10 +235,12 @@ Sizes are fixed (Q114) at the target run's share per node, 6.632 × 10¹⁰ digi
 | L0 | 1 (4) | 6.632e10 | 8, 2 runs each | both, order alternating | no | 102.7 / 116.9 s |
 | L1 | 8 (32) | 5.306e11 | 4 | both | no | 118.2 / 129.6 s |
 | L2 | 64 (256) | 4.244e12 | 2 | both | first replica | 149.6 / 160.4 s |
-| L3 | 576 (2304) | 3.82e13 | 1 | 2 (or the winner below) | yes | 187.1 / 191.2 s |
+| L3 | 576 (2304) | 3.82e13 | 1 | 1 (path 2 does not fit, see below) | yes | 187.1 / 191.2 s |
 
 The model is calibrated on aac7 compute, which measured 74-76 s for L0's size (m): expect the target to beat the model
-at L0. `levels/L3.conf` carries `MN_NONPOW2_CAP=0` (Q119: 3.82e13 fits only with it, device 358.96 of 373.44 GB, mod).
+at L0. Path 2 and P (one process per GPU) fit the per-node share only at L0: from 8 nodes on the planner refuses them
+(8 n: device 447.93 GB, 64 n: 473.70 GB, 576 n at 3e13: 517.67 GB vs 373.44; mod, planner 2026-10-25), so `ladder.sh`
+drops a refused path and runs L1-L3 on path 1 (layout D: 360.95 GB at 8 and 64 n). `levels/L3.conf` carries `MN_NONPOW2_CAP=0` (Q119: 3.82e13 fits only with it, device 358.96 of 373.44 GB, mod).
 
 ```bash
 python3 target/ladder/locality.py nodes --save                  # physical table -> results/probe/topology.tsv (once)

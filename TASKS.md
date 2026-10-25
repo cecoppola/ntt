@@ -18,6 +18,7 @@ rows are in the order to do them.
 
 ## Proposed (needs the user's priority)
 
+- Path 2 at the target's scale (found 2026-10-25, planner, mod): one process per GPU (path 2, and P on path 1) does not fit the target run's per-node share (6.632e10 digits per node) from 8 nodes on: device 447.93 GB at 8 n, 473.70 at 64 n, 517.67 at 576 n even at 3e13 (limit 373.44), node 577.77-648.59 GB (budget 480); layout D fits (360.95 GB at 8/64 n; 358.96 at 576 n with `MN_NONPOW2_CAP=0`). The target run is therefore path 1 (layout D); making path 2 viable at scale needs a smaller per-process device and host footprint. Ladder L3 is path 1; `ladder.sh` drops a refused path.
 One line each (what, why, size); nothing here is started without the user's word.
 
 - Shared-operand transform reuse (apumult A16) and seed waits for the region pools (A1): measured 2026-10-25, no gain, not merged (Q101, Q102; `OPPORTUNITIES.md`, `results/APUMULT.md §AP34-reuse`, `§INIT`); left as ideas: reuse across a grid's pieces, the multi-node tree levels, division steps 1 and 2; only with a new payoff estimate.

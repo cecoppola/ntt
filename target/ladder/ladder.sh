@@ -200,6 +200,7 @@ largest_fit() {  # path -> prints the largest digit count (multiple of 1e8 x nod
 }
 if [ "$NOPLAN" = 1 ]; then echo "ladder.sh: plan check skipped (--no-plan)" >&2
 else
+    refused=
     for p in $PATHS; do
         b=$(eval echo \$BIN$p)
         if [ ! -x "$b" ]; then echo "ladder.sh: plan check path $p skipped (no binary)" >&2; continue; fi
@@ -210,9 +211,14 @@ else
             echo "ladder.sh: REFUSED path $p: $DIGITS digits on $NODES node(s) rc=$rc (details $LADDER_RES/$LEVEL/$TAG.plan-p$p.txt):" >&2
             grep -a -E 'REFUSED|FATAL|verdict|margin' "$LADDER_RES/$LEVEL/$TAG.plan-p$p.txt" | head -4 | cut -c1-220 | sed 's/^/    /' >&2
             [ $rc = 1 ] && { lf=$(largest_fit "$p"); echo "ladder.sh: largest digit count that fits path $p on $NODES node(s): $lf  (re-run with --set DIGITS=$lf)" >&2; }
-            RC=4; die "level $LEVEL refused before any node time was used"
+            # with two paths requested, a refused path is dropped and the level runs on the other one (path 2 needs one process per GPU,
+            # which does not fit the per-node share from 8 nodes on: planner 2026-10-25, device 447.93 GB at 8 n vs 373.44)
+            refused="$refused $p"
         fi
     done
+    for p in $refused; do PATHS=$(echo " $PATHS " | sed "s/ $p / /; s/^ *//; s/ *$//"); done
+    if [ -n "$refused" ] && [ -n "$PATHS" ]; then echo "ladder.sh: path(s)$refused dropped (plan refused); level $LEVEL runs path(s) $PATHS" >&2
+    elif [ -n "$refused" ]; then RC=4; die "level $LEVEL refused before any node time was used"; fi
 fi
 
 # ------------------------------------------------------------------------------------------------------------ pick the groups
