@@ -489,7 +489,7 @@ int binsplit_vslot_budget_on(void) { return 1; }   /* always 1; kept for the `vs
  * where the arena's last extent ends (a remainder after it made the pool carve spills from the tail's front: the reciprocal's two
  * remaps); (2) the dm need gains f x the hole (the division's largest block), so the blocks that spill around the tail leave it
  * whole.  f from the pool replays of measured traces (archive:scripts_2026-10-23/as_pool_replay.py). */
-static double bs_arena_room(void) { static double f = -1; if (f < 0) { const char *e = getenv("BS_ARENA_ROOM"); f = e ? atof(e) : 0.16; if (f < 0) f = 0; } return f; }   /* default 0.16 */
+static double bs_arena_room(void) { static double f = -1; if (f < 0) { const char *e = getenv("BS_ARENA_ROOM"); f = e ? atof(e) : 0.14; if (f < 0) f = 0; } return f; }   /* default 0.14 (memfix; 0.16 until then) */
 /* BS_ARENA_TRIM_GB=<GB per APU> (0 = off, the default) -- trim the dm need by this much (before the arenas are rounded to chunks): the model's
  * need sits above the measured live peak (2 n 1.2882e11: arena 66.57 GB, peak 55.47 GB) and every chunk is mapped (the extra by the background
  * mapper, which slows the GPU while it runs).  dm_layout clamps the trim so the need stays at the largest live set max(v2, v3) (and the

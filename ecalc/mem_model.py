@@ -25,7 +25,7 @@ Phase 15 (agent DOC2, the user's decisions of 2026-09-28): the base is DEFAULTS1
 default since be2eec3); DEFAULTS15B / DEFAULTS15 / OLD13 carry arena_room 0 (B1, B0 and before).  TARGET_NP = 'auto' (the launch line's
 ECALC_NP=auto, decision 1).  The mn transform cache: cache_fit_slots follows the code's RNS_DIST_CACHE_FIT rule (rns_dist.c
 rns_dist_cache_plan: ECALC_NODE_GB less the layout's node -- binsplit_node_bytes: planes + arena + the init host -- less the 32 GB reserve,
-over one slot per node): 0 at the target, as the `plan cache` line prints.  --check-c defaults to BS_ARENA_ROOM 0.16 and reads ECALC_NP=auto
+over one slot per node): 0 at the target, as the `plan cache` line prints.  --check-c defaults to BS_ARENA_ROOM 0.14 and reads ECALC_NP=auto
 from the file's `plan` lines.
 
 mn_model.py (and its estimate subcommand) import mem_per_node for their memory rows.  Every number is "modelled"
@@ -662,7 +662,7 @@ DEFAULTS15B = dict(DEFAULTS15, seed_fill=SEED_FILL, out_early=True)
 # Phase 15 (agent DOC2, the user's decisions of 2026-09-28): DEFAULTS15C = the code's defaults now (main B2) -- DEFAULTS15B + BS_ARENA_ROOM=0.16 (binsplit.c
 # bs_arena_room: the arenas in whole VMM chunks + 0.16 x the hole in the dm need; at size 1 the division no longer grows the pool: VMM_DM_GROW_FILL not
 # applied).  DEFAULTS15B stays B1 (the defaults of 2026-09-27) for RESULTS 86's rows.
-ARENA_ROOM = 0.16                                       # BS_ARENA_ROOM's code default since 2026-09-28 (be2eec3; was 0)
+ARENA_ROOM = 0.14                                       # BS_ARENA_ROOM's code default (was 0.16 from 2026-09-28, be2eec3; 0.14: memfix, one chunk less per APU at 2 n and 4 n)
 DEFAULTS15C = dict(DEFAULTS15B, arena_room=ARENA_ROOM)
 # Phase 15 DL (the user's Batch 3 decisions of 2026-09-29): DEFAULTS15D = the code's defaults now -- DEFAULTS15C + NEWTON_DKM=1 with dm_layout following it
 # (binsplit.c; NEWTON_DKM=0 in the environment gives C's layout).  MN_P24=2 is the tree's scratch (opts p24; mn_model passes it).  mem_per_node's base.
