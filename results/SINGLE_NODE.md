@@ -9,6 +9,7 @@ Sections moved to `archive:results_merged_2026-10-24/SINGLE_NODE.md` (2026-10-24
 | §P | single-node speed: B3 planes at init, A2 level-22 pairing, DM_POOL default, I11 init, A4 tile budget (Phase 11) |
 | §V214 | remaining one-node options on the Phase 14 defaults: auto's per-piece cost, DIST_TWREC, checkpoints with O_DIRECT |
 | §V314 | the remaining development items (PLAN §33.2 B1-B7, APUMULT E11), with numbers |
+| §P1N | one process per GPU at one node: which phase loses (D vs P, ofi and Cray) |
 | §T215 | `BS_SEED_TERMS` chosen per run so the batch tier fills its transform lengths |
 | §CAND | the three off-by-default speed switches combined |
 | §S21 | single-node A37 measurements (seed microbench, init timeline, dc split, small-j doublings, NTT structure) |
@@ -108,3 +109,26 @@ aac7 runs 2026-10-07 21:02-21:13 on hold 12377 (and a CPX node for R2); all rc 0
 **5. A37-Q4 forward NTT at 2^31, real vs NOP-modmul (`t_ntt` vs `t_ntt_nop`, 2 runs each, median of 5).** Whole L31 forward 90.39 / 90.56 ms real vs 76.65 / 76.87 NOP: **modmul 13.7-13.8 ms (15 %)**, structure + HBM 76.7 ms; passes (real - NOP): pass 0 [26..30] 6.5 ms, pass 1 1.9, pass 2 2.3, pass 3 [0..11] 1.6-2.3 (24 ms vs 17 for the others, NOP at 1.4-1.46 TB/s vs 1.8-2.0 for passes 0-2); inverse 92.8 vs 76.5-77.0 (16); L28 10.3 vs 9.1-9.2 ms; L24 0.58 vs 0.555 ms. Production plan at 2^31 is 4 passes; today's build 90.4 ms (K13b earlier 99-100 ms). Split (mod, taking a37v1's HBM floor 51 ms (a)): 51 HBM + 17 extra pass + 9 structure + 14 modmul = 90 ms (a37v1: 144 = 51 + 50 + 43). Headroom: the extra 4th memory pass (about 17-20 ms, 20 %); a 3-pass plan at 2^31 is the only large lever left; WbPowTab-style twiddle seeding gains at most pass 0's 6.5 ms (mod); real - NOP is an upper bound on the modmul share (NOP may change scheduling).
 
 **6. Decisions for the user.** A37-R1 GPU seed: (a) no-go now and measure `ECALC_INIT_TL=1` on the target first (minutes of target time), (b) build it (2-4 days for 0-6 s, mod). A37-R4 fmt18: drop (frees an S item; T1 residues remain the only 2 s). 3-pass NTT at 2^31: (a) investigate (up to about -17...-20 ms of 90 per forward, mod; M-L effort), (b) leave.
+
+## §P1N - one process per GPU (P) at one node: which phase loses (a0c2_p1n1, a0c3_p1n33; main 9ec6d50, aac7 2026-10-25; m)
+
+Question (TASKS, from 9zh7: 1e10, D 36.5 s vs P 52.8 s). Method: 1 node, `mnrun.sh 1`, `ECALC_VERBOSE=2`, arms Do = layout D (ofi build), Po = `ECALC_PE_PER_GPU=1` (same build), Pc = P on the Cray build
+(`XSHMEM=cray SHMEM_CRAY=1`, `XSHMEM_LANES=2`); rounds in alternating order (Do Po Pc / Pc Po Do); 3 rounds at 1e10, 2 at 3.3e10; every run VERIFY OK. Means, seconds:
+
+| digits | arm | total | init | bs | dm | (recip in dm) |
+|---|---|---|---|---|---|---|
+| 1e10 (n 3) | Do | 18.69 | 10.77 | 5.46 | 1.89 | 0.93 |
+| 1e10 (n 3) | Po | 19.51 | 5.03 | 6.69 | 7.12 | 2.56 |
+| 1e10 (n 3) | Pc | 22.07 | 6.23 | 6.81 | 8.31 | 2.92 |
+| 3.3e10 (n 2) | Do | 39.33 | 18.15 | 14.73 | 6.42 | 1.96 |
+| 3.3e10 (n 2) | Po | 51.45 | 10.55 | 16.46 | 23.05 | 7.66 |
+| 3.3e10 (n 2) | Pc | 57.73 | 12.10 | 17.34 | 26.73 | 8.83 |
+
+**Finding.** Main has moved since 9zh7: at 1e10 P is now +0.8 s (+4 %) behind D (init -5.7 s, bs +1.2, dm +5.2); at 3.3e10 +12.1 s (+31 %): P wins init by 7.6 s and loses bs +1.7 and dm +16.6 s (dm is 3.6 x D's).
+Cray P is slower than ofi P by 2.6 s and 6.3 s (dm +1.2 / +3.7 s, init +1.2 s). **Cause (code reading plus the xshmem line of the 1e10 Po log):** under P the node's four PEs are four processes; every product above the leaf
+and every sharded reciprocal / division step is a flat 4-PE all-to-all that goes through the NIC engine (loopback over the node's NICs), not the in-process xGMI mesh of layout D (`rns_dist.c`: `vpe_on()` has no
+`comm_xgmi`). 1e10 Po log: 537 exchanges, 148 GB received, 10.2 s post-to-completion summed over a PE's thread (14.5 GB/s per PE) in a 19.4 s run. The volume is inherent (it is the 4-way split of the same products), the
+engine is the loss: dm (4 sharded products of 2.5e8-5.6e8 limbs) and the top two tree levels (4.1 s of bs 6.7 s). Not a plain bug: no code path differs by mistake (the S2fix batch tier is local, striping is off by design).
+**Fix (not small, TASKS):** an intra-node peer path inside the xshmem engine (hipIpc / device-mapped peer copies for same-node PEs instead of the NIC; at multi-node the same-node PEs are also exchange partners, so it would speed 2 n and 3 n too).
+Until then D stays the 1 n layout (default). Per-PE DATA heap peak: 256 MiB of 768 at 1 n 1e10 (one PE, m); 2 n / 3 n peaks not measured.
+**NIC launch-group probe (`MNRUN_NICGRP=1`, first aac7 use):** all 10 P runs (Po and Pc) report group A on the node's NICs; the D runs, which use no NIC, report none; the probe works, 1 node says nothing about the multi-node group split.

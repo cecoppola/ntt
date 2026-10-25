@@ -58,7 +58,7 @@ predate it and used the `comm_ofi` transport (libfabric era) or the pre-2026-10-
 | 3 n, 1e11, path 2 | 85 to 93 s (fast mode 85-87, slow 90-94); layout D on Cray 194.6 s | current | `results/XSHMEM.md` craylane |
 | 2 n, 1e11, path 2 (no digit file) | worker 137-158 s, poll-only 145-154 s (3 ABBA pairs, not resolved) | current | `results/XSHMEM.md §XWLAT` |
 | 2 n, 1e10 | path 2 worker 32.0 s, poll-only 40.2 s; path 1 D 39.2 s (4 pairs each) | current | `results/XSHMEM.md §XWLAT` |
-| 1 n, 1e10 | D 36.5 s, P 52.8 s (single runs; P loses in the compute phases at 1 n, to profile) | current | `TASKS.md` Proposed |
+| 1 n, 1e10 / 3.3e10 | D 18.7 / 39.3 s, P 19.5 / 51.5 s (m, a0c2/a0c3; P loses in dm and the top tree levels: intra-node exchanges go through the NIC engine, results/SINGLE_NODE.md §P1N) | current | `TASKS.md` Proposed |
 | 3 n, 1.9323e11 | 149.3 s (xshmem, sd 1.2, n 8; the Q73 default gate 153.2 s) against 157.3 s (comm_ofi reference) | older (before Cray/NUMA work; the full-size run is not repeated) | `results/XSHMEM.md §7`, `§10` |
 | 1 n, 6.441e10 | 66.59 s (aac6) and 67.6 s (aac7) with the 2026-10-12 defaults | older | `results/SINGLE_NODE.md §CAND`, `results/TIME_MODEL.md §M2a` |
 | 1 n, 1e11 | 129.3 s (before the 2026-10-12 defaults) | older | `results/CODE_REDUCTION.md §L2` |
