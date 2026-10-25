@@ -11,6 +11,7 @@ Owner of the items below (condensed 2026-10-19; full originals in `archive:resul
 | apumult_M | disk and APU memory measurements (aac6) |
 | apumult_R | research: spilling to SSD and releasing memory on MI300A |
 | AP34 | the later apumult optimization list (items A1-A34) against ecalc `main` 4b5bb14 (2026-10-23) |
+| INIT | start-up switches `RNS_REGIONS_FIRST`, `RNS_INIT_OVERLAP`, and the removed `BS_SEED_EARLY` (2026-10-25) |
 
 ## Topic summary
 
@@ -118,3 +119,22 @@ Side finding: ALGORITHM §4.5 still said the transform cache served the reciproc
 
 
 Sections moved to `archive:results_merged_2026-10-24/APUMULT.md` (2026-10-24 cleanup): apumult_summary; apumult_F1; apumult_F2; apumult_M; apumult_R.
+
+## INIT — region pools before the plane pools, the plane pools beside the hook, a seed prebuffer (2026-10-25)
+
+Branch `init` (from main 2304210), layout D, aac7, NIC-free nodes (one stream per node, arms rotated across the four nodes, `ECALC_INIT_TL=1`, no digit file; every run VERIFY OK). Question: the seed ends 13.8-14.4 s after the region pools exist (§AP34, TASKS "Seed waits for the region pools") and init is 25-31 s (TASKS "Default start-up time"): can the order or the overlap of the init steps move it?
+
+**1 n 1e11, 8 runs per arm, means (m; item a3a_initab, 7788ecd).**
+
+| arm | init s | hook done (tl) s | seed ends (tl) s | bs s | dm s | total s |
+|---|---|---|---|---|---|---|
+| default | 35.48 | 34.26 | 48.44 | 59.26 | 45.59 | 140.35 |
+| `RNS_REGIONS_FIRST=1` (hook before the plane pools) | 39.02 | 25.17 | 40.41 | 125.30 | 117.72 | 282.07 |
+| `RNS_INIT_OVERLAP=1` (plane pools in a helper thread beside the hook) | 34.69 | 33.45 | 47.59 | 59.49 | 45.85 | 140.11 |
+
+Reading. `RNS_REGIONS_FIRST`: the pools exist 9 s earlier and the seed ends 8 s earlier, but the plane pools mapped last get the pieces below 2 MiB (§N414 of the archived TESTING_VERIF): the batch tier and the division run 2 x slower, total +142 s. Rejected at this size; at 2 n 2e10 (item a3i_init2n, 2 runs per arm, memory far from the edge) it gives init 18.35 -> 16.85 s and total 32.44 -> 30.40 s (m) on path 1 and nothing on path 2 (init 7.35 vs 7.45 s), so it could only be used where the node has headroom. `RNS_INIT_OVERLAP`: init -0.8 s, total -0.2 s, inside the run-to-run spread (init 29-42 s between runs of one arm): the HIP runtime serialises hipMalloc beside the VMM mappings; no gain; at 2 n 2e10 init 18.20 vs 18.35 s (path 1), 7.15 vs 7.35 s (path 2). Both switches are off by default; the default gate (7788ecd, 1 n + 2 n, both paths, unit 9/9) passes.
+
+**Seed prebuffer, removed (m; item a3b_seedab, 320f7d6).** `BS_SEED_EARLY=<GB>` let the seed thread compute into extra pinned 8 GiB buffers until the region pools exist. 8 runs per arm (default / 24 GB): total 138.22 / 143.92 s, init 34.06 / 36.75 s, seed ends 48.62 / 49.50 s: no gain (the extra buffers' touch and registration delay the mapping). 40 GB: 6 of 8 runs stopped by the memory guard (MemAvailable 4.9 GB, 1e11 leaves about 55 GB of the 512 GB node). Code reverted; the node's headroom, not the seed's CPU time, bounds the idea.
+
+**Where the seed time goes (I).** The seed thread's span work is about 12.6 s at 7.7e10 (soak a0e2 log, m), about 17 s at 1e11 (mod), of which only the two 8 GiB buffers (~2.7 s) fit before the pools exist; the remaining lever is not the order of the pools but their 13.5-15 s mapping time (TASKS L-A).
+

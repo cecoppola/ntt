@@ -14,6 +14,7 @@ Sections moved to `archive:results_merged_2026-10-24/DIVISION.md` (2026-10-24 cl
 | R114 | R1 (Phase 14, W1): E7 the reciprocal's products cut to the band read; E9 Karatsuba over the grid (model); E10 the 576 tree-level spill (model) |
 | DKM15 | the division in two quotient halves with a half-length reciprocal (Phase 15 Batch 3, agent DKM) |
 | EW15 | the writer starts on X_hi's digits after DKM's step 1 (Phase 15 Batch 3, agent EW) |
+| DKMHI | `mn_model` size-1 price of the writer start with `MN_MODEL_DKM_HI` off (2026-10-25) |
 | K15 | a correction without a rewrite (PLAN §36, row 1d) |
 | M615 | Phase 15 Batch 2, agent M6: item 6 (E11, band-sized products and the chunked division window) with the Q/S margin trim |
 | O2 | the reciprocal-gather stall: why `db_to_bi` of 0.2 MB takes 2.2 s (2026-10-11/12) |
@@ -197,3 +198,8 @@ Branch `o5` (from main 0298fe2), TASKS items 39 / 37; design basis `archive:resu
   (switch on, SHMEM and libfabric) PASS, digits identical. 6 n 3.8646e11 with the switch on runs for both transports:
   libfabric 174.2, 173.5, 174.7 s (mean 174.1); SHMEM 193.7 (first), 182.3, 184.0 s (186.7). 3 n 6e10 (libfabric): auto
   (off) 59.2, 51.8 s against `=0` 54.7, 53.6 s.
+
+## DKMHI — the size-1 price of the old writer start in `mn_model` (2026-10-25)
+
+Question (TASKS, closed): with `MN_MODEL_DKM_HI` on (the default, as in the code) the modelled size-1 write column rose (68.1 -> 68.8 s at D = 4e10) while `est_partial_row` said `MN_OUT_DKM_HI` saves about 7 s. Finding (modelled, from `mn_model.py` and §EW15): the two numbers priced different things. With the switch off, size 1 used `OVL1` = 0.577 of the division as the part the writer hides, a fit on the pre-DKM division whose hook sat before the whole X Q product; with DKM the old hook sits before step 2's low product and hides only B = 0.369 of the division (DKM15's measured 18.17 + 0.74 of 51.3 s, `OVL1_HI`), while the switch adds A = 0.144 (7.38 s of 51.3). `early_exposed` now prices the off arm at B (`ecalc/mn_model.py`), so the switch gains A x the division: 7.2 s at 1e11, write column 70.5 -> 68.8 s at 4e10 (modelled; the default arm is unchanged, unit tests pass). Not re-measured on aac7: the measured size-1 write phases (§EW15: exposed write about 2.3 s on and off on aac6's local disk) cannot show the gain; it appears only where the write is exposed.
+
