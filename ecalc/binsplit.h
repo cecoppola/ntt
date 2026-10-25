@@ -19,19 +19,12 @@ struct dbig_s;
 extern "C" {
 #endif
 /* S1d (TARGET1, ECALC_PE_PER_GPU=1): with the switch on each PE (one process per GPU, vpe.h) runs its own binary splitting over its own term range with ONE region
- * (its device); the run's state below is then one copy per PE (index vpe_idx(): one slot used per process).  Written as the names the callers already use
- * (macros over per-vPE arrays: bs_a0 = (bs_a0_v[bs_vidx()]) is still an lvalue); with the switch off bs_vidx() is 0 and nothing changes.
- * BS_VMAX = vpe.h's VPE_MAX (tests/t_bs.c checks it). */
-#define BS_VMAX 8
-extern __thread int vpe_t_idx;                            /* vpe.h (vpe.c): the calling thread's PE index (thread-local override; 0 when unset) */
-extern int vpe_g_idx;                                     /* vpe.h: S2 (ECALC_PE_PER_GPU=1) the process's PE index on its node, >= 0 and valid on every thread of the process, else -1 */
-#define bs_vidx() (vpe_g_idx >= 0 ? vpe_g_idx : vpe_t_idx)   /* = vpe_idx() (vpe.h needs HIP's headers; this is plain C): the per-vPE storage index of the calling thread */
+ * (its device); the run's state below is one copy per process (every process drives exactly one PE).
+ */
 typedef struct { double t_seed, t_school, t_batch, t_mdev, t_total; int levels, school_levels, batch_levels, mdev_levels; size_t peak_pool_limbs;
                  int n_grow; size_t grow_bytes; } bs_stats;   /* region pool growths inside the phase (count, bytes) */
-extern bs_stats bs_st_v[BS_VMAX];
-#define bs_st (bs_st_v[bs_vidx()])
-extern int bs_seed_terms_v[BS_VMAX];                       /* 256 (BS_SEED_TERMS) */
-#define bs_seed_terms (bs_seed_terms_v[bs_vidx()])
+extern bs_stats bs_st;
+extern int bs_seed_terms;                       /* 256 (BS_SEED_TERMS) */
 unsigned long bs_seed_terms_for(unsigned long bend);
 long bs_seed_fill(void);                                  /* the fill in limbs (BS_SEED_FILL; 128 by default; 0 = the fixed span) */   /* the run's seed span for terms ending at bend (BS_SEED_FILL, else BS_SEED_TERMS / 256) */
 extern int bs_verbose;
@@ -39,8 +32,7 @@ extern int bs_verbose;
  * desc[10] = P.n P.N P.g0 P.g P.sh.n, the same for Q, as tree set `level` (size 1: 0; size > 1: mn_tree's top level);
  * multi-node names carry the node rank (ecalc/README.md: BS_CKPT_DIR, ECALC_CKPT_TOP) */
 extern const char *bs_ckpt_dir;  /* directory; 0 = none */
-extern unsigned long bs_N_v[BS_VMAX];                      /* the run's N (set by binsplit_e) */
-#define bs_N (bs_N_v[bs_vidx()])
+extern unsigned long bs_N;                      /* the run's N (set by binsplit_e) */
 int    bs_ckpt_tree_find(unsigned long N);                 /* this node's highest complete tree set, 0 = none */
 int    bs_ckpt_tree_read(int level, unsigned long N, uint64_t desc[10], struct dbig_s *P, struct dbig_s *Q);
 void   bs_ckpt_tree_clear(int level);                      /* this node's tree sets above `level` */
@@ -81,9 +73,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
 size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan);                   /* COMM_SHMEM_POOL_AUTO / the warning / MN_PLAN_ONLY's line */   /* t1's quarter in bytes -- the arena's reserved tail (the block pool's largest block) */
 void binsplit_release_arenas(void);                      /* the region arenas (hooked into rns_shutdown when the block pool borrowed them) */
 extern int bs_balance_n;                                 /* levels with at most this many nodes are laid out least-loaded-first (16) */
-extern void (*bs_after_seeds_hook_v[BS_VMAX])(void *); extern void *bs_hook_arg_v[BS_VMAX];
-#define bs_after_seeds_hook (bs_after_seeds_hook_v[bs_vidx()])
-#define bs_hook_arg (bs_hook_arg_v[bs_vidx()])
+extern void (*bs_after_seeds_hook)(void *); extern void *bs_hook_arg;
 /* FIT (D26, results/LAUNCH_DEFAULTS.md §FIT): the pre-launch memory fit of (N, g) at rank 0's layout, and DM_MN_WRAP automatic (binsplit.c) */
 struct bs_fit {
     size_t planes, arena, bs2, ofi, ofi_all, pool, seedbuf, host, vslot, vslot_top, grow;   /* per node (vslot, vslot_top: per APU) */
@@ -98,11 +88,8 @@ int  binsplit_fit(unsigned long N, int g, struct bs_fit *F);     /* fills F, dec
 void binsplit_fit_print(const struct bs_fit *F, double D, int g, const char *pre);
 int  binsplit_dm_wrap(void);                                      /* the run's DM_MN_WRAP: set > the fit's decision > 1 */
 const char *binsplit_dm_wrap_src(void);                           /* "fit" / "set" / "default" (not decided: 1) */
-extern unsigned long bs_a0_v[BS_VMAX], bs_b1_v[BS_VMAX];   /* M2: the term range [a0, b1) this process (vPE: this PE) computes (b1 = 0: [1, N+1)) */
-#define bs_a0 (bs_a0_v[bs_vidx()])
-#define bs_b1 (bs_b1_v[bs_vidx()])
-extern int bs_keep_dev_v[BS_VMAX]; struct dbig_s *bs_Pd_ptr(void), *bs_Qd_ptr(void);   /* P, Q stay on device (bs_keep_dev = 1); P->n = Q->n = 0 then */
-#define bs_keep_dev (bs_keep_dev_v[bs_vidx()])
+extern unsigned long bs_a0, bs_b1;   /* M2: the term range [a0, b1) this process (vPE: this PE) computes (b1 = 0: [1, N+1)) */
+extern int bs_keep_dev; struct dbig_s *bs_Pd_ptr(void), *bs_Qd_ptr(void);   /* P, Q stay on device (bs_keep_dev = 1); P->n = Q->n = 0 then */
 #define bs_Pd (*bs_Pd_ptr())
 #define bs_Qd (*bs_Qd_ptr())                          /* release the two level pools */
 /* reference: the same recursion on the CPU with schoolbook products, any N */

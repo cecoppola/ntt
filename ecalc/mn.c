@@ -16,11 +16,11 @@
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define NA 4
 static int g_rank, g_size = 1; static comm *g_cm[NA];   /* off path: this node and the nodes; under ECALC_PE_PER_GPU g_rank / g_size stay the NODE values -- the PE view is mn_rank() / mn_size() */
-/* lane-indexed state, one entry per PE (vpe.h): the flat communicator over all PEs, the cached sub-communicators, the tree's groups */
+/* this PE's state (one PE per process): the flat communicator over all PEs, the cached sub-communicators, the tree's groups */
 typedef struct { int g0, g, slot, id; comm *c; } subent;
 typedef struct { subent e[64]; int n; } sublist;
 typedef struct { struct mn_group *grp[16], *sch[16]; } grplist;
-VPE_STATE(comm *, flat); VPE_STATE(sublist, subl); VPE_STATE(grplist, gl);
+static comm * flat; static sublist subl; static grplist gl;
 static const char *mn_who(void) { return vpe_on() ? "pe" : "node"; }
 static comm *cm0(void);
 static int g_shmem;                                   /* COMM_TRANSPORT=shmem or xshmem -- the meshes are strided PE sets over SHMEM (comm_shmem.c) or over xshmem (comm_xshmem.c) */
@@ -80,8 +80,8 @@ void mn_wait_stats_print(void)
     }
 }
 int mn_size(void) { return vpe_on() ? vpe_npe() : g_size; }   /* the PE count in process mode, else the nodes */
-comm *mn_comm(int apu) { return vpe_on() ? (mn_size() > 1 ? VPE(flat) : 0) : g_size > 1 ? g_cm[apu] : 0; }   /* PE layout: the flat PE communicator of this PE (apu ignored: one device per PE) */
-static comm *cm0(void) { return vpe_on() ? VPE(flat) : g_cm[0]; }
+comm *mn_comm(int apu) { return vpe_on() ? (mn_size() > 1 ? flat : 0) : g_size > 1 ? g_cm[apu] : 0; }   /* PE layout: the flat PE communicator of this PE (apu ignored: one device per PE) */
+static comm *cm0(void) { return vpe_on() ? flat : g_cm[0]; }
 /* the PE communicators (vpe.h).  The flat one is made by mn_init; sub-communicators are made on first use by every member PE (local creation, no message) and
  * cached per lane.  The id is a function of (g0, g, slot) alone, so the members agree without an exchange: an aligned power-of-two run (g0 % g == 0)
  * 1 + log2 g + 16 slot (slot < 16, g < 2^15: ids < 256); any other run 256 + 64 slot + g (slot < 4, g < 64: ids 259..511 < MAXID_VPE).  The map is
@@ -95,15 +95,15 @@ __attribute__((unused)) static int sub_id(int g, int g0, int slot)
     if (g >= 64 || slot >= 4) ec_fatal(EC_RC_FATAL, "vpe_sub(%d, %d, slot %d): a run that is not an aligned power of two supports g < 64 and slot < 4\n", g0, g, slot);
     return 256 + 64 * slot + g;
 }
-comm *vpe_comm(void) { return VPE(flat); }
+comm *vpe_comm(void) { return flat; }
 comm *vpe_sub_slot(int g0, int g, int slot)
 {
     if (!vpe_on()) ec_fatal(EC_RC_FATAL, "vpe_sub without ECALC_PE_PER_GPU\n");
     int npe = vpe_npe(), me = vpe_pe();
     if (g0 < 0 || g < 1 || g0 + g > npe || slot < 0 || slot > 15) ec_fatal(EC_RC_FATAL, "vpe_sub(%d, %d, slot %d): outside the %d PEs\n", g0, g, slot, npe);
     if (me < g0 || me >= g0 + g) return 0;
-    if (g0 == 0 && g == npe && slot == 0) return VPE(flat);
-    sublist *sl = &VPE(subl);
+    if (g0 == 0 && g == npe && slot == 0) return flat;
+    sublist *sl = &subl;
     for (int i = 0; i < sl->n; i++) if (sl->e[i].g0 == g0 && sl->e[i].g == g && sl->e[i].slot == slot) return sl->e[i].c;
     if (sl->n >= 64) ec_fatal(EC_RC_FATAL, "vpe_sub: more than 64 sub-communicators on one vPE\n");
 #ifdef XSHMEM_ENGINE
@@ -144,7 +144,7 @@ static int mn_init_ppg(void)
     HIP_CHECK(hipSetDevice(v[4]));
     vpe_pe_affinity(cpus);
     (void)mem_numa_node_of_device(v[4]);
-    int ph_ = ec_ph(EC_PH_MESH_CREATE); VPE(flat) = comm_xshmem_create_flat(0, npe, 0); ec_ph(ph_);
+    int ph_ = ec_ph(EC_PH_MESH_CREATE); flat = comm_xshmem_create_flat(0, npe, 0); ec_ph(ph_);
     printf("mn: pe %d of %d (node %d of %d, local %d of %d): device %d of %d visible, numa %d, cxi%d (%d NIC%s), one flat communicator over %d PEs over xshmem (one process per PE): created in %.2f s\n",
            pe, npe, node, nn, local, ppn, v[4], ndev, v[5], v[7], v[6], v[6] == 1 ? "" : "s", npe, mem_now() - tx);
     mn_comm_mark("start (the meshes created)");
@@ -211,7 +211,7 @@ void mn_barrier(void) { if (mn_size() > 1) comm_barrier(cm0()); }   /* collectiv
 static void groups_finalize(void);
 static void sub_destroy_all(void)       /* PE layout: the cached sub-communicators of this PE, descending id (the members agree on that order), then the flat one */
 {
-    sublist *sl = &VPE(subl);
+    sublist *sl = &subl;
     /* x_destroy is collective (a barrier of its members): destroy in DESCENDING ID order, the same total order on every PE, whatever the creation order was */
     for (int done = 0; done < sl->n; done++) {
         int b = -1; for (int i = 0; i < sl->n; i++) if (sl->e[i].c && (b < 0 || sl->e[i].id > sl->e[b].id)) b = i;
@@ -225,7 +225,7 @@ static void finalize_vpe_lane(void *unused)
     groups_finalize();
     vpe_node_barrier();                                  /* the node's processes agree before the destruction (the node group is one of the cached ones) */
     sub_destroy_all();
-    if (VPE(flat)) { comm_destroy(VPE(flat)); VPE(flat) = 0; }
+    if (flat) { comm_destroy(flat); flat = 0; }
 #ifdef XSHMEM_ENGINE
     if (vpe_ppg()) comm_xshmem_finalize();               /* every process owns its engine */
 #endif
@@ -277,7 +277,7 @@ static int selftest_pe(int logR, int logC, int verbose, int layered)
     int npe = vpe_npe(); comm *cm; double t0 = mem_now();
     if (!layered) {
         if (npe & (npe - 1)) { if (vpe_root()) printf("mn: self-test over the plain meshes skipped (%d PEs is not a power of two; the layered self-test covers the transform PEs)\n", npe); return 1; }
-        cm = VPE(flat);
+        cm = flat;
     } else {
         int gt = 1; while (2 * gt <= npe) gt *= 2;
         cm = vpe_sub(0, gt); if (!cm) return 1;
@@ -349,7 +349,7 @@ int mn_selftest(int logR, int logC, int verbose)
 #include "mdb.h"
 #include "dbig.h"
 #define MN_MAXL 16
-#define g_groups (VPE(gl).grp)                       /* (per PE in process mode; the one array off) */
+#define g_groups (gl.grp)                    
 /* mesh d over the nodes [g0, g0+g): rank = node - g0; slot s (0 = the M1 meshes) gives the PE set its id */
 static comm *sub_mesh(int g0, int g, int slot, int d)
 {
@@ -388,7 +388,7 @@ mn_group *mn_group_at(int level)
  * A group that is one of the binary levels' -- G_l a power of two, or the whole machine -- IS mn_group_at's (the same meshes,
  * the same slots: the default schedule runs exactly as before); any other size (3, 6, 192 ...) gets its own meshes on the
  * slot 2 MN_MAXL + l (every node of the group takes part in the transform: no tr, no topo layer -- L's general map) */
-#define g_sched (VPE(gl).sch)
+#define g_sched (gl.sch)
 mn_group *mn_group_span(int l, int g0, int g)
 {
     if (l < 1 || l >= MN_MAXL) { ec_fatal(EC_RC_FATAL, "mn_group_span: level %d\n", l); }
@@ -493,10 +493,7 @@ static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch);
  * newton_mn_divmod lets go of P before S = P + Q and takes Q's share, when the writer still needs it, until mn_ckpt_top_finish
  * (after the output stage).  mn_ckpt_top_finish joins the writer. */
 int mn_ckpt_bg_mode = 0; double mn_ckpt_slack = 1.0;
-VPE_STATE(bs_ckpt_bg *, topbg); VPE_STATE(int, topbg_on); VPE_STATE(dbig, heldQ);   /* S1a: per vPE */
-#define g_topbg VPE(topbg)
-#define g_topbg_on VPE(topbg_on)
-#define g_heldQ VPE(heldQ)
+static bs_ckpt_bg *g_topbg; static int g_topbg_on; static dbig g_heldQ;
 static void mn_pq_hook(int stage, mdb *x)
 {
     if (!g_topbg) return;

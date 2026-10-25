@@ -2,7 +2,7 @@
  * The thread mode (ECALC_VPE: one process driving the PEs as threads) was removed 2026-10-23 (Q86); its code is on branch vpe-int.
  * Off (ECALC_PE_PER_GPU unset or 0): vpe_on() = 0, every function below returns the node view (lanes 1, PE = node, idx 0), vpe_run calls fn once on the caller; nothing else changes.
  * vpe_comm / vpe_sub / vpe_sub_slot are implemented in mn.c (it owns the transport meshes); the rest in vpe.c.
- * A helper thread of the PE's process is told the PE's index (vpe_adopt) before it uses VPE(...) state or a communicator. */
+ * A helper thread of the PE's process is told the PE's index (vpe_adopt) before it uses a communicator. */
 #ifndef EC_VPE_H
 #define EC_VPE_H
 #include "comm.h"
@@ -14,9 +14,8 @@ extern "C" {
 
 int  vpe_on(void);                                      /* process mode (ECALC_PE_PER_GPU=1) or vpe_set_forced */
 int  vpe_lanes(void);                                   /* PEs per node (1 when off): SLURM tasks per node; ECALC_VPE_LANES only where there is no launch (planners, forced test views; default 4) */
-extern __thread int vpe_t_idx;
 extern int vpe_g_idx;                                   /* the process's PE index on its node (>= 0 with ECALC_PE_PER_GPU: every thread of the process is that PE), else -1 */
-static inline int vpe_idx(void) { return vpe_g_idx >= 0 ? vpe_g_idx : vpe_t_idx; }   /* 0..L-1: the process's PE index on its node (process-global) */
+static inline int vpe_idx(void) { return vpe_g_idx >= 0 ? vpe_g_idx : 0; }   /* 0..L-1: the process's PE index on its node (process-global) */
 int  vpe_lane(void);                                    /* the lane of this vPE (= vpe_idx) */
 int  vpe_device(void);                                  /* the HIP device ordinal of this vPE: pe_geo's device (the lane with --gpu-bind=none, 0 with one visible device) */
 /* ECALC_PE_PER_GPU=1 (off by default): ONE PROCESS PER PE, 4 per node (srun --ntasks-per-node = vpe_lanes(), block distribution, local id =
@@ -44,12 +43,8 @@ void vpe_set_thread_hook(void (*fn)(int idx));          /* fn(idx) runs in vpe_a
 void vpe_run(void (*fn)(void *), void *arg);
 void vpe_node_barrier(void);                            /* barrier over the PEs of this node: the node group over the NIC (collective over the node's 4 processes); off: nothing */
 
-/* lane-indexed file-scope state: VPE_STATE(int, foo); ... VPE(foo) = 1;  Each process is one PE (one lane per process). */
-#define VPE_STATE(T, name) static T name##_v[VPE_MAX]
-#define VPE(name) (name##_v[vpe_idx()])
-
 /* the PE communicators (mn.c; collective over their members, creation is local: no message).  vpe_comm: all PEs, rank = PE, created by mn_init.
- * vpe_sub(g0, g): the PEs [g0, g0 + g) (PE units), NULL for a PE outside; cached per vPE; the whole run returns vpe_comm().  Aligned power-of-two runs
+ * vpe_sub(g0, g): the PEs [g0, g0 + g) (PE units), NULL for a PE outside; cached per process; the whole run returns vpe_comm().  Aligned power-of-two runs
  * (g0 % g == 0) and any contiguous run (3, 6, 12 ...) work.  The id of a run follows from (g0, g): one id per size per PE, so two different runs of
  * the same size that share a PE need vpe_sub_slot (slot 1..15 = another id), or the creation is a fatal "id used twice".  Runs that are not an aligned
  * power of two support g < 64 and slot < 4 (fatal otherwise; ids are collision-free over the domain).  Destruction (mn_finalize) is collective and goes by

@@ -19,12 +19,7 @@
 #include "vpe.h"                                            /* S1c: PE layout (ECALC_PE_PER_GPU=1): the chain and the mdb helpers per PE */
 static int nv = -1;
 /* S1c: the reciprocal chain's scratch is per PE (idx 0 only when the layout is off, so the off path is unchanged) */
-VPE_STATE(dbig, g_r); VPE_STATE(dbig, g_r2); VPE_STATE(dbig, g_qt); VPE_STATE(dbig, g_t1); VPE_STATE(dbig, g_t2);
-#define g_r VPE(g_r)
-#define g_r2 VPE(g_r2)
-#define g_qt VPE(g_qt)
-#define g_t1 VPE(g_t1)
-#define g_t2 VPE(g_t2)
+static dbig g_r; static dbig g_r2; static dbig g_qt; static dbig g_t1; static dbig g_t2;
 void newton_db_free_scratch(void) { db_free(&g_r); db_free(&g_r2); db_free(&g_qt); db_free(&g_t1); db_free(&g_t2); }
 
 /* the seed is small: the host version, copied in */
@@ -429,7 +424,7 @@ __global__ void k_mn_scatter(struct sacc dst, size_t lo2, const uint64_t *rb, co
 #define NST(stmt) do { if (!vpe_on() || vpe_ppg() || !vpe_idx()) { stmt; } } while (0)   /* (ECALC_PE_PER_GPU=1: the PEs are processes, each has its own counters -- lane 0 only left every PE but 0 with newton_x_dx = 0: the deferred tail patch then ran on PE 0 alone and the other PEs' digits-vs-X check failed, 1 n 3e10) */
 static unsigned mn_nblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 8 ? 228 * 8 : b); }
 /* S1c (vPE): the mdb helpers run on the PE's single device (vpe_lane()) and its flat communicator G->pe; nl = APU threads of one exchange (4 per node, 1 per PE),
- * ldev(d) = the device of thread d.  The streams are per device (a vPE creates its own); mn_st is per vPE. */
+ * ldev(d) = the device of thread d.  The streams are per device (a vPE creates its own). */
 #define NLANES() (vpe_on() ? 1 : 4)
 static inline int ldev(int d) { return vpe_on() ? vpe_device() + d : d; }
 static hipStream_t g_ms[VPE_MAX]; static int g_ms_init; static int g_ms_lane[VPE_MAX];
@@ -439,8 +434,7 @@ static void ms_init(void)
     if (g_ms_init) return; for (int d = 0; d < 4; d++) { MN_HIP(hipSetDevice(d)); MN_HIP(hipStreamCreateWithFlags(&g_ms[d], hipStreamNonBlocking)); } MN_HIP(hipSetDevice(0)); g_ms_init = 1;
 }
 typedef struct { size_t n_shift, n_addsub, n_small; double t_shift, t_addsub, t_small, t_prod; size_t shift_max; } mn_st_t;   /* shift_max: Phase 13a M, the largest sb + rb of one mdb_shift (bytes per node-process, measured) */
-VPE_STATE(mn_st_t, mn_st);
-#define mn_st VPE(mn_st)
+static mn_st_t mn_st;
 extern size_t rns_dist_tscratch_max;                                 /* rns_dist.c (Phase 13a M): the largest T + rbO of a product or shifted add */
 static void mfree(mdb *x) { if (x->sh.cap) db_free(&x->sh); memset(x, 0, sizeof *x); }
 static size_t mshare_max(const mdb *x) { return x->g ? (x->N + x->g - 1) / x->g : 0; }
