@@ -106,7 +106,7 @@ Open work in this repository is in `TASKS.md`.
 1. Fill `profiles/target.conf` from the template (modules, ROCm, NICs, partition, memory); `tools/profile_load.py target --check`.
 2. Kit preflight: environment record, build (path 2: `make XSHMEM=cray`), libfabric memory monitor (uffd), plan check
    (`MN_PLAN_ONLY` must end with `plan check ... OK`), the memory edge, a node screen (`tools/nodescreen.sh`).
-3. Measurements: A3 (kit stage `a3`: injection per NIC, one vs two NICs per APU) and A4 (all-to-all scaling with node count).
+3. Measurements: A3 (kit stage `a3`: injection per NIC, one vs two NICs per APU; disabled since 2026-10-25, its `t_comm` test was removed with Q103 -- a `tests/t_xshmem bw` replacement is on TASKS) and A4 (all-to-all scaling with node count).
    These replace the assumed fabric rate in the model; re-run `mn_model.py estimate` and recheck the size against the grid steps.
 4. A/B on the target of `MN_T_CHUNK_MB` 1024 vs 2048 (aac7 evidence only so far; X2, the pooled exchange slots, is built in with no switch).
 5. Growing runs (a few nodes, then larger groups), each VERIFY OK; then the 576-node run with the write, RECHECK and
