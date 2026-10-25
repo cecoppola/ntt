@@ -6,7 +6,7 @@
 #                 [--profile NAME|PATH] [--env "K=V ..."] [--out DIR] [--ref FILE] [--timeout SEC] [--wait SEC]
 #     --build     first `make -B` in the repo's ecalc/ (aac7: path 1 XSHMEM=ofi, the default build, or path 2 XSHMEM=cray; GATE_XSHMEM=cray
 #                 selects path 2, default ofi; GMP_HOME=~/gmp; for --nodes > 1 the log must have -DXSHMEM_OFI / -DXSHMEM_CRAY and the
-#                 binary the matching library; elsewhere a plain build, and --nodes > 1 is refused)
+#                 binary the matching library (without --build and GATE_XSHMEM, a binary linked with libsma counts as path 2); elsewhere a plain build, and --nodes > 1 is refused)
 #     --hold J    run inside the existing allocation J (srun --overlap through mnrun.sh with SLURM_JOB_ID=J, no -w); never cancelled.
 #                 Without --hold/--alloc an exported SLURM_JOB_ID is used as the hold.
 #     --alloc     submit its own short sbatch sleep job of --nodes nodes (MNRUN_EXCLUDE_HOSTS -> sbatch -x), run, scancel only that id
@@ -120,6 +120,7 @@ if [ $BUILD = 1 ]; then
 fi
 [ -x "$E/ecalc" ] && [ -x "$ROOT/tools/unpack_digits" ] || fail "ecalc or tools/unpack_digits missing (use --build)"
 if [ "$NODES" != 1 ]; then
+  [ $BUILD = 1 ] || [ -n "${GATE_XSHMEM:-}" ] || ! readelf -d "$E/ecalc" 2>/dev/null | grep -q libsma || { XS=cray; XSLIB=libsma; }   # an existing binary: path 2 when it links libsma
   [ $CRAY = 1 ] && readelf -d "$E/ecalc" 2>/dev/null | grep -q "$XSLIB" || fail "ecalc is not linked with $XSLIB (XSHMEM=$XS; multi-node refused)"
 fi
 [ -r "$REF" ] || fail "reference $REF not readable (--ref)"
