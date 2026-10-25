@@ -21,7 +21,7 @@ Run times at the current engine are in `PLAN.md` §2; this table holds the figur
 
 | what | figure | label | evidence |
 |---|---|---|---|
-| path 1 (libfabric, layout D) vs path 2 (Cray SHMEM, one process per GPU, 2 lanes), 3 n 1e11, same hold, 11 interleaved pairs | 83.4 vs 89.6 s, +6.2 s, +7.5 % (CI +3.4 to +11.5 %); compute phases at parity, the gap is init (+8 s, aac7-specific: libsma heap NIC registration 6.2 s) | m | results/XSHMEM.md craylane |
+| path 1 (libfabric, layout D) vs path 2 (Cray SHMEM, one process per GPU, 2 lanes), 3 n 1e11, same hold, 11 interleaved pairs | 83.4 vs 89.6 s, +6.2 s, +7.5 % (CI +3.4 to +11.5 %); measured before Q96; 2 n after Q96 (same layout P, 4 ABBA pairs): 1e10 +0.32 s [-0.51, 1.15], 1e11 -9.69 s [-27.9, 8.5], parity (results/XSHMEM.md, 9zz7); compute phases at parity, the gap is init (+8 s, aac7-specific: libsma heap NIC registration 6.2 s) | m | results/XSHMEM.md craylane |
 | exchange worker default in every layout (Q96) | init -6.5 to -7.5 s in 5 of 5 runs at 2 n 1e11 (DATA heap 9408 -> 960 MiB per PE, host memory 16.6 -> 8.0 GB); 2 n 1e10 -8.2 s [-9.4, -7.0] (path 2); bs and dm neutral; at 1e11 the paired total is not resolved (+4.1 s poll minus worker, CI [-14.7, +22.9], n 3) | m | results/XSHMEM.md §XWLAT |
 | digit identity at production size, main after Q96 | 2 n 1e11 on both paths: sha 578f5efb0ff2b9af (same as the xwconf3 reference) | m | results/XSHMEM.md §XWLAT |
 | day-one checks T1-T8 on aac7, diagnostic arms | flush and `XSHMEM_LOCAL`/`XSHMEM_IPC` neutral; lanes 1 vs 2 neutral (aac7 has one NIC per PE); xshmem 11 % faster than `comm_ofi` at 2 n 1e10; Cray a2a bimodal 11 / 17 GB/s unexplained; T1, T2, T5, T6 (NIC map), T8 on a device heap need the target | m | results/XSHMEM.md §XDIAG |

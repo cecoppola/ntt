@@ -192,6 +192,12 @@ xwconf3. Q96 at 1e11 on path 2 (no digit file, 3 ABBA pairs): worker (default) 1
 144.91 / 153.79 s; poll - worker +4.13 s, 95 % CI [-14.68, 22.94] (two pairs +8.2 to +8.8 s, one -4.6 s): same direction as the start-up
 gain, not resolved at n = 3.
 
+**Best SHMEM against best libfabric after Q96, 2 n (item 9zz7_gap2n, main b47d557, same hold, measured 2026-10-24 22:05-22:29 ET).**
+Both in layout P (one process per GPU; the fastest libfabric layout at 2 n), the same BSPLIT settings, no digit file, ABBA. 2 n 1e10, 4 pairs:
+ofi P 14.79 s, Cray P lanes 2 15.11 s, Cray - ofi +0.32 s, 95 % CI [-0.51, 1.15]. 2 n 1e11, 4 pairs: ofi P 156.13 s, Cray 146.44 s,
+-9.69 s, CI [-27.90, 8.52] (Cray bimodal: 135.8 / 136.2 against 154.8 / 159.1 s). At 2 n the two paths are at parity after Q96; the 3 n
++7.5 % above predates Q96 (poll-only under P) and is not re-measured (only 2 NIC nodes on aac7).
+
 
 ## XDIAG: day-one checks T1-T8 triage and diagnostic arms (branch xdiag, 2026-10-24, aac7 2 n, measured)
 

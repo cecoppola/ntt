@@ -102,6 +102,14 @@ Totals (m): 42 switches + 1 value removed, 1 default changed; about 1800 lines r
 - **t_patch under the 60-bit default (D5).** `packed_part_check` read 8 bytes per limb: 2399 false failures under `=2`; fixed in d12ac2c, the writer and patch were correct (`corr`, `recheck` passed).
 - **Not changed.** `mn_model.py PACKED_BPD` still prices the 64-bit form (the 60-bit form is 6.25 % fewer bytes). A5: plain `t_newton` now runs the device sections (1098 checks instead of 620).
 
+## §CR3S — path 1 speed after the cleanup merges of 2026-10-23/24 (Q85 no-slower rule)
+
+Item 9zz6_cln1n2 (measured 2026-10-24 21:23-22:04 ET, aac7, 4 NIC-less nodes, one stream each, default build, layout D, 1 n 3.3e10 digits,
+no network; ABBA within each stream, first arm rotated by stream): A = main 1e2ea1b (before cleanup wave 2), B = main 669f11a (wave 2,
+k_crt24 guard, plq2, vscal merged). 224 runs, all VERIFY OK: A 39.76 s, B 39.75 s; B - A over the 4 streams -0.01 s, 95 % CI [-0.23, 0.20]
+(per node -0.16 .. +0.15 s); adjacent pairs (n 56) -0.02 s [-0.41, 0.37]. No change: within 0.5 %. The first attempt (9zz1_cln1n)
+recorded nothing (the stream directory was not created).
+
 ## §W2B — wave 2, lane B of the settings removal (2026-10-12)
 
 User-approved removal of experiment / adopted-default switches (transport, NTT kernels, distributed products); each removal keeps today's value, digits identical by construction, each batch gated on aac7 (SHMEM build).
