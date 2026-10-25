@@ -349,7 +349,7 @@ ecalc_end() {
 # ecalc_ok: the loaded run is good (rc 0, VERIFY OK, no digit-hash mismatch).  ecalc_brief TAG: one phrase for q.* lines.
 ecalc_ok() { [ "$E_RC" = 0 ] && [ "$E_VERIFY" = OK ] && [ "$E_HASH_MATCH" != no ]; }
 ecalc_brief() {
-    if [ "$E_SKIP" = 1 ]; then echo "$1 skipped (no binary)"; return; fi
+    if [ "$E_SKIP" = 1 ]; then echo "$1 skipped ($([ "${TGT_NO_NIC:-0}" = 1 ] && echo "no NICs or no binary" || echo "no binary"))"; return; fi
     printf '%s: %s' "$1" "$(ecalc_ok && echo OK || echo "BAD rc=$E_RC verify=$E_VERIFY${E_REFUSED:+ refused=$E_REFUSED}")"
     [ -n "$E_HASH" ] && printf ' sha=%s(%s)' "$E_HASH" "$E_HASH_MATCH"
     [ -n "$E_TOTAL" ] && printf ' total=%s s' "$E_TOTAL"; echo

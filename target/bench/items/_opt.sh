@@ -220,7 +220,7 @@ build_test() { # PATHNO NAME [NAME ...] : make the test programs in the build tr
           [ -x "$EC_DIR/tests/$nm" ] && exit 0
           bash -lc '[ -n "'"$EC_UNLOAD"'" ] && module unload '"$EC_UNLOAD"' >/dev/null 2>&1; [ -n "'"$EC_MODS"'" ] && module load '"$EC_MODS"' >/dev/null 2>&1; cd "'"$EC_DIR"'" && make -j8 XSHMEM='$xs' tests/'$nm'' > "$OUT/raw/make_$nm.log" 2>&1
         ) 9> "$TGT_ROOT/build/.mk.lock" || rc=1
-        [ -x "$EC_DIR/tests/$nm" ] || { rc=1; note "build of tests/$nm failed (raw/make_$nm.log)"; }
+        [ -x "$EC_DIR/tests/$nm" ] || { rc=1; OPT_EXTRA_FAIL=1; note "build of tests/$nm failed (raw/make_$nm.log)"; }
     done
     return $rc
 }

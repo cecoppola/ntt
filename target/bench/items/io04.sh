@@ -10,7 +10,7 @@ done
 UN=$(tool 1 tools/unpack_digits)
 if [ "$UN" != 0 ] && need_path 1; then
     WRITE=1 KEEP=1 ecalc_run w1e9 D 1 "$(ecalc_digits 1e9)" || true; rec w1e9 W 1
-    SD=${TGT_SCRATCH:-${ECALC_OUT_DIR:-$TGT_ROOT/build/scratch}}/${ID:-item}-$$; tgt_kv e.kept_parts_dir "$SD"
+    SD=${TGT_SCRATCH:-${ECALC_OUT_DIR:-$TGT_ROOT/build/scratch}}/${ID:-item}-$$-w1e9; tgt_kv e.kept_parts_dir "$SD"
     P=$(ls "$SD"/w1e9.out.part* "$SD"/w1e9.out 2>/dev/null | sort)
     if [ -n "$P" ]; then
         BY=$(du -cb $P | tail -1 | cut -f1); T1=$(date +%s.%N)
