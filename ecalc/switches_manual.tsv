@@ -1,92 +1,190 @@
 # ecalc/switches_manual.tsv -- hand-checked rows (L5, 2026-10-11) for the launch-line switches; wins over the extraction in tools/switch_registry.py.
-# columns (tab separated): name, default, type, range, scope, note.   A default that is a code literal must equal it (--check fails otherwise); "auto..." marks a computed default.
+# columns (tab separated): name, default, type, range, scope, note, evidence (results/ file names joined by +).   A default that is a code literal must equal it (--check fails otherwise); "auto..." marks a computed default.
 # default read at the site named in note (file:line as of main a1569d5); launch-line switches that have a plain literal default are listed too so that a change of the literal is caught.
-BS_CKPT_DIR	unset	str	path		ecalc.c; the top-level set's directory (ECALC_CKPT_TOP); unset or empty = <outfile>.top
-BS_LAYOUT_ONLY	unset	str	D[:g],...		ecalc.c:440; layout printer, exits before rns_init
-COMM_OFI	auto	bool	0|1		comm_ofi.c:98 default = a cxi NIC is present (cxi_present())
-COMM_OFI_NICS	unset	str	NIC list, ; between devices		comm_ofi.c:123; unset = automatic
-COMM_OFI_PLAN_CXI	0	bool	0|1		comm_ofi.c:92 (cxi_present() || set)
-COMM_OFI_POOL_MB	auto	int	MiB per device		binsplit.c:694 sets it from the modelled need when unset
-COMM_RANK	0	int	>=0		set per process by the launcher (mnrun.sh); excluded from the config hash
-COMM_SHMEM_DEVHEAP	0	bool	0|1		comm_shmem.c
-COMM_SHMEM_POOL_MB	8192	int	MiB		binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
-COMM_SHMEM_ROUND_MB	0	float	>=0 MiB		comm_shmem.c:305; 0 = no rounds
-COMM_SHMEM_SERIAL	auto	bool	0|1		comm_shmem.c:284 per-build default (OSHMEM 1)
-COMM_SIZE	1	int	>=1		set per run by the launcher; code defaults are 1 (4096 only in a self-test)
-COMM_TRANSPORT	unset	enum	shmem		mn.c: a transport is needed for COMM_SIZE > 1 (mnrun.sh sets it: xshmem, the S3a engine, when the launched executable has it (the default build, make XSHMEM=ofi, where libfabric is found; Q73 2026-10-21), else shmem; an explicit shmem is the fallback and the reference); tcp removed 2026-10-12
-DB_POOL_VERBOSE	0	int	0|1|2		dbig.c:123: defaults to 1 when RNS_VERBOSE is set, else 0
-ECALC_CHECKPOINT	0	bool	0|1		ecalc.c:580; 1 = budgeted top set (ECALC_CKPT_TOP=2)
-ECALC_CKPT_TOP	auto	int	0|1|2		ecalc.c:579: ECALC_CHECKPOINT ? 2 : 0
-ECALC_INIT_TL	0	bool	0|1		dbig.c
-ECALC_MEM_GUARD_GB	0	float	>=0 GB		memsample.c:113; 0 = guard off
-ECALC_NP	auto	enum	auto|3|4		ecalc.c: unset becomes auto at size > 1 (D18), 3 at size 1; crt.c reads auto
-ECALC_RECHECK	0	bool	0|1		ecalc.c: standalone recheck of a finished run
-ECALC_SEGV_TRACE	0	bool	0|1		segv_trace.c:146
-ECALC_VERBOSE	1	int	0|1|2		ecalc.c
-MEM_REPORT_DEVS	0	bool	0|1		ecalc.c:372/537 (presence test)
-MN_COMM_MARK	0	bool	0|1		mn.c:28 (atoi > 0)
-MN_GROUPS	unset	str	group list		rns_dist.c:2315; unset = the automatic schedule
+BS_CKPT_DIR	unset	str	path	launch-line	ecalc.c; the top-level set's directory (ECALC_CKPT_TOP); unset or empty = <outfile>.top	W.md+WP7.md	the directory of the top-level set (`ECALC_CKPT_TOP`); unset = `<outfile>.top`.
+BS_LAYOUT_ONLY	unset	str	D[:g],...	launch-line	ecalc.c:440; layout printer, exits before rns_init	MS15.md+B7ACCT.md	`D:g[,D:g…]` — print the arena request `binsplit_pregrow` would make for D digits per node over g node-processes (one `layout:` line each) and exit; `mem_model.py --check-c <log>` compares ...
+COMM_OFI	auto	bool	0|1	launch-line	comm_ofi.c:98 default = a cxi NIC is present (cxi_present())	OFI17.md	the data of the SHMEM transport's device exchanges (`alltoall`, `alltoallv`, `allgather`, the rounds) goes over libfabric `fi_write`s on the NICs of the calling APU thread's device (one ...
+COMM_OFI_NICS	unset	str	NIC list, ; between devices	launch-line	comm_ofi.c:123; unset = automatic	TUNE17.md+TGTBENCH2.md	the NIC list per device, `;` between devices, `,` between one device's NICs (`0;1;2;3`; the target's form `0,4;1,5;2,6;3,7`); chunks stripe over a device's list (unset: the cxi devices on ...
+COMM_OFI_PLAN_CXI	0	bool	0|1	launch-line	comm_ofi.c:92 (cxi_present() || set)	STD17.md+XEFF.md	1 = the plan / layout (`MN_PLAN_ONLY`, `BS_LAYOUT_ONLY`, the pool rule) assume `COMM_OFI`'s default is on although this host has no cxi NIC (a login node).
+COMM_OFI_POOL_MB	auto	int	MiB per device	launch-line	binsplit.c:694 sets it from the modelled need when unset	STD17.md+S18KITFIX.md	the comm pool per device that `COMM_OFI` registers with the NICs (VMM memory cannot be): `fine` (fine-grained device memory, the default), `coarse` (`hipMalloc`), `host` (NUMA-local host ...
+COMM_RANK	0	int	>=0	launch-line	set per process by the launcher (mnrun.sh); excluded from the config hash	A-comm.md+WP6.md	this process's rank and the number of node-processes (set by `mnrun.sh`; unset or 1 = the single-node program)
+COMM_SHMEM_DEVHEAP	0	bool	0|1	launch-line	comm_shmem.c	S12.md+A16.md	the symmetric pool used as device memory: 1 on an implementation whose `shmem_malloc` returns device memory (checked at init; Cray OpenSHMEMX's heap is host memory, so the pool is then ...
+COMM_SHMEM_POOL_MB	8192	int	MiB	launch-line	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)	STD17.md+P214.md	the SHMEM transport's symmetric pool (8192; *Phase 14 (V1)*: `mnrun.sh` sets it, when unset, to the run's modelled need from `MN_PLAN_ONLY=<digits>:<procs>`'s `plan pool` line, and a host ...
+COMM_SHMEM_ROUND_MB	0	float	>=0 MiB	launch-line	comm_shmem.c:305; 0 = no rounds	V114.md	the SHMEM transport carries an all-to-all (equal or unequal) whose pair exceeds this / (n − 1) MiB in rounds that stage at most this many MiB each way (a helper thread per exchange, the ...
+COMM_SHMEM_SERIAL	auto	bool	0|1	launch-line	comm_shmem.c:284 per-build default (OSHMEM 1)	S.md+S16.md	every SHMEM call under one process-wide lock; 0 = per-thread contexts on a `SHMEM_THREAD_MULTIPLE` library (default: 1 whenever the library does not provide `SHMEM_THREAD_MULTIPLE`; 0 on ...
+COMM_SIZE	1	int	>=1	launch-line	set per run by the launcher; code defaults are 1 (4096 only in a self-test)	MS15.md+S16.md	this process's rank and the number of node-processes (set by `mnrun.sh`; unset or 1 = the single-node program)
+COMM_TRANSPORT	unset	enum	shmem	launch-line	mn.c: a transport is needed for COMM_SIZE > 1 (mnrun.sh sets it: xshmem, the S3a engine, when the launched executable has it (the default build, make XSHMEM=ofi, where libfabric is found; Q73 2026-10-21), else shmem; an explicit shmem is the fallback and the reference); tcp removed 2026-10-12	S.md+OFI17.md	`shmem` (Phase 11 S: the meshes as strided PE sets over SHMEM) or `xshmem` (*TARGET1 S3a*; the default for more than one process since Q73, 2026-10-21: the default build includes the engine ...
+DB_POOL_VERBOSE	0	int	0|1|2	launch-line	dbig.c:123: defaults to 1 when RNS_VERBOSE is set, else 0	T215.md+S18KITFIX.md	the dbig block pool's growth and how the reserved tails were used (follows `RNS_VERBOSE`)
+ECALC_CHECKPOINT	0	bool	0|1	launch-line	ecalc.c:580; 1 = budgeted top set (ECALC_CKPT_TOP=2)	P16.md+DOC15.md	`1` = development and testing: the budgeted top set (`ECALC_CKPT_TOP=2`) unless `ECALC_CKPT_TOP` is set; the headline / record runs leave it unset (0)
+ECALC_CKPT_TOP	auto	int	0|1|2	launch-line	ecalc.c:579: ECALC_CHECKPOINT ? 2 : 0	N13.md	the top-level P, Q on disk for the recheck (above): `BS_CKPT_DIR` or `<outfile>.top` (**off by default** — record timing runs, the user's decision of 2026-09-27; `ECALC_CHECKPOINT=1` makes ...
+ECALC_INIT_TL	0	bool	0|1	launch-line	dbig.c	MAP15.md	1 = init's timeline as `tl <s since rns_init began>` lines: rns_init's steps, each arena's mapping with the HIP calls split (create / map / access / zero), the background mappers (start, ...
+ECALC_MEM_GUARD_GB	0	float	>=0 GB	launch-line	memsample.c:113; 0 = guard off	IO15.md+DOC15.md	the sampler stops the run (rc 9, `EC_RC_MEMGUARD`) through `ec_fatal` — one line naming rank, host, the last phase boundary and the figures — when MemAvailable falls below this many GB; ...
+ECALC_NP	auto	enum	auto|3|4	launch-line	ecalc.c: unset becomes auto at size > 1 (D18), 3 at size 1; crt.c reads auto	P15.md	the number of NTT primes: 3 (Phase 13b step 0: −17 % wall, −25.8 GB of planes; `ecalc.c` sets it when unset; 4 was the binary-limb count, archived with archive:PLAN §28.5).
+ECALC_RECHECK	0	bool	0|1	launch-line	ecalc.c: standalone recheck of a finished run	V.md+KP15.md	1: the standalone recheck of a finished run's files instead of a run (0).
+ECALC_SEGV_TRACE	0	bool	0|1	launch-line	segv_trace.c:146	S18W.md+S30.md	`1` = install a SIGSEGV/SIGBUS/SIGABRT handler right after `main` knows `COMM_RANK` (`segv_trace.c`): on the signal it prints, with `write(2)` only (async-signal-safe, no malloc/printf), ...
+ECALC_VERBOSE	1	int	0|1|2	launch-line	ecalc.c	PC15.md+M13.md	1: the phase lines; 2: per-level, init and memory detail, and (SHMEM, replacing `COMM_SHMEM_VERBOSE`, removed 2026-10-19) a line per new staging peak of the pool and every PE's init ...
+MEM_REPORT_DEVS	0	bool	0|1	launch-line	ecalc.c:372/537 (presence test)	B7ACCT.md+TC15.md	`mem_report` adds per-APU rows (driver used/total) to the per-phase memory table; *B7ACCT*: at size > 1 each row also prints the terms outside `in use` -- the layout's v-slots ...
+MN_COMM_MARK	0	bool	0|1	launch-line	mn.c:28 (atoi > 0)	D16.md	1 prints, on node 0, a `comm-mark` line at the meshes' creation, the end of each tree level, the reciprocal and the division: this PE's all-to-all exchanges, GB received, post-to-completion ...
+MN_GROUPS	unset	str	group list	launch-line	rns_dist.c:2315; unset = the automatic schedule	T114.md+SC15.md	the tree's level → group-size schedule, e.g.
 MN_OUT_DKM_HI	1	bool	0|1	built-in default	ecalc.c; default 1 since 2026-10-12 (TASKS 27)
-MN_PLAN_ONLY	unset	str	D:g		ecalc.c:451; prints the plan and exits
-MN_T_CHUNK_MB	1024	float	MiB		rns_dist.c:1608
-MN_WAIT_STATS	0	bool	0|1		comm_util.c:22 (atoi > 0)
-POOL_LOG	31	int	29..31		ecalc.c:rewritten by ECALC_PLANE_CAP; 31 default (2^31 pools)
+MN_PLAN_ONLY	unset	str	D:g	launch-line	ecalc.c:451; prints the plan and exits	P15.md+T215.md	`<total digits>:<g>` — the plan of a run (every large product's grid, pieces, planes, from the code's own decisions; no device) and exit.
+MN_T_CHUNK_MB	1024	float	MiB	launch-line	rns_dist.c:1608	P214.md+S22.md	a piece product's window (the temporary T and the result slab rbO of `mn_core`, and `mdb_add_shifted`'s T) in rounds of this many MB per APU instead of the whole share of C (35 GB per node ...
+MN_WAIT_STATS	0	bool	0|1	launch-line	comm_util.c:22 (atoi > 0)	S27.md+S22.md	per-communicator wait-time statistics (`comm_util.c`) (0)
+POOL_LOG	31	int	29..31	launch-line	ecalc.c:rewritten by ECALC_PLANE_CAP; 31 default (2^31 pools)	A-mem.md+M13.md	the plane pools' 2ᵏ points per APU (31; 27–29 with several node-processes on one node)
 RNS_DIST_CACHE_PARTIAL	1	bool	0|1	built-in default	rns_dist.c; default 1 since 2026-10-12 (TASKS 27)
-RNS_VERBOSE	0	bool	0|1		dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
+RNS_VERBOSE	0	bool	0|1	launch-line	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c	PS15.md+M.md	1 per-call times, 2 CRT re-runs; also the pool allocations' times (unset)
 DIST_GATHER_RAW	2	int	0|1|2	built-in default	rns_dist.c; K1b+CAND, user-adopted 2026-10-12; 0 = old gather
 DIST_GATHER_RAW_MARGIN_GB	2	float	-	built-in default	rns_dist.c; K1b, GB per APU kept free when DIST_GATHER_RAW=2 takes its plane
 DBIG_SMALL_BOUNCE	1	int	0|1	built-in default	dbig.c; O2+CAND, user-adopted 2026-10-12; 0 = old path
 BS_SEED_PULL	1	int	0|1	built-in default	dbig.c; K8b+CAND, user-adopted 2026-10-12 (acts with DB_POOL_VMM); 0 = old path
 COMM_HS_TS	0	bool	0|1	test-only	newton_db.c; G1 print-only handshake time stamps
 BS_BATCH_PIPE	1	bool	0|1	built-in default	rns_mul.c, binsplit.c; N3 batch-tier host overlap (results/KERNELS.md §N3); default 1 since D20, =0 kept fallback
-DM_MN_WRAP	auto (fit)	int	0|1|20..62	built-in default	binsplit.c binsplit_fit / binsplit_dm_wrap (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): unset = 1 when the device with the wrap fits ECALC_DEVICE_GB less ECALC_DEVICE_MARGIN_GB, else 0; =0/=1 explicit wins (a warning when 1 does not fit); the wrap itself P1/D22 (results/DIVISION.md §P1), dm_layout counts it (D19, results/LAUNCH_DEFAULTS.md §DEF)
+DM_MN_WRAP	auto (fit)	int	0|1|20..62	built-in default	binsplit.c binsplit_fit / binsplit_dm_wrap (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): unset = 1 when the device with the wrap fits ECALC_DEVICE_GB less ECALC_DEVICE_MARGIN_GB, else 0; =0/=1 explicit wins (a warning when 1 does not fit); the wrap itself P1/D22 (results/DIVISION.md §P1), dm_layout counts it (D19, results/LAUNCH_DEFAULTS.md §DEF)		Automatic since 2026-10-13 (user decision D26, results/LAUNCH_DEFAULTS.md §FIT): unset = 1 when the device peak with the wrap is at most `ECALC_DEVICE_GB` − `ECALC_DEVICE_MARGIN_GB` (the ...
 RNS_CRT_SCAN	1	bool	0|1	built-in default	K4b: k_crt_batch parallel carry (rns_mul.c rns_gconst); default 1 since D21, =0 kept fallback
 P24_CRT_SCAN	1	bool	0|1	built-in default	K4c: k_crt24 parallel carry (p24_crt.c p24_crt_scan_on); default 1 since D24, =0 kept fallback
 NEWTON_CHAIN_GUARD	1	int	0|1	built-in default	newton_db.c newton_chain_guard; default 1 since D25, =0 kept fallback (RECIP, results/DIVISION.md §RECIP); dm_layout and mem_model.py follow it
-ECALC_DEVICE_GB	373.44	float	GB per node	built-in default	binsplit.c binsplit_fit (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): the device edge per node the memory fit checks (the target: 373.44, m, TGTBENCH2; aac7 profile 444.0, m); a run above it is refused before launch
-ECALC_DEVICE_MARGIN_GB	5	float	GB per node	built-in default	binsplit.c binsplit_fit (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): DM_MN_WRAP automatic takes the wrap only when the device with it is at most ECALC_DEVICE_GB less this margin
-COMM_TRACE_HB_GAP_MS	20	int	ms		comm_trace.h:422
-COMM_TRACE_MAX_MB	256	int	MiB		comm_trace.h:98; at least 16
-COMM_TRACE_SAMPLE	1	int	N		comm_trace.h:96; 1 traces every exchange
-COMM_TRACE_CLOCK_N	50	int	N		comm_trace.h:97
-COMM_TRACE_WD_MS	0	int	ms		comm_trace.h:106; 0 = no watchdog
-MN_NONPOW2_CAP	auto	str	auto|0|1	built-in default	rns_mul.c rns_np2cap: auto (unset, Q58) = non-pow2 groups take the next pow2 plane from MN_NONPOW2_MIN digits per node; 1 = always; 0 = the pow2 plane (T2, D57)
-MN_NONPOW2_MIN	4.5e10	num	>0	built-in default	rns_mul.c rns_np2_min: digits per node-process from which MN_NONPOW2_CAP auto is on (results/DIVISION.md NPCAP crossover)
-PE_GEO_SYSFS_ROOT		str	path prefix	test-only	pe_geo.c; prefix of every /sys path (mock trees for tests/t_pe_geo); unset = the real /sys
-XSHMEM_CTRL	heap	str	heap|host	experiment	xshmem.h xshmem_cfg_load; host = control words in a host region (design 1.3 b)
-XSHMEM_HEAP_MB	0	int	MiB per PE	experiment	xshmem.h; 0 = backend default; binsplit.c sets it under COMM_TRANSPORT=xshmem
-XSHMEM_IPC	0	int	0|1	experiment	xshmem.h; ofi backend maps node-local heaps with hipIpc (xshmem_ptr)
-XSHMEM_LANES	1	int	1..4	experiment	xshmem.h, pe_geo.c; lanes (contexts) per PE; may exceed the NICs (virtual lanes); the engine clamps above 4
-XSHMEM_LANE_MIN_KB	256	int	>=1	experiment	comm_xshmem.c; smallest chunk per lane when XSHMEM_LANES > 1
-XSHMEM_LOCAL	0	int	0|1	experiment	xshmem.h; engine uses xshmem_ptr node-local copies
-XSHMEM_LOOPBACK_PES	1	int	1..8	experiment	xshmem.h; PEs one process hosts in the ofi backend (PE = K*rank + l, own GPU/NIC/heap each); 1 = one PE per process
-XSHMEM_YIELD	1	int	0|1	experiment	xshmem.h; 0 = the xshmem waits and the exchange worker never sched_yield (diagnostic); 1 = they do
-XSHMEM_MRMODE	libsma	str	libsma|ofi	experiment	xshmem.h; ofi backend memory-registration mode
-XSHMEM_OFI_SIG	dc	str	dc|flush|waw	experiment	xshmem.h; ofi backend signal-after-data mode (design 1.4)
-XSHMEM_PES_PER_GPU	1	int	>=1	experiment	pe_geo.c; PEs per GPU (target fallback 2)
-ECALC_XEX_THREAD	1	int	0|1	experiment	comm_xshmem.c; one persistent worker thread per loopback PE owns the sender half of the exchanges (1, default in every layout, Q96 2026-10-24: under ECALC_PE_PER_GPU=1 init -6.5..7.5 s and half the host memory against poll-only, results/XSHMEM.md XWLAT); 0 = poll-only, the APU thread does it in post and wait
-XSHMEM_ORDER	rot	str	rot|seq	experiment	comm_xshmem.c; peer order of the offset words, puts and signals: rot = (me+q)%n (default, no incast on member 0), seq = rank order (the reference's)
-XSHMEM_ROUND_MB	128	float	>= 0	experiment	comm_xshmem.c, xshmem_round.h; unset = 128 (Q73 2026-10-21; 0 where the engine polls: ECALC_XEX_THREAD=0, planner and engine alike); 0 = off, whole-exchange staging; m > 0: an all-to-all whose pair exceeds m/(n-1) MiB goes in rounds staging at most m MiB each way (needs ECALC_XEX_THREAD=1); the planner sizes XSHMEM_HEAP_MB from it
+ECALC_DEVICE_GB	373.44	float	GB per node	built-in default	binsplit.c binsplit_fit (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): the device edge per node the memory fit checks (the target: 373.44, m, TGTBENCH2; aac7 profile 444.0, m); a run above it is refused before launch		the device edge per node, GB, the memory fit checks (default 373.44 = the target's, 93.36 GB per APU, m, results/TARGET.md §TGTBENCH2; profiles/aac7.conf: 444.0, m, the aac7 t_edge VMM ...
+ECALC_DEVICE_MARGIN_GB	5	float	GB per node	built-in default	binsplit.c binsplit_fit (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): DM_MN_WRAP automatic takes the wrap only when the device with it is at most ECALC_DEVICE_GB less this margin		the safety margin per node (default 5.0 GB, the tighter of CAP17's two bars) under `ECALC_DEVICE_GB` that `DM_MN_WRAP` automatic keeps: the wrap is taken only when the device with it is at ...
+COMM_TRACE_HB_GAP_MS	20	int	ms		comm_trace.h:422		gap threshold of the heartbeat in ms (default 20).
+COMM_TRACE_MAX_MB	256	int	MiB		comm_trace.h:98; at least 16		arena per node-process in MiB (default 256).
+COMM_TRACE_SAMPLE	1	int	N		comm_trace.h:96; 1 traces every exchange		N (default 1) traces about every Nth exchange of a communicator (hash of the exchange sequence, so every member keeps the same exchanges); the trace of the full 3.8646e11 run is about 1 GB ...
+COMM_TRACE_CLOCK_N	50	int	N		comm_trace.h:97		ping-pong iterations of the node 0 clock-offset estimate per node and pass (default 50).
+COMM_TRACE_WD_MS	0	int	ms		comm_trace.h:106; 0 = no watchdog		<ms> (default off) progress watchdog: when the node-process has stamped no exchange / round / message record for that long, the heartbeat thread (started with a 2 ms period if ...
+MN_NONPOW2_CAP	auto	str	auto|0|1	built-in default	rns_mul.c rns_np2cap: auto (unset, Q58) = non-pow2 groups take the next pow2 plane from MN_NONPOW2_MIN digits per node; 1 = always; 0 = the pow2 plane (T2, D57)		*T2 (D57), default auto since Q58 (user 2026-10-20): on from `MN_NONPOW2_MIN` digits per node-process, off below (the larger pools cost a fixed +7 s of init at 3 n 6e10; crossover about ...
+MN_NONPOW2_MIN	4.5e10	num	>0	built-in default	rns_mul.c rns_np2_min: digits per node-process from which MN_NONPOW2_CAP auto is on (results/DIVISION.md NPCAP crossover)		digits per node-process (total digits / `COMM_SIZE`) from which `MN_NONPOW2_CAP` auto is on; default 4.5e10 (results/DIVISION.md §NPCAP crossover, mod); `MN_PLAN_ONLY` and the memory fit ...
+PE_GEO_SYSFS_ROOT		str	path prefix	test-only	pe_geo.c; prefix of every /sys path (mock trees for tests/t_pe_geo); unset = the real /sys		PEs per GPU (default 1; the 2-PEs-per-GPU fallback of design 2.2) / a prefix for every `/sys` path (mock trees of `tests/t_pe_geo`)
+XSHMEM_CTRL	heap	str	heap|host	experiment	xshmem.h xshmem_cfg_load; host = control words in a host region (design 1.3 b)		`heap` (default; control words in the device heap) or `host` (control words in a host region, design 1.3 b)
+XSHMEM_HEAP_MB	0	int	MiB per PE	experiment	xshmem.h; 0 = backend default; binsplit.c sets it under COMM_TRANSPORT=xshmem		MiB of the per-PE symmetric heap (0 = backend default).
+XSHMEM_IPC	0	int	0|1	experiment	xshmem.h; ofi backend maps node-local heaps with hipIpc (xshmem_ptr)		1 = the engine copies node-local peers through `xshmem_ptr` / the libfabric backend maps node-local heaps with hipIpc (both off by default; need `--gpu-bind=none`)
+XSHMEM_LANES	1	int	1..4	experiment	xshmem.h, pe_geo.c; lanes (contexts) per PE; may exceed the NICs (virtual lanes); the engine clamps above 4		lanes (SHMEM contexts) per PE, default 1; the engine creates them right after init in order (lane k = NIC k); may exceed the PE's NICs (virtual lanes on aac7); at most 4 (larger values are ...
+XSHMEM_LANE_MIN_KB	256	int	>=1	experiment	comm_xshmem.c; smallest chunk per lane when XSHMEM_LANES > 1		smallest chunk per lane for XSHMEM_LANES > 1 (default 256: a put under N x this stays whole on lane 0)
+XSHMEM_LOCAL	0	int	0|1	experiment	xshmem.h; engine uses xshmem_ptr node-local copies		1 = the engine copies node-local peers through `xshmem_ptr` / the libfabric backend maps node-local heaps with hipIpc (both off by default; need `--gpu-bind=none`)
+XSHMEM_LOOPBACK_PES	1	int	1..8	experiment	xshmem.h; PEs one process hosts in the ofi backend (PE = K*rank + l, own GPU/NIC/heap each); 1 = one PE per process		PEs one process hosts in the libfabric backend (default 1 = one PE per process, the only value the flow runs: `ECALC_PE_PER_GPU=1` refuses another; `mnrun.sh` sets it under ...
+XSHMEM_YIELD	1	int	0|1	experiment	xshmem.h; 0 = the xshmem waits and the exchange worker never sched_yield (diagnostic); 1 = they do		0 = the xshmem waits and the exchange worker never `sched_yield` (default 1); a diagnostic arm
+XSHMEM_MRMODE	libsma	str	libsma|ofi	experiment	xshmem.h; ofi backend memory-registration mode		libfabric backend memory-registration mode: `libsma` (default; ALLOCATED/ENDPOINT, fixed client key, offset addressing) or `ofi` (comm_ofi's VIRT_ADDR + PROV_KEY, base and keys exchanged at ...
+XSHMEM_OFI_SIG	dc	str	dc|flush|waw	experiment	xshmem.h; ofi backend signal-after-data mode (design 1.4)		libfabric backend, how "signal visible after data" is bought: `dc` (default; payload delivery-complete, like libsma 11.8 and comm_ofi), `flush`, `waw` (arms, unproven until the stress test ...
+XSHMEM_PES_PER_GPU	1	int	>=1	experiment	pe_geo.c; PEs per GPU (target fallback 2)		PEs per GPU (default 1; the 2-PEs-per-GPU fallback of design 2.2) / a prefix for every `/sys` path (mock trees of `tests/t_pe_geo`)
+ECALC_XEX_THREAD	1	int	0|1	experiment	comm_xshmem.c; one persistent worker thread per loopback PE owns the sender half of the exchanges (1, default in every layout, Q96 2026-10-24: under ECALC_PE_PER_GPU=1 init -6.5..7.5 s and half the host memory against poll-only, results/XSHMEM.md XWLAT); 0 = poll-only, the APU thread does it in post and wait		1 (default in every layout, Q96 2026-10-24: under `ECALC_PE_PER_GPU=1` it cuts init 6.5-7.5 s and halves host memory against poll-only, results/XSHMEM.md §XWLAT; the earlier poll default ...
+XSHMEM_ORDER	rot	str	rot|seq	experiment	comm_xshmem.c; peer order of the offset words, puts and signals: rot = (me+q)%n (default, no incast on member 0), seq = rank order (the reference's)		peer order of the offset words, puts and signals in the xshmem engine: `rot` (default) = (me + q) % n, no incast on member 0 (measured +30-50 % all-to-all at 3 n x 4, t_xshmem); `seq` = ...
+XSHMEM_ROUND_MB	128	float	>= 0	experiment	comm_xshmem.c, xshmem_round.h; unset = 128 (Q73 2026-10-21; 0 where the engine polls: ECALC_XEX_THREAD=0, planner and engine alike); 0 = off, whole-exchange staging; m > 0: an all-to-all whose pair exceeds m/(n-1) MiB goes in rounds staging at most m MiB each way (needs ECALC_XEX_THREAD=1); the planner sizes XSHMEM_HEAP_MB from it		the xshmem engine (`COMM_TRANSPORT=xshmem`) carries an all-to-all whose pair exceeds this / (n − 1) MiB in rounds that stage at most this many MiB each way (the self slab is not staged; one ...
 TMPDIR		str	path	test-only	t_pe_geo.c; the system temp directory for the mock sysfs tree; unset = /tmp
-ECALC_VPE	0	bool	0/1	removed	mn.c; the thread mode was removed 2026-10-23 (Q86; code on branch vpe-int): a nonzero value is a fatal error naming ECALC_PE_PER_GPU=1
+ECALC_VPE	0	bool	0/1	removed	mn.c; the thread mode was removed 2026-10-23 (Q86; code on branch vpe-int): a nonzero value is a fatal error naming ECALC_PE_PER_GPU=1		the thread mode (one process driving the PEs as pthreads) is gone from main (code on branch `vpe-int`, archive:branches_2026-10-24/); a nonzero value is a fatal error at `mn_init` that ...
 ECALC_VPE_CHAIN	own	str	own	removed	mn.c; the leader chain was removed with the thread mode 2026-10-23 (Q86): any value other than own is a fatal error
-ECALC_VPE_LANES	4	int	1..8	experiment	vpe.c; PEs per node where there is no launch (planners, MN_PLAN_ONLY, unit-test views); with ECALC_PE_PER_GPU=1 the launch (SLURM tasks per node) wins and a value that disagrees is fatal
-ECALC_VPE_BG_THREADS	0	int	0..	experiment	ecalc.c; background OpenMP team of one PE (recurrence, writer) with ECALC_PE_PER_GPU=1; 0 = the process's affinity mask
-ECALC_PE_PER_GPU	0	bool	0/1	experiment	vpe.c, mem.c; 1 = one process per GPU (PE; srun 4 tasks per node, SLURM_LOCALID, xshmem K = 1, implies the vPE view); needs COMM_TRANSPORT=xshmem and make XSHMEM=ofi; launch by mnrun.sh; aborts "stages not merged" until S2a..S2d are all in
+ECALC_VPE_LANES	4	int	1..8	experiment	vpe.c; PEs per node where there is no launch (planners, MN_PLAN_ONLY, unit-test views); with ECALC_PE_PER_GPU=1 the launch (SLURM tasks per node) wins and a value that disagrees is fatal		PEs per node where there is no launch (planners, `MN_PLAN_ONLY`, unit-test views; default 4, 1..8); with `ECALC_PE_PER_GPU=1` the launch's tasks per node win and a different value is fatal
+ECALC_VPE_BG_THREADS	0	int	0..	experiment	ecalc.c; background OpenMP team of one PE (recurrence, writer) with ECALC_PE_PER_GPU=1; 0 = the process's affinity mask		with `ECALC_PE_PER_GPU=1` the background OpenMP team of one PE (recurrence, writer); default 0 = the process's affinity mask (the PE's NUMA node cpus)
+ECALC_PE_PER_GPU	0	bool	0/1	experiment	vpe.c, mem.c; 1 = one process per GPU (PE; srun 4 tasks per node, SLURM_LOCALID, xshmem K = 1, implies the vPE view); needs COMM_TRANSPORT=xshmem and make XSHMEM=ofi; launch by mnrun.sh; aborts "stages not merged" until S2a..S2d are all in		(default 0 = off, byte-identical to before): 1 = ONE PROCESS PER GPU (PE): `mnrun.sh` launches 4 tasks per node (`MNRUN_PPG_PPN`, default the node's GPU count; block distribution, ...
 ECALC_TEST_DIE_PE	-1	int	-1..	test-only	ecalc.c; kill test (ECALC_PE_PER_GPU gate): PE <n> dies by ec_fatal after the bs phase; unset = off
-XSHMEM_HEAP_SLACK_MB	0	int	MiB	experiment	comm_xshmem.c; MiB added to each loopback PE's DATA heap (default 0 = the plan's figure exactly); the Cray backend needs a few MiB more than the planner's heap (control and alignment come out of the same heap)
-RNS_BATCH_SPLIT	0	int	0|1|20..29	experiment	rns_mul.c; Q75 a: 0 = off (default, byte-identical); 1 = on under ECALC_PE_PER_GPU=1: a batch product too large for the one device's plane pool is cut into operand pieces (a ka x kb grid, each piece product through the local tier, summed into C with carries; temporaries in the pinned staging, 2 GiB per PE when the switch is 1); k in 20..29 = forced in any mode, pieces of at most 2^k limbs (tests); the planner prints the split lines instead of REFUSED
-XSHMEM_LANE_TRACE	0	float	>=0	experiment	comm_xshmem.c; seconds: describe exchanges slower than this (per-lane quiet times) and time every lane quiet; 0 off
-XSHMEM_LANE_POLL	0	int	0|1	experiment	comm_xshmem.c; a waiting PE also polls its extra lanes (quiet on a lane with nothing outstanding)
-XSHMEM_SIG_LANES	0	int	0|1	experiment	comm_xshmem.c; signals to member i go on lane i mod N (after every payload lane is quiet)
-XSHMEM_LANE_CTX	serialized	str	serialized|private|none	experiment	comm_xshmem.c; the options of the lane contexts (SHMEM_CTX_SERIALIZED / PRIVATE / none)
-XSHMEM_CRAY_HEAP_THP	0	int	0|1|2	experiment	xshmem_cray.h; XSHMEM_CRAY=cray DATA heap: 1 = MADV_HUGEPAGE before zeroing + MADV_COLLAPSE after, 2 = only report the backing (smaps line per PE)
-XSHMEM_THP_DISABLE	0	int	0|1	experiment	comm_xshmem.c; 1 = prctl(PR_SET_THP_DISABLE) at engine init (no THP faults in this process: avoids direct compaction stalls)
-XSHMEM_CRAY_NUMA	0	int	0|1	experiment	comm_xshmem.c; Cray backend: pin the process to its NUMA node's cpus before libsma init (pe_geo; the Cray topo has no cpu list otherwise)
-XSHMEM_THREAD_LEVEL	3	int	0|1|2|3	experiment	comm_xshmem.c; thread level of xshmem_init_thread (3 MULTIPLE default; 2 SERIALIZED as the ofi backend)
-XSHMEM_CRAY_SIGSET	0	int	0|1|2|3	experiment	xshmem_cray.h; runtime override of the compiled signal-set selector (0 shmemx_ctx_signal_set, 2 uint64_p, 3 zero-length putsig; 1 only if compiled with it)
-XSHMEM_CRAY_TEST	0	int	0|1	experiment	xshmem_cray.h; runtime override of the signal-test selector (1 = shmem_uint64_test)
-XSHMEM_CRAY_PUTSIG_SPLIT	0	int	0|1	experiment	xshmem_cray.h; runtime override: 1 = putmem_nbi + fence + signal_set instead of the library putmem_signal_nbi
-XSHMEM_CRAY_NOMEMSET	0	int	0|1	experiment	xshmem_cray.h; diagnosis: skip our zeroing of the DATA heap (libsma heap is a fresh zero mapping)
-XSHMEM_CRAY_GPU_PRETOUCH	0	int	0|1	experiment	xshmem_cray.h; 1 = a GPU kernel reads one byte per 4 KiB page of the registered DATA heap at init (GPU page-table population)
-XSHMEM_PEER	-1	int	-1|0|1	experiment	xshmem.h; node-local PEs exchange payload by device copies through hipIpc-mapped DATA heaps (xshmem_ptr) instead of the NIC; ofi backend, one PE per process; inert on cray
+XSHMEM_HEAP_SLACK_MB	0	int	MiB	experiment	comm_xshmem.c; MiB added to each loopback PE's DATA heap (default 0 = the plan's figure exactly); the Cray backend needs a few MiB more than the planner's heap (control and alignment come out of the same heap)		(default 0 = off, nothing changes): MiB added to each loopback PE's DATA heap in `comm_xshmem.c`; the Cray backend (`make XSHMEM=cray`) takes the control words and alignment out of the same ...
+RNS_BATCH_SPLIT	0	int	0|1|20..29	experiment	rns_mul.c; Q75 a: 0 = off (default, byte-identical); 1 = on under ECALC_PE_PER_GPU=1: a batch product too large for the one device's plane pool is cut into operand pieces (a ka x kb grid, each piece product through the local tier, summed into C with carries; temporaries in the pinned staging, 2 GiB per PE when the switch is 1); k in 20..29 = forced in any mode, pieces of at most 2^k limbs (tests); the planner prints the split lines instead of REFUSED		automatic under `ECALC_PE_PER_GPU=1` (Q110: no launch line sets it): a batch product larger than the one device's plane pool is split by operand pieces; 20..29 forces pieces of at most 2^k limbs (tests).
+XSHMEM_LANE_TRACE	0	float	>=0	experiment	comm_xshmem.c; seconds: describe exchanges slower than this (per-lane quiet times) and time every lane quiet; 0 off		diagnosis, default off (any layout): value = seconds; exchanges slower than that print one `SLOW` line (post split into staging, copies, stream sync, default quiet; per-lane quiet; last two ...
+XSHMEM_LANE_POLL	0	int	0|1	experiment	comm_xshmem.c; a waiting PE also polls its extra lanes (quiet on a lane with nothing outstanding)		diagnosis, default off: poll the lane contexts' progress while waiting
+XSHMEM_SIG_LANES	0	int	0|1	experiment	comm_xshmem.c; signals to member i go on lane i mod N (after every payload lane is quiet)		diagnosis, default off: signals on every lane instead of lane 0 only
+XSHMEM_LANE_CTX	serialized	str	serialized|private|none	experiment	comm_xshmem.c; the options of the lane contexts (SHMEM_CTX_SERIALIZED / PRIVATE / none)		diagnosis, default serialized: `private`, `none` or `serialized` context options for lanes
+XSHMEM_CRAY_HEAP_THP	0	int	0|1|2	experiment	xshmem_cray.h; XSHMEM_CRAY=cray DATA heap: 1 = MADV_HUGEPAGE before zeroing + MADV_COLLAPSE after, 2 = only report the backing (smaps line per PE)		diagnosis, default 0 (XSHMEM=cray): 1 = madvise(MADV_HUGEPAGE) on the DATA heap before it is zeroed and MADV_COLLAPSE after; 2 = only report; each PE prints the heap mapping's ...
+XSHMEM_THP_DISABLE	0	int	0|1	experiment	comm_xshmem.c; 1 = prctl(PR_SET_THP_DISABLE) at engine init (no THP faults in this process: avoids direct compaction stalls)		diagnosis, default 0: 1 = prctl(PR_SET_THP_DISABLE) in the engine init, so this process takes no THP faults (and no direct-compaction stalls)
+XSHMEM_CRAY_NUMA	0	int	0|1	experiment	comm_xshmem.c; Cray backend: pin the process to its NUMA node's cpus before libsma init (pe_geo; the Cray topo has no cpu list otherwise)		default 0 in the engine; `mnrun.sh` sets 1 and `MNRUN_PPG_CPUBIND=ldom` by default for a Cray build under `ECALC_PE_PER_GPU=1` (explicit values win; ofi builds and layout D unchanged; the ...
+XSHMEM_THREAD_LEVEL	3	int	0|1|2|3	experiment	comm_xshmem.c; thread level of xshmem_init_thread (3 MULTIPLE default; 2 SERIALIZED as the ofi backend)		default 3 (MULTIPLE): thread level of the engine's SHMEM init; 2 = SERIALIZED as the ofi backend
+XSHMEM_CRAY_SIGSET	0	int	0|1|2|3	experiment	xshmem_cray.h; runtime override of the compiled signal-set selector (0 shmemx_ctx_signal_set, 2 uint64_p, 3 zero-length putsig; 1 only if compiled with it)		runtime override of the compiled xshmem_cray.h selectors (signal set 0..3, signal test 0/1, split put+fence+signal 0/1); default = the compiled value
+XSHMEM_CRAY_TEST	0	int	0|1	experiment	xshmem_cray.h; runtime override of the signal-test selector (1 = shmem_uint64_test)		runtime override of the compiled xshmem_cray.h selectors (signal set 0..3, signal test 0/1, split put+fence+signal 0/1); default = the compiled value
+XSHMEM_CRAY_PUTSIG_SPLIT	0	int	0|1	experiment	xshmem_cray.h; runtime override: 1 = putmem_nbi + fence + signal_set instead of the library putmem_signal_nbi		runtime override of the compiled xshmem_cray.h selectors (signal set 0..3, signal test 0/1, split put+fence+signal 0/1); default = the compiled value
+XSHMEM_CRAY_NOMEMSET	0	int	0|1	experiment	xshmem_cray.h; diagnosis: skip our zeroing of the DATA heap (libsma heap is a fresh zero mapping)		diagnosis, default 0 (XSHMEM=cray): 1 = skip the engine's zeroing of the DATA heap (a fresh libsma zero mapping); with `XSHMEM_LANE_TRACE` set, the init prints shmem_init_thread and heap ...
+XSHMEM_CRAY_GPU_PRETOUCH	0	int	0|1	experiment	xshmem_cray.h; 1 = a GPU kernel reads one byte per 4 KiB page of the registered DATA heap at init (GPU page-table population)		diagnosis, default 0 (XSHMEM=cray): 1 = at init one GPU kernel on the PE's device reads a byte of every 4 KiB page of the hipHostRegister'ed DATA heap (populates the GPU page tables; tests ...
+XSHMEM_PEER	-1	int	-1|0|1	experiment	xshmem.h; node-local PEs exchange payload by device copies through hipIpc-mapped DATA heaps (xshmem_ptr) instead of the NIC; ofi backend, one PE per process; inert on cray		(default: on with one PE per process, Q100 2026-10-25; `0` = off, the NIC path; the default layout D is unaffected): same-node PEs exchange payload by device copies (`hipMemcpyAsync` on one ...
+# --- scope / evidence of switches classified in the 2026-10-11 inventory (archive:results_merged_2026-10-25/A11.md); the default / type / range columns are empty = the extraction's
+BS_ARENA_ROOM				built-in default		AS15.md+DL15.md	with DB_POOL_VMM: f > 0 lays every arena out in whole VMM chunks and adds f x the hole (the division's largest block) to the dm need (0.14).
+BS_BALANCE_N				built-in default			levels with at most this many nodes are balanced over the four regions; 0 = never (16)
+BS_CKPT_BG_CHUNK_MB				built-in default		N13.md	the top-level set's background writer: its DMA chunk (256; bounds the time to stop); *test*: emulate a disk of this many MB/s (unset)
+BS_CKPT_BG_MBS				test-only		N13.md	the top-level set's background writer: its DMA chunk (256; bounds the time to stop); *test*: emulate a disk of this many MB/s (unset)
+BS_MDEV_LOGL				built-in default		M3.md+A-ckpt.md	products above 2^this limbs go to the mdev tier; lower it to test at 10⁹ (30)
+BS_SEED_CHUNK_MB				built-in default		H.md+R114.md	the seed stream's buffered chunk per region (8192 with `DB_POOL_VMM`, the default; 2048 without)
+BS_SEED_FILL				built-in default		T215.md+DOC15.md	the seed span chosen per run as the largest S whose last span has at most this many limbs, so the batch tier's products fill their lengths: 128 fills 2ᵏ (S = 239 at 4 × 10¹⁰, 229 at 10¹¹), ...
+BS_SEED_TERMS				built-in default		T215.md+WP7.md	the seed span in terms (256; set in the environment it turns `BS_SEED_FILL`'s default off)
+BS_SEED_THREADS				built-in default		I.md+S22.md	threads of the seed pass; fewer than all leaves cores to init's allocations (all)
+COMM_LAYER_VSLOT_MB				built-in default
+COMM_OFI_CHUNK_MB				built-in default		TUNE17.md+OFI17.md	the write size (4) and the writes in flight per NIC (64) of `COMM_OFI`
+COMM_OFI_DEV				test-only			the APU a communicator id stands for in a host-only build (`COMM_HOST_ONLY`; id % 4)
+COMM_OFI_POOL				built-in default		TGTBENCH2.md+OFI17.md	the comm pool per device that `COMM_OFI` registers with the NICs (VMM memory cannot be): `fine` (fine-grained device memory, the default), `coarse` (`hipMalloc`), `host` (NUMA-local host ...
+COMM_OFI_VERBOSE				test-only		OFI17.md+STD17.md	1 = each device's NICs and pool at open (stderr), its pool peak and the bytes and writes per NIC at finalize (0)
+COMM_OFI_WINDOW				built-in default		TUNE17.md+OFI17.md	the write size (4) and the writes in flight per NIC (64) of `COMM_OFI`
+COMM_SHMEM_ORDER				built-in default		S12.md+S13d.md	how the signal is ordered after the data — `putsig` (`shmem_putmem_signal_nbi`, 1.5), `fence` (1.4, the spec), `quiet` (putsig on 1.5 headers, else quiet)
+COMM_SHMEM_POOL_NEED_MB				test-only			exported by `binsplit.c` (the sizing pass) so that `comm_shmem`'s pool-full error can print the modelled need; do not set
+COMM_SHMEM_RING_KB				built-in default		S12.md+S.md	the point-to-point ring per (dest, source) (256)
+COMM_SHMEM_SPIN_US				built-in default		S12.md+S13d.md	how long the sender spins for a peer's receive offset before handing the put to the helper thread (2000)
+COMM_SHMEM_STAGE_SLOT_MB				test-only		V114.md+STD17.md
+COMM_XSTATS				test-only		XEFF.md	1 prints, at finalize, one `xstats pe <p> phase <bs/dm/recip/other> kind <redist/result/spill/addsh/other/layeq/layv>` line per PE for the SHMEM exchanges (the direct node-to-node kinds and ...
+DB_POOL_VMM				built-in default		R114.md	the bs/dm arena of every APU as a HIP virtual-memory range (`hipMemAddressReserve` at `DB_POOL_VMM_RESERVE` (3) × the arena; 2 GiB chunks `hipMemCreate`d and mapped with access for the four ...
+DB_POOL_VMM_CHUNK_GB				built-in default		S46.md+R114.md	with `DB_POOL_VMM`: the chunk size in GiB (2) and the VA reserved as a multiple of the arena (3)
+DB_POOL_VMM_RESERVE				built-in default		R114.md	with `DB_POOL_VMM`: the chunk size in GiB (2) and the VA reserved as a multiple of the arena (3)
+DC_STATS				test-only		S21.md	the output stage's fine timers (setup, pinned fetch buffer, writer) (0)
+DIST_CHUNKS				built-in default		S19B.md+A-comm.md	slabs in flight in the pipelined distributed transform, 1–16 (**8** since 2026-10-07, was 4: the user's approval, digits identical; at 3.71 × 10¹³ on 576 nodes modelled device 370.9 → 357.5 ...
+DIST_GEN				test-only		X13b.md+S36.md	the general (any-g) transform at a power-of-two group size too (0)
+DIST_LOGN_TEST				test-only		G12.md+P13b.md	a lower plane cap so the grid split runs at small sizes (31)
+DIST_STATS				test-only		G515.md+CX15.md	per-part timing of the distributed transform, the exposed exchange per part (unset)
+DM_TIGHT				built-in default		L114.md+T114.md	the reciprocal's scratch reserved once at the last doubling's sizes instead of the final ones — r at ⌈k/2⌉ + 4 limbs, r2 at 2⌈k/2⌉ + 4, t1 at Q_t·r's size there — with r' copied into r's ...
+ECALC_ARENA_GB				built-in default		M11.md+A-mem.md	the region arena per device, in GB, instead of the layout's own sizing (auto)
+ECALC_BG_THREADS				built-in default			the background OpenMP team of the recurrence and the writer (48)
+ECALC_BUDGET_CHECK				built-in default		C314.md+V314.md	`1` = after init every rank models its peak (device in use or the model's planes + arena, whichever is larger, + the host terms or VmRSS) and the ranks decide together (an allgather, the ...
+ECALC_BUDGET_RANK_GB				test-only		C314.md	`<rank>:<GB>` sets that rank's share of the node budget (one rank over while its node is not) (unset)
+ECALC_CKPT_TOP_SLACK				built-in default		N13.md+IO15.md	`ECALC_CKPT_TOP=2`: the seconds a release may wait for the writer (1)
+ECALC_CORR_PATCH				built-in default		KP15.md	the division's ±1 corrections (/dx/ ≤ 64) made after the size-1 writer started on X (the hook before the low product) are **not** applied to X: T1 takes X's residues from the writer thread ...
+ECALC_CORR_PATCH_ZONE				built-in default		K15.md	with `ECALC_CORR_PATCH`, the digits at the end whose T2 windows are checked after the patch instead of by the writer (4096)
+ECALC_FATAL_ABORT				built-in default		S18W.md+C314.md	`1` = a fatal error ends in `abort()` (a core file, rc 134) instead of `_exit(code)` (0).
+ECALC_FATAL_TEST				test-only		C314.md	`1` = the four bs worker threads fail together right after the seeds (the in-phase guards' pattern): one message, rc 3 (0)
+ECALC_FATAL_WAIT				built-in default		C314.md	seconds the first failing thread may spend on its report (the memory accounting) before a watchdog `_exit`s (60)
+ECALC_INIT_ONLY				test-only		L114.md+P13b.md
+ECALC_LIVE				test-only		T114.md+M615.md	1 = a `live:` line after every bs level, every tree level (size > 1), every Newton doubling and at the division's end: the block pool's live bytes per APU, the peak since the previous line, ...
+ECALC_MEM_GUARD_PERIOD				test-only		IO15.md
+ECALC_MEM_SAMPLE				test-only		IO15.md+S114.md	seconds between memory samples (RSS, MemFree, MemAvailable, Cached, Dirty, Writeback from `/proc/meminfo`, the pool's live bytes per APU), a summary line at exit (minimum MemAvailable, ...
+ECALC_MEM_SAMPLE_FILE				test-only		S114.md	the sampler's output file (`%d` = the node-process rank) instead of stderr (unset)
+ECALC_NODE_GB				built-in default		P16.md+C314.md
+ECALC_NP_AUTO_TERMS				test-only		NP15.md	under `ECALC_NP=auto`, the switch-over in terms (1 … 58 424 467 928, the three-prime bound): a lower value makes small runs form both counts (the forced tests of results/PRIMES_STRATEGY.md ...
+ECALC_ODIRECT				built-in default		S114.md+KP15.md	1 = the checkpoint files (the top-level set, in the background) and the output file are written with O_DIRECT through aligned buffers (`spill.c`'s `sp_file`; the last partial block padded, ...
+ECALC_OUT_MODE				built-in default		IO15.md	the part file's write mode: `direct` (O_DIRECT), `buffered` (page cache, no sync: the pre-Phase-14 form), `sync` (buffered, `fsync` + `posix_fadvise(DONTNEED)` at close), `drop` (buffered, ...
+ECALC_OUT_ODIRECT				built-in default		S114.md+KP15.md	with `ECALC_ODIRECT=1`, 0 keeps the output file buffered (1)
+ECALC_OUT_PACKED				built-in default		KP15.md+IO15.md	(`packed_fmt.h` version 2): the same header and checks, the limbs (< 2^60) as a little-endian 60-bit stream, 15 bytes per 2 limbs (7.5 B per 18 digits = 0.4167 B/digit, -6.25 % bytes ...
+ECALC_PLANE_CAP				experiment		P13b.md+CAP17.md	the plane cap, `2^30` or `2^31` (or `30`, `31`) or `fit` (the larger whose node total fits `ECALC_NODE_GB`, default 480); sets `POOL_LOG` and `DIST_LOGN_TEST` and refuses a conflicting one; ...
+ECALC_PLANE_CAP_IDX				test-only			set by `ecalc.c` for the bs sizing pass (the plane-cap index in use); do not set
+ECALC_SEGV_TEST				test-only		S18W.md	with `ECALC_SEGV_TRACE=1`, raise a SIGSEGV immediately after the handler is installed (host-only, no GPU touched) so the trace can be checked without a real fault; run directly on a login ...
+ECALC_TEST_CORR				test-only		DKM15.md+KP15.md
+ECALC_VMM_BG				built-in default		S34.md	`0` = with `DB_POOL_VMM`, map the whole arena synchronously in the calling thread (no `vmm_bg_map` thread; init is slower by the mapping time the thread hid); default `1` = unchanged.
+ECALC_WINDOWS				test-only		A-out.md+H.md	a file of extra T2 windows (`<offset> <digits>` per line) added to the built-in table (unset)
+MDB_SHIFT_CHUNK_MB				built-in default		P214.md	the sharded division's `mdb_shift` exchanged in rounds of about this many MB per APU per slab (sb, rb) instead of the whole share / 4 (71 GB per node at 576 × 8 × 10¹⁰); bit-identical; 0 = ...
+MEM_DPOOL_FILL				test-only		V.md+R.md	fill a grown (1) or every (2) plane pool with 0xA5 — a test of zero-memory assumptions (0)
+MN_OUT_CHUNK_MB				built-in default		IO15.md+A-out.md	the streamed writer's digit chunk per node (256)
+MN_OUT_DKM_HI_TEST_CARRY				test-only		EW15.md
+MN_OUT_EARLY				built-in default		IO15.md	at size > 1 the part file starts at the division's hook (X formed, before the low product: `newton_mn_x_hook` → `mn_out_early_start`) in a background thread over the node's share, as the ...
+MN_OUT_STRIPE				built-in default		IO15.md+SC15.md	`<count>[:<stripe MB>[:<OSTs>]]` — each part file created with that Lustre layout (`lfs setstripe`); with `<OSTs>` the first OST is `(part × count) mod OSTs`.
+MN_OUT_STRIPE_FORCE				test-only		IO15.md
+MN_OUT_THREADS				built-in default		IO15.md+TARGET_HW_REVIEW.md	pwrite threads per chunk of the part file (8)
+MN_PLAN_QUIET				test-only		L13d.md	1 = `MN_PLAN_ONLY` / the planner prints nothing but the result lines (0)
+MN_SELFTEST_LOGR				test-only		FIX117.md	lowers the layered self-test's starting logR to force R / ranks < 32 at a small rank count (unset)
+MN_TREE_LOGN_TEST				test-only		G12.md+M13.md	the tree's levels at a lowered plane cap so the grids run at 10¹⁰ on one node; the division at its own cap (0)
+NEWTON_DKM_TEST_HI				test-only		DKM15.md+EW15.md
+NEWTON_DOUBLING_TS				test-only		S22.md+S21.md	one line per Newton doubling with its end time (0)
+NEWTON_MN_GROUPS				built-in default		X.md+G13d.md	at size > 1 the reciprocal's early doublings on the smallest subgroup the model prefers (X1); 0 = the full group (1)
+NEWTON_MN_RECIP_TS				test-only		S30.md	S30, print only (off): one line per node, `recip ts node N: ...`, with the stages of recip_mn's single-node part (shift, gather, chain, broadcast) and the wall clock (s mod 1000)
+NEWTON_MN_SPLIT				built-in default		A37CMP.md+A-div.md	at size > 1 the reciprocal starts single-node on the top limbs of Q up to this many limbs (65536)
+NEWTON_RECIP_GUARD				built-in default		R114.md	the reciprocal's cut (always on): limbs kept below the read band (the cut is at band − guard; ≥ 1 makes the band's error ≤ 1 unit for any number of pieces) (1)
+NEWTON_VERBOSE				test-only		L114.md+L13d.md	the per-iteration trace with RSS (0)
+NTT_SIZE_STATS				test-only		S22.md+NTT3P.md	the NTT time per transform size, once per rank, via hip event pairs (0)
+RNS_BATCH_LOCAL_MIN				built-in default		P3.md+R.md	below this many products the striped batch path is used (16)
+RNS_BATCH_TILE_GB				built-in default		P.md	the batch tiers' plane budget per device in GB (a + b planes), capped by the pools (15)
+RNS_DIST_CACHE_MARGIN_GB				built-in default		TC15.md+M13.md	free device memory kept when sizing the cache (24)
+RNS_DIST_CACHE_PARTIAL_FORCE				test-only		PC15.md
+RNS_DIST_CACHE_TRACE				test-only		CX15.md	1 = instrumentation -- `mn_grid` prints one `cache_trace` line per piece of an mn grid product (its (i, j), limbs, the operands' cache state `HIT` / `cached` / `-`, the piece's wall and ...
+RNS_INIT_POOL_LOG				test-only		T11.md+S51.md	the log2 size `rns_init` uses for the pool in the unit tests (`rns_init(31)` is fixed there; a CPX XCD has 22.9 GB); `29` makes aac6's CPX nodes usable up to 4 × 10⁹ digits; unset = ...
+RNS_POOL1_GB				built-in default		R.md+T.md	plane pool 1 per device in GB (auto: the dist tier's 3q + 16 limbs)
+RNS_POOL_GROW				test-only		B16.md+R.md	a region pool that would grow inside bs aborts with the accounting unless 1 (the stress recipe sets it) (0)
+RNS_STRATEGY				built-in default		B13b.md+G13d.md	the single-node product's strategy (`dist_core`: top levels, reciprocal, division): `C` four-step; `B` prime-per-APU (planes that do not fit the pools from an extra per-APU buffer); `auto` ...
+RNS_STRATEGY_CHECK				test-only		B13b.md	every B-form product formed again by C and compared, abort on a difference (0)
+# --- doc: one sentence per switch for the ecalc/README.md table (column 8; from the former hand-kept table, 2026-10-25)
+BS_ARENA_TRIM_GB							trims the dm need by this many GB per APU before the arenas are rounded to whole chunks (`binsplit.c dm_layout`; twin `mem_model.py arena_trim`, so the planner's fit agrees).
+COMM_SHMEM_HUGETLB							`1` (default `0` = off, the code path is unchanged) maps the node-process's Cray SHMEM symmetric heap (the same interception as `COMM_SHMEM_NP_HEAP_THP`) as ...
+COMM_SHMEM_NP_HEAP_THP							`1` (default since D48, user 2026-10-18; `0` restores 4 KiB pages) pre-faults the node-process's own Cray SHMEM symmetric heap (the library's one shared anonymous `/dev/zero` mapping of at ...
+COMM_TRACE							1 records a per-message trace of the exchanges, for the SHMEM transport (all paths: equal, v, rounds; libfabric put/flush included).
+COMM_TRACE_DIR							directory of the trace files (default `/tmp/ecalc_trace_<job>_<step>`; node-local, one file per process, gather after the run).
+COMM_TRACE_HB							<ms> (default off) starts a heartbeat thread in every node-process that wakes every <ms> (1 is typical); a wake-up later than `COMM_TRACE_HB_GAP_MS` after the previous one records `H_GAP` ...
+COMM_TRACE_HB_MEM							1 (default off; needs `COMM_TRACE_HB`) adds to every heartbeat snapshot the memory-side counters of a kernel compaction storm: `/proc/buddyinfo` (orders 0-10 of the Normal zone per NUMA ...
+COMM_TRACE_PH							1 (default off) phase tags (`comm_phase.h`): every thread keeps a word naming the suspect call or step it is in (hip alloc / free / register / stream sync, v-slot alloc / release, exchange ...
+COMM_TRACE_THR							1 (default off) adds, at every heartbeat gap and every periodic snapshot, one `H_THR` record per thread of the process (state, wchan, run_delay from schedstat, last CPU, phase tag) and the ...
+DIST_BIG							`tests/t_dist` only — `DIST_BIG=<logn>` (`DIST_BIG_PRIMES=0,2`, `DIST_BIG_K=64`) runs one distributed transform of 2^logn points on the four APUs per prime: forward + inverse of a dense ...

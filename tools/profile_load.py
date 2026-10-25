@@ -9,8 +9,8 @@
                                                 config-src: profile=NAME from-profile=K,K env-over=K,K (code defaults: all other switches)
   tools/profile_load.py aac7 --line             the profile's launch line: KEY=value words of the keys named in LAUNCH_LINE_KEYS, in that order
                                                 (tools/gate.sh --line aac7 runs them; the one source of the aac7 launch line, SCR2/D15)
-  tools/profile_load.py PROFILE --check [-q] [--strict] [--launch=aac7|none]
-                                                compare the profile with what the launch scripts set (see check() below; read-only)
+  tools/profile_load.py PROFILE --check [-q] [--strict]
+                                                drift check: keys that repeat a script default, unknown or unfilled keys (CHECK_DOC below; read-only)
 
 Precedence per key: explicit environment  >  profile  >  built-in default (what the code does when the variable is unset).
 A key already present in the environment is never overwritten (an explicit value, even empty, wins).
@@ -119,19 +119,15 @@ def origin_table(path, env=None):
     return rows, errs
 
 
-CHECK_DOC = """profile_load.py PROFILE --check [-q] [--strict] [--launch=aac7|none]  (formerly tools/profile_check.sh; same output)
-  READ-ONLY comparison of a machine profile with what the launch scripts set today.
-    -q        only the problems (MISMATCH, UNKNOWN, UNFILLED, REMOVAL-SLATED, SCRIPT-ONLY), no MATCH / PROFILE-ONLY lines
-    --launch=aac7|none  compare with the aac7 launch lines (default: only for aac7*.conf)
-    --strict  exit 1 if any MISMATCH or UNKNOWN is found (default exit 0: it reports, it does not gate)
-  1. Sources the profile in an `env -i` subshell and reads the value of every KEY=value line.
-  2. Collects what the scripts set: aac7env = the variables ecalc/aac7env.sh exports when sourced (module stubbed, the /opt/cray/pe/sma test forced true);
-     default = the literal ${NAME:-value} / ${NAME-value} defaults in mnrun.sh, aac7env.sh, target_kit.sh
-     (values containing $ are COMPUTED, never compared).
-  3. Per key: MATCH / MISMATCH (against aac7env), PROFILE-ONLY (script defaults shown), UNFILLED (__FILL__).
-  4. UNKNOWN: a key named nowhere in ecalc/*.c|*.h|*.sh, ecalc/Makefile, tools/ (FI_* SHMEM_* XT_* OMPI_* SLURM_* are EXTERNAL).
-  5. SCRIPT-ONLY: keys that aac7env.sh sets but the profile lacks.
-  6. REMOVAL-SLATED: profile keys named in the tier A / B tables of results/A11.md."""
+CHECK_DOC = """profile_load.py PROFILE --check [-q] [--strict]   (read-only drift check of a machine profile against the launch scripts)
+    -q        only the problems (SAME-AS-SCRIPT, UNKNOWN, UNFILLED), no OVERRIDE / PROFILE-ONLY lines
+    --strict  exit 1 if any UNKNOWN or SAME-AS-SCRIPT is found (default exit 0: it reports, it does not gate)
+  Per profile key (value read by sourcing the profile in an `env -i` subshell):
+    SAME-AS-SCRIPT  a literal ${NAME:-value} default in ecalc/mnrun.sh, aac7env.sh or target_kit.sh equals the profile value: delete the key (Q107)
+    OVERRIDE        the scripts default to another value; the profile wins when it is loaded
+    PROFILE-ONLY    no script defaults it (the code default, or a launch-line value)
+    UNFILLED        the value is __FILL__
+    UNKNOWN         a name found nowhere in ecalc/*.c|*.h|*.sh, ecalc/Makefile, tools/ (FI_* SHMEM_* XT_* OMPI_* SLURM_* are EXTERNAL)"""
 CHECK_EXT = ("FI_", "SHMEM_", "XT_", "OMPI_", "SLURM_")
 
 
@@ -161,7 +157,7 @@ def launch_line(path):
 
 def check(argv):
     E = os.path.join(ROOT, "ecalc")
-    prof, q, strict, launch = None, False, False, "auto"
+    prof, q, strict = None, False, False
     for a in argv:
         if a == "--check":
             continue
@@ -169,8 +165,6 @@ def check(argv):
             q = True
         elif a == "--strict":
             strict = True
-        elif a.startswith("--launch="):
-            launch = a.split("=", 1)[1]
         elif a in ("-h", "--help"):
             print(CHECK_DOC)
             return 0
@@ -178,143 +172,52 @@ def check(argv):
             prof = a
     path = resolve(prof) if prof else None
     if not path or not os.access(path, os.R_OK):
-        print("usage: profile_load.py <profile> --check [-q] [--strict] [--launch=aac7|none]", file=sys.stderr)
+        print("usage: profile_load.py <profile> --check [-q] [--strict]", file=sys.stderr)
         return 2
-    # 1. the profile: keys (file order) and values
-    keys = []
-    for line in open(path, errors="replace"):
-        m = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_]*)=", line)
-        if m and m.group(1) not in keys:
-            keys.append(m.group(1))
-    rc, out, err = _bash('. "$1"; shift; for k in "$@"; do printf "%s\\t%s\\n" "$k" "${!k-}"; done', path, *keys, env_i=True)
-    if rc != 0:
-        print("profile_check: cannot source %s:" % prof)
-        sys.stdout.write(err)
+    keys, errs, vals = parse(path)
+    if errs and not keys:
+        print("profile_check: cannot read %s: %s" % (prof, errs[0]))
         return 2
-    profv = []
-    for line in out.splitlines():
-        k, _, v = line.partition("\t")
-        profv.append((k, v.strip("\t")))
-    # 2. what the scripts set: (key, source, kind set|default|computed, value)
-    src = []
-    ae = os.path.join(E, "aac7env.sh")
-    if os.access(ae, os.R_OK):
-        forced = open(ae, errors="replace").read().replace("/opt/cray/pe/sma", "/")
-        rc, out, _ = _bash('module() { :; }; b=$(env | sort); eval "$1" > /dev/null 2>&1; a=$(env | sort); '
-                           'comm -13 <(echo "$b") <(echo "$a")', forced, env_i=True)
-        for l in out.splitlines():
-            if "=" in l:
-                src.append((l.split("=", 1)[0], "aac7env", "set", l.split("=", 1)[1]))
+    # the literal defaults the scripts apply: ${NAME:-value} / ${NAME-value} (values containing $ are computed, never compared)
+    dflt = {}
     for f in ("mnrun.sh", "aac7env.sh", "target_kit.sh"):
         p = os.path.join(E, f)
-        if not os.access(p, os.R_OK):
-            continue
-        for m in set(re.findall(r"\$\{[A-Z][A-Z0-9_]*:?-[^}]*\}", open(p, errors="replace").read())):
-            m = m[2:-1]
-            k = re.match(r"[^:-]*", m).group(0)
-            v = m[len(k):]
-            v = v[1:] if v.startswith(":") else v
-            v = v[1:] if v.startswith("-") else v
-            src.append((k, f[:-3], "computed" if "$" in v else "default", v))
-    if launch == "auto":
-        launch = "aac7" if os.path.basename(path).startswith("aac7") else "none"
-    if launch != "aac7":
-        src = [r for r in src if r[2] != "set"]
-    srcs = [tuple(l.split("\t")) for l in _lsort("\t".join(r) for r in src)]
-    # code-known names (binary files skipped, as grep does)
-    known = set()
-    files = [f for pat in ("*.c", "*.h", "*.sh", "Makefile") for f in glob.glob(os.path.join(E, pat))]
-    for d, _, fs in os.walk(os.path.join(ROOT, "tools")):
-        files += [os.path.join(d, f) for f in fs]
-    for f in files:
-        try:
-            b = open(f, "rb").read()
-        except OSError:
-            continue
-        if b"\0" not in b:
-            known.update(x.decode() for x in re.findall(rb"\b[A-Z][A-Z0-9_]{2,}\b", b))
-    # removal-slated (results/A11.md tier A / B tables)
-    slated = {}
-    a11 = os.path.join(ROOT, "results", "A11.md")
-    if os.access(a11, os.R_OK):
-        on = False
-        for l in open(a11, errors="replace"):
-            if re.match(r"### Tier [AB]", l):
-                on = True
-                continue
-            if re.match(r"### Tier C", l):
-                on = False
-            if on and re.match(r"\| [AB][0-9]+ \|", l):
-                c = l.split("|")
-                sid = None
-                for t in re.findall(r"[A-B][0-9]+ *\||`[A-Z][A-Z0-9_]*`", c[1] + "|" + (c[3] if len(c) > 3 else "")):
-                    if "|" in t:
-                        sid = t.split()[0] if t.split() else t
-                    else:
-                        slated.setdefault(t.strip("`"), sid)
-    # 3-6. report
-    nmis = nunk = nfill = nslate = nmatch = nonly = 0
-    print("profile_check: %s  (scripts under %s)" % (prof, E))
-    for k, v in profv:
+        if os.access(p, os.R_OK):
+            for m in set(re.findall(r"\$\{[A-Z][A-Z0-9_]*:?-[^}]*\}", open(p, errors="replace").read())):
+                inner = m[2:-1]
+                k = re.match(r"[^:-]*", inner).group(0)
+                v = inner[len(k):].lstrip(":")[1:]
+                if v and "$" not in v and v not in ("<unset>", "<system>"):
+                    dflt.setdefault(k, []).append((f, v))
+    words = script_words() | set(registry())
+    nsame = nunk = nfill = nover = nonly = 0
+    print("profile_check: %s" % prof)
+    for k in dict.fromkeys(keys):
+        v = vals.get(k, "")
+        ext = k.startswith(CHECK_EXT) or k in META_KEYS
         if v == "__FILL__":
             nfill += 1
             print("UNFILLED      %s" % k)
-            if k not in known and not k.startswith(CHECK_EXT):
-                nunk += 1
-                print("UNKNOWN       %s : no consumer in ecalc/ or tools/ (profile-only meta key: needs the entry point to read it)" % k)
+        if k not in words and not ext:
+            nunk += 1
+            print("UNKNOWN       %s=%s : no such name in ecalc/ or tools/ (new key without a consumer, or a typo)" % (k, v))
+        if v == "__FILL__":
             continue
-        vals = dv = ""
-        bad = n = dsame = dn = 0
-        for r in srcs:
-            if len(r) < 3 or r[0] != k:
-                continue
-            ss, kind, sv = r[1], r[2], (r[3] if len(r) > 3 else "")
-            if kind == "set":
-                n += 1
-                vals += " %s=%s" % (ss, sv)
-                bad = bad or sv != v
-            elif kind == "default":
-                if not sv or sv in ("<unset>", "<system>"):
-                    continue
-                dn += 1
-                dv += " %s=%s" % (ss, sv)
-                dsame += sv == v
-            elif kind == "computed":
-                dv += " %s=COMPUTED" % ss
-        ext = ""
-        if k not in known:
-            if k.startswith(CHECK_EXT):
-                ext = " [EXTERNAL library variable]"
-            else:
-                nunk += 1
-                print("UNKNOWN       %s=%s : no such name in ecalc/ or tools/ (new key without a consumer, or a typo)" % (k, v))
-        if slated.get(k):
-            nslate += 1
-            print("REMOVAL-SLATED %s : tier item %s of results/A11.md" % (k, slated[k]))
-        if bad:
-            nmis += 1
-            print("MISMATCH      %s profile=%s ; launch script sets:%s" % (k, v, vals))
-        elif n > 0:
-            nmatch += 1
+        d = dflt.get(k, [])
+        if d and all(x[1] == v for x in d):
+            nsame += 1
+            print("SAME-AS-SCRIPT %s=%s : the script default (%s) is the same: delete the key" % (k, v, d[0][0]))
+        elif d:
+            nover += 1
             if not q:
-                print("MATCH         %s=%s ; launch script sets:%s%s" % (k, v, vals, ext))
+                print("OVERRIDE      %s=%s ; script defaults: %s" % (k, v, " ".join("%s=%s" % x for x in d)))
         else:
             nonly += 1
             if not q:
-                note = ""
-                if dv:
-                    note = (" ; equals the script default:%s" if dn > 0 and dsame == dn else " ; script defaults (the profile overrides):%s") % dv
-                print("PROFILE-ONLY  %s=%s%s%s" % (k, v, note, ext))
-    keyset = set(keys)
-    so = ["SCRIPT-ONLY   %s=%s  (set by %s, not in the profile)" % (k, v, s)
-          for k, s, v in (l.split("\t") for l in _lsort("%s\t%s\t%s" % (r[0], r[1], r[3]) for r in src
-                                                          if r[2] == "set" and r[1] == "aac7env"))
-          if k not in keyset]
-    for l in so:
-        print(l)
-    print("summary: %d keys; MATCH %d, MISMATCH %d, PROFILE-ONLY %d, UNFILLED %d, UNKNOWN %d, REMOVAL-SLATED %d, SCRIPT-ONLY %d"
-          % (len(profv), nmatch, nmis, nonly, nfill, nunk, nslate, len(so)))
-    return 1 if strict and nmis + nunk > 0 else 0
+                print("PROFILE-ONLY  %s=%s" % (k, v))
+    print("summary: %d keys; SAME-AS-SCRIPT %d, OVERRIDE %d, PROFILE-ONLY %d, UNFILLED %d, UNKNOWN %d"
+          % (len(dict.fromkeys(keys)), nsame, nover, nonly, nfill, nunk))
+    return 1 if strict and nsame + nunk > 0 else 0
 
 
 def main(argv):

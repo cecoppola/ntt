@@ -18,12 +18,11 @@
 # How to determine: `module avail rocm cray-openshmemx cray-dsmml` on a login node; the ROCm version of the compute image
 # (`module list` inside a one-node job). ecalc/target_kit.sh stage 'build' picks them and writes kit_modules.env -- copy from there.
 # target libraries: ROCm 7.14.0, cray-shmem 12.1.0, libfabric 2.3.1, CCE 21.0.0 -- user-supplied; module names are determined on the target
-TARGET_ROCM=__FILL__               # the ROCm module name/version on the target (aac7 build with SHMEM_CRAY=1 passed, m 2026-10-12; run time vs 7.2.4 not yet measured, OPPORTUNITIES M7d)
+TARGET_ROCM=__FILL__               # the ROCm module name/version on the target (aac7 build with XSHMEM=cray passed; run time vs 7.2.4 not yet measured, OPPORTUNITIES M7d)
 TARGET_SMA_MODULE=__FILL__         # the OpenSHMEM module on the target (confirm with `module avail`; the kit auto-detects only cray-openshmemx/*)
 TARGET_DSMML_MODULE=__FILL__          # the dsmml module (target_kit.sh TARGET_DSMML_MODULE)
 MNRUN_MODULES=__FILL__                # the full module line: "<TARGET_DSMML_MODULE> <TARGET_SMA_MODULE> <TARGET_ROCM>" (kit_modules.env); needs the dsmml version
 MNRUN_UNLOAD=__FILL__                 # modules to unload first (a versioned rocm conflicts with a login default); empty if none conflicts
-SHMEM_CRAY=1                          # build flag: make -B SHMEM_CRAY=1 (Cray OpenSHMEMX); the build log must show -DCOMM_SHMEM (gate.sh)
 GMP_HOME=__FILL__                     # a GMP built from source if the site has no gmp.h: `ls $GMP_HOME/include/gmp.h`; remove the key if the site provides one
 
 # ---- [scheduler] ----------------------------------------------------------------------------------------------------
@@ -40,14 +39,8 @@ ECALC_OUT_DIR=__FILL__                # directory for the part files (0.417 B pe
 MNACCEPT_TMP=__FILL__                 # scratch for mnaccept (must not be a RAM /tmp)
 
 # ---- [transport] ----------------------------------------------------------------------------------------------------
-COMM_TRANSPORT=shmem                  # README launch table
-COMM_SHMEM_SERIAL=0                   # per-thread contexts on a SHMEM_THREAD_MULTIPLE library (Cray OpenSHMEMX): README COMM_SHMEM_SERIAL row
-COMM_SHMEM_DEVHEAP=1                  # symmetric heap in device memory on the APU (S12, A16)
+# The transport is xshmem (path 2: build `make -B XSHMEM=cray`, `ECALC_PE_PER_GPU=1 XSHMEM_LANES=2`); mnrun.sh picks it. Nothing to set here.
 COMM_OFI=1                            # device exchanges over libfabric on the cxi NICs: user decision 2026-10-06, OFI17.md (code default where a cxi NIC exists)
-COMM_SHMEM_ROUND_MB=1024              # exchanges staged in 1 GiB rounds: user decision D2 (V114.md; pool 45.0 -> 9.8 GB, mod)
-# SHMEM memory switches (kernel-dependent; probe facts THP_*, HUGETLB_2M_*, MADV_COLLAPSE, KERNEL_MM_*; runbook "First SHMEM run on the target").
-# COMM_SHMEM_NP_HEAP_THP=1 is a code default (D48) and needs MADV_COLLAPSE (kernel >= 6.1 or a backport): leave unset.
-# With a 2 MiB hugetlb pool (probe HUGETLB_2M_FREE > 0) A/B COMM_SHMEM_HUGETLB=1 (branch hugetlb, archive:results_merged_2026-10-23/SHMEM_STALLS.md 9.1; not measured): add it here only after that A/B.
 # How to determine MN_GROUPS: the site's topology (nodes per dragonfly group) and a TARGET_TASKS timing A/B; the
 # code default of MN_GROUPS at the headline size is the plan's pick, so leave MN_GROUPS unset unless a measurement says otherwise.
 
@@ -60,7 +53,7 @@ FI_LOG_LEVEL=warn                     # TGTBENCH2 L2 (the user's tested value)
 # form is the default.  Set COMM_OFI_NICS (e.g. 0,4;1,5;2,6;3,7) only if the kit's 'env' stage shows a NUMA map that is not 2 per APU.
 
 # ---- [memory pools tied to the hardware] ----------------------------------------------------------------------------
-# COMM_SHMEM_POOL_MB, SHMEM_SYMMETRIC_SIZE, XT_SYMMETRIC_HEAP_SIZE, COMM_OFI_POOL_MB: COMPUTED from MN_PLAN_ONLY=<digits>:<nodes> (pool + 512 MiB for the heap). Not typed.
+# SHMEM_SYMMETRIC_SIZE, XT_SYMMETRIC_HEAP_SIZE, COMM_OFI_POOL_MB: COMPUTED from MN_PLAN_ONLY=<digits>:<nodes> (pool + 512 MiB for the heap). Not typed.
 ECALC_NODE_GB=__FILL__                # usable host RAM per node for the budget check: `free -g` on a compute node, less the OS/service reserve. README ECALC_PLANE_CAP row (code default 480)
 ECALC_MEM_GUARD_GB=6                  # named stop (rc 9) when MemAvailable < 6 GB instead of the OOM killer: user decision 2026-09-27
 ECALC_DEVICE_GB=373.44                # FIT (D26): the device edge per node, 93.36 GB per APU (m, target, A6, n = 5, results/TARGET.md §TGTBENCH2); also the code default
