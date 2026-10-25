@@ -97,7 +97,7 @@ script defaults to another value; the profile wins), PROFILE-ONLY (no script def
    prefix (`ls $GMP_HOME/include/gmp.h`). The Makefile's `CRAY_SMA`/`CRAY_DSMML` defaults point at one version: let the module's
    `CRAY_OPENSHMEMX_PREFIX`/`CRAY_DSMML_PREFIX` win (the probe prints both as `SMA_PREFIX`, `DSMML_PREFIX`). Expected: the build passes with the
    12.x library; if a symbol is missing it is a code issue (priority class 1), not a profile issue.
-3. **NIC / fabric** (`COMM_OFI`, `COMM_OFI_NICS`). `CXI_DEV_COUNT` and `FI_CXI_DOMAINS` per node should equal the stated NIC count (8); `CXI_NUMA_MAP`
+3. **NIC / fabric** (`COMM_OFI_NICS`, read by `pe_geo.c`). `CXI_DEV_COUNT` and `FI_CXI_DOMAINS` per node should equal the stated NIC count (8); `CXI_NUMA_MAP`
    against `APU_NUMA_MAP` should give 2 NICs on each APU's NUMA node; `CXI_LINK_SPEED_MBPS` the stated line rate (400000). Fewer NICs than stated on
    a node: that node goes to `MNRUN_EXCLUDE_HOSTS` (step 6). If the map is not 2 per APU, set `COMM_OFI_NICS` (e.g. `0,4;1,5;2,6;3,7`); otherwise leave it unset.
 4. **libfabric monitor** (`FI_MR_CACHE_MONITOR`). The profile value is `userfaultfd` (memhooks hangs ROCr, S46). `UFFD_SYSCALL` must show

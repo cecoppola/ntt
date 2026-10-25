@@ -79,7 +79,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `BS_SEED_THREADS` | all | built-in default | threads of the seed pass; fewer than all leaves cores to init's allocations (all) | I.md+S22.md |
 | `COMM_LAYER_VSLOT_MB` | derived | built-in default | - | - |
 | `COMM_OFI_NICS` | unset | launch-line | the NIC list per device, `;` between devices, `,` between one device's NICs (`0;1;2;3`; the target's form `0,4;1,5;2,6;3,7`); chunks stripe over a device's list (unset: the cxi devices on ... | TUNE17.md+TGTBENCH2.md |
-| `COMM_OFI_POOL_MB` | 0 | launch-line | the comm pool per device that `COMM_OFI` registers with the NICs (VMM memory cannot be): `fine` (fine-grained device memory, the default), `coarse` (`hipMalloc`), `host` (NUMA-local host ... | STD17.md+S18KITFIX.md |
+| `COMM_OFI_POOL_MB` | 0 | launch-line | the comm pool per device: the planner sets it from the modelled need when unset, and the xshmem DATA heap per PE (`XSHMEM_HEAP_MB`) follows it | STD17.md+S18KITFIX.md |
 | `COMM_RANK` | 0 | launch-line | this process's rank and the number of node-processes (set by `mnrun.sh`; unset or 1 = the single-node program) | A-comm.md+WP6.md |
 | `COMM_SHMEM_POOL_MB` | 8192 | launch-line | the SHMEM transport's symmetric pool (8192; *Phase 14 (V1)*: `mnrun.sh` sets it, when unset, to the run's modelled need from `MN_PLAN_ONLY=<digits>:<procs>`'s `plan pool` line, and a host ... | STD17.md+P214.md |
 | `COMM_SIZE` | 1 | launch-line | this process's rank and the number of node-processes (set by `mnrun.sh`; unset or 1 = the single-node program) | MS15.md+S16.md |

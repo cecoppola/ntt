@@ -40,7 +40,6 @@ MNACCEPT_TMP=__FILL__                 # scratch for mnaccept (must not be a RAM 
 
 # ---- [transport] ----------------------------------------------------------------------------------------------------
 # The transport is xshmem (path 2: build `make -B XSHMEM=cray`, `ECALC_PE_PER_GPU=1 XSHMEM_LANES=2`); mnrun.sh picks it. Nothing to set here.
-COMM_OFI=1                            # device exchanges over libfabric on the cxi NICs: user decision 2026-10-06, OFI17.md (code default where a cxi NIC exists)
 # How to determine MN_GROUPS: the site's topology (nodes per dragonfly group) and a TARGET_TASKS timing A/B; the
 # code default of MN_GROUPS at the headline size is the plan's pick, so leave MN_GROUPS unset unless a measurement says otherwise.
 

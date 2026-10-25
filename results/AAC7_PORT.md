@@ -6,6 +6,7 @@ Sections moved to `archive:results_merged_2026-10-24/AAC7_PORT.md` (2026-10-24 c
 
 ## Topic summary
 
+- **Superseded in part (2026-10-25, Q103).** `comm_shmem.c` and its `COMM_SHMEM_*` switches were removed (archived in `archive:code_2026-10-25/`); the Cray SHMEM path is now `XSHMEM=cray` behind `xshmem.h` (`README.md`, path 2). The port facts below about libsma itself (host heap, THREAD_MULTIPLE, init segfaults) still hold.
 - **What it is.** ecalc runs on aac7 (MI300A nodes, 4 APUs per node, 4 Cassini NICs, Slingshot-11, Cray OpenSHMEMX 11.8.0 over cxi) through `make SHMEM_CRAY=1 GMP_HOME=<gmp>`; the launch wrappers are `ecalc/mnrun.sh` (impl `cray`) and `ecalc/aac7env.sh`; switch and variable rows are in `ecalc/README.md` (authoritative for defaults).
 - **Port facts.** Cray SHMEM is OpenSHMEM 1.5 with THREAD_MULTIPLE, contexts and put-with-signal: the generic SHMEM branch of comm_shmem.c applies unchanged. Its symmetric heap is **host memory** (no HIP in libsma), so `COMM_SHMEM_DEVHEAP=1` falls back to the HIP-registered host pool (same HBM on the APU). One NIC per PE by default; `SHMEM_OFI_NUM_NICS=4` vs 1 made no measurable difference (2 and 4 nodes). Allocations are `--exclusive -c 192`.
 - **Digits.** Identical to the references at every size tried: 10^9 and 10^11 on 1 node (sha1 of the 10^11 file equals aac6's), 10^9 .. 10^11 on 2 / 4 / 8 / 10 nodes, and 8.4 x 10^11 on 10 nodes (in-run VERIFY + packed RECHECK + leading 10^11 prefix).

@@ -58,6 +58,8 @@ Timings (all m, current engine, after the 2026-10-21 default change Q73).
 | 2 n, 1e11, path 2 (no digit file) | worker 137-158 s, poll-only 145-154 s (3 ABBA pairs, not resolved) | `results/XSHMEM.md §XWLAT` |
 | 2 n, 1e10 | path 2 worker 32.0 s, poll-only 40.2 s; path 1 D 39.2 s (4 pairs each) | `results/XSHMEM.md §XWLAT` |
 | 1 n, 3.3e10 | D 39.3 s, P 34.9 s with `XSHMEM_PEER` (51.5 s without) | `results/SINGLE_NODE.md §PEER` |
+| 1 n, 6.6e10 (the target's share per node) | D 74.2 s, P 83.8 s (4 pairs): D is the fastest here | `results/LAUNCH_DEFAULTS.md §AAC7OPT` |
+| 2 n, 5e10 | P (path 1) 39.7 s, D 54.4 s, path 2 53.5 s (3 rounds); P fits 2 n only to 5e10 (node budget) | `results/LAUNCH_DEFAULTS.md §AAC7OPT` |
 
 Older figures (comm_ofi era, 1 n 1e11 129.3 s before the 2026-10-12 defaults, the 1 / 2 / 4 / 6 n scaling at 6.441e10 per node 67.6 / 119.4 / 172.2 / 204.6 s, 6 n 3.8646e11 190.7 to 202.1 s) are in `results/TIME_MODEL.md §M2a`, `§SCALE35` and `archive:results_merged_2026-10-23/NIGHT_RUNS.md`; the 4-6 node figures have not been re-measured on the current engine.
 
