@@ -76,7 +76,9 @@ def main():
         why["MNRUN_UNLOAD"] = "module list not collected (no module command in the probe shell)"
 
     # ---- GMP ----
-    if good(F.get("lib.gmp_h")):
+    if good(F.get("lib.gmp_h")) and not F["lib.gmp_h"].startswith("/usr/"):
+        val["GMP_HOME"] = (os.path.dirname(os.path.dirname(F["lib.gmp_h"])), "lib.gmp_h: a GMP outside the system paths")
+    elif good(F.get("lib.gmp_h")):
         val["GMP_HOME"] = None                   # template: remove the key if the site provides gmp.h
         extra["GMP_HOME"] = "# GMP_HOME: not needed, the system provides %s (probe %s, lib.gmp_h)" % (F["lib.gmp_h"], today)
     else:

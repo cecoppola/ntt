@@ -217,7 +217,7 @@ part_login() {
     fx lib.libfabric_dirs libs_dirs "grep libfabric | paste -sd' '"
     fx lib.sma_versions libs_dirs "grep '/sma/' | xargs -n1 basename | paste -sd' '"
     fx rocm.dirs libs_dirs "grep rocm | paste -sd' '"
-    capsh gmp_find - 'ls /usr/include/gmp.h /usr/include/x86_64-linux-gnu/gmp.h "${CRAY_GMP_PREFIX:-/nonexistent}/include/gmp.h" /opt/cray/pe/gmp/*/include/gmp.h 2>/dev/null; ls /usr/lib64/libgmp.so* /usr/lib/x86_64-linux-gnu/libgmp.so* 2>/dev/null | head -3'
+    capsh gmp_find - 'ls /usr/include/gmp.h /usr/include/x86_64-linux-gnu/gmp.h "${CRAY_GMP_PREFIX:-/nonexistent}/include/gmp.h" "${GMP_HOME:-/nonexistent}/include/gmp.h" /opt/cray/pe/gmp/*/include/gmp.h "$HOME"/gmp/include/gmp.h "$REPO"/../gmp/include/gmp.h 2>/dev/null; ls /usr/lib64/libgmp.so* /usr/lib/x86_64-linux-gnu/libgmp.so* 2>/dev/null | head -3'
     fx lib.gmp_h gmp_find "grep 'gmp.h' | head -1";  fx lib.gmp_lib gmp_find "grep 'libgmp' | head -1"
     # Slurm and queue rules
     part_slurm
@@ -359,7 +359,7 @@ echo shm_mount=$(findmnt -n -o TARGET,FSTYPE,OPTIONS /dev/shm 2>&1); echo shm_si
     [ "$DRY" = 1 ] || { local g n; g=$(awk -F'\t' '$1=="gpu.count"{print $2}' "$FACTS" | tail -1); n=$(awk -F'\t' '$1=="net.cxi_count"{print $2}' "$FACTS" | tail -1)
         case "$g$n" in *[!0-9]*|"") fact net.nics_per_apu none derived;; *) [ "$g" -gt 0 ] && fact net.nics_per_apu "$(awk -v n="$n" -v g="$g" 'BEGIN{printf "%.2f", n/g}')" "net.cxi_count / gpu.count" || fact net.nics_per_apu none derived;; esac; }
     # node location
-    capsh xname_f - 'cat /etc/cray/xname 2>/dev/null; echo; cat /proc/cray_xt/nid 2>/dev/null'
+    capsh xname_f - 'x=$(cat /etc/cray/xname 2>/dev/null); [ -n "$x" ] || x=$(hostname -s | grep -E "^x[0-9]+c[0-9]+s[0-9]+b[0-9]+n[0-9]+$"); echo "$x"; cat /proc/cray_xt/nid 2>/dev/null'
     fx loc.xname xname_f 'head -1'
     fx loc.xname_parts xname_f "head -1 | sed -nE 's/^x([0-9]+)c([0-9]+)s([0-9]+)b([0-9]+)n([0-9]+)$/cab=\1 chassis=\2 slot=\3 blade=\4 node=\5/p'"
     capsh scontrol_me scontrol 'scontrol show node "$(hostname -s)" -o'
