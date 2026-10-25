@@ -1,34 +1,21 @@
 /* xshmem_boot.c -- bootstrap for the xshmem libfabric backend (XSHMEM=ofi only; see xshmem_boot.h).
  * BOOT=pmi2 (default): Cray PMI2 key/value space, KVS values hex-encoded and chunked at 900 characters.
- * BOOT=pmix: build option (-DBOOT_PMIX), a stub in P3 that aborts with a message. */
+ * (the pmix variant was a stub and is removed). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "xshmem_boot.h"
 #include "env_int.h"
 
-#ifndef BOOT_PMIX
 #include <pmi2.h>
-#endif
-#ifndef BOOT_PMIX
 static int boot_up_flag(void);
-#endif
 void boot_abort(const char *msg)
 {
-#ifndef BOOT_PMIX
     if (boot_up_flag()) PMI2_Abort(1, msg ? msg : "xshmem abort");   /* kills the whole job step: peers must not hang in a fence */
-#endif
     abort();
 }
 static void bdie(const char *m, int rc) { fprintf(stderr, "xshmem_boot: %s (rc %d)\n", m, rc); fflush(stderr); boot_abort(m); }
 
-#ifdef BOOT_PMIX
-int  boot_init(int *rank, int *size) { (void)rank; (void)size; bdie("BOOT=pmix is a stub in P3 (use BOOT=pmi2)", 0); return -1; }
-int  boot_allgather(const void *b, size_t l, void *o) { (void)b; (void)l; (void)o; bdie("BOOT=pmix stub", 0); return -1; }
-void boot_fence(void) { bdie("BOOT=pmix stub", 0); }
-void boot_finalize(void) {}
-#else
-#include <pmi2.h>
 #ifndef PMI2_ID_NULL
 #define PMI2_ID_NULL (-1)
 #endif
@@ -100,4 +87,3 @@ int boot_allgather(const void *blob, size_t len, void *out)
 }
 
 void boot_finalize(void) { if (B.up) { PMI2_Finalize(); B.up = 0; } }
-#endif
