@@ -1,16 +1,16 @@
-# CLAUDE.md — rules for ecalc ($APU; private, outside the repository)
+# CLAUDE.md — rules for ecalc (/home/machinus/apucode; private, outside the repository)
 
-Repository `$APU/ntt` (`main`; GitHub `main` is authoritative). Read the private
-`$APU/ntt/docs/AGENT_PROTOCOL.md` first: it maps the central docs (README, ALGORITHM, TESTING, PLAN,
+Repository `/home/machinus/apucode/ntt` (`main`; GitHub `main` is authoritative). Read the private
+`/home/machinus/apucode/ntt/docs/AGENT_PROTOCOL.md` first: it maps the central docs (README, ALGORITHM, TESTING, PLAN,
 TASKS, RESULTS, ecalc/README), the cluster how-to and the task brief. History lives in the local archive
-`$APU/ntt-archive/` (cited as `archive:<path>`). The user sets priorities and security.
+`/home/machinus/apucode/ntt-archive/` (cited as `archive:<path>`). The user sets priorities and security.
 
 ## Security (user order 2026-10-12)
 - Nothing identifying or secret reaches GitHub: no passwords, keys, tokens, URLs, e-mails, user@host, IPs, full domain
   or host names, user names, home paths (`~/…`), and nothing from `docs/` — in files, names or commit messages.
   Short cluster and node nicknames ("aac7", "aac7-n01") are allowed (D28), and so are public documentation links. Collect commands are written `ssh <cluster> '…'`.
 - The cluster password stays in `~/.config/ecalc/aacpw`: use it only through `sshpass -f` (or the toolkit
-  `$APU/bin/`); never read, print or copy it. Never bypass or edit the leak-guard hooks; if one
+  `/home/machinus/apucode/bin/`); never read, print or copy it. Never bypass or edit the leak-guard hooks; if one
   blocks you, remove the data.
 
 ## Work

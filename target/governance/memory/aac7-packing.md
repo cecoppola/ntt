@@ -11,7 +11,7 @@ metadata:
 Until the aac7 per-user node limit changes from 6, run as many queue items at once as fit (2-6 concurrent), using the
 shapes 4+2; 2+2+2; 4+1+1; 2+2+1+1; 2+1+1+1+1; 1+1+1+1+1+1. A single 6-node item only for final confirmations against
 6-node baselines. Keep the queue stocked so every free node has a runnable item, and arm an in-session wait so finished
-items are collected and replaced at once. Rule text lives in $APU/CLAUDE.md (Work, Clusters).
+items are collected and replaced at once. Rule text lives in /home/machinus/apucode/CLAUDE.md (Work, Clusters).
 
 **Why:** the user (2026-10-17) found work slowed badly because agents ran one 6-node job at a time and left the queue
 idle; 6 nodes = 24 APUs, enough for several lines of work at once.

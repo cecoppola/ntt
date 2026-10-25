@@ -5,7 +5,8 @@
 # to it as <name>.from-dev for a merge by hand.
 set -e
 G=target/governance; [ -d "$G" ] || { echo "run from the clone's root"; exit 1; }
-APU=$(dirname "$PWD"); KEY=$(echo "$PWD" | tr / -); L=local
+APU=$(dirname "$PWD"); KEY=$(echo "$PWD" | tr / -)
+DEV=/home/machinus/apucode     # the development side's work root, as written in the copies
 force=0; [ "$1" = --force ] && force=1
 mkdir -p ~/.claude/hooks ~/.claude/agents ~/.claude/projects/"$KEY"/memory .claude
 put() { if [ -e "$2" ] && [ $force = 0 ] && ! cmp -s "$1" "$2"; then cp "$1" "$2.from-dev"; echo "kept $2 (copy at $2.from-dev)"; else cp "$1" "$2"; echo "installed $2"; fi; }
@@ -16,6 +17,6 @@ put $G/home_claude/settings.json ~/.claude/settings.json
 cp $G/home_claude/hooks/* ~/.claude/hooks/ && chmod +x ~/.claude/hooks/*.sh ~/.claude/hooks/*.py
 cp $G/home_claude/agents/*.md ~/.claude/agents/
 cp $G/memory/*.md ~/.claude/projects/"$KEY"/memory/
-put $G/project_claude/settings_local.json ".claude/settings.$L.json"
-sed -i "s#\$APU#$APU#g" "$APU/CLAUDE.md" ~/.claude/projects/"$KEY"/memory/*.md
+put $G/project_claude/settings.local.json .claude/settings.local.json
+sed -i "s#$DEV#$APU#g" "$APU/CLAUDE.md" ~/.claude/projects/"$KEY"/memory/*.md
 echo "work root APU=$APU; memory in ~/.claude/projects/$KEY/memory"

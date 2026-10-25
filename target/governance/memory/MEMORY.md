@@ -1,4 +1,4 @@
-- [ecalc restart note](ecalc-restart-note.md) — resume: project rules live only in $APU/CLAUDE.md; live state in docs/STATUS.md; `bin/state`
+- [ecalc restart note](ecalc-restart-note.md) — resume: project rules live only in /home/machinus/apucode/CLAUDE.md; live state in docs/STATUS.md; `bin/state`
 - [aac7 packing](aac7-packing.md) — run 2-6 concurrent queue items (4+2 … 1×6) while the node limit is 6; never idle; diagnose at 4 n (4+2), not 6 n
 - [No admin requests](no-admin-requests.md) — work with existing aac7 settings; never propose admin/root changes; no node cleanup needed for other users
 - [Context cycle](context-400k-keep-working.md) — at ~370k write docs/RESTART.md, keep working; auto-compact at 400k; hooks reprint note + IDs
