@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""aggregate.py - collects the bench results (contract: target/FORMATS.md §6, §7).  Idempotent: same inputs, same output files.
+
+  aggregate.py            writes results/bench/METRICS.tsv and results/bench/ANSWERS.md, prints the one-screen progress line
+  aggregate.py --progress only the progress line (no files written)
+Reads results/bench/<id>/summary.txt (not _old/), bench/QUESTIONS.md, the manifest.  Overrides: TGT_BENCH_DIR, TGT_RES_DIR.
+METRICS.tsv: id, metric, value, unit (every m.<metric>=<value> [<unit>]).  ANSWERS.md: the register with the q.TQnn answers of the
+items filled in, the coverage check between register and manifest, and the item status table.
+"""
+import os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import manifest as M
+
+BANDS = (("0-99 ladder", 0, 99), ("100-199 optimization", 100, 199), ("200+ calibration", 200, 10**9))
+
+
+def read_summary(i):
+    kv, lines = {}, []
+    f = os.path.join(M.RB, i, "summary.txt")
+    if not os.path.isfile(f):
+        return kv, lines
+    for l in open(f, errors="replace"):
+        l = l.rstrip("\n")
+        if "=" in l:
+            k, v = l.split("=", 1)
+            kv[k] = v          # last one wins
+            lines.append((k, v))
+    return kv, lines
+
+
+def register():
+    """-> list of dict(tq, question, decision, measure, feeds, items, prio) from the QUESTIONS.md table (columns found by header name)."""
+    rows, col = [], None
+    f = os.path.join(M.BENCH, "QUESTIONS.md")
+    if not os.path.isfile(f):
+        return rows
+    for l in open(f):
+        if re.match(r"\|\s*TQ\s*\|", l):
+            h = [x.strip().lower() for x in l.strip().strip("|").split("|")]
+            col = {k: next((i for i, x in enumerate(h) if x.startswith(p)), None) for k, p in
+                   (("tq", "tq"), ("question", "question"), ("decision", "decision"), ("measure", "planned"), ("feeds", "feeds"),
+                    ("items", "items"), ("prio", "prio"))}
+            continue
+        if col is None or not re.match(r"\|\s*TQ\d+\s*\|", l):
+            continue
+        c = [x.strip() for x in l.strip().strip("|").split("|")]
+        if len(c) <= max(v for v in col.values() if v is not None):
+            continue
+        g = {k: (c[i] if i is not None else "") for k, i in col.items()}
+        g["items"] = [x for x in re.split(r"[ ,]+", g["items"]) if x and x != "-"]
+        rows.append(g)
+    return rows
+
+
+def esc(s):
+    return s.replace("|", "/").replace("\n", " ")
+
+
+def main():
+    only_prog = "--progress" in sys.argv
+    errs = []
+    items = M.load(errs)
+    byid = {i["id"]: i for i in items}
+    st = {i["id"]: M.state(i["id"], i["est_min"]) for i in items}
+    # ---- progress
+    parts, tot_done = [], 0
+    for name, lo, hi in BANDS:
+        band = [i for i in items if lo <= i["prio"] <= hi]
+        ok = sum(1 for i in band if st[i["id"]]["state"] == "done" and st[i["id"]]["status"] in M.OK)
+        bad = sum(1 for i in band if st[i["id"]]["state"] == "done" and st[i["id"]]["status"] not in M.OK)
+        run = sum(1 for i in band if st[i["id"]]["state"] == "claimed")
+        tot_done += ok
+        parts.append("%s: %d/%d%s%s" % (name, ok, len(band), (" (%d FAIL/SKIP)" % bad) if bad else "", (" (%d running)" % run) if run else ""))
+    prog = "bench progress: %d/%d done | %s" % (tot_done, len(items), " | ".join(parts))
+    print(prog)
+    if only_prog:
+        return 0
+    os.makedirs(M.RB, exist_ok=True)
+
+    # ---- metrics and answers
+    metrics, answers = [], {}
+    for it in sorted(items, key=lambda x: x["id"]):
+        i = it["id"]
+        kv, lines = read_summary(i)
+        for k, v in lines:
+            if k.startswith("m."):
+                p = v.split(None, 1)
+                metrics.append((i, k[2:], p[0] if p else "", p[1] if len(p) > 1 else ""))
+            elif re.fullmatch(r"q\.TQ\d+", k):
+                answers.setdefault(k[2:], []).append((i, v))
+    with open(os.path.join(M.RB, "METRICS.tsv"), "w") as f:
+        f.write("id\tmetric\tvalue\tunit\n")
+        for r in metrics:
+            f.write("\t".join(r) + "\n")
+
+    reg = register()
+    regids = {r["tq"] for r in reg}
+    warn = []
+    for it in items:
+        for q in it["q_l"]:
+            if q not in regids:
+                warn.append("item %s names %s, which is not in QUESTIONS.md" % (it["id"], q))
+        if not it["q_l"]:
+            warn.append("item %s names no question" % it["id"])
+    for r in reg:
+        its = {i["id"] for i in items if r["tq"] in i["q_l"]}
+        if not its:
+            warn.append("%s has no item in the manifest yet (planned: %s)" % (r["tq"], ",".join(r["items"]) or "none"))
+        for x in r["items"]:
+            if x not in byid:
+                warn.append("%s: planned item %s is not in the manifest" % (r["tq"], x))
+    for q in answers:
+        if q not in regids:
+            warn.append("answer %s has no register row" % q)
+
+    out = ["# ANSWERS - question register with the answers of the bench (generated by bench/aggregate.py; do not edit)", "",
+           prog, ""]
+    out += ["## Register and answers", "",
+            "| TQ | question | prio | status | answer | feeds |", "|---|---|---|---|---|---|"]
+    for r in reg:
+        its = [i for i in items if r["tq"] in i["q_l"]]
+        a = answers.get(r["tq"], [])
+        if a:
+            status = "ANSWERED"
+            ans = "; ".join("%s: %s" % (i, v) for i, v in a)
+        else:
+            if not its:
+                status, ans = "no item", ""
+            else:
+                ss = [(i["id"], st[i["id"]]) for i in its]
+                if all(s["state"] == "done" for _, s in ss):
+                    status = "done, no answer line (" + ",".join("%s %s" % (i, s["status"]) for i, s in ss) + ")"
+                elif any(s["state"] == "claimed" for _, s in ss):
+                    status = "running"
+                else:
+                    status = "open"
+                ans = ""
+        out.append("| %s | %s | %s | %s | %s | %s |" % (r["tq"], esc(r["question"]), r["prio"], esc(status), esc(ans), esc(r["feeds"])))
+    out += ["", "## Item status", "", "| id | prio | nodes | state | worker | wall_s | questions | note |", "|---|---|---|---|---|---|---|---|"]
+    for it in sorted(items, key=lambda x: (x["prio"], x["id"])):
+        s = st[it["id"]]
+        label = s["state"] if s["state"] != "done" else "done-" + (s["status"] or "?")
+        if s["stale"]:
+            label += " (STALE claim)"
+        kv, _ = read_summary(it["id"])
+        note = kv.get("note", "")
+        out.append("| %s | %d | %d | %s | %s | %s | %s | %s |" % (it["id"], it["prio"], it["nodes"], label, s["worker"], s["wall_s"], it["questions"],
+                                                           esc(note)[:160] if note and not label.startswith("done-PASS") else ""))
+    out += ["", "## Coverage check register / manifest", ""]
+    out += ["- " + w for w in sorted(set(warn))] or ["- none"]
+    if errs:
+        out += ["", "## Manifest problems", ""] + ["- " + e for e in errs]
+    with open(os.path.join(M.RB, "ANSWERS.md"), "w") as f:
+        f.write("\n".join(out) + "\n")
+    print("wrote %s (%d metrics, %d answers, %d coverage warnings)" % (os.path.join("results/bench"), len(metrics), len(answers), len(set(warn))))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
