@@ -230,6 +230,7 @@ int main(int argc, char **argv)
     /* batched round trip: 64 transforms of 2^14 in one call */
     {
         size_t n = (size_t)1 << 14, B = 64;
+        if (B * n > nmax) B = nmax / n;                 /* buffers hold 2^LOGMAX */
         gen_limbs(hx, n * B, GEN_UNIFORM, &rng);
 #pragma omp parallel for
         for (size_t i = 0; i < n * B; i++) hx[i] %= ec_P[1];
@@ -264,7 +265,7 @@ int main(int argc, char **argv)
         mpz_t A, B, C, D;
         mpz_inits(A, B, C, D, NULL);
         for (pr = 0; pr < EC_NP; pr++)
-        for (logn = 16; logn <= 20; logn++)
+        for (logn = 16; logn <= (LOGMAX < 20 ? LOGMAX : 20); logn++)
         for (int fuse = 0; fuse < 2; fuse++) {
             size_t n = (size_t)1 << logn, half = n / 2;
             uint16_t *a16 = (uint16_t *)malloc(half * 2), *b16 = (uint16_t *)malloc(half * 2);
