@@ -65,7 +65,7 @@ Moved to `RESULTS.md` (adopted changes in force, with their evidence).
 | layv | Non-power-of-two exchange path; `COMM_SHMEM_LAYV_ANY` (layered exchange for any group size, removed) | no path penalty (−0.36 s, m); the 6-node slowdown is the group size; LAYV_ANY +4.6 s [−174, +183] (4 pairs) and no effect over 8 pairs (m) | `results/TIME_MODEL.md §S48`, `archive:results/O9.md`, `results/SHMEM.md` |
 | VMM_BG | `ECALC_VMM_BG=0` (synchronous mapping), `=2` (lock, removed), `ECALC_VMM_SAFE` (removed), `=auto` | `=0` +20 s at 2 n; `=2` 9/9 reproducer fails; `auto` saves ≈ 0 at the target map rate (m, mod) | `results/CRASHES_HANGS.md §S34`, `results/CRASHES_HANGS.md §S46`, `archive:results/A09.md` |
 | A5 | Device overlap flow `ECALC_OVERLAP` and device Newton `NEWTON_DEVICE` (removed as losing flows) | losing flows; removed 2026-10-12 | `results/CODE_REDUCTION.md §W2A` |
-| RNS_PLANES_3Q30 | 3·2^k planes in the distributed tier | 80.8 ± 1.3 vs 82.0 ± 0.3 s at 4 × 10¹⁰ (m), within noise; mapping cost | `results/MEMORY.md §I`, `results/CODE_REDUCTION.md §AUD3` item 3 |
+| RNS_PLANES_3Q30 | 3·2^k planes in the distributed tier | 80.8 ± 1.3 vs 82.0 ± 0.3 s at 4 × 10¹⁰ (m), within noise; mapping cost | archive:results_merged_2026-10-24/MEMORY.md §I, `results/CODE_REDUCTION.md §AUD3` item 3 |
 | NTT3P | 3-pass 2^31 NTT (13/9/9) | 90.6 vs 89.9 ms (m); gate ≤ 80 ms; shelved | `results/KERNELS.md §NTT3P`, `results/SESSIONS.md §S22` |
 | S-3 / S-6 | Barrett constant for decimal seeds; HIP graphs for small dispatches | dropped after measurement | `archive:results/S37.md` |
 | S-5 | Push-form broadcast for B | below 1 s (S38) | `results/KERNELS.md §S38` |

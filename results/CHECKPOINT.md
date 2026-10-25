@@ -1,6 +1,8 @@
 # CHECKPOINT — checkpoint and restart of the binary-splitting phase
 
-Scope: checkpoint and restart of the binary-splitting phase: per-node checkpoints, hardening, restart under another MN_GROUPS. | Owner of the items below (condensed 2026-10-19 from the merged per-item reports; originals in `archive:results_merged_2026-10-19/`; old IDs resolve through `results/INDEX.md`). Raw data and drivers are in `archive:results_raw_2026-10-19/`.
+Scope: checkpoint and restart of the binary-splitting phase: per-node checkpoints, hardening, restart under another MN_GROUPS. | Owner of the items below (condensed 2026-10-19 from the merged per-item reports; originals in `archive:results_merged_2026-10-19/`; old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers are in `archive:results_raw_2026-10-19/`.
+
+Sections moved to `archive:results_merged_2026-10-24/CHECKPOINT.md` (2026-10-24 cleanup): WP7; A-ckpt; G6 (TASKS 1.6 / 1.7).
 
 | item | title |
 |---|---|
@@ -19,42 +21,6 @@ Scope: checkpoint and restart of the binary-splitting phase: per-node checkpoint
 - aac7 compute nodes mount the home file system NFS soft; a huge single O_DIRECT `pread` can fail with EIO under load (CKPT). The reader now reads ≤ 64 MiB per call with retries; confirmed at scale 2026-10-14 (0 retries).
 - A recheck at 6 nodes / 3.8646 × 10¹¹ takes 7380 s (m); use a timeout of ≥ 3 h (TESTING.md §3). The part-file pass at 12.5 MB/s per node is the recheck's main cost (TASKS "Proposed" candidate).
 - Never run at 10¹⁰ / 4 × 10¹⁰ for the removed restart; extrapolations there were by the measured per-node rate only.
-
-## WP7 — checkpoint and restart of the binary-splitting phase
-
-Branch `wp7-checkpoint`; files `ecalc/binsplit.c/.h`, `ecalc.c` (env pass-through, one summary line). With `BS_CKPT_DIR` unset the level loop is WP3's (no change to the algorithm, tiers or pools).
-
-**Design.** The state at the top of a bs level iteration: the node table (`struct node`: P/Q offsets, normalised lengths, region), the used limbs of the four region pools (node i of n lives in region ⌊4i/n⌋; region r's extent is `offr[r]` limbs), the pool parity `which`, the level number, and for mdev-tier levels the fact that the regions are four pointers into one host pool `g_hpool[which]`. Files in `BS_CKPT_DIR`: `level_LLL.hdr` (112-byte header: magic, N, base, `BS_SEED_TERMS`, level, `which`, mdev flag, `off`, `offr[4]`, then the node table) and `level_LLL.r0..r3`. Each file is written to `.tmp`, fsync'd, renamed, header last; the previous level's set is unlinked only after the new header is in place, so one complete set always exists. Restart takes the highest level with a header and four region files of the exact sizes; a fresh run clears `level_*`. Device regions go through each APU's pinned staging in 1 GiB chunks (DMA), four regions in parallel. Written every `BS_CKPT_EVERY` levels (4) from `BS_CKPT_MIN_LEVEL` (8), or earlier when a level pool exceeds 1 GiB; never the top level nor the `top_direct` mdev level. Bit-identical because the restarted loop sees the same node table, limbs (only `[po,po+pn)`, `[qo,qo+qn)` are read and they are inside the saved extent), `which` and level, and the rest is the deterministic WP3 path.
-
-**Measurements** (job 20644, `/tmp` = local NVMe; all m). Snapshots at levels 8/12/16, constant size per run:
-
-| run | nodes at level 8/12/16 | bytes per set | time | rate |
-|---|---|---|---|---|
-| 10⁸ binary | 227 / 15 | 0.083 GB | 0.11 / 0.10 s | ≈ 0.8 GB/s |
-| 10⁹ binary | 1987 / 125 / 8 | 0.83 GB | 0.53 / 0.80 / 0.87 s | 1.6 / 1.0 / 1.0 GB/s |
-| 10⁹ decimal | 1987 / 125 / 8 | 0.889 GB | 0.45 / 0.68 / 0.79 s | 2.0 / 1.3 / 1.1 GB/s |
-
-The three snapshots add 2.2 s (binary) / 1.9 s (decimal) to a 4.1 / 4.2 s bs phase; the pass is bound by NVMe write + fsync (≈ 1 GB/s; the first snapshot is page-cache absorbed at 1.6–2 GB/s); restart load 0.13–0.22 s. Cost is printed as `bs checkpoints:` / `RESULT ecalc bs_ckpt` and sits inside the `bs` timer. Extrapolation (mod): ≈ 9 s per checkpoint at 10¹⁰ (pool ≈ 8.6 / 9.2 GB), ≈ 36 s for four, the same order as the 10.6 / 18.9 s bs phase; ≈ 35 s per checkpoint at 4 × 10¹⁰ against a 48–75 s bs phase; `BS_CKPT_EVERY=8` or a higher min level halves that. Not run at 10¹⁰ (no node time), so the mdev host-pool path was implemented but unexercised.
-
-**Restart correctness** (m). Per configuration (10⁸ binary, 10⁹ binary, 10⁹ decimal): (a) uninterrupted with checkpoints, (b) `BS_RESTART=1` from (a)'s last set (level 12 / 16), (c) `BS_CKPT_ABORT=8` (`_exit(3)` right after the level-8 set), (d) restart from (c) (1987 nodes at 10⁹, levels 9–19, digits written). All print `VERIFY OK`; `cmp` of a, b, d against each other and the reference: identical in all 15 cases. Resuming at level 16 takes the bs phase from 4.08 s to 0.58 s.
-
-**Caveats.** mdev-tier levels not exercised (plan: 10¹⁰ run with `BS_CKPT_EVERY=1 BS_CKPT_MIN_LEVEL=<first mdev level> BS_CKPT_ABORT=<that>`, then restart and `cmp`). A set of another run (N, base, `BS_SEED_TERMS`) aborts a restart. Only the bs phase is covered (the last set is kept for failures in 10dP/dm/dc). A 4 × 10¹⁰ set is ≈ 35 GB of local disk and ≈ 35 s. `BS_CKPT_ABORT` is a test hook.
-
-## A-ckpt — M6, per-node checkpoints of the binary-splitting phase (PLAN.md §19)
-
-Branch `m6-ckpt` (from main a75474d); files `binsplit.c/.h`, `mn.c/.h` (`mn_tree` only: tree-level save/restore, restart-level agreement), `archive:drivers/ecalc/ackpt_test.sh`; `ecalc.c` unchanged.
-
-**Design.** (1) Leaf tree per node-process: WP7, plus levels held as device numbers (dev_mdev top levels, `bs_keep_dev`): file r holds the limb range [pn r/4, pn (r+1)/4) of P and the same quarter of Q node by node (a limb range, so the reader's placement need not match the writer's), DMA'd through pinned staging in 1 GiB chunks. With `COMM_SIZE > 1` files are `n<rank>_level_LLL.*`, header v2 (magic `ECBSCKP2`: v1 plus size, rank, dev_nodes, kind, a0, b1, tree[10]); a set whose size, rank or term range differs aborts the restart. Single-node runs keep WP7 names and v1 header when no device-number level is present and read v1 sets. (2) Tree levels (`mn_tree`): at the end of every tree level the node writes `n<rank>_tree_LLL.{hdr,r0..r3}` (mdb descriptors of P, Q; the share's limbs in four files); `BS_CKPT_TREE=0` turns it off; the top level is written too. (3) Atomicity as WP7. The superseded tree set is removed only after `mn_barrier()`, so the lowest of the nodes' highest complete tree levels is present on every node; restart all-gathers each node's highest complete tree level (`mn_ckpt_tree_level`) and takes the minimum L*. L* ≥ 1: the leaf tree is skipped (`binsplit_e` returns empty P, Q) and `mn_tree` loads the level-L* shares and continues at L*+1. L* = 0: each node restarts inside its own leaf tree from its highest complete leaf set or from scratch (nodes that had finished recompute the levels above, redundant and bit-identical). Test hooks: `BS_CKPT_ABORT`, `BS_CKPT_ABORT_TREE`, `BS_CKPT_ABORT_NODE=<rank>` (exit 3 after that set).
-
-**Tests** (jobs 20711, 20732, 20737, one node each, 2026-09-19; decimal limbs, local `/tmp`, digits `cmp`'d with the reference and with the uninterrupted run; all completed runs `VERIFY OK`; m):
-- Single node 10⁹: s1a uninterrupted 9 sets, 8.01 GB, 7.99 s (0.89 s each); s1b restart from the last set (level 18): load 0.22 s, bs 0.67 s; s1c/s1d abort at 8 and restart (1987 nodes, load 0.12 s); a set written by main's v1 ecalc restarts with this code. All identical.
-- Multi-node on one node, sizes 2 and 4, 10⁸ and 10⁹ (m8.2, m8.4, m9.2, m9.4): (a) uninterrupted, (b) restart from final tree sets, (c→d) all nodes abort at leaf 6 then restart, (e→f) abort after tree level 1 then restart, (g→h) one node aborts, others killed at different levels (mixed restart), (t→u) wall-clock `timeout` kill mid-write. Batch 1 leaf restarts all identical; tree-level restarts were refused because the tree writer was handed N = 0 (fixed in 78b0b5f, `bs_N`). Batch 2 (job 20732, e0fc9cc, the gate) and batch 3 (job 20737): all restarts identical to the reference, including tree-level restarts (levels 1 and 2) and the kill cases; the one m8.4d failure was a port collision in `mnrun.sh` (`bind: Address already in use`), not a checkpoint defect, and passed in batch 3.
-- Device-number levels (batch 2, `BS_MDEV_LOGL=23` / `22`, `BS_CKPT_EVERY=1`): s1dev 17 sets, 15.1 GB, 13.7 s, device-tier levels 17, 18 written (0.889 GB in 0.93 / 0.82 s), restart from level 17 identical; mdev.2 and mdev.4 abort at 16 and restart identical.
-- Sizes and rates: leaf set = level pool, 0.889 GB at 10⁹ on one node, 0.43–0.46 GB per node at size 2, 0.20–0.23 GB at size 4 (0.04–0.05 / 0.02 GB at 10⁸); 0.8–1.5 GB/s single node, 0.6–0.7 (size 2) and 0.4–0.5 (size 4) GB/s per node when node-processes share a disk. Tree set = 2N/size limbs: 0.444 GB per node at 10⁹ size 2, 0.22 GB at size 4, at 0.4–0.7 GB/s. Restart loads 0.01–0.12 s. At 4 × 10¹⁰ a leaf set and a tree set are each ≈ 35 GB / size per node (mod), ≈ 35 / size s at 1 GB/s.
-
-**Gate.** At sizes 2 and 4, 10⁸ and 10⁹, runs killed by `timeout` and by the exit hooks (all nodes, one node, leaf level, tree level) restart to digits identical to the uninterrupted run and the reference; tree-level restart at sizes 2, 4; single-node restart is WP7's.
-
-**Open issues** (all historical now): not run at 10¹⁰ / 4 × 10¹⁰; tree levels write every level (a `BS_CKPT_TREE_EVERY` was a two-line idea); the per-level barrier puts a node's write time (0.1–0.6 s) on the critical path; mnrun port collisions on a restart after a kill (retry); non-power-of-two sizes tested only at 2 and 4; the top tree set is the state that a restartable division would start from.
 
 ## N13 — Phase 13a agent N — checkpoint hardening (TASKS 1.7, 4.1, 1.4)
 
@@ -89,25 +55,6 @@ Branch `p13-N` (base 203733b); checkpoint functions of `binsplit.c/.h`, `mn.c` t
 Reading: the Q wait is gone (10.7 s remain at the join after VERIFY); P's wait is structural at this rate (≈ 45 s, `=1` costs 128 s against ≈ 80 s); `=2` never stalls (79.6 s vs the ≈ 80 s default series) but loses the set on a slow disk. The two disk rates differ (0.22 emulated vs 0.31 real). Not measured: the real disk (W measured 1.1–1.6 GB/s, `=1` expected to wait ≈ 0 s), `ecalc.base` vs branch on the same disk, the `budget` and `bg` sections at 10⁹. Recommendation: `ECALC_CKPT_TOP=2` as the safe default candidate (keeps the set where the disk can take it, ≳ 1.1 GB/s at 4 × 10¹⁰ (mod), costs ≤ 1 s elsewhere); the default stays off.
 
 **Open issues.** Holding Q past the division keeps 17.8 GB in the block pool through the output stage at 4 × 10¹⁰ (fits; not checked at 10¹¹). Size > 1 background top set tested only at 10⁸ / 10⁹ (write 0.1 s; waits unexercised at scale). Behaviour changes outside the default: a fresh run with `BS_CKPT_DIR` at size > 1 deletes its own earlier tree sets; a failed synchronous tree-set write removes partial files; the size > 1 top set is always written in the background (`BS_CKPT_TREE_BG=0` restores synchronous). Done at `6392f78`/`a7884f0`; nothing live.
-
-## G6 (TASKS 1.6 / 1.7): checkpoint restart under another MN_GROUPS / node count
-
-Date 2026-10-12, branch `g6` (off main a448d73). Finding: the check already existed (N13); G6 only adds automated tests, no `ecalc/` change (digits and timing untouched; a check, not behind a switch). Mismatch exits rc 5 (schedule) or rc 4 (node count / other run) with a `BS_RESTART refused` line; old v2 sets are accepted with a warning. At 1 node no schedule exists (`mn_groups_parse` returns 0), so the pair needs ≥ 2 processes.
-
-Added `mnaccept.sh --only sched` (10⁸, 4 node-processes): write with default schedule 2,4 and `BS_CKPT_ABORT_TREE=1`; negative `MN_GROUPS=4` must be refused; negative restart at 2 processes refused; positive `MN_GROUPS=2,4` restarts with identical digits. At exactly 2 nodes `MN_GROUPS` cannot differ in effect, hence 4 processes.
-
-Results (m):
-
-| test | aac7 (queue item 76, 2-node hold, 2026-10-11) | aac6 (hold 22987, 1 node, 2026-10-12) |
-|---|---|---|
-| `tools/gate.sh --build --nodes 2` / `--nodes 1`, 1e9 | PASS, VERIFY OK, identical, total 19.95 s, 2 `-DCOMM_SHMEM` lines | PASS, total 11.53 s |
-| `mnaccept ckpt` | scored FAIL "3 nodes exited; restart rc 0; identical" | same scored FAIL |
-| `sched` refuse `MN_GROUPS=4` | PASS rc 5, 4 messages | PASS |
-| `sched` refuse node count | PASS rc 4 | PASS |
-| `sched` same `MN_GROUPS` | PASS identical, restart from tree level 1 | PASS |
-| `recheck` e9 size 1 / e8 size 2 | — | PASS / PASS |
-
-The `ckpt` FAIL was a counting bug in the script, not a restart defect: the `config:` line also matches `BS_CKPT_ABORT`, giving 3 lines where 2 are expected; fixed (89373fa) by matching `BS_CKPT_ABORT: exiting after the level` (still requires 2); verified by replaying the saved log (3 → 2). The new `sched` tests passed 3 of 3. (Superseded: the restart and these tests were removed with D11.)
 
 ## CKPT — the recheck could not read the top-level set of the 6-node 3.8646 × 10¹¹ run
 

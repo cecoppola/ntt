@@ -1,6 +1,6 @@
 # SESSIONS — aac7 measurement sessions of September/October
 
-Owner of the items below (condensed 2026-10-19; full originals in `archive:results_merged_2026-10-19/`, raw data and drivers in `archive:results_raw_2026-10-19/`; old IDs resolve through `results/INDEX.md`). Labels: (m) measured, (d) derived by arithmetic from measured numbers, (i) inferred, (mod) modelled, (a) assumed. Times Eastern.
+Owner of the items below (condensed 2026-10-19; full originals in `archive:results_merged_2026-10-19/`, raw data and drivers in `archive:results_raw_2026-10-19/`; old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Labels: (m) measured, (d) derived by arithmetic from measured numbers, (i) inferred, (mod) modelled, (a) assumed. Times Eastern.
 
 | item | title |
 |---|---|

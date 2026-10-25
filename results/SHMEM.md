@@ -121,11 +121,6 @@ variables was not confirmed (no env display or ordering lines printed). Not run:
 | NUMA flush (pinned allocate-and-free before a run) | each flush added 3.4k-37k node-0 misses, a run adds at most about 70; no way to reach zero. Off for good; rule: a node is fine if node 0 has at least about 96 GB free at start (REBOOT1, 9ks) |
 | GEV (`COMM_XSTATS_GEV`, event pairs post to wait-start; diagnostic) | gates PASS with xstats_gev lines; the stream keeps up (gpu about host at gate scale). The 3 n GEV run was not needed: section 1 already rules out compute stretch |
 
-### 5. PX_QTHREAD (branch pxq, c8bb7f5d)
-
-Poster and completer thread per proxy, two plain contexts per peer node alternated; needs PX3 under `PE_PER_APU=1` and THREAD_MULTIPLE; fatal under `COMM_OFI=1` by design. Gates 1, 2 and 3 n PASS,
-digits identical (including the `PX_SCHED=0` chunked path, no hang). The paired timing was never run, so there is no speed claim. Not merged.
-
 ### 6. The NIC miss picture
 
 Per node per run (m): SHMEM about 4-5e9 translation misses (3 n: miss0 5.3-5.5e9, of which the initiator side 4.2-4.4e9, about 80 %, and the target side about 1.1e9, about 20 %; 59 % of translated
@@ -134,20 +129,4 @@ runs about 17 s slower. Why (d, driver facts): host staging memory is mapped wit
 with large entries (hit_d1_0 8.5-9.1e9). At 2 n the misses cost nothing visible (SHMEM within noise of libfabric); at 3 n the remaining gap was not closed by removing the initiator misses (section 4), so
 the cost of the misses on the gap is not shown. The target carries device buffers on both sides by construction.
 
-### 7. Unmerged branches kept for reference
-
-| branch | content |
-|---|---|
-| devsrc2 | first DEVSRC: device-source puts with a synchronous host-to-device copy |
-| devsrc3 | DEVSRC rebased on main with the async copy and DEVSRC=3 zero-copy, DEVHEAP2 and the heap/VMM shim, probes (`t_vmmprobe`, `t_basevar`), `fi_hmem_shim.so` |
-| gev | `COMM_XSTATS_GEV` event-pair diagnostic |
-| pxq | `COMM_SHMEM_PX_QTHREAD` (section 5) |
-| a2a | `t_comm --a2a`: benchmark-only probe of the library all-to-all calls against ours (e738c931; its 3 n item did not run to a result) |
-| r3plane | model-only 3*2^k grouped-plane tier (`MN_R3_PLANE=1`, off; f52a424): saves memory against the non-power-of-two cap but keeps only 56-60 % of its time gain (mod) |
-
-### 8. Node health note (REBOOT1)
-
-On aac7 every job end of ours ends in a node reboot (needs_reboot); 830 of 880 reboots since 2026-10-12 followed our job ends (45 % of our node-ends reboot against 13 % for others' jobs). Every one of the NIC
-losses found on 2026-10-20 appeared 3-35 min after one of those reboots (5 of 140 reboots that day, about 3.6 % per reboot, mod); further nodes were lost on 2026-10-21 and a rescreen found no lost node back. The data cannot
-separate "the reboot causes the loss" from "the traffic does" (no pre-reboot NIC count existed). Mitigation: fewer job ends, i.e. one long hold running many items, with a NIC count per node
-before each item (session hold, 2026-10-21). Three healthy nodes remained at the end of the phase.
+Sections 5 (`PX_QTHREAD`), 7 (unmerged branches) and 8 (node health note) moved to `archive:results_merged_2026-10-24/SHMEM.md`.

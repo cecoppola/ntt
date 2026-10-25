@@ -1,6 +1,6 @@
 # CACHE — the multi-node transform cache
 
-Owner of the items below (condensed 2026-10-19; full originals in `archive:results_merged_2026-10-19/`, raw data and drivers in `archive:results_raw_2026-10-19/`; old IDs resolve through `results/INDEX.md`). Labels: **(m)** measured, **(mod)** modelled, **(a)** assumed, **(f)** fitted. Times Eastern.
+Owner of the items below (condensed 2026-10-19; full originals in `archive:results_merged_2026-10-19/`, raw data and drivers in `archive:results_raw_2026-10-19/`; old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Labels: **(m)** measured, **(mod)** modelled, **(a)** assumed, **(f)** fitted. Times Eastern.
 
 | item | title |
 |---|---|
@@ -79,35 +79,5 @@ Use `total`, not the script wall (the wall included the NFS reference read). Def
 
 **Reconciliation and recommendation.** The +87.5 s "no cache" penalty at the target is unmeasured (aac6 has only 1 x 2 grids at 2^30; there a sized cache gains about 5 s on the division products and 2 s on `total`; the direction agrees with the model). The data does settle that the target cannot hold both the cache and its 455.4 GB node. Recommendations: (1) assume no mn cache (434.1 s / 453.3 s at 0.6 GB/s; 401.2 s at 4.74e13) and label the 87.5 s as an unmeasured model credit; (2) put `RNS_DIST_CACHE_FIT=1` (or `RNS_DIST_CACHE_MN=0`) on the target launch line (done: built in 2026-10-12); (3) a per-prime cache (a quarter of a slot fits the 24.6 GB room) is a design question (answered by PC15). Open: the target's region bytes at tree level 1.
 
-## PC15 — a partial transform cache inside 480 GB (`RNS_DIST_CACHE_PARTIAL`)
 
-Agent PC; branch `p15-PC` from `int15i` d2d05b3 (= main 99c7de4 + P24 + MPB + DKM); aac6 s24-16 / s24-26; rooms are the model's (`mem_model.py` at d2d05b3). Raw `archive:results_raw_2026-10-19/PC15/`.
-
-**What was built.** The mn tier's slots are taken **per grid product from the block pool** at the product's own q and returned at its end (entries never outlive a product), so nothing is held across products and no byte is added to the node. P = min over the four APUs of (pool free bytes - the product's own peak need `rns_mul_dist_mn_scratch` - 0.5 GB margin per APU, `RNS_DIST_CACHE_PARTIAL_MARGIN_GB`) / (q x 8), capped by the free extents (`db_pool_fit_count`, a 3-line read-only query in `dbig.c`: no remap, no growth), the group's minimum; P >= np gives min(`RNS_DIST_CACHE_MN`, P / np) full slots, else one slot of P primes (one slot of more primes beats more slots of fewer). `RNS_DIST_CACHE_PARTIAL_K` caps primes, `_FORCE` tests only. A k-prime slot holds the forward planes of primes 0..k-1 of one operand piece; a hit skips those gathers and transforms, the redistribution stays unless the hit is full. P24 products are cached too (key includes the form; per-prime `k_gather_mn24` for a partial A hit). Loop along the longer axis when kb > ka (mirrored slot designation; digits order-independent). Pins dropped; reporting per product plus a run summary line.
-
-**Model.** `CACHE_P24`, `CACHE_PRIMES_PHASE`, `cache_partial` (`--cache-partial`, `--cache-partial-keep-room`), `hit_cost`; `CACHE_PART_F = 1.08` (f).
-
-**Rooms at the target (mod, 5.1e13, NP=auto).** One prime = 4.29 GB per APU, 17.2 GB per node; a hipMalloc'd slot would get no prime (tree room outside the arena 8.1 GB, division 21.5 GB, FIT room 4.9 GB). The block pool has: tree arena 300.6 - need 264.2 = **36.5 GB free at the tree's peak (9.1 GB per APU): two primes**; division: the arena is laid for the default division, so under `NEWTON_DKM=1` the need is 285.4 against 296.9 = 21.7 GB free counting the `BS_ARENA_ROOM` bytes (6.4 GB), 15.3 without: **one prime** (without DKM 16.5 GB -> 0 primes after the margin).
-
-**Design-time gain (mod, write at 0.6 GB/s, NP=auto, 1 slot).** `MN_P24=2 NEWTON_DKM=1` with P24 cached and the longer axis: 285.0 -> 272.2 s (-12.8 / -12.1 s with the write); room's bytes kept out 274.0 s; loop unchanged 275.4 s; **P24 not cached: 0 gain**; `MN_P24=0 NEWTON_DKM=1` 370.6 -> 345.9 s (-24.7 s); no DKM no P24 400.0 -> 379.5 s (-20.5 s). Half of CX's -26.7 s (P24 pieces are fewer and cheaper).
-
-**Tests (m, aac6).**
-- cx_grid at 2 procs, cap 2^25 (job 21787): digits identical in every configuration (18-digit 5 configs x 18 products; 24-digit 4 configs; low-cut products differ across forms only below the cut). Hits equal the model's simulation on all forced products (2 x 6 one slot: 10 hits, old loop 6; 1 x 2 low cut: 1, was 0). The pool rule never grew the pool (took 1 slot of 2 primes where 0.75 GB free per APU fit, none elsewhere). Timing over 9 shapes, node 0: k1 60.85 -> 57.84 s (-4.9 %), P24 34.73 -> 33.34 (-4.0 %); k2 61.06 -> 54.70 (-10.4 %), P24 36.16 -> 33.15 (-8.3 %); full 1 / 2 slots 60.85 -> 46.88 -> 45.09 s (-23.0 / -25.9 %), P24 36.13 -> 28.87 -> 26.88 (-20.1 / -25.6 %). Per-piece fit measured / modelled: k1 **1.069**, k2 **1.093**, full 1.017 (18-digit); P24 k1 1.075, k2 1.087, full 1.039: the model's partial term is 7-9 % conservative (reason, not measured: part of the redistribution overlaps the transforms on aac6).
-- ecalc 10^10 at 2 procs (job 21788, POOL_LOG 27): c0 276.5 s vs `pc` (pool rule) 216.2 s (**-21.8 %**; 8 grid products all with slots, <= 2.15 GB per APU, no growth); with `MN_P24=2 NEWTON_DKM=1` 165.3 vs 138.3 s (**-16.3 %**); all 8 runs identical. Memory nothing added (pool peak live bs 18.0 -> 22.3 GB). Hit pieces 30.2 / 32.0 % saved vs 31.4 % modelled (18-digit), 29.5 / 33.5 % vs 32.0 % (P24).
-- Gates: mnaccept `unit,e9,mn,corr` with the switch 19 PASS, 0 FAIL (1462 s, job 21789); with the switch + `MN_P24=2 NEWTON_DKM=1` 19 PASS (1473 s, job 21794); 4e10 identical, `total` 62.53 s. `t_mn_grid` with forced partial slots at 2 procs (job 21804): k = 1, 2, full, 18- and 24-digit all VERIFY OK, 0 failed. Not done: `t_mn_grid` at 3/4 procs (test-setup OOM at default POOL_LOG), cx_grid at 4, ecalc at 4 procs.
-
-**Estimate at the target (mod; INT3's line `MN_P24=2 MN_MODEL_DKM=1 MN_MODEL_P24_F=1.025 ECALC_NP_AUTO_MIN=1`, NP=auto; write at 1.0 / 0.6 GB/s).**
-
-| size, `BS_ARENA_ROOM` | configuration | primes tree / div | without the write | with the write @1.0 / @0.6 | gain |
-|---|---|---|---|---|---|
-| 5.1e13, 0.16 (default) | cache 0 | - | 288.2 s | 308.2 / 334.4 s | - |
-| | **+ PARTIAL** | **2 / 1** | **274.0 s** | **294.9 / 321.1 s** | **-14.1 / -13.3 / -13.3 s** |
-| | room's bytes left alone in the division | 2 / 0 | 276.1 s | 296.1 / 322.3 s | -12.1 s |
-| | loop unchanged | 2 / 1 | 277.5 s | 298.1 / 324.3 s | -10.7 / -10.1 s |
-| 5.167e13, 0.16 | 0 -> + switch | 1 / 0 | 289.3 -> 283.3 s | 309.8 -> 303.7 | -6.1 s |
-| 5.1e13, 0 | + switch (tree slack 20.0 GB, division 5.2) | 1 / 0 | 282.1 s | 302.1 / 328.4 s | -6.1 s |
-| 5.55e13, 0 | 320.3 -> 313.7 s | 1 / 0 | | 341.6 -> 335.0 | -6.6 s |
-
-Without P24: `NEWTON_DKM=1` 370.6 -> 343.9 s (-26.7), no DKM 400.0 -> 377.9 s (-22.1). The room matters: with `BS_ARENA_ROOM=0` (MS's route to 5.55e13) one prime in the tree only, about -6 s. The code decides from the pool's own free bytes at run time, so a smaller room gives fewer primes (down to none), never a larger node.
-
-**Open issues.** Target rooms are modelled (the tree's second prime is tight: 9.1 GB free per APU against 2 x 4.29 + 0.5); fragmentation inside a product could force a VMM remap (no run grew the pool; no run had the target's tight margins); the division's prime depends on DKM's unused hole (building DKM's arena layout, -19.9 GB per node, would cost the division prime: -12.1 instead of -14.1 s, about 2 s for 20 GB); `CACHE_PART_F` 1.08 and `CACHE_HIT_F` 0.96 fitted on aac6 loopback and assumed to carry; `MN_PLAN_ONLY` cannot show slots (decided at run time; the `plan cache` line states the rule); the run summary line is printed per node-process without a node label.
+Sections moved to `archive:results_merged_2026-10-24/CACHE.md` (2026-10-24 cleanup): PC15.

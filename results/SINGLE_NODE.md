@@ -1,6 +1,8 @@
 # SINGLE_NODE — single-node speed and options
 
-Scope: single-node speed and options: init, level pairing, remaining options on the defaults, development items, seed terms, combined switches. Each section below condenses the former `results/<ID>.md` (old IDs resolve through `results/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`; unabridged text: `archive:results_merged_2026-10-19/`. Numbers are measured (m) unless marked modelled (mod) or assumed (a); times Eastern.
+Scope: single-node speed and options: init, level pairing, remaining options on the defaults, development items, seed terms, combined switches. Each section below condenses the former `results/<ID>.md` (old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`; unabridged text: `archive:results_merged_2026-10-19/`. Numbers are measured (m) unless marked modelled (mod) or assumed (a); times Eastern.
+
+Sections moved to `archive:results_merged_2026-10-24/SINGLE_NODE.md` (2026-10-24 cleanup): §P; §V214; §V314; §B08.
 
 | item | title |
 |---|---|
@@ -21,104 +23,6 @@ Scope: single-node speed and options: init, level pairing, remaining options on 
 - **V314 ranking (modelled, at 1e11 / 576 nodes).** (1) decimal `mul_1` + fused seed span -9 s / -9...-11 s; (2) per-run seed terms -6.6 s (this became §T215's `BS_SEED_FILL`); (3) radix-3 pass fused into the first 2^k pass -6...-8 s / -3...-4 s; (4) reciprocal middle product -3.4 s / -1.0 s; B4 (5.2^k / 7.2^k lengths) needs a new prime set: not recommended.
 - **Combined switches.** `DBIG_SMALL_BOUNCE=1 DIST_GATHER_RAW=2 BS_SEED_PULL=1` together: -7.16 s [-8.08, -6.23] at 1 node (aac6, 6.441e10), -5.58 s [-10.54, -0.63] pooled at 2 nodes (aac7); digits identical, no memory cost; adoption is the user's decision (§CAND).
 - **Open.** `RNS_AUTO_PIECE_COST` is built in; `DIST_TWREC=1` at 1e11 and checkpoints with O_DIRECT in §V214 were never measured there (O_DIRECT checkpoints were measured in `results/OUTPUT_IO.md §IO15` and §S114); the 4-node cand round (item 7g) is not recorded here; §B08's `t_ntt` fix is a test-suite change.
-
-## §P — single-node speed: B3 planes at init, A2 level-22 pairing, DM_POOL default, I11 init, A4 tile budget (Phase 11, PLAN §26)
-
-Branch `p11` (from main 72aa2e9). Files: `rns_mul.c` (pools, striped batch path), `rns_mul.h`, init lines of `ecalc.c`, `ntt.c` (context upload); minimal edits in `rns_dist.c` (`dist_r3()` follows the plane switch, `dist_core` takes `xb | sbuf | rbuf` from pool 1 when it holds them, the grid cost model counts a 3.2^k plane at 21/20 per point). All runs aac6, 4 x 10^10, reference evicted before each timed run, digits `cmp`'d.
-
-| item | switch (default) | measured at 4 x 10^10 | adopted |
-|---|---|---|---|
-| B3: 3.2^k planes sized at init (pool 0 = 3.2^30 limbs = 24 GiB, pool 1 = 3q + 16 = 18 GiB per APU) | `RNS_PLANES_3Q30=0/1/auto` (**0**) | phases -3.6 s (top levels 13.2 -> 10.4, reciprocal -0.6, level 21 -0.2; A-grid's 15 s first-use cost gone), but 60 GB more pools cost **+4.7 / +6.3 s at init** (mapping 0.08-0.12 s/GB while the seeds stream): wall +1.0 / +2.6 s | no (code kept; `auto` = on below 5 x 10^10) |
-| A2: level-22 products (8 at 2^30 points, 4 pairs) paired in the striped batch path on 3.2^28 planes | `RNS_STRIPED_PAIR=0/1` (**1**) | level 22 2.16 -> 1.55-1.63 s (**-0.55 s**; scatter 0.350 -> 0.293, ntt 1.475 -> 1.022, crt 0.367 -> 0.342); at 7 x 10^10 the level of 14 products 2.7 s | yes |
-| §23-3: `ECALC_DM_POOL` on from 5 x 10^10 | `ECALC_DM_POOL=0/1` (**on at d >= 5 x 10^10**) | 7 x 10^10: **153.5 s** VERIFY OK (init 18.4, bs 67.3, dm 67.7: recip 32.3, division 35.4); RESULTS §75 159.7 s default, 157.2 s with the pool; 4 x 10^10 unchanged | yes |
-| I11 init: context tables and pass twiddles in one `hipMalloc` + `hipMemcpy` each; engine-2 context only for engine 2 | - | contexts 0.3-0.8 s of 1.0 s staging; init = regions 4.8 s + pools 12.4-15.7 s with the seed thread (15 s) alongside; nothing left to share across APUs (tables 8 KB per context) | yes (bit-identical, `t_ntt` 565 checks) |
-| A4 tile budget in pair mode | `RNS_BATCH_TILE_GB` (**15**) | 25.8 GB: batch tier 22.6 -> 22.5 s, transforms -0.9 s of 15.2 s, wall same (83.0 vs 81.7: init noise) | no (knob kept) |
-
-**B3 pairs (same node, same allocation, A2 on in both).**
-
-| 4 x 10^10 | s24-30 off / on | s24-26 off / on |
-|---|---|---|
-| init (pools mapped) | 13.9 (12.4) / 20.2 (18.6) | 15.6 (14.0) / 20.3 (18.6) |
-| bs | 37.4 / 34.6 | 35.9 / 32.8 |
-| dm | 31.9 / 31.0 | 30.1 / 29.6 |
-| phases | 69.3 / 65.6 | 66.0 / 62.4 |
-| **wall** | **83.3** / 85.9 | **81.7** / 82.7 |
-
-Memory with planes on: init 276.7 GB (planes 180.4, regions 95.7) vs 216.6; recip peak 322 vs 262 GB. The extra 14 GiB per APU is needed exactly at the arena donation and reciprocal peaks, so no idle memory covers it. What would make B3 pay: cheaper mapping (0.047 s/GB alone), seeds off the init path, or M's tail layout for t1 (removes 35.6 GB of in-reciprocal mapping: then +2 s init against -3.6 s phases, net about -1.5 s, a). `RNS_PLANES_3Q30=1` gives the fastest phase time measured (62.4 s). Related: grid steps (level 25 stays 3 x 1 pieces of 3.2^28, level 24 becomes one 3.2^30 plane 1.85 s, division products become 1 x 3 pieces of 3.2^30).
-
-**I11 init.** At 4 x 10^10: staging + contexts 1.0-1.1 s, regions 4.8-5.3 s (95.7 GB), pools 12.4-15.7 s (120 GB under the seed stream), peer access 0.3 s; init on the final build 15.6-17.3 s (RESULTS §75: 16.4 +- 1.1). Not done: sharing tables across APUs (xGMI reads would cost more than the one-time upload) and pool clears by kernels (none left; `hipMemset` of a fresh 22 GB is 0.01 s, the mapping is in `hipMalloc`).
-
-**Tests.** `t_mul 20` 189 checks, `t_mul 0 batch` 72, `t_ntt 24` 565 VERIFY OK; 10^9 identical in every build; 10^8 sizes 2, 4 identical; 4 x 10^10 identical in 9 runs; 7 x 10^10 VERIFY OK.
-
-**Gate (job 20828, five runs of 4 x 10^10, final build: planes off, A2 on, tile 15 GB): wall 81.99, 82.18, 82.74, 79.13, 81.26 s = 81.5 +- 1.4 s, phases 66.0 +- 0.4 s** (RESULTS §75: 83.0 +- 1.2, phases 66.7 +- 0.3), init 15.5 +- 1.1; all identical. The target of <= 79 s is not met: A2 is the only adopted phase gain; the wall spread is the init mapping (13.6-16.4 s for the same bytes).
-
-**Open.** B3's bytes vs the mapping rate under the seed stream; the transform cache at size 1 (G, not adopted) could share B3's planes; `t_dbig 24 big` with planes cannot finish on a node (host reference product); the striped pair mode is taken only by level 22 at 4 x 10^10.
-
-## §V214 — remaining one-node options on the Phase 14 defaults (Phase 14, agent V2)
-
-Branch `p14-V2` from `p14-defaults` 4855842 (all Phase 14 defaults on); aac6.
-
-**1. C2 — `RNS_AUTO_PIECE_COST=1` (off by default at the time; built in since 2026-10-12).** `rns_dist.c split_grid`: a grid of more than one piece also pays, per piece, the pipeline law's per-piece terms (results/TIME_MODEL.md §D213d): +0.087 x B points + 0.092 x nc in split_grid's units (mod); the one-plane choice is in the same loop. The mn tier and the C strategy are unchanged; digits do not depend on the grid.
-- *`MN_PLAN_ONLY` at size 1 (mod):* total pieces 4e10 84 -> 76, 1e11 156 -> 127 (div A_h mu / X Q 7 x 7 B 3.2^29 -> 5 x 6 C 2^31), 1.16e11 206 -> 152, 1.3e11 204 -> 163; unchanged at 1e10 and 7.64e10.
-- *Measured (s24-16, job 21443, same node back to back, sha1 by `dd iflag=direct`):* **1e11 off 234.55 s (bs 96.7, dm 99.9, recip 41.7, T1 20.9, corrections 0/2) vs on 206.02 s (bs 95.7, dm 94.6, recip 38.8, T1 0.0, 0/0)**, sha1 578f5efb... identical; 4e10 on 64.22 s identical (default history 63.5 +- 1.5 s). Above 1e11 (s24-26, job 21447; pair sha1s equal, VERIFY OK, no reference): **1.16e11 287.74 -> 258.80 s (-10.1 %; dm 149.3 -> 130.0)**; **1.3e11 325.17 -> 304.25 s (-6.4 %; dm 163.7 -> 147.2)**; dc 3-7 s longer with the switch (after `total`).
-- *Verdict C2: adopt* (one node, >= 4 x 10^10: -12.2 % / -10.1 % / -6.4 % of `total` at 1e11 / 1.16e11 / 1.3e11). The mn tier (576 target) is untouched.
-- *Where the 28.5 s at 1e11 come from:* dm -5.3 s and T1 -20.9 s. The T1 part is the correction count: the default 7 x 7 grid skips 21 pieces below the low cut and took 2 up-corrections; the writer starts at the hook, so a correction makes T1 wait 20.9 s and then redo the digits and rewrite the file (dc 57.0 vs 22.5 s; srun wall 294 vs 231 s). The 5 x 6 grid skips 10 pieces: 0 corrections; data-dependent, not guaranteed. **Finding:** the defaults pay about 21 s of `total` and 35 s more of dc for two corrections; a correction test before the hook (or fewer low-cut skips) would remove it.
-
-**2. DIST_TWREC=1 at 1e11 — not measured** (stopped by the integrator). Modelled: on the defaults it only reaches the C-form products (14, 11.97 s of 234.5 s), saving well under 1 % of `total`; with `RNS_AUTO_PIECE_COST=1` the C-form share is 90 products / 75.8 s, so if TWREC is ever adopted it is together with C2. Verdict: no evidence to adopt; open.
-
-**3. Checkpoints with O_DIRECT — not measured here** (batch never started; later measured in `results/OUTPUT_IO.md §IO15` 2.4 and §S114).
-
-**Other findings.** `mnaccept unit,e9`: 9 passed, 1 failed (`t_bs` segfault rc 139): **`t_bs` segfaults on the base 4855842 too and passes with `DB_POOL_VMM=0`**: the Phase 14 default `DB_POOL_VMM=1` (t_bs writes pool memory from the host), not this branch. 1e11 runs first stopped at the budget check (rc 8, 513 GB counted), fixed by the integrator's 2085d1e. The e_1e11 reference sha1 (578f5efb...) took 943 s to read from the shared FS and is kept. Open: items 2 and 3, t_bs vs the VMM default, the correction-after-hook cost.
-
-## §V314 — the remaining development items (PLAN §33.2 B1-B7, APUMULT E11), with numbers (Phase 14, agent V3)
-
-Branch `p14-V3` from `p14-defaults` 4855842. **No pipeline code changed**; prototypes and models only (`tests/v3_*`), logs in `results/V314/`.
-
-**0. Answer in one table.** Reference: **1e11 on one node, current defaults, 215.9 / 217.1 s** (s24-30, job 21436: init 17.2 / 18.5, bs 96.3 / 96.6, dm 101.6 / 101.2, recip 43.0 / 42.7). 576 nodes at 4.25 x 10^13: 244.9 s (mod, fabric assumed).
-
-| rank | item | 1e11 one node | 576 target | effort / risk |
-|---|---|---|---|---|
-| 1 | B1 / TASKS 2.2: decimal `mul_1` + fused span (`bigint.c mul1_serial`, `binsplit.c span`) | **-9 s (-4 %)** to the mapping floor (mod from measured parts) | -9...-11 s (mod; the model lacks this term) | 1/2-1 d, low (prototype 0 mismatches) |
-| 2 | `BS_SEED_TERMS` chosen per run (rule in `seed_limbs`) | **-6.6 s (-3 %)** m, one run (S = 168); 4e10: **-5.5 s (-8 %)** (S = 236) | -3...-7 s (a) | 1/2 d + series, low; **became §T215** |
-| 3 | B5: radix-3 pass fused into the first 2^k pass (`ntt3.c`, `ntt.c`) + `pick_len` preferring 2^(k+2) at k <= 12 | -6...-8 s (mod from measured pass share) | -3...-4 s (leaf only) | 2-3 d, medium |
-| 4 | B2: reciprocal Q_t.r as a middle product (`recip_db2 / recip_mn`: lowcut and highcut) | -3.4 s (mod) | -1.0 s (mod) | 1 d, low |
-| 5 | B5: general-map twiddle packs (`k_twpack_g`) | 0 | -2...-3 s (a) | 1-2 d, medium, multi-node only |
-| 6 | E11: band-sized t1 + chunked division window | 0 s; one-node ceiling 1.41 -> 1.52 x 10^11 at 480 GB (mod) | 0 s; 424 -> 407 GB per node, 576 ceiling 9.2 -> 9.8 x 10^10 per node (mod) | 3-4 d, medium; memory only |
-| 7 | B5: the 2^31 plan's 5-stage top pass | <= -1 s (mod) | <= -0.3 s | 1-2 d |
-| 8 | B4: lengths 5.2^k, 7.2^k | -3 s (a; item 2 removes the same padding free) | -0.3...-0.8 s (mod); does not soften the target's steps | **>= 2 weeks (new prime set: no current prime has 7 | p-1; only p0 has 5)**, high; not recommended |
-| - | seeds before planes (2.1), seeds on GPU (6.4) | ~0 after item 1 | ~0 | mapping floor binds |
-| - | B2 piece loading (2.3) | closed: recip 45.6-45.9 -> 43.0 / 42.7 s m | - | done |
-| - | B6 tier balance, B7 CPX / SDMA | <= 0.3 s / ~0 | 0 | not recommended |
-
-Recommended order 1 -> 2 (five-run series) -> 3 -> 4 -> 5; items 1-4 together about -25 s at 1e11 (-12 %, not exactly additive), -15...-20 s at the target (-6...-8 %).
-
-**1. B1 — initialization and the seeds.** The seed thread (`binsplit_seeds_begin`) computes level-0 spans (256 terms, Horner) on all cores and, under `DB_POOL_VMM`, stages them through two 8 GB pinned buffers into the region arenas; since `RNS_PLANES_FIRST=1` it starts after the plane pools. **At 1e11 on the defaults (2 runs): init 17.2 / 18.5 s; the seed thread 30.9 / 31.1 s (spans 22.0 / 21.9 s); bs waits for the seeds 19.7 / 20.5 s after init, 9 % of the wall** (older defaults 13.1-13.8 s at 1.03e11). **Prototype `v3_span_bench` (96 threads, 400 000 spans, 0 mismatches):** pipeline `span()` 3.36 / 4.38 / 5.68 ns per term at k = 4e9 / 1e10 / 3.5e12; fused P += Q; Q *= k with a double-estimate quotient: **x1.69 / x2.11 / x2.19**; widened Barrett x1.10 / x1.65 / x1.45. `mul1_serial` takes its Barrett step only for m < 2^33, and at the target every node but the first two has k > 2^33, so one-node runs understate the target's seeds by about 29 %. Benefit: the seeds cannot end before the second half of the arena is mapped (floor about 28 s, mod); the fused spans take about 12.6 s so the seeds end at about 27.5 s: -9 s at 1e11; at the target's top node -9...-11 s (mod). The model's init/bs laws are fitted on k < 2^33 runs, so item 1 mostly secures the modelled 245 s.
-
-**2. The seed span as a padding knob (`BS_SEED_TERMS`).** The batch tier's first products have nc = 2 x span limbs and take the next 2^k (3.2^k from 3.2^10): at 1e11, 286 limbs -> 512 points (1.79x), then 1.34x from level 4. One run each (VERIFY OK):
-
-| run | total | init | bs (seeds wait / batch / mdev) | dm | batch ntt |
-|---|---|---|---|---|---|
-| 1e11 S = 256 (default), 2 runs | 215.9 / 217.1 | 17.2 / 18.5 | 96.3 / 96.6 (19.7-20.5 / 37.3 / 38.7-39.0) | 101.6 / 101.2 | 25.3 |
-| 1e11 **S = 168** | **209.3** | 16.8 | **86.7** (14.8 / 37.2 / 34.5) | 105.0 | 21.2 |
-| 4e10 S = 256 | 66.7 | 11.1 | 32.0 (8.2 / 15.7 / 8.1) | 23.5 | 10.6 |
-| 4e10 **S = 236** | **61.1** | 11.6 | **26.3** (8.3 / 13.1 / 4.8) | 23.1 | 7.5 |
-| 4e10 S = 176 | 62.2 | 12.8 | 26.2 (6.3 / 15.7 / 4.1) | 23.1 | 8.8 |
-
-Gains come from fewer seed CPU (proportional to S), less batch padding and a different batch/mdev split (mdev 8.1 -> 4.1-4.8 s at 4e10). dm at 1e11 S = 168 is +3.4 s (one run; shown real in §T215).
-
-**3. B5 kernels.** Radix-3 pass (APU0, 3.2^29 points per call, median of 5): of a 3.2^k forward transform the r3 pass is 49.8 % at k = 10, 39.3 % (12), 32.7 % (17), 23.8 % (22), 19.9 % (28), 19.8 % (29); inverse 45.3 -> 18.6 %. The pass moves 25.8 GB in about 16.3 ms (1.58 TB/s): memory-bound, so a reduced-correction modmul gains about 0; fusing it into the first 2^k pass removes most of it. At k = 10 a 3.2^k transform costs **1.23x a 2^(k+2) transform** of the same product (1.06x at k = 12; wins from k about 17), so `pick_len` should take 2^(k+2) for k <= 12 (bit-identical). Benefit (mod): batch ntt 25.3 s at 1e11, about 30 % of it the r3 pass -> -4.5 s at 70 % recovery, plus -3 s in the dm / mdev B pieces: **-6...-8 s at 1e11, -3...-4 s at 576**. The 2^31 plan's top pass (K13b 26.1 ms -> 21.5 ms: -4 ms per 2^31 transform): <= 1 s at 1e11. s_lo 17/24 penalty remains at 2^24 only (<= 0.2 s). General-map twiddle packs (576 = 2^6.9 levels, about 94 s of the modelled wall): -2...-3 s at 576 (a), 0 at one node.
-
-**4. B2 — the reciprocal.** u = t1 >> (take - j) is fixed by its low j + 2 limbs (|u - B^2j| < B^(j+1)), so Q_t.r is needed only on [v, v + j + 2): mul_grid's `lowcut` = v - 2 and `highcut` = v + j + 4 (both exist); one-plane products become a cyclic convolution of length >= 2j + 3 instead of 3j + 3. Modelled: at 1e11 the top doubling's 9 x 3 grid forms 20 instead of 24 pieces; reciprocal 52.8 -> 48.6 s (mod), about **-3.4 s** at the measured scale (-1.6 % of the wall); 7.64e10 -1.6 s, 1.3e11 -5.6 s; 576: -1.0 s (-0.4 %). TASKS 6.3's -25...-35 % does not hold (the cut already took the easy part; r.d cannot shrink).
-
-**5. B4 — lengths 5.2^k / 7.2^k.** The primes are c.2^44 + 1 with c = 240, 216, 207 (`modarith.h`): only p0 has 5 | p-1, none has 7; every prime of a product must support the length, so a **new three-prime set** with 105 | c and CRT margin (today 6.8 at 2^33 points) is needed: >= 2 weeks, high risk. Benefit (mod): target 244.9 -> 244.1 s (the target's grid steps are counts of cap-sized pieces and more lengths do not soften them); one node about -3 s at 1e11, which item 2 gets without code. Not recommended.
-
-**6. B6 / B7.** B6: the alternative that gives APU 3 residues was 3-7 % slower (B13b), striped batch idle <= 0.3 s at 4e10 (P3), B at size > 1 stays C: about 0. B7: CPX makes each APU six devices (against the dist tier) and needs an administrator; SDMA: the division's X fetch is 0.87 s off the critical path: about 0.
-
-**7. E11 — band-sized reciprocal products and chunked window (mod).** `dm_layout` reserves t1 at Q_t r's full 3j size and the window at nq + k limbs. One-node ceiling 480 / 502 GB: as built 1.41 / 1.50 x 10^11; band-sized t1 1.46 / 1.56; chunked window alone no gain (top bs levels bind); **both 1.52 / 1.64 x 10^11**; node at 1e11 378 -> 364 GB; at 576 424 -> **407 GB**, ceiling 9.2 -> 9.8 x 10^10 per node. Not the 2.1-2.3 x 10^11 of APUMULT_STUDY (that assumed P and Q spilled, rejected in L114; 2e11 needs 590 GB without them). Time effect: item 4's, 0 for the window.
-
-**8. Where the target's wall goes (mod, 576 nodes, 4.25 x 10^13, fabric assumed):** 244.9 s = init 23.6 + batch 28.9 + top 24.0 + distributed levels 86.6 (29.3 exposed) + reciprocal 30.2 (12.2 exposed) + division 29.1 (12.1 exposed) + part file 22.3; per-node compute about 169 s (69 %). Model lacks `NEWTON_RECIP_CUT` at 576 (about -1.9 s) and the seed term of §1 (about +10 s): net about 8 s optimistic (derived).
-
-**9. For the integrator.** The budget check stops 1e11 on one node on the defaults (`rc 8`, peak 513.2 GB: regions 259.9 + block pool 124.6 (borrowed) + planes 103.1; measured runs with `ECALC_BUDGET_CHECK=0` completed with host HWM 27 GB, MemAvailable >= 152 GB; the borrowed pool appears counted on top of its regions). The target's part file (22.3 s exposed at an assumed 2 GB/s) is larger than any B item: measure the target SSD early. **Tests:** node batch job 21436 (s24-30): bench.log, e11_def, e11_def2, e11_s168, e4_def, e4_s236, e4_s176, all VERIFY OK (S runs digit-exact by construction, not compared byte for byte).
 
 ## §T215 — `BS_SEED_TERMS` chosen per run so the batch tier fills its transform lengths (Phase 15, row 1c)
 
@@ -172,7 +76,7 @@ dm 101.21 s (mean of 3) at S = 168 vs 99.15 s at 256: **+2.06 s**, in "A mu + sh
 
 ## §CAND — the three off-by-default speed switches combined (interaction test)
 
-Branch `cand` (off main a448d73): squashed from `o2` (`DBIG_SMALL_BOUNCE`, results/DIVISION.md §O2), `k1b` (`DIST_GATHER_RAW`, results/EXCHANGE.md §K1b), `k8b` at 99eee11 (`BS_SEED_PULL`, results/MEMORY.md §K8b); no textual conflicts; switch registry regenerated (269 rows, 0 problems); all switches off by default. Arms: A = main binary (85d9d73f), switches unset; B = cand binary (7e7cd7da) with `DBIG_SMALL_BOUNCE=1 DIST_GATHER_RAW=2 BS_SEED_PULL=1`; 6.441e10 digits per node, aac7 line, no digit writes; paired AB/BA; every run VERIFY OK (aac7 24/24, aac6 8/8); gates PASS (aac7 2 nodes all on, 1e9 identical; aac6 1 node).
+Branch `cand` (off main a448d73): squashed from `o2` (`DBIG_SMALL_BOUNCE`, results/DIVISION.md §O2), `k1b` (`DIST_GATHER_RAW`, results/EXCHANGE.md §K1b), `k8b` at 99eee11 (`BS_SEED_PULL`, archive:results_merged_2026-10-24/MEMORY.md §K8b); no textual conflicts; switch registry regenerated (269 rows, 0 problems); all switches off by default. Arms: A = main binary (85d9d73f), switches unset; B = cand binary (7e7cd7da) with `DBIG_SMALL_BOUNCE=1 DIST_GATHER_RAW=2 BS_SEED_PULL=1`; 6.441e10 digits per node, aac7 line, no digit writes; paired AB/BA; every run VERIFY OK (aac7 24/24, aac6 8/8); gates PASS (aac7 2 nodes all on, 1e9 identical; aac6 1 node).
 
 **aac7, 2 nodes (item 7e round 1, rerun as round 2), paired B - A:**
 
@@ -204,15 +108,3 @@ aac7 runs 2026-10-07 21:02-21:13 on hold 12377 (and a CPX node for R2); all rc 0
 **5. A37-Q4 forward NTT at 2^31, real vs NOP-modmul (`t_ntt` vs `t_ntt_nop`, 2 runs each, median of 5).** Whole L31 forward 90.39 / 90.56 ms real vs 76.65 / 76.87 NOP: **modmul 13.7-13.8 ms (15 %)**, structure + HBM 76.7 ms; passes (real - NOP): pass 0 [26..30] 6.5 ms, pass 1 1.9, pass 2 2.3, pass 3 [0..11] 1.6-2.3 (24 ms vs 17 for the others, NOP at 1.4-1.46 TB/s vs 1.8-2.0 for passes 0-2); inverse 92.8 vs 76.5-77.0 (16); L28 10.3 vs 9.1-9.2 ms; L24 0.58 vs 0.555 ms. Production plan at 2^31 is 4 passes; today's build 90.4 ms (K13b earlier 99-100 ms). Split (mod, taking a37v1's HBM floor 51 ms (a)): 51 HBM + 17 extra pass + 9 structure + 14 modmul = 90 ms (a37v1: 144 = 51 + 50 + 43). Headroom: the extra 4th memory pass (about 17-20 ms, 20 %); a 3-pass plan at 2^31 is the only large lever left; WbPowTab-style twiddle seeding gains at most pass 0's 6.5 ms (mod); real - NOP is an upper bound on the modmul share (NOP may change scheduling).
 
 **6. Decisions for the user.** A37-R1 GPU seed: (a) no-go now and measure `ECALC_INIT_TL=1` on the target first (minutes of target time), (b) build it (2-4 days for 0-6 s, mod). A37-R4 fmt18: drop (frees an S item; T1 residues remain the only 2 s). 3-pass NTT at 2^31: (a) investigate (up to about -17...-20 ms of 90 per forward, mod; M-L effort), (b) leave.
-
-## §B08 — how fast can the unit tests be? (2026-10-11, branch b08)
-
-**1. Tasks per step.** On aac7 (1-node hold 12545) and aac6 s24-16 (hold 22908) `srun -N1 --mem=0 --gpus=4 [-n1] --overlap bash -lc ...` starts **1 task** with and without `-n1`; B05 §9's "4 copies" was not reproduced (likely B05's hold had a larger task count; a 2-node hold on aac7 not tested). Kept as a harmless guard: `R()` and `N()` use `-n1`.
-
-**2. `t_ntt 24`, one task.** aac7 `-c 192` OMP 192: 285.9 s (section 3 convolution 266 s); `-c` unset: 276.2 s; aac6 s24-16: timeout at 420 s stuck in section 3 (with or without `-c 48`). One `t_ntt` thread at 80-95 % CPU, all four GPUs at 0 %: **a single-thread host wait, `-c` / `OMP_NUM_THREADS` do not matter.** Cause (`tests/t_ntt.c` section 3b): `for (i = n; i-- > 0;) { mpz_mul_2exp(C, C, 16); mpz_add_ui(C, C, hz[i]); }` is O(n^2) (n up to 2^20). **Fix:** carry-propagate into 16-bit limbs and one `mpz_import` (O(n)); same integer, same checks.
-
-**3. After the fix (aac6 s24-16, `-n1`):** 8.6 s (`-c` unset) / 8.3 s (`-c 48`, OMP 48), VERIFY OK (3215 checks); before > 420 s (aac6), 276-286 s (aac7): about 30x on aac7 (mod), > 49x on aac6.
-
-**4. Whole suite `mnaccept.sh --skip-grid --only unit,e9` (aac7 1 node, before the fix):** 755 s, 8 passed, 2 failed: `t_bs` (`ref/e_1000000.sha256` missing, `ECALC_REF` not set) and `t_ntt 24` (rc 137 at 137 s into section 3, a SIGKILL not sent by this run, cause unknown, doubt); a partial figure. Modelled with the fix: about 630 s (not run). e9 base 10 13.9 s, base 2 29.0 s, identical.
-
-**5. Recommendation.** Adopt the `t_ntt.c` section-3b fix (saves about 4.5 min of every unit run on aac7, removes the > 7 min hang on aac6); leave `MNRUN_CPUS_PER_TASK` as is (no difference unset / 48 / 192); keep `-n1` in `R()` / `N()`; set `ECALC_REF` in unit runs so `t_bs` passes; one final full-suite timing after merge (about 630 s, mod). Open: the `t_ntt` rc 137 cause; 2-node hold task count on aac7 untested.

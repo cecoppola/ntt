@@ -1,6 +1,8 @@
 # CODE_REDUCTION — shrinking the code
 
-Scope: audits, shrink passes, settings-removal waves, validation of the reduction, the limb-format study (decimal vs binary) and the host product tier removal. Old item IDs resolve through `results/INDEX.md`; raw data and drivers are in `archive:results_raw_2026-10-19/`. Labels: m measured, mod modelled, a assumed.
+Scope: audits, shrink passes, settings-removal waves, validation of the reduction, the limb-format study (decimal vs binary) and the host product tier removal. Old item IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`; raw data and drivers are in `archive:results_raw_2026-10-19/`. Labels: m measured, mod modelled, a assumed.
+
+Sections moved to `archive:results_merged_2026-10-24/CODE_REDUCTION.md` (2026-10-24 cleanup): §AUD2; §SHR2; §H1; §H2; §H5.
 
 ## Topic summary
 
@@ -15,27 +17,6 @@ Scope: audits, shrink passes, settings-removal waves, validation of the reductio
 - **Live conclusions.** The reduction was digit-safe at 10^11 and speed-neutral at 6.441e10 (L2); removed paths were off at the defaults, so no timing was needed except SIMP, B3 (null) and H4/H5.
 - **Still open (not done).** Dead `struct acc` `flat` branches in `rns_dist.c` (about 25 lines); `rns_stats` host-tier fields and ecalc's `n_mdev` / `n_split` print lines; duplicate Garner `dmod128/192`; `mn_powmod` / `powmod_h`; `k_store`/`k_copy_h2d` partly merged (SH3); AUD3 items 5-10 (size 1 through the sharded driver, P24 only, `tree_level` fold, one writer, one `mdb_add_shifted`, one transform cache); AUD3 decisions 11-13 (11 and 12 done as D5/D11; 13, the SHMEM data path, kept until the target's A3 stage); `LIMB_BASE` guard row. X2 + cut last group symmetric-offset hazard (O8) is documented, no guard built.
 - **Superseded.** AUD2 items 1, 4, 5 (part), 6, 8 (part) by SHR2/SH3; AUD3 items 1-4 by SIMP; the host tier open issue of SH3/SHR2 by TREF; H1's t_mul decimal stall by TREF's residue reference and H4 §7.2.
-
-## §AUD2 — removal / consolidation audit of C/HIP sources, tests and Makefile (read-only, 2026-10-12)
-
-Base main 4f7a103; nothing edited. Method: scripted scan of every function definition in `ecalc/*.c|h` for callers (transitive), tests vs TESTING.md / gate / accept scripts, Makefile rules, duplicate bodies (hash), `#if 0` / single-use defines, header declarations without definition.
-
-**Result (m): about 1620 removable lines (items 1-9) plus up to 790 lines of history comment blocks (item 10, upper bound).** Only about 290 are in `ecalc/*.c|h`; the bulk is tests and on-demand probes.
-
-| # | item | lines (m) | risk |
-|---|---|---|---|
-| 1 | tests with no Makefile rule: `t_nicbw.c` 259, `t_a2a_sched.c` 140, `t_school.c` 49, `n3x_lengths.py` 28 | 476 | low |
-| 2 | CPU seed-leaf microbench `b_seed64.c` + rule | 274 | low |
-| 3 | GPU gather micro-probes (3 files + rules; shared `k_diff` / `k_fillsrc`) | 271 | low |
-| 4 | pack/unpack benchmark and reference kernels (`dist_pack_bench`, `gen_pack_bench`, `DIST_PBENCH`/`DIST_GBENCH` blocks of `t_dist`) | 226 | low-med |
-| 5 | test-only API: `ntt_host_fwd/inv`, `ntt_pass*`, `rns_mul_dist`, `vf_digits_mod`, `dist_inv_t*`, `ec_shoup_lazy`, one-liners | 165 | med (tests edited) |
-| 6 | functions with no caller anywhere (`rns_ensure_staging`, `rns_mul_dist_hd`, `db_pregrow`, `db_pool_*`, `comm_layered_create_minor`, `bi_mul_school`, `bi_sub_shifted`, `bi_bits`, `k_twiddle*`, `ec_add/sub/shoup*`, ...) | 126 | low |
-| 7 | `t_bounce.c` (O2 microbenchmark) + rule | 41 | low |
-| 8 | duplicated helpers (`k_store`=`k_copy_h2d`, `dmod128`=`p24_dmod128`, `dev_pow_table`=`pow_table`, `powmod_h`=`mn_powmod`, `make_mdb`, `digits_format`, `verify_done`) | about 26 net | low-med |
-| 9 | NOP-modmul bench build (`ntt_nop`, `NTT_NOP_MODMUL` blocks) | about 15 | low |
-| 10 | long history comment blocks (787 lines in blocks of >= 10 lines; about 990 lines carry phase/result tags) | up to about 790 | judgement |
-
-Checked and clean: no `#if 0`; no header declaration without definition; no single-use defines or unused statics. Live `#ifdef` forks: `COMM_HOST_ONLY`, `MN_OUT_LLAPI`, `EC_PRIMES` (hard-wired 1; the 0 branch only for `t_roots`), `NTT_NOP_MODMUL`. Tests in `make all` not named in TESTING/gate/accept (`t_roots`, `t_alloc`, `t_copy_order`, `t_hred_race`, `t_cap`, `t_strategy`, `t_seed`, `t_primes`, `t_ntt3`) are cited as evidence and kept; doc gap: TESTING.md should list `t_strategy`. Order: items 4 and 6 after lane A (more orphans expected after A5); 1, 2, 3, 7, 9 any time (archive, do not delete). The scan is name-based (macro-pasted names would be missed; none seen).
 
 ## §AUD3 — where ecalc's algorithms and code structure can be simpler and smaller (read-only audit, 2026-10-12)
 
@@ -59,7 +40,7 @@ Question: which duplicate paths, tiers and layers can be merged or removed and a
 
 Smaller items: `mn_group`'s transform-node subset (`gt`, `tr`) is a leftover of `MN_TOPO_GROUP`; `mn_prod_cut_x1` never triggers at target sizes; two start-up self-tests (`mn_selftest`, `mn_selftest_layered`) overlap.
 
-Considered and not recommended: general map for every group size (its exchange is 2.3-2.4x slower per APU thread at 6 nodes, `results/TIME_MODEL.md §S48`, m); one batch form (striped form serves the few large upper-level products); fewer NTT kernels (`plan_auto` needs the partial passes, `results/KERNELS.md §K13b`).
+Considered and not recommended: general map for every group size (its exchange is 2.3-2.4x slower per APU thread at 6 nodes, `results/TIME_MODEL.md §S48`, m); one batch form (striped form serves the few large upper-level products); fewer NTT kernels (`plan_auto` needs the partial passes, `archive:results_merged_2026-10-24/KERNELS.md §K13b`).
 
 Handed to AUD2: the host product tier (about 270 lines of `rns_mul.c`, only caller an unreachable branch; tests use it as reference), `ckpt_hdr.mdev_host`, `mn_out_scatter_standin`.
 
@@ -99,33 +80,6 @@ Verdict: do items 1-4 first (about -450 lines, no time cost at the defaults); 5 
 **Host product tier (about 270 lines) kept; design for removal** (executed in §TREF): a residue-form reference (three 61-bit primes, exact low 64 limbs, top limbs from the leading 64) for large sizes; GMP below 2^20 limbs via a product-tree base conversion; then drop `rns_mul`, `rns_mul_low`, `rns_mul_mdev`, `rns_mul_pair`, `mdev_core`, `mul_karatsuba`, `mul_chunked`, `mul_rec`, `mdev_gpu_crt`. Risk: tests lose an independent code path; run the residue check on the device path at a second plane size first.
 
 **Gates (aac7, m).** gate 2 n PASS (P24, 21.91 s), gate 1 n PASS (10.49 s), `mnaccept --only unit,e9,mn`: 15 passed, 0 failed, digits identical; doccheck 0.
-
-## §SHR2 — shrink pass 2: top-level checkpoints only, the unreachable stand-in, SOS/OSHMEM builds, AUD2 re-scan (2026-10-12)
-
-**Question.** Remove the code the user approved on 2026-10-12 (D11, D16, D14) plus re-scanned AUD2 items and the residue log, without changing a digit. Branch `shr2` on main d1d19bf, eleven commits. No switch added, no default changed.
-
-**Removed (lines +/-, m).**
-
-| item | what | +/- |
-|---|---|---|
-| D11 | leaf-level snapshots and restart, tree sets, restart scan, abort hooks, checkpoint counters; 8 switches (`BS_CKPT_EVERY`, `BS_CKPT_MIN_LEVEL`, `BS_RESTART`, `BS_CKPT_TREE`, `BS_CKPT_TREE_EVERY`, `BS_CKPT_ABORT`, `BS_CKPT_ABORT_TREE`, `BS_CKPT_ABORT_NODE`). Top-level set (`ECALC_CKPT_TOP`, background writer, header v3, v2 still read) stays; `BS_CKPT_DIR` only names its directory. mnaccept `ckpt` step tests the top set, `sched` step gone | +99 / -461 |
-| D16 | `out_stage`'s stand-in scatter branch, `mn_out_scatter_standin` | +6 / -34 |
-| D14 | Makefile SOS and OSHMEM branches, `COMM_SHMEM_SOS`/`OSHMEM` code, README rows `COMM_SHMEM_SERIAL`, `COMM_SHMEM_DEVHEAP`, `COMM_SHMEM_ORDER`. Cray path unchanged | +34 / -109 |
-| AUD2 6 + AUD3 | about 17 callerless functions, `comm_layered_create_minor`, the unreachable host `rns_mul_pair` branch of the mdev levels | +14 / -151 |
-| AUD2 4 | `dist_pack_bench` and its kernels, `DIST_PBENCH`, `DIST_PSIZE` | +6 / -136 |
-| AUD2 1 | `tests/t_nicbw.c`, rows `NICBW_*` | +2 / -268 |
-| AUD2 5 (part) | `t_ntt bench` (K13/K13b microbenchmarks), `ntt_pass*` | +0 / -231 |
-| AUD2 8 (part) | one `digits_format` in `harness.h` | +13 / -22 |
-| RES_LOG | `ECALC_RES_LOG`, `_LEVEL`, `_CPU` and every check they enabled | +6 / -121 |
-| total | 39 files | **+178 / -1531** |
-
-Registry rows (m): **186 before, 170 after** (16 removed: 8 checkpoint, 3 residue log, 3 `NICBW_*`, `DIST_PBENCH`, `DIST_PSIZE`). Archived: `removed_2026-10-12/ecalc/tests/t_nicbw.c` and, under `removed_2026-10-12/shr2/ecalc/`, the pre-change `ntt.c`, `tests/t_ntt.c`, `ntt_dist.c`, `tests/t_dist.c`.
-
-**Gates (aac7, m; queue items 81, 82, 83, SHMEM build rc 0, 0 warnings).** Gate 2 nodes P24 forced: PASS, identical (20.40 / 17.05 / 23.91 s); gate 1 node PASS (11.72 / 11.86 / 12.70 s); unit tests PASS (`t_mn_grid` 180 checks); e9 size 1 PASS; `ckpt`: top set written and read by the recheck (3 RECHECK OK), budgeted drop (`ECALC_CKPT_TOP=2`, 1 MB/s emulated: 2 ABANDONED, no header), `BS_CKPT_DIR` alone writes nothing; `recheck` e9 size 1 and e8 size 2 PASS (corrupted copy fails). Totals are single runs on a shared machine, not timing claims; removed code was off at the defaults.
-
-**Verdict.** Merged: all gates and mnaccept steps PASS with digits identical; 1531 lines and 16 settings fewer.
-
-**Open (left for later).** Host product tier (done in §TREF); `rns_dist.c` items (done in §SH3); `mn_powmod`/`powmod_h`; `newton_dkm_set` stays (tests' override); duplicate device Garner (`dmod128/192`) and `k_store`/`k_copy_h2d` need their own codegen check; `make_mdb`; kept as test oracles: `ntt_host_fwd/inv`, `crt_garner3/4`, `db_pool_extents`, `db_mod_q`, `db_set_base_pow`, `vf_digits_mod`, `tier1/tier2`, `dist_inv_t`, `ec_shoup_lazy`. `t_ntt bench` is cited by `results/KERNELS.md §K13`, `§K13b`, `results/KERNELS.md §NTT3P` (history; code in the archive).
 
 ## §W2A — wave 2, lane A of the user-approved settings removal (2026-10-12)
 
@@ -193,34 +147,6 @@ New = main a1569d5 (B02: -36 switches, -1354 core lines) vs old = tag `archive/p
 3. **Branches (TASKS #8; proposal only, nothing deleted).** Tags `archive/s24`, `s25`, `s37`, `s50-gather-tile` kept; s35 fully on main (remove worktree and branch); s50 (DIST_GATHER_TILE, null at all scales, do not adopt) branch deletable after user agrees; remote `claude/confident-mayer-yx23pt` ancestor of main (delete); c07, t12 unmerged (leave); h1 at main.
 4. **Stale rows.** #3 (S39 candidates) all built and measured: k_addsub2 -> K2 `DBIG_ADDSUB3`, k_modq -> K3 `DBIG_MODQ_MONT` (both default), k_crt_batch -> K4 `RNS_CRT_SUB` (no gain); closed. #11/#19/#30/#32 (4-node bimodality): A13 (4 nodes, aac7): NIC MCU counter group A (oxe_mcu_meas 18-25) 10.2 vs group B (28-33) 12.1 GB/s, group drawn per launch; A14 (2 nodes, 86 launches): p(A) about 0.5 but the 2-node rate is the same in both groups (6.59 vs 6.59 GB/s); cause of the draw unknown, not arm/node/rank/order; a pre-run probe has no predictive value (C04 corr -0.06 / -0.20). #20/#14 superseded by `tools/initchk.py` (A03/A06); #38 closed.
 
-## §H1 — PLAN.md 28.4 measurement, single-node part (decimal vs binary limbs, no code changed)
-
-2026-10-11, commit 0298fe2, one aac6 node (4 APUs); each test run with `LIMB_BASE=2` and `LIMB_BASE=10`; single runs (pass/fail and wall time only, not timing claims; m).
-
-| test | base 2 | base 10 | class |
-|---|---|---|---|
-| t_ntt 24 | OK (2360) 8.6 s | OK 10.5 s | pass both |
-| t_mul 20 | OK (185) 254 s | **no result in 900 s**; with a throwaway patch skipping the 6 largest batch cases: OK (181) 783 s | (c) oracle cost |
-| t_bs | OK (10) 23.8 s | OK 25.7 s (first run failed only for missing SHA-256 reference files in a fresh clone) | pass both |
-| t_dbig 0 | OK (555) 17.4 s | OK 19.0 s | pass both |
-| t_newton 20 | OK (620) 26.6 s | OK 83.4 s | pass both |
-| t_crt | OK (12) 30.1 s | OK 12.2 s | pass both |
-| t_verify | OK (334) 2.4 s | OK 3.0 s | pass both |
-| t_out, t_patch | OK 11.3 s, 175.5 s | OK 11.5 s, 176.9 s | base-independent |
-| t_mn_grid (2 procs, 1 node) | OK (180) 158.0 s | OK 143.9 s | pass both |
-| t_dec | OK (26) 27.9 s | FATAL rc 3 ("bi_shl by bits ... not valid in the decimal base") | (a) base-specific by construction |
-| ecalc 10^9, size 1 (e9) | identical, 20.83 s | identical, 11.40 s | pass both |
-
-**t_mul decimal stall (c).** Section 4 (3000 x 2^17, tiles) made no progress for 900 s: the verification loop converts every operand and product through the GMP decimal-string bridge. Inferred from code and progress, not profiled. The six skipped cases (3000 x 2^17, 2^22 max, 2^20 CPU CRT, 2^17, 2^18, 2^14 x 40000) were not verified in decimal by this run; e9 exercises large decimal products indirectly.
-
-**Verdict.** No real disagreement (class b). One class (a) (t_dec), one class (c) (t_mul checks too slow). Decimal ecalc is faster (11.4 vs 20.8 s at 10^9); decimal `t_newton` 3.1x slower in the test (GMP-bridge cost). Open: a faster decimal oracle for t_mul (done: §TREF, §H4 7.2). Branch `h1`, nothing merged.
-
-## §H2 — PLAN 28.4, multi-node part: t_mn_grid in decimal vs binary limbs on aac7 (2026-10-11)
-
-Measurement only. Build 0298fe2 (SHMEM). `COMM_TRANSPORT=shmem LIMB_BASE=<10|2> ./tests/t_mn_grid 1 28` under `mnrun.sh <p>`, p = 2..6, one 6-node hold (queue item 98_h2_mngrid). QOS `normal` allows 6 nodes per user (`sacctmgr`, m), so 6 is the maximum used.
-
-Result (m): every run passes in both bases at 2, 3, 4, 5, 6 processes (including the non-power-of-two general map); p = 2 base 10: 204 checks, 0 failed. Wall times (s, single runs incl. launch), base 10 / base 2: p2 109 / 113, p3 105 / 110, p4 157 / 170, p5 156 / 169, p6 159 / 168; decimal equal or slightly faster. Not repeated: mnaccept `mn`, `ckpt` steps (one node, default decimal) and e9 (both bases run elsewhere). Driver `tools/h2_mn_grid_bases.sh`.
-
 ## §H4 — PLAN 28.5 on branch `h4`: the binary limb pipeline archived, decimal limbs only
 
 Branch `h4` off main 0298fe2 (the user decides the merge after measured results). Readiness plan `archive:results/H3.md`.
@@ -245,23 +171,6 @@ Branch `h4` off main 0298fe2 (the user decides the merge after measured results)
 - Conclusion (m): the timeouts were test cost, not hangs or defects. `mnaccept.sh` unit step limit for `t_mul 20` raised to 1800 s (1.9x margin; 1200 s left 1.34x on CPX); new drivers should use 1800 s for t_mul 20 and 1500 s for `t_newton 26` device (1000 s host); `accept.sh` has no timeout.
 
 **Open.** The user's merge decision (binary vs decimal only; H5 below is the evidence); H3 step 6 (kernel `decimal` arguments) left for a separate timed change. aac6 `ckpt e8 size 2` FAIL seen in an H4 phase C driver ("3 nodes exited; restart rc 0; identical") was not investigated there.
-
-## §H5 — decimal (LIMB_BASE=10) vs binary (LIMB_BASE=2) limb pipeline, paired wall clock
-
-**Question.** How much slower is the binary limb pipeline? Prior evidence: single unpaired 1e9 runs, 11.4 s decimal vs 20.8 s binary (m).
-
-**Design.** aac7 queue item 52 (`tools/h5_item.sh`, 2 nodes, runs 1 node): the `h4main` worktree (main before binary removal, both bases in one binary, SHMEM build), launch line `LINE` of `e16_headline.sh`, no digit write, every run VERIFY OK; ABBA order; 1e9 >= 4 pairs stopping at p < 0.05 or CI half-width <= 0.5 s (cap 8); untimed digit-identity run per base against the 1e9 reference; 1e10 >= 3 pairs (cap 5) within the budget. Stub dry run checked the statistics against python.
-
-**Results (m; item 52, 2026-10-12, marker SUCCESS, pass 4, fail 0). Binary minus decimal, paired:**
-
-| size | pairs | decimal mean | binary mean | binary - decimal, 95 % CI | p | ratio |
-|---|---|---|---|---|---|---|
-| 1e9 | 4 | 12.73 s | 24.16 s | **+11.43 s**, [+8.57, +14.29] | 0.00105 | 1.898 |
-| 1e10 | 5 | 26.06 s | 58.54 s | **+32.47 s**, [+30.37, +34.58] | 1.8e-06 | 2.246 |
-
-Without the cold-start pair: 1e9 +12.26 s [+10.24, +14.28] (3 pairs, p 0.0015); 1e10 +32.37 s [+29.28, +35.45] (4 pairs, p 5.9e-05); per-pair differences at 1e10: +32.91, +30.01, +33.95, +33.96, +31.54 s. Digits identical to the reference in both bases at 1e9.
-
-**Verdict.** The binary pipeline is correct but **1.9x (1e9) to 2.2x (1e10) slower**; the gap grows with size (not startup). No reason to adopt binary limbs; the user decides. Branch `h5`, not merged.
 
 ## §TREF — a test reference product, and the host product tier removed
 
