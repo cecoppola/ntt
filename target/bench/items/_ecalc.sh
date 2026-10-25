@@ -76,6 +76,11 @@ TGT_SITE=${TGT_SITE:-target}
 if [ -z "${TGT_DIGITS_SCALE:-}" ]; then [ "$TGT_SITE" = aac7 ] && TGT_DIGITS_SCALE=0.1 || TGT_DIGITS_SCALE=1; fi
 export TGT_SITE TGT_DIGITS_SCALE
 EC_BG_PIDS=()
+# TGT_SHARE: digits per node of the first target campaign (user decision Q120, 2026-10-25: reduce the digits until every code path runs
+# at 576 nodes; raise them later).  Planner check (target limits): 8e9 per node fits D, P and C at 1, 8, 64 and 576 nodes; the old share
+# 6.632e10 is refused for P and C from 8 nodes on.  Items write `dig $TGT_SHARE [NODES]` / `ecalc_digits $TGT_SHARE`, so TGT_DIGITS_SCALE
+# (TGT_SITE=aac7 scale 0.1) still applies on top of it.  The later goal stays 3.82e13 in total (cor03 checks it too).
+TGT_SHARE=${TGT_SHARE:-8000000000}; export TGT_SHARE
 
 # known digit hashes (unpack_digits -q | sha1sum | cut -c1-16, main, aac7, identical on both paths and every node count)
 ecalc_ref_hash() { case "$1" in 1000000000) echo bf9f4b08758b40d9;; 10000000000) echo 3fc025473586ed22;; 100000000000) echo 578f5efb0ff2b9af;; esac; }
