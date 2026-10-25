@@ -162,7 +162,7 @@ XSHMEM_LANE_CTX	str	serialized	unset	serialized|private|none	experiment	-	-	Y	ec
 XSHMEM_LANE_MIN_KB	int	256	unset	>=1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	TARGET1 (B1)	2026-12-31	comm_xshmem.c; smallest chunk per lane when XSHMEM_LANES > 1
 XSHMEM_LANE_POLL	int	0	unset	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; a waiting PE also polls its extra lanes (quiet on a lane with nothing outstanding)
 XSHMEM_LANE_TRACE	float	0	unset	>=0	experiment	-	-	Y	ecalc	comm_xshmem.c,xshmem_cray.h	3	craylane	2026-12-31	comm_xshmem.c; seconds: describe exchanges slower than this (per-lane quiet times) and time every lane quiet; 0 off
-XSHMEM_LOCAL	int	0	0	0|1	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h; engine uses xshmem_ptr node-local copies
+XSHMEM_LOCAL	int	0	0	0|1	experiment	-	-	Y	ecalc	xshmem.h,xshmem_ofi.c	3	TARGET1 (B1)	2026-12-31	xshmem.h; engine uses xshmem_ptr node-local copies
 XSHMEM_LOOPBACK_PES	int	1	1	1..8	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (S3a)	2026-12-31	xshmem.h; PEs one process hosts in the ofi backend (PE = K*rank + l, own GPU/NIC/heap each); 1 = one PE per process
 XSHMEM_MRMODE	str	libsma	unset	libsma|ofi	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h; ofi backend memory-registration mode
 XSHMEM_OFI_SIG	str	dc	derived	dc|flush|waw	experiment	-	-	Y	ecalc	xshmem.h,xshmem_ofi.c	2	TARGET1 (B1)	2026-12-31	xshmem.h; ofi backend signal-after-data mode (design 1.4)
