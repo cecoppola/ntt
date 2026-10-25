@@ -47,7 +47,7 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 | `mnrun.sh`, `aac7env.sh` | the multi-process launcher (Cray SHMEM only); the aac7 environment (the aac7 launch line is in `profiles/aac7.conf`) |
 | `mnaccept.sh`, `digcmp.sh` | the standing regression; digit compare |
 | `target_kit.sh` | the target session in stages (`-h`; `--dry-run` prints every command): environment, build, uffd, plan, memory edge, node screen (slow nodes; NIC count vs `SHMEM_OFI_NUM_NICS`, `--want-nics`), A3/A4 fabric tests, init check; one `KIT_SUMMARY.txt` |
-| `mn_model.py` (with its `estimate` subcommand), `mem_model.py`, `*_fit.json` (the refit and design-table generators are archived: `archive:scripts_2026-10-23/`) | time and memory models and their fits |
+| `mn_model.py` (with its `estimate` subcommand), `mem_model.py`, `aac7_fit.json` (the refit and design-table generators are archived: `archive:scripts_2026-10-23/`) | time and memory models and their fits |
 | `ref/`, `tests/` | reference generator; unit tests (`tests/harness.h`) |
 
 ## Switches
@@ -147,7 +147,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_MEM_SAMPLE` | derived | test-only | seconds between memory samples (RSS, MemFree, MemAvailable, Cached, Dirty, Writeback from `/proc/meminfo`, the pool's live bytes per APU), a summary line at exit (minimum MemAvailable, ... | IO15.md+S114.md |
 | `ECALC_MEM_SAMPLE_FILE` | derived | test-only | the sampler's output file (`%d` = the node-process rank) instead of stderr (unset) | S114.md |
 | `ECALC_NODE_GB` | 480 | built-in default | - | P16.md+C314.md |
-| `ECALC_NP` | auto | launch-line | the number of NTT primes: 3 (Phase 13b step 0: −17 % wall, −25.8 GB of planes; `ecalc.c` sets it when unset; 4 was the binary-limb count, archived with archive:PLAN §28.5). | P15.md+DOC215.md |
+| `ECALC_NP` | auto | launch-line | the number of NTT primes: 3 (Phase 13b step 0: −17 % wall, −25.8 GB of planes; `ecalc.c` sets it when unset; 4 was the binary-limb count, archived with archive:PLAN §28.5). | P15.md |
 | `ECALC_NP_AUTO_TERMS` | derived | test-only | under `ECALC_NP=auto`, the switch-over in terms (1 … 58 424 467 928, the three-prime bound): a lower value makes small runs form both counts (the forced tests of results/PRIMES_STRATEGY.md ... | NP15.md |
 | `ECALC_ODIRECT` | 1 | built-in default | 1 = the checkpoint files (the top-level set, in the background) and the output file are written with O_DIRECT through aligned buffers (`spill.c`'s `sp_file`; the last partial block padded, ... | S114.md+KP15.md |
 | `ECALC_OUT_MODE` | derived | built-in default | the part file's write mode: `direct` (O_DIRECT), `buffered` (page cache, no sync: the pre-Phase-14 form), `sync` (buffered, `fsync` + `posix_fadvise(DONTNEED)` at close), `drop` (buffered, ... | IO15.md |
@@ -199,7 +199,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `PE_GEO_SYSFS_ROOT` | - | test-only | PEs per GPU (default 1; the 2-PEs-per-GPU fallback of design 2.2) / a prefix for every `/sys` path (mock trees of `tests/t_pe_geo`) | - |
 | `POOL_LOG` | 31 | launch-line | the plane pools' 2ᵏ points per APU (31; 27–29 with several node-processes on one node) | A-mem.md+M13.md |
 | `RNS_BATCH_LOCAL_MIN` | unset | built-in default | below this many products the striped batch path is used (16) | P3.md+R.md |
-| `RNS_BATCH_SPLIT` | 0 | experiment | (default 0 = off, byte-identical): own-device split of batch products larger than the one device's plane pool, for `ECALC_PE_PER_GPU=1` (which has no striped tier). 1 = on under ... | - |
+| `RNS_BATCH_SPLIT` | 0 | experiment | automatic under `ECALC_PE_PER_GPU=1` (Q110: no launch line sets it): a batch product larger than the one device's plane pool is split by operand pieces; 20..29 forces pieces of at most 2^k limbs (tests). | - |
 | `RNS_BATCH_TILE_GB` | unset | built-in default | the batch tiers' plane budget per device in GB (a + b planes), capped by the pools (15) | P.md |
 | `RNS_DIST_CACHE_MARGIN_GB` | 24 | built-in default | free device memory kept when sizing the cache (24) | TC15.md+M13.md |
 | `RNS_DIST_CACHE_PARTIAL_FORCE` | unset | test-only | - | PC15.md |
