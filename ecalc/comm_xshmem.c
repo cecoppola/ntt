@@ -83,7 +83,7 @@ static struct {
     xpe pe[MAXLPE]; unsigned char used[MAXLPE][MAXID];
     double t00; int ltrace, lpoll, sigl, lctx; double lslow; int nslow; double lqmax[MAXL]; long lqn[MAXL];   /* XSHMEM_LANE_TRACE / _POLL / _SIG_LANES / _CTX (the Cray stall diagnosis, all off by default) */
     int nl; size_t lmin; unsigned long long lb[MAXL];   /* XSHMEM_LANES > 1: lanes in use, the smallest chunk per lane, payload bytes put per lane */
-} X = { 1, 0, {0}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, PTHREAD_MUTEX_INITIALIZER, 0, 0, {}, {} };
+} X = { 1, {0}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, PTHREAD_MUTEX_INITIALIZER, 0, 0, {}, {} };
 
 #define YIELD() do { if (X.yield) sched_yield(); } while (0)
 static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
