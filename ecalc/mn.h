@@ -1,7 +1,7 @@
 /* mn.h - the multi-node layer .  A process is one node driving its four APUs as the
  * single-node pipeline does; `size` node-processes are connected by four inter-node meshes, one per APU
  * thread d (its members: thread d of every node; rank = node).  A transform over the whole machine is the
- * node's four-APU exchange over xGMI composed with the mesh exchange.  The meshes are SHMEM PE sets
+ * node's four-APU exchange over xGMI composed with the mesh exchange.  The meshes are xshmem PE sets
  * (COMM_TRANSPORT=xshmem; several node-processes may share one node).
  *   COMM_RANK   this node-process (0 .. size-1)        COMM_SIZE   node-processes (unset or 1: single node) */
 #ifndef EC_MN_H

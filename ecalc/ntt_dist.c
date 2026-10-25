@@ -57,7 +57,7 @@ static void plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int log
     p->twc_i = dev_pow_table(prime, ec_root_inv(prime, logn), (size_t)1 << logC);
     size_t bytes = p->rows * ((size_t)1 << logC) * 8;
     p->own_slabs = slabs; p->sbuf = p->rbuf = 0;
-    /* the slab buffers from the transport's symmetric pool where it has one (comm_sym_alloc: the SHMEM
+    /* the slab buffers from the transport's symmetric pool where it has one (comm_sym_alloc: the xshmem
      * transport puts straight from sbuf into the receivers' rbuf, no staging), else hipMalloc'd. */
     if (slabs) {
         p->sbuf = (uint64_t *)comm_sym_alloc(cm, bytes); p->rbuf = p->sbuf ? (uint64_t *)comm_sym_alloc(cm, bytes) : 0;
@@ -225,7 +225,7 @@ static void chunk_wait_(dist_plan *p, hipStream_t s)
  * sender's device stores into rbuf on the receiver's device as soon as every rank has entered the exchange) writes rbuf while
  * the receiver's compute stream may still hold the previous transform's unpacks of the same chunk: nothing on the GPU orders
  * the sender's transfer stream after the receiver's compute stream, and the exchange's barrier orders only the host threads.
- * The SHMEM and TCP transports synchronise the caller's stream before they publish / receive (comm_shmem.c s_alltoall), the
+ * The xshmem transport synchronises the caller's stream before it publishes / receives (comm_xshmem.c), the
  * layered one pushes only into its own scratch (or synchronises first, minor); comm_xgmi did not.  So before the first post of
  * a transform the host waits for evr -- recorded on s at the transform's start, i.e. every earlier read of rbuf on this rank --
  * and the exchange's barrier then holds every sender until every receiver has passed that point.  The later posts of the same

@@ -4,7 +4,7 @@
  * two exchanges with a block transpose between them:
  *   1. intra-node (xGMI push, the four APU threads): APU d sends block d' = slabs {g d' + r'} to APU d';
  *      the receive holds [d source][r' dest] blocks
- *   2. transpose to [r'][d]; inter-node over mesh d' (TCP here, RDMA on the target; rank = node): node r
+ *   2. transpose to [r'][d]; inter-node over mesh d' (xshmem: libfabric or Cray SHMEM; rank = node): node r
  *      sends block r' = the four slabs (r, 0..3) -> (r', d') to node r'; the receive holds [r][d]
  *   3. transpose to [d][r] = global source rank order.
  * The transposes are 4 g device copies of one slab each; the scratch (one slab buffer) is the caller's
@@ -56,7 +56,7 @@ static void need_tmp(comm *c, size_t bytes)
     if (!p->own_tmp && p->tmp) { ec_fatal(EC_RC_FATAL, "comm_layered: the caller's scratch (%zu B) is smaller than the exchange (%zu B)\n", p->tmp_cap, bytes); }
     if (p->tmp) { if (p->tmp_sym) comm_sym_free(p->inter, p->tmp); else HIP_CHECK(hipFree(p->tmp)); }
     HIP_CHECK(hipSetDevice(p->dev));
-    /* the scratch from the inter transport's symmetric pool where it has one (the SHMEM
+    /* the scratch from the inter transport's symmetric pool where it has one (the xshmem
      * transport then receives the inter stage straight into it, no staging), else hipMalloc'd as before */
     p->tmp = (char *)comm_sym_alloc(p->inter, bytes); p->tmp_sym = p->tmp != 0;
     if (!p->tmp) HIP_CHECK(hipMalloc((void **)&p->tmp, bytes));
@@ -396,7 +396,7 @@ static void y_destroy(comm *c)
 static void *y_sym_alloc(comm *c, size_t bytes) { return comm_sym_alloc(PRIV(c)->inter, bytes); }
 static void y_sym_free(comm *c, void *p) { comm_sym_free(PRIV(c)->inter, p); }
 static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_barrier, y_modq, y_max, y_destroy, 0, 0, y_allgather, y_allgather_host, y_alltoallv, y_alltoallv_host, y_sym_alloc, y_sym_free };
-/* One inter stage in flight (both transports; user 2026-10-21, results/SHMEM.md).  The v-slots always come from the comm pool; the shared v-slot pair (S36) and the
+/* One inter stage in flight (xshmem; user 2026-10-21, results/SHMEM.md).  The v-slots always come from the comm pool; the shared v-slot pair (S36) and the
  * release after each product (M3) are always on. */
 static void lay_opts(lay_priv *p) {
     vslot_attach(p);   /* S36: the shared pair */

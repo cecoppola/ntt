@@ -33,8 +33,8 @@
 /* the number of primes a product uses, ec_np = 3 or 4 -- ECALC_NP (default 4: every
  * default unchanged).  A product uses the first ec_np primes of ec_P.  Three suffice for base-10^18 limbs: a convolution
  * coefficient is at most nterms (B-1)^2 and p0 p1 p2 = 2^155.36 against (B-1)^2 = 2^119.59, so nterms < 2^35.76
- * (tests/t_primes: the margin is 27x at 2^31 terms, 6.8x at 2^33, the largest 2^k length the primes allow).  {c = 240,
- * 216, 207} is the subset with the largest product (dropping 147, t_primes prints all four).  Four stay required for
+ * (tests/t_arith primes: the margin is 27x at 2^31 terms, 6.8x at 2^33, the largest 2^k length the primes allow).  {c = 240,
+ * 216, 207} is the subset with the largest product (dropping 147, t_arith primes prints all four).  Four stay required for
  * (binary 2^64 limbs, which held only below 2^27 terms, are archived: archive:PLAN §28.5). */
 #include <stddef.h>
 #ifdef __cplusplus
@@ -156,7 +156,7 @@ EC_HD static inline uint64_t ec_umulhi(uint64_t a, uint64_t b)
 
 /* ---- canon64: any 64-bit limb -> [0,p).  q = floor(x mu / 2^115) is at
  * most 1 below floor(x/p) (x < 2^64, mu < 2^115/p), so one subtract suffices;
- * the second is kept for safety and counted by t_modarith. ------------------ */
+ * the second is kept for safety and counted by t_arith modarith. ------------------ */
 EC_HD static inline uint64_t ec_canon64(uint64_t x, uint64_t p, uint64_t mu)
 {
     uint64_t q = ec_umulhi(x, mu) >> 51;
@@ -192,7 +192,7 @@ static inline uint64_t ec_inv(uint64_t a, uint64_t p) { return ec_powmod(a, p - 
  * from 8 nodes on (mn_logn_cap = 31 + floor(log2 g): 2^40 at 576).  So ec_root(i, logn) is:
  *   logn <= EC_LOGN_MAX: the table formula;
  *   EC_LOGN_MAX < logn <= v2(p_i - 1): g^((p_i - 1) / 2^logn) from the generator ec_G.  Both are g^((p-1)/2^logn) (w33 =
- *   g^((p-1)/2^33)); tests/t_roots checks the two agree for logn 1..33 on every prime, and the order (w^(2^logn) = 1,
+ *   g^((p-1)/2^33)); tests/t_arith roots checks the two agree for logn 1..33 on every prime, and the order (w^(2^logn) = 1,
  *   w^(2^(logn-1)) = p - 1) and the chain root(k+1)^2 = root(k) up to v2(p - 1);
  *   logn > v2(p_i - 1) or < 0: ec_fatal (no such root in this prime).
  * v2(p - 1) = 48, 47, 44, 44 for the WP8 set (c 2^44 + 1: 15 2^48, 27 2^47, 207 2^44, 147 2^44): 2^44 for any subset.

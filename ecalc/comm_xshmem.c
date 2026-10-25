@@ -95,7 +95,7 @@ static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t
 static inline uint64_t rd64(const uint64_t *p) { return *(volatile const uint64_t *)p; }
 static inline int sigge(const uint64_t *p, uint64_t v) { return xshmem_signal_test(p, XSHMEM_CMP_GE, v); }
 
-/* ---- the DATA heap's sub-allocator: first fit, 256 B, symmetric buffers top-down (a copy of comm_ofi_alloc); a lock per PE ---- */
+/* ---- the DATA heap's sub-allocator: first fit, 256 B, symmetric buffers top-down (first written for the removed comm_ofi transport); a lock per PE ---- */
 static size_t xalloc(xpe *lp, size_t len, int sym)
 {
     len = (len + ALIGN - 1) & ~(size_t)(ALIGN - 1); if (!len) len = ALIGN;
