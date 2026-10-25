@@ -31,7 +31,7 @@ tgt_conf() {
 tgt_log() {
     local l; l="$(date '+%F %T %Z') $*"
     echo "$l" >&2
-    [ -n "$OUT" ] && [ -d "$OUT" ] && echo "$l" >> "$OUT/log.txt"
+    [ -n "${OUT-}" ] && [ -d "${OUT-}" ] && echo "$l" >> "$OUT/log.txt"
     return 0
 }
 
