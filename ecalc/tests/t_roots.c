@@ -50,10 +50,8 @@ static int refuses(uint64_t (*f)(int, int), int i, int k)
 int main(void)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
-    printf("t_roots: EC_PRIMES %d, EC_LOGN_MAX %d (the table order), ec_logn_limit(3) %d, ec_logn_limit(4) %d\n", EC_PRIMES, EC_LOGN_MAX, ec_logn_limit(3), ec_logn_limit(4));
-#if EC_PRIMES
+    printf("t_roots: EC_LOGN_MAX %d (the table order), ec_logn_limit(3) %d, ec_logn_limit(4) %d\n", EC_LOGN_MAX, ec_logn_limit(3), ec_logn_limit(4));
     VERIFY(ec_logn_limit(3) == 44 && ec_logn_limit(4) == 44, "the WP8 set's 2-adic limit is 44: %d, %d", ec_logn_limit(3), ec_logn_limit(4));
-#endif
     for (int i = 0; i < EC_NP; i++) {
         uint64_t p = ec_P[i], g = ec_G[i]; int v2 = ec_v2(i), n1 = 0, n2 = 0, n3 = 0;
         VERIFY(((p - 1) >> v2) & 1, "prime %d: v2", i);

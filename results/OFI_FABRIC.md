@@ -1,7 +1,7 @@
 # OFI_FABRIC — comm_ofi (libfabric multi-NIC path), NIC use, the fabric limit and the exchange rate versus the NIC rate
 
 Condensed 2026-10-19 (task 8b) from the merged per-item reports; originals in `archive:results_merged_2026-10-19/`, raw data and
-drivers in `archive:results_raw_2026-10-19/`. Old IDs resolve through `results/INDEX.md`. Labels: **m** measured, **d** derived
+drivers in `archive:results_raw_2026-10-19/`. Old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`. Labels: **m** measured, **d** derived
 from measured numbers, **mod** modelled, **a** assumed. Times Eastern.
 
 | item | title |
@@ -88,114 +88,6 @@ timeout at 1200 s, the known slow TCP-between-2-nodes path on that harness; not 
 
 **Open items at the time:** the SHMEM pool kept full size under OFI (fixed by OFIMEM, §STD17); the budget check did not count the comm
 pool (fixed, §STD17); two NICs per APU exercised only as NICs on different NUMA nodes on aac7 (§TUNE17).
-
-## §STD17 — OFI memory accounting (OFIMEM) and the standard 10-node run with all NICs (Phase 17, branch `p17-ofimem`)
-
-**Part A, accounting (design and tests).** Under comm_ofi every device exchange stages in the per-device comm pool, but the SHMEM pool
-kept its full staging size and the comm pools sat beside it uncounted by `binsplit_node_bytes`, `as_room_fits`, the `plan pool` line and
-`mem_model.py`. Change: `comm_ofi_planned()` (the decision comm_ofi will make, opening nothing; `COMM_OFI_PLAN_CXI=1` when the login
-node has no cxi); `binsplit_shmem_pool_need` under OFI = 128 MiB host-op staging + control + mailbox + 256 MiB, comm pool per device =
-max(one APU's staging, 128 MiB) + its `DIST_MN_SYM_SLABS` slabs + 256 MiB; `binsplit_shmem_pool_rule` makes an unset
-`COMM_SHMEM_POOL_MB` the SHMEM need and exports `COMM_OFI_POOL_MB`; the `room:` line prints `ofi_pool`; `mem_model.py` follows;
-`mnrun.sh` probes the first compute node once (`test -e /sys/class/cxi/cxi0`) and exports `COMM_OFI_PLAN_CXI`.
-
-Tests (m unless marked): target plan (`MN_PLAN_ONLY=52760000000000:576`, `DM_MN_LEAN=1`): COMM_OFI=0 gives `COMM_SHMEM_POOL_MB=9472`;
-**COMM_OFI=1 gives 1536, heap >= 2048 MiB, 4 x `COMM_OFI_POOL_MB=2304`**. `mem_model.py --check-c` exact with OFI 0 and 1. Modelled node
-sizes at the target: no OFI 446.16 GB; OFI before OFIMEM 457.2 GB (uncounted pools); **OFI after 447.50 GB** (all <= 480 GB; keeping
-the hand-set 9472 would give 455.8, hence the TARGET.md edit). 10-node layout (8.1e11): SHMEM-only 419.59; OFI before ~430.0 (over RUN16's
-427 budget); **after 420.66 GB**. 1 node/2 processes, 1e8 and 1e9: VERIFY OK, digits identical, SHMEM pool peak 2 MiB, comm pool peak
-106.0 MiB at 1e9 (model's per-APU staging 211.9 MiB, about 2x conservative), every cxi0-3 carried 4.0-4.2 GB.
-
-**Part B, the standard 10-node run with all NICs (m).** MemAvailable at start min 441.0 GB, full size 8.1e11 (81e9 per node), layout
-node 420.66 GB (mod). 2-node sanity (2e10): total 78.41 s, VERIFY OK. **Record: total 1669.98 s, `mn: all 10 nodes: VERIFY OK`;
-SHMEM try 2 (RUN16): 3532.05 s, so -52.7 %.**
-
-| phase | SHMEM try 2 | OFI |
-|---|---|---|
-| init | 128.8 s | 30.5 s |
-| bs | 1225.3 s | 262.6 s |
-| dm (recip) | 2174.2 (267.6) s | 478.3 (205.9) s |
-| dc (part-file write, NFS, O_DIRECT) | 0.1 s (hidden) | **897.6 s** (exposed: 54 % of total) |
-| total | 3532.05 s | 1669.98 s |
-
-Comm-mark per APU thread (same exchanges and bytes in both): tree level 1 1.05 -> 8.05 GB/s (7.7x), level 2 0.75 -> 5.63 (7.5x),
-reciprocal 1.38 -> 7.86 (5.7x), division 0.61 -> 4.84 (7.9x). The cxi tx counters moved on **all 40 NICs, 2471.7-2627.2 GB each**
-(102.7 TB in all incl. the NFS write); comm pool peak 2048.0 of 2304 MiB on every device (the model's staging exactly); SHMEM pool peak
-2 MiB. RECHECK (packed) rc 0, `RECHECK OK`; 1e11 prefix **identical**. Compute + exchange (bs + dm) fell 3399.5 -> 740.9 s (-78 %);
-the run is now bound by the NFS part-file write (about 0.4 GB/s aggregate for about 340 GB packed).
-
-**Part C, B7 (general-map v-slots; m from `MEM_REPORT_DEVS`).** Driver minus layout `in use` per APU: OFI run at g = 10 6.3-6.4 GB,
-RUN16 SHMEM at g = 10 3.7-3.8 GB, 2-node OFI (g = 2, no general map) 2.0-2.1 GB. OFI - SHMEM = 2.6 GB = the comm pool (counted now);
-the rest means **about 3.3 GB per APU, about 13 GB per node, sits outside the layout and model at g = 10: B7 confirmed** (attribution to
-`need_vslot`'s grow-only hipMalloc is inferred). Peak per node 423.5 GB (m) vs layout 420.66 (+2.9); the layout stays within about 3 GB
-only because its host term (44.7 GB, seed buffers freed after init) absorbs the 13. At the target B7 would add about 15 GB per node per
-live general-map level (mod): 447.5 -> 462.5-477.5 GB, still <= 480 but thin. Recommendation made: count the v-slots in the model or free
-them per level (done later through VSLOT_POOL, §XEFF).
-
-**Open items:** comm pool model about 2x the measured peak (conservative); `COMM_OFI_PLAN_CXI` depends on mnrun.sh's probe (a launch
-without mnrun.sh on a cxi-less login node plans the SHMEM-only pool; the target line sets `COMM_OFI=1`).
-
-## §TUNE17 — comm_ofi tuning: chunk size x writes in flight, and two NICs per device (Phase 17, aac7)
-
-**Question.** comm_ofi holds 44-48 GB/s per node (about 11-12 per NIC) while one NIC pair reaches 23.3 (§NIC16_experiments). Is the gap
-the knobs (`COMM_OFI_CHUNK_MB` 4, `COMM_OFI_WINDOW` 64) or the fabric? Does the two-NICs-per-device form work, at what cost on aac7
-(one NIC per APU, the second is a neighbour's, across NUMA)? Driver ran after STD17 on the 10-node hold: `t_comm --bw` sweep chunk
-{1, 4, 8} x window {16, 64, 128} at 4 nodes, the best two at 10, 2-node NIC forms, then ecalc 2e10 on 2 nodes.
-
-**Results (m), aggregate GB/s per node at the largest slab (mean / min):**
-
-| run | nodes | chunk MiB | window | NICs/dev | mean | min |
-|---|---|---|---|---|---|---|
-| chunk 1, window 16 / 64 / 128 | 4 | 1 | | 1 | 40.88 / 40.98 / 40.62 | 40.4 / 40.5 / 40.2 |
-| chunk 4, window 16 | 4 | 4 | 16 | 1 | 40.02 | 39.56 |
-| **chunk 4, window 64 (default)** | 4 | 4 | 64 | 1 | **46.93** | 46.73 |
-| chunk 4, window 128 | 4 | 4 | 128 | 1 | 46.86 | 46.64 |
-| chunk 8, window 16 / 64 / 128 | 4 | 8 | | 1 | 48.07 / 46.04 / 47.20 | 47.98 / 45.85 / 47.03 |
-| chunk 8, window 16 | 10 | 8 | 16 | 1 | 43.52 | 42.87 |
-| default | 2 | 4 | 64 | 1 | 25.72 | 25.71 |
-| form A `0,1;1,2;2,3;3,0` | 2 | 4 | 64 | 2 | 25.67 | 25.66 |
-| form B `0,0;1,1;2,2;3,3` (two domains on one cxi) | 2 | 4 | 64 | 2 | 24.54 | 24.52 |
-
-- **Tuning:** the best setting (8 MiB, window 16) is +2.4 % over the default at 4 nodes and 43.5 vs 44.1 at 10 nodes, so no gain
-  within the spread. **Defaults stay.**
-- **Two NICs per device:** both forms are correct (ecalc 2e10 on 2 nodes with form A: part sha1s identical to the default, VERIFY OK).
-  No rate gain on aac7 (form A shares each NIC between two devices). The mechanism is ready for the target's 2 NICs per APU; its rate
-  needs the target (TARGET_WISHLIST section 1.3).
-
-## §NIC16_experiments — NIC16: one process driving all Slingshot NICs of a node (aac7)
-
-**Hardware.** aac7 node, 4 x Cassini 200 Gb/s (cxi0..cxi3 = hsn0..3, NUMA 0..3, one per MI300A), libfabric 2.3.1, default CXI service.
-**Answer (m):** ONE process opening one libfabric `cxi` fabric/domain/EP/CQ/AV per device (`domain_attr->name` = "cxi0".."cxi3") drives
-all 4 NICs at 23.33 GB/s each = **93.3 GB/s per node** (1 MiB `fi_write`, window 64), from host or `hipMalloc` memory (93.2), with 4
-threads or a single thread: 4.0x one NIC. It coexists with Cray OpenSHMEMX in the same process (1 PE + 4 extra domains: 93.3, SHMEM still
-works). Cray SHMEM and Cray MPICH use exactly one NIC per PE/rank (MPICH striping CVARs measured inert). Remote MR counters work (93.2);
-VMM (`hipMemCreate`) buffers cannot be registered (EFAULT, also with ODP/system HMEM) so register the comm pool (hipMalloc/host);
-8 domains (2 per NIC) in one process work (90.4). Test program copy: `archive:removed_2026-10-12/ecalc/tests/t_nicbw.c`.
-
-Key rows (m, single node, traffic NIC -> switch -> NIC):
-
-| method | per NIC GB/s | aggregate GB/s | note |
-|---|---|---|---|
-| `cxi_write_bw`, 1 pair / 2 pairs / 4-ring | 24.25 / 24.25 / 21.9-23.4 | 24.25 / 48.5 / 90.5 | hardware tool |
-| nicbw 1 process, 4 threads, host, 64 KiB-16 MiB | 23.33 | 93.32-93.35 | counters 122 GB tx/rx on all 4 |
-| nicbw 1 process, hipMalloc (`FI_HMEM_ROCR`) | 23.2-23.34 | 93.20 | |
-| nicbw 1 thread (round-robin over 4 EPs/CQs) | 23.33 | 93.33 | hipMalloc 93.18 |
-| nicbw 1 thread, 8 KiB window 512 | 3.95 | 15.78 | op-rate bound (1.9 Mops/s); 4 threads 21.95 |
-| nicbw 2 processes x 4 NICs sharing every NIC | 11.7 / 10.9 | 90.6 | |
-| hybrid: 1 Cray SHMEM PE + 4 domains | 23.33 | 93.34 | SHMEM putmem afterwards OK |
-| nicbw 8 domains in one process (2 per NIC) | 11.7 / 10.9 | 90.44 | |
-| Cray SHMEM 4 PEs/node (`SHMEM_OFI_NIC_POLICY=NUMA`), 1-256 MiB | 23.24-23.26 | 93.0-93.3 | intra-node SHMEM goes over the NIC |
-| nicbw large writes 64/256 MiB | 23.33 | 93.34 | no slump |
-| hipHostMalloc buffers (not NIC-local) | 23.25 / 21.9 x3 | 89.0 | about 6 % on NICs 1-3 |
-| hybrid, buffers = Cray symmetric heap re-registered in 4 domains | 21.4-23.3 | 87.58 | heap on one NUMA node, others lose about 8 % |
-| Cray MPICH 2 ranks, with/without multi-NIC CVARs | | 23.28 | cxi0 only: inert |
-
-**Method (API).** Per NIC: hints `prov_name=cxi`, `domain_attr->name=cxi<i>`, `FI_EP_RDM`, caps `FI_RMA|FI_MSG(|FI_HMEM)`, mr_mode
-`FI_MR_LOCAL|VIRT_ADDR|ALLOCATED|PROV_KEY|ENDPOINT(|HMEM)`, `FI_THREAD_DOMAIN`; fabric, domain, CQ (8192), AV table, EP, enable;
-MR by `fi_mr_reg` (host) or `fi_mr_regattr` with `FI_HMEM_ROCR` (device); exchange (addr, key, VA) out of band; loop `fi_write` up to
-window W, `fi_cq_read` to retire. No env needed on aac7; thread pinned to the NIC's NUMA node. **Caveats:** `hipMalloc` in a step needs
-`--gres=gpu:24`; the ROCm 7.2.4 runtime saw no device in the step where 7.0.3 worked; single thread is op-rate bound below 64 KiB;
-`SHMEM_OFI_NIC_POLICY=NUMA` aborts for a single PE spanning all NUMA nodes (use BLOCK).
 
 ## §P16 — Phase 16 P: the fabric limit as an algorithm-design problem on aac7 — four PEs per node
 
@@ -362,27 +254,5 @@ measurable on the bandwidth path and the 14 ms/GB "protocol term" is not the del
 at 576 PEs) remains untested; XSTATS can show whether it matters. `COMM_OFI_DC` (default 1) and `MNRUN_NODELIST` remain on branch s29 only.
 Driver `archive:drivers/ecalc/s29_m2.sh`.
 
-## §T12 — 4-node uffd soak (FI_MR_CACHE_MONITOR=userfaultfd) on aac7
 
-**Question.** Does the uffd monitor remove the end-of-init crash seen about 1 in 26 real-size 4-node runs on base (S46: memhooks
-deadlock; uffd 0/104 on the reproducer, base 22/105 hangs)? Setup: main 0298fe2 (gate 1 node PASS), 4-node hold, 6.441e10 digits per
-node, e16_headline aac7 line + `FI_MR_CACHE_MONITOR=userfaultfd COMM_XSTATS=1 MN_WAIT_STATS=1 ECALC_INIT_TL=1`, no digit output;
-back-to-back runs through `mnrun.sh` with page-cache eviction, MemAvailable >= 428 GB check, a watchdog (segv regex, 300 s silence =
-hang, 900 s timeout) and stop rules (90 runs / deadline / 6 consecutive non-OK). Driver `archive:drivers/t12/t12_drive.sh` (+
-`t12_stats.py`). Dry runs and one real run (ok, total 246.9 s, "Default memory monitor is: uffd") passed first.
-
-**Results (O6 run, 2026-10-12, 05:46-08:16 EDT, ended at the deadline; m).**
-
-| quantity | value |
-|---|---|
-| runs | 46: ok 46, segv 0, hang 0, timeout 0, fail 0 |
-| mean total / init / wall | 186.5 s / 31.0 s / 196.0 s (total min 177.9, max 231.9) |
-| network mode (per-thread all-to-all) | fast 39 (mean total 181.9 s, 177.9-199.2), slow 7 (212.0 s, 204.9-231.9) |
-| max log silence in any run | 20 s (watchdog 300 s) |
-
-**What 46 clean runs bound.** Crash rate 0/46: 95 % upper bound 6.3 % exact (rule of three 6.5 %) (computed); earlier rates: base
-4-node about 1 in 26 = 3.8 %, base 2-node 4/422 = 0.95 %. Chance of 0/46 if uffd changed nothing: 16 % at 3.8 %, 63 % at 0.95 % (mod).
-So 0/46 is consistent with "uffd removes the crash" but does not show it (the bound 6.3 % lies above 3.8 %); rejecting 3.8 % at 95 %
-needs about 78 clean runs, rejecting 1 % about 300 (a). No concurrent base arm, so no direct uffd-vs-base comparison; the hang did not
-occur in any of 46 (hang bound likewise 6.3 %). Adoption of uffd as the `mnrun.sh` default was made on S46's reproducer evidence
-(results/CRASHES_HANGS.md §S46); about 32 more clean runs would reach the 78-run point.
+Sections moved to `archive:results_merged_2026-10-24/OFI_FABRIC.md` (2026-10-24 cleanup): §STD17; §TUNE17; §NIC16_experiments; §T12.

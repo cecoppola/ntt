@@ -14,7 +14,7 @@
  * One mutex PER PE (pe_t.lock) around every fi_* call of that PE (FI_THREAD_DOMAIN); waits spin with test + yield OUTSIDE the lock, so the engine's worker
  * thread and its caller can both be inside xshmem calls of one PE.
  * Loopback PEs (XSHMEM_LOOPBACK_PES = K, default 1 = the shape above, bit for bit): one process hosts K PEs, PE = K*rank + l, each with its own GPU, NIC,
- * domains, endpoints, heaps and mutex (pe_t in xshmem_ofi_priv.h).  The PE of a context call is the context's owner; calls without a context use the
+ * domains, endpoints, heaps and mutex (pe_t below).  The PE of a context call is the context's owner; calls without a context use the
  * calling thread's PE (xshmem_ofi_loopback_select).  Boot is per process: one allgather of K address blobs, one of K heap blobs (heap_alloc is called
  * by the K local PEs in order 0..K-1 from one thread); barrier_all and finalize are once per process.
  * Not yet: xshmem_ptr (always NULL; XSHMEM_IPC is ignored). */
@@ -42,7 +42,53 @@
 #include "xshmem_boot.h"
 #include "pe_geo.h"
 
-#include "xshmem_ofi_priv.h"
+/* xshmem_ofi_priv.h -- private types of the libfabric backend xshmem_ofi.c (built only with make XSHMEM=ofi).
+ * One pe_t per PE the process hosts: K = XSHMEM_LOOPBACK_PES (default 1 = one PE per process, the original shape).  Each pe_t owns its NIC
+ * domains, endpoints, heaps and its own mutex; lanes point back to their pe_t, so every context call finds its PE from the context. */
+#include <stdint.h>
+#include <pthread.h>
+#include <rdma/fabric.h>
+#include <rdma/fi_domain.h>
+#include <rdma/fi_endpoint.h>
+#include "xshmem.h"
+#include "pe_geo.h"
+
+#define MAXD   16          /* NIC slots (domains) per PE */
+#define MAXEP  16          /* endpoints per PE: default + lanes + spares */
+#define MAXADDR 16         /* bytes of one endpoint address (cxi: 8); small so that the blob is one PMI2 KVS value per PE */
+#define MAXLPE 8           /* loopback PEs per process */
+#define HALIGN ((size_t)2 << 20)
+#define SPARE  2           /* contexts beyond the N lanes that xshmem_ctx_create can still hand out */
+
+struct pe_s;
+typedef struct {
+    int cxi, open;
+    struct fi_info *info; struct fid_fabric *fab; struct fid_domain *dom; struct fid_av *av;
+    int first_ep;
+} dom_t;
+typedef struct {
+    int e, slot, used;
+    struct pe_s *pe;                           /* owner PE (loopback: the context call derives its PE from here) */
+    struct fid_ep *ep; struct fid_cq *cq; struct fid_cntr *cn;
+    struct fid_mr *mr[2]; void *desc[2]; uint64_t key[2];   /* one MR per endpoint and heap: cxi binds an MR to one endpoint only (FI_MR_ENDPOINT) */
+    uint64_t issued;                           /* posted operations (under pe lock) */
+    fi_addr_t *fa;                             /* [pe] */
+    unsigned char *touch; int *tlist; int nt;  /* flush mode: target PEs written since the last quiet */
+} lane_t;
+typedef struct { uint32_t nics, nep; struct { uint32_t alen; char addr[MAXADDR]; } ep[MAXEP]; } ablob_t;
+typedef struct { uint64_t base, len; uint64_t key[MAXEP]; } hblob_t;
+
+typedef struct pe_s {
+    int lpe;                                   /* index among the PEs of this process */
+    int mype, npes, nnodes, nics, nep, vaddr, pkey, sig_mode, log_sp, log_key;
+    xshmem_cfg_t cfg; pe_topo topo; double quiet_s;
+    size_t inject, maxmsg;
+    pthread_mutex_t lock;
+    dom_t dom[MAXD]; lane_t lane[MAXEP];
+    char *hbase[2]; size_t hlen[2]; int hhost[2]; size_t flush_off;   /* flush mode: 8 B flush slot (and a source word at +64) in the DATA heap tail beyond hlen */
+    hblob_t *peer[2];                          /* [space][pe] */
+    xshmem_ofi_cnt_t cnt;
+} pe_t;
 
 /* One pe_t per hosted PE (K = XSHMEM_LOOPBACK_PES, default 1); `cur_l` selects the PE for calls that carry no context (per thread; the engine
  * calls xshmem_ofi_loopback_select).  W is the process level: boot rank/size and the collective heap bookkeeping. */

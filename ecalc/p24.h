@@ -1,5 +1,5 @@
 /* p24.h - (results/PRIMES_STRATEGY.md §P2415): four primes at 24 digits per transform point in the mn tier (always on in multi-node products).
- * The index maps, host and device (rns_dist.c's P24 paths, p24_mn.h's kernels, dbig.c's spill decode and tests/t_p24.c use them).
+ * The index maps, host and device (rns_dist.c's P24 paths and kernels, dbig.c's spill decode and tests/t_p24.c use them).
  *
  * Point x of an operand view holds the view's digits [24 x, 24 x + 24): the digits [s, 18) of limb L(x) = floor(4 x / 3), s = s(x) =
  * 6 (x mod 3), and the digits [0, 6 + s) of limb L(x) + 1 -- 4 limbs of 18 digits = 3 points of 24.  A view of n limbs has

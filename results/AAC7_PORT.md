@@ -1,6 +1,8 @@
 # AAC7_PORT — the aac7 port (Phase 16)
 
-Scope: the aac7 port (Phase 16): bring-up at 2 to 10 nodes, the A/Bs, the scaled headline, the fastest software stack. Each section below condenses the former `results/<ID>.md` (old IDs resolve through `results/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`; the unabridged text: `archive:results_merged_2026-10-19/`. Times Eastern; every number is **measured** unless marked modelled (mod) or assumed (a).
+Scope: the aac7 port (Phase 16): bring-up at 2 to 10 nodes, the A/Bs, the scaled headline, the fastest software stack. Each section below condenses the former `results/<ID>.md` (old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`; the unabridged text: `archive:results_merged_2026-10-19/`. Times Eastern; every number is **measured** unless marked modelled (mod) or assumed (a).
+
+Sections moved to `archive:results_merged_2026-10-24/AAC7_PORT.md` (2026-10-24 cleanup): §A16; §B16.
 
 | item | title |
 |---|---|
@@ -21,97 +23,6 @@ Scope: the aac7 port (Phase 16): bring-up at 2 to 10 nodes, the A/Bs, the scaled
 - **Open / dropped.** Open: intermittent `shmem_init_thread` segfault of task 1 at 2 nodes x 10^10 (3 in 23 launches, §A16; 0 in 12 / 12 launches at 4-10 nodes); wrap launches in `timeout` and retry. Dropped: RCCL all-to-all (0.24x the push kernel), `COMM_SHMEM_SERIAL=1` (unstable), `RNS_DIST_CACHE_PARTIAL=0` (does not fit memory at 4 x 10^10 per node), FI_CXI / NIC-policy tuning (no gain >5 %), 4 PEs per node at 2 nodes (memory guard without `ECALC_PLANE_CAP`).
 - **Headline limit.** The target share 9.16 x 10^10 digits per node does not fit aac7 now: each rebooted node copies a 77 GB model cache into RAM (MemAvailable about 435-445 GB against a 454 GB layout); 12 nodes are never free (10 usable). E ran at 8.4 x 10^10 per node (§D16).
 - **Superseded numbers.** The 12-node modelled column and §5 "memory delta 0" for the full cache are superseded by §D16 s2; A16's 1-node 10^11 (206.7 s at ROCm 7.0.3) is superseded by the 7.2.4 figure 168.5 s quoted from C16 in §V16.
-
-## §A16 — ecalc on aac7 (Cray OpenSHMEMX 11.8.0, ROCm 7.0.3, Slingshot-11)
-
-Branch `p16-A` from main a6667bd (2026-10-03).
-
-**1. What the SHMEM is (login-node survey).** Cray OpenSHMEMX 11.8.0: OpenSHMEM 1.5, `shmem_init_thread`/`SHMEM_THREAD_MULTIPLE`, `shmem_ctx_create`, typed put-with-signal family, so comm_shmem.c's generic branch (`-DCOMM_SHMEM`) applies. **Host-only symmetric heap** (libsma needs no HIP/HSA; `man shmem_mem_manage`: always huge-page backed, full heap allocated at init). `COMM_SHMEM_DEVHEAP=1` therefore cannot mean a device heap; the transport detects host memory via `hipPointerGetAttributes` and uses the registered host pool (note in the log). NICs: one per PE by default (`SHMEM_OFI_NIC_POLICY` BLOCK default, `SHMEM_OFI_NUM_NICS` unset = one) = one 200 Gb/s NIC per node with one process per node. Progress is manual with a progress thread per PE: leave hardware threads vacant, use `--exclusive`. GMP: only a runtime lib, no headers: GMP 6.3.0 built into a user prefix (2.5 min).
-
-**2. Design (all behind build options or script variables, default build unchanged).** `ecalc/Makefile`: `SHMEM_CRAY=1` (flags + rpaths so the binary runs without modules), `GMP_HOME=<prefix>` (`$(GMP_LIBS)`). `comm_shmem.c`: the DEVHEAP host-memory fallback. `mnrun.sh`: impl `cray` (plain `srun`, `SHMEM_SYMMETRIC_SIZE` = `XT_SYMMETRIC_HEAP_SIZE` = pool + 512 MiB), `MNRUN_MODULES`, `MNRUN_CPUS_PER_TASK=auto`, `ECALC_LOG_CLOCKS`. `mnaccept.sh`: same variables plus `MNACCEPT_TMP` (aac7 `/tmp` is RAM). `aac7env.sh` (new): modules, defaults, `aac7_alloc`/`aac7_wait`, `--log` block (CPU set, clocks per APU, APU -> NUMA -> `cxi<j>`). README rows added.
-
-**3. Tests.**
-- *Build:* rc 0 (33 s with -j32). Two minimal fixes (183b34e): a `struct dbig_s;` forward declaration (clang 20 warning at ROCm 7.0.3); `CC = gcc` when make's `CC` is the built-in default (the Cray `cc` wrapper adds `-lpmi` without `-L`, breaking tools/ and tests/t_comm links).
-- *1 node (ROCm 7.0.3):* 10^9: VERIFY OK, digits identical, total 13.98 s (init 9.1); `DB_POOL_VMM=0` 10.49 s (init 5.7). An rc 6 hipMalloc OOM came from two VMM runs on one node (protocol rule), not a 7.0.3 fault. **10^11 on one node: total 206.73 s and 196.32 s** (2 runs; bs 96.8, dm 85.3, init 24.2 of which `region pools` 18.30 s; VmHWM 27.8 GB) against aac6's 166.7 +- 1.2 s at 7.2.4 (RESULTS §94): +40 s (+24 %); sha1 578f5efb... equals aac6's. Packed output 44.4 GB wrote to NFS in 382 s (0.116 GB/s, off the clock); unpack 1208 s. Idle clocks sclk 94-102, mclk 1300, fclk 2000 on every APU; APU i on NUMA i and `cxi<i>`: confirmed.
-- *2 real nodes (t_comm, t_dist 24, t_mn_grid):* VERIFY OK (200 checks for the grid; 31 896 exchanges, 47.15 s post-to-completion summed). Trap fixed (a003cb8): with `COMM_TRANSPORT=shmem` only as an `env` word of the command, `mnrun.sh` took its non-SHMEM path (Cray default 2.17 GB heap held 2048 MiB, refused 8192); it now reads leading `VAR=value` words too.
-- *mnaccept on 1 node (`--full`, 3562 s):* 22 passed, 1 failed (`t_bs`: only because `ref/e_1000000.sha256` and `e_10000000.sha256` were missing; passed after generating them; generate all four references 10^6..10^9 on aac7 before mnaccept). Includes full 10^11 identical (196.32 s total, RECHECK OK).
-- *2-node ecalc:*
-
-| run | digits | result | total |
-|---|---|---|---|
-| e9 | 10^9 | VERIFY OK, identical | 17.20 s (init 10.1) |
-| e10b | 10^10 | VERIFY OK, identical to the 10^11 prefix | 62.20 s (bs 5.8 + dm 19.3 + dc 18.6; init 18.3) |
-| e10c x2, e10d, e10f, e10g x2, e10h x3 | 10^10 | VERIFY OK, identical | 54-62 s; best **56.04 s** |
-| e10 first launch, e10h run 4 | 10^10 | **task 1 segfault** in `comm_shmem_init`, PE 0 hangs in PMI | killed by timeout |
-
- The 10-s clocks sampler run (101.6 s) and a 172 s run were NFS contention (checkpoint hand-over and writer share the server; a 60-s sampler / no sampler pair gave 58.9 / 62.1 s): the static `ECALC_LOG_CLOCKS=1` block is free, keep 10-s sampling for diagnosis only. `SHMEM_OFI_NUM_NICS=4` vs 1: no difference (54-55 s).
-- *First Slingshot numbers (2 nodes, 10^10):* mesh creation handshake 9.7-10.4 s of the 16-18 s init; 5508 all-to-all exchanges, 50.13 s post-to-completion summed over 4 threads, 186.6 GB received = **3.7 GB/s per APU thread** (includes D2H/H2D staging, peer wait and put; the NIC is faster); dist_mn top product 2^30 = 2^15 x 2^15 over 2 x 4 ranks: ntt 1.402 s of total 1.756 s. Checkpoint hand-over ABANDONED at 0.18 GB/s (NFS, as designed).
-- *Segfault reproduction (job 12177):* 12 x t_comm 0, 12 x ecalc 10^9 0, 10 x ecalc 10^10 **1**; overall **3 in 23 launches of 10^10 at 2 nodes (13 %), 0 in 24 of t_comm / 10^9**. Always the second task, inside `shmem_init_thread` after `bs: arenas 45.1 GB allocated` (VMM arenas mapped first; 8.6 GB at 10^9); PE 0 then reports `_pmi_network_allgather failed`. Lead: libfabric/cxi or PMI startup walking the VMM-reserved ranges. A SIGSEGV preload printed nothing (libsma installs its own handler); no gdb, core goes to a root-only journal.
-
-**4. Open issues.** The segfault (next: `sigaction`-interposing preload, `DB_POOL_VMM=0` x10, `FI_CXI_ATS=0`, `FI_MR_CACHE_MONITOR=disabled`, `comm_shmem_init` before the arenas); wrap every launch in `timeout` and retry on the PMI flood; NFS dominates I/O (checkpoint 0.18 GB/s, 10^11 packed write 116 MB/s); the 7.0.3 vs 7.2.4 single-node A/B (later: 168.5 vs 205.9 s at 10^11, C16 §2.7).
-
-**5. Integrator summary.** Build: `source aac7env.sh; make -s -j32 SHMEM_CRAY=1 GMP_HOME=<gmp>` in `ecalc/`. 2 nodes: 10^9 identical 17.2 s; 10^10 identical **56.0 s** best of 20 good runs (53.7-62.2 s); 3.7 GB/s per APU thread.
-
-## §B16 — ecalc bring-up on aac7 at 4 -> 8 -> 10 nodes (10^10 digits per node)
-
-Branch `p16-B` from `p16-A` 26671c6 (2026-10-04); ROCm 7.0.3 for steps 1-2, 7.2.4 for step 3. Launch line: `mnrun.sh <n> env COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_CHECKPOINT=1 ECALC_VERBOSE=2 ECALC_LOG_CLOCKS=1 ./ecalc <digits> <out>` under `timeout`, from a batch with a done-marker. Two walls: `total` (digits computed and verified; on aac7 the NFS part-file write is inside `dc`) and exit (includes srun start, write, checkpoint). Digits: `digcmp.sh` against 10^9 / 10^11 references; n x 10^10 through a prefix compare of the unpacked parts with the 10^11 reference (`cmp -n D+2`, length D+3). Modelled no-write walls (`mn_model.py estimate --D 1e10 --bw 25 --lat 2e-6 --write-bw 0.1`): 30.6 / 33.1 / 34.1 s at 4 / 8 / 12 nodes (mod).
-
-**Step 1 — 4 nodes (job 12178), 4 launches, 0 failures.**
-
-| run | digits | total (s) | exit | phases | digits |
-|---|---|---|---|---|---|
-| e9 | 10^9 | 18.02 | 23 | bs 1.1 + dm 4.1 + dc 1.3; init 11.5 | identical |
-| e10a / e10b | 4 x 10^10 | 135.99 / 127.47 | 142 / 134 | bs 23.9 + dm 44.5 + dc 41.8; init 25.7 (e10a) | identical |
-| e11 | 10^11 | **FAILED rc 6 at 135 s** | | init 33.3 | |
-| e10c (RNS_VERBOSE=1) | 4 x 10^10 | 130.47 | 138 | dc 42.9 (writer wait 42.4) | identical |
-| e10d (`ECALC_CHECKPOINT=0`, parts in RAM `/tmp`) | 4 x 10^10 | **87.30** | 93 | bs 23.7 + dm 43.1 + dc 0.0; init 20.4 | VERIFY only |
-
-- **e11 abort:** rank 0 at the last batch level of bs: `region pool 0 of parity 1 would grow inside bs, 10.87 -> 16.15 GB` (regions sized at init must not grow; `RNS_POOL_GROW=1` allows it). Memory was not the limit (258 of 502 GB). The init-time region sizing (Phase 12 R, `binsplit.c`) under-sizes parity 1's pool 0 by 49 % at 2.5 x 10^10 per node on 4 nodes (not hit at 10^10 per node, nor single-node 10^11). **Step 1c: with `RNS_POOL_GROW=1`: rc 0, total 314.06 s (bs 72.6 + dm 110.9 + dc 99.1; init 31.3), exit 323 s, VERIFY OK, identical** (VmHWM 43.0 GB; comm 2.48-2.66 GB/s per APU thread). The sizing fix is carried by agent R on `p16-R`.
-- **The no-write wall.** At 4 nodes: **87.3 s without the write (measured) vs 127-136 s with parts on NFS**; modelled 30.6 s: 2.85x. Writer wait inside `dc` is 37-42 s (4.4 GB packed per node at 0.11-0.14 GB/s); the top-set checkpoint is ABANDONED (2.42 of 8.89 GB at 0.14 GB/s).
-- **Fabric:** all-to-all 6456 exchanges, 635 GB received, 222.6 s summed = **2.85 GB/s per APU thread** (pe 0; pes 1-3: 2.78-2.88; 10^9: 1.9-2.2). Mesh handshake 16.4-17.8 s (9-10 s at 2 nodes). Memory (identical on ranks): device 185.3 GB in use, host VmHWM 29.3 GB.
-- **dist_mn pieces (node 0, e10c):** level 1 product 1 074 769 838 limbs 3.41 s; level 2 2 222 222 227 limbs 6.54 s (redistribute 0.70, ntt 5.40, out 0.35); division pieces 6.1-6.3 s; `ntt` is 80-85 % of every piece, the all-to-all redistribute 7-11 %. 2^30 (2 nodes, 1.68 s) to 2^31 pieces (6.1-6.5 s) scale 3.7x for 2x limbs over 2x ranks.
-- **Clocks at launch:** idle DPM levels differ per APU (fclk 1200-2000, mclk 900-1300), sclk 94-95; per-rank level times spread only 1.5 %, so no APU is binned low.
-
-**Step 2 — 8 nodes (job 12185), 5 launches, 0 failures; `RNS_VERBOSE=1`.**
-
-| run | digits | total (s) | exit | phases | digits |
-|---|---|---|---|---|---|
-| e9 | 10^9 | 28.88 | 36 | bs 1.4 + dm 13.4 + dc 0.7; init 13.4 | identical |
-| e10a | 8 x 10^10 (NFS parts) | 216.36 | 224 | bs 47.2 + dm 81.8 + dc 64.4 (writer wait 74.5); init 22.9 | identical |
-| e10b | 8 x 10^10 | 273.02 | 279 | bs 98.7 + dm 85.3 + dc 67.6; init 21.3 | identical |
-| e10d (RAM parts) | 8 x 10^10 | 327.09 | 334 | bs 118.6 + dm 187.6 + dc 0.0; init 20.8 | VERIFY only |
-| e11 (`RNS_POOL_GROW=1` by a batch-edit accident; no `[GROW]` line, so not exercised) | 10^11 | 534.13 | 541 | bs 197.7 + dm 182.2 + dc 89.0; init 65.1 | identical |
-
-- **The 8-node walls are not reproducible; the drift sits in ranks 0-3.** Ranks 4-7 repeat the 4-node figures (level 1 6.9-7.3 s, level 2 13.0-13.3 s); ranks 0-3 (three nodes other users held until about 04:10) are 2-10x slower from e10b on; level 3 grows 22 -> 74 -> 94 -> 170 s run after run while comm falls 2.0 -> 0.8 GB/s per APU thread (e10a clean: 1.95-2.02 everywhere, level 3 22 s). Cause not identified (static clocks block cannot see run-time clocks). e9 at 8 nodes (28.9 s vs 18.0 at 4, 17.2 at 2): fixed costs grow with node count (mesh 10.1-14.3 s).
-- Both walls at 8 nodes: with write 216-273 s, without 327 s (drift, not the write); modelled 33.1 s: 6.5-9.9x.
-
-**Step 3 — 10 nodes (job 12193, ROCm 7.2.4, 18:23-18:38 EDT; 12 nodes are never free, 13 minus 3 held by another user).** Pre-check clean (load <= 4.7, MemAvail 434-494 GB, no stray GPU processes). Rebuilt from clean under `rocm/7.2.4` per the user's directive (2026-10-04 12:40).
-
-| run | digits | total (s) | exit | phases | digits |
-|---|---|---|---|---|---|
-| e9 | 10^9 | 43.22 | 56 | bs 9.7 + dm 3.9 + dc 0.7; init 28.9 | identical |
-| e10a (NFS parts) | 10 x 10^10 | 275.32 | 283 | bs 82.1 + dm 80.4 + dc 90.4; init 22.3 | identical |
-| e10b (RAM parts) | 10 x 10^10 | **202.29** | 209 | bs 96.6 + dm 86.4 + dc 0.0; init 19.1 | VERIFY only |
-| e11 (default, no GROW) | 10^11 | 290.66 | 298 | bs 83.7 + dm 81.5 + dc 100.1; init 25.3 | identical |
-
-**No drift at 10 nodes:** level 1 3.6-8.2 s, level 2 (all 10, 4 combines) 69.7-74.7 / 85.5-89.3 / 72.4-76.2 s across runs, rank-to-rank within about 15 %; comm 1.56-1.62 (e10a), 1.31-1.44 (e10b), 1.51-1.60 GB/s per APU thread (e11). So the 8-node drift was allocation-specific. e11 ran clean without `RNS_POOL_GROW` (10^10 per node is under the abort threshold). Level-2 checkpoint prints six ABANDONED nodes at 0.05-0.12 GB/s (budgeted background write, does not gate the run).
-
-**Launch failures:** 12 launches at 4-8 nodes (+ 10-node set), **0 failures**; the one abort is the pool sizing above.
-
-**The table (measured vs modelled; `@2.8` = model with `--bw 2.8`).**
-
-| nodes | ROCm | digits | per node | no-write wall (s) | with write: total / exit (s) | mod @25 (s) | ratio | mod @2.8 | ratio |
-|---|---|---|---|---|---|---|---|---|---|
-| 2 (A16) | 7.0.3 | 10^10 | 5 x 10^9 | - | 56.0-62.2 / 64-69 | 27.5 | 2.0-2.3 | - | - |
-| 4 | 7.0.3 | 4 x 10^10 | 10^10 | **87.3** | 127.5-136.0 / 134-142 | 30.6 | **2.85** | 76.9 | 1.14 |
-| 4 | 7.0.3 | 10^11 | 2.5 x 10^10 | - | 314.1 / 323 (`RNS_POOL_GROW=1`) | 53.4 | 5.9 | - | - |
-| 8 | 7.0.3 | 8 x 10^10 | 10^10 | 327.1 (drifted) | 216.4-273.0 / 224-279 | 33.1 | 6.5-9.9 | 93.7 | 2.3-3.5 |
-| 8 | 7.0.3 | 10^11 | 1.25 x 10^10 | - | 534.1 / 541 (drifted) | 37.1 | 14.4 | - | - |
-| 10 | 7.2.4 | 10 x 10^10 | 10^10 | 202.3 | 275.3 / 283 | 33.2 | 6.1-8.3 | 97.2 | 2.1-2.8 |
-| 10 | 7.2.4 | 10^11 | 10^10 | - | 290.7 / 298 | 33.2 | 8.8 | 97.2 | 3.0 |
-| 12 | - | - | - | not available | | 34.1 | | | |
-
-Reading: at 4 nodes the model is right with the measured fabric rate (87.3 vs 76.9 s). At 8 nodes use the clean e10a (about 142 s compute after removing the ~74 s writer wait; 1.5x the @2.8 model). At 10 nodes the measured comm rate (1.3-1.6) is below both 2.8 and 25, so neither bound is tight. Open items: NFS compares are slow and shared (run the timed runs first, compares last); a fresh clone has no `ref/e_1000000000.txt` or `results/e_1e11.out` (a spurious DIFFERS until they are linked: check reference paths first).
 
 ## §D16 — A/Bs on aac7, RCCL vs push kernel, and the scaled headline (E)
 

@@ -9,7 +9,7 @@
  * (each scaled by m^-1), then the mirrored stage with w_n^(-r j), w3^(-r i)
  * and 3^-1.  Twiddles w_n^j, j < m, from two tables of <= 2^16 entries
  * (w_n^(j >> 16 << 16) and w_n^(j & 0xffff)), one extra modmul per point.
- * Needs the EC_PRIMES=1 prime set (3 * 2^44 | p - 1). */
+ * Needs the prime set with 3 * 2^44 | p - 1. */
 #include <stdio.h>
 #include "fatal.h"
 #include <stdlib.h>
@@ -39,7 +39,7 @@ static const struct r3tw *tables(int prime, int logk)
     int dev; HIP_CHECK(hipGetDevice(&dev));
     struct r3tw *t = &g_tw[dev][prime][logk];
     if (!t->t1) {
-        if (!ec_has_radix3()) { ec_fatal(EC_RC_FATAL, "ntt3: the prime set has no 3 2^k roots (build with EC_PRIMES=1)\n"); }
+        if (!ec_has_radix3()) { ec_fatal(EC_RC_FATAL, "ntt3: the prime set has no 3 2^k roots\n"); }
         make_tables(&t->t1, &t->t2, prime, ec_root3(prime, logk), logk);
         make_tables(&t->t1i, &t->t2i, prime, ec_root3_inv(prime, logk), logk);
     }

@@ -1,6 +1,8 @@
 # EXCHANGE — the all-to-all exchange in every transport
 
-Scope: the all-to-all exchange in every transport: all-gather, layered exchange two-deep, slab pipelining, the rank gradient, gather kernels. Condensed 2026-10-19 from the per-item reports (originals: `archive:results_merged_2026-10-19/`; raw data and drivers: `archive:results_raw_2026-10-19/`). Old item IDs resolve through `results/INDEX.md`. Labels: m measured, mod modelled, a assumed.
+Scope: the all-to-all exchange in every transport: all-gather, layered exchange two-deep, slab pipelining, the rank gradient, gather kernels. Condensed 2026-10-19 from the per-item reports (originals: `archive:results_merged_2026-10-19/`; raw data and drivers: `archive:results_raw_2026-10-19/`). Old item IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`. Labels: m measured, mod modelled, a assumed.
+
+Sections moved to `archive:results_merged_2026-10-24/EXCHANGE.md` (2026-10-24 cleanup): A-comm; C; X13b.
 
 | item | title |
 |---|---|
@@ -25,63 +27,6 @@ Current state (cross-checked with `ecalc/README.md` and `RESULTS.md`):
 - `DIST_TWREC` (twiddle-pack by row recurrence, §X13b): bit-identical, kernels x1.4-1.65, no end-to-end effect at size 1; later adopted (KERNELS.md owns it, see its `DIST_TWREC_G` item). `COMM_LAYER_TKERNEL` (one-kernel transposes): 662x at g = 576 for small blocks (m, kernel alone), needed at scale.
 - Live conclusions: (1) one push kernel drives all three xGMI links at once, 244 GB/s per APU (m) vs 273 assumed in E9; (2) the host-visible xGMI stage is 40-100x the link time, so overlap must be counted at link level; (3) the pow2 path hides 3/4 of the xGMI link time (structural ceiling with K = 4), depth 2 gives the general map the same; (4) one inter exchange in flight does not bind while the fabric is the bottleneck (fabric idle while held <= 2 %); (5) XGMI-pipeline gains at 2^31 are small (2.5-5 %) because the exchange is HBM/CU bound against the row pass; (6) kernel-level tweaks of the gather are below what ABBA can resolve; the real lever is layout (avoid the 3/4 remote pull).
 - Superseded: A-comm's "default 4 chunks" (now 8); C's push defaults of 228 blocks / 16 B (now 76 / 64-bit); X13 §5 part 2 ("pipeline the v-exchange") is done in X13b.
-
-## A-comm — M7: all-gather in every transport, the layered exchange two-deep, slab pipelining (2026-09-19)
-
-Branch from `main` a75474d; PLAN.md §19; follows `results/GRID_GROUPS.md §M3` ("Open issues": the O(g) point-to-point all-gathers).
-
-Change. `comm.h` gains `allgather_host`, `comm.inflight` (exchanges a caller may post before a wait) and `comm_allgather(_host)`; implemented per transport:
-- local: memcpy; sim4: the fourth caller performs every rank's copies; xGMI: each rank pushes its block into the three peers' slots with the push kernel, barrier before and after; host variant memcpys between two barriers; TCP: receive side in a thread, device blocks staged through pinned host, host blocks < 4 KiB write-all/read-all without threads, else a sender thread per peer + receiver.
-- layered (rho = g d + r): `inflight` 2 (two exchanges on the wire: the xGMI stage and transposes of k+1 run while k is on TCP; two scratch slots of 4 g x bytes). Allgather = inter first (mesh d gathers my block over the nodes into slot d), then the xGMI all-gather of the g-block slots, no transpose: 4 (g-1) bytes per node on the fabric vs 16 (g-1) intra-first.
-- `mn_allgather` (mn.c) is now `comm_allgather_host`. The two O(g) loops in `rns_dist.c` (`node_carry_in`, spill all-gather) were left for A-grid's rewrite (one-line replacements given).
-- Slab pipeline (`ntt_dist.c`): the rank's rows cut into K chunks (K = min(`DIST_CHUNKS`, rows/32), 1 over sim4), each chunk's exchange an ordinary all-to-all on a per-plan transfer stream, events ordering pack -> post -> wait -> unpack. Forward: row pass + pack of chunk k+1 under the exchange of k, unpacks under the last exchange. Inverse: all packs first (the column layout is overwritten otherwise), then wait(k), unpack + row inverse of k under the exchange of k+1. `DIST_STATS` in chunked mode: `t_a2a` is the exposed exchange time. Numerics untouched (packs are permutations).
-
-Tests (m; one node, job-level details in archive): `t_comm` 2/3/4/8 ranks, `t_dist` synthetic / xGMI (K = 1, 4, 8) / transposed inverse / TCP 2 and 4 ranks / layered 2-4 node-processes all VERIFY OK; ecalc 10^8 at sizes 2 and 4 and 10^9 at size 1 identical (5.7 / 6.2 / 8.27 s wall). One failure found and fixed on the way: a transfer stream no longer ordered behind other ranks' packs on the null stream (sim4), fixed by a device sync in `s_wait`. Real 2-3 node runs not made (nodes taken); layered cross-host paths were verified by M3; what is new (TCP receiver thread, second exchange in flight) is host-side logic.
-
-Pipeline timing, xGMI, four APUs, one conv = fwd + fwd + pw + inv (rank 0 wall, m):
-
-| DIST_CHUNKS | 2^30 fwd | 2^30 conv | 2^31 fwd | 2^31 conv |
-|---|---|---|---|---|
-| 1 | 0.0296 s | 0.0883 s | 0.0597 s | 0.1792 s |
-| 2 | 0.0290 | 0.0865 | | |
-| 4 | 0.0257 (-13 %) | 0.0811 (-8 %) | 0.0578 | 0.1737 (-2.5 %) |
-| 8 | 0.0249 (-16 %) | 0.0784 (-11 %) | 0.0567 | 0.1704 (-4 %) |
-
-At 2^30 the exchange is 0.0264 s of the 0.0883 s conv (30 %); the pipeline hides 27-37 % of it (K = 4 / 8), 15-25 % at 2^31. Reason for the ceiling: the push kernel and the NTT kernels share the CUs (push overlaps compute at ~74 %, RESULTS §11), and at 2^31 the exchange (0.054 s for 3 x 4 GB per rank, ~220 GB/s) is memory-bound against the row pass on the same HBM. At 2^26 K <= 4 costs nothing, K = 8 costs 20 % (launch overhead on 1-ms transforms) - hence the default 4 then (since raised to 8 for the target shapes, see README). Whole `t_dist 31` runs (host-reference bound): 65.0 s vs main's 63.4-64.7 s, same. Batch nodes differ by ~5 %: compare within a batch.
-
-Open issues (as of the report): the two O(g) loops in `rns_dist.c`; `DIST_STATS` rows/pack are 0 in chunked mode unless K = 1 (fixed by §C C5); forward cannot overlap unpack of chunk k with row pass of k+1 (both in x; a ring of two extra chunk planes would lift it, not done: memory); sim4 all-gather completes at the fourth call; `t_dist` COMM_RANK mode needs a power-of-two rank count.
-
-## C — B7 `alltoallv` in every transport, C4 the two-plane pipeline, C5 `DIST_STATS` under pipelining (2026-09-20)
-
-Branch from `main` 4aca721; PLAN.md §21; continues §A-comm. Files: comm*.c/h, `ntt_dist.c/.h`, `t_dist.c`, `t_comm.c`.
-
-#### B7 — the unequal all-to-all
-`comm_alltoallv(c, sb, scnt, sdsp, rb, rcnt, rdsp, stream)` (+ `_host`, + `comm_prefix` for back-to-back offsets): rank r receives `scnt[r]` bytes from `sb + sdsp[r]` of every rank, landing at `rb + rdsp[src]`. Both sides compute sizes from the same descriptors and **every transport aborts on a count mismatch**. Completion as `alltoall` (`comm_wait`); a v-exchange and an equal-slab exchange are never in flight together. Per transport: local = one memcpy; sim4 = copies at wait; xGMI = tables published through the shared table + barrier, push kernel `k_push3<T>` with per-peer lengths; TCP = 8-byte count header per slab, sender threads + receiver thread, per-peer staging; layered = send counts all-gathered over the four APU threads, intra xGMI alltoallv, transpose, inter alltoallv over mesh d with per-node counts, reorder at wait (own scratch, 2 x intra total + receive total).
-
-Planned consumers (not changed here; G's files `rns_dist.c`, `newton_db.c`), all already know both sides' sizes: (1) `mdb_shift`: padded slabs of `SL = maxshare/4 + 1` limbs per pair -> piece-sized buffers; saves `2 (g-1) x maxshare/4 x 8` B per APU, at 4 x 10^10 over 2 nodes 4.4 GB per APU = 17.6 GB per node per call (~15 calls per division) (mod); at 2048 nodes the padded form is impossible; (2) `mdb_add_shifted`: rounds of S = 2^26 limbs per pair (g x 512 MB per APU each for sb, rb) -> real cuts, rb 512 MB, sb ~1 GB independent of g (0.5 GB per APU at g = 2, ~1 TB at g = 2048, mod); (3) `redistribute` slab is already tight (<= 2 rows padding per pair), v form only simplifies `k_gather_mn`'s binary search (optional); (4) `mdb_to_host_all` is really an all-gather.
-
-Push kernel: the switches `COMM_PUSH64` (64-bit stores; RESULTS §11 had 909 vs 699 GB/s) and `COMM_PUSH_BLOCKS` came with it. 2^31 conv over four APUs (m, K = 4 unless noted):
-
-| setting | 2^31 conv | 2^30 conv |
-|---|---|---|
-| 16 B, 228 blocks (old default) | 0.1737 s | 0.0889 s |
-| 64-bit, 76 blocks (**new default**) | **0.1577 s (-9 %)** | 0.0801 s (-10 %) |
-| 64-bit, 228 / 152 / 38 / 19 blocks | 0.158 / 0.164 / 0.154-0.157 / 0.1545 | |
-| 16 B, 76 blocks | 0.1663 | 0.0862 |
-| K = 1 (raw exchange): 228 vs 76 blocks, 64-bit | 0.1685 vs 0.1688 | |
-
-64-bit stores -5 %; fewer blocks another -3..-4 % at K = 4 (76 -> 19 within noise) because push blocks stop crowding the row pass off the CUs; at K = 1 the link bounds a lone push. 76 chosen as the conservative end of the flat range (a lone exchange keeps its bandwidth). The kernel also serves the all-gathers and the layered intra stage.
-
-#### C4 — the two-plane pipeline (`dist_fwd2`, `dist_inv2`)
-Question: with a second plane per rank (q limbs = 4 GiB per APU at 2^31) the pipeline can run the generic produce/post/wait/consume schedule in both directions (forward unpack of chunk k under exchange k+1; inverse chunk 0 exchange starts after chunk 0's pack). Measured (xGMI, `DIST_XGMI=1 DIST_PLANE2=1 ./tests/t_dist 31`, conv at 2^31, same node and batch): one plane 0.1570-0.1666 s, two planes 0.1650-0.1719 s, i.e. **3-6 % slower** in four batches (2^30: +3 %; 2^26: 0.0060 vs 0.0062). `DIST_STATS` (2^31, three transforms per rank): one plane exposed exchange 0.0089 s (84 % hidden), total 0.1527 s; two planes exposed 0.0168 s (73 % hidden), total 0.1608 s, exchange itself slower (0.057 -> 0.062 s). Cause: moving unpacks earlier puts them on the CUs together with the push kernel and the next row pass. Remaining exposed part with one plane (6 %) is the first chunk's row pass + pack and last chunk's unpack, which no plane count removes.
-Verdict: **not adopted**; `dist_fwd2/inv2` stay as tested, unused code (delete or keep as evidence with the E1 set); the q x 8 B per APU stays free.
-
-#### C5 — `DIST_STATS` under pipelining
-Parts are now timed by events on the stream they run on; `st_flush` sums the pairs. `dist_stats` gained `t_xfer` (device time of exchanges) and `t_total`; `t_a2a` stays the host time blocked in post + wait = exposed exchange, so `1 - t_a2a/t_xfer` is the hidden fraction. `t_dist`'s line now prints `rows cols pack exchange (exposed: NN % hidden) transform total`; `dist_core`'s "ntt parts" line gets real rows/pack at every K (its "all-to-all" column remains the host-blocked time, an upper bound of the exposed exchange). The global accumulation is under a mutex (four rank threads raced on `+=`).
-
-Tests (m, three batches, one node each): `t_comm` (incl. alltoallv: 6 rounds, zero pairs, reversed receive order), `t_dist` synthetic/local/xGMI (31 runs at 2^31 with `DIST_CHUNKS`, `COMM_PUSH64`, `COMM_PUSH_BLOCKS`, `DIST_PLANE2`, `DIST_STATS`), TCP 2 and 4 ranks, layered 2-4 node-processes all VERIFY OK; ecalc 10^8 (sizes 2, 4) and 10^9 (size 1) identical in every batch. Not run: two real nodes (nodes taken). Gate: xGMI 2^31 not slower (9 % faster, fwd 0.0573 -> 0.0520 s).
-
-Open: the v-uses in `rns_dist.c` / `newton_db.c` are G's (`mdb_shift` is the one that matters at 4 x 10^10); the layered alltoallv has no consumer yet and uses its own `hipMalloc` scratch; the block count was not measured under the batch tier's concurrent transforms (`rns_mul.c` does not use `comm_xgmi`).
 
 ## X13 — xGMI and the fabric at the same time (PLAN.md §29 E9 part 1, H4), Phase 13a
 
@@ -140,58 +85,6 @@ E9 assumed T_intra/T_inter = 0.37 at 576 (ceiling 27 % of the sequential exchang
 - **Part 3 (xGMI as relief valve for NIC imbalance): not worth writing** (imbalance <= one row in R/nr, ~0 at target; not measured on real nodes).
 
 Gate: `mnaccept.sh --only unit,e9,mn` on `p13-X` 59ebca79: 15 passed, 0 failed, 1310 s (m). Open at the time: real 2- and 3-node measurements (done for 2 nodes in §X13b 2.1a); block transposes are g x 4 `hipMemcpyAsync` per direction (0.1-0.27 ms per exchange at g = 2-3, m; 2304 launches at g = 576, mod: one-kernel transpose needed, done in §X13b).
-
-## X13b — the uneven exchange two deep, one-kernel transposes, faster packs (PLAN.md §31 row X, axis A)
-
-Branch `p13b-X` from `p13b-step0` c988218. Files: `comm_layered.c`, `ntt_dist.c` (pack/transpose kernels, bench function), `t_dist.c` (drivers `DIST_PBENCH`, `DIST_TBENCH`, a pipelined alltoallv check). Every addition behind a switch, off by default at the time; depth 2 is now built in (RESULTS).
-
-M-run note: at 4 node-processes every transform group is a power of two, so the equal-slab pipeline runs and the v-exchange depth never acts. To measure axis A there, add `DIST_GEN=1` to both rows (A = 1 / 2: `COMM_ALLTOALLV_DEPTH=1/2`) or run 3 node-processes. At size 1 axis A does nothing. Other options (independent, bit-identical): `COMM_LAYER_TKERNEL=1` (layered exchange, sizes >= 2), `DIST_TWREC=1|2` (`ntt_dist` forward pack and inverse unpack, every size), `DIST_TPACK=1` (`dist_inv_t` only, tests).
-
-#### 1. What was built
-- **`COMM_ALLTOALLV_DEPTH=2` (`y_alltoallv2`)**: depth 1 completed the previous v-exchange at the top of the next post (no xGMI/fabric overlap, X13: 1.1 %). Depth 2 does the count tables, intra stage and reorder of exchange k first (under k-1's inter stage), then completes k-1, then posts k's inter stage. "Posting k completes k-1" still holds on return (`gen_inv_pw` stays correct). Inter send x2 and receive x3 alternate between two slots; intra receive x1 lives in the slot's x3 area. Scratch per APU thread: depth 1 `x0 + 2A + B`, depth 2 `x0 + 2(A + max(A,B))`, i.e. **3 S -> 4 S** on the general map; measured (stats scratch line, ecalc 10^8) size 2 `DIST_GEN=1` 12.6 -> 16.8 MB (+33 %), size 3 8.5 -> 11.2 MB (m); at the target one more quarter-plane per APU on general-map levels (mod).
-- **`COMM_LAYER_TKERNEL=1`**: `block_transpose` (4 g blocks) becomes one kernel `k_btrans` instead of 4 g `hipMemcpyAsync`; the v-exchange's three reorder copy loops become batched-copy kernels `k_bcopy`. Falls back to copies for non-device pointers or lengths not multiple of 8/16 B.
-- **Packs**: the plain `k_pack` (K13: 360-770 GB/s) is on no production path; production forward uses `k_twpack` (LDS-tiled + twiddle). `k_pack_t_tiled` behind `DIST_TPACK=1`. Production `k_twpack` / `k_unpacktw` run at half the copy rate (two table gathers per point); `DIST_TWREC=1` (`k_twpack_r`/`k_unpacktw_r`: a thread takes w^(ij) once for four rows and steps by w^(8j)); `DIST_TWREC=2` eight rows per thread. `ec_mm` is canonical so results are exact (bit-identical, checked).
-
-#### 2. Measurements (m)
-**2.1 Both-busy on the general map (loopback, ecalc 10^8, POOL_LOG 27).** Link-level hidden fraction of xGMI time:
-
-| run | depth 1 | depth 2 |
-|---|---|---|
-| size 2 `DIST_GEN=1` passive | 1.5 % (span 1.931 s, total 8.09 s) | **75.1 %** (span 1.665 s, -14 %; total 7.44 s) |
-| same, exact | 1.5 % | 70.1 % |
-| size 3 node 2 (g = 3 only) | 0.0 % | **72.6 %** |
-| size 3 node 0 (g = 2 and 3) | 22.9 % | **73.1 %** |
-
-The general map now hides 70-75 %, the pow2 path's structural ceiling; size 3 as a whole goes ~23 % -> ~73 %. Held time rises 0.01 -> 0.78 s per APU (the one-at-a-time inter stage doing its job), fabric idle in only 2 % of it. Totals are single loopback runs (noise ~0.3 s); the span is the cleaner number. Ceiling of the whole-time saving on this shape is small (min/(x+f) = 6-13 %); at 576 nodes it is X13 §4's 23.5 % ceiling (mod; 17.8 % collected, 5.9 % left).
-
-**2.1a Two real nodes (job on two nodes, TCP over 1 GbE, ecalc 10^8, `DIST_GEN=1`, all identical, VERIFY OK).** First real multi-node measurement of the layered exchange (fabric 0.1 GB/s per node):
-
-| run | link time hidden (node 0 / node view) | fabric busy/span | held (fabric idle) | phases / total |
-|---|---|---|---|---|
-| general map, depth 1 | **1.4 % / 1.7 %** | 99.1 % | 0.15 s | 25.3 / 30.73 s |
-| general map, **depth 2** | **74.3 % / 73.0 %** | 99.5 % | 7.69 s (0.020) | 19.8 / 24.77 s |
-| pow2 path, depth 1 (reference) | 74.9 % / 72.7 % | 97.3 % | 9.30 s | 19.7 / 24.93 s |
-| no stats: depth 1 / depth 2 | | | | 20.3 / 25.36 s vs 19.6 / 24.54 s (-3.4 %, one run each) |
-
-Depth 2 takes the general map from 1.4 % to 74 % hidden, the same as pow2 and as X13 modelled (~75 %); the fabric was idle in 0.3 % of held time, so one inter exchange at a time does not bind on real nodes either. With 1 GbE the fabric is 99 % of the span, so the wall saving is small (ceiling 1.2-1.4 %).
-
-**2.1b Depth 1 vs 2 without instrumentation (loopback, 10^9, two runs each, identical).** Phases: size 3 15.6, 15.6 -> 14.5, 14.4 s (**-7.4 %**); size 4 `DIST_GEN=1` 12.6, 12.7 -> 11.5, 11.3 s (**-9.9 %**). With a slower real fabric the xGMI share that depth 2 hides is smaller, the both-busy fraction itself holds.
-
-**2.2 Transposes.** In the exchange (size 2 pow2) copies 0.076-0.082 ms vs kernel 0.040-0.042 ms; size 3 0.092-0.123 vs 0.047 ms. Alone (one APU, median of 7):
-
-| g (4 g blocks) | 4 KiB: copies / kernel | 64 KiB | 1 MiB |
-|---|---|---|---|
-| 2 | 0.022 / 0.010 ms | 0.022 / 0.009 | 0.025 / 0.012 |
-| 16 | 0.240 / 0.010 | 0.249 / 0.011 | 0.259 / 0.045 |
-| 192 | 2.902 / 0.010 | 2.807 / 0.035 | 2.676 / 0.545 |
-| **576** | **8.160 / 0.012 (662x)** | 7.918 / 0.107 (74x) | 7.013 / 1.522 (4.6x) |
-
-Copies cost 3.0-4.4 us each (launch-bound until ~1 MiB); the kernel runs 2.8-3.2 TB/s on large blocks. All outputs identical.
-
-**2.3 Packs (`DIST_PBENCH`, one APU, GB/s = 16 B x points / t, median of 5; 2^24 .. 2^32 ranges).** Device copy ~2900-3280; `k_twpack` (production fwd pack) 1201-1533; `k_unpacktw` (production inverse unpack) 1195-1501; `k_pack` (plain, unused) 300-566 and `k_pack_t` 301-591; their tiled forms `k_pack_tiled` 2640-3056 and `k_pack_t_tiled` 2614-3139 (x5-9, bit-identical); production `k_unpack` 2170-2863, `k_pack_cols` 2280-2778, `k_unpack_t` 2366-2868. `DIST_TWREC` kernels (2^28 / 2^30, bit-identical): `k_twpack_r` 2322-2335 / 2223-2236 GB/s (x1.65 over 1347-1350), `k_unpacktw_r` 1995-2006 / 2087-2097 (x1.43 over 1461-1463); `DIST_TWREC=2` 2009 / 2083 and 1939 / 1860. **End to end it does not show at size 1**: 4 x 10^10 one node one run each, identical: `TWREC=0` 46.5 s of phases (bs 25.4, dm 21.1; total 66.8 s) vs `TWREC=2` 46.7 s (bs 25.5, dm 21.1); the multi-device products spend little in these kernels. Its weight grows with the distributed share (multi-node), not measured there at the time.
-
-#### 3. Correctness (m)
-Every ecalc run `mn: all nodes VERIFY OK` and digits `cmp`-identical: 10^8 sizes 2, 3, 4 with depth 1/2, passive/exact, transposes copies/kernel, all switches; 10^9 sizes 2 (`DIST_GEN=1`) and 3 (19.3 s, 22.7 s); 4 x 10^10 at `TWREC` 0 and 2 identical to the stored reference. `t_dist` layered with depth 2 + one-kernel transposes (incl. a pipelined alltoallv check: three v-exchanges posted back to back, then three waits) and `TWREC=1` VERIFY OK; `DIST_TBENCH` 21/21 identical; `DIST_PBENCH` tiled packs bit-identical. Gate `unit,e9,mn` green at the defaults (unit: t_mn_grid 200 checks, t_mul 20 189, t_bs 10, t_dbig 0 555, t_newton 20 620, t_verify 334, t_out 1, t_ntt 24 1519 checks; e9/mn 7 passed 0 failed, 130 s); with depth 2 + TKERNEL + TWREC=1 on: 7 passed 0 failed, 138 s.
 
 ## A07 (N7 / opportunity C6): the result-exchange rank gradient in the dm / bs products
 

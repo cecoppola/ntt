@@ -28,7 +28,7 @@ Build with `make -B -C ecalc XSHMEM=cray SHMEM_CRAY=1 GMP_HOME=<gmp>` (aac7: `mo
 switching `XSHMEM`). Then 10⁹ digits identical to the reference at 1 node and at 2 nodes with
 `--env "ECALC_PE_PER_GPU=1 XSHMEM_LANES=2"` (the gate passes `--env` words to `mnrun.sh`), and `tests/t_xshmem correct` with `XSHMEM_LANES=2` at 1, 2 and 3 nodes
 x 4 PEs (build `make XSHMEM=cray SHMEM_CRAY=1 GMP_HOME=<gmp> tests/t_xshmem`; every PE must print `XT_RESULT PASS`). Path 1 is the plain gate above and must stay digit-identical and no
-slower after any shared-code change. A timing claim between the paths needs interleaved pairs (ABBA) and an A/A control: aac7 run times are bimodal, so single runs prove nothing (`results/XSHMEM.md`, craylane).
+slower after any shared-code change. A timing claim between the paths needs interleaved pairs (ABBA) and an A/A control: aac7 run times are bimodal, so single runs prove nothing (`results/NODE_SLOWMODE.md §BM`, `results/XSHMEM.md` craylane). Digit reference at production size: 2 n 1e11 on both paths gives sha 578f5efb0ff2b9af of the part files' concatenated output (main after Q96, `results/XSHMEM.md §XWLAT`).
 
 - `--build` runs `make -B` in `ecalc/` (path 1; add `SHMEM_CRAY=1` for a multi-node run: the gate checks the build log
   for `-DCOMM_SHMEM` and refuses a multi-node run without it). It also runs `tools/switch_registry.py --check` and
@@ -91,7 +91,7 @@ question open, and killed runs have been followed by nodes draining for a reboot
 | the engine (NTT, CRT, products, binary splitting, Newton, memory layout) | `mnaccept.sh <hold> --only unit,e9` plus the touched steps (`mn`, `grid`, `ckpt`, `recheck`, `corr`); `t_newton`, `t_mul`; 4 × 10¹⁰ digits identical to the reference; `ecalc/mem_model.py --check-c` exact if sizing changed |
 | switches or defaults | `tools/switch_registry.py --check`; the switch row in `ecalc/README.md` |
 | PE identity and process-per-GPU (`ecalc/vpe.{h,c}`, the `vpe_*` part of `mn.c`, `ECALC_PE_PER_GPU`) | `tests/t_vpe host` (login node is enough; checks the fatal paths in forked children); under `mnrun.sh` with `ECALC_PE_PER_GPU=1 COMM_TRANSPORT=xshmem` (4 tasks per node) `tests/t_vpe all` / `probe` at 1, 2, 3 nodes (one `T_VPE_RESULT PASS` per PE: 4, 8, 12), `t_vpe info` (launch and binding probe: `PPG_INFO` line per PE), `t_vpe die` and `t_vpe badlayout` (the step must end nonzero within 120 s, no task left); the flow's writers: `tests/t_out --ppg` (host only: one process per PE writes its part, parts / residues / windows vs the reference); the switch-off path must stay byte-identical (gate at 1 node, digits and log text); the form S product on lane 0 of the forced PE view: `tests/t_dist --vpe`, `tests/t_dbig --vpe` (no network). The thread mode (`ECALC_VPE`) and its tests were removed 2026-10-23 (Q86; branch `vpe-int`) |
-| the xshmem layer (`xshmem*.{h,c}`, `comm_xshmem.c`, `pe_geo.c`) | build with the plain `make ecalc` (XSHMEM=ofi is the default where libfabric is found; `XSHMEM=0` for the old build); `tests/t_pe_geo` (host only); `tests/t_xshmem` at 1, 2 and 3 nodes x 4 PEs (sections `basic exch deadlock layer limit`); then the gate at 1, 2 and 3 nodes with no transport variables (the default is xshmem with `XSHMEM_ROUND_MB=128`; digits identical) and at 2 and 3 nodes with `COMM_TRANSPORT=shmem COMM_OFI=1` (the fallback), and `mnaccept.sh <hold> --only mn` (default env) (`results/XSHMEM.md` §5-6) |
+| the xshmem layer (`xshmem*.{h,c}`, `comm_xshmem.c`, `pe_geo.c`) | build with the plain `make ecalc` (XSHMEM=ofi is the default where libfabric is found; `XSHMEM=0` for the old build); `tests/t_pe_geo` (host only); `tests/t_xshmem` at 1, 2 and 3 nodes x 4 PEs (the default `correct` set: `basic exch deadlock layer limit tail`); then the gate at 1, 2 and 3 nodes with no transport variables (the default is xshmem with `XSHMEM_ROUND_MB=128`; digits identical) and at 2 and 3 nodes with `COMM_TRANSPORT=shmem COMM_OFI=1` (the fallback), and `mnaccept.sh <hold> --only mn` (default env) (`results/XSHMEM.md` §5, §6) |
 | process layout P and lanes (`ECALC_PE_PER_GPU`, `XSHMEM_LANES`, `RNS_BATCH_SPLIT`, `xshmem_cray.h`, the launcher's P branch) | the path 2 gate (section 2) at 1 and 2 nodes, and D against P digits at 1, 2 and 3 nodes (`sha` of the output file) |
 | speed claims | the timing method in section 6, on top of the above |
 
@@ -137,8 +137,7 @@ off for multi-node timing runs (digits are written only by the gates).
   per question unless the coordinator allows more.
 - **Report** the mean difference B − A with its 95 % CI and the number of pairs, never a bare ratio. Each arm's wall is the
   run's own total line; state the size, node count, and settings of both arms.
-- `ecalc/calib_table.py <dirs…> --ab` turns run logs into rows with a rate-adjusted paired A/B and warns about a shift in
-  the fabric rate between arms. A multi-node timing comparison is
+- A multi-node timing comparison is
   invalid when the rate shifted ("slow mode") — repeat the rounds.
 - A long driver is one fire-and-forget script on the cluster with a done marker, not a polling agent.
 

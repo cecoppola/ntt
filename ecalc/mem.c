@@ -173,7 +173,7 @@ void mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes)   /* DMA
     HIP_CHECK(hipSetDevice(dev));
     HIP_CHECK(hipMemcpy(dst, src, bytes, hipMemcpyDefault));
     /* a device-to-device hipMemcpy returns before the copy is done (it is only queued on this device's null
-     * stream; tests/t_copy_order measures it), and the other devices' streams are not ordered against that null stream:
+     * stream; measured on aac7, results/CRASHES_HANGS.md), and the other devices' streams are not ordered against that null stream:
      * the level loop's odd-node copy was read by the next level's scatter kernels on the other three APUs, and its source
      * overwritten by their CRT, while it was still in flight (results/CRASHES_HANGS.md §R).  Every caller assumes the copy is complete
      * when this returns, so wait for it here. */

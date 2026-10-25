@@ -196,12 +196,8 @@ static int out_mode(const char *name)
 }
 /* MN_OUT_STRIPE=<count>[:<stripe MB>[:<OSTs>]] -- the part file created with that Lustre layout before it is
  * opened (a new file takes its directory's layout otherwise).  With <OSTs> (the file system's OST count) the first OST is
- * (part * count) mod OSTs, so the nodes' files start on distinct targets; without it Lustre's allocator places them.  Built
- * with -DMN_OUT_LLAPI (and -llustreapi) the layout is set by llapi_file_create, else by running `lfs setstripe`.  Only on a
+ * (part * count) mod OSTs, so the nodes' files start on distinct targets; without it Lustre's allocator places them.  The layout is set by running `lfs setstripe`.  Only on a
  * Lustre file system (MN_OUT_STRIPE_FORCE=1: always -- the test of the command path off Lustre). */
-#ifdef MN_OUT_LLAPI
-#include <lustre/lustreapi.h>
-#endif
 #include <spawn.h>
 #include <sys/wait.h>
 extern char **environ;
@@ -217,9 +213,6 @@ static void out_stripe(const char *name, int part, int verbose)
     long idx = nost > 0 ? ((long)part * (cnt > 0 ? cnt : 1)) % nost : -1;
     unlink(name);                                        /* a layout is set on a new file only */
     int rc;
-#ifdef MN_OUT_LLAPI
-    rc = llapi_file_create(name, (unsigned long long)smb << 20, (int)idx, (int)cnt, 0);
-#else
     char c_s[32], s_s[32], i_s[32]; snprintf(c_s, sizeof c_s, "%ld", cnt); snprintf(s_s, sizeof s_s, "%ldM", smb); snprintf(i_s, sizeof i_s, "%ld", idx);
     char *argv[12]; int a = 0; argv[a++] = (char *)"lfs"; argv[a++] = (char *)"setstripe"; argv[a++] = (char *)"-c"; argv[a++] = c_s;
     if (smb > 0) { argv[a++] = (char *)"-S"; argv[a++] = s_s; }
@@ -227,7 +220,6 @@ static void out_stripe(const char *name, int part, int verbose)
     argv[a++] = (char *)name; argv[a] = 0;
     pid_t pid; rc = posix_spawnp(&pid, "lfs", 0, 0, argv, environ);
     if (rc == 0) { int st = 0; while (waitpid(pid, &st, 0) < 0 && errno == EINTR) {} rc = WIFEXITED(st) ? WEXITSTATUS(st) : -1; }
-#endif
     if (verbose || part == 0 || rc) printf("mn_out: %s: stripe count %ld, size %ld MB, first OST %ld (%s)\n", name, cnt, smb, idx, rc ? "FAILED: the file takes its directory's layout" : "set");
 }
 /* one job in the O_DIRECT form.  The jobs arrive in file order (each chunk starts where the last ended),
