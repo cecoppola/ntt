@@ -81,7 +81,7 @@ The two lines are kept in:
 | system | line | source |
 |---|---|---|
 | aac7 | `LAUNCH_LINE_KEYS` of `profiles/aac7.conf` (`tools/profile_load.py aac7 --line`) | `tools/gate.sh --line aac7` runs it; one source (D15) |
-| target | `profiles/target.conf.template` (site values `__FILL__`); the filled copy stays out of git | `ecalc/target_kit.sh` |
+| target | `target/config/target.conf.template` (site values `__FILL__`); the filled copy stays out of git | `target/kit/target_kit.sh` |
 
 Profiles (`profiles/*.conf`, loaded by `tools/profile_load.py`; precedence: explicit environment > profile > code default)
 hold what is machine-specific. Size-dependent values are computed, never typed: the SHMEM pool and library heap (planner
@@ -102,7 +102,7 @@ default has an owner and a review date (`tools/switch_registry.py --check`).
 
 Open work in this repository is in `TASKS.md`.
 
-**Target session** (the user runs it; the steps are in `ecalc/target_kit.sh -h`):
+**Target session** (the user runs it; the steps are in `target/kit/target_kit.sh -h`):
 1. Fill `profiles/target.conf` from the template (modules, ROCm, NICs, partition, memory); `tools/profile_load.py target --check`.
 2. Kit preflight: environment record, build (path 2: `make XSHMEM=cray`), libfabric memory monitor (uffd), plan check
    (`MN_PLAN_ONLY` must end with `plan check ... OK`), the memory edge, a node screen (`tools/nodescreen.sh`).

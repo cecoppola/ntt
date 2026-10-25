@@ -82,7 +82,7 @@ names identify the change only.
 
 ## Launch-line settings in force (not code defaults)
 
-On both launch lines (`profiles/aac7.conf` `LAUNCH_LINE_KEYS`; `profiles/target.conf.template`).
+On both launch lines (`profiles/aac7.conf` `LAUNCH_LINE_KEYS`; `target/config/target.conf.template`).
 
 | setting | effect | label | evidence |
 |---|---|---|---|
@@ -94,7 +94,7 @@ On both launch lines (`profiles/aac7.conf` `LAUNCH_LINE_KEYS`; `profiles/target.
 ## Open measurement questions
 
 - Fabric injection rate per NIC on the target and its fall-off at 576 nodes (A3, A4): every target time above uses an
-  assumed rate. The target kit `ecalc/target_kit.sh` measures both (results/TOOLS_PROFILES.md §A06).
+  assumed rate. The target kit `target/kit/target_kit.sh` measures both (results/TOOLS_PROFILES.md §A06).
 - `MN_T_CHUNK_MB` 1024 vs 2048 on the target: not yet measured there (X2 is built in, no switch).
 - Path 2 on the target (Cray SHMEM 12.1): the init gap (+8 s on aac7), the day-one checks T1-T8 on a device heap (results/XSHMEM.md §XDIAG), two real NICs per PE.
 - The cause of the aac7 slow modes (per-launch NIC group at 4 n; bimodal 3 n run times) is not established (results/NODE_SLOWMODE.md §A14, §BM).

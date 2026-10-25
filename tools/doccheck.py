@@ -85,7 +85,7 @@ def main():
     # results/*.md are dated evidence records (frozen when written); only the central docs must cite live paths.
     targets = [f for f in CENTRAL if f in fileset]
     # files the docs name before they exist (planned) or that runs create (generated)
-    PLANNED = {"profiles/target.conf", "tools/target_probe.sh", "ecalc/results/mnaccept"}
+    PLANNED = {"profiles/target.conf", "ecalc/results/mnaccept"}
     for f in targets:
         L = lines(f) or []
         d = os.path.dirname(f)

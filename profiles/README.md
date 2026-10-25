@@ -26,7 +26,7 @@ validates, and prints the effective configuration and its hash. Size-dependent v
 | file | machine | status |
 |---|---|---|
 | `aac7.conf` | aac7 (Cray EX, 4 x MI300A, Slingshot-11, Cray OpenSHMEMX) | filled from `ecalc/aac7env.sh`, `mnrun.sh`, the launch lines in `PLAN.md` §3; holds the aac7 launch line (`LAUNCH_LINE_KEYS`) |
-| `target.conf.template` | the production machine | every unknown is `__FILL__` with "how to determine"; copy to `target.conf` (not tracked: add it to `.git/info/exclude`) |
+| (moved) `target/config/target.conf.template` | the production machine | every unknown is `__FILL__` with "how to determine"; `target/probe/gen_conf.py` fills it into `target/config/target.conf` (generated on the target, committed) |
 
 Site specifics of the target (names, module names, paths, node lists) must never be committed here. The tracked template holds
 generic values only; the filled copy stays out of git.
@@ -73,20 +73,19 @@ tools/profile_load.py aac7 --line                  # the launch line (the keys o
 tools/profile_load.py aac7 --check -q              # problems only; --strict exits 1 on SAME-AS-SCRIPT / UNKNOWN
 ```
 
-Statuses: SAME-AS-SCRIPT (a literal `${VAR:-default}` in `mnrun.sh`, `aac7env.sh` or `target_kit.sh` equals the profile value: delete the key), OVERRIDE (the
+Statuses: SAME-AS-SCRIPT (a literal `${VAR:-default}` in `mnrun.sh`, `aac7env.sh` or `target/kit/target_kit.sh` equals the profile value: delete the key), OVERRIDE (the
 script defaults to another value; the profile wins), PROFILE-ONLY (no script defaults it), UNFILLED, UNKNOWN (no such name anywhere in `ecalc/` or
 `tools/`: a typo or a key without a consumer). Read-only.
 
 ## Target bring-up runbook (TASKS 28)
 
-`tools/target_probe.sh` collects the facts and prints a proposed `target.conf` plus its diff against the template (read-only; writes only under
-`--out`; output scrubbed of user and host names). Copy the filled file to `profiles/target.conf` (not tracked) and run
+`target/probe/probe.sh` collects the facts (`facts.tsv`, `raw/`; read-only, writes only under `--out`) and `target/probe/gen_conf.py` writes a proposed
+`target/config/target.conf` plus its diff against the template. Then run
 `tools/profile_load.py target --validate` (no `__FILL__` may remain). Steps in order; stop at the first failure and fix it before going on.
 
-0. **Probe.** On a login node: `tools/target_probe.sh --out DIR` (modules, Slurm, login facts; the SHMEM test is only built). Then inside a
-   one-node allocation: `tools/target_probe.sh --out DIR --hold <job>` (node facts, SHMEM runs: 1/2/4/5 PEs, `SHMEM_LOCALITY_ONNODE`,
-   `SHMEM_OFI_NUM_NICS` 1/2/4/8, three NIC policies, about 5 min). `--want-rocm/--want-sma/--want-fi` give the stated versions; the probe
-   matches module names by them (no names are typed anywhere). If the site hides the APUs from a step, `PROBE_SRUN_EXTRA="--gpus-per-node=4"`.
+0. **Probe.** On a login node: `target/probe/probe.sh --only login` (modules, Slurm, queue rules, file systems; under 2 min). Then with a one-node allocation:
+   `target/probe/probe.sh --only node --jobid <job>` (node facts, SHMEM build and 1/2/4 PE runs; under 5 min). `gen_conf.py <login dir> <node dir>`
+   fills the config. If the site hides the APUs from a step, `PROBE_SRUN_EXTRA="--gpus-per-node=4"`.
 1. **Modules** (`TARGET_ROCM`, `TARGET_SMA_MODULE`, `TARGET_DSMML_MODULE`, `MNRUN_MODULES`, `MNRUN_UNLOAD`). From `module avail`: the ROCm module whose
    version is the stated one, the OpenSHMEM module (`cray-openshmemx` or `cray-shmem` family) of the stated version, the highest dsmml. Check
    `MODULE_LOAD_RC=rc=0` and `MODULES_AFTER_LOAD` in the facts: a ROCm module loaded by default conflicts and the later `module load` silently
@@ -102,7 +101,7 @@ script defaults to another value; the profile wins), PROFILE-ONLY (no script def
    a node: that node goes to `MNRUN_EXCLUDE_HOSTS` (step 6). If the map is not 2 per APU, set `COMM_OFI_NICS` (e.g. `0,4;1,5;2,6;3,7`); otherwise leave it unset.
 4. **libfabric monitor** (`FI_MR_CACHE_MONITOR`). The profile value is `userfaultfd` (memhooks hangs ROCr, S46). `UFFD_SYSCALL` must show
    `user_mode_only:works` (or plain works): then `FI_MONITOR_userfaultfd=accepted`. If both fail, `vm.unprivileged_userfaultfd` is 0 and the process lacks the capability:
-   stop and ask the site; `disabled` is refused by the provider and is not a fallback. Then `ecalc/target_kit.sh` stage `uffd` for the full test.
+   stop and ask the site; `disabled` is refused by the provider and is not a fallback. Then `target/kit/target_kit.sh` stage `uffd` for the full test.
 5. **Memory edge / FIT** (`ECALC_DEVICE_GB`, `ECALC_NODE_GB`). `APU_COUNT` = 4; `APU_VRAM_TOTAL_B` and `APU_GTT_TOTAL_B` are the unified-memory sizes (one
    128 GB pool per APU on an MI300A, shared with the host). `ECALC_DEVICE_GB` is **measured**, not read: the kit's edge stage (`t_edge`, D26) on one node; expected
    about 373 (4 x 93.4 GB; the template value, m on the earlier target data). `ECALC_NODE_GB` = `MemAvailable` on an idle compute node (the probe subtracts 4 GB for the OS and

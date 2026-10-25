@@ -68,10 +68,10 @@ tests/t_ntt: tests/t_ntt.c ntt.o ntt3.o bigint.o fatal.o $(HDRS) tests/harness.h
 tests/t_alloc: tests/t_alloc.c ntt.o ntt3.o bigint.o mem.o fatal.o $(HDRS) tests/harness.h
 	$(HIPC) $< -x none ntt.o ntt3.o bigint.o mem.o fatal.o -o $@ $(GMP_LIBS) -lpthread
 
-# built on demand (target_kit.sh), not in TESTS
+# built on demand (target/kit/target_kit.sh), not in TESTS
 tests/t_edge: tests/t_edge.c     # the memory-edge probe
 	$(HIPC) $< -o $@
-tests/t_nodechk: tests/t_nodechk.c     # target_kit.sh stage nodechk: per-node meminfo + 1 GB host->device upload per APU
+tests/t_nodechk: tests/t_nodechk.c     # target/kit/target_kit.sh stage nodechk: per-node meminfo + 1 GB host->device upload per APU
 	$(HIPC) $< -o $@
 
 ref/gen_e: ref/gen_e.c tests/sha256.h
