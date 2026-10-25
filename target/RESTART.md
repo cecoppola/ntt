@@ -91,15 +91,99 @@ How the rules apply on the target (they were written for the development side):
 
 ## 3. The project as we understand it
 
-[OPEN: summary of ecalc, the two paths, current figures, memory fit, the time estimate, the known risks]
+**What ecalc is.** `ecalc` computes ⌊10^d · e⌋ in decimal: binary splitting of Σ 1/k!, a Newton reciprocal and a
+two-half division, on numbers held in device memory as base-10¹⁸ limbs (no radix conversion). Products are
+number-theoretic transforms modulo three or four primes (`ECALC_NP=auto`), distributed over the four APUs of a node and
+over node groups (a tree of group sizes, `MN_GROUPS`, computed by the planner). Every run verifies itself (T1 residues,
+T2 windows: `VERIFY OK` on every node); `ECALC_RECHECK=1` re-checks a finished file; `tools/unpack_digits` turns the
+packed output (0.417 B per digit) into ASCII. Design: `ALGORITHM.md`; switches: `ecalc/README.md`; plan: `PLAN.md`;
+how to test: `TESTING.md`; open work: `TASKS.md`; ideas: `OPPORTUNITIES.md`; evidence: `results/`.
+
+**The goal.** d = 3.82 × 10¹³ digits on all 576 nodes (6.63 × 10¹⁰ digits per node), digits right without a
+reference, as fast as possible. Standing estimate 182-185.5 s without the write (mod, fabric assumed at the 100 GB/s
+injection peak per APU); the write adds 1.0 s at the file system's 1 TB/s or 12.8 s at 1.0 GB/s per node (mod).
+The fabric numbers are the biggest unknown: the bench measures them first.
+
+**Two multi-node paths (user rule Q85, both stay working; digits identical between them).**
+1. Path 1, libfabric (default build `make -C ecalc GMP_HOME=<gmp>`, transport xshmem over `xshmem_ofi.c`): layout D =
+   one process per node with four APU threads. Run: `SLURM_JOB_ID=<J> ecalc/mnrun.sh <nodes> env ./ecalc <digits>`.
+2. Path 2, Cray SHMEM (the target's shape; `make -B -C ecalc XSHMEM=cray GMP_HOME=<gmp>` with the Cray SHMEM and dsmml
+   modules): one process per GPU, two lanes: `mnrun.sh <nodes> env ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 ./ecalc <digits>`.
+   Never run on Cray SHMEM 12.1 before this session (aac7 has 11.8).
+   `ECALC_PE_PER_GPU=1` on the default build (path 1 with one process per GPU, "P") is a third shape: fastest on aac7 at
+   2 nodes where it fits, slower at 1 node.
+
+**What aac7 measured (the development cluster: same node type, 1 NIC per APU, 6 nodes per user; all m, 2026-10-25,
+`results/LAUNCH_DEFAULTS.md §AAC7OPT`):**
+
+| size | result |
+|---|---|
+| 1 node, 6.6e10 (the target's per-node share) | layout D 74.2 s (fastest); P 83.8 s; `ECALC_NP=3` = auto; `ECALC_NP=4` +7.5 s; seed chunk, thread counts: noise |
+| 2 nodes, 5e10 | P (path 1) 39.7 s, D 54.4 s, path 2 53.5 s; `MN_T_CHUNK_MB` 1024 vs 2048: noise |
+| 3 nodes, 1e11 | path 1 81-83 s; path 2 85-93 s (+7.5 %, the whole gap is start-up, aac7-specific) |
+
+aac7 times are bimodal (about one run in three is 5-8 % slower on both paths), so every A/B there is paired; on the
+target, with many nodes, run the arms at the same time on different node groups instead (the bench does).
+
+**Memory (the hard limit).** Device memory per node ≤ 373.44 GB (the `hipMalloc` edge measured on the target, 93.36 GB
+per APU, m); host ≤ `ECALC_NODE_GB` (480 by default, set from the probe). The planner (`MN_PLAN_ONLY=<digits>:<nodes>`,
+`tools/plan_values.py --fit`) is the authority; `mnrun.sh` refuses a run that does not fit (rc 8), the guard stops a run
+before the OOM killer (rc 9). At 3.82e13 on 576: device 358.96 GB (+14.48 GB) only with `MN_NONPOW2_CAP=0` (user decision
+Q119; with the code default 407.41 GB, refused; mod, planner). The largest size that fits: about 4.19e13 with
+`MN_NONPOW2_CAP=0`, about 2.67e13 with it on (mod). Its time cost at non-power-of-two node counts is measured by the bench.
+
+**The launch settings for the target** (`target/config/target.conf.template` → `target.conf`): `ECALC_NP=auto`,
+`MN_T_CHUNK_MB=2048`, `MN_NONPOW2_CAP=0`, `FI_MR_CACHE_MONITOR=userfaultfd`, `FI_LOG_LEVEL=warn`, `ECALC_DEVICE_GB=373.44`,
+`ECALC_MEM_GUARD_GB=6`, `ECALC_SEGV_TRACE=1`, `ECALC_VERBOSE=2`, `MEM_REPORT_DEVS=1`; pools, heaps and
+`FI_UNIVERSE_SIZE` are computed by the planner and `mnrun.sh` (never typed). Bad nodes are excluded
+(`MNRUN_EXCLUDE_HOSTS`, mode `drop`), never replaced by spares (user decision 2026-10-11).
+
+**What the development side cannot know and the session must bring back:** the fabric (injection per APU with 1 and 2
+NICs, all-to-all scaling with node count, latency, the dragonfly group size), Cray SHMEM 12.1 behaviour and start-up
+cost, ROCm 7.14 speed against 7.2.4, the file-system write rate of ecalc's own writer, node-to-node variation, the queue
+rules, and every model constant listed in `bench/QUESTIONS.md`. Post-access development uses only what is committed in
+`target/results/`, so record raw output, not just conclusions.
 
 ## 4. How to work on the target: the team
 
-[OPEN: coordinator + workers, allocations, the commit cadence, priorities, what to send back]
+- **Coordinator** (the Claude Code main session in the clone): plans, starts workers, collects, commits and pushes
+  `target/results/` every 30-60 min and at each milestone (Q115: the session can end at any time), keeps
+  `target/results/LOG.md` and `target/results/DECISIONS.md`, and talks to the user. Only the coordinator runs git.
+- **Workers** (subagents, or background shells the coordinator starts): each holds one Slurm allocation and runs
+  `target/bench/run.sh --jobid J` (claims items one after another) or one ladder level. Workers never ask the user and
+  return once (CLAUDE.md protocol). Size the team from the queue rules in the probe and from `bench/run.sh --plan N`.
+- **Long allocations, many items inside** (the aac7 lesson: fewer job starts and reboots): ask for an allocation sized for
+  a block of items, keep it while it has work.
+- **Order of work** (priority, Q115): step 1 (probe, conf) → step 2 (builds) → in parallel: bench items with prio < 100
+  (the ladder needs them) and ladder L0 as soon as both builds pass → bench prio 100-199 (optimization questions) with
+  L1 and L2 replicas on other nodes → L3 → bench prio 200+ (calibration for offline work) in whatever nodes are free.
+- **Correctness first:** a result counts only with `VERIFY OK`; any wrong digit or crash stops that line of work until
+  understood. Code changes on the target follow `TESTING.md` (gate before use) and go to a branch; push it.
+- **Labels and times:** every number m / mod / a; times with the time zone; raw output kept under `target/results/`.
 
 ## 5. Step 1 — system facts (minutes)
 
-[OPEN: probe commands, gen_conf]
+Fast, read-only, every call capped at 10 s (login part ≤ 2 min, node part ≤ 5 min). Facts go to `facts.tsv` (key, value,
+source; the keys are listed at the top of `probe.sh`), full command output to `raw/`, and the scontrol dump of all nodes
+to `raw/scontrol_nodes.txt` (input of `ladder/locality.py`).
+
+```bash
+cd <clone>
+target/probe/probe.sh --only login --out target/results/probe/login-$(date +%Y%m%d-%H%M)          # login node, ~5 s on aac7 (m)
+salloc -N1 --no-shell -p <partition> -t 30          # or sbatch a hold; note the job id J
+target/probe/probe.sh --only node --jobid J --out target/results/probe/node-$(date +%Y%m%d-%H%M)  # inside J; srun on the node
+#   (if the APUs are hidden from the step: PROBE_SRUN_EXTRA="--gpus-per-node=4" target/probe/probe.sh ...)
+target/probe/gen_conf.py target/results/probe/login-* target/results/probe/node-* -o target/config/target.conf
+python3 target/ladder/locality.py nodes --from target/results/probe/login-*/raw/scontrol_nodes.txt --save
+```
+
+Check at once (they decide the first runs): `gpu.count` = 4, `net.cxi_count` = 8 and `net.nics_per_apu` = 2,
+`shmem.rc.*` = 0 (the Cray SHMEM 12.1 test ran with 1, 2 and 4 PEs and with 2/4/8 NICs), `uffd.*` (the libfabric memory
+monitor `FI_MR_CACHE_MONITOR=userfaultfd` needs it: 0/104 hangs against 22/105 with memhooks, m on aac7), `lib.gmp_h`
+(ecalc needs GMP; if missing, build it into `$APU/gmp` from source and set `GMP_HOME`), the partition limits in
+`slurm.part.*` / `slurm.qos` / `slurm.assoc` (largest job, time limit, jobs per user: they size the worker team, §4).
+`gen_conf.py` prints the keys it could not fill; fill them by hand with a `# how determined` comment. Commit the probe
+results and `target/config/target.conf` right away (Q112).
 
 ## 6. Step 2 — build
 
