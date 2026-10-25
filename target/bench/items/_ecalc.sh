@@ -47,11 +47,16 @@
 #   ecalc_srun TAG PATHNO NODES CMD...   run CMD on NODES hosts (first of HOSTS_SUB/HOSTS), one task per node unless PPN=<k> (k tasks per node),
 #                                  4 GPUs per node (GPUS=<n>), modules of path PATHNO (1|2; 0 = none) loaded in each task, --overlap, log
 #                                  $OUT/raw/TAG.log, returns the rc, sets E_SRUN_WALL_S.  CMD is a path (use ecalc_tool for build-tree programs).
-#   ecalc_tool PATHNO REL          absolute path of a build-tree file of path PATHNO, e.g. `ecalc_tool 1 tests/t_edge`, `ecalc_tool 2 tools/unpack_digits`
+#   ecalc_tool PATHNO REL          absolute path of a build-tree file of path PATHNO, e.g. `ecalc_tool 1 tests/t_edge` (tree/ecalc/tests/t_edge), `ecalc_tool 2 tools/unpack_digits` (tree/tools/..)
 #   ecalc_have PATHNO              0 when the binary of that path exists (prints nothing)
 #   ecalc_stat "A1 A2 ..." "B1 B2 ..."   prints `meanA meanB diff pct` (B minus A, % of A) for two lists of numbers
 #   ecalc_mean / ecalc_median / ecalc_max  of the numbers on the command line
 #   ecalc_grab FILE REGEX         the first line of FILE (rank labels stripped, gz ok) matching REGEX
+#   ecalc_refresh [SECONDS]        path-2 items list only bld01 as a dependency (a failed dep blocks for good); call this first: when bld02 is claimed
+#                                  but not DONE it waits up to SECONDS (default 900), then re-reads ECALC2 / MNRUN_DIR2 / MNRUN_MODULES_P2 from
+#                                  results/bench/bld02/summary.txt.  Returns 0 when path 2 is usable, 1 when not (the item then skips its arms).
+#   ecalc_ok / ecalc_brief TAG     the loaded run is good (rc 0, VERIFY OK, no hash mismatch) / one phrase about it for q.* lines
+#   ecalc_q TQnn TEXT...           q.TQnn=TEXT (one line)       ecalc_end STATUS    write status=STATUS and exit 0
 # Replay (parser tests without a cluster): ECALC_REPLAY=<saved ecalc log> makes ecalc_run copy that log instead of launching (rc 0).
 # Site: TGT_SITE=target (default) | aac7 (the sister system: smaller digit counts, items skip what needs the target's hardware).
 
@@ -100,7 +105,9 @@ _ec_path() {
     [ -n "$EC_BIN" ] && [ -x "$EC_BIN" ]
 }
 ecalc_have() { _ec_path "$1"; }
-ecalc_tool() { _ec_path "$1" >/dev/null 2>&1; [ -n "$EC_DIR" ] && echo "$(cd "$EC_DIR/.." && pwd)/$2"; }
+ecalc_tool() {      # REL below the ecalc dir (tests/t_edge, mnrun.sh) or below the tree root (tools/unpack_digits, tools/initchk.py)
+    _ec_path "$1" >/dev/null 2>&1; [ -n "$EC_DIR" ] || return 0
+    if [ -e "$EC_DIR/$2" ]; then echo "$EC_DIR/$2"; else echo "$(cd "$EC_DIR/.." && pwd)/$2"; fi; }
 
 # the per-task module preamble of the srun wrappers (as the kit's module_preamble and mnrun.sh)
 _ec_pre() { printf '[ -n "%s" ] && module unload %s >/dev/null 2>&1; [ -n "%s" ] && module load %s >/dev/null 2>&1; ' "$EC_UNLOAD" "$EC_UNLOAD" "$EC_MODS" "$EC_MODS"; }
@@ -282,3 +289,29 @@ ecalc_plan() {        # NODES DIGITS SHAPE [VAR=VALUE ...]
 # ---------------------------------------------------------------------------------------------------------------- concurrency
 ecalc_bg() { ( ecalc_run "$@" ) > /dev/null 2>&1 & EC_BG_PIDS+=($!); }
 ecalc_wait() { local p f=0; for p in "${EC_BG_PIDS[@]}"; do wait "$p" || f=$((f + 1)); done; EC_BG_PIDS=(); return $f; }
+
+# ---------------------------------------------------------------------------------------------------------------- misc
+ecalc_refresh() {
+    local w=${1:-900} t0 sf=$TGT_RES/bench/bld02 p
+    t0=$(date +%s)
+    while [ ! -f "$sf/DONE" ] && [ -d "$sf" ] && [ $(( $(date +%s) - t0 )) -lt "$w" ]; do sleep 20; done
+    [ -f "$sf/DONE" ] || return 1
+    grep -qE '^status=(PASS|PARTIAL)' "$sf/summary.txt" || return 1
+    p=$(grep -E '^e\.binary=' "$sf/summary.txt" | tail -1 | cut -d= -f2-)
+    [ -n "$p" ] || return 1
+    case "$p" in /*) ;; *) p=$TGT_ROOT/$p;; esac
+    [ -x "$p" ] || return 1
+    export ECALC2=$p MNRUN_DIR2=$(dirname "$p")
+    MNRUN_MODULES_P2=$(grep -E '^e\.MNRUN_MODULES=' "$sf/summary.txt" | tail -1 | cut -d= -f2-); export MNRUN_MODULES_P2
+    return 0
+}
+ecalc_q() { local k=$1; shift; tgt_kv "q.$k" "$*"; }
+ecalc_end() { tgt_kv status "$1"; exit 0; }
+# ecalc_ok: the loaded run is good (rc 0, VERIFY OK, no digit-hash mismatch).  ecalc_brief TAG: one phrase for q.* lines.
+ecalc_ok() { [ "$E_RC" = 0 ] && [ "$E_VERIFY" = OK ] && [ "$E_HASH_MATCH" != no ]; }
+ecalc_brief() {
+    if [ "$E_SKIP" = 1 ]; then echo "$1 skipped (no binary)"; return; fi
+    printf '%s: %s' "$1" "$(ecalc_ok && echo OK || echo "BAD rc=$E_RC verify=$E_VERIFY${E_REFUSED:+ refused=$E_REFUSED}")"
+    [ -n "$E_HASH" ] && printf ' sha=%s(%s)' "$E_HASH" "$E_HASH_MATCH"
+    [ -n "$E_TOTAL" ] && printf ' total=%s s' "$E_TOTAL"; echo
+}

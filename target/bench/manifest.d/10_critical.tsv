@@ -1,0 +1,4 @@
+mem01	1	10	1	10	bld01	TQ04,TQ05	mem01.sh
+mem02	1	12	1	6	bld01	TQ07	mem02.sh
+cor01	1	11	1	8	bld01	TQ06	cor01.sh
+cor03	1	13	0	3	bld01	TQ09	cor03.sh
