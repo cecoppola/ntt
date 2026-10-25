@@ -613,7 +613,7 @@ int comm_xshmem_init(void)
     X.nodes = np / K; X.q = xshmem_my_pe() / K;
     X.peer = cfg.peer && K == 1;
 #ifdef XSHMEM_CRAY
-    if (cfg.peer && xshmem_my_pe() == 0) fprintf(stderr, "comm_xshmem: XSHMEM_PEER=1 is inert on the Cray backend (the node-local path is the library's)\n");
+    if (cfg.peer == 1 && xshmem_my_pe() == 0) fprintf(stderr, "comm_xshmem: XSHMEM_PEER=1 is inert on the Cray backend (the node-local path is the library's)\n");
     X.peer = 0;
 #endif
     int nlw = cfg.lanes > 1 ? (cfg.lanes > MAXL ? MAXL : cfg.lanes) : 1; X.nl = nlw; if (cfg.lanes > MAXL && xshmem_my_pe() == 0) fprintf(stderr, "comm_xshmem: XSHMEM_LANES=%d clamped to %d (the limit)\n", cfg.lanes, MAXL);
