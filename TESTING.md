@@ -52,7 +52,7 @@ slower after any shared-code change. A timing claim between the paths needs inte
   `MNRUN_FIT=0` skip it, for deliberate edge tests only.
 - Output: `build.log`, `run.log` and one summary line `gate.txt` (`gate PASS | nodes … | digits … | total …s`). The digit
   files are deleted afterwards. The gate kills only its own processes and cancels only an allocation it submitted.
-- Exit status 0 = PASS, 1 = FAIL. A single-node system without SHMEM runs `--nodes 1` only.
+- Exit status 0 = PASS, 1 = FAIL. A build without the xshmem engine (`XSHMEM=0`) runs `--nodes 1` only.
 
 ## 3. The standing regression
 
@@ -65,8 +65,8 @@ Durations on aac7 (measured 2026-10-13, results/CRASHES_HANGS.md §HANG): `--onl
 
 | step | what it checks |
 |---|---|
-| `unit` | the unit tests below (`t_ntt 24`, `t_mul 20`, `t_bs`, `t_dbig 0`, `t_newton 20`, `t_verify`, `t_out`, `t_patch`, `t_mn_grid` at 2 processes) |
-| `grid` | `t_mn_grid` over SHMEM |
+| `unit` | 18 tests: `t_ntt 24`, `t_mul 20`, `t_bs`, `t_dbig 0`, `t_newton 20`, `t_verify`, `t_out`, `t_patch`, `t_arith` (`modarith`, `roots`, `primes gpu`), `t_crt`, `t_p24`, `t_crtk`, `t_strategy 20`, `t_seed`, `t_dist`, `t_mn_grid` at 2 processes |
+| `grid` | `t_mn_grid` at 2 processes over xshmem |
 | `e9` | 10⁹ digits at size 1 against the reference |
 | `mn` | 10⁸ at sizes 2, 3, 4 and 10⁹ at sizes 2 and 4 (several node-processes on one node; the part files concatenated and compared) |
 | `ckpt` | 10⁸ at size 2, the top-level set in `BS_CKPT_DIR`: written (one set per node, nothing else) and read by the recheck; dropped under the budget (`ECALC_CKPT_TOP=2`, an emulated slow disk); none without `ECALC_CKPT_TOP`; digits identical |

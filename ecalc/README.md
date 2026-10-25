@@ -39,12 +39,13 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 | `binsplit.c/h` | binary splitting: seeds, regions, levels, the top levels as device numbers, checkpoints, the layout |
 | `newton.c/h`, `newton_db.c` | the reciprocal and the two-half division on device and sharded numbers |
 | `mn.c/h`, `mn_plan.c/h` | node-processes: meshes, groups, the tree levels; `MN_PLAN_ONLY` plan and check |
-| `comm.h`, `comm_*.c`, `comm_ofi.h` | communicators: `xgmi` (the node's four APUs), `shmem`, `ofi` (libfabric, every NIC), `layered` (xGMI × fabric), `sim4`/`local` (tests), `util` |
+| `comm.h`, `comm_*.c` | communicators: `xgmi` (the node's four APUs), `xshmem` (the inter-node transport over `xshmem.h`), `layered` (xGMI × fabric), `copy` (GPU copy kernel), `util`; `tests/comm_local.c`, `tests/comm_sim4.c` are test-only |
+| `xshmem.h`, `xshmem_ofi.c`, `xshmem_boot.c/h`, `xshmem_cray.h`, `xshmem_round.h`, `pe_geo.c/h`, `vpe.c/h` | the xshmem API and its two backends (libfabric `XSHMEM=ofi`, Cray SHMEM `XSHMEM=cray`), the PE geometry, the one-process-per-GPU PE identity |
 | `mn_out.c/h`, `packed_fmt.h`, `verify.c/h` | output per node (packed part files, the correction patch), T1 residues and T2 windows |
 | `mem.c/h`, `memsample.c/h`, `spill.c/h` | memory pools, VMM arenas, accounting and sampling; O_DIRECT file writes |
 | `fatal.c/h`, `segv_trace.c/h`, `config_line.c/h` | named exits, the crash-trace handler, the `config: hash=` line |
 | `switches.tsv`, `switches_manual.tsv`, `switches_gen.h` | the switch registry (`tools/switch_registry.py`; never hand-merge the generated files) |
-| `mnrun.sh`, `aac7env.sh` | the multi-process launcher (Cray SHMEM only); the aac7 environment (the aac7 launch line is in `profiles/aac7.conf`) |
+| `mnrun.sh`, `aac7env.sh` | the multi-process launcher (both xshmem paths); the aac7 environment (the aac7 launch line is in `profiles/aac7.conf`) |
 | `mnaccept.sh`, `digcmp.sh` | the standing regression; digit compare |
 | `target_kit.sh` | the target session in stages (`-h`; `--dry-run` prints every command): environment, build, uffd, plan, memory edge, node screen (slow nodes; NIC count vs `SHMEM_OFI_NUM_NICS`, `--want-nics`), A3/A4 fabric tests, init check; one `KIT_SUMMARY.txt` |
 | `mn_model.py` (with its `estimate` subcommand), `mem_model.py`, `aac7_fit.json` (the refit and design-table generators are archived: `archive:scripts_2026-10-23/`) | time and memory models and their fits |
@@ -78,12 +79,12 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `BS_SEED_TERMS` | derived | built-in default | the seed span in terms (256; set in the environment it turns `BS_SEED_FILL`'s default off) | T215.md+WP7.md |
 | `BS_SEED_THREADS` | all | built-in default | threads of the seed pass; fewer than all leaves cores to init's allocations (all) | I.md+S22.md |
 | `COMM_LAYER_VSLOT_MB` | derived | built-in default | - | - |
-| `COMM_OFI_NICS` | unset | launch-line | the NIC list per device, `;` between devices, `,` between one device's NICs (`0;1;2;3`; the target's form `0,4;1,5;2,6;3,7`); chunks stripe over a device's list (unset: the cxi devices on ... | TUNE17.md+TGTBENCH2.md |
-| `COMM_OFI_POOL_MB` | 0 | launch-line | the comm pool per device: the planner sets it from the modelled need when unset, and the xshmem DATA heap per PE (`XSHMEM_HEAP_MB`) follows it | STD17.md+S18KITFIX.md |
+| `COMM_OFI_NICS` | unset | launch-line | the NIC list per device, `;` between devices (indexed by the node-local GPU), `,` between one device's NICs (`0;1;2;3`; the target's form `0,4;1,5;2,6;3,7`), read by `pe_geo.c`; lane k of `XSHMEM_LANES` uses NIC k of the PE's list (unset: the cxi devices on the GPU's NUMA node). | TUNE17.md+TGTBENCH2.md |
+| `COMM_OFI_POOL_MB` | 0 | launch-line | MiB of the transport's per-device pool (the name is from the removed comm_ofi): the planner sets it from the modelled need when unset, it is counted in the budget, and it sizes the xshmem DATA heap per PE when `XSHMEM_HEAP_MB` is 0 (the pool / 4 + 256 MiB rule of `comm_xshmem.c`) | STD17.md+S18KITFIX.md |
 | `COMM_RANK` | 0 | launch-line | this process's rank and the number of node-processes (set by `mnrun.sh`; unset or 1 = the single-node program) | A-comm.md+WP6.md |
-| `COMM_SHMEM_POOL_MB` | 8192 | launch-line | the SHMEM transport's symmetric pool (8192; *Phase 14 (V1)*: `mnrun.sh` sets it, when unset, to the run's modelled need from `MN_PLAN_ONLY=<digits>:<procs>`'s `plan pool` line, and a host ... | STD17.md+P214.md |
+| `COMM_SHMEM_POOL_MB` | 8192 | launch-line | the pool figure of the pool rule (8192 when nothing sets it): `mnrun.sh` sets it, when unset, to the run's modelled need from `MN_PLAN_ONLY=<digits>:<procs>`'s `plan pool` line; the Cray library heap is pool + 512 MiB (`SHMEM_SYMMETRIC_SIZE`), and unless `COMM_OFI_POOL_MB` or `XSHMEM_HEAP_MB` is set the xshmem DATA heap follows it; a hand value wins. | STD17.md+P214.md |
 | `COMM_SIZE` | 1 | launch-line | this process's rank and the number of node-processes (set by `mnrun.sh`; unset or 1 = the single-node program) | MS15.md+S16.md |
-| `COMM_TRANSPORT` | unset | launch-line | `shmem` (Phase 11 S: the meshes as strided PE sets over SHMEM) or `xshmem` (*TARGET1 S3a*; the default for more than one process since Q73, 2026-10-21: the default build includes the engine ... | S.md+OFI17.md |
+| `COMM_TRANSPORT` | unset | launch-line | `xshmem`, the only multi-node transport (since Q103, 2026-10-25; `shmem` was removed): the default build includes the engine where libfabric and the PMI2 header are found (`make XSHMEM=ofi`, path 1; `XSHMEM=cray`, path 2), and `mnrun.sh` sets it for more than one process or under `ECALC_PE_PER_GPU=1`; unset = one process, no transport. | S.md+OFI17.md |
 | `DB_POOL_VERBOSE` | 0 | launch-line | the dbig block pool's growth and how the reserved tails were used (follows `RNS_VERBOSE`) | T215.md+S18KITFIX.md |
 | `DB_POOL_VMM` | derived | built-in default | the bs/dm arena of every APU as a HIP virtual-memory range (`hipMemAddressReserve` at `DB_POOL_VMM_RESERVE` (3) × the arena; 2 GiB chunks `hipMemCreate`d and mapped with access for the four ... | R114.md |
 | `DB_POOL_VMM_CHUNK_GB` | 2 | built-in default | with `DB_POOL_VMM`: the chunk size in GiB (2) and the VA reserved as a multiple of the arena (3) | S46.md+R114.md |
@@ -130,7 +131,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_SEGV_TRACE` | 0 | launch-line | `1` = install a SIGSEGV/SIGBUS/SIGABRT handler right after `main` knows `COMM_RANK` (`segv_trace.c`): on the signal it prints, with `write(2)` only (async-signal-safe, no malloc/printf), ... | S18W.md+S30.md |
 | `ECALC_TEST_CORR` | 0 | test-only | - | DKM15.md+KP15.md |
 | `ECALC_TEST_DIE_PE` | -1 | test-only | ecalc.c; kill test (ECALC_PE_PER_GPU gate): PE <n> dies by ec_fatal after the bs phase; unset = off | - |
-| `ECALC_VERBOSE` | 1 | launch-line | 1: the phase lines; 2: per-level, init and memory detail, and (SHMEM, replacing `COMM_SHMEM_VERBOSE`, removed 2026-10-19) a line per new staging peak of the pool and every PE's init ... | PC15.md+M13.md |
+| `ECALC_VERBOSE` | 1 | launch-line | 1: the phase lines; 2: per-level, init and memory detail, the pool-rule lines and every PE's init (`COMM_SHMEM_VERBOSE` was removed 2026-10-19). | PC15.md+M13.md |
 | `ECALC_VMM_BG` | unset | built-in default | `0` = with `DB_POOL_VMM`, map the whole arena synchronously in the calling thread (no `vmm_bg_map` thread; init is slower by the mapping time the thread hid); default `1` = unchanged. | S34.md |
 | `ECALC_VPE_LANES` | 4 | experiment | PEs per node where there is no launch (planners, `MN_PLAN_ONLY`, unit-test views; default 4, 1..8); with `ECALC_PE_PER_GPU=1` the launch's tasks per node win and a different value is fatal | - |
 | `ECALC_WINDOWS` | derived | test-only | a file of extra T2 windows (`<offset> <digits>` per line) added to the built-in table (unset) | A-out.md+H.md |

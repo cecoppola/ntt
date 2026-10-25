@@ -301,12 +301,13 @@ budget).
 
 | file | transport |
 |---|---|
-| `comm_local.c` | one rank (size 1): no-ops and copies; the single-node pipeline runs through it |
+| `tests/comm_local.c` | test-only: one rank (size 1), no-ops and copies (used by `t_dist`) |
 | `comm_xgmi.c` | the node's four APUs: peer copies over the xGMI mesh, driven by four host threads |
 | `comm_xshmem.c` | `COMM_TRANSPORT=xshmem` (the only multi-node transport; built by default where libfabric is found, `XSHMEM=0` omits it): the inter-node meshes over `xshmem.h`, the 1:1 mapping of the Cray SHMEM 12.1 calls (libfabric backend `xshmem_ofi.c` on aac7, `xshmem_cray.h` on the target); one node-process hosts one loopback PE per APU thread; the receiver publishes offsets, a worker thread (every layout, Q96) puts and signals, rounds (`XSHMEM_ROUND_MB`, default 128); `results/XSHMEM.md` |
 | `xshmem.h`, `xshmem_ofi.c`, `xshmem_boot.c`, `xshmem_cray.h`, `pe_geo.c` | the API (the 1:1 mapping of the Cray SHMEM 12.1 calls) and its two backends: libfabric cxi with PMI2 bootstrap (`XSHMEM=ofi`, path 1) and Cray SHMEM (`XSHMEM=cray`, static inline, path 2); `pe_geo.c` reports each PE's GPU, NUMA node and NICs. `vpe.c` holds the PE identity of the one-process-per-GPU layout |
-| `comm_layered.c` | the layered composition of an intra (xGMI) and an inter (SHMEM/OFI) communicator, §6.3 |
-| `comm_sim4.c`, `comm_util.c` | a synthetic four-rank layout in one APU's memory for tests; shared helpers |
+| `comm_layered.c` | the layered composition of an intra (xGMI) and an inter (xshmem) communicator, §6.3 |
+| `tests/comm_sim4.c` | test-only: a synthetic four-rank layout in one APU's memory (used by `t_dist`) |
+| `comm_util.c` | shared helpers |
 | `comm_copy.c` | N7D: the GPU copy kernel for copies that touch a host-registered pool (called from `comm_xshmem.c`'s `COPY`) |
 
 Builds: the default build (`XSHMEM=ofi`, where libfabric and the PMI2 header are found) runs `COMM_TRANSPORT=xshmem` multi-node; `XSHMEM=cray` builds path 2 (`README.md`). The plain SHMEM transport (`COMM_TRANSPORT=shmem`) was removed 2026-10-25 (Q103): the transport is xshmem on both paths. The transport, the meshes and the
@@ -349,7 +350,7 @@ The T2 head tails (the 49 digits before each node's range) are all-gathered befo
 
 | # | phase | what runs | why |
 |---|---|---|---|
-| 0 | plan | `MN_PLAN_ONLY=<digits>:<nodes>` and `BS_LAYOUT_ONLY` print piece counts, the SHMEM pool and the node bytes without a device | the pool is sized before `shmem_init`; the layout is checked against the memory edges |
+| 0 | plan | `MN_PLAN_ONLY=<digits>:<nodes>` and `BS_LAYOUT_ONLY` print piece counts, the SHMEM pool (`COMM_SHMEM_POOL_MB`, `XSHMEM_HEAP_MB`) and the node bytes without a device | the pool is sized before `shmem_init`; the layout is checked against the memory edges |
 | 1 | transport | xshmem meshes and communicators open | before any HIP thread exists |
 | 2 | pools | per APU: plane pools 0 and 1, then the region arena (HIP virtual memory, 2 GiB chunks) mapped in the background | nothing is allocated inside a later phase |
 | 3 | seeds | spans computed on the CPU and pulled into the arenas | hidden under the mapping |
@@ -378,12 +379,12 @@ everything is allocated once, up front, and sized by a model that the C layout r
   level's numbers in regions of two alternating parities (`pool_get`, `donate_pools`); after the leaf levels the arena
   becomes the `dbig` **block pool** of the reciprocal and division (`db_pool_*`, `dbig.c`). A request with no contiguous
   free extent is met by remapping free chunks, not by copying. The arena's tail is reserved for the division's largest
-  block (the "hole", `dm_layout`) plus a room of 0.16 × the hole. The reciprocal's scratch is reserved once at the last
+  block (the "hole", `dm_layout`) plus a room of `BS_ARENA_ROOM` (0.14) × the hole. The reciprocal's scratch is reserved once at the last
   doubling's sizes and inputs are freed as consumed (`DM_TIGHT`), which keeps the free space contiguous.
 - **Window rounds.** A grid piece's temporary window is processed in rounds of `MN_T_CHUNK_MB` per APU (code default 1024,
   launch lines 2048); `mdb_shift` slabs are bounded by `MDB_SHIFT_CHUNK_MB`.
-- **Exchange memory.** Staging for SHMEM/OFI and the general map's v-slots are counted in the node budget
-  (`binsplit_vslot_bytes`, `binsplit_shmem_pool_need`); `COMM_LAYER_VSLOT_*` share and release them in time.
+- **Exchange memory.** Staging for xshmem and the general map's v-slots are counted in the node budget
+  (`binsplit_vslot_bytes`, `binsplit_shmem_pool_need`); the v-slots are shared and released in time (built in; `COMM_LAYER_VSLOT_MB` sizes them).
 - **Memory fit (FIT, `results/LAUNCH_DEFAULTS.md §FIT`).** `binsplit_fit` (`binsplit.c`) puts the node's device peak -- the larger of the dm
   phase (planes + arena + transport pools + the v-slots) and the bs phase (the same + the VMM pool's bs growth, 6.0 GB m, + the
   tree top's v-slots) -- against the device edge `ECALC_DEVICE_GB` and the node (planes + arena + bs growth + host + v-slots)
@@ -391,7 +392,7 @@ everything is allocated once, up front, and sized by a model that the C layout r
   a run prints it (`memory fit:`), `BS_LAYOUT_ONLY` prints a `fit:` line that `mem_model.py --check-c` compares; the launchers
   refuse a run that does not fit. With `DM_MN_WRAP` unset the same function decides the division's cyclic-plane low product:
   on only when the device with its two extra numbers stays within `ECALC_DEVICE_GB` − `ECALC_DEVICE_MARGIN_GB` (5 GB).
-- **Budget and guard.** `budget_check` (before compute) compares the modelled peak with 480 GB and MemAvailable (rc 8); the still-to-take figure counts the transport's comm_ofi pools as already taken (they exist at init).
+- **Budget and guard.** `budget_check` (before compute) compares the modelled peak with 480 GB and MemAvailable (rc 8); the still-to-take figure counts the transport's resident pools as already taken (they exist at init).
   During the run `ECALC_MEM_GUARD_GB` stops with rc 9 when MemAvailable falls below it.
 - **Layout and models.** `binsplit.c` (`dm_layout`, `layout_arena`, `binsplit_node_bytes`, `tree_need_dev`) computes the
   layout; `BS_LAYOUT_ONLY` and `MN_PLAN_ONLY` print it without a device; `mem_model.py` mirrors it. Measured layouts agree
