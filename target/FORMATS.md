@@ -16,7 +16,7 @@ here. Entry point for a new session: `target/RESTART.md`.
 | `probe/` | step 2: `probe.sh` (fast system facts), `probe_shmem.c`, `gen_conf.py` (facts → `config/target.conf`) | here |
 | `config/` | `target.conf.template`; `target.conf` (generated on the target, committed) | template here, conf on target |
 | `bench/` | step 3: `manifest.tsv`, `QUESTIONS.md` (question register), `run.sh` (claiming runner), `items/<id>.sh`, `aggregate.py` | here |
-| `ladder/` | step 4: `ladder.sh`, `locality.py`, `levels/L0..L3.conf`, `ADJUST.md` (rules for changes between runs) | here |
+| `ladder/` | step 4: `ladder.sh`, `locality.py`, `parse_run.py` (log parser, replica collect), `levels/L0..L3.conf`, `ADJUST.md` (rules for changes between runs); tests `tests/test_locality.py`, `tests/test_ladder_parse.py` | here |
 | `kit/` | `target_kit.sh` (the older staged kit; bench items call its stages) | moved here |
 | `build/` | binaries built on the target (`build/<sha7>-<variant>/ecalc`); never committed | target |
 | `results/` | everything measured on the target, committed raw (decision Q112) | target |
@@ -29,7 +29,8 @@ results/probe/topology.tsv              host -> physical location table (localit
 results/bench/<id>/                     one dir per bench item: claim, summary.txt, raw/, DONE
 results/bench/METRICS.tsv               all m.* values of all items (aggregate.py)
 results/bench/ANSWERS.md                question register with the answers filled (aggregate.py)
-results/ladder/<level>/<run>/           one dir per ladder run: summary.txt, raw/, DONE
+results/ladder/<level>/<tag>-r<k>/      one dir per ladder replica (a job): summary.txt (keys p<path>r<run>.<key>), raw/, DONE
+results/ladder/<level>/<tag>.submit.txt  job ids, hosts, done markers of one submit; results/ladder/LADDER.md = collect output; results/ladder/exclude.txt = hosts to leave out
 results/LOG.md                          the coordinator's dated log of the session (times with time zone)
 ```
 
@@ -135,12 +136,13 @@ Scripts load it through `tgt_conf`; `ecalc/mnrun.sh` reads the same keys from th
 
 ```
 locality.py nodes [--from sinfo|FILE]           table: host xname cab chassis slot blade node state (writes results/probe/topology.tsv with --save)
-locality.py pick --size N [--count K] [--state idle|alloc|any] [--exclude FILE]
+locality.py pick --size N [--count K] [--state idle|alloc|any] [--exclude FILE] [--partition P] [--only-hosts FILE]
                                                  K disjoint groups of N physically adjacent hosts, one group per line,
                                                  comma separated, in physical order; exit 3 if fewer than K groups exist
 locality.py order HOSTLIST                       the same hosts sorted by physical location (rank order for the run)
 ```
 
+`--only-hosts FILE` restricts the pool to an allocation's nodes (with `--state any`); `--from live|FILE` (scontrol -o text or a saved topology.tsv) and `--map FILE` (host to xname) apply to every command.
 Physical order is (cabinet, chassis, slot, blade, node) parsed from the HPE xname (`x<cab>c<chassis>s<slot>b<blade>n<node>`,
 from `scontrol show node` NodeAddr/NodeHostName or the site's mapping). A group of N lies inside the smallest unit that
 holds N nodes (blade/slot → chassis → cabinet → system); `pick` reports `cross=<unit>` on stderr when that is impossible.
@@ -149,9 +151,9 @@ Ladder sizes are fixed (decision Q114): L0 1 node (4 APUs), L1 8 nodes (32), L2 
 ## 10. Ladder
 
 `ladder/ladder.sh --level L0|L1|L2|L3 [--replicas R] [--run-tag T] [--set KEY=VALUE ...]` reads `ladder/levels/<level>.conf`
-(NODES, DIGITS, PATH=1|2, RUNS, env settings), picks R disjoint adjacent groups (`locality.py pick`), checks the memory
+(NODES, DIGITS, PATH=1|2|both, RUNS, REPLICAS, WRITE=0|1|first, TIME_MIN, `ENV_<NAME>=value` words), picks R disjoint adjacent groups (`locality.py pick`), checks the memory
 plan first (`MN_PLAN_ONLY`), runs ecalc on each group (replicas in parallel, one allocation each), verifies the digits,
-and writes `results/ladder/<level>/<run>/summary.txt`. `ladder/ADJUST.md` says which measured numbers change which
+and writes `results/ladder/<level>/<run>/summary.txt`. Options: `--path`, `--run-tag`, `--dry-run`, `--site aac7|target`, `--partition`, `--nodelist-file`, `--jobid J` (drivers run inside that allocation instead of sbatch), `--exclude`, `--no-plan`; `ladder.sh --collect L [--run-tag T]` gathers the replicas (mean/min/max/spread of `total`, VERIFY, digit-hash agreement, measured/model) into `results/ladder/LADDER.md`. A level whose plan does not fit is refused with the largest fitting digit count (rc 4). `ladder/ADJUST.md` says which measured numbers change which
 settings before the next run and when to move up a level.
 
 ## 11. Rules for every agent in target/
