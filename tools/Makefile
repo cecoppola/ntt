@@ -4,12 +4,10 @@ ifeq ($(origin CC),default)
 CC       = gcc
 endif
 CFLAGS  ?= -O3 -march=native -Wall -fopenmp -pthread
-all: unpack_digits wbench test_pack60
-test_pack60: test_pack60.c ../ecalc/packed_fmt.h
-	$(CC) $(CFLAGS) -o $@ $<
+all: unpack_digits wbench
 unpack_digits: unpack_digits.c ../ecalc/packed_fmt.h
 	$(CC) $(CFLAGS) -o $@ $<
 wbench: wbench.c
 	$(CC) $(CFLAGS) -o $@ $<
 clean:
-	rm -f unpack_digits wbench test_pack60
+	rm -f unpack_digits wbench

@@ -13,6 +13,7 @@
 #include "../vpe.h"
 #include "../mn_out.h"
 #include "harness.h"
+#include "../packed_fmt.h"
 static uint64_t rnd(void) { static uint64_t s = 0x9E3779B97F4A7C15ull; s ^= s << 13; s ^= s >> 7; s ^= s << 17; return s; }
 /* --ppg: the PEs write their parts at once, one PROCESS per PE (the thread arm, one thread per PE, was removed 2026-10-23 with the thread mode): the
  * ranks first run in turn for their ranges and heads, then again concurrently; every part equals its range of the reference file, the
@@ -83,6 +84,44 @@ static void t_vpe_parts(int *fails, int *checks)
         free(X); free(ref); unlink(wf); unlink(fn);
     }
 }
+static uint64_t p60_rs = 88172645463325252ULL;
+static uint64_t p60_rnd(void) { p60_rs ^= p60_rs << 13; p60_rs ^= p60_rs >> 7; p60_rs ^= p60_rs << 17; return p60_rs; }
+static uint64_t p60_limb(void) { uint64_t k = p60_rnd() % 8; return k == 0 ? 0 : k == 1 ? 999999999999999999ULL : p60_rnd() % 1000000000000000000ULL; }
+/* the 60-bit packer of packed_fmt.h (folded in from tools/test_pack60.c): round trips for every length 0..70, the writer's chunked stream against
+ * the one-shot pack, the byte count, limbs at the extremes (0, 10^18 - 1), tail reads from any even limb */
+static void pack60_selftest(int *pf, int *pc)
+{
+    int fails = 0;
+    for (size_t n = 0; n <= 70; n++) {
+        uint64_t *l = malloc((n + 1) * 8), *u = calloc(n + 1, 8); uint8_t *b = calloc(ecp60_bytes(n) + 16, 1);
+        if (!l || !u || !b) { printf("out of memory\n"); exit(1); }
+        for (size_t i = 0; i < n; i++) l[i] = p60_limb();
+        ecp60_pack(l, n, b); ecp60_unpack(b, n, u);
+        if (memcmp(l, u, n * 8) || ecp60_bytes(n) != (n * 60 + 7) / 8) { printf("round trip n=%zu FAIL\n", n); fails++; }
+        for (size_t i = 0; i < 16; i++) if (b[ecp60_bytes(n) + i]) { printf("overrun n=%zu FAIL\n", n); fails++; break; }
+        free(l); free(u); free(b);
+    }
+    for (int it = 0; it < 3000; it++) {
+        size_t n = 1 + p60_rnd() % 3000; uint64_t *l = malloc(n * 8), *u = malloc(n * 8); uint8_t *one = malloc(ecp60_bytes(n) + 16), *st = malloc(ecp60_bytes(n) + 64), *ob = malloc(ecp60_bytes(n) + 64);
+        if (!l || !u || !one || !st || !ob) { printf("out of memory\n"); exit(1); }
+        for (size_t i = 0; i < n; i++) l[i] = p60_limb();
+        ecp60_pack(l, n, one);
+        size_t pos = 0, tot = 0; int hp = 0; uint64_t pend = 0;
+        while (pos < n) {
+            size_t c = 1 + p60_rnd() % (p60_rnd() % 4 == 0 ? 3 : 200); if (c > n - pos) c = n - pos;
+            size_t nb = ecp60_stream_chunk(l + pos, c, pos + c == n, &hp, &pend, ob);
+            memcpy(st + tot, ob, nb); tot += nb; pos += c;
+        }
+        if (tot != ecp60_bytes(n) || hp || memcmp(st, one, tot)) { printf("stream n=%zu FAIL (bytes %zu vs %llu)\n", n, tot, (unsigned long long)ecp60_bytes(n)); fails++; }
+        /* a read starting at any even limb gives the limbs from there (the patch / recheck reads) */
+        size_t ja = (p60_rnd() % n) & ~(size_t)1; ecp60_unpack(one + 15 * (ja / 2), n - ja, u);
+        if (memcmp(u, l + ja, (n - ja) * 8)) { printf("tail read n=%zu ja=%zu FAIL\n", n, ja); fails++; }
+        free(l); free(u); free(one); free(st); free(ob);
+    }
+    *pf += fails; *pc += 70 + 3000;
+    printf("pack60: %s\n", fails ? "FAIL" : "PASS");
+}
+
 int main(int argc, char **argv)
 {
     printf("== t_out ==\n"); harness_meta("t_out");
@@ -160,6 +199,7 @@ int main(int argc, char **argv)
         }
     }
     printf("%d checks, %d failures\n", checks, fails);
+    pack60_selftest(&fails, &checks);
     VERIFY(fails == 0, "t_out: %d of %d checks failed", fails, checks);
     return verify_done("t_out");
 }

@@ -133,14 +133,6 @@ static void handler(int sig, siginfo_t *info, void *uctx)
     raise(sig);
 }
 
-/* ECALC_SEGV_TEST=1: a host-only SIGSEGV right after the handler is installed, before any GPU use -- exercises the
- * handler on the login node with no srun, no GPU, matching the s18w task's test instructions */
-static void test_trigger(void)
-{
-    volatile int *p = 0;
-    *p = 1;
-}
-
 void ec_segv_trace_install(void)
 {
     const char *e = getenv("ECALC_SEGV_TRACE");
@@ -165,5 +157,4 @@ void ec_segv_trace_install(void)
     sigaction(SIGBUS, &act, 0);
     sigaction(SIGABRT, &act, 0);
 
-    if (getenv("ECALC_SEGV_TEST") && atoi(getenv("ECALC_SEGV_TEST"))) test_trigger();
 }

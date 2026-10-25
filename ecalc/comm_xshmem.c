@@ -1,23 +1,23 @@
 /* comm_xshmem.c -- the exchanges of ecalc on xshmem.h (plan TARGET1 stage S3a; design TARGET12_DESIGN rev1 sections 3, 5, 6).
  *
- * COMM_TRANSPORT=xshmem (make XSHMEM=ofi; compiled with -DXSHMEM_ENGINE, never part of the default build).  This file is the target-shaped
+ * COMM_TRANSPORT=xshmem (make XSHMEM=ofi or XSHMEM=cray; compiled with -DXSHMEM_ENGINE).  The only multi-node transport.  This file is the target-shaped
  * engine: it speaks ONLY xshmem.h (no fi_*, no shmem_*), so on the target the same file runs on Cray SHMEM 12.1 behind xshmem_cray.h.
  * It is the exchange prototype of tests/t_xshmem.c (xex_post / xex_progress / xex_rx / xex_wait) moved behind struct comm_ops.
  *
  * Model.  One node-process hosts K loopback PEs (xshmem_ofi_loopback_pes(); K = 1 on a backend without loopback): PE = K * node + d, the
  * PE d owns GPU d, its NIC, its DATA heap (payload, sub-allocated here) and its CTRL heap (the control words).  A mesh communicator
  * (mn.c: node set {pe_start + pe_stride r}, one per APU thread d) is the PE set {K (pe_start + pe_stride r) + d}: each NIC carries an
- * independent one-PE-per-node all-to-all.  comm_create_at takes NODE indices, as comm_shmem_create_at does.
+ * independent one-PE-per-node all-to-all.  comm_create_at takes NODE indices.
  *
  * Protocol (one writer per word, plain 8 B SET writes, no atomics; seq << 40 | v, seq < 2^22 per communicator, fatal beyond):
  *   post  : stage non-heap buffers into the PE's DATA heap, copy the self slab, stream sync, quiet ctx0 (older words), publish
  *           ROFF[me]@peer = (seq, offset of the slab's landing place in my heap) to every peer, hand the exchange to the PE's worker
- *   worker: (ECALC_XEX_THREAD=1, default; 0 = poll-only, the APU thread does it in post and wait) per peer whose ROFF arrived putmem_nbi the
+ *   worker: (one thread per PE) per peer whose ROFF arrived putmem_nbi the
  *           slab to the offset; when every peer is posted ONE quiet of the lane, then SIG[me]@peer = (seq, bytes) per peer, a quiet, flushed = 1
- *   wait  : the APU thread tests SIG[peer] (+ progress) of every sender, checks seq and count (fatal on a mismatch, the texts of comm_shmem),
+ *   wait  : the APU thread tests SIG[peer] (+ progress) of every sender, checks seq and count (fatal on a mismatch),
  *           waits for flushed, copies staged receive slabs out on the stream and syncs.  One exchange per communicator in flight.
- * Peers are walked in rotated order (me + q) % n (XSHMEM_ORDER=rot, default: no incast on member 0; seq = rank order, the reference's).
- * Small collectives (barrier, allreduce_max, allgather_host) are word protocols VAL[2][n] + VSEQ[2][n] on ctx0 (parity slots as comm_shmem's
+ * Peers are walked in rotated order (me + q) % n (no incast on member 0).
+ * Small collectives (barrier, allreduce_max, allgather_host) are word protocols VAL[2][n] + VSEQ[2][n] on ctx0 (parity slots
  * tiny_exchange).  send / recv / allreduce_modq / alltoallv_host / allgather (device) are 0: comm_util.c's fallbacks apply.
  *
  * CTRL layout (words, per communicator id < MAXID, a pure function of the id, so no exchange at create):
@@ -156,7 +156,7 @@ typedef struct xpriv {
     size_t gscr; int gready; size_t *gpeer;             /* allgather_host: my scratch (heap offset), the members' */
 } xpriv;
 #define PRIV(c) ((xpriv *)(c)->priv)
-#define ORD(p, q) (X.rot ? ((p)->me + (q)) % (p)->n : (q))
+#define ORD(p, q) (((p)->me + (q)) % (p)->n)
 static void die(const xpriv *p, const char *m) { ec_fatal(EC_RC_FATAL, "comm_xshmem: pe %d: %s\n", X.K * X.q + (p ? p->lpe : 0), m); }
 #define WORD(p, w, i) ((p)->lp->ctrl + ((size_t)(p)->id * W_N + (w)) * (size_t)X.nw + (i))
 static void enter(xpriv *p) { if (__atomic_exchange_n(&p->inuse, 1, __ATOMIC_ACQUIRE)) die(p, "two threads inside one communicator"); XSHMEM_SELECT(p->lpe); if (X.ltrace) p->te = now_s(); }
@@ -169,7 +169,7 @@ static void leave(xpriv *p)
     __atomic_store_n(&p->inuse, 0, __ATOMIC_RELEASE);
 }
 /* Lane striping (XSHMEM_LANES = N > 1; N = 1 is the unchanged single-context path).  A payload put of len bytes goes as N contiguous chunks, chunk k on
- * lane k (a 256 B multiple), when len >= N x XSHMEM_LANE_MIN_KB (default 256 KiB); a smaller one stays whole on lane 0.  The returned mask names the lanes used:
+ * lane k (a 256 B multiple), when len >= N x 256 KiB; a smaller one stays whole on lane 0.  The returned mask names the lanes used:
  * the caller quiets every lane of the mask (lane_quiet) BEFORE any signal_set, and the signals all go on lane 0, so each signal follows the completion
  * (at the target) of every payload chunk, whatever lane carried it (xshmem.h: quiet returns when the puts are complete at their targets). */
 static unsigned lane_put(xpe *lp, void *dst, const void *src, size_t len, int pe)
@@ -258,7 +258,7 @@ static void *worker(void *a)
     }
 }
 
-/* ---- the exchange in rounds (XSHMEM_ROUND_MB = m > 0; the design of comm_shmem.c's rounder, as a non-blocking state machine run by the PE's worker) ----
+/* ---- the exchange in rounds (XSHMEM_ROUND_MB = m > 0; a non-blocking state machine run by the PE's worker) ----
  * A pair (s -> r) of b bytes goes in round_count(b, c) rounds of c = m / (n - 1) bytes (>= 4 KiB, 256 B multiple); every round stages at most m
  * each way and leaves the self slab out.  Round j: publish ROFF for every sender still active (the landing place of its chunk j: rb + rdsp + j c, or the
  * receive staging slot), stage my chunks j, put each after the receiver's word of round j, ONE quiet, one signal (seq, bytes) per peer and round, wait for
@@ -382,12 +382,12 @@ static void xex_post(xpriv *p, const void *sb, void *rb, hipStream_t s)
     for (int q = 0; q < n; q++) { int i = ORD(p, q); if (i != me)
         xshmem_ctx_signal_set(XSHMEM_CTX_DEFAULT, WORD(p, W_ROFF, me), PACK(p->seq, xshmem_off(p->rbase + (p->rcnt[i] ? p->roff[i] : 0))), p->pe[i]); }
     if (n == 1) { p->flushed = 1; return; }
-    if (X.thr) {
+    {
         pthread_mutex_lock(&lp->qm);
         if (lp->nq >= MAXPEND) { pthread_mutex_unlock(&lp->qm); die(p, "too many pending exchanges on one PE"); }
         lp->queue[lp->nq++] = p; pthread_cond_signal(&lp->qcv);
         pthread_mutex_unlock(&lp->qm);
-    } else if (xex_send(p)) p->flushed = 1;
+    }
     p->t_pe = now_s();
 }
 static void xex_hang(xpriv *p)
@@ -420,7 +420,6 @@ static void xex_wait(xpriv *p)
         p->rounds = 0; rx = 1;
     } else
     for (;;) {
-        if (!X.thr && !p->flushed && xex_send(p)) p->flushed = 1;
         if (!rx) { rx = xex_rx(p); if (rx) p->t_rx = now_s(); }
         if (rx && __atomic_load_n(&p->flushed, __ATOMIC_ACQUIRE)) break;
         if (!(++spins & 4095)) { if (now_s() - t0 > 900) xex_hang(p); if (spins > 100000) YIELD(); }
@@ -584,12 +583,7 @@ int comm_xshmem_init(void)
     pthread_mutex_lock(&X.lock);
     if (X.inited) { pthread_mutex_unlock(&X.lock); return X.nodes; }
     xshmem_cfg_t cfg; xshmem_cfg_load(&cfg);
-    const char *eo = getenv("XSHMEM_ORDER");
-    if (eo && strcmp(eo, "seq") && strcmp(eo, "rot")) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_ORDER=%s: seq or rot\n", eo);
-    X.rot = !(eo && !strcmp(eo, "seq")); X.thr = !getenv("ECALC_XEX_THREAD") || atoi(getenv("ECALC_XEX_THREAD")) != 0;   /* Q96 (2026-10-24): the worker is the default in every layout; under ECALC_PE_PER_GPU=1 it cuts init 6.5-7.5 s and halves host memory against poll-only (smaller DATA heap with rounds; results/XSHMEM.md §XWLAT) */ { xshmem_cfg_t cf_; xshmem_cfg_load(&cf_); X.yield = !cf_.noyield; }
-    { const char *er = xshmem_round_env(); double m = er ? atof(er) : 0; X.rbytes = m > 0 ? (size_t)(m * 1048576.0) : 0;
-      if (X.rbytes && !X.thr && !getenv("XSHMEM_ROUND_MB")) X.rbytes = 0;   /* the default rounds (Q73) need the worker: poll-only (ECALC_XEX_THREAD=0) runs whole exchanges */
-      if (X.rbytes && !X.thr) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_ROUND_MB needs the worker thread (ECALC_XEX_THREAD=1): the rounds run in it\n"); }
+    { const char *er = xshmem_round_env(); double m = er ? atof(er) : 0; X.rbytes = m > 0 ? (size_t)(m * 1048576.0) : 0; }
 #ifdef XSHMEM_CRAY
     { const char *en = getenv("XSHMEM_CRAY_NUMA");   /* 1: pin this process to its NUMA node's cpus BEFORE libsma init and our heap first touch (the Cray topo has no cpu list otherwise; sysfs via pe_geo, GPU index -> NUMA node as the ofi backend) */
       if (en && atoi(en) > 0 && vpe_ppg()) {   /* one process per PE only: under the default layout (one process per node) there is no per-PE NUMA node */
@@ -624,7 +618,7 @@ int comm_xshmem_init(void)
       e = getenv("XSHMEM_LANE_POLL"); X.lpoll = e && atoi(e) > 0;
       e = getenv("XSHMEM_SIG_LANES"); X.sigl = e && atoi(e) > 0;
       e = getenv("XSHMEM_LANE_CTX"); X.lctx = e && !strcmp(e, "private") ? XSHMEM_CTX_PRIVATE : e && !strcmp(e, "none") ? 0 : XSHMEM_CTX_SERIALIZED; }
-    { const char *em = getenv("XSHMEM_LANE_MIN_KB"); X.lmin = (em && atol(em) > 0 ? (size_t)atol(em) : 256) << 10; }
+    { X.lmin = (size_t)256 << 10; }
     for (int l = 0; l < K; l++) {                                     /* lane contexts first, in order, before any heap (xshmem.h: lane order) */
         XSHMEM_SELECT(l); xpe *lp = &X.pe[l]; lp->lpe = l;
         if (xshmem_ctx_create(X.lctx, &lp->lanes[0])) ec_fatal(EC_RC_FATAL, "comm_xshmem: PE %d: no context for the lane\n", K * X.q + l);
@@ -643,12 +637,12 @@ int comm_xshmem_init(void)
         pthread_mutex_init(&lp->alock, 0); pthread_mutex_init(&lp->qm, 0); pthread_cond_init(&lp->qcv, 0);
         lp->blocks = (struct xblk *)calloc(1, sizeof *lp->blocks); lp->blocks->off = ALIGN; lp->blocks->len = db - ALIGN;   /* offset 0 stays unused */
     }
-    if (X.thr) for (int l = 0; l < K; l++) { if (pthread_create(&X.pe[l].th, 0, worker, &X.pe[l])) ec_fatal(EC_RC_FATAL, "comm_xshmem: pthread_create\n"); X.pe[l].th_on = 1; }
+    for (int l = 0; l < K; l++) { if (pthread_create(&X.pe[l].th, 0, worker, &X.pe[l])) ec_fatal(EC_RC_FATAL, "comm_xshmem: pthread_create\n"); X.pe[l].th_on = 1; }
     XSHMEM_SELECT(0);
     X.inited = 1;
     char rbuf[40]; if (X.rbytes) snprintf(rbuf, sizeof rbuf, "%zu MiB", X.rbytes >> 20); else snprintf(rbuf, sizeof rbuf, "off (whole exchange)");
     if (X.q == 0) fprintf(stderr, "comm_xshmem: %d node-processes x %d loopback PEs, DATA heap %zu MiB + CTRL %zu KiB per PE, order %s, worker thread %s, rounds %s, thread level %d\n",
-                          X.nodes, K, db >> 20, cb >> 10, X.rot ? "rot" : "seq", X.thr ? "on" : "off (poll-only)", rbuf, prov);
+                          X.nodes, K, db >> 20, cb >> 10, "rot", "on", rbuf, prov);
     pthread_mutex_unlock(&X.lock);
     return X.nodes;
 }

@@ -1,17 +1,13 @@
 #!/bin/bash
 # mnrun.sh - run <procs> node-processes of ecalc (or any command) connected by the inter-node
-# communicator (Phase 11 S: SHMEM, COMM_TRANSPORT=shmem; xshmem is the default for <procs> > 1 where the engine is linked, Q73 2026-10-21; the Phase 8 TCP transport was removed
-# 2026-10-12, so a build without SHMEM runs one process only).  The processes are spread over the nodes of the allocation, several per node when there are
+# communicator (COMM_TRANSPORT=xshmem, the only multi-node transport: libfabric backend `make XSHMEM=ofi`, or the Cray SHMEM backend `make XSHMEM=cray`).  The
+# processes are spread over the nodes of the allocation, several per node when there are
 # fewer nodes (they share the node's four APUs); the node count used is the largest that divides
 # <procs> (Slurm places tasks by blocks otherwise), listed explicitly.
 #   mnrun.sh <procs> <command...>          e.g.  SLURM_JOB_ID=<id> ./mnrun.sh 2 ./ecalc 1000000000 /tmp/e.txt
-# SHMEM (COMM_TRANSPORT=shmem): the same placement, launched by plain srun (Cray's PMI), rank = PE.  COMM_SHMEM_POOL_MB sizes the
-# transport's symmetric pool (unset: the run's modelled need from MN_PLAN_ONLY for ecalc, else 8192; Phase 14 V1); the host heap is set
-# 512 MiB above it.  Only Cray OpenSHMEMX is launched (D14, 2026-10-12: the SOS and OpenMPI OSHMEM launch forms were removed;
-# the archived forms are in the local archive removed_2026-10-12/).  A COMM_SHMEM_POOL_MB word of the command wins over the plan (the heap follows it).
-# Phase 16 A (archive:results_merged_2026-10-24/AAC7_PORT.md §A16): `cray` (Cray OpenSHMEMX on aac7 / the target: libsma under /opt/cray/pe/sma,
-# COMM_SHMEM_IMPL=cray): plain srun (Cray's PMI), the heap SHMEM_SYMMETRIC_SIZE = XT_SYMMETRIC_HEAP_SIZE = pool + 512 MiB (its heap is
-# host hugepages; COMM_SHMEM_DEVHEAP=1 falls back to the registered host pool there).  MNRUN_MODULES is the module line of every
+# Launched by plain srun (Cray's PMI), rank = PE.  COMM_SHMEM_POOL_MB is the planner's pool figure (unset: the run's modelled need from MN_PLAN_ONLY for
+# ecalc, else 8192); it sizes XSHMEM_HEAP_MB, and for the Cray backend the heap SHMEM_SYMMETRIC_SIZE = XT_SYMMETRIC_HEAP_SIZE (host hugepages).  A
+# COMM_SHMEM_POOL_MB word of the command wins over the plan.  MNRUN_MODULES is the module line of every
 # wrapper (default `rocm`; `cray-dsmml cray-openshmemx rocm` where /opt/cray/pe/sma exists); MNRUN_CPUS_PER_TASK adds srun -c
 # (unset: as before; `auto`: the node's CPUs / tasks per node -- aac7's srun confines a task to 2 CPUs otherwise);
 # ECALC_LOG_CLOCKS=1 runs aac7env.sh --log (rocm-smi clocks, the APU / NIC NUMA map) on every node before the command.
@@ -20,7 +16,7 @@
 # Phase 16 P (results/OFI_FABRIC.md §P16): MNRUN_NODES=<n> (unset by default) uses at most the first n nodes of the allocation -- 4 PEs on one node
 # (`MNRUN_NODES=1 mnrun.sh 4`) or a 2-node A/B inside a 4-node job.
 # T27 (results/TOOLS_PROFILES.md §T27): MNRUN_PRINT_ENV=1 (default 0) computes everything as for a launch -- the plan's pool, the heap, the libfabric
-# defaults, the SHMEM implementation -- but prints the computed variables as `export K=V` lines on stdout and exits 0 instead of
+# defaults -- but prints the computed variables as `export K=V` lines on stdout and exits 0 instead of
 # calling srun (no allocation needed; mnrun's own messages go to stderr).  tools/plan_values.py uses it, so the size-dependent
 # launch values have one source.  Unset, nothing changes.
 # FIT (D26, results/LAUNCH_DEFAULTS.md §FIT): before srun, the planner's memory fit of the command's ecalc run is printed and a run that does not fit
@@ -36,8 +32,8 @@ PRINT_ENV=${MNRUN_PRINT_ENV:-0}
 if [ "$PRINT_ENV" != 0 ]; then exec 3>&1 1>&2; fi
 print_env_exit() {   # T27: the variables mnrun.sh sets or computes for the launch, as export lines on the saved stdout (fd 3)
     local v
-    echo "# mnrun.sh MNRUN_PRINT_ENV: $P process(es), transport ${COMM_TRANSPORT:-none}, SHMEM implementation ${impl:-none}" >&3
-    for v in COMM_TRANSPORT XSHMEM_LOOPBACK_PES XSHMEM_HEAP_MB COMM_SHMEM_POOL_MB COMM_OFI_PLAN_CXI SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE \
+    echo "# mnrun.sh MNRUN_PRINT_ENV: $P process(es), transport ${COMM_TRANSPORT:-none}" >&3
+    for v in COMM_TRANSPORT XSHMEM_LOOPBACK_PES XSHMEM_HEAP_MB COMM_SHMEM_POOL_MB SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE \
              FI_UNIVERSE_SIZE FI_LOG_LEVEL \
              FI_MR_CACHE_MONITOR MNRUN_MODULES MNRUN_UNLOAD; do
         [ -n "${!v+x}" ] && printf 'export %s=%q\n' "$v" "${!v}" >&3
@@ -47,7 +43,6 @@ print_env_exit() {   # T27: the variables mnrun.sh sets or computes for the laun
 # S46 §4.6: FI_MR_CACHE_MONITOR=disabled gave wrong exchanges silently (2097152 of 2097152 points differed, VERIFY FAILED); refuse it.
 __fmc=${FI_MR_CACHE_MONITOR-}; __fmc=${__fmc,,}
 if [ "$__fmc" = disabled ]; then echo "mnrun.sh: refusing FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR: it corrupts exchanges silently (S46 section 4.6). Unset it (memhooks, the default) or use userfaultfd." >&2; exit 1; fi
-if [ -n "${COMM_SHMEM_PE_PER_APU+x}" ]; then echo "mnrun.sh: refusing COMM_SHMEM_PE_PER_APU: the SHMEM proxy mode was removed in P7 (Q78); COMM_OFI=0 is plain SHMEM, XSHMEM=cray the SHMEM engine. Unset it." >&2; exit 1; fi
 export MNRUN_DIR=$(cd "$(dirname "$0")" && pwd)
 # Phase 16 V: the Cray default module picks up AAC7_ROCM (default rocm/7.2.4, results/AAC7_PORT.md §V16) instead of the bare "rocm" alias;
 # rocm/7.0.3 (the login default) must be unloaded first (module conflict).
@@ -92,24 +87,19 @@ case "${MNRUN_CPUS_PER_TASK:-}" in
     *) copt+=(-c "$MNRUN_CPUS_PER_TASK");;
 esac
 list=$(echo "$use" | paste -sd,)
-# Phase 16 A: COMM_TRANSPORT given as a leading VAR=value word of the command (`mnrun.sh 2 env COMM_TRANSPORT=shmem ... ./ecalc`, the
-# launch line's form) counts as well -- without this the non-SHMEM path launched it (no heap variable: the library's default heap);
+# COMM_TRANSPORT given as a leading VAR=value word of the command (`mnrun.sh 2 env COMM_TRANSPORT=xshmem ... ./ecalc`, the launch line's form) counts as well;
 # the same for ECALC_LOG_CLOCKS, which the wrappers test before the command runs
-for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPORT=${a#*=};; ECALC_LOG_CLOCKS=*) export ECALC_LOG_CLOCKS=${a#*=};; COMM_OFI=*) COMM_OFI=${a#*=};; ECALC_PE_PER_GPU=*) ECALC_PE_PER_GPU=${a#*=};; XSHMEM_HEAP_MB=*) XSHMEM_HEAP_MB=${a#*=};; MNRUN_SYMHEAP_XSHMEM=*) MNRUN_SYMHEAP_XSHMEM=${a#*=};; XSHMEM_HEAP_SLACK_MB=*) XSHMEM_HEAP_SLACK_MB=${a#*=};; XSHMEM_PES_PER_GPU=*) XSHMEM_PES_PER_GPU=${a#*=};; *=*) continue;; *) break;; esac; done   # (ECALC_LOG_CLOCKS: the wrapper reads it)
-# 2026-10-12 (TCP removed): SHMEM is the only multi-process transport -- the default for <procs> > 1; any other value is refused
-# 2026-10-21 (Q73): the default transport for <procs> > 1 is xshmem (XSHMEM_ROUND_MB=128 and XSHMEM_ORDER=rot are its defaults, in the engine and the planner)
-# when the launched executable has the engine linked (make XSHMEM=ofi, the default build where libfabric is found); otherwise (another command, a build
-# without libfabric) shmem as before.  An explicit COMM_TRANSPORT=shmem (with or without COMM_OFI=1) is the fallback and the reference, unchanged.
-# (S2a: ECALC_PE_PER_GPU=1 runs one process per GPU, so it picks the transport the same way on one node.)
+for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPORT=${a#*=};; ECALC_LOG_CLOCKS=*) export ECALC_LOG_CLOCKS=${a#*=};; ECALC_PE_PER_GPU=*) ECALC_PE_PER_GPU=${a#*=};; XSHMEM_HEAP_MB=*) XSHMEM_HEAP_MB=${a#*=};; MNRUN_SYMHEAP_XSHMEM=*) MNRUN_SYMHEAP_XSHMEM=${a#*=};; XSHMEM_HEAP_SLACK_MB=*) XSHMEM_HEAP_SLACK_MB=${a#*=};; XSHMEM_PES_PER_GPU=*) XSHMEM_PES_PER_GPU=${a#*=};; *=*) continue;; *) break;; esac; done   # (ECALC_LOG_CLOCKS: the wrapper reads it)
+# The default transport for <procs> > 1 (and under ECALC_PE_PER_GPU=1) is xshmem when the launched executable has the engine linked (the default build
+# where libfabric is found, or XSHMEM=cray); XSHMEM_ROUND_MB=128 is its default, in the engine and the planner.  A build without the engine runs one process only.
 if { [ "$P" -gt 1 ] || [ "${ECALC_PE_PER_GPU:-0}" = 1 ]; } && [ -z "${COMM_TRANSPORT:-}" ]; then
-    COMM_TRANSPORT=shmem
     for a in "$@"; do case "$a" in env|-*|*=*) continue;; esac
         f=$(command -v -- "$a" 2>/dev/null) || continue; [ -f "$f" ] && [ -x "$f" ] || continue
         head -c 4 "$f" 2>/dev/null | grep -q ELF || continue
         grep -aq comm_xshmem_init "$f" 2>/dev/null && COMM_TRANSPORT=xshmem; break
     done
 fi
-if [ "$P" -gt 1 ] && [ "$COMM_TRANSPORT" != shmem ] && [ "$COMM_TRANSPORT" != xshmem ]; then echo "mnrun.sh: COMM_TRANSPORT=$COMM_TRANSPORT: only shmem (and xshmem, make XSHMEM=ofi) runs more than one process (the TCP transport was removed)" >&2; exit 1; fi
+if [ "$P" -gt 1 ] && [ "${COMM_TRANSPORT:-}" != xshmem ]; then echo "mnrun.sh: COMM_TRANSPORT=${COMM_TRANSPORT:-<unset>}: only xshmem (make XSHMEM=ofi or XSHMEM=cray) runs more than one process; the engine is not linked in the command's executable" >&2; exit 1; fi
 [ -n "${COMM_TRANSPORT:-}" ] && export COMM_TRANSPORT
 PPN=1   # PEs per node (ECALC_PE_PER_GPU=1 sets it below)
 # S2a: one process per GPU (ECALC_PE_PER_GPU=1): PPN tasks per node, the tasks are the PEs
@@ -152,14 +142,14 @@ if [ "$PPN" -gt 1 ]; then   # the CPUs: -c the node's CPUs / PEs per node (auto)
         copt+=(--mem-bind=local)
     fi
 fi
-# COMM_TRANSPORT=xshmem (TARGET1 S3a, make XSHMEM=ofi): the placement, the FI_* block, the plan and the plain srun launch are the shmem block's; in addition
+# COMM_TRANSPORT=xshmem: the placement, the FI_* block, the plan and the plain srun launch below; in addition
 # XSHMEM_LOOPBACK_PES (default = the GPUs per node-process, 4: one xshmem PE per APU thread, each on its own GPU and NIC) and XSHMEM_HEAP_MB (the plan's value
-# below, or the caller's) are exported.  The libsma heap below is still sized (the plan counts the pool conservatively; xshmem does not initialise libsma).
+# below, or the caller's) are exported.  The libsma heap below is sized for the Cray backend only (the ofi backend does not initialise libsma).
 [ "$COMM_TRANSPORT" = xshmem ] && export XSHMEM_LOOPBACK_PES=${XSHMEM_LOOPBACK_PES:-4}   # (S2a: ECALC_PE_PER_GPU=1 set it to 1 above)
-if [ "$COMM_TRANSPORT" = shmem ] || [ "$COMM_TRANSPORT" = xshmem ]; then
+if [ "${COMM_TRANSPORT:-}" = xshmem ]; then
     # s18-target Part 2 (TGTBENCH2 L2, internal target notes §4; the user: "use the flags that optimize performance but allow us to
     # adjust to a different system later"): two libfabric knobs, overridable per system by exporting them before the call.
-    # FI_UNIVERSE_SIZE: comm_ofi opens its AVs at the provider's default count (comm_ofi.c:157) and inserts every
+    # FI_UNIVERSE_SIZE: the engine opens its AVs at the provider's default count and inserts every
     # communicator's member -- the user's target rule ">= 4 x ntasks" (576 -> 2304; their largest tested value was 4096, kept
     # as the floor so a small run still gets their tested size). FI_LOG_LEVEL=warn: cuts libfabric's output ~1000x (the
     # user's L2). Both default with ${VAR:-...}, so a site's own exported value (or a different system's) is never shadowed.
@@ -175,7 +165,7 @@ if [ "$COMM_TRANSPORT" = shmem ] || [ "$COMM_TRANSPORT" = xshmem ]; then
     echo "mnrun.sh: FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR"
     echo "mnrun.sh: FI_UNIVERSE_SIZE=${FI_UNIVERSE_SIZE:-<unset>} FI_LOG_LEVEL=${FI_LOG_LEVEL:-<unset>} (MNRUN_FI_DEFAULTS=${MNRUN_FI_DEFAULTS:-1})"
     # Phase 14 V1: the pool (and with it the heap below) from the run's own model when COMM_SHMEM_POOL_MB is not set by hand: the
-    # command's SHMEM-linked executable followed by a digit count (ecalc <digits> ...) is asked first, on this host, with the
+    # command's engine-linked executable followed by a digit count (ecalc <digits> ...) is asked first, on this host, with the
     # command's VAR=value words and MN_PLAN_ONLY=<digits>:<procs> (no device is touched), and its `plan pool` line gives
     # COMM_SHMEM_POOL_MB -- so ecalc's pool rule (binsplit_shmem_pool_rule) finds the pool already at the need, and a host heap
     # (SHMEM_SYMMETRIC_SIZE = pool + 512 MiB) holds it.  Other commands: 8192 as before.
@@ -187,16 +177,9 @@ if [ "$COMM_TRANSPORT" = shmem ] || [ "$COMM_TRANSPORT" = xshmem ]; then
             case "$a" in [A-Za-z_]*=*) pas+=("$a"); continue;; -*) continue;; esac
             f=$(command -v -- "$a" 2>/dev/null) || continue; [ -f "$f" ] && [ -x "$f" ] || continue
             head -c 4 "$f" 2>/dev/null | grep -q ELF || continue
-            readelf -d "$f" 2>/dev/null | grep NEEDED | grep -q libsma && pbin=$f
+            grep -aq comm_xshmem_init "$f" 2>/dev/null && pbin=$f
         done
         if [ -n "$pbin" ] && [ -n "$pd" ]; then
-            # Phase 17 OFIMEM: comm_ofi (on by default where a cxi NIC is present) moves the device staging out of the SHMEM pool, and
-            # the plan sizes the pool by it -- but the plan runs here, on a login node that may have no cxi (aac7's aac7-login): ask the
-            # first compute node once (COMM_OFI unset, no cxi here) and hand the answer to the plan as COMM_OFI_PLAN_CXI
-            if [ -z "${COMM_OFI:-}" ] && [ -z "${COMM_OFI_PLAN_CXI:-}" ] && [ ! -e /sys/class/cxi/cxi0 ] && [ -n "${SLURM_JOB_ID:-}" ] && [ "$PRINT_ENV" = 0 ]; then
-                if timeout 120 srun --jobid="$SLURM_JOB_ID" -N 1 -n 1 -w "$(echo "$use" | head -1)" --overlap test -e /sys/class/cxi/cxi0 2>/dev/null; then export COMM_OFI_PLAN_CXI=1; else export COMM_OFI_PLAN_CXI=0; fi
-                echo "mnrun.sh: COMM_OFI_PLAN_CXI=$COMM_OFI_PLAN_CXI (a cxi NIC on the compute node: comm_ofi's default; the plan counts its pools)"
-            fi
             pppg=(); [ "$MNRUN_PPG" = 1 ] && pppg=(SLURM_NTASKS_PER_NODE="$PPN")   # (S2a: as in the FIT plan below; without it the plan dies and the pool stays at 8192)
             pline=$(bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES > /dev/null 2>&1; exec "$@"' _ env "${pas[@]}" "${pppg[@]}" COMM_TRANSPORT="$COMM_TRANSPORT" MN_PLAN_ONLY="$pd:$P" "$pbin" 2>/dev/null | grep '^plan pool' || true)
             pmb=$(echo "$pline" | sed -n 's/.*COMM_SHMEM_POOL_MB=\([0-9][0-9]*\).*/\1/p')
@@ -219,29 +202,7 @@ if [ "$COMM_TRANSPORT" = shmem ] || [ "$COMM_TRANSPORT" = xshmem ]; then
     for a in "$@"; do case "$a" in COMM_SHMEM_POOL_MB=*) COMM_SHMEM_POOL_MB=${a#*=};; esac; done   # a VAR=value word of the command wins over the plan (the heap follows it)
     POOL=${COMM_SHMEM_POOL_MB:-8192}
     export COMM_SHMEM_POOL_MB=$POOL
-    # The implementation the binary was built against: only Cray OpenSHMEMX is launched (D14, 2026-10-12).  The detection looks
-    # through wrappers (env, stdbuf, timeout, numactl, ...): every word of the command that resolves to an executable ELF file is
-    # checked for libsma / liboshmem in its dynamic section, the first that links either decides (the wrappers link neither).
-    # A libsma that is not Cray's, or liboshmem, is refused; none found: cray, with a note.  COMM_SHMEM_IMPL=cray is accepted.
-    impl=${COMM_SHMEM_IMPL:-}
-    case "$impl" in ""|cray) ;; *) echo "mnrun.sh: COMM_SHMEM_IMPL=$impl: only cray is supported (the sos and oshmem launch forms were removed 2026-10-12)"; exit 1;; esac
-    if [ -z "$impl" ]; then
-        for a in "$@"; do
-            case "$a" in *=*|-*) continue;; esac                                 # env assignments, wrapper options
-            f=$(command -v -- "$a" 2>/dev/null) || continue; [ -f "$f" ] && [ -x "$f" ] || continue
-            head -c 4 "$f" 2>/dev/null | grep -q ELF || continue                  # scripts: their interpreter is not the binary
-            need=$(readelf -d "$f" 2>/dev/null | grep NEEDED; ldd "$f" 2>/dev/null)
-            if echo "$need" | grep -q libsma; then
-                echo "$need" | grep -q /opt/cray/pe || { echo "mnrun.sh: $f links a libsma that is not Cray's: only Cray OpenSHMEMX is launched (sos removed 2026-10-12)" >&2; exit 1; }
-                impl=cray; break
-            fi
-            if echo "$need" | grep -q liboshmem; then echo "mnrun.sh: $f links liboshmem: only Cray OpenSHMEMX is launched (oshmem removed 2026-10-12)" >&2; exit 1; fi
-        done
-        [ -n "$impl" ] || { impl=cray; echo "mnrun.sh: no libsma found in the command's executables; assuming cray" >&2; }
-    fi
-    [ -n "${MNRUN_SHOW_IMPL:-}" ] && { echo "mnrun.sh: SHMEM implementation $impl"; [ "$MNRUN_SHOW_IMPL" = only ] && exit 0; }   # (test hook: MNRUN_SHOW_IMPL=only prints and stops)
-    mpi=(); pre=                                                              # the srun --mpi option and the exec prefix (none for Cray)
-    # Cray OpenSHMEMX: srun's PMI (no --mpi option), the host hugepage heap at pool + 512 MiB under both of its names;
+    # Cray SHMEM backend: srun's PMI (no --mpi option), the host hugepage heap at pool + 512 MiB under both of its names;
     # the libfabric provider is cxi on aac7 (nothing to set); SHMEM_OFI_* knobs (NIC policy, progress) are the caller's.
     # MNRUN_SYMHEAP_XSHMEM=1 (default off): the Cray backend of the xshmem engine (make XSHMEM=cray) keeps its DATA heaps in this heap too: + XSHMEM_LOOPBACK_PES x (XSHMEM_HEAP_MB + XSHMEM_HEAP_SLACK_MB)
     [ "${MNRUN_SYMHEAP_XSHMEM:-0}" = 1 ] && [ "${COMM_TRANSPORT:-}" = xshmem ] && case "${XSHMEM_HEAP_MB:-0}" in *[!0-9]*|"") false;; *) [ "${XSHMEM_HEAP_MB:-0}" -gt 0 ];; esac && POOL=$((POOL + ${MNRUN_SYMHEAP_PES:-${XSHMEM_LOOPBACK_PES:-1}} * (XSHMEM_HEAP_MB + ${XSHMEM_HEAP_SLACK_MB:-0})))
@@ -255,8 +216,7 @@ fi
 # a digit count) is planned on this host with the command's VAR=value words and MN_PLAN_ONLY=<digits>:<procs> (no device touched); its
 # `plan fit` lines (device per node and per APU vs ECALC_DEVICE_GB, node vs ECALC_NODE_GB, the margins, the largest consumers, the
 # DM_MN_WRAP decision) are printed, and a run that does not fit -- or any `plan REFUSED` -- is refused HERE, before srun: exit 4.
-# MNRUN_FIT=0 (default 1) skips the check (deliberate edge tests only).  The plan counts the comm_ofi pools when a cxi NIC is on the
-# compute node (asked once, as the pool block does, when COMM_OFI / COMM_OFI_PLAN_CXI are unset and this host has none).
+# MNRUN_FIT=0 (default 1) skips the check (deliberate edge tests only). 
 if [ "${MNRUN_FIT:-1}" != 0 ]; then
     fbin=; fd=; fas=()
     for a in "$@"; do
@@ -266,10 +226,6 @@ if [ "${MNRUN_FIT:-1}" != 0 ]; then
         case "$(basename -- "$f")" in ecalc*) head -c 4 "$f" 2>/dev/null | grep -q ELF && fbin=$f;; esac
     done
     if [ -n "$fbin" ] && [ -n "$fd" ]; then
-        if [ "$P" -gt 1 ] && [ -z "${COMM_OFI:-}" ] && [ -z "${COMM_OFI_PLAN_CXI:-}" ] && [ ! -e /sys/class/cxi/cxi0 ]; then
-            if timeout 120 srun --jobid="$SLURM_JOB_ID" -N 1 -n 1 -w "$(echo "$use" | head -1)" --overlap test -e /sys/class/cxi/cxi0 2>/dev/null; then export COMM_OFI_PLAN_CXI=1; else export COMM_OFI_PLAN_CXI=0; fi
-            echo "mnrun.sh: FIT: COMM_OFI_PLAN_CXI=$COMM_OFI_PLAN_CXI (a cxi NIC on the compute node: the plan counts the comm_ofi pools)"
-        fi
         ftr=(); { [ "$P" -gt 1 ] || [ "$MNRUN_PPG" = 1 ]; } && ftr=(COMM_TRANSPORT="$COMM_TRANSPORT")
         [ "$MNRUN_PPG" = 1 ] && ftr+=(SLURM_NTASKS_PER_NODE="$PPN")   # (S2a: the engine reads the PEs per node from srun; the plan has no srun)
         fout=$(bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES > /dev/null 2>&1; exec "$@"' _ env "${fas[@]}" "${ftr[@]}" MN_PLAN_ONLY="$fd:$P" "$fbin" 2>&1) || true
@@ -290,7 +246,7 @@ fi
 # COMM_KILL_ON_BAD_EXIT=0 is the only override.
 kopt=(); { [ "$nn" -gt 1 ] || [ "$MNRUN_PPG" = 1 ]; } && [ "${COMM_KILL_ON_BAD_EXIT:-1}" != 0 ] && kopt=(--kill-on-bad-exit=1)   # (S2a: also on one node: a dead PE must end the step)
 # the one launch of every path: the tasks block-placed on the listed nodes; each task loads the modules, sets its rank and runs the command
-launch=(srun --jobid="$SLURM_JOB_ID" "${kopt[@]}" "${mpi[@]}" -N "$nn" -w "$list" --ntasks="$((P * PPN))" --ntasks-per-node="$((per * PPN))" "${copt[@]}" --distribution=block "${gopt[@]}" --overlap --export=ALL \
+launch=(srun --jobid="$SLURM_JOB_ID" "${kopt[@]}" -N "$nn" -w "$list" --ntasks="$((P * PPN))" --ntasks-per-node="$((per * PPN))" "${copt[@]}" --distribution=block "${gopt[@]}" --overlap --export=ALL \
      bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; k=${MNRUN_PPN:-1}; export COMM_RANK=$((SLURM_PROCID / k)) COMM_SIZE=$((SLURM_NTASKS / k)); [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec '"$pre"'"$@"' _ "$@")
 # MNRUN_NICGRP=1 (default off; results/NODE_SLOWMODE.md §A14): log which NIC launch group (A = oxe_mcu_meas 18-25, B = 28-33) carried this
 # launch's traffic: per node, the counter deltas around the srun, one line "mnrun.sh: nicgrp <host> A=<bytes> B=<bytes> -> <A|B|none>" and a

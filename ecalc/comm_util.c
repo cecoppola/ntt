@@ -51,19 +51,12 @@ void comm_allgather(comm *c, const void *sendbuf, void *recvbuf, size_t bytes)
     int n = comm_size(c);
     if (n == 1) {
         HIP_CHECK(hipMemcpy(recvbuf, sendbuf, bytes, hipMemcpyDefault));
-#else
-        memcpy(recvbuf, sendbuf, bytes);
         return;
     }
     void *tmp; HIP_CHECK(hipMalloc(&tmp, (size_t)n * bytes));
     for (int r = 0; r < n; r++) HIP_CHECK(hipMemcpy((char *)tmp + (size_t)r * bytes, sendbuf, bytes, hipMemcpyDefault));
     comm_alltoall(c, tmp, recvbuf, bytes, 0); comm_wait(c);
     HIP_CHECK(hipFree(tmp));
-#else
-    char *tmp = (char *)malloc((size_t)n * bytes);
-    for (int r = 0; r < n; r++) memcpy(tmp + (size_t)r * bytes, sendbuf, bytes);
-    comm_alltoall(c, tmp, recvbuf, bytes, 0); comm_wait(c);
-    free(tmp);
 }
 void comm_allgather_host(comm *c, const void *sendbuf, void *recvbuf, size_t bytes)
 {
@@ -74,8 +67,6 @@ void comm_allgather_host(comm *c, const void *sendbuf, void *recvbuf, size_t byt
     comm_allgather(c, ds, dr, bytes);
     HIP_CHECK(hipMemcpy(recvbuf, dr, (size_t)n * bytes, hipMemcpyDeviceToHost));
     HIP_CHECK(hipFree(ds)); HIP_CHECK(hipFree(dr));
-#else
-    comm_allgather(c, sendbuf, recvbuf, bytes);
 }
 /* B7: the unequal all-to-all.  Every transport has the device op; the host variant is the transport's, else the
  * device op through temporaries (a mismatch of a receiver's rcnt with the sender's scnt is caught by the transport). */
@@ -94,6 +85,4 @@ void comm_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size
     comm_alltoallv(c, ds, scnt, sdsp, dr, rcnt, rdsp, 0); comm_wait(c);
     if (rt) HIP_CHECK(hipMemcpy(rb, dr, rt, hipMemcpyDeviceToHost));
     HIP_CHECK(hipFree(ds)); HIP_CHECK(hipFree(dr));
-#else
-    comm_alltoallv(c, sb, scnt, sdsp, rb, rcnt, rdsp, 0); comm_wait(c);
 }

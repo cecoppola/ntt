@@ -262,11 +262,9 @@ static int out_stage(struct out_ctx *c)
                             c->dx ? "" : "nothing to patch", fx.nwin, fx.t, badp ? "  FAILED" : "");
         if (c->dx) { node_pfx(c); printf("      patch: digits [%zu, %lu] change (%zu low limbs read); this node: %zu bytes in %d part file%s\n", fx.kp, c->d, fx.w, fx.bytes, fx.parts, fx.parts == 1 ? "" : "s"); }
     }
-    double t_dcA = mem_now();                          /* S21 (DC_STATS): the output loop (run or join) ends here */
     uint64_t Dres[T1_NQ];
     if (oh) { const mn_out *os[2] = { oh, o }; mn_out_digit_res_layers(os, 2, cm, Dres); } else mn_out_digit_res(o, cm, Dres);   /* X_hi's parts, then X_lo's */
     if (c->defer) for (int i = 0; i < T1_NQ; i++) Dres[i] = vf_add_mod(Dres[i], fx.dres_adj[i], t1_q[i]);   /* the patched tail's new - old (the bytes read back) */
-    double t_dcB = mem_now();
     if (oh) { o->bad2 += oh->bad2; o->nwin += oh->nwin; }   /* (both parts' windows) */
     int bad2 = o->bad2, bad3 = tier1_digits_cmp(Dres, Xres, c->verbose >= 2) || badp;
     double t_dc = mem_now() - t;
@@ -274,12 +272,10 @@ static int out_stage(struct out_ctx *c)
     if (c->Xm) db_free(&c->Xm->sh);
     node_pfx(c); printf("dc    %8.2f s   digits [%zu, %zu) of %lu formatted from %zu decimal limbs in %d chunks%s (residues %.2f, format %.2f, digit residue %.2f, T2 %.2f, fetch %.2f, waiting for the writer %.2f)\n",
                         t_dc, o->k0, o->k1, c->d + 1, src.cnt, o->nchunks, !multi && c->xb->started ? " (streamed with the low product; joined after total)" : "", !multi && c->xb->started ? c->xb->t_res : 0.0, o->t_fmt, o->t_res, o->t_t2, o->t_fetch, o->t_wait);
-    if (mn_out_dc_stats()) { node_pfx(c); printf("dcstats: dc %.3f s = start to the loop's end %.3f (boundaries all-gather, loop or join of the streamed writer, patch) + digit-residue join %.3f + digits-vs-X check %.3f\n", t_dc, t_dcA - t, t_dcB - t_dcA, t_dc - (t_dcB - t)); }   /* S21 (A37-R4) */
     if (!multi) RESULT("dc", "s", t_dc);
     node_pfx(c); printf("T2    %8.2f s   windows %s (%d checked%s), digits == X mod q %s%s\n", 0.0, bad2 ? "FAILED" : "ok", o->nwin, multi ? " on this node" : "", bad3 ? "FAILED" : "ok", !multi && c->xb->started ? " (overlapped)" : "");
     if (!multi) RESULT("T2", "s", 0.0);
     node_pfx(c); printf("digits: %s...%s%s\n", oh ? oh->first : o->first, o->last, multi ? (oh ? " (this node's two ranges: X_hi's, X_lo's)" : " (this node's range)") : "");
-    ntt_size_stats_print(c->rank, mem_now() - c->t00);   /* S22: NTT_SIZE_STATS=1, once per rank (nothing printed when off) */
     if (multi && c->rank == 0) {
         total = mem_now() - c->t00; phases = c->t_bs + c->t_10dp + c->t_dm + t_t1 + t_dc;
         printf("total %8.2f s   (bs %.1f + 10dP %.1f + dm %.1f + T1 %.1f + dc %.1f + T2 %.1f = %.1f; init %.1f; other %.1f); VmHWM %.1f GB\n",
@@ -443,9 +439,9 @@ static void vpe_set_range(unsigned long N)            /* this PE's terms: [1 + N
     unsigned __int128 nn = N; int pe = vpe_pe(), npe = vpe_npe();
     bs_a0 = 1 + (unsigned long)(nn * pe / npe); bs_b1 = 1 + (unsigned long)(nn * (pe + 1) / npe);
 }
-static int env_vpe_bg_threads(void)                    /* ECALC_VPE_BG_THREADS = the background team of one PE (recurrence, writer): default CPUs / PEs per node (192 / 4 = 48 on aac7, where the off path's 48 is per node) */
+static int env_vpe_bg_threads(void)                    /* the background team of one PE (recurrence, writer) = CPUs / PEs per node (192 / 4 = 48 on aac7, where the off path's 48 is per node) */
 {
-    const char *e = getenv("ECALC_VPE_BG_THREADS"); int n = e && *e ? atoi(e) : 0;
+    int n = 0;
     if (n < 1 && vpe_ppg()) {                           /* S2: this process's own CPUs: its affinity mask (vpe_pe_affinity restricted it to the PE's NUMA node), not the node's */
         cpu_set_t m; CPU_ZERO(&m); n = sched_getaffinity(0, sizeof m, &m) == 0 ? CPU_COUNT(&m) : 0;
         if (n < 1) n = omp_get_num_procs();
@@ -598,9 +594,9 @@ int main(int argc, char **argv)
     if (vpe_on()) {                                  /* the process-wide settings of the PE flow, once, before the flow */
         if (mn_size_ < 2) ec_fatal(EC_RC_FATAL, "ecalc: ECALC_PE_PER_GPU=1 needs at least 2 PEs (%d): run on 2+ nodes or more tasks per node\n", mn_size_);
         g_bg_threads = env_vpe_bg_threads(); mn_out_bg_threads(g_bg_threads);
-        if (vpe_ppg()) printf("ppg: %s: background team %d threads (ECALC_VPE_BG_THREADS, default = this process's affinity mask of %d CPUs; OMP max %d), device %d\n", ec_log_prefix(), g_bg_threads, g_bg_threads, omp_get_max_threads(), vpe_device());   /* S2: one line per process (the mask is the PE's own) */
+        if (vpe_ppg()) printf("ppg: %s: background team %d threads (this process's affinity mask of %d CPUs; OMP max %d), device %d\n", ec_log_prefix(), g_bg_threads, g_bg_threads, omp_get_max_threads(), vpe_device());   /* S2: one line per process (the mask is the PE's own) */
         if (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0)
-            printf("vpe: %d PEs = %d per node x %d node%s; background team %d threads per PE (ECALC_VPE_BG_THREADS, default %d CPUs / %d PEs per node; OMP max %d); two part files per PE\n",
+            printf("vpe: %d PEs = %d per node x %d node%s; background team %d threads per PE (%d CPUs / %d PEs per node; OMP max %d); two part files per PE\n",
                    vpe_npe(), vpe_lanes(), vpe_nnodes(), vpe_nnodes() > 1 ? "s" : "", g_bg_threads, omp_get_num_procs(), vpe_lanes(), omp_get_max_threads());
         bs_ckpt_dir = getenv("BS_CKPT_DIR"); if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
         if (ckpt_top_mode() && !bs_ckpt_dir && outfile) bs_ckpt_dir = mn_out_ckpt_default(outfile);   /* the one .top directory of all PEs (names are per PE, binsplit.c) */
