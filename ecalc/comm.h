@@ -3,11 +3,9 @@
  * A "rank" is one APU slot p (prime p) of one node.  The communicator groups
  * the ranks that hold the same prime across nodes: every distributed
  * operation below acts within one prime's plane.  Implementations:
- *   comm_local   one rank (size 1): every call is a no-op or a memcpy — the
- *                single-node pipeline runs unchanged through it
- *   comm_sim4    a synthetic four-rank layout inside one APU's HBM, for
- *                testing the distributed transform without a network (WP5)
- *   comm_fabric  the target system's transport (GPU-direct RDMA), later
+ *   comm_xshmem  the multi-node transport (comm_xshmem.c, on xshmem.h)
+ *   comm_layered the node-process layers over it (comm_layered.c)
+ *   tests/comm_local.c, tests/comm_sim4.c: one rank / four synthetic ranks in one APU, test-only (t_dist)
  *
  * Distributed numbers are limb arrays sharded by rank: rank r holds limbs
  * [r n/size, (r+1) n/size).  A distributed transform (four-step) uses the

@@ -505,7 +505,7 @@ static size_t as_arena(size_t bytes)                  /* an arena's bytes as BS_
  *            with the room + the VMM pool's growth in the bs phase (AS_VMM_BS_GROW = mem_model VMM_BS_GROW, 6.0 GB measured);
  *   host   = size 1: the measured host HWM (mem_model host_size1_vmm: 25.85 GB + 0.0208 GB per 10^9 digits above 4e10, the digits taken
  *            as log10 N!); size > 1: the larger of init -- the runtime 7.0 GB + the checkpoint staging 4 GiB + the two VMM seed buffers
- *            (seeds_stream's: as_seedbuf) + the transport 6.0 GB + the SHMEM pool (COMM_TRANSPORT=shmem: binsplit_shmem_pool_rule's pool) --
+ *            (seeds_stream's: as_seedbuf) + the transport 6.0 GB + the xshmem pool (binsplit_shmem_pool_rule's pool) --
  *            and the division's (the runtime, the staging, the writer 0.65 GB, the transport, the pool, MN_OUT_EARLY's 0.9 GB).
  * Before DL the host was 7.0 GB + 8 GiB (+ 6 GB at size > 1) + a 10 GB margin (AS_HOST_MARGIN), 18.8 GB below the node at the target,
  * over three-prime planes under ECALC_NP=auto (MS15 1.3): the room stayed up to ~5.63e13 on 576 with the node at 480.5-497.7 GB.  The

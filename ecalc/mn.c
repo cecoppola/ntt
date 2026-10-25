@@ -1,4 +1,4 @@
-/* mn.c - the multi-node layer: environment, one mesh per APU thread (SHMEM PE sets with COMM_TRANSPORT=shmem);
+/* mn.c - the multi-node layer: environment, one mesh per APU thread (xshmem PE sets, COMM_TRANSPORT=xshmem);
  * the start-up self-test */
 #include <stdio.h>
 #include "fatal.h"
