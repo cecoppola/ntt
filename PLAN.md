@@ -81,7 +81,7 @@ The two lines are kept in:
 | system | line | source |
 |---|---|---|
 | aac7 | `LAUNCH_LINE_KEYS` of `profiles/aac7.conf` (`tools/profile_load.py aac7 --line`) | `tools/gate.sh --line aac7` runs it; one source (D15) |
-| target | `target/config/target.conf.template` (site values `__FILL__`); the filled copy stays out of git | `target/kit/target_kit.sh` |
+| target | `target/config/target.conf.template` (site values `__FILL__`, `MN_NONPOW2_CAP=0` by Q119); filled on the target by `target/probe/gen_conf.py` and committed there (Q112) | `target/RESTART.md` |
 
 Profiles (`profiles/*.conf`, loaded by `tools/profile_load.py`; precedence: explicit environment > profile > code default)
 hold what is machine-specific. Size-dependent values are computed, never typed: the SHMEM pool and library heap (planner
@@ -102,15 +102,17 @@ default has an owner and a review date (`tools/switch_registry.py --check`).
 
 Open work in this repository is in `TASKS.md`.
 
-**Target session** (the user runs it; the steps are in `target/kit/target_kit.sh -h`):
-1. Fill `profiles/target.conf` from the template (modules, ROCm, NICs, partition, memory); `tools/profile_load.py target --check`.
-2. Kit preflight: environment record, build (path 2: `make XSHMEM=cray`), libfabric memory monitor (uffd), plan check
-   (`MN_PLAN_ONLY` must end with `plan check ... OK`), the memory edge, a node screen (`tools/nodescreen.sh`).
-3. Measurements: A3 (kit stage `a3`: injection per NIC, one vs two NICs per APU; disabled since 2026-10-25, its `t_comm` test was removed with Q103 -- a `tests/t_xshmem bw` replacement is on TASKS) and A4 (all-to-all scaling with node count).
-   These replace the assumed fabric rate in the model; re-run `mn_model.py estimate` and recheck the size against the grid steps.
-4. A/B on the target of `MN_T_CHUNK_MB` 1024 vs 2048 (aac7 evidence only so far; X2, the pooled exchange slots, is built in with no switch).
-5. Growing runs (a few nodes, then larger groups), each VERIFY OK; then the 576-node run with the write, RECHECK and
-   `unpack_digits` off the clock, and a prefix compare against a 10¹¹ reference.
+**Target session** (an agent team on the target runs it; the entry point is `target/RESTART.md`: probe, builds, bench, ladder 1/8/64/576 nodes; the older staged kit is `target/kit/target_kit.sh -h`):
+1. Install the rules (`target/governance/install.sh`), probe the system (`target/probe/probe.sh`, login then one node; about
+   30 s on aac7, m) and generate `target/config/target.conf` (`target/probe/gen_conf.py`).
+2. Build path 1 and path 2 (bench items `bld01`, `bld02`; about 25 s each on aac7, m).
+3. Bench (`target/bench/run.sh`, one worker per allocation, 57 items run once each in priority order; questions and the
+   model constants they feed: `target/bench/QUESTIONS.md`): memory edge, correctness, fabric (injection, latency,
+   all-to-all at 2/8/64 nodes), paths, launch shape, init, write, `MN_NONPOW2_CAP` cost (`prm08`), calibration.
+4. Ladder (`target/ladder/ladder.sh`): 1, 8, 64, 576 nodes on physically adjacent nodes at 6.632e10 digits per node,
+   replicas in parallel at the lower levels, adjustments between runs by `target/ladder/ADJUST.md`; every run VERIFY OK.
+5. The 576-node run with the write, RECHECK and `unpack_digits` off the clock, and a prefix compare against a reference;
+   raw results committed in `target/results/` for the offline work afterwards.
 
 **Risks.**
 
