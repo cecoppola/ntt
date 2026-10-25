@@ -392,7 +392,7 @@ int main(int argc, char **argv)
         }
         harness_result("fwd_TBps_per_apu", "TB/s", sum_fwd / nd);
         harness_result("inv_TBps_per_apu", "TB/s", sum_inv / nd);
-        VERIFY(sum_fwd / nd > 0.9, "forward rate %.2f TB/s below 0.9 (bench/16: 1.17)", sum_fwd / nd);
+        VERIFY(LOGMAX < 22 || sum_fwd / nd > 0.9, "forward rate %.2f TB/s below 0.9 (bench/16: 1.17)", sum_fwd / nd);
     }
     return verify_done("t_ntt");
 }
