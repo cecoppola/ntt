@@ -52,7 +52,7 @@
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define COPY(d, s, n, st) HIP_CHECK(comm_copy_async(d, s, n, st))
-#define SYNC(st) do { int ph_ = ec_ph(EC_PH_HIP_SYNC); HIP_CHECK(hipStreamSynchronize(st)); ec_ph(ph_); } while (0)
+#define SYNC(st) do { HIP_CHECK(hipStreamSynchronize(st)); } while (0)
 #define MAXID 1024                         /* communicator ids (control blocks) */
 #define MAXID_VPE 512                      /* ... with ECALC_PE_PER_GPU (flat PE communicators: the control block grows with the PE count) */
 #define MAXL 4                             /* lane contexts per PE (XSHMEM_LANES) */
@@ -460,27 +460,26 @@ static int x_rank(comm *c) { return c->rank; }
 static int x_size(comm *c) { return c->size; }
 static void x_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
 {
-    xpriv *p = PRIV(c); p->phk = comm_xtag < 0 || comm_xtag >= XK_NK ? 0 : comm_xtag; int ph_ = ec_ph(EC_PH_POST(p->phk));
+    xpriv *p = PRIV(c); p->phk = comm_xtag < 0 || comm_xtag >= XK_NK ? 0 : comm_xtag;
     enter(p);
     for (int r = 0; r < p->n; r++) { p->scnt[r] = p->rcnt[r] = bytes; p->sdsp[r] = p->rdsp[r] = (size_t)r * bytes; }
     p->v = 0; xex_post(p, sb, rb, s);
-    leave(p); ec_ph(ph_);
+    leave(p);
 }
 static void x_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
 {
-    xpriv *p = PRIV(c); p->phk = comm_xtag < 0 || comm_xtag >= XK_NK ? 0 : comm_xtag; int ph_ = ec_ph(EC_PH_POST(p->phk));
+    xpriv *p = PRIV(c); p->phk = comm_xtag < 0 || comm_xtag >= XK_NK ? 0 : comm_xtag;
     enter(p);
     if (p->pending) die(p, "alltoallv while an exchange is pending");   /* (before the caller's arrays overwrite the pending counts) */
     memcpy(p->scnt, scnt, (size_t)p->n * sizeof(size_t)); memcpy(p->sdsp, sdsp, (size_t)p->n * sizeof(size_t));
     memcpy(p->rcnt, rcnt, (size_t)p->n * sizeof(size_t)); memcpy(p->rdsp, rdsp, (size_t)p->n * sizeof(size_t));
     p->v = 1; xex_post(p, sb, rb, s);
-    leave(p); ec_ph(ph_);
+    leave(p);
 }
 static void x_wait(comm *c)
 {
     xpriv *p = PRIV(c); if (!p->pending) return;
-    int ph_ = ec_ph(EC_PH_WAIT(p->phk));
-    enter(p); xex_wait(p); leave(p); ec_ph(ph_);
+    enter(p); xex_wait(p); leave(p);
 }
 /* the tiny exchange: every member's 8-byte value to every member (value, quiet, then the sequence word; slots alternate with the parity) */
 static void tiny_exchange(xpriv *p, uint64_t v, uint64_t *all)
@@ -552,13 +551,13 @@ static void x_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
 }
 static void *x_sym_alloc(comm *c, size_t bytes)
 {
-    xpriv *p = PRIV(c); int ph_ = ec_ph(EC_PH_SYM_ALLOC);
-    void *r = p->lp->data + xalloc(p->lp, bytes, 1); ec_ph(ph_); return r;
+    xpriv *p = PRIV(c);
+    void *r = p->lp->data + xalloc(p->lp, bytes, 1); return r;
 }
 static void x_sym_free(comm *c, void *ptr)
 {
-    (void)c; int ph_ = ec_ph(EC_PH_SYM_FREE);
-    for (int l = 0; l < X.K; l++) if (in_heap(&X.pe[l], ptr)) { xfree(&X.pe[l], (size_t)((char *)ptr - X.pe[l].data)); ec_ph(ph_); return; }
+    (void)c;
+    for (int l = 0; l < X.K; l++) if (in_heap(&X.pe[l], ptr)) { xfree(&X.pe[l], (size_t)((char *)ptr - X.pe[l].data)); return; }
     ec_fatal(EC_RC_FATAL, "comm_xshmem: sym_free of a pointer outside the heaps\n");
 }
 /* COLLECTIVE (x_barrier over the members): every member must destroy its communicators in one agreed order, or the barriers deadlock.  mn.c sub_destroy_all

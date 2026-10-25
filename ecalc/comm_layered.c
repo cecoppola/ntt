@@ -49,9 +49,7 @@ static inline int rho_of(const lay_priv *p, int d, int r) { return p->g * d + r;
 static int lay_cmp(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
 static int y_rank(comm *c) { return c->rank; }
 static int y_size(comm *c) { return c->size; }
-static void need_tmp_i(comm *c, size_t bytes);
-static void need_tmp(comm *c, size_t bytes) { int ph_ = ec_ph(EC_PH_HIP_MALLOC); need_tmp_i(c, bytes); ec_ph(ph_); }   /* (comm_phase.h) */
-static void need_tmp_i(comm *c, size_t bytes)
+static void need_tmp(comm *c, size_t bytes)
 {
     lay_priv *p = PRIV(c);
     if (p->tmp_cap >= bytes) return;
@@ -164,9 +162,7 @@ static void y_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
 static size_t g_vlive[16];
 static void vlive_add(int dev, size_t add, size_t sub) { if (dev >= 0 && dev < 16) { __atomic_add_fetch(&g_vlive[dev], add, __ATOMIC_RELAXED); __atomic_sub_fetch(&g_vlive[dev], sub, __ATOMIC_RELAXED); } }
 extern "C" size_t comm_layered_vbytes(int dev) { return dev >= 0 && dev < 16 ? __atomic_load_n(&g_vlive[dev], __ATOMIC_RELAXED) : 0; }
-static void need_vtmp_i(comm *c, size_t bytes);
-static void need_vtmp(comm *c, size_t bytes) { int ph_ = ec_ph(EC_PH_VTMP_ALLOC); need_vtmp_i(c, bytes); ec_ph(ph_); }
-static void need_vtmp_i(comm *c, size_t bytes)
+static void need_vtmp(comm *c, size_t bytes)
 {
     lay_priv *p = PRIV(c);
     if (p->vcap >= bytes) return;
@@ -274,7 +270,7 @@ static struct vshare { char *vx[2]; size_t cap[2]; comm *owner; int refs; } g_vs
 static void need_vslot(comm *c, int k, size_t bytes);
 static void complete_v(comm *c);
 static void vslot_attach(lay_priv *p) { if (p->dev < 0 || p->dev >= 16) ec_fatal(EC_RC_FATAL, "comm_layered: device %d outside 0..15\n", p->dev); g_vsh[p->dev].refs++; }
-static void need_vslot_shared(comm *c, int k, size_t bytes)
+static void need_vslot(comm *c, int k, size_t bytes)
 {
     lay_priv *p = PRIV(c); struct vshare *S = &g_vsh[p->dev];
     if (S->owner && S->owner != c) { complete_v(S->owner); }   /* the previous level's last exchange still uses the pair */
@@ -292,15 +288,12 @@ static void need_vslot_shared(comm *c, int k, size_t bytes)
     p->vx[k] = S->vx[k]; p->vxcap[k] = S->cap[k];          /* (a stale view of the other slot is refreshed too: only the owner's view is used) */
     p->vx[k ^ 1] = S->vx[k ^ 1]; p->vxcap[k ^ 1] = S->cap[k ^ 1];
 }
-static void need_vslot(comm *c, int k, size_t bytes) { int ph_ = ec_ph(EC_PH_VSLOT_ALLOC); need_vslot_shared(c, k, bytes); ec_ph(ph_); }
 /* M3 (always on; results/GRID_GROUPS.md §C06): rns_dist.c calls this when a product's last v-exchange has been waited for, before the CRT and the
  * result exchanges.  The comm pool holds the slots only while a product's v-exchanges run; the staged exchanges around them (the redistribution, the result, the shifted add) use the
  * same pool, so the pool rule sizes it for the larger of the two, not their sum.  The slots are scratch (every exchange writes its x2 / x3 before reading them): nothing carries over;
  * the next product's first v-exchange allocates them again (need_vslot*: at the pool rule's size, so the same size; the receivers publish where a slab lands, so the offset need not match).
  * Digits cannot change. */
-static void release_vslots_i(comm *c);
-void comm_layered_release_vslots(comm *c) { int ph_ = ec_ph(EC_PH_VSLOT_RELEASE); release_vslots_i(c); ec_ph(ph_); }
-static void release_vslots_i(comm *c)
+void comm_layered_release_vslots(comm *c)
 {
     lay_priv *p = PRIV(c);
     complete_v(c);                                       /* (nothing is pending after a product's waits: the pair is never freed under an exchange) */
@@ -408,9 +401,7 @@ static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_b
 static void lay_opts(lay_priv *p) {
     vslot_attach(p);   /* S36: the shared pair */
 }
-static comm *layered_create_i(comm *intra, comm *inter, int d);
-comm *comm_layered_create(comm *intra, comm *inter, int d) { int ph_ = ec_ph(EC_PH_LAYER_CREATE); comm *r = layered_create_i(intra, inter, d); ec_ph(ph_); return r; }
-static comm *layered_create_i(comm *intra, comm *inter, int d)
+comm *comm_layered_create(comm *intra, comm *inter, int d)
 {
     if (comm_size(intra) != NA) { ec_fatal(EC_RC_FATAL, "comm_layered: the intra communicator must have %d ranks\n", NA); }
     comm *c = (comm *)calloc(1, sizeof *c); lay_priv *p = (lay_priv *)calloc(1, sizeof *p);

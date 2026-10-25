@@ -7,15 +7,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include "comm.h"
-#ifndef COMM_HOST_ONLY
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
-#endif
 /* D3: MN_WAIT_STATS=1 -- see comm.h.  Waits are timed on the outermost call only (a layered communicator's inner calls
  * run inside the outer one); the sums are per phase, integer nanoseconds, atomic across the APU threads. */
 #include <time.h>
 #include <stdlib.h>
 int comm_wst_on = -1;
-int ec_ph_on = 0; static int ph_none(int id) { (void)id; return 0; } int (*ec_ph_fn)(int) = ph_none;   /* comm_phase.h: set by comm_trace.h */
 static int wst_phase = WST_OTHER;
 static uint64_t wst_ns[WST_NP][3], wst_nn[WST_NP][3];   /* [phase][0 barrier, 1 wait, 2 ready] */
 static __thread int wst_depth;
@@ -53,14 +50,11 @@ void comm_allgather(comm *c, const void *sendbuf, void *recvbuf, size_t bytes)
     if (c->ops->allgather) { c->ops->allgather(c, sendbuf, recvbuf, bytes); return; }
     int n = comm_size(c);
     if (n == 1) {
-#ifndef COMM_HOST_ONLY
         HIP_CHECK(hipMemcpy(recvbuf, sendbuf, bytes, hipMemcpyDefault));
 #else
         memcpy(recvbuf, sendbuf, bytes);
-#endif
         return;
     }
-#ifndef COMM_HOST_ONLY
     void *tmp; HIP_CHECK(hipMalloc(&tmp, (size_t)n * bytes));
     for (int r = 0; r < n; r++) HIP_CHECK(hipMemcpy((char *)tmp + (size_t)r * bytes, sendbuf, bytes, hipMemcpyDefault));
     comm_alltoall(c, tmp, recvbuf, bytes, 0); comm_wait(c);
@@ -70,12 +64,10 @@ void comm_allgather(comm *c, const void *sendbuf, void *recvbuf, size_t bytes)
     for (int r = 0; r < n; r++) memcpy(tmp + (size_t)r * bytes, sendbuf, bytes);
     comm_alltoall(c, tmp, recvbuf, bytes, 0); comm_wait(c);
     free(tmp);
-#endif
 }
 void comm_allgather_host(comm *c, const void *sendbuf, void *recvbuf, size_t bytes)
 {
     if (c->ops->allgather_host) { c->ops->allgather_host(c, sendbuf, recvbuf, bytes); return; }
-#ifndef COMM_HOST_ONLY
     int n = comm_size(c); void *ds, *dr;
     HIP_CHECK(hipMalloc(&ds, bytes)); HIP_CHECK(hipMalloc(&dr, (size_t)n * bytes));
     HIP_CHECK(hipMemcpy(ds, sendbuf, bytes, hipMemcpyHostToDevice));
@@ -84,7 +76,6 @@ void comm_allgather_host(comm *c, const void *sendbuf, void *recvbuf, size_t byt
     HIP_CHECK(hipFree(ds)); HIP_CHECK(hipFree(dr));
 #else
     comm_allgather(c, sendbuf, recvbuf, bytes);
-#endif
 }
 /* B7: the unequal all-to-all.  Every transport has the device op; the host variant is the transport's, else the
  * device op through temporaries (a mismatch of a receiver's rcnt with the sender's scnt is caught by the transport). */
@@ -96,7 +87,6 @@ void comm_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *s
 void comm_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)
 {
     if (c->ops->alltoallv_host) { c->ops->alltoallv_host(c, sb, scnt, sdsp, rb, rcnt, rdsp); return; }
-#ifndef COMM_HOST_ONLY
     int n = comm_size(c); size_t st = 0, rt = 0;
     for (int r = 0; r < n; r++) { size_t e = sdsp[r] + scnt[r]; if (e > st) st = e; e = rdsp[r] + rcnt[r]; if (e > rt) rt = e; }
     void *ds, *dr; HIP_CHECK(hipMalloc(&ds, st ? st : 1)); HIP_CHECK(hipMalloc(&dr, rt ? rt : 1));
@@ -106,5 +96,4 @@ void comm_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size
     HIP_CHECK(hipFree(ds)); HIP_CHECK(hipFree(dr));
 #else
     comm_alltoallv(c, sb, scnt, sdsp, rb, rcnt, rdsp, 0); comm_wait(c);
-#endif
 }

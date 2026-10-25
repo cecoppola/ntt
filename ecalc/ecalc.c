@@ -35,7 +35,6 @@
 #include "fatal.h"                                   /* ec_quit, EC_RC_BUDGET */
 #include "vpe.h"                                   /* PE identity (ECALC_PE_PER_GPU=1, off by default) */
 #include "segv_trace.h"                               /* s18w task 2: ECALC_SEGV_TRACE=1 (default 0) */
-#include "comm_ofi.h"                                /* B7ACCT: comm_ofi_planned (the MEM_REPORT_DEVS comm-pool term) */
 extern "C" size_t comm_layered_vbytes(int dev);      /* B7ACCT (comm_layered.c) */
 #include <pthread.h>
 #include <sys/stat.h>                                /* the recheck's .top directory test in process mode */
@@ -632,7 +631,7 @@ static void flow_run(void *a)
     if (vpe_proc_leader()) {                         /* S2: each PE's own process line */
     printf("      VmRSS %.1f GB after init (staging %.1f GB pinned + device regions %.0f GB); init %.1f s\n", mem_vmrss() / 1e9, rns_staging_bytes() * 4 / 1e9, mem_dev_pool_bytes() / 1e9, t_init); }
     if (getenv("MEM_REPORT_DEVS") && mn_size_ > 1 && vpe_proc_leader()) {   /* B7ACCT: the layout's terms outside "in use" on the per-APU lines (a report only) */
-        const char *eo = getenv("COMM_OFI_POOL_MB"); size_t ofi = eo && comm_ofi_planned() ? (size_t)atol(eo) << 20 : 0;
+        const char *eo = getenv("COMM_OFI_POOL_MB"); size_t ofi = eo ? (size_t)atol(eo) << 20 : 0;
         mem_report_outside(0, ofi, comm_layered_vbytes);   /* X2: the v-slots are in the comm pool (ofi) */ }
     MEMREP("init");                               /* device and host bytes by category at each phase boundary (process mode: every PE) */
     budget_check(N, verbose);                     /* ECALC_BUDGET_CHECK=1 -- every rank stops here when any node is over */
