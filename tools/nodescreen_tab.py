@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""nodescreen_tab.py -- tabulate and apply the exclusion rule for tools/nodescreen.sh (results/NODE_SLOWMODE.md §B04).
+"""nodescreen_tab.py -- tabulate and apply the exclusion rule for tools/nodescreen.sh (archive:results_merged_2026-10-24/NODE_SLOWMODE.md §B04).
 Reads OUT/local/<host>.log (lines 'NS ...' incl. 'NS nics have= want=' (fewer NICs than wanted = failed), 'NODECHK ...', 'NODECHK_COLD ...', ecalc 'tl' lines), OUT/mn.log + OUT/mn.meta (initchk.py
 parses the labelled multi-node log).  Rule: a time metric > THR x reference and >= MINEX s above it, or a failed step, flags the node.
 Reference = median over nodes (>= 3 values), else the smaller value.  Writes OUT/screen_table.txt and OUT/EXCLUDE.

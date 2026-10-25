@@ -384,7 +384,7 @@ int binsplit_ppg_batch_levels(unsigned long N, int g, size_t *lv, int nlv)
  * size it (ecalc.c: n_Q = Q's limbs, Q = N! in the chosen base; dl = the limbs of 10^d; k_mu = P.n + 1 + dl - n_Q + 1;
  * newton_db_recip: r, r2 of k + 4 limbs, t1 of max(n_Q + k, 2k) + 8; rns_dist's piece temporary of at most 2^pool_log + 8
  * limbs; Q and S = P + Q live from the top of bs with their bound's margin).  Every device holds a quarter of each.  The
- * hole is t1's quarter -- the one block that no arena laid out for bs holds contiguously (results/MEMORY.md §M: 8.9 / 15.6 / 17.8 GB
+ * hole is t1's quarter -- the one block that no arena laid out for bs holds contiguously (archive:results_merged_2026-10-24/MEMORY.md §M: 8.9 / 15.6 / 17.8 GB
  * at 4 / 7 / 8e10, exactly the in-phase hipMalloc) -- reserved as the arena's tail; thresh is what the pool treats as "large"
  * (5/8 of the hole: r, r2 at ~ half of it stay out of the tail, t1 takes it).  At size > 1 the shares are 1/size of it
  * (the sharded division, A-div) and the tree's products add their slabs (tree_need_dev). */
@@ -747,7 +747,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     if (by && ofi) snprintf(by, bylen, "COMM_OFI: SHMEM staging 128 MiB (host ops), control %.1f MiB; the device staging in 4 comm_ofi pools of %zu MiB = %.1f MiB by %s + margin%s", control / 1048576.0, g_ofi_dev_mb, best * 8 / 1048576.0, who, "");
     else if (by) snprintf(by, bylen, "staging %.0f MiB = 4 x %.1f MiB by %s, control %.1f MiB, v-slots %.0f MiB = 4 x %.1f MiB", staging / 1048576.0, best * 8 / 1048576.0, who, control / 1048576.0, 4 * vsp / 1048576.0, vsp / 1048576.0);   /* SHM: the slots named */
     size_t stg0 = staging > ((size_t)128 << 20) ? staging : ((size_t)128 << 20);
-    if (!ofi) sym += (size_t)bs_nrn() * vsp;   /* (no comm_ofi: the slots are in the SHMEM pool, 4 APU threads).  SHM (results/SHMEM_ITEMS.md §SHM): always the sum, also under M3's release --
+    if (!ofi) sym += (size_t)bs_nrn() * vsp;   /* (no comm_ofi: the slots are in the SHMEM pool, 4 APU threads).  SHM (archive:results_merged_2026-10-24/SHMEM_ITEMS.md §SHM): always the sum, also under M3's release --
                                   * comm_shmem carves the staging into one region per APU at the pool's end (COMM_SHMEM_STAGE_SLOT_MB) and the slots (K_SYM) come only
                                   * from the general area, so the two never share space; M3's max(staging, slots) left the general area at control + margin
                                   * (6 nodes, 1e10, COMM_OFI=0: 452 MiB for 8 slots of 87 MiB, rc 3 after init) */
@@ -1486,7 +1486,7 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
     int nt = getenv("BS_SEED_THREADS") ? atoi(getenv("BS_SEED_THREADS")) : bs_nthreads();   /* I2: fewer than all leaves cores to init's allocations */
     ss->nchunks = ss->nbuf = ss->npend = 0; ss->t_span = ss->t_wait_pool = ss->t_wait_dma = ss->t_issue = ss->t_free = 0;
     int direct = !db_pool_vmm_on();                              /* the host cannot store into a VMM range */
-    int pull = !direct;                                          /* K8b (results/MEMORY.md §K8b): the copies by the persistent pull kernels (no runtime call in the mapping window; fallback BS_SEED_PULL=0 removed 2026-10-23, Q87) */
+    int pull = !direct;                                          /* K8b (archive:results_merged_2026-10-24/MEMORY.md §K8b): the copies by the persistent pull kernels (no runtime call in the mapping window; fallback BS_SEED_PULL=0 removed 2026-10-23, Q87) */
     void (*cpy)(int, void *, const void *, size_t) = direct ? mem_dev_copy_async : db_pull_copy_async;   /* into a VMM range: by a kernel (hipMemcpyAsync ran at 6 GB/s, synchronously) */
     void (*cwait)(int) = direct ? mem_dev_copy_wait : db_pull_wait;
     if (pull) for (int b = 0; b < 2; b++) db_pull_resolve(ss->buf[b]);   /* K8b: the buffers' device pointers once, here (the copies make no runtime call) */

@@ -3,7 +3,7 @@
  * Per HIP device d (= APU thread d), opened at the first communicator created on d: one libfabric `cxi` fabric / domain / EP / CQ / AV
  * per NIC of d's list (COMM_OFI_NICS, else the cxi devices on d's NUMA node), and one comm pool registered in every one of those
  * domains (COMM_OFI_POOL: fine-grained device memory, hipMalloc, or NUMA-local host memory; VMM memory cannot be registered,
- * results/OFI_FABRIC.md §NIC16_experiments #18).  The method is NIC16's (one process, one domain per NIC: 93.3 GB/s per node on aac7).
+ * archive:results_merged_2026-10-24/OFI_FABRIC.md §NIC16_experiments #18).  The method is NIC16's (one process, one domain per NIC: 93.3 GB/s per node on aac7).
  * Per communicator: the members' pool VA and per-NIC address / key (a blob each, all-gathered by the caller over SHMEM).
  * comm_ofi_write cuts a slab into chunks (COMM_OFI_CHUNK_MB) striped over the device's NICs, posts them delivery-complete with
  * at most COMM_OFI_WINDOW in flight per NIC, and counts them on the caller's counter; whoever progresses the device's CQs

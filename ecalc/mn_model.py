@@ -24,9 +24,9 @@ import mem_model
 # MEASURED INPUTS (one MI300A node, four APUs; the code of main @ 7aded87 unless noted)
 # ------------------------------------------------------------------------------------------------------------
 # single-node phases by digits (seconds): init, batch tier, top levels (device tier), reciprocal, division, wall.
-#   1e9, 1e10: X's calibration batch (job 20802, s24-26; results/TIME_MODEL.md §X)
-#   4e10: results/SINGLE_NODE.md §P gate (81.5 +- 1.4 s, phases 66.0);  7e10: results/SINGLE_NODE.md §P (153.5 s, ECALC_DM_POOL on)
-#   8e10: results/MEMORY.md §M11 v3/v4 (195.5 s, s24-16; zero hipMalloc)  1e11: results/MEMORY.md §M11 v4 (262.9 s, s24-26)
+#   1e9, 1e10: X's calibration batch (job 20802, s24-26; archive:results_merged_2026-10-24/TIME_MODEL.md §X)
+#   4e10: archive:results_merged_2026-10-24/SINGLE_NODE.md §P gate (81.5 +- 1.4 s, phases 66.0);  7e10: archive:results_merged_2026-10-24/SINGLE_NODE.md §P (153.5 s, ECALC_DM_POOL on)
+#   8e10: archive:results_merged_2026-10-24/MEMORY.md §M11 v3/v4 (195.5 s, s24-16; zero hipMalloc)  1e11: archive:results_merged_2026-10-24/MEMORY.md §M11 v4 (262.9 s, s24-26)
 PHASES = {          #  init   batch   top    recip   div    wall
     1e9:    dict(init=9.3,  batch=1.5,  top=0.1,  recip=2.76, div=0.38, wall=14.4),
     1e10:   dict(init=10.8, batch=7.1,  top=1.1,  recip=4.78, div=2.98, wall=29.0),
@@ -35,7 +35,7 @@ PHASES = {          #  init   batch   top    recip   div    wall
     8e10:   dict(init=20.7, batch=44.0, top=38.8, recip=37.9, div=45.2, wall=195.5),
     1e11:   dict(init=25.9, batch=65.5, top=51.4, recip=52.9, div=66.9, wall=262.9),   # M11 v4 log: bs 117.0 (seeds 10.9 + batch 54.6 + mdev 51.4), dm 119.8
 }
-# the distributed piece product on one node (results/GRID_GROUPS.md §G, RESULTS 75): a 2^31-point piece (4 primes, 2^29 points
+# the distributed piece product on one node (archive:results_merged_2026-10-24/GRID_GROUPS.md §G, RESULTS 75): a 2^31-point piece (4 primes, 2^29 points
 # per APU): load 0.33 + ntt 0.67 + crt/out 0.11 = 1.11 s; with the B operand's transform cached 0.72 s.
 T_PIECE_31 = 1.11
 T_PIECE_31_BHIT = 0.72
@@ -48,7 +48,7 @@ NODE_GB_MARGIN = 480.0          # the safe budget (DECISIONS2 7: 480 GB)
 LIMB_DIGITS = 18                # decimal limbs (RESULTS 67)
 EC_NP = 4
 K_CHUNKS = 8                    # the slab pipeline (M7; DIST_CHUNKS)
-CACHE_MN_SLOTS = int(os.environ.get('MN_MODEL_CACHE_SLOTS', '2'))   # RNS_DIST_CACHE_MN default over shares (results/GRID_GROUPS.md §G); Phase 15 CX: MN_MODEL_CACHE_SLOTS=n prices n
+CACHE_MN_SLOTS = int(os.environ.get('MN_MODEL_CACHE_SLOTS', '2'))   # RNS_DIST_CACHE_MN default over shares (archive:results_merged_2026-10-24/GRID_GROUPS.md §G); Phase 15 CX: MN_MODEL_CACHE_SLOTS=n prices n
                                 # slots (0: the cache off -- what the 480 GB budget allows at the target, results/CACHE.md §TC15, CX15.md)
 CACHE_MODEL = os.environ.get('MN_MODEL_CACHE', 'code')   # Phase 15 CX (results/CACHE.md §CX15): 'code' = the hits as the code takes them (cache_pieces: the slots'
                                 # designation, the cuts' skips, the planes' q) x CACHE_HIT_F; 'old' = the term before CX (at >= 2 slots every piece after
@@ -70,12 +70,12 @@ CACHE_PHASE_NOW = None
 # whatever FIT allows (mn_model.py estimate --cache-slots n: what a slot would be worth; its bytes are added to the node and it is labelled "does not fit")
 CACHE_RUN_SLOTS = None
 CACHE_FORCE = None
-# Phase 15 Batch 3 PC (results/CACHE.md §PC15; RNS_DIST_CACHE_PARTIAL=1): CACHE_P24 -> the P24 products (MN_P24) use the cache too (PC builds it: the slot's
+# Phase 15 Batch 3 PC (archive:results_merged_2026-10-24/CACHE.md §PC15; RNS_DIST_CACHE_PARTIAL=1): CACHE_P24 -> the P24 products (MN_P24) use the cache too (PC builds it: the slot's
 # key carries the 24-digit form); CACHE_PRIMES_PHASE = {'tree': k, 'dm': k} -> the primes a slot holds per phase (PC: the slot's planes drawn per grid
 # product from the block pool's free bytes -- the arena's slack at the tree, DKM's unused hole in the division; cache_partial() derives k per phase)
 CACHE_P24 = os.environ.get('MN_MODEL_CACHE_P24', '0') == '1'
 CACHE_PART_F = float(os.environ.get('MN_MODEL_CACHE_PART_F', '1.08'))   # PC: a partial hit's measured saving over hit_cost's k / np term -- FITTED on aac6
-                                # (results/CACHE.md §PC15 2.1: cx_grid at 2 procs, k = 1 / 2, 18- and 24-digit: 1.069, 1.093, 1.075, 1.087; the full hits 1.017 / 1.039)
+                                # (archive:results_merged_2026-10-24/CACHE.md §PC15 2.1: cx_grid at 2 procs, k = 1 / 2, 18- and 24-digit: 1.069, 1.093, 1.075, 1.087; the full hits 1.017 / 1.039)
 CACHE_PRIMES_PHASE = None
 def cache_primes_now():
     if CACHE_PRIMES_PHASE is not None and CACHE_PHASE_NOW in CACHE_PRIMES_PHASE: return CACHE_PRIMES_PHASE[CACHE_PHASE_NOW]
@@ -251,7 +251,7 @@ def apply_profile(name):
     return PROFILES[name]
 
 # aac6: g node-processes on ONE node over a loopback transport (correctness transports; every product's local passes
-# shared g-way over the four APUs).  Fitted on the recorded walls (results/TIME_MODEL.md §X, L.md, M11.md, S.md; --calib):
+# shared g-way over the four APUs).  Fitted on the recorded walls (archive:results_merged_2026-10-24/TIME_MODEL.md §X, L.md, M11.md, S.md; --calib):
 #   TCP (comm_tcp.c): one stream per mesh pair; per process ~3.3-3.7 GB/s aggregate at 1 GiB exchanges, slower below
 #   (exponent), plus a fixed cost per chunk exchange that grows with the process count (the threads of g x 4 meshes x
 #   (g - 1) peers contend on one node: 1 ms at 2, 8 ms at 9 processes) and a per-collective cost of the same kind.
@@ -638,7 +638,7 @@ def exact_sizes(T):
 
 DKM = os.environ.get('MN_MODEL_DKM', '1') == '1'   # default on since Phase 15 Batch 3 (the user's decision, 2026-09-29)   # Phase 15 DKM (results/DIVISION.md §DKM15): NEWTON_DKM=1 -- the division in two quotient halves
 DKM_LAST = {}                                        # the last division_cost_dkm's parts (the early writer's overlap reads 'hide')
-DKM_HI = os.environ.get('MN_MODEL_DKM_HI', '0') == '1'   # Phase 15 EW (results/DIVISION.md §EW15): MN_OUT_DKM_HI=1 -- the writer on X_hi's
+DKM_HI = os.environ.get('MN_MODEL_DKM_HI', '0') == '1'   # Phase 15 EW (archive:results_merged_2026-10-24/DIVISION.md §EW15): MN_OUT_DKM_HI=1 -- the writer on X_hi's
                                                      # digits (final there) from DKM's step 1 on, X_lo's from the release before step 2's low product: early_exposed()
 OVL1_HI = (0.144, 0.369)                             # Phase 15 EW, size 1: (A, B) = the division's fractions between step 1's end and the release (step 2's
                                                      # high product and window) and after it (X_lo Q, the corrections, R's residues) -- MEASURED at 1e11 on
@@ -677,7 +677,7 @@ def division_cost_dkm(fab, nq, dl, npn, g, rule, form, sn=None):
     return rc, c, groups
 
 def early_exposed(W, dc, g):
-    """Phase 15 EW (MN_OUT_DKM_HI, results/DIVISION.md §EW15 1.3, 5): the part file's exposed seconds when the writer (W seconds of formatting / writing)
+    """Phase 15 EW (MN_OUT_DKM_HI, archive:results_merged_2026-10-24/DIVISION.md §EW15 1.3, 5): the part file's exposed seconds when the writer (W seconds of formatting / writing)
     runs as a pipeline -- X_hi's share of the digits (f_hi = k1 / k: size > 1 every rank writes its share of both layers) from step 1's end,
     then, after waiting at the release if it got there first, X_lo's: exposed = max(0, max(A, f_hi W) + (1 - f_hi) W - A - B), A = the
     division from step 1's end to the release (step 2's high product, its window), B = after it.  Size > 1: A, B from division_cost_dkm's
@@ -765,7 +765,7 @@ MIX_PEN = float(os.environ.get('MN_MODEL_MIX_PEN', '0'))   # L4: fractional extr
 TREE_CRIT = os.environ.get('MN_MODEL_TREE_TOPONLY', '0') != '1'   # L4 (2026-10-11): a tree level's time = its slowest group (the last full group vs the clipped top group); MN_MODEL_TREE_TOPONLY=1 = the previous behaviour
 def tree_cost(fab, nq_node, g, groups=None, form="grid", T=None, which='crit'):
     """level by level (mem_model.level_children: the level's group of S nodes and its children m_1 .. m_k, the
-    previous level's groups): a k-way level is the fold the tree runs (results/GRID_GROUPS.md §L; tree_level for k = 2):
+    previous level's groups): a k-way level is the fold the tree runs (archive:results_merged_2026-10-24/GRID_GROUPS.md §L; tree_level for k = 2):
     (P, Q) <- (P Q_i + P_i, Q Q_i) for i = 2 .. k -- 2 (k - 1) products over the level's S nodes, the accumulated
     operand growing from m_1 to S - m_k leaf shares, the P product with the shifted add (X).
     Phase 13d D2: SHARES = 'terms' (T, the total digits, given): the operands are the top group's children's real lengths"""
@@ -817,14 +817,14 @@ def phase(name, D):
 # ------------------------------------------------------------------------------------------------------------
 # The legacy path (design None: the constants above, four primes, the Phase 10/11 phase table) is what --calib and the
 # Phase 12 tables were computed with; everything the design table prints goes through Design (the code after step 0).
-T_PIECE_31_NP = {4: 1.078, 3: 0.827}   # MEASURED (results/PRIMES_STRATEGY.md §S13, E0 decimal, s24-26): C at 2^31 over the four APUs, P = 4 / 3
+T_PIECE_31_NP = {4: 1.078, 3: 0.827}   # MEASURED (archive:results_merged_2026-10-24/PRIMES_STRATEGY.md §S13, E0 decimal, s24-26): C at 2^31 over the four APUs, P = 4 / 3
 HIDE_POW2 = float(os.environ.get('MN_MODEL_HIDE_POW2', '0.75'))   # MEASURED (results/EXCHANGE.md §X13 3.2): the equal-slab path hides 74-76 % of its xGMI link time
                                        # (Phase 16 C: MN_MODEL_HIDE_POW2 / MN_MODEL_GEN_HIDE1 / MN_MODEL_GEN_HIDE2 / MN_MODEL_MAP_RATE override, as MN_MODEL_T_ROUND does)
 GEN_HIDE_DEPTH = {1: float(os.environ.get('MN_MODEL_GEN_HIDE1', '0.011')), 2: float(os.environ.get('MN_MODEL_GEN_HIDE2', '0.74'))}
                                        # general map: MEASURED 1.1 % one deep (X13; 1.4 % on two real nodes, X13b); two deep MEASURED 74.3 %
                                        # on two real nodes (X13b, job 21068; 72.6-75.1 % on one node)
-F_MM1 = 58.0 / 58.4                    # MEASURED (results/KERNELS.md §K13, one pair at 4e10): NTT_MODMUL=1 phases 58.4 -> 58.0 s
-MAP_RATE = float(os.environ.get('MN_MODEL_MAP_RATE', '0.065'))   # MEASURED (results/MEMORY.md §I t_alloc 0.057-0.072 s/GB; P3: 25.8 GB fewer planes = -1.5..-2.9 s of init)
+F_MM1 = 58.0 / 58.4                    # MEASURED (archive:results_merged_2026-10-24/KERNELS.md §K13, one pair at 4e10): NTT_MODMUL=1 phases 58.4 -> 58.0 s
+MAP_RATE = float(os.environ.get('MN_MODEL_MAP_RATE', '0.065'))   # MEASURED (archive:results_merged_2026-10-24/MEMORY.md §I t_alloc 0.057-0.072 s/GB; P3: 25.8 GB fewer planes = -1.5..-2.9 s of init)
 NODE_SCALE = float(os.environ.get('MN_MODEL_NODE_SCALE', '1.0'))   # Phase 16 C: the node's compute (bs, the leaf, the pieces, the size-1 dm) x this -- 1 = aac6's calibration
 INIT_SCALE = float(os.environ.get('MN_MODEL_INIT_SCALE', '1.0'))   # Phase 16 C: init x this (the mapping rate of another ROCm / node class on top of MAP_RATE's device term)
 if 'MN_MODEL_LOCAL_F' in os.environ:   # Phase 16 F: one factor on the local (non-fabric) terms = NODE_SCALE and INIT_SCALE together (each env above still wins); default 1.0
@@ -869,7 +869,7 @@ class Design:
         self.out_overlap = out_overlap if out_overlap is not None else ('none' if p15 else 'half')
         # Phase 15 (agent DOC): p15b = the user's decisions of 2026-09-27 on top of p15 -- BS_SEED_FILL=128 (FILL_BS, the regions' bytes in mem_model),
         # BI_MUL1_FAST=1 (SEED15B: no slow path above 2^33), NEWTON_RECIP_MID=1 (the middle product in recip_cost at size > 1), DIST_TWREC=1 (TWREC_F on the
-        # pieces' local passes), RNS_AUTO_PIECE_COST=1 (C2: one-node grids only, 0 at the target -- results/GRID_GROUPS.md §C215), ECALC_CORR_PATCH=2 (no rewrite, no T1 wait),
+        # pieces' local passes), RNS_AUTO_PIECE_COST=1 (C2: one-node grids only, 0 at the target -- archive:results_merged_2026-10-24/GRID_GROUPS.md §C215), ECALC_CORR_PATCH=2 (no rewrite, no T1 wait),
         # size 1 recip / div by the measured ratios (P15B_RECIP1, P15B_DIV1); packed = ECALC_OUT_PACKED=1 (8 bytes per 18 digits); early = MN_OUT_EARLY=1
         # (size > 1: the part file from the hook before the low product, overlapping OVL1 x the division as at size 1); EXIT_S on both walls.
         # np_mn: ECALC_NP at size > 1 (the target's launch line: 4, the user's decision 1); None = np.
@@ -1274,7 +1274,7 @@ RUNS = [
     dict(D=4e10, np=3, mm=1, cap=R31, total=70.73, init=18.2, bs=28.1, top=None, recip=None, dm=24.3, dev=236.0, hwm=12.1, use='check', src='P13b 2^31 (s24-30)'),
     dict(D=4e10, np=3, mm=1, cap=R31, total=67.89, init=17.3, bs=None, top=None, recip=None, dm=None, dev=236.0, hwm=12.2, use='check', src='P13b 2^31 (s24-16; phases 50.6)'),
     dict(D=4e10, np=3, mm=1, cap=R3_30, total=65.09, init=18.7, bs=25.1, top=None, recip=None, dm=21.2, dev=287.5, hwm=12.1, use='check', src='P13b b2 3*2^30 (job 21051, s24-16)'),
-    # agent P's one-node ceilings at three primes (results/MEMORY.md §P13b; NTT_MODMUL=1): beyond the phase table (extrapolated walls), the device exact
+    # agent P's one-node ceilings at three primes (archive:results_merged_2026-10-24/MEMORY.md §P13b; NTT_MODMUL=1): beyond the phase table (extrapolated walls), the device exact
     dict(D=1e11, np=3, mm=1, cap=R3_30, total=206.9, init=45.5, bs=76.3, top=None, recip=None, dm=85.0, dev=465.5, hwm=14.1, use='edge', src='P13b 3*2^30 1e11 (job 21051, s24-16)'),
     dict(D=1.14e11, np=3, mm=1, cap=R3_30, total=228.7, init=34.5, bs=104.2, top=None, recip=None, dm=89.9, dev=509.0, hwm=14.8, use='edge', src='P13b 3*2^30 edge (job 21059, s24-30; 1.16e11 OOM-killed at 528.7)'),
     dict(D=1.30e11, np=3, mm=1, cap=R31, total=353.1, init=38.6, bs=148.6, top=None, recip=None, dm=165.8, dev=507.1, hwm=15.7, use='edge', src='P13b 2^31 edge (job 21069, s24-30; 1.34e11 allocation refused)'),
@@ -1400,7 +1400,7 @@ def node_phases(D, dz, g=1, exclude=None, pipe=False):
 CAL13 = True
 # Phase 13d D2: the pipeline's per-product law.  S13's t_strategy medians are isolated products; in the pipeline (G's sweep logs, every
 # 'dist_db' line with its time: fit_pipe) a one-plane product takes PIPE_ONE x the law by form, and a piece of a grid adds GRID_ADD
-# seconds per 2^31 points (the piece's temporary and its shifted add into C).  FITTED on G13d's logs (see results/TIME_MODEL.md §D213d).
+# seconds per 2^31 points (the piece's temporary and its shifted add into C).  FITTED on G13d's logs (see archive:results_merged_2026-10-24/TIME_MODEL.md §D213d).
 PIPE_ONE = {'C': 1.221, 'B': 1.150, 'B4': 1.150}     # FITTED (fit_pipe on G13d's 11 sweep logs, 303 products / 1381 pieces >= 2^27 limbs)
 GRID_ADD = {'C': 0.0, 'B': 0.075, 'B4': 0.075}       # FITTED (s per 2^31 points of the piece)
 GRID_NC = 0.0793                          # s per piece of a grid per 2^31 limbs of the whole product (the size-1 grid's accumulation passes over C;
@@ -1479,7 +1479,7 @@ def DEFAULT13(): return Design(np=3, strategy='auto', cap=1 << 31, chunk='shift'
 # it, fitted like fit13 (weighted log-linear least squares in D / 4e10, held flat outside CAL15_RANGE) on CAL15_RUNS, and applies to every p15
 # design: init and bs (without the seed wait) at the leaf of the slowest node, dm at size 1 only (at size > 1 the reciprocal and the division
 # are the fabric model's pieces, with NEWTON_RECIP_CUT in the plan).  The seed wait (bs waiting for the level-0 spans after init; V3,
-# results/SINGLE_NODE.md §V314 1) is its own term: the seeds end at SEED15[0] + SEED15[1] x the node's span digits / 1e9 after the start, where a term above
+# archive:results_merged_2026-10-24/SINGLE_NODE.md §V314 1) is its own term: the seeds end at SEED15[0] + SEED15[1] x the node's span digits / 1e9 after the start, where a term above
 # 2^33 costs SLOW_F x (mul1_serial's u128 path, measured x 1.29 per limb-step on the node's Zen 4 CPU by V3) -- at the 576 target every
 # term of the top node is above 2^33, on one node only those of the top 18 % (1e11) to 36 % (1.3e11) of the digits.
 CAL15 = True
@@ -1503,12 +1503,12 @@ FILL_BS = 0.7693                       # MEASURED ratio of bs without the seed w
                                        # 128 limbs on every node, S = 235 on node 0, ~184 on the top node)
 SEED15B = (7.589, 0.2681)              # FITTED (ten cand runs, both series: the seeds end at init + the wait = 34.40 s at 1e11): BI_MUL1_FAST -- one form for every
                                        # multiplier, no u128 path above 2^33 (SLOW_F no longer applies); the intercept kept from SEED15.  At the target's top node the
-                                       # seeds end 7.3 s earlier (modelled; S1 had -3...-7 s, results/KERNELS.md §S115)
+                                       # seeds end 7.3 s earlier (modelled; S1 had -3...-7 s, archive:results_merged_2026-10-24/KERNELS.md §S115)
 P15B_RECIP1 = 0.9097                   # MEASURED ratio at size 1, cand / B0: the reciprocal 37.67 / 41.41 s (NEWTON_RECIP_MID -3.4 s (R4), C2's grids, DIST_TWREC)
 P15B_DIV1 = 1.0851                     # MEASURED ratio at size 1, cand / B0: the division (dm - recip) 62.68 / 57.76 s -- the fill's pool remaps (+6..+12 s, RL showed the
                                        # HIP runtime serializes them) against C2 (no corrections) and DIST_TWREC; size 1 only (at size > 1 the division is the fabric
                                        # model's pieces; the remap penalty there is ASSUMED 0 -- the arena is the dm need's, which the fill leaves unchanged)
-# Phase 15 G5 (results/KERNELS.md §G515): the general map (g not a power of two) packs with k_twpack_g / k_unpacktw_g, which DIST_TWREC never
+# Phase 15 G5 (archive:results_merged_2026-10-24/KERNELS.md §G515): the general map (g not a power of two) packs with k_twpack_g / k_unpacktw_g, which DIST_TWREC never
 # changed (TWREC_F was applied to every piece before G5: -1.4 s at the target that the code does not have).  DIST_TWREC_G=1: the recurrence
 # forms, MEASURED (gen_pack_bench, s24-26) x1.75-2.03 at the 576 plane shape (2^20 x 2^20 over 2304 ranks: 750-900 -> 1460-1620 GB/s) and
 # x1.5-1.7 at 192's (2^19 x 2^19 over 768); the saving per point is 5.7 % (576) / 3.8 % (192) of the piece's local time at T_PIECE_31_NP[4]
@@ -1528,7 +1528,7 @@ B3_DIV1_FIX = os.environ.get('MN_MODEL_B3_DIV1', '0') == '1'   # 06 EVALUATION i
                                        # (the ratio below is fitted to close that one gap, not an independent measurement).
 B3_DIV1 = 32.84420642877413 / 49.943741516194756   # = 0.6576: solved so nowrite at 1e11, g=1 (today 183.8 s, division 49.94 s of it) lands on 166.7 s
 TWREC_F = 0.98                         # the pieces' local passes x this with DIST_TWREC=1: MODELLED from the measured -1.8 s of dm at 1e11 on ~90 s of four-step products
-                                       # (results/GRID_GROUPS.md §C215 2: -2.8 +- 0.8 s of total); X13b measured the pack x1.65, the unpack x1.43 (bench); ASSUMED to carry to the mn tier
+                                       # (archive:results_merged_2026-10-24/GRID_GROUPS.md §C215 2: -2.8 +- 0.8 s of total); X13b measured the pack x1.65, the unpack x1.43 (bench); ASSUMED to carry to the mn tier
 PACKED_BPD = 7.5 / 18.0                # ECALC_OUT_PACKED=2 (default): 60-bit limbs, 7.5 bytes per 18 digits (0.417 B/digit; 1.0 for ASCII)
 # O8 (2026-10-11): K2 + K3 (DBIG_ADDSUB3, DBIG_MODQ_MONT; default ON since T08) as a per-node saving on the wall.  MEASURED at 1 node, 6.441e10 digits (the 576-node
 # per-node size at 3.71e13): -2.03 s (aac7, CI half 1.38) / -1.22 s (aac6 PPAC, 0.84), results/KERNELS.md §S51; kernel-metric sum at 4 nodes -8.4 s (run totals not significant).
@@ -1645,7 +1645,7 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
     if p15 and dc_exposed is None:                     # Phase 15 (D3): the two walls, the part file as the code writes it
         if g == 1:                                     # size 1: the writer starts at the hook (before the low product) and overlaps OVL1 x the division; a
             O = ovl_div(dc, 1); fmt = DC_FMT1 * D / 1e9   # correction after the hook makes T1 wait for it (inside `total`) and then redoes the digits and rewrites
-            if corrections and not p15b:               # the file after `total` (V2's finding, results/SINGLE_NODE.md §V214); ECALC_CORR_PATCH (p15b): no wait, no rewrite
+            if corrections and not p15b:               # the file after `total` (V2's finding, archive:results_merged_2026-10-24/SINGLE_NODE.md §V214); ECALC_CORR_PATCH (p15b): no wait, no rewrite
                 t1_wait = max(0.0, out_write - O); dc_file = out_write + DC_FIX; dc_nofile = fmt
             else:
                 dc_file = early_exposed(out_write, dc, 1); dc_nofile = 0.0   # (Phase 15 EW: MN_OUT_DKM_HI's pipeline; else max(0, W - O))
@@ -1711,7 +1711,7 @@ def max_digits(g, node_gb, form="grid", groups=None, transport="shmem", staging=
 
 # ------------------------------------------------------------------------------------------------------------
 # calibration: every recorded aac6 point -- g node-processes sharing one node over a loopback transport
-# (results/TIME_MODEL.md §X job 20802/20815, L.md jobs 20808/20813, M11.md job 20814, S.md job 20817; the logs' "total" lines)
+# (archive:results_merged_2026-10-24/TIME_MODEL.md §X job 20802/20815, L.md jobs 20808/20813, M11.md job 20814, S.md job 20817; the logs' "total" lines)
 # ------------------------------------------------------------------------------------------------------------
 
 
@@ -1765,7 +1765,7 @@ def _run_cache(T, g, design, slots=None, phase=None, primes=None, loop='code', m
 
 
 # ============================================================================================================
-# Phase 15 Batch 3 PC (results/CACHE.md §PC15): RNS_DIST_CACHE_PARTIAL=1 -- the slots' planes drawn per grid product from the block pool (the arena),
+# Phase 15 Batch 3 PC (archive:results_merged_2026-10-24/CACHE.md §PC15): RNS_DIST_CACHE_PARTIAL=1 -- the slots' planes drawn per grid product from the block pool (the arena),
 # as many primes as its free bytes allow after the product's own need and a margin (0.5 GB per APU), the grid's
 # loop along its longer axis, P24 products cached too.  The pool's free bytes at a phase's peak product (modelled, mem_model): the tree
 # arena - tree_need (the arena's slack); the division arena - dm_need, the arena laid for the default division (binsplit.c dm_layout does not

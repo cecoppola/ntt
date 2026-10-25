@@ -57,7 +57,7 @@ mdbv mdb_view(const mdb *m, size_t off, size_t len, mn_group *G);
  * skipped and the result is truncated to w limbs ((size_t)-1: the full product).  Phase 10 A5: a truncated result is
  * delivered in basis w (C->N = w), the carry out of the top dropped (mod B^w) */
 void rns_mul_dist_mn_v(mdb *C, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t w);
-/* Phase 10 A5 (results/DIVISION.md §A-div, the division's cuts): C = A B with the grid's pieces skipped by two cuts -- pieces whose
+/* Phase 10 A5 (archive:results_merged_2026-10-24/DIVISION.md §A-div, the division's cuts): C = A B with the grid's pieces skipped by two cuts -- pieces whose
  * limbs end at or below lowcut (oa + ob + len_a + len_b <= lowcut; 0: none -- the A_h mu product, of which only t >> cut is
  * used: X is low by at most the number of skipped pieces + 1, absorbed by the up-corrections) and pieces starting at or
  * above highcut (oa + ob >= highcut; (size_t)-1: none -- the low product X Q mod B^w, delivered in basis highcut) */

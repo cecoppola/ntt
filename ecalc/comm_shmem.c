@@ -5,7 +5,7 @@
  *
  * Memory.  One symmetric pool (COMM_SHMEM_POOL_MB) holds everything remote PEs write: a fixed mailbox table at its start,
  * then a per-PE first-fit allocator for the communicators' control blocks, their staging, and -- comm_sym_alloc -- the
- * callers' slab buffers.  Two forms of the pool (results/SHMEM_ITEMS.md §S12):
+ * callers' slab buffers.  Two forms of the pool (archive:results_merged_2026-10-24/SHMEM_ITEMS.md §S12):
  *   - shmem_malloc'd host memory registered with hipHostRegister (the default; Cray OpenSHMEMX's heap is host memory) --
  *     on the APU the same HBM;
  *   - COMM_SHMEM_DEVHEAP=1 with an implementation whose shmem_malloc returns device memory (rocSHMEM): no
@@ -20,7 +20,7 @@
  * puts its slab there, then the signal word sig[sender] = seq | byte count into the receiver's block, ordered after the
  * data by (COMM_SHMEM_ORDER) `putsig`: shmem_putmem_signal_nbi (1.5; one call, nothing blocks: the default where the
  * headers are 1.5), `fence`: shmem_fence + shmem_long_p (1.4, the spec's form), `quiet`: shmem_quiet + long_p (the default on
- * 1.4 headers; some 1.4 libraries' fence does not order an nbi put before a later put -- results/SHMEM_ITEMS.md §S).  The
+ * 1.4 headers; some 1.4 libraries' fence does not order an nbi put before a later put -- archive:results_merged_2026-10-24/SHMEM_ITEMS.md §S).  The
  * receiver's wait() polls the signals, checks the counts, and quiets its own context (its send buffer is free again).
  * Buffers in the pool (comm_sym_alloc: ntt_dist's slabs, the layered communicator's scratch) are put from and into
  * directly; others are staged through the pool (D2H / H2D on the caller's stream, a copy per direction).
@@ -40,7 +40,7 @@
  * nowhere except init/finalize: they are process-level and would need all four threads to agree; the strided PE set
  * is the shim for shmem_team_split_strided.
  * Build: -DCOMM_SHMEM with the SHMEM headers (Makefile: SHMEM_CRAY=1); without it the
- * entry points abort.  The exact call list is in results/SHMEM_ITEMS.md §S12 (the portability contract).
+ * entry points abort.  The exact call list is in archive:results_merged_2026-10-24/SHMEM_ITEMS.md §S12 (the portability contract).
  */
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE                                       /* dladdr (ECALC_VERBOSE>=3) */

@@ -140,12 +140,27 @@ def main():
             if not inres and re.search(r"(?<![\w:])archive/(?!<)", l):
                 bad("archive", f, i, "`archive/` reference (write `archive:<path>`)")
 
+    # g. section citations: "results/X.md §Y" must name a heading of results/X.md
+    heads = {}
+    for f in files:
+        if f.startswith("results/") and f.endswith(".md"):
+            heads[f[8:]] = [h for h in (lines(f) or []) if h.startswith("#")]
+    sec = re.compile(r"(?<![:\w/])results/([A-Za-z0-9_]+\.md)`?,?\s*§\s*([A-Za-z0-9_-]+)")
+    for f in files:
+        if os.path.splitext(f)[1] not in TEXT_EXT or f.startswith("tools/doccheck"):
+            continue
+        for i, l in enumerate(lines(f) or [], 1):
+            for m in sec.finditer(l):
+                fn, t = m.groups()
+                if fn in heads and not any(re.search(r"(?<![A-Za-z0-9_])" + re.escape(t) + r"(?![A-Za-z0-9_])", h) for h in heads[fn]):
+                    bad("section", f, i, f"results/{fn} has no heading with §{t}")
+
     total = 0
-    for kind in ("registry", "scope", "path", "plan", "paper", "archive"):
+    for kind in ("registry", "scope", "path", "plan", "paper", "archive", "section"):
         for s in fails.get(kind, []):
             print(s)
         total += len(fails.get(kind, []))
-    summ = " ".join(f"{k}={len(fails.get(k, []))}" for k in ("registry", "scope", "path", "plan", "paper", "archive"))
+    summ = " ".join(f"{k}={len(fails.get(k, []))}" for k in ("registry", "scope", "path", "plan", "paper", "archive", "section"))
     print(f"doccheck: {total} problem(s) ({summ})")
     sys.exit(0 if (total == 0 or warn) else 1)
 

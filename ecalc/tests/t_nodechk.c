@@ -3,7 +3,7 @@
  * HugePages_Total=.. HugePages_Free=.. Hugepagesize_kB=.. apu0_s=.. apu1_s=.. ...   (apu<d>_s = median of <reps> timed 1 GB
  * host->device hipMemcpy uploads from a pre-touched pageable malloc buffer to device d; the aac7 stall was ~20 s in db_from_bi
  * against ~1 s on the other nodes, so a healthy node shows ~0.05-0.5 s here).  No file is written.
- * T10 (2026-10-11, results/NODE_SLOWMODE.md §T10): optional COLD-PATH mode (3rd arg cold GB per APU, default 0 = off, output unchanged).  It reproduces
+ * T10 (2026-10-11, archive:results_merged_2026-10-24/NODE_SLOWMODE.md §T10): optional COLD-PATH mode (3rd arg cold GB per APU, default 0 = off, output unchanged).  It reproduces
  * ecalc's init on a fresh process: per APU hipMemAddressReserve of 3x, then 2 GiB chunks hipMemCreate + hipMemMap, one hipMemSetAccess
  * for all APUs, hipMemset of the mapped range (db_vmm_arena_alloc / vmm_map_run, dbig.c), then a first-touch of a fresh pageable host
  * buffer of that size and ONE cold upload of it into the VMM range (db_from_bi).  Prints one extra line per node:

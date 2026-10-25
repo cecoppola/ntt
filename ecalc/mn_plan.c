@@ -46,7 +46,7 @@ static struct pq pq_of(unsigned long a, unsigned long b) { struct pq x; x.a = a;
 /* node r's terms (ecalc.c: bs_a0 = 1 + N r / size) */
 static unsigned long term0(unsigned long N, int r, int size) { unsigned __int128 nn = N; return 1 + (unsigned long)(nn * (unsigned)r / (unsigned)size); }
 /* d = |B^(2j) - u| at the step to target j: r carries j + 1 limbs, so its error is about one unit of its last limb -- d ~ B^j.
- * The run's value is data-dependent (validated against real runs: results/TARGET.md §L13d); it sets only the second product's
+ * The run's value is data-dependent (validated against real runs: archive:results_merged_2026-10-24/TARGET.md §L13d); it sets only the second product's
  * second operand, whose grid it can move only at a boundary */
 static size_t D_EST(size_t j) { return j > 1 ? j : 1; }
 

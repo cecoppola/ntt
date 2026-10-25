@@ -46,7 +46,7 @@ void rns_dist_cache_release(void);
  * transform cache's slots are sized by the cap, so they are released at every change */
 void rns_dist_cap_test(int logn) { rns_dist_cache_release(); g_cap_test = logn; }
 /* Phase 10 A6: the pointwise product fused into the column inverse's first pass (bit-identical), and the four-step split
- * logR = logn / 2 (DIST_PW_FUSE=1 and DIST_LOGR_DELTA=0, the defaults, built in 2026-10-12; results/GRID_GROUPS.md §G) */
+ * logR = logn / 2 (DIST_PW_FUSE=1 and DIST_LOGR_DELTA=0, the defaults, built in 2026-10-12; archive:results_merged_2026-10-24/GRID_GROUPS.md §G) */
 
 /* a limb accessor: four quarters (a dbig view) */
 struct acc { const uint64_t *q[NR]; uint64_t *w[NR]; size_t qc, lo, n; dbig *owner; };
@@ -157,7 +157,7 @@ static size_t dist_cap(void) { return (size_t)1 << dist_logn_max(); }   /* plane
 #define VPE_LOCAL_LOGN 29                                       /* S1b form S: one PE's plane cap (np + 1 planes of 2^29 points = 21 GB at 4 primes) unless DIST_LOGN_TEST is lower */
 static size_t local_cap(void) { int v = dist_logn_max(); return (size_t)1 << (v < VPE_LOCAL_LOGN ? v : VPE_LOCAL_LOGN); }
 __device__ static inline unsigned brev3(unsigned v, int bits) { return __brev(v) >> (32 - bits); }
-/* ---- Phase 10 A1 (archive:PLAN §20, I4; results/DIVISION.md §A-div "B2"): the transform cache ---------------------------------------
+/* ---- Phase 10 A1 (archive:PLAN §20, I4; archive:results_merged_2026-10-24/DIVISION.md §A-div "B2"): the transform cache ---------------------------------------
  * A slot holds the forward transform of one device operand (a dbig view, identified by its quarters, offset and length)
  * on planes of q limbs per prime per rank.  dist_core looks every device
  * operand up in all slots (a hit skips its gather and forward transform and reads the cached planes in the pointwise
@@ -201,7 +201,7 @@ static void cache_acct(int ndev, size_t b[][MEM_DEV_NCAT])   /* the memory repor
     for (int d = 0; d < ndev && d < NR; d++) for (int i = 0; i < DIST_CACHE_MAX; i++) if (g_cache.s[i].pl[d]) b[d][MEM_DEV_OTHER] += g_cache.slot_bytes;
 }
 /* the configured slot count: none for the single-node tier (at 4e10 the planes' mapping, 7-9 s for 2 x 16 GiB per APU at 0.055 s/GB,
- * costs more than the ~4 s of transforms it saves -- results/GRID_GROUPS.md §G; RNS_DIST_CACHE, default 0, removed 2026-10-12), 2 slots
+ * costs more than the ~4 s of transforms it saves -- archive:results_merged_2026-10-24/GRID_GROUPS.md §G; RNS_DIST_CACHE, default 0, removed 2026-10-12), 2 slots
  * over shares ( the planes are 1/gt the size and a hit also skips the operand's all-to-all redistribution) */
 static int cache_slots_of(int mn)
 {
@@ -301,7 +301,7 @@ static void cache_plan(int *sa, int *sb, int ha, int hb, const void *ka, size_t 
     }
     g_cache_last[0] = ha >= 0 ? 2 : *sa >= 0 ? 1 : 0; g_cache_last[1] = hb >= 0 ? 2 : *sb >= 0 ? 1 : 0;
 }
-/* ---- Phase 15 Batch 3 PC (results/CACHE.md §PC15): RNS_DIST_CACHE_PARTIAL=1 -- partial slots that fit, drawn per grid product from the block pool ----
+/* ---- Phase 15 Batch 3 PC (archive:results_merged_2026-10-24/CACHE.md §PC15): RNS_DIST_CACHE_PARTIAL=1 -- partial slots that fit, drawn per grid product from the block pool ----
  * At the 5.1e13 target a full slot (68.7 GB per node) fits no phase; the block pool (the arena, mapped at init and inside the budget) has
  * room at the grid products -- the arena's slack at the tree (36.5 GB per node, modelled), DKM's unused hole in the division (the arena is
  * laid for the default division) -- so under the switch the mn tier's slots are not the held hipMalloc'd planes but, for each grid
@@ -755,7 +755,7 @@ static int b_grid_on(void)
  *     8 planes of 2^31 for the decimal top product (2.22e9 x 2.22e9 limbs); 2 x 3 pieces give 6 (RESULTS.md 66);
  *   bcost (the single-node tier under RNS_STRATEGY=auto, b_grid_on): a piece that fits form B costs its B points x 0.70 (3 2^k x
  *     1.05), else its C points; Phase 14 V2 (RNS_AUTO_PIECE_COST, built in 2026-10-12): every piece of a grid of more than one adds
- *     0.087 x its B points + 0.092 x (na + nb) -- the pipeline's per-piece cost (results/TIME_MODEL.md §D213d, fit_pipe on G13d's logs: 0.075 s
+ *     0.087 x its B points + 0.092 x (na + nb) -- the pipeline's per-piece cost (archive:results_merged_2026-10-24/TIME_MODEL.md §D213d, fit_pipe on G13d's logs: 0.075 s
  *     per 2^31 B points of the piece + 0.079 s per 2^31 limbs of the whole product, in C plane points at ~0.86 s per 2^31); without
  *     it auto forms up to 7 x 10 grids of small B pieces at >= 1e11 on one node.  Costs within 0.1 % count as equal there. */
 enum { GP_LIMBS, GP_P24 };
@@ -828,7 +828,7 @@ void rns_mul_dist_db(dbig *Cd, const dbig *A, const dbig *B) { mul_grid(Cd, A, B
 /* Phase 10 A5/B3: the product of which only C >> cut is used: the grid with the pieces ending at or below the cut skipped (a
  * product that fits one plane is formed whole, as before) */
 void rns_mul_high_db(dbig *Cd, const dbig *A, const dbig *B, size_t cut) { mul_grid(Cd, A, B, cut, (size_t)-1); }
-/* Phase 15 R4 (the reciprocal's middle product, results/DIVISION.md §R415): both cuts, the result mod B^w -- the formed pieces are added whole, a
+/* Phase 15 R4 (the reciprocal's middle product, archive:results_merged_2026-10-24/DIVISION.md §R415): both cuts, the result mod B^w -- the formed pieces are added whole, a
  * skipped piece at oa + ob >= w is a multiple of B^w, so the low w limbs are those of A B less the low cut's pieces; truncated to w */
 void rns_mul_band_db(dbig *Cd, const dbig *A, const dbig *B, size_t lowcut, size_t w) { mul_grid(Cd, A, B, lowcut, w); if (Cd->n > w) { Cd->n = w; db_norm(Cd); } }
 /* S1b: the one-PE product (rns_mul.h) -- the band's two cuts, the grid of form S pieces when over the plane cap; lowcut 0, w -1: the full product */
@@ -855,7 +855,7 @@ static int db_piece_form(void *ctx, int i, int j, int sa, int sb, int formed)
     return 1;
 }
 /* the grid; only the pieces whose limbs start below w are formed (w = -1: all) and, Phase 10 A5, only those whose limbs
- * do not all lie at or below lowcut (0: all; the A_h mu product of the division, results/DIVISION.md §A-div B3: each skipped piece
+ * do not all lie at or below lowcut (0: all; the A_h mu product of the division, archive:results_merged_2026-10-24/DIVISION.md §A-div B3: each skipped piece
  * is < B^cut, X is low by at most their number + 1, absorbed by the up-corrections).  A1: the pieces' transforms cached
  * over the grid's loop (dist_core; the slots planned here) */
 static void mul_grid(dbig *Cd, const dbig *A, const dbig *B, size_t lowcut, size_t w)
@@ -1627,7 +1627,7 @@ void mdb_norm(mdb *C, mn_group *G, size_t below)
     C->n = grp_max(G, top);
 }
 /* C = A B (+ X) over the group, as one plane or as the grid of piece products.  Phase 10 A5 (the cuts of the division,
- * results/DIVISION.md §A-div): pieces at or above w (the high cut: oa + ob >= w) are skipped and the result is truncated to w limbs --
+ * archive:results_merged_2026-10-24/DIVISION.md §A-div): pieces at or above w (the high cut: oa + ob >= w) are skipped and the result is truncated to w limbs --
  * delivered directly in basis w (the piece windows clip to the shares, the carry out of the top node is dropped), so the
  * low product X Q comes out in the corrections' basis without a re-sharding shift; pieces whose limbs end at or below
  * lowcut (oa + ob + len_a + len_b <= lowcut: the A_h mu product's pieces below k + 1, B3) are skipped as on one node.  A
@@ -2035,7 +2035,7 @@ int mn_groups_parse(int size, int *out, int max)
             out[n++] = (int)v;
         }
     } else {
-        /* Phase 12 G (agent Q's decision, results/TIME_MODEL.md §Q 1: the 3 . 3 top at 576): the powers of two that divide the size, then the
+        /* Phase 12 G (agent Q's decision, archive:results_merged_2026-10-24/TIME_MODEL.md §Q 1: the 3 . 3 top at 576): the powers of two that divide the size, then the
          * odd part's prime factors in increasing order -- 576 = 2^6 . 3 . 3 -> 2, 4, ..., 64, 192, 576; 9 -> 3, 9; 6 -> 2, 6; a power
          * of two -> the binary tree as before.  Every group is then exact (no cut top group) and every level is a k-way step by
          * one prime factor */

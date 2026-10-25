@@ -581,7 +581,7 @@ int main(int argc, char **argv)
     /* the transport is opened (the pool rule, mn_init: shmem_init_thread, the symmetric
      * pool, the four meshes) BEFORE rns_init -- i.e. before the VMM arenas and plane pools are mapped and before the seed thread
      * runs its kernels and DMAs (binsplit_seeds_begin inside rns_init).  Cray OpenSHMEMX's shmem_init_thread segfaulted in task 1
-     * in 3 of 23 launches of 10^10 at 2 nodes with 45 GB of VMM arenas and the seeds already live (results/AAC7_PORT.md §A16 step 7).  The
+     * in 3 of 23 launches of 10^10 at 2 nodes with 45 GB of VMM arenas and the seeds already live (archive:results_merged_2026-10-24/AAC7_PORT.md §A16 step 7).  The
      * pool rule needs only N and the size (MN_PLAN_ONLY runs it with no device); mn_init needs the pool's size from it and HIP
      * (streams, hipHostRegister), nothing of rns_init.  The self-tests stay after rns_init. */
     int mn_size_ = 1;

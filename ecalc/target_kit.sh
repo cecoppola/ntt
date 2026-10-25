@@ -44,7 +44,7 @@
 #                           3.71e13 target on 576 nodes).  KIT_S2CHK_LINE overrides the launch-line env words.
 #   --nodechk-gb GB         upload size per APU for the opt-in stage nodechk (default 1).
 #   --nodechk-cold-gb GB    T10 cold-path probe in stage nodechk (default 0 = off): per APU map GB of VMM arena + first-touch + one cold upload of it
-#                           (the ecalc init path); extra NODECHK_COLD line per node (results/NODE_SLOWMODE.md §T10).
+#                           (the ecalc init path); extra NODECHK_COLD line per node (archive:results_merged_2026-10-24/NODE_SLOWMODE.md §T10).
 #   --initchk-log FILE      log for stage initchk (default: the log of the smallest a4 node count in --out).
 #   --timeout-STAGE SECS    per-stage timeout (env 90, build 900, uffd 300, plan 120 PER point, edge 600, a3 600, a4 1800 PER node count,
 #                           s2chk 1800 PER node count, nodechk 300).
@@ -607,7 +607,7 @@ stage_edge() {
         bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         "$SELF_DIR/tests/t_edge" vmm "$EDGE_STEP_GB" "$EDGE_CAP_GB" || rc=1
 
-    # Phase S18 kit fix (results/TOOLS_PROFILES.md §S18KITFIX, bug 3): dbig.c's "VMM arena ... s/GB" line (the only place a map
+    # Phase S18 kit fix (archive:results_merged_2026-10-24/TOOLS_PROFILES.md §S18KITFIX, bug 3): dbig.c's "VMM arena ... s/GB" line (the only place a map
     # rate is printed) is gated by vmm_vb(), which is off unless DB_POOL_VERBOSE (or RNS_VERBOSE) is set -- so
     # this run used to print the "report both forms" text with no number behind it.  DB_POOL_VERBOSE=1 turns
     # on just that line (narrower than RNS_VERBOSE, which adds a lot of unrelated chatter).
@@ -677,11 +677,11 @@ stage_a3() {
     fi
 
     fi_defaults_for 2
-    # Phase S18 kit fix (results/TOOLS_PROFILES.md §S18KITFIX, bug 1): bare srun left the SHMEM heap at its library default,
+    # Phase S18 kit fix (archive:results_merged_2026-10-24/TOOLS_PROFILES.md §S18KITFIX, bug 1): bare srun left the SHMEM heap at its library default,
     # far below t_comm --bw's own symmetric-buffer request at A3_MAXMB -- every launch failed with
     # "comm_shmem: pe N: shmem_malloc of 8192 MiB failed: the SHMEM heap ... must be >= 8704 MiB (the pool +
     # 512)".  t_comm fits mnrun.sh's <procs> <command...> interface exactly (as results/OFI_FABRIC.md §OFI17 ยง3's and
-    # results/OFI_FABRIC.md §TUNE17's own bw() driver functions launch it), so launch through mnrun.sh instead and give it
+    # archive:results_merged_2026-10-24/OFI_FABRIC.md §TUNE17's own bw() driver functions launch it), so launch through mnrun.sh instead and give it
     # the pool t_comm's --bw actually needs, from the same formula those drivers used: t_comm allocates 2
     # symmetric buffers (sb, rb) per thread, each A3_MAXMB MiB x the node count (the all-to-all peer count);
     # with A3_THREADS threads that is 2 x A3_THREADS x A3_MAXMB x nodes MiB (OFI17.md/TUNE17.md's
@@ -743,7 +743,7 @@ stage_a4() {
         any_ran=1
         local digits=$((n * E10))
         local out="$TMPDIR/a4_n${n}.out"
-        # Phase S18 kit fix (results/TOOLS_PROFILES.md §S18KITFIX, bug 2): the ecalc run's own output used to go straight into the
+        # Phase S18 kit fix (archive:results_merged_2026-10-24/TOOLS_PROFILES.md §S18KITFIX, bug 2): the ecalc run's own output used to go straight into the
         # shared, appended "$lf" -- by the time a later n's block was parsed, grep/tail over that same accumulated
         # file picked up every earlier n's "comm-mark"/"total"/VERIFY lines too (the n=8 block repeated n=2's
         # lines ahead of its own).  Give each n its own log file and parse only that file for this n's summary

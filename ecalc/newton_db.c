@@ -55,7 +55,7 @@ static int shifted_cmp_le(const dbig *a, size_t j, const dbig *b, int plus1)
 static int recip_guard = 1, guard_read = 0;
 static void cut_init(void) { if (!guard_read) { guard_read = 1; const char *e = getenv("NEWTON_RECIP_GUARD"); if (e) recip_guard = atoi(e); if (recip_guard < 0) recip_guard = 0; } }
 size_t newton_recip_cut(size_t v) { cut_init(); return v > (size_t)recip_guard ? v - (size_t)recip_guard : 0; }
-/* Phase 15 R4 (V3 item 4 = archive:PLAN §33 B2, results/DIVISION.md §R415 1): Q_t r is formed as a middle product -- the grid with the
+/* Phase 15 R4 (V3 item 4 = archive:PLAN §33 B2, archive:results_merged_2026-10-24/DIVISION.md §R415 1): Q_t r is formed as a middle product -- the grid with the
  * pieces at or above w = take + MID_HI skipped too (mul_grid's / mn_grid's high cut), the result taken mod B^w.  The step reads
  * u = t1 >> v (v = take - j) only through e = u - B^(2j); when the previous round of the chain bounds |e| < B^(j+3) (mid_ok), u is
  * fixed by u mod B^(j+4) = t1's limbs [v, take + 4), and the reconstructed u equals the cut path's u exactly (the same bits).  The
@@ -218,7 +218,7 @@ long newton_test_corr(void)                          /* Phase 15 K: ECALC_TEST_C
 }
 /* Phase 15 DKM (newton.h): the reciprocal's length (DKM is the only division since SIMP, results/CODE_REDUCTION.md §SIMP) */
 size_t newton_dkm_h(size_t k) { return k / 2 + 1; }         /* max(k - s, s + 1) at s = floor(k/2) */
-/* Phase 15 int15k (the lean division set, results/DIVISION.md §M615 1.2's target part; built in since 2026-10-12): the multi-node reciprocal and DKM division without
+/* Phase 15 int15k (the lean division set, archive:results_merged_2026-10-24/DIVISION.md §M615 1.2's target part; built in since 2026-10-12): the multi-node reciprocal and DKM division without
  * their dead copies -- recip_mn frees t once u (then corr) is formed; mn_divmod_dkm takes A_h and mu's top as VIEWS of S / R1 and mu
  * (mdb_view) instead of mdb_shift copies, and Q in basis w (Qw) replaces Q once the window is formed.  Value-identical (the same
  * products on the same limbs); the layout (binsplit.c dm_layout, mem_model.dm_layout) counts the lean division set at size > 1 */
@@ -310,7 +310,7 @@ static void divmod_shifted_dkm(bigint *X, const dbig *S, size_t dl, const dbig *
     long dx1 = dkm_corr_db(&R1, &Aw, &xq, Qd, "step 1");
     dkm_add_small(&Xh, dx1);                                          /* X_hi exact: no one has seen it */
     newton_st.dkm_corr += (size_t)(dx1 < 0 ? -dx1 : dx1);
-    /* Phase 15 EW (MN_OUT_DKM_HI, results/DIVISION.md §EW15 1.3) -- the X_hi hook: X_hi is final here (X's limbs >= s, whatever step 2 does);
+    /* Phase 15 EW (MN_OUT_DKM_HI, archive:results_merged_2026-10-24/DIVISION.md §EW15 1.3) -- the X_hi hook: X_hi is final here (X's limbs >= s, whatever step 2 does);
      * the hook takes it and starts the writer on it.  No X0 is formed below: X_lo goes to newton_db_x_dev, X_hi stays the hook's */
     int xhi = newton_db_xhi_hook && newton_db_xlo_hook && newton_db_x_dev && newton_x_defer && s;   /* (s = 0: no X_lo to release onto) */
     if (xhi) xhi = newton_db_xhi_hook(&Xh, s, newton_db_x_arg);
@@ -324,7 +324,7 @@ static void divmod_shifted_dkm(bigint *X, const dbig *S, size_t dl, const dbig *
     { long tk = newton_test_corr();                                    /* Phase 15 K: ECALC_TEST_CORR on X_lo (X - k) */
       if (tk) { if (tk > 0 && (!Xl.n || (Xl.n == 1 && db_limb(&Xl, 0) < (uint64_t)tk))) { ec_fatal(EC_RC_FATAL, "ECALC_TEST_CORR=%ld under the DKM division: X_lo is below it\n", tk); } dkm_add_small(&Xl, -tk); } }
     if (xhi) {   /* Phase 15 EW -- the X_lo hook: X_lo0 to the caller's device X; the hook releases the writer onto it unless X_lo0 >= B^s (then
-                  * the corrections go into X_lo0 in place, results/DIVISION.md §EW15 1.2 item 3); X = X_hi B^s + X_lo is never formed */
+                  * the corrections go into X_lo0 in place, archive:results_merged_2026-10-24/DIVISION.md §EW15 1.2 item 3); X = X_hi B^s + X_lo is never formed */
         double td = mem_now();
         int carry = Xl.n > s; *newton_db_x_dev = Xl; db_init(&Xl);
         newton_x_dx = 0;
@@ -669,7 +669,7 @@ static void mdb_from_bi(mdb *Y, const bigint *h, size_t N2, mn_group *G) { dbig 
  * below k + 1 (B3 over shares), the low product X Q mod B^w without the pieces above w and delivered in basis w */
 static void mn_prod_cut(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t lowcut, size_t highcut) { double t0 = mem_now(); rns_mul_dist_mn_cut(C, A, B, G, lowcut, highcut); mn_st.t_prod += mem_now() - t0; }
 
-/* Phase 11 X1 (agent X; results/TIME_MODEL.md §X, mn_model.py): the group a product runs on.  A product of a few million limbs over
+/* Phase 11 X1 (agent X; archive:results_merged_2026-10-24/TIME_MODEL.md §X, mn_model.py): the group a product runs on.  A product of a few million limbs over
  * hundreds of nodes is latency-bound (15 all-to-alls of g - 1 messages per APU, a plane of at least 2^(2 (7 + log2 g))
  * points), so the reciprocal's early doublings run on the smallest subgroup [0, 2^L) of the full group (mn_group_at(L):
  * the tree's groups, created by mn_tree on every node) whose modelled cost is least; the operands are re-sharded onto it
@@ -1073,7 +1073,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     }
     mn_dkm_add(&Xh, dx1, G);                                           /* X_hi exact (no one has seen it) */
     NST(newton_st.dkm_corr += (size_t)(dx1 < 0 ? -dx1 : dx1));
-    /* Phase 15 EW (MN_OUT_DKM_HI, results/DIVISION.md §EW15 1.3) -- the X_hi hook (every rank, the same point: the hook runs a collective): X_hi is
+    /* Phase 15 EW (MN_OUT_DKM_HI, archive:results_merged_2026-10-24/DIVISION.md §EW15 1.3) -- the X_hi hook (every rank, the same point: the hook runs a collective): X_hi is
      * final here; the hook takes it and starts the part files of X_hi's shares.  No X0 below: the division returns X_lo */
     int xhi = newton_mn_xhi_hook && newton_mn_xlo_hook && newton_x_defer;
     if (xhi) xhi = newton_mn_xhi_hook(&Xh, s, newton_mn_x_arg);

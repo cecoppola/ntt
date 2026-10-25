@@ -125,7 +125,7 @@ int mem_dev_of(const void *p)
 void *mem_dev_malloc(int dev, size_t bytes)
 {
     void *p = 0; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
-    if (hipMalloc(&p, bytes) != hipSuccess) p = 0;   /* plain hipMalloc only (results/MEMORY.md §I) */
+    if (hipMalloc(&p, bytes) != hipSuccess) p = 0;   /* plain hipMalloc only (archive:results_merged_2026-10-24/MEMORY.md §I) */
     HIP_CHECK(hipSetDevice(cur));
     return p;
 }
@@ -175,7 +175,7 @@ void mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes)   /* DMA
     /* a device-to-device hipMemcpy returns before the copy is done (it is only queued on this device's null
      * stream; measured on aac7, results/CRASHES_HANGS.md), and the other devices' streams are not ordered against that null stream:
      * the level loop's odd-node copy was read by the next level's scatter kernels on the other three APUs, and its source
-     * overwritten by their CRT, while it was still in flight (results/CRASHES_HANGS.md §R).  Every caller assumes the copy is complete
+     * overwritten by their CRT, while it was still in flight (archive:results_merged_2026-10-24/CRASHES_HANGS.md §R).  Every caller assumes the copy is complete
      * when this returns, so wait for it here. */
     HIP_CHECK(hipStreamSynchronize(0));
     HIP_CHECK(hipSetDevice(cur));

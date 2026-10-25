@@ -169,7 +169,7 @@ int rns_init(int pool_log)
     /* RNS_PLANES_FIRST=1 maps the plane pools before the hook's region arenas.  Near the node's memory
      * edge the last allocations get what is left of the free memory in pieces below 2 MiB; the plane pools (every
      * transform of the dist tier) are then the victims and the tier's gathers and transforms run 4-10 x slower
-     * (results/TESTING_VERIF.md §N414).  Mapped first, they take 2 MiB blocks; the seeds start after them. */
+     * (archive:results_merged_2026-10-24/TESTING_VERIF.md §N414).  Mapped first, they take 2 MiB blocks; the seeds start after them. */
     size_t b1 = rns_pool1_bytes_req ? rns_pool1_bytes_req : bytes;
     if (!rns_pool1_bytes_req && rns_np2cap()) { size_t p1; rns_plane_pool_bytes(g_pool_log, ec_np_init(), 0, &p1); if (p1 > b1) b1 = p1; }   /* MN_NONPOW2_CAP: 3 q + 16 (4 q at four one-node primes) of the larger q exceeds 4 q of 2^(pool_log-2) */   /* C4: pool 1 sized to the dist tier's 3 q when the flow is all-device (the removed host mdev tier needed the full 2^pool_log; TREF) */
     if (getenv("RNS_POOL1_GB")) b1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);

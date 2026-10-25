@@ -5,7 +5,7 @@ Device and host bytes of one node-process as functions of the digits per node D 
 (the number of node-processes the run is spread over), built from the same formulas the code sizes its
 allocations with (binsplit.c: e_terms, seed_limbs, region_need, dm_layout, tree_need_dev; rns_mul.c: the
 plane pools; rns_dist.c: the sharded exchange's scratch), calibrated against the mem_report tables of
-results/MEMORY.md §M, results/MEMORY.md §M11 (4, 7, 8 x 10^10 at size 1; 10^10 at size 4).
+archive:results_merged_2026-10-24/MEMORY.md §M, archive:results_merged_2026-10-24/MEMORY.md §M11 (4, 7, 8 x 10^10 at size 1; 10^10 at size 4).
 
     mem_per_node(D, g, opts) -> dict      (bytes; opts: pool_log, tail, alltoallv, margin, form, groups, transport ...)
     python3 mem_model.py                  prints the calibration table, the ceilings per node and the 576-node digits
@@ -29,9 +29,9 @@ over one slot per node): 0 at the target, as the `plan cache` line prints.  --ch
 from the file's `plan` lines.
 
 mn_model.py (and its estimate subcommand) import mem_per_node for their memory rows.  Every number is "modelled"
-unless the calibration table says "measured"; the tables' sources are named in results/MEMORY.md §M11.  Phase 12 (agent Q):
+unless the calibration table says "measured"; the tables' sources are named in archive:results_merged_2026-10-24/MEMORY.md §M11.  Phase 12 (agent Q):
 the tree's g-terms in both forms -- 'flat' (the code at 7aded87) and 'grid' (agent G's gridded top product, archive:PLAN §27) --
-and L's level schedule (mn_groups, MN_GROUPS); see results/TIME_MODEL.md §Q.
+and L's level schedule (mn_groups, MN_GROUPS); see archive:results_merged_2026-10-24/TIME_MODEL.md §Q.
 """
 import math, sys, functools, os
 
@@ -328,7 +328,7 @@ def tree_need_dev_flat(nq_leaf, g, scratch_out=None, logr_delta=0):
     g, ONE transform of the level's whole product (logn from 2 N_A, no cap: q = n / (4 g) grows with the operands),
     two spill buffers of g x C x 4 limbs per APU.  This is the arena the code REQUESTS at init (binsplit_pregrow), so it
     is what the node maps whether or not rns_dist.c's grid (mn_logn_cap) would have formed smaller pieces -- at 576
-    nodes it exceeds the node by itself above ~2e10 digits per node (results/MEMORY.md §M11)."""
+    nodes it exceeds the node by itself above ~2e10 digits per node (archive:results_merged_2026-10-24/MEMORY.md §M11)."""
     best = 0; L = 0; top_scratch = 0; top_q = 0
     while (1 << L) < g: L += 1
     for l in range(1, L + 1):
@@ -621,7 +621,7 @@ def planes_bytes(pool_log=31, digits=0, p3q30=None, np=None, strategy='C', cap=N
     else:
         q = np2_q((1 << pool_log) // 4, g)   # MN_NONPOW2_CAP (g = the run's group size)
     p0 = np * q * 8
-    p1 = (3 * q + 16) * 8 if pool_log > 30 else max((3 * q + 16) * 8, 8 << min(pool_log, 30))   # pool 1 is the full pool at POOL_LOG <= 30 (results/MEMORY.md §A-mem, open issue 1)
+    p1 = (3 * q + 16) * 8 if pool_log > 30 else max((3 * q + 16) * 8, 8 << min(pool_log, 30))   # pool 1 is the full pool at POOL_LOG <= 30 (archive:results_merged_2026-10-24/MEMORY.md §A-mem, open issue 1)
     if (np if pool1_np is None else pool1_np) >= 4: p1 = max(p1, 4 * q * 8)   # Phase 15 PS (rns_plane_pool_bytes): four one-node primes -- the batch-local tier's
                                                                       # np Mmax L B limbs reach its plane cap 4 q (L = q, Mmax = 1); 3 q + 16 grew inside the bs phase (rc 6)
     p1 = (p1 + al - 1) // al * al
@@ -1088,7 +1088,7 @@ def max_digits_per_node(node_bytes, g=1, opts=None, lo=1e9, hi=4e11):
     return lo // 10**8 * 10**8
 
 # ---------------------------------------------------------------- calibration and the report
-MEASURED = [  # (D, g, phase peaks GB: planes, regions at init, pool total at the dm peak, device at the dm peak, host HWM) from results/MEMORY.md §M, H.md, M11.md
+MEASURED = [  # (D, g, phase peaks GB: planes, regions at init, pool total at the dm peak, device at the dm peak, host HWM) from archive:results_merged_2026-10-24/MEMORY.md §M, H.md, M11.md
     (4e10, 1, dict(planes=120.3, regions=95.7, pool=141.0, dev_dm=261.9, host=11.7, tail=False, src='M.md/H.md (Phase 10)')),
     (7e10, 1, dict(planes=120.3, regions=169.6, pool=231.8, dev_dm=352.7, host=76.4, tail=False, src='M.md (seed-sized staging)')),
     (8e10, 1, dict(planes=120.3, regions=176.8, pool=265.7, dev_dm=386.6, host=90.0, tail=False, src='M.md (seed-sized staging)')),

@@ -173,7 +173,7 @@ int main(int argc, char **argv)
     }
 
     {
-        /* (the reciprocal's middle product, results/DIVISION.md §R415): (a) the band product rns_mul_band_db against the whole product -- mod B^w
+        /* (the reciprocal's middle product, archive:results_merged_2026-10-24/DIVISION.md §R415): (a) the band product rns_mul_band_db against the whole product -- mod B^w
          * identical with no low cut, the band [v, w) within one unit (mod B^(w - v)) with the cut at v - 1; (b) the reciprocal (always the cut
          * and middle-product form) against GMP directly -- mu vs floor(B^(nq+k)/Q), within recip_bound (results/DIVISION.md §RECIP; 8 units before), as the
          * whole-product reference it replaced was -- at several sizes, k and generators (a grid at the top doublings under

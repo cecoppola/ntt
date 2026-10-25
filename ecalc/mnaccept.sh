@@ -32,7 +32,7 @@
 #          every run must be identical with all 4 nodes VERIFY OK
 # References: ref/e_<digits>.txt of this clone or, when absent, ECALC_REF (default ~/ntt/ecalc/ref);
 # the 4e10 file ECALC_REF_4E10 (default ~/ntt/ecalc/results/e_4e10.out).
-# Phase 16 A (results/AAC7_PORT.md §A16): MNRUN_MODULES (the module line of R(); mnrun.sh's default), MNRUN_CPUS_PER_TASK (srun -c for R();
+# Phase 16 A (archive:results_merged_2026-10-24/AAC7_PORT.md §A16): MNRUN_MODULES (the module line of R(); mnrun.sh's default), MNRUN_CPUS_PER_TASK (srun -c for R();
 # `auto` = the node's CPUs: aac7 confines a task to 2 CPUs otherwise), MNACCEPT_TMP (the digits' directory on the node; default
 # /tmp/mnaccept_<jobid> -- aac7's /tmp is RAM, so a directory under $HOME there).
 J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--stress] [--skip-grid] [--only unit,grid,e9,mn,ckpt,recheck,corr,full,stress]"; exit 2; }
@@ -172,7 +172,7 @@ if want ckpt; then
   N "rm -rf $f $f.* $CK $CK.2 $CK.3"
 fi
 
-# ---- the recheck mode (Phase 12 W, results/TESTING_VERIF.md §W) -----------------------------------------------------------------------------
+# ---- the recheck mode (Phase 12 W, archive:results_merged_2026-10-24/TESTING_VERIF.md §W) -----------------------------------------------------------------------------
 # recheck_check <tag> <procs> <digits> <pool_log> [env...]: the run with the top-level set, the recheck of its files, the recheck of a corrupted copy
 recheck_check() { local tag=$1 p=$2 d=$3 pl=$4; shift 4
   local log=$OUT/$tag.log f=$TMP/$tag.txt name="recheck e$(( ${#d} - 1 )) size $p" rc c lg lb

@@ -58,7 +58,7 @@ void db_copy_h2d_async(int dev, void *dst, const void *src, size_t bytes)
     HIP_CHECK(hipSetDevice(cur));
 }
 void db_copy_h2d_wait(int dev) { if (g_h2d_init[dev]) HIP_CHECK(hipStreamSynchronize(g_h2d_s[dev])); }
-/* K8b (results/MEMORY.md §K8b): the seeds' host -> device copies without a HIP runtime call inside init's mapping window.
+/* K8b (archive:results_merged_2026-10-24/MEMORY.md §K8b): the seeds' host -> device copies without a HIP runtime call inside init's mapping window.
  * K8 measured the seed thread blocked 3.1 s at 6.441e10 inside db_copy_h2d_async (its launch and hipSetDevice queue behind the
  * background mappers' hipMemCreate / hipMemMap / hipMemSetAccess, 0.24 s with no mapper).  Here one persistent kernel per APU
  * (k_pull, 456 blocks, launched by db_pull_start_all from binsplit_seeds_begin once the region pools exist and before the
@@ -125,7 +125,7 @@ void db_pull_copy_async(int dev, void *dst, const void *src, size_t bytes)
     if (!g_pull_on[dev]) db_pull_start_all();
     db_pull_wait(dev);   /* K8c: one descriptor per APU -- the previous copy must be finished before it is overwritten (seeds_stream issues both
                           * buffered chunks of one region to the same APU back to back; without this the blocks saw seq jump 0 -> 2, skipped copy 1
-                          * and `done` never reached 2 x DB_PULL_BLOCKS: the seed thread hung, results/MEMORY.md §K8b section 6) */
+                          * and `done` never reached 2 x DB_PULL_BLOCKS: the seed thread hung, archive:results_merged_2026-10-24/MEMORY.md §K8b section 6) */
     const void *dsrc = 0; for (int i = 0; i < g_pull_nsrc; i++) if (g_pull_src[i].h == src) dsrc = g_pull_src[i].d;
     if (!dsrc) { db_pull_resolve(src); for (int i = 0; i < g_pull_nsrc; i++) if (g_pull_src[i].h == src) dsrc = g_pull_src[i].d; }
     if (!dsrc) dsrc = src;
@@ -538,7 +538,7 @@ static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT])
 }
 size_t db_pool_free_bytes(int d) { size_t s = 0; for (int i = 0; i < g_ext[d].n; i++) s += g_ext[d].e[i].bytes; return s; }
 int db_pool_extents(int d) { return g_ext[d].n; }
-/* (results/CACHE.md §PC15; partial transform-cache slots, rns_dist.c cache_pc_take): how many blocks of `bytes` the free extents hold as
+/* (archive:results_merged_2026-10-24/CACHE.md §PC15; partial transform-cache slots, rns_dist.c cache_pc_take): how many blocks of `bytes` the free extents hold as
  * they are -- no remap, no growth (each block within one extent) */
 size_t db_pool_fit_count(int d, size_t bytes) { size_t al = (size_t)DB_ALIGN * 8, b = (bytes + al - 1) / al * al, c = 0; if (!b) return 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ext[d].n; i++) c += g_ext[d].e[i].bytes / b; pthread_mutex_unlock(&g_pool_mx); return c; }
 size_t db_pool_hipmalloc_bytes(int d) { size_t s = 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ndonated; i++) if (g_donated[i].dev == d && g_donated[i].kind == 2) s += g_donated[i].bytes; pthread_mutex_unlock(&g_pool_mx); return s; }

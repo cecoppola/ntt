@@ -1,6 +1,6 @@
 #!/bin/bash
 # aac7env.sh - the aac7 (HPE Cray EX, 4 x MI300A + 4 x Slingshot-11 per node, Cray OpenSHMEMX 11.8.0, ROCm 7.0.3) environment
-# of ecalc (Phase 16 A, results/AAC7_PORT.md §A16).  Two uses:
+# of ecalc (Phase 16 A, archive:results_merged_2026-10-24/AAC7_PORT.md §A16).  Two uses:
 #   source ecalc/aac7env.sh         the modules (cray-dsmml cray-openshmemx rocm) and the variables the scripts read on aac7:
 #                                   MNRUN_MODULES, MNRUN_CPUS_PER_TASK=auto (srun confines a task to 2 CPUs otherwise), MNACCEPT_TMP
 #                                   under $HOME (the nodes' /tmp is RAM), AAC7_PART; plus the helper aac7_log.

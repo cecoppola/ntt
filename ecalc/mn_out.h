@@ -88,7 +88,7 @@ void mn_out_bg_threads(int n);                                        /* S1e: th
 mn_out_early *mn_out_early_start(const struct mdb_s *X, unsigned long d, unsigned long d_out, const char *outfile, int rank, int size, int verbose, comm *c, size_t t2_defer);
 mn_out *mn_out_early_join(mn_out_early *e, double *t_run);            /* the thread joined; t_run: its seconds */
 void mn_out_early_free(mn_out_early *e);                              /* after mn_out_finish */
-/* MN_OUT_DKM_HI (results/DIVISION.md §EW15 1.3) at size > 1: two part files per rank -- part size-1-rank = the rank's share of X_hi
+/* MN_OUT_DKM_HI (archive:results_merged_2026-10-24/DIVISION.md §EW15 1.3) at size > 1: two part files per rank -- part size-1-rank = the rank's share of X_hi
  * (global limbs s + its share; the top rank's up to nl), part 2 size-1-rank = its share of X_lo below s (the top rank's up to s); nparts =
  * 2 size, so the sorted parts are the file.  mn_out_early_hi_start (every rank, at the division's X_hi hook: a collective) starts the
  * thread on the X_hi part (finished in the thread), which then waits; mn_out_early_lo_release (every rank: a collective -- the low layer's
