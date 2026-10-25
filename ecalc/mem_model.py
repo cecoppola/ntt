@@ -654,7 +654,7 @@ CHAIN_GUARD_CODE = 1                                                            
 LEAN_CODE = True                                                   # int15k: DM_MN_LEAN, built in since 2026-10-12 -- the lean mn division set at size > 1 (opts lean)
 DEFAULTS = dict(tight=True, early_free=True, t_chunk_mb=1024, shift_chunk_mb=1024, pool='plan', vmm=True, round_mb=0, cap=1 << 31, seed_fill=SEED_FILL, out_early=True,
                 arena_room=ARENA_ROOM, dkm=DKM_CODE, lean=LEAN_CODE)   # cap: ECALC_PLANE_CAP 2^31 (13c)
-TARGET_LAUNCH = dict(round_mb=1024)                     # D2 (archive:results_merged_2026-10-24/SHMEM_ITEMS.md §V114): the target's launch line
+TARGET_LAUNCH = dict(round_mb=1024)                     # D2 (results/SHMEM.md §V114): the target's launch line
 TARGET_NP = 'auto'                                      # the user's decision 1 of 2026-09-28: ECALC_NP=auto on the target's launch line (four primes only for the
                                                         # products over the three-prime bound; pool 0 at four planes at 576, pool 1 at three); history: 4 (the decision
                                                         # of 2026-09-27: three primes cannot hold the target's mn pieces, MN_PLAN_ONLY refuses them, results/PRIMES_STRATEGY.md §P15;
@@ -672,7 +672,7 @@ TARGET_DIGITS = 3.82e13                                 # CURRENT: the user deci
                                                         # edge, 282.4 s mod at --bw 47), 5.276e13 (the target from the user's decision of 2026-09-29, Batch 3, to
                                                         # 2026-10-06; Phase 15 TGT's 2026-09-27 23:50 EDT decision was 5.1e13; room kept up to 5.396e13), 5.167e13
                                                         # (int15k's second test size, 2026-10-03), 4.25e13 (Phase 13d D2 - 2026-09-27), 4.4e13 (Phase 13c).  The C
-                                                        # plan (MN_PLAN_ONLY, ECALC_NP=4, results/TGT15/): 5.10e13 is the last size at 222 / 242 pieces (5.11 node 0
+                                                        # plan (MN_PLAN_ONLY, ECALC_NP=4, archive:results_merged_2026-10-25/TARGET_removed.md (TGT15)): 5.10e13 is the last size at 222 / 242 pieces (5.11 node 0
                                                         # 226, 5.12 critical 246).  TGTBENCH2 (2026-10-06) also proposed 3.76e13 (367.82 GB device, 5.62 under the
                                                         # edge, 222.7 s mod) as the largest layout tier <= 368 GB; the user picked 3.71e13 instead (more margin)
 TARGET_BELOW = 3.6e13                                  # s18-target (2026-10-06, login-node MN_PLAN_ONLY on 576, the TGT17 launch line; verified here): one piece
@@ -761,7 +761,7 @@ SHMEM_SELFTEST = 128 << 20                                # mn_selftest_layered'
 SHMEM_MARGIN = 256 << 20                                  # first-fit slack and the small exchanges (spills, counts, reductions): assumed
 
 def mn_stage(na, nb, g, share_a, share_b, share_c, pool_log=31, logr_delta=0, t_chunk_mb=0, parts=None, round_mb=0):
-    """Phase 14 P2 (archive:results_merged_2026-10-24/SHMEM_ITEMS.md §P214): the SHMEM transport's staging for one mn_core product C = A B over g nodes, per APU thread
+    """Phase 14 P2 (results/SHMEM.md §P214): the SHMEM transport's staging for one mn_core product C = A B over g nodes, per APU thread
     (limbs; send + receive of its largest staged exchange -- the staging is allocated per exchange and released after it, and
     the four APU threads run the same exchange at once, so the pool holds NR of these).  The code's buffers (mn_scratch's
     terms): the result exchange (rns_dist.c: xb in plane pool 1 -> rbO from the block pool, neither in the symmetric pool)
