@@ -52,6 +52,9 @@ The user's decisions on this project (2026-10-25):
 | Q116 | ignore the leak guard for target work; never post passwords, keys or tokens under any circumstances |
 | Q117 | `docs/` is untracked and stays so; this file carries what the target agent needs from it |
 | Q118 | the governance copies are exact; the user overrode the development side's commit guard for them ("My instructions supersede everything else") |
+| Q119 | `MN_NONPOW2_CAP=0` on the target launch line (the 3.82e13 headline fits on 576 nodes only with it off) + a bench A/B of the setting (`prm08`) |
+| Q120 | first make every code path work on 576 nodes at a small size (8e9 digits per node); raise the digits only after those runs succeed |
+| Q121 | L3 is a staircase on 576 nodes: 4.608e12 on both paths → 1e13 (path 1; path 2 does not fit) → 3.82e13 on path 1, each step after the previous passed |
 
 ## 2. Install the rules (do this first)
 
@@ -243,10 +246,24 @@ layout D (path 1), P (path 1, one process per GPU) and path 2 (Cray SHMEM) — w
 | L2 | 64 (256) | 5.12e11 | 2, 2 runs | both | first replica | 25.8 / 27.6 s | device 216 GB, node 293 GB |
 | L3 | 576 (2304) | 4.608e12 | 1, 2 runs | both | yes | 32.0 / 33.2 s | device 328.69 GB (+44.75), node 406.32 GB (+7.68 vs 414) |
 
-When all four levels pass on both paths, raise the share step by step (`--set DIGITS=...`; the plan check refuses what
-does not fit and prints the largest size that does): the planner's limits per shape at 576 nodes are about 1.2e10 per
-node for path 2 (device +18.98 GB, node 440 GB: needs a node budget ≥ 440), and 6.632e10 per node (the 3.82e13
-headline) for layout D only with `MN_NONPOW2_CAP=0` (Q119; device 358.96 of 373.44 GB). Short runs make start-up a
+L3 is a staircase on 576 nodes (user decision Q121): each step only after the previous one passed the ADJUST.md gate.
+Path 2 (and P) fits at 576 nodes up to about 1.3e10 digits per node with a 480 GB node budget (device +10.39 GB) and
+below 1.1e10 with 414 GB; layout D fits up to the headline with `MN_NONPOW2_CAP=0` (mod, planner 2026-10-25):
+
+| step | digits (per node) | paths | write | model wall (mod, D, no write / write) | plan at 576 nodes (mod) |
+|---|---|---|---|---|---|
+| s1 | 4.608e12 (8e9) | both | yes | 32.0 / 33.2 s | path 2 device 328.69 GB (+44.75) |
+| s2 | 1e13 (1.74e10) | 1 (path 2 refused, dropped by `ladder.sh`) | no | 52.3 / 55.3 s | D device 238.97 GB (+134.47); path 2 device 380.23 (−6.79) |
+| s3 | 3.82e13 (6.632e10) | 1 | no | 187.1 / 191.2 s | D device 354.66 GB (+18.78), node 390.75 GB |
+
+```bash
+target/ladder/ladder.sh --level L3 --run-tag s1
+target/ladder/ladder.sh --level L3 --run-tag s2 --set DIGITS=10000000000000 --set WRITE=0 --set MODEL_NOWRITE_S=52.3 --set MODEL_WRITE_S=55.3
+target/ladder/ladder.sh --level L3 --run-tag s3 --set DIGITS=38200000000000 --set PATH=1 --set WRITE=0 --set MODEL_NOWRITE_S=187.1 --set MODEL_WRITE_S=191.2
+```
+
+A step that fails stops the staircase: record it, try the ADJUST.md rules, and do not move up. The write was tested at
+s1 (2.0 TB packed); add `--set WRITE=1` to s3 only if the file system has room for 17 TB. Short runs make start-up a
 large share of the wall: that is what the campaign measures first (init, launch, fabric), so record every phase.
 Run 1 of a fresh allocation is a cold start (ADJUST rule 11): every level does 2 runs and is timed from run 2.
 `ladder.sh` drops a path whose plan is refused and runs the level on the other one.

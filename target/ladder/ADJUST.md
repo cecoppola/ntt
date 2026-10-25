@@ -20,13 +20,17 @@ only after all levels pass on both paths).
 | L1 | 8 (32) | 6.4e10 | 22.6 s | 24.6 s | 1.5 s | 178 / 216 GB |
 | L2 | 64 (256) | 5.12e11 | 25.8 s | 27.6 s | 2.5 s | 178 / 216 GB |
 | L3 | 576 (2304) | 4.608e12 | 32.0 s | 33.2 s | 6.5 s | 181 / 328.69 GB |
+| L3 s2 | 576 (2304) | 1e13 | 52.3 s | 55.3 s | 12.5 s | 229 / refused (380.23) |
+| L3 s3 | 576 (2304) | 3.82e13 | 187.1 s | 191.2 s | 51.6 s | 390 (planner 354.66 with cap 0) / refused |
 
 Assumptions inside the model (a): 100 GB/s per APU, 2 us per message, dragonfly group 64, part files 1 GB/s per node. The
 model was calibrated on aac7/aac6 compute at larger sizes; at 8e9 per node start-up is a large share of the wall, so a
 measured/model ratio away from 1 at L0 is expected; what matters is the growth from level to level: model L0 -> L1 +35 %,
 L1 -> L2 +14 %, L2 -> L3 +24 % of wall. A level that grows much more than that has a fabric, launch or placement problem.
-For the 3.82e13 headline (later): L0-L3 at 6.632e10 per node model 102.7 / 118.2 / 149.6 / 187.1 s without write, layout D
-only, `MN_NONPOW2_CAP=0` at L3 (Q119).
+L3 runs as a staircase (user decision Q121; commands in RESTART.md §8): s1 4.608e12 on both paths, s2 1e13 and s3 the
+3.82e13 headline on path 1 (layout D, `MN_NONPOW2_CAP=0`, Q119), each step only after the previous one passed the gate.
+Model s1 -> s2 +63 %, s2 -> s3 3.6x of wall. For the headline at the other levels (later): L0-L2 at 6.632e10 per node model
+102.7 / 118.2 / 149.6 s without write.
 `collect` prints the measured / model ratio per path; the model figure of `L<n>.conf` is for the conf's digits only.
 
 ## 2. Gate: move up when all of these hold (a: thresholds are ours, change them on evidence)

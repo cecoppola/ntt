@@ -115,7 +115,7 @@ Open work in this repository is in `TASKS.md`.
    all-to-all at 2/8/64 nodes), paths, launch shape, init, write, `MN_NONPOW2_CAP` cost (`prm08`), calibration.
 4. Ladder (`target/ladder/ladder.sh`): 1, 8, 64, 576 nodes on physically adjacent nodes at 8e9 digits per node (Q120), both paths,
    replicas in parallel at the lower levels, adjustments between runs by `target/ladder/ADJUST.md`; every run VERIFY OK.
-5. Larger sizes step by step toward 3.82e13 (layout D; path 2 to about 1.2e10 per node at 576, mod); the 576-node run with the write, RECHECK and `unpack_digits` off the clock, and a prefix compare against a reference;
+5. Larger sizes at 576 nodes as a staircase (user decision Q121): 1e13 then 3.82e13 on path 1 (layout D; path 2 fits to about 1.3e10 per node at 576, mod); the 576-node run with the write, RECHECK and `unpack_digits` off the clock, and a prefix compare against a reference;
    raw results committed in `target/results/` for the offline work afterwards.
 
 **Risks.**
