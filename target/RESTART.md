@@ -237,7 +237,22 @@ machine, so schedule it when the bench prio < 200 items are done or the session 
 
 ## 9. Known problems and their fixes
 
-[OPEN]
+| symptom | cause and fix (evidence) |
+|---|---|
+| run hangs in memory registration (ROCr ↔ libfabric) | keep `FI_MR_CACHE_MONITOR=userfaultfd` (the `mnrun.sh` default; 0/104 hangs vs 22/105 with memhooks, m aac7); `disabled` gives WRONG exchanges and is refused. If the site's kernel refuses userfaultfd (probe `uffd.*`, kit stage `uffd`), stop and tell the user before any multi-node run |
+| rc 8 at start | the memory plan does not fit (`ECALC_DEVICE_GB` / `ECALC_NODE_GB`): lower the digits (the refusal prints the largest that fits) or change the settings the plan names |
+| rc 9 during a run | the memory guard (`ECALC_MEM_GUARD_GB=6`) stopped the run before the OOM killer: lower `ECALC_NODE_GB` by the overshoot it prints |
+| rc 134 | `abort()` (core file) — with `ECALC_SEGV_TRACE=1` the trace is in the log; keep the log in `results/` |
+| `fi_enable(-28)` with several PEs per node | launch Slurm-native (`srun --ntasks`), as `mnrun.sh` does (TGTBENCH2, m target) |
+| a task gets only 2 CPUs | `MNRUN_CPUS_PER_TASK=auto` (mnrun.sh: CPUs / tasks per node) (A16, m aac7) |
+| link or load errors after `module load rocm` | a versioned ROCm conflicts with the login default: `MNRUN_UNLOAD` in target.conf (the probe fills it) |
+| APUs invisible inside a job step | `--gpus-per-node=4 --gpu-bind=none` (the ladder's default sbatch options; probe: `PROBE_SRUN_EXTRA`) |
+| one node slow (a replica 5-10 % behind) or a NIC missing | `tools/nodescreen.sh` / kit stage `nodechk`; add the host to `results/ladder/exclude.txt` (`MNRUN_EXCLUDE_HOSTS`, mode drop); no spares |
+| NICs lost after jobs end (aac7: needs_reboot after our jobs) | use long allocations and run many items inside them; check `fi_info -p cxi` counts at the start of each allocation |
+| run-to-run spread | aac7 is bimodal (one run in three 5-8 % slower); measure arms at the same time on different nodes instead of repeating |
+| start-up hang (E1: 1 sighting in 31 at 7.7e10, 0 in 301 since) | kill only that job by its id, rerun once, record it in `results/LOG.md` |
+| an item or driver outlives its allocation | `scancel` only your own job ids, `kill` only single PIDs of your own processes; never touch other users' jobs |
+| Cray SHMEM 12.1 (path 2) start-up slow or failing | path 1 is complete on its own; the ladder and every item run with one path; record the failure (probe `shmem.*`, bench `net01`) |
 
 ## 10. Before access ends
 
