@@ -98,7 +98,7 @@ on it, leaving (P_r, Q_r) on its devices. `mn_tree` then combines nodes in group
 All big products C = A·B (optionally + X, or restricted to a window of the result) are computed as integer polynomial
 products: the limbs are the coefficients, the result coefficients are reconstructed exactly and their carries propagated
 into limbs. Files: `modarith.h` (primes, modular arithmetic), `ntt.c/h`, `ntt3.c` (kernels), `crt.c/h`, `p24.h`,
-`p24_crt.c`, `p24_mn.h` (reconstruction), `rns_mul.c/h` (batch tier, plane pools), `rns_dist.c`, `ntt_dist.c/h`
+`p24_crt.c` (reconstruction), `rns_mul.c/h` (batch tier, plane pools), `rns_dist.c`, `ntt_dist.c/h`
 (distributed tiers, grids).
 
 ### 4.1 Primes and sizes
