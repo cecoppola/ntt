@@ -55,7 +55,8 @@ Run times at the current engine are in `PLAN.md` §2; this table holds the figur
 ## Adopted changes in force (code defaults)
 
 Every change is digit-identical in its gates. Settings named "built in" no longer exist in the code (removals:
-`results/CODE_REDUCTION.md §W2A`, `§W2B`; the 2026-10-23 wave: Q87).
+`results/CODE_REDUCTION.md §W2A`, `§W2B`); for the D18-D25 and D20 defaults the `=0` fallback switch was removed 2026-10-23 (Q87), the
+names identify the change only.
 
 | change | since | effect | label | evidence |
 |---|---|---|---|---|
