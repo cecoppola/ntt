@@ -249,6 +249,7 @@ machine, so schedule it when the bench prio < 200 items are done or the session 
 | APUs invisible inside a job step | `--gpus-per-node=4 --gpu-bind=none` (the ladder's default sbatch options; probe: `PROBE_SRUN_EXTRA`) |
 | one node slow (a replica 5-10 % behind) or a NIC missing | `tools/nodescreen.sh` / kit stage `nodechk`; add the host to `results/ladder/exclude.txt` (`MNRUN_EXCLUDE_HOSTS`, mode drop); no spares |
 | NICs lost after jobs end (aac7: needs_reboot after our jobs) | use long allocations and run many items inside them; check `fi_info -p cxi` counts at the start of each allocation |
+| the first run on a fresh allocation is slow | cold start: on aac7 the first run took 154.9 s, later runs on the same node 76.9-85.5 s (m, 2026-10-25); time from run 2 on (ADJUST rule 11). `ECALC_VERBOSE=2` costs at most a few seconds (+2.0 s mean over 4 pairs, not resolved, m) |
 | run-to-run spread | aac7 is bimodal (one run in three 5-8 % slower); measure arms at the same time on different nodes instead of repeating |
 | start-up hang (E1: 1 sighting in 31 at 7.7e10, 0 in 301 since) | kill only that job by its id, rerun once, record it in `results/LOG.md` |
 | an item or driver outlives its allocation | `scancel` only your own job ids, `kill` only single PIDs of your own processes; never touch other users' jobs |

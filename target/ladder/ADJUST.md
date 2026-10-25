@@ -56,6 +56,7 @@ Keys in the summary are `p<path>r<run>.<key>` (`raw/<id>.log` is the full output
 | 8 | `write_max_s` / `write_after_checks_max_s` large (run with WRITE) | file system, not compute | `--set MN_OUT_THREADS=32` (the file system reaches its rate with 32 writers per node, user's figure); `ECALC_OUT_DIR` on another directory; do not repeat a write run to tune: it costs minutes at L2/L3. |
 | 9 | mean `total` is 1.5 x the model or more and no phase explains it | placement or NIC problem | Re-run L1 with `--set` unchanged on another cabinet (`--exclude` the first cabinet's hosts) to see if locality matters; check `fi_info` / NIC counts from the probe against 8 per node. |
 | 10 | `rc` 124 (timeout) | too slow or hung | Look at the last phase in `raw/*.log`; a hang in registration: confirm `FI_MR_CACHE_MONITOR=userfaultfd`; then raise `TIME_MIN` only if the log shows progress. |
+| 11 | run 1 of a fresh allocation much slower than run 2 on the same host | cold start (aac7 rehearsal 2026-10-25, m: first run 154.9 s, later runs on the same node 76.9-85.5 s; init 47.4 vs 23.6-24.2 s) | Time only from run 2 on (L0 has RUNS=2 for this); compare replicas at the same run index; do not exclude a host for its first run alone |
 
 NPCAP bench (another agent's target bench item measures `MN_NONPOW2_CAP` on vs off at a non-power-of-two node count): if it
 shows a large time cost for NPCAP off, the fallback for L3 is a smaller digit count with NPCAP on (about 2.67e13 fits, mod
