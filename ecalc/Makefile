@@ -81,7 +81,7 @@ ntt3.o: ntt.h modarith.h
 rns_mul.o: rns_mul.h rns_int.h ntt.h mem.h crt.h bigint.h modarith.h
 
 rns_local.o: rns_mul.h rns_int.h ntt.h dbig.h mem.h vpe.h
-rns_dist.o: xshmem_round.h rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h dbig.h mdb.h mn_plan.h p24.h p24_mn.h
+rns_dist.o: xshmem_round.h rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h dbig.h mdb.h mn_plan.h p24.h
 # Phase 15 Batch 3 P24 (results/PRIMES_STRATEGY.md §P2415): the 24-digit CRT of the mn tier
 p24_crt.o: p24.h rns_int.h modarith.h
 tests/t_p24: p24.h

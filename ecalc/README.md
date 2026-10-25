@@ -31,7 +31,7 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 | `ecalc.c` | the driver: sizing, init, the run in order (`../ALGORITHM.md` §7) |
 | `modarith.h` | the primes c · 2⁴⁴ + 1, FP64-Barrett modmul, roots for 2ᵏ and 3 · 2ᵏ lengths |
 | `ntt.c/h`, `ntt3.c` | the tiled NTT kernels (DIF forward, DIT inverse, fused pointwise and scale); the radix-3 layer |
-| `crt.c/h`, `p24.h`, `p24_crt.c`, `p24_mn.h` | CRT reconstruction; 24 digits per point in four-prime products |
+| `crt.c/h`, `p24.h`, `p24_crt.c` | CRT reconstruction; 24 digits per point in four-prime products |
 | `rns_mul.c/h`, `rns_int.h` | the batch product tiers of binary splitting, the GPU CRT, the plane pools |
 | `rns_dist.c`, `ntt_dist.c/h` | the distributed products: forms B and C on a node, the multi-node four-step (`mn_core`), grids, transform cache |
 | `bigint.c/h` | host limb arrays: add/sub, schoolbook, shifts |
