@@ -453,8 +453,6 @@ A run is good only with `VERIFY OK` on every node (`verify.c/h`, `out_stage` in 
 | `mn_model.py estimate` | wall time by phase for a size, node count and fabric profile (was `estimate.py`); `--target` prints the standing estimate |
 | `mn_model.py` | the cost model behind it (all-to-all rate per APU thread, hiding fractions, round costs) |
 | `mem_model.py` | the memory layout per node; `--check-c` compares with the C layout |
-| `calib_table.py` | run logs → one row per run; `--fit`, `--ab` (rate-adjusted paired A/B) |
-| `tools/groups_table.py` | `MN_GROUPS` schedules and node counts at a fixed size |
 | `MN_PLAN_ONLY`, `BS_LAYOUT_ONLY` | the code's own decisions (grids, pieces, prime counts, layout, the memory fit) without a device |
 | `tools/plan_values.py` | the launch values of a size; `--fit`: the memory-fit report, exit 1 when a run does not fit |
 
