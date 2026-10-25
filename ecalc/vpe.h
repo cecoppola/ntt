@@ -2,7 +2,7 @@
  * The thread mode (ECALC_VPE: one process driving the PEs as threads) was removed 2026-10-23 (Q86); its code is on branch vpe-int.
  * Off (ECALC_PE_PER_GPU unset or 0): vpe_on() = 0, every function below returns the node view (lanes 1, PE = node, idx 0), vpe_run calls fn once on the caller; nothing else changes.
  * vpe_comm / vpe_sub / vpe_sub_slot are implemented in mn.c (it owns the transport meshes); the rest in vpe.c.
- * A helper thread of the PE's process is told the PE's index (vpe_adopt) before it uses a communicator. */
+ * A helper thread of the PE's process calls vpe_adopt before it uses a communicator. */
 #ifndef EC_VPE_H
 #define EC_VPE_H
 #include "comm.h"
@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-#define VPE_MAX 8                                       /* the most vPEs of one process (xshmem MAXLPE) */
+#define VPE_MAX 8                                       /* the most PEs of one node (xshmem MAXLPE) */
 
 int  vpe_on(void);                                      /* process mode (ECALC_PE_PER_GPU=1) or vpe_set_forced */
 int  vpe_lanes(void);                                   /* PEs per node (1 when off): SLURM tasks per node; ECALC_VPE_LANES only where there is no launch (planners, forced test views; default 4) */
@@ -36,8 +36,8 @@ int  vpe_nnodes(void);
 void vpe_set_nodes(int node, int nnodes);
 void vpe_set_forced(int mask);                          /* tests: mask != 0 = the PE view on without a launch, 0 = back to the environment */
 int  vpe_in_run(void);
-void vpe_adopt(int idx);                                /* a helper thread of this process's PE: sets its vpe_idx, device and engine PE (process mode only; off: nothing) */
-void vpe_set_thread_hook(void (*fn)(int idx));          /* fn(idx) runs in vpe_adopt (the engine registers "select my PE") */
+void vpe_adopt(void);                                   /* a helper thread of this process's PE: sets its device and engine PE (process mode only; off: nothing) */
+void vpe_set_thread_hook(void (*fn)(int lpe));          /* fn(0) runs in vpe_adopt (the engine registers "select my PE"; K = 1: its only loopback PE) */
 
 /* Process mode: fn(arg) on the caller with vpe_in_run() = 1 (this process is the one PE: no threads).  Off: fn(arg) once on the caller. */
 void vpe_run(void (*fn)(void *), void *arg);

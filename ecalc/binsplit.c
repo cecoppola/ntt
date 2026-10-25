@@ -27,7 +27,7 @@ int mn_rank(void); int mn_size(void);
 /* S1d (TARGET1): the PE identity from vpe.h (vpe.h includes comm.h, which needs HIP's headers; this file is plain C).  With ECALC_PE_PER_GPU=1 a PE is one process per GPU;
  * its binary splitting has ONE region (its device, ), its own term range and its own state (one copy per process); switch off: vpe_on() = 0,
  * vpe_idx = 0 and every line below behaves as before. */
-void vpe_adopt(int idx); int vpe_on(void); int vpe_lanes(void); int vpe_lane(void); int vpe_pe(void); int vpe_npe(void);
+void vpe_adopt(void); int vpe_on(void); int vpe_lanes(void); int vpe_pe(void); int vpe_npe(void);
 int mn_groups_parse(int size, int *out, int max); size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces);
 size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t share_b, size_t share_c, size_t *qmax);
 int rns_mul_dist_mn_logcap_g(int g); int rns_mul_dist_mn_logmin_g(int g);   /* D19 (rns_dist.c): DM_MN_WRAP's plane in dm_layout */
@@ -78,8 +78,8 @@ void binsplit_ref(bigint *P, bigint *Q, unsigned long a, unsigned long b)
  * pair (2i, 2i+1) and its parent share a region (up to one boundary pair per
  * level) and a region's products are transformed by its own APU with every
  * read local (RESULTS.md 55).  Region r's pool is device r's memory. */
-#define NRMAX 8                                       /* array bound: the regions of one process (4 per node; one per vPE) */
-static int bs_nreg(void) { return vpe_on() ? 1 : 4; }   /* regions of one binary splitting: 4 per node (one per APU), or ONE per vPE (its own device) */
+#define NRMAX 8                                       /* array bound: the regions of one process (4 per node; one per PE) */
+static int bs_nreg(void) { return vpe_on() ? 1 : 4; }   /* regions of one binary splitting: 4 per node (one per APU), or ONE per PE (its own device) */
 #define NR bs_nreg()
 /* the planner's per-node counts.  PE layout off: 4 devices per node and the node range is split into 4 regions.  ECALC_PE_PER_GPU=1: L = vpe_lanes() PEs per node (one device each), each
  * holding ONE region over its own range; a node is L identical PEs, so the per-node figures (planes, arena, v-slots, the shares of the dm numbers) are the one PE's times L.
@@ -1318,11 +1318,11 @@ static size_t tree_write(int level, unsigned long N, const uint64_t desc[10], db
 struct bs_ckpt_bg {
     int level; unsigned long N; uint64_t desc[10]; dbig P, Q;   /* by value: the owner may move its descriptors (newton_mn_divmod's S = *P) */
     int budget; double slack, t0, t_data, t1, t_cancel, t_wait[2], proj[2]; size_t bytes, tot_p, tot;
-    int abandoned, released[2]; pthread_t th; volatile int done; struct ckpt_io io; int vidx;   /* vidx: the starting vPE's index (the writer thread adopts it) */
+    int abandoned, released[2]; pthread_t th; volatile int done; struct ckpt_io io;
 };
 static void *bg_run(void *a)
 {
-    struct bs_ckpt_bg *b = (struct bs_ckpt_bg *)a; vpe_adopt(b->vidx);
+    struct bs_ckpt_bg *b = (struct bs_ckpt_bg *)a; vpe_adopt();
     b->bytes = tree_write(b->level, b->N, b->desc, &b->P, &b->Q, &b->io, &b->t_data);
     b->t1 = mem_now(); __atomic_store_n(&b->done, 1, __ATOMIC_RELEASE); return 0;
 }
@@ -1333,7 +1333,7 @@ struct bs_ckpt_bg *bs_ckpt_bg_start(int level, unsigned long N, const uint64_t d
     b->level = level; b->N = N; memcpy(b->desc, desc, sizeof b->desc); b->P = *P; b->Q = *Q; b->budget = budget; b->slack = slack;
     const char *e = getenv("BS_CKPT_BG_CHUNK_MB"); b->io.chunk = (size_t)(e ? atoi(e) : 256) << 20; if (b->io.chunk < ((size_t)1 << 20)) b->io.chunk = (size_t)1 << 20;
     e = getenv("BS_CKPT_BG_MBS"); b->io.mbs = e ? atof(e) : 0;   /* test: emulate a disk of this many MB/s (the four files together) */
-    b->vidx = vpe_lane(); b->tot_p = P->n * 8; b->tot = (P->n + Q->n) * 8;
+    b->tot_p = P->n * 8; b->tot = (P->n + Q->n) * 8;
     b->t0 = mem_now();
     if (pthread_create(&b->th, 0, bg_run, b)) { fprintf(stderr, "bs: checkpoint: cannot start the background writer\n"); free(b); return 0; }
     return b;
@@ -1534,7 +1534,7 @@ static size_t seed_region_limbs(size_t per, const size_t *r0, int r) { return 2 
 static struct { int active, joined; pthread_t th; unsigned long N, nspan; size_t per, r0[NRMAX + 1]; struct node *nd; double t; struct seed_stream ss; } g_pre;
 static void *pre_seeds_run(void *a)
 {
-    vpe_adopt((int)(long)a);                          /* a helper thread of this vPE (a no-op with the switch off) */
+    vpe_adopt();                                      /* a helper thread of this PE (a no-op with the switch off) */
     double t0 = mem_now(); struct level cur; memset(&cur, 0, sizeof cur); cur.n = g_pre.nspan; cur.nd = g_pre.nd;
     db_tl("seed thread starts (%s threads)", getenv("BS_SEED_THREADS") ? getenv("BS_SEED_THREADS") : "all");
     seeds_stream(&g_pre.ss, &cur, g_pre.per, bs_seed_terms, g_pre.N, g_pre.r0);
@@ -1547,7 +1547,7 @@ void binsplit_seeds_begin(unsigned long N)
     /* the seeds alongside the plane pools' mapping */
     g_pre.nd = (struct node *)calloc(g_pre.nspan, sizeof *g_pre.nd);
     memset(&g_pre.ss, 0, sizeof g_pre.ss); pthread_mutex_init(&g_pre.ss.mx, 0); pthread_cond_init(&g_pre.ss.cv, 0);
-    pthread_create(&g_pre.th, 0, pre_seeds_run, (void *)(long)vpe_lane()); g_pre.active = 1;
+    pthread_create(&g_pre.th, 0, pre_seeds_run, 0); g_pre.active = 1;
     /* B2: the region pools now (the main thread, inside rns_init: the arenas before the plane pools), then the DMAs may start */
     double tp = mem_now(); binsplit_pregrow(N);
     uint64_t *pool[NRMAX]; for (int r = 0; r < NR; r++) pool[r] = pool_get(0, r, seed_region_limbs(g_pre.per, g_pre.r0, r));
@@ -1773,9 +1773,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
 }
 unsigned long bs_a0 = 1, bs_b1;   /* M2: this process's (vPE's) term range [a0, b1) (b1 = 0: all of [1, N+1)) */
 void (*bs_after_seeds_hook)(void *); void *bs_hook_arg;   /* called once the seeds are in the regions */
-int bs_keep_dev; static dbig bs_Pd_s, bs_Qd_s;     /* the top level's P, Q left on device */
-dbig *bs_Pd_ptr(void) { return &bs_Pd_s; }
-dbig *bs_Qd_ptr(void) { return &bs_Qd_s; }
+int bs_keep_dev; dbig bs_Pd, bs_Qd;     /* the top level's P, Q left on device */
 void binsplit_free_pools(void)
 {
     for (int w = 0; w < 2; w++) for (int r = 0; r < NR; r++) {

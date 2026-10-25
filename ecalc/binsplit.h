@@ -89,9 +89,7 @@ void binsplit_fit_print(const struct bs_fit *F, double D, int g, const char *pre
 int  binsplit_dm_wrap(void);                                      /* the run's DM_MN_WRAP: set > the fit's decision > 1 */
 const char *binsplit_dm_wrap_src(void);                           /* "fit" / "set" / "default" (not decided: 1) */
 extern unsigned long bs_a0, bs_b1;   /* M2: the term range [a0, b1) this process (vPE: this PE) computes (b1 = 0: [1, N+1)) */
-extern int bs_keep_dev; struct dbig_s *bs_Pd_ptr(void), *bs_Qd_ptr(void);   /* P, Q stay on device (bs_keep_dev = 1); P->n = Q->n = 0 then */
-#define bs_Pd (*bs_Pd_ptr())
-#define bs_Qd (*bs_Qd_ptr())                          /* release the two level pools */
+extern int bs_keep_dev; extern struct dbig_s bs_Pd, bs_Qd;   /* P, Q stay on device (bs_keep_dev = 1); P->n = Q->n = 0 then */
 /* reference: the same recursion on the CPU with schoolbook products, any N */
 void binsplit_ref(bigint *P, bigint *Q, unsigned long a, unsigned long b);
 /* S1d: the planner's PE terms (ECALC_PE_PER_GPU=1; with the switch off 4 devices per node, 1 PE per node, and the node's range as before) */

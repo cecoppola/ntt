@@ -498,13 +498,13 @@ void mn_out_finish(mn_out *o)
 #include "mdb.h"
 static int g_bgt;                                      /* S1e: the background team of the writer threads (mn_out_bg_threads); 0 = ECALC_BG_THREADS, else 48 */
 void mn_out_bg_threads(int n) { g_bgt = n; }
-struct mn_out_early { mn_out o; mn_out_src src; dbig sh; pthread_t th; int started; int vidx; double t_run;
+struct mn_out_early { mn_out o; mn_out_src src; dbig sh; pthread_t th; int started; double t_run;
                       /* the X_hi part (o_hi over src_hi / sh_hi), the gate, the X_hi layer's last digits (the low layer's top head) */
                       int two; mn_out o_hi; mn_out_src src_hi; dbig sh_hi; sem_t go; char above[64]; size_t nabove; double t_hi, t_gate; };
 static void *early_run(void *a)
 {
     struct mn_out_early *e = (struct mn_out_early *)a;
-    vpe_adopt(e->vidx);                                /* S1e: a helper thread of this vPE (device, engine PE; a no-op with the switch off) */
+    vpe_adopt();                                       /* S1e: a helper thread of this PE (device, engine PE; a no-op with the switch off) */
     omp_set_num_threads(g_bgt > 0 ? g_bgt : getenv("ECALC_BG_THREADS") ? atoi(getenv("ECALC_BG_THREADS")) : 48);   /* the background team, as the one-node writer's (vPE: ECALC_VPE_BG_THREADS per PE, ecalc.c) */
     double t0 = mem_now();
     if (e->two) {                                      /* the X_hi part now (finished here), then the X_lo part once released */
@@ -518,7 +518,7 @@ static void *early_run(void *a)
 /* the two layers of MN_OUT_DKM_HI at size > 1 */
 mn_out_early *mn_out_early_hi_start(const struct mdb_s *Xh, size_t s, unsigned long d, unsigned long d_out, const char *outfile, int rank, int size, int verbose, comm *c, size_t t2_defer)
 {
-    struct mn_out_early *e = (struct mn_out_early *)calloc(1, sizeof *e); e->vidx = vpe_idx();
+    struct mn_out_early *e = (struct mn_out_early *)calloc(1, sizeof *e);
     e->two = 1; sem_init(&e->go, 0, 0);
     e->sh_hi = Xh->sh;                                 /* the share's descriptor by value (the caller keeps the blocks until mn_out_early_free) */
     size_t lo, hi; mdb_share(Xh, rank, &lo, &hi);
@@ -545,7 +545,7 @@ void mn_out_early_lo_release(mn_out_early *e, const struct mdb_s *Xl, comm *c)
 mn_out *mn_out_early_hi(mn_out_early *e) { return e && e->two ? &e->o_hi : 0; }
 mn_out_early *mn_out_early_start(const struct mdb_s *X, unsigned long d, unsigned long d_out, const char *outfile, int rank, int size, int verbose, comm *c, size_t t2_defer)
 {
-    struct mn_out_early *e = (struct mn_out_early *)calloc(1, sizeof *e); e->vidx = vpe_idx();
+    struct mn_out_early *e = (struct mn_out_early *)calloc(1, sizeof *e);
     e->sh = X->sh;                                     /* the share's descriptor by value (the division moves its mdb; the blocks stay) */
     size_t lo, hi; mdb_share(X, rank, &lo, &hi);
     e->src.dev = &e->sh; e->src.lo = lo; e->src.cnt = hi > lo ? hi - lo : 0; if (e->src.cnt > e->sh.n) e->src.cnt = e->sh.n;

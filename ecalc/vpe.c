@@ -92,12 +92,9 @@ int vpe_in_run(void) { return t_in_run; }
 void vpe_set_thread_hook(void (*fn)(int)) { g_hook = fn; }
 
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
-void vpe_adopt(int idx)
+void vpe_adopt(void)
 {
-    if (!g_ppg) return;                                  /* (only a process-mode helper thread has an index to adopt) */
-    if (idx < 0 || idx >= vpe_lanes()) ec_fatal(EC_RC_FATAL, "vpe_adopt: index %d of %d\n", idx, vpe_lanes());
-    /* a helper thread of THE PE of this process: its index is the process's, the engine has one PE (K = 1) */
-    if (idx != vpe_g_idx) ec_fatal(EC_RC_FATAL, "vpe_adopt: index %d, this process is PE %d of its node\n", idx, vpe_g_idx);
+    if (!g_ppg) return;                                  /* (only a process-mode helper thread has a device to select) */
     HIP_CHECK(hipSetDevice(vpe_device()));
     if (g_hook) g_hook(0);
 }

@@ -638,7 +638,7 @@ def exact_sizes(T):
 
 DKM = os.environ.get('MN_MODEL_DKM', '1') == '1'   # default on since Phase 15 Batch 3 (the user's decision, 2026-09-29)   # Phase 15 DKM (results/DIVISION.md §DKM15): NEWTON_DKM=1 -- the division in two quotient halves
 DKM_LAST = {}                                        # the last division_cost_dkm's parts (the early writer's overlap reads 'hide')
-DKM_HI = os.environ.get('MN_MODEL_DKM_HI', '0') == '1'   # Phase 15 EW (archive:results_merged_2026-10-24/DIVISION.md §EW15): MN_OUT_DKM_HI=1 -- the writer on X_hi's
+DKM_HI = os.environ.get('MN_MODEL_DKM_HI', '1') == '1'   # the code's default (always on since 2026-10-12; MN_MODEL_DKM_HI=0 prices the removed older start at the hook).  Phase 15 EW (archive:results_merged_2026-10-24/DIVISION.md §EW15): MN_OUT_DKM_HI -- the writer on X_hi's
                                                      # digits (final there) from DKM's step 1 on, X_lo's from the release before step 2's low product: early_exposed()
 OVL1_HI = (0.144, 0.369)                             # Phase 15 EW, size 1: (A, B) = the division's fractions between step 1's end and the release (step 2's
                                                      # high product and window) and after it (X_lo Q, the corrections, R's residues) -- MEASURED at 1e11 on
@@ -2102,8 +2102,7 @@ def est_target(a, design):
 def est_partial_row(a, design=None, groups=None):
     """Phase 15 int15j (2026-09-29, the user's decisions 2 and 3): the launch line carries RNS_DIST_CACHE_PARTIAL=1 (PC: the slots' primes per
     grid product from the block pool's free bytes, P24 cached, the loop along the longer axis) and MN_OUT_DKM_HI=1 (EW: the writer on
-    X_hi after step 1; the model's DKM_HI term is read from the MN_OUT_DKM_HI / MN_MODEL_DKM_HI environment -- set it for the launch
-    line's figure).  The row is mn_model.cache_partial's 'P24 cached yes, loop long, the pool rule' line at the target: the standing estimate,
+    X_hi after step 1; the model's DKM_HI term is on by default, as in the code; MN_MODEL_DKM_HI=0 switches it off).  The row is mn_model.cache_partial's 'P24 cached yes, loop long, the pool rule' line at the target: the standing estimate,
     priced at the CLI's fabric (--bw/--lat/--group/--layers/--taper), same as target()'s other rows.
     06 EVALUATION B10 / 04 D3: this row used to ignore the CLI design (--chunk-mb/--groups/--np-mn/--room/--strategy/--cap/--depth/
     --ascii) -- cache_partial() always priced DEFAULT15C(cache_fit=False) and the default schedule.  Now it is priced at main()'s own
@@ -2122,7 +2121,7 @@ def est_partial_row(a, design=None, groups=None):
     with contextlib.redirect_stdout(buf): (b02, bw2), rows2 = cache_partial(T=5.167e13, wbs=(2.0, a.write_bw, 0.6), fab=fab, design=pd, groups=groups)   # Phase 16 F: history -- the former second test size's row (RESULTS 94); superseded by TGT17, 2026-10-06
     r2 = [x for x in rows2 if x[0] and x[1] == 'long' and x[4] == 'the pool rule']
     print("  the launch line's RNS_DIST_CACHE_PARTIAL=1 (int15j; the pool rule: tree %d / division %d primes per slot, P24 cached, the loop along the longer axis)%s:"
-          % (kt, kd, " with MN_OUT_DKM_HI=1" if DKM_HI else " (MN_OUT_DKM_HI=1 not set in the environment: its -7 s with the write is not in this row)"))
+          % (kt, kd, " with MN_OUT_DKM_HI=1" if DKM_HI else " (MN_MODEL_DKM_HI=0: the MN_OUT_DKM_HI pipeline is not in this row)"))
     print("    %.3e the target                               | %5.1f s (%.2f min) | %s | gain %+.1f s without the write, %s with it"
           % (TARGET_DIGITS, r0, r0 / 60, " | ".join("%5.1f s (%.2f min)" % (x, x / 60) for x in rw), r0 - b0, " / ".join("%+.1f" % (x - y) for x, y in zip(rw, bw))))
     if r2:
