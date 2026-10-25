@@ -256,7 +256,7 @@ part_slurm() {
     cap sinfo_states sinfo -h -o '%P|%t|%D|%f|%G'
     fx slurm.default_partition sinfo_states "grep '\*' | head -1 | cut -d'|' -f1 | tr -d '*'"
     fx slurm.partitions sinfo_states "cut -d'|' -f1 | tr -d '*' | sort -u | paste -sd' '"
-    fxm slurm.nodes_by_state sinfo_states "awk -F'|' '{k=\$1; gsub(/\*/,\"\",k); print k\".\"\$2\"\t\"\$3\" nodes features=\"\$4\" gres=\"\$5}'"
+    fxm slurm.nodes_by_state sinfo_states "awk -F'|' '{k=\$1; gsub(/\\*/,\"\",k); k=k\".\"\$2; n[k]+=\$3; f[k]=\$4\" gres=\"\$5} END{for(k in n) print k\"\t\"n[k]\" nodes (last features=\"f[k]\")\"}' | sort"
     cap scontrol_part scontrol show partition -o
     fxm slurm.part scontrol_part "sed -E 's/^PartitionName=([^ ]+) (.*)/\1\t\2/' | awk -F'\t' '{n=split(\$2,a,\" \"); o=\"\"; for(i=1;i<=n;i++) if(a[i] ~ /^(MaxNodes|MaxTime|DefaultTime|QoS|OverSubscribe|State|TotalNodes|TotalCPUs|AllowAccounts|AllowGroups|AllowQos|Default|MinNodes|MaxCPUsPerNode|PriorityTier|ExclusiveUser|PreemptMode|TRES|DefMemPerNode|MaxMemPerNode|Nodes)=/) o=o\" \"a[i]; print \$1\"\t\"o}'"
     T=15 cap scontrol_nodes scontrol show node -o

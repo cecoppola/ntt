@@ -118,7 +118,8 @@ def main():
                 except (KeyError, ValueError):
                     pass
     cands.sort(reverse=True)
-    lustre = [c for c in cands if c[1] == "lustre"] or cands
+    sysmnt = re.compile(r"/(apps|pe|opt|sw|usr|boot|var)(/|$)|^/home$")   # software / home mounts are no output candidates
+    lustre = [c for c in cands if c[1] == "lustre"] or [c for c in cands if not sysmnt.search(c[2])] or cands
     if lustre:
         free, typ, mnt = lustre[0]
         base = mnt
