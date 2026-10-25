@@ -107,6 +107,8 @@ if want unit || want grid; then
     [ "$t" = t_bs ] && [ -n "$SKIPBS" ] && continue
     to=1200; [ "$t" = "t_mul 20" ] && to=1800   # H7 (measured): t_mul 20 takes 896 s on an aac6 CPX node; 1200 s left 1.3x margin
     R $to "./tests/$t" > "$log" 2>&1; rc=$?
+    # rc 141 (SIGPIPE) with no VERIFY line happened once (t_mul 20, 2026-10-24; no pipe in this stage: the login shell / srun step): rerun once
+    if [ $rc -eq 141 ] && ! grep -aq 'VERIFY' "$log"; then echo "NOTE unit $t: rc 141 (SIGPIPE), no VERIFY line; rerun once"; R $to "./tests/$t" > "$log" 2>&1; rc=$?; fi
     v=$(grep -a 'VERIFY' "$log" | tail -1)
     if [ $rc -eq 0 ] && grep -aq 'VERIFY OK' "$log" && ! grep -aq 'VERIFY FAILED' "$log"; then pass "unit $t" "$v"; else fail "unit $t" "rc $rc; ${v:-no VERIFY line}"; fi
   done

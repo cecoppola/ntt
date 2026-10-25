@@ -689,6 +689,7 @@ def early_exposed(W, dc, g):
         else:
             A, B = OVL1_HI[0] * dc.t, OVL1_HI[1] * dc.t; fh = 0.5
         return max(0.0, max(A, fh * W) + (1.0 - fh) * W - A - B)
+    if DKM and g == 1: return max(0.0, W - OVL1_HI[1] * dc.t)   # MN_MODEL_DKM_HI=0 at size 1: the old hook (before step 2's low product) hides B = X_lo Q + corrections + residues (MEASURED 0.369 of the division, DKM15 4.4's on runs), not OVL1 (0.577, fitted on the pre-DKM division: its hook sat before the whole X Q product); so the switch's gain is A x the division (7.4 s at 1e11), never negative
     return max(0.0, W - ovl_div(dc, g))
 
 def ovl_div(dc, g):
