@@ -175,6 +175,7 @@ def arena_trim(L, scratch=0, trim_gb=None):
     inside dm_layout) less the trim, never below the largest live set max(v2, v3); sets L['need_dev'] and L['trim'] (bytes) and returns the need"""
     L['need_dev'] += scratch
     t = float(os.environ.get('BS_ARENA_TRIM_GB', '0') or 0) if trim_gb is None else trim_gb
+    t = min(t, 1e4) if t == t else 0                                         # (the C's cap: nan / inf / huge)
     L['trim'] = min(int(t * 1e9), max(0, L['need_dev'] - max(L['v2'], L['v3']))) if t > 0 else 0
     L['need_dev'] -= L['trim']
     return L['need_dev']

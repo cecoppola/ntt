@@ -106,7 +106,7 @@ key without a consumer), SCRIPT-ONLY (aac7env.sh sets it but the profile lacks i
 5. **Memory edge / FIT** (`ECALC_DEVICE_GB`, `ECALC_NODE_GB`). `APU_COUNT` = 4; `APU_VRAM_TOTAL_B` and `APU_GTT_TOTAL_B` are the unified-memory sizes (one
    128 GB pool per APU on an MI300A, shared with the host). `ECALC_DEVICE_GB` is **measured**, not read: the kit's edge stage (`t_edge`, D26) on one node; expected
    about 373 (4 x 93.4 GB; the template value, m on the earlier target data). `ECALC_NODE_GB` = `MemAvailable` on an idle compute node (the probe subtracts 4 GB for the OS and
-   only proposes it with `--hold`; a login node's figure is wrong), expected 450-500 on a 512 GB node; the planner's fit (`tools/plan_values.py --fit`) must pass at the headline size.
+   only proposes it with `--hold`; a login node's figure is wrong), expected 450-500 on a 512 GB node (aac7: 418-420 measured, the profile sets 420); the planner's fit (`tools/plan_values.py --fit`) must pass at the headline size.
 6. **Node screen.** `tools/nodescreen.sh --hold <job> --want-nics 8` over the nodes of a small allocation, then (at scale, before a record run) over all of them; exit 3 = flagged nodes,
    `EXCLUDE` lists them: copy to `MNRUN_EXCLUDE_HOSTS` (comma list; `MNRUN_EXCLUDE_MODE=drop`; the job must ask for the nodes it will use). Expected: none or a few
    per hundred nodes; a node with fewer NICs than `SHMEM_OFI_NUM_NICS` aborts a SHMEM launch (results/NODE_SLOWMODE.md §NIC).

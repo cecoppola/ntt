@@ -494,7 +494,7 @@ static double bs_arena_room(void) { static double f = -1; if (f < 0) { const cha
  * need sits above the measured live peak (2 n 1.2882e11: arena 66.57 GB, peak 55.47 GB) and every chunk is mapped (the extra by the background
  * mapper, which slows the GPU while it runs).  dm_layout clamps the trim so the need stays at the largest live set max(v2, v3) (and the
  * tree's, via want); the decision is printed once on rank 0.  Experiment: the remaps (DB_POOL_VERBOSE=1) say whether the cut is safe. */
-static double bs_arena_trim_gb(void) { static double f = -1; if (f < 0) { const char *e = getenv("BS_ARENA_TRIM_GB"); f = e ? atof(e) : 0; if (f < 0) f = 0; } return f; }
+static double bs_arena_trim_gb(void) { static double f = -1; if (f < 0) { const char *e = getenv("BS_ARENA_TRIM_GB"); f = e ? atof(e) : 0; if (!(f > 0)) f = 0; if (f > 1e4) f = 1e4; }   /* nan, inf, negative, huge: capped (memfix) */ return f; }
 static size_t as_arena(size_t bytes)                  /* an arena's bytes as BS_ARENA_ROOM lays it out: whole VMM chunks */
 {
     if (!(bs_arena_room() > 0) || !db_pool_vmm_on()) return bytes;
@@ -674,7 +674,7 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
         static int said; const char *er = getenv("COMM_RANK");
         if (!g_room_probe && !said && (!er || atoi(er) == 0)) { said = 1;
             printf("bs: BS_ARENA_TRIM_GB: dm need %.2f -> %.2f GB per APU (trim %.2f of the %.2f asked; the largest live set %.2f GB%s)\n", (L->need_dev + L->trim) * 1e-9, L->need_dev * 1e-9,
-                   L->trim * 1e-9, bs_arena_trim_gb(), floor_ * 1e-9, L->trim < want_t ? "; clamped" : ""); } }
+                   L->trim * 1e-9, bs_arena_trim_gb(), floor_ * 1e-9, L->trim < want_t ? "; clamped" : ""); fflush(stdout); } }
 }
 /* the SHMEM transport's symmetric pool this run needs per node-process, in bytes (mem_model.py
  * shmem_pool is the same law): 4 APU threads x the largest staged exchange's send + receive over the run's products (the tree's
@@ -762,7 +762,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
 size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
 {
     const char *tr = getenv("COMM_TRANSPORT");
-    if (size < 2 && vpe_ppg() && xsh_on()) size = vpe_lanes();   /* S2fix: one node under ECALC_PE_PER_GPU=1 still exchanges among its PEs (the lanes): the model of that group, so the plan prints `plan pool` and mnrun sizes the heap (the default path: size < 2 = 0, as before) */
+    if (size < 2 && vpe_ppg()) size = vpe_lanes();   /* S2fix: one node under ECALC_PE_PER_GPU=1 still exchanges among its PEs (the lanes): the model of that group, so the plan prints `plan pool` and mnrun sizes the heap (the default path: size < 2 = 0, as before); memfix: under any transport (before, only xshmem: plain shmem got no `plan pool` line and kept the 8192 MiB default) */
     if (size < 2 || (!plan && !(tr && (!strcmp(tr, "shmem") || !strcmp(tr, "xshmem"))))) return 0;
     vslot_prealloc_env(N, size);                          /* S31 */
     char by[256]; unsigned long ra0 = bs_a0, rb1 = bs_b1; int rset = vpe_on() && !rb1 && size > 1;
