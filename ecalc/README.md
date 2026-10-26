@@ -11,9 +11,6 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 
 **Machine notes.**
 - aac7: `source aac7env.sh` (ROCm 7.2.4). The QOS allows 6 nodes per user (`sacctmgr show qos normal format=maxtrespu`; the queue runner `tools/aac7q.sh` reads this limit from Slurm every 10 min and runs items side by side while they fit, largest unit first (a GROUP counts as the sum of its members; an item waiting over 45 min reserves the earliest time running items free its nodes, and later items start only if they end by then, by their optional `EXPECT_MIN` header else `EST_MIN`, or fit in the nodes that are still extra at that time); it excludes the hosts listed in the private files `aac7q/exclude` (always) and `aac7q/exclude_slow` (unless the item sets `ALLOW_SLOW=1`); a missing file excludes nothing).
-- aac6 SH5 nodes in CPX mode (6 XCDs of 22.9 GB per device) run up to 4 × 10⁹ digits with
-  `RNS_INIT_POOL_LOG=29 ECALC_PLANE_CAP=2^30` (measured before 2026-10-23 with `BS_SEED_PULL=0`; that fallback was removed, Q87, and the seed pull kernel needs more co-resident blocks than
-  one XCD holds, a; results/SINGLE_NODE.md §CAND; aac6 is set aside).
 
 **Notes on single settings.**
 - `mnrun.sh` (the multi-node launcher; usage in `../README.md`) sets `COMM_RANK`, `COMM_SIZE` and the transport from
@@ -99,7 +96,6 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_ARENA_GB` | 0 | built-in default | the region arena per device, in GB, instead of the layout's own sizing (auto) | M11.md+A-mem.md |
 | `ECALC_BG_THREADS` | 48 | built-in default | the background OpenMP team of the recurrence and the writer (48) | - |
 | `ECALC_BUDGET_CHECK` | unset | built-in default | `1` = after init every rank models its peak (device in use or the model's planes + arena, whichever is larger, + the host terms or VmRSS) and the ranks decide together (an allgather, the ... | C314.md+V314.md |
-| `ECALC_BUDGET_RANK_GB` | derived | test-only | `<rank>:<GB>` sets that rank's share of the node budget (one rank over while its node is not) (unset) | C314.md |
 | `ECALC_CHECKPOINT` | 0 | launch-line | `1` = development and testing: the budgeted top set (`ECALC_CKPT_TOP=2`) unless `ECALC_CKPT_TOP` is set; the headline / record runs leave it unset (0) | P16.md+DOC15.md |
 | `ECALC_CKPT_TOP` | auto | launch-line | the top-level P, Q on disk for the recheck (above): `BS_CKPT_DIR` or `<outfile>.top` (**off by default** — record timing runs, the user's decision of 2026-09-27; `ECALC_CHECKPOINT=1` makes ... | N13.md |
 | `ECALC_CKPT_TOP_SLACK` | 1 | built-in default | `ECALC_CKPT_TOP=2`: the seconds a release may wait for the writer (1) | N13.md+IO15.md |
@@ -112,11 +108,8 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_FATAL_WAIT` | 60 | built-in default | seconds the first failing thread may spend on its report (the memory accounting) before a watchdog `_exit`s (60) | C314.md |
 | `ECALC_INIT_ONLY` | unset | test-only | - | L114.md+P13b.md |
 | `ECALC_INIT_TL` | 0 | launch-line | 1 = init's timeline as `tl <s since rns_init began>` lines: rns_init's steps, each arena's mapping with the HIP calls split (create / map / access / zero), the background mappers (start, ... | MAP15.md |
-| `ECALC_LIVE` | unset | test-only | 1 = a `live:` line after every bs level, every tree level (size > 1), every Newton doubling and at the division's end: the block pool's live bytes per APU, the peak since the previous line, ... | T114.md+M615.md |
 | `ECALC_MEM_GUARD_GB` | 0 | launch-line | the sampler stops the run (rc 9, `EC_RC_MEMGUARD`) through `ec_fatal` — one line naming rank, host, the last phase boundary and the figures — when MemAvailable falls below this many GB; ... | IO15.md+DOC15.md |
-| `ECALC_MEM_GUARD_PERIOD` | 1 | test-only | - | IO15.md |
 | `ECALC_MEM_SAMPLE` | derived | test-only | seconds between memory samples (RSS, MemFree, MemAvailable, Cached, Dirty, Writeback from `/proc/meminfo`, the pool's live bytes per APU), a summary line at exit (minimum MemAvailable, ... | IO15.md+S114.md |
-| `ECALC_MEM_SAMPLE_FILE` | derived | test-only | the sampler's output file (`%d` = the node-process rank) instead of stderr (unset) | S114.md |
 | `ECALC_NODE_GB` | 480 | built-in default | - | P16.md+C314.md |
 | `ECALC_NP` | auto | launch-line | the number of NTT primes: 3 (Phase 13b step 0: −17 % wall, −25.8 GB of planes; `ecalc.c` sets it when unset; 4 was the binary-limb count, archived with archive:PLAN §28.5). | P15.md |
 | `ECALC_NP_AUTO_TERMS` | derived | test-only | under `ECALC_NP=auto`, the switch-over in terms (1 … 58 424 467 928, the three-prime bound): a lower value makes small runs form both counts (the forced tests of results/PRIMES_STRATEGY.md ... | NP15.md |
@@ -146,10 +139,8 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `MN_OUT_DKM_HI_TEST_CARRY` | unset | test-only | - | EW15.md |
 | `MN_OUT_EARLY` | 1 | built-in default | at size > 1 the part file starts at the division's hook (X formed, before the low product: `newton_mn_x_hook` → `mn_out_early_start`) in a background thread over the node's share, as the ... | IO15.md |
 | `MN_OUT_STRIPE` | 1 | built-in default | `<count>[:<stripe MB>[:<OSTs>]]` — each part file created with that Lustre layout (`lfs setstripe`); with `<OSTs>` the first OST is `(part × count) mod OSTs`. | IO15.md+SC15.md |
-| `MN_OUT_STRIPE_FORCE` | derived | test-only | - | IO15.md |
 | `MN_OUT_THREADS` | 8 | built-in default | pwrite threads per chunk of the part file (8) | IO15.md+TARGET_HW_REVIEW.md |
 | `MN_PLAN_ONLY` | unset | launch-line | `<total digits>:<g>` — the plan of a run (every large product's grid, pieces, planes, from the code's own decisions; no device) and exit. | P15.md+T215.md |
-| `MN_PLAN_QUIET` | unset | test-only | 1 = `MN_PLAN_ONLY` / the planner prints nothing but the result lines (0) | L13d.md |
 | `MN_TREE_LOGN_TEST` | 0 | test-only | the tree's levels at a lowered plane cap so the grids run at 10¹⁰ on one node; the division at its own cap (0) | G12.md+M13.md |
 | `MN_T_CHUNK_MB` | 1024 | launch-line | a piece product's window (the temporary T and the result slab rbO of `mn_core`, and `mdb_add_shifted`'s T) in rounds of this many MB per APU instead of the whole share of C (35 GB per node ... | P214.md+S22.md |
 | `MN_WAIT_STATS` | 0 | launch-line | per-communicator wait-time statistics (`comm_util.c`) (0) | S27.md+S22.md |
@@ -164,8 +155,6 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `RNS_BATCH_SPLIT` | 0 | experiment | automatic under `ECALC_PE_PER_GPU=1` (Q110: no launch line sets it): a batch product larger than the one device's plane pool is split by operand pieces; 20..29 forces pieces of at most 2^k limbs (tests). | - |
 | `RNS_BATCH_TILE_GB` | unset | built-in default | the batch tiers' plane budget per device in GB (a + b planes), capped by the pools (15) | P.md |
 | `RNS_DIST_CACHE_MARGIN_GB` | 24 | built-in default | free device memory kept when sizing the cache (24) | TC15.md+M13.md |
-| `RNS_DIST_CACHE_PARTIAL_FORCE` | unset | test-only | - | PC15.md |
-| `RNS_INIT_POOL_LOG` | unset | test-only | the log2 size `rns_init` uses for the pool in the unit tests (`rns_init(31)` is fixed there; a CPX XCD has 22.9 GB); `29` makes aac6's CPX nodes usable up to 4 × 10⁹ digits; unset = ... | T11.md+S51.md |
 | `RNS_POOL1_GB` | unset | built-in default | plane pool 1 per device in GB (auto: the dist tier's 3q + 16 limbs) | R.md+T.md |
 | `RNS_POOL_GROW` | 0 | test-only | a region pool that would grow inside bs aborts with the accounting unless 1 (the stress recipe sets it) (0) | B16.md+R.md |
 | `RNS_STRATEGY` | derived | built-in default | the single-node product's strategy (`dist_core`: top levels, reciprocal, division): `C` four-step; `B` prime-per-APU (planes that do not fit the pools from an extra per-APU buffer); `auto` ... | B13b.md+G13d.md |
@@ -222,13 +211,12 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | fallback | P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF) | 2026-11-11 | `DM_MN_WRAP` |
 | fallback | coordinator (TASKS S) | 2026-11-11 | `ECALC_OUT_PACKED` |
 | diagnostic | TARGET12 (S2) | 2027-04-12 | `ECALC_TEST_DIE_PE` |
-| diagnostic | diagnostics (TESTING.md) | 2027-04-12 | `BS_CKPT_BG_MBS`, `DIST_GEN`, `DIST_LOGN_TEST`, `DIST_STATS`, `ECALC_BUDGET_RANK_GB`, `ECALC_FATAL_TEST`, `ECALC_INIT_ONLY`, `ECALC_LIVE`, `ECALC_MEM_GUARD_PERIOD`, `ECALC_MEM_SAMPLE`, `ECALC_MEM_SAMPLE_FILE`, `ECALC_NP_AUTO_TERMS`, `ECALC_TEST_CORR`, `ECALC_WINDOWS`, `MEM_DPOOL_FILL`, `MN_OUT_DKM_HI_TEST_CARRY`, `MN_OUT_STRIPE_FORCE`, `MN_PLAN_QUIET`, `MN_TREE_LOGN_TEST`, `NEWTON_DKM_TEST_HI`, `NEWTON_MN_RECIP_TS`, `RNS_DIST_CACHE_PARTIAL_FORCE`, `RNS_POOL_GROW` |
+| diagnostic | diagnostics (TESTING.md) | 2027-04-12 | `BS_CKPT_BG_MBS`, `DIST_GEN`, `DIST_LOGN_TEST`, `DIST_STATS`, `ECALC_FATAL_TEST`, `ECALC_INIT_ONLY`, `ECALC_MEM_SAMPLE`, `ECALC_NP_AUTO_TERMS`, `ECALC_TEST_CORR`, `ECALC_WINDOWS`, `MEM_DPOOL_FILL`, `MN_OUT_DKM_HI_TEST_CARRY`, `MN_TREE_LOGN_TEST`, `NEWTON_DKM_TEST_HI`, `NEWTON_MN_RECIP_TS`, `RNS_POOL_GROW` |
 | test | ecalc/tests/t_alloc.c | 2027-04-12 | `T_ALLOC_NTT`, `T_ALLOC_PROBE`, `T_ALLOC_SEED` |
 | test | ecalc/tests/t_dist.c | 2027-04-12 | `DIST_BIG`, `DIST_BIG_K`, `DIST_BIG_PRIMES`, `DIST_H4`, `DIST_H4_MB`, `DIST_H4_REPS`, `DIST_LAYERED`, `DIST_LBENCH`, `DIST_LREPS`, `DIST_TBENCH`, `DIST_TINV`, `DIST_XGMI` |
 | test | ecalc/tests/t_patch.c | 2027-04-12 | `T_PATCH_DIR`, `T_PATCH_UNPACK` |
 | test | ecalc/tests/t_strategy.c | 2027-04-12 | `TSTRAT_BUDGET_GB`, `TSTRAT_GMP` |
 | internal | planner channel (binsplit.c / ecalc.c setenv) | 2027-04-12 | `ECALC_PLANE_CAP_IDX` |
-| launch-line | archive:scripts_2026-10-23/aac6.conf (CPX launch note, T11.md) | 2027-04-12 | `RNS_INIT_POOL_LOG` |
 | test-only | TARGET1 (B3) | 2026-12-31 | `PE_GEO_SYSFS_ROOT`, `TMPDIR` |
 
 <!-- switch-review:end -->

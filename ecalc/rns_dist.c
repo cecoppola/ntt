@@ -308,8 +308,6 @@ static void cache_plan(int *sa, int *sb, int ha, int hb, const void *ka, size_t 
  *           0.5 GB per APU) / (q x 8), and at most what the free extents hold as they are
  *           (db_pool_fit_count: no remap, no growth); the group's minimum (every node must hold the same slots);
  *   slots   P >= np: min(2, P / np) full slots (RNS_DIST_CACHE_MN removed); else 1 slot of P primes (primes 0 .. P - 1 of the operand);
- *           RNS_DIST_CACHE_PARTIAL_FORCE = P sets P whatever the
- *           room (tests only: the pool may then grow by hipMalloc, reported);
  *   hits    a hit on a k-prime slot skips primes < k's gathers and forward transforms (A: copied from the slot; B: read in place); the
  *           operand's redistribution is skipped only when k >= the product's primes (a full hit);
  *   P24     the P24 products (P24) are cached too: the key carries the form (s->p24), the planes are the same q per prime;
@@ -322,7 +320,7 @@ static int g_node_of(mn_group *G);
 static int pc_on(void) { return !vpe_on(); }   /* partial slots from the block pool per grid product (RNS_DIST_CACHE_PARTIAL=1 since 2026-10-12; the =0 fallback, the held full slots of the mn tier, removed 2026-10-23, Q87) */
 static int cache_slot_k(int si, int np) { if (si < 0) return 0; int k = g_cache.s[si].k; return k > 0 && k < np ? k : np; }   /* the primes slot si holds for an np-prime product */
 static uint64_t *cache_pl(int si, int d, int p, size_t q) { const struct dist_slot *s = &g_cache.s[si]; return g_cache.pc ? s->pp[d][p] : s->pl[d] + (size_t)p * q; }   /* slot si's plane of prime p on APU d */
-static struct { size_t products, taken, planes_max, bytes_max, planes_sum, grown; } g_pcst;   /* PC: the run's partial slots (printed at the release) */
+static struct { size_t products, taken, planes_max, bytes_max, planes_sum; } g_pcst;   /* PC: the run's partial slots (printed at the release) */
 /* the slots of one grid product: q limbs per prime per rank (the grid's largest piece), np its primes; na x nb the product, A / B / C the
  * operands and the result (this node's shares for the need); returns the slot count (g_cache.navail), the primes per slot in *kout */
 static int cache_pc_take(mn_group *G, size_t na, size_t nb, const mdbv *A, const mdbv *B, const mdb *Cn, size_t q, int np, int *kout)
@@ -341,7 +339,6 @@ static int cache_pc_take(mn_group *G, size_t na, size_t nb, const mdbv *A, const
         size_t fr = db_pool_free_bytes(d), fc = db_pool_fit_count(d, plane); if (fr < fmin) fmin = fr;
         size_t a = (double)fr > (double)need + mg ? (size_t)(((double)fr - (double)need - mg) / (double)plane) : 0; if (fc < a) a = fc; if (a < P) P = a;
     }
-    const char *fe = getenv("RNS_DIST_CACHE_PARTIAL_FORCE"); if (fe) P = (size_t)atoi(fe);
     if (P > PM) P = PM;
     if (held) P = 0;
     P = PM - grp_max(G, PM - P);                              /* the group's minimum (a collective: every node of the group is here) */
@@ -353,19 +350,15 @@ static int cache_pc_take(mn_group *G, size_t na, size_t nb, const mdbv *A, const
     if (ns > DIST_CACHE_MAX) ns = DIST_CACHE_MAX;
     g_pcst.products++;
     if (!ns || !k) { g_cache.navail = 0; return 0; }
-    size_t hm0 = 0; for (int d = 0; d < NR; d++) hm0 += db_pool_hipmalloc_bytes(d);
     for (int i = 0; i < ns; i++) { struct dist_slot *s = &g_cache.s[i]; memset(s->pp, 0, sizeof s->pp); s->key = 0; s->q = 0; s->k = k;
                                    for (int d = 0; d < NR; d++) for (int p = 0; p < k; p++) s->pp[d][p] = db_pool_alloc(d, plane); }
-    size_t hm1 = 0; for (int d = 0; d < NR; d++) hm1 += db_pool_hipmalloc_bytes(d);
-    if (hm1 > hm0) g_pcst.grown += hm1 - hm0;                 /* (only under RNS_DIST_CACHE_PARTIAL_FORCE: the rule never takes more than the extents hold) */
     g_cache.pc = 1; g_cache.navail = ns; g_cache.slot_q = q;
     g_pcst.taken++; g_pcst.planes_sum += (size_t)ns * k; if ((size_t)ns * k > g_pcst.planes_max) g_pcst.planes_max = (size_t)ns * k;
     if ((size_t)ns * k * plane > g_pcst.bytes_max) g_pcst.bytes_max = (size_t)ns * k * plane;
     *kout = k;
     if (getenv("RNS_VERBOSE") || getenv("ECALC_VERBOSE"))
-        printf("   transform cache (partial slots) node %d: %d slot%s of %d of %d primes, q 2^%.2f, from the block pool: %.2f GB per APU (%.2f per node) | pool free %.2f GB per APU (the smallest), the product's need %.2f, margin %.2f -> %zu planes%s%s\n",
-               node, ns, ns > 1 ? "s" : "", k, np, log2((double)q), (double)ns * k * plane / 1e9, 4.0 * ns * k * plane / 1e9, fmin / 1e9, need / 1e9, mg / 1e9, P,
-               fe ? " (RNS_DIST_CACHE_PARTIAL_FORCE)" : "", hm1 > hm0 ? " -- the pool GREW" : "");
+        printf("   transform cache (partial slots) node %d: %d slot%s of %d of %d primes, q 2^%.2f, from the block pool: %.2f GB per APU (%.2f per node) | pool free %.2f GB per APU (the smallest), the product's need %.2f, margin %.2f -> %zu planes\n",
+               node, ns, ns > 1 ? "s" : "", k, np, log2((double)q), (double)ns * k * plane / 1e9, 4.0 * ns * k * plane / 1e9, fmin / 1e9, need / 1e9, mg / 1e9, P);
     return ns;
 }
 static void cache_pc_give(void)                               /* the product's partial slots back to the pool */
@@ -380,9 +373,8 @@ static void cache_pc_report(void)                             /* the run's parti
 {
     if (!pc_on() || !g_pcst.products) return;
     if (getenv("RNS_VERBOSE") || getenv("ECALC_VERBOSE"))
-        printf("   transform cache (partial slots): %zu grid products, %zu with slots (planes per product: max %zu, mean %.2f), the largest %.2f GB per APU from the block pool%s\n",
-               g_pcst.products, g_pcst.taken, g_pcst.planes_max, g_pcst.taken ? (double)g_pcst.planes_sum / g_pcst.taken : 0.0, g_pcst.bytes_max / 1e9,
-               g_pcst.grown ? " -- the pool GREW (RNS_DIST_CACHE_PARTIAL_FORCE)" : ", no growth");
+        printf("   transform cache (partial slots): %zu grid products, %zu with slots (planes per product: max %zu, mean %.2f), the largest %.2f GB per APU from the block pool\n",
+               g_pcst.products, g_pcst.taken, g_pcst.planes_max, g_pcst.taken ? (double)g_pcst.planes_sum / g_pcst.taken : 0.0, g_pcst.bytes_max / 1e9);
     memset(&g_pcst, 0, sizeof g_pcst);
 }
 /* ---- Phase 13b B (archive:PLAN §29 E4, 31 axis S): the prime-per-APU product ("B form") ------------------------------------

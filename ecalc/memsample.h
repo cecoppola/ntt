@@ -2,14 +2,14 @@
  *
  *  E1   mem_live_line(what): one "live:" line -- the block pool's live bytes per APU now, its peak since the last line
  *       (the window: one tree level, one Newton doubling), the pool's size (live + free) and the peak's share of it,
- *       and /proc/meminfo's MemAvailable and Cached.  Printed when mem_live_on(): ECALC_LIVE=1 or ECALC_VERBOSE >= 2.
+ *       and /proc/meminfo's MemAvailable and Cached.  Printed when mem_live_on(): ECALC_VERBOSE >= 2.
  *  E12  a sampler thread (ECALC_MEM_SAMPLE=<seconds>): RSS, MemFree, MemAvailable, Cached, Dirty, Writeback (from
  *       /proc/meminfo, which sees the page cache in HBM; hipMemGetInfo does not) and the pool's live bytes per APU, one
- *       line per sample to stderr or ECALC_MEM_SAMPLE_FILE (a "%d" in the name: the node-process rank); a summary line
+ *       line per sample to stderr; a summary line
  *       at stop (the minimum MemAvailable, the maxima of Cached, Dirty, RSS and each APU's live bytes).
  *  N3 a guard in the sampler: ECALC_MEM_GUARD_GB=<x> -- when MemAvailable falls below x GB the sampler stops the
  *       run through ec_fatal (one line naming the rank, host, the last phase boundary passed and the figures; rc EC_RC_MEMGUARD
- *       = 9).  Without ECALC_MEM_SAMPLE the sampler runs for the guard alone, silent, every ECALC_MEM_GUARD_PERIOD s (1). */
+ *       = 9).  Without ECALC_MEM_SAMPLE the sampler runs for the guard alone, silent, every second. */
 #ifndef EC_MEMSAMPLE_H
 #define EC_MEMSAMPLE_H
 #include <stddef.h>

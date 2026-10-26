@@ -197,16 +197,15 @@ static int out_mode(const char *name)
 /* MN_OUT_STRIPE=<count>[:<stripe MB>[:<OSTs>]] -- the part file created with that Lustre layout before it is
  * opened (a new file takes its directory's layout otherwise).  With <OSTs> (the file system's OST count) the first OST is
  * (part * count) mod OSTs, so the nodes' files start on distinct targets; without it Lustre's allocator places them.  The layout is set by running `lfs setstripe`.  Only on a
- * Lustre file system (MN_OUT_STRIPE_FORCE=1: always -- the test of the command path off Lustre). */
+ * Lustre file system. */
 #include <spawn.h>
 #include <sys/wait.h>
 extern char **environ;
 static void out_stripe(const char *name, int part, int verbose)
 {
     const char *e = getenv("MN_OUT_STRIPE"); if (!e || !*e) return;
-    int force = getenv("MN_OUT_STRIPE_FORCE") && atoi(getenv("MN_OUT_STRIPE_FORCE"));
     int fs = sp_fs_kind(name);
-    if (fs != SP_FS_LUSTRE && !force) { if (verbose || part == 0) printf("mn_out: MN_OUT_STRIPE=%s ignored: %s is on %s, not Lustre\n", e, name, sp_fs_name(fs)); return; }
+    if (fs != SP_FS_LUSTRE) { if (verbose || part == 0) printf("mn_out: MN_OUT_STRIPE=%s ignored: %s is on %s, not Lustre\n", e, name, sp_fs_name(fs)); return; }
     long cnt = atol(e), smb = 0, nost = 0; const char *p = strchr(e, ':');
     if (p) { smb = atol(p + 1); p = strchr(p + 1, ':'); if (p) nost = atol(p + 1); }
     if (cnt == 0) cnt = 1;

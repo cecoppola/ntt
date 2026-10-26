@@ -30,7 +30,7 @@ int mem_meminfo(struct meminfo *m)
 int mem_live_on(void)
 {
     static int v = -1;
-    if (v < 0) { const char *e = getenv("ECALC_LIVE"), *vb = getenv("ECALC_VERBOSE"); v = (e && atoi(e)) || (vb && atoi(vb) >= 2); }
+    if (v < 0) { const char *vb = getenv("ECALC_VERBOSE"); v = vb && atoi(vb) >= 2; }
     return v;
 }
 void mem_live_line(const char *what)
@@ -105,8 +105,6 @@ void mem_sampler_stop(void)
             rank_now(), S.n, mem_now() - S.t0, S.min_avail * 1e-9, S.max_cached * 1e-9, S.max_dirty * 1e-9, S.max_rss * 1e-9,
             S.max_live[0] * 1e-9, S.max_live[1] * 1e-9, S.max_live[2] * 1e-9, S.max_live[3] * 1e-9);
     fflush(S.out);
-    if (S.out != stderr) fclose(S.out);
-    S.out = stderr;
 }
 void mem_sampler_start(void)
 {
@@ -114,16 +112,9 @@ void mem_sampler_start(void)
     double guard = g ? atof(g) * 1e9 : 0;                /* the guard runs the sampler without its lines when ECALC_MEM_SAMPLE is unset */
     if (S.on || ((!e || atof(e) <= 0) && guard <= 0)) return;
     S.quiet = !e || atof(e) <= 0; S.guard = guard;
-    S.period = S.quiet ? (getenv("ECALC_MEM_GUARD_PERIOD") ? atof(getenv("ECALC_MEM_GUARD_PERIOD")) : 1.0) : atof(e); if (S.period <= 0) S.period = 1.0;
+    S.period = S.quiet ? 1.0 : atof(e); if (S.period <= 0) S.period = 1.0;
     S.t0 = mem_now(); S.stop = 0; S.n = 0; S.out = stderr;
     if (guard > 0 && rank_now() == 0) printf("memsample: ECALC_MEM_GUARD_GB=%.1f: the run stops (rc %d) when MemAvailable falls below it (sampled every %.2f s)\n", guard * 1e-9, EC_RC_MEMGUARD, S.period);
-    const char *fn = S.quiet ? 0 : getenv("ECALC_MEM_SAMPLE_FILE");
-    if (fn && *fn) {
-        char name[4096];
-        const char *pc = strstr(fn, "%d");
-        if (pc) snprintf(name, sizeof name, "%.*s%d%s", (int)(pc - fn), fn, rank_now(), pc + 2); else snprintf(name, sizeof name, "%s", fn);
-        FILE *f = fopen(name, "w"); if (f) S.out = f; else fprintf(stderr, "memsample: cannot open %s, using stderr\n", name);
-    }
     if (pthread_create(&S.th, 0, sampler, 0)) { fprintf(stderr, "memsample: cannot start the thread\n"); return; }
     S.on = 1;
     static int reg = 0; if (!reg) { atexit(mem_sampler_stop); reg = 1; }

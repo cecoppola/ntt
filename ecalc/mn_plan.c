@@ -55,7 +55,7 @@ enum { PH_LEAF, PH_TREE, PH_RCHAIN, PH_RECIP, PH_DIV, PH_N };
 static const char *ph_name[PH_N] = { "leaf", "tree", "recip1", "recip", "div" };
 static long g_pieces[PH_N], g_prods[PH_N], g_grids[PH_N], g_pieces4[PH_N];   /* g_pieces4: the pieces at four primes */
 static long g_pieces24[PH_N];                                     /* the pieces at 24 digits per point */
-static int g_quiet;                                               /* MN_PLAN_QUIET=1: the summary lines only (the sweep) */
+static int g_quiet;                                               /* silent: the summary lines only */
 static char g_lvl[1024];                                          /* per tree level: node 0's group / the level's largest, for the summary */
 /* ---- the plan-time check -- every planned product against the prime set's limits ------------------------
  * The run stops (loudly, after hours at the target) where a product exceeds what the primes allow: mn_core / dist_core call
@@ -296,7 +296,7 @@ static void plan_div_dkm(size_t nq, size_t dl, size_t k_mu, long double lq, int 
 
 static int plan_run_in(unsigned long d, unsigned long N, int size, int pool_log, int silent)
 {
-    g_quiet = silent || (getenv("MN_PLAN_QUIET") && atoi(getenv("MN_PLAN_QUIET")));
+    g_quiet = silent;
     memset(g_pieces, 0, sizeof g_pieces); memset(g_pieces4, 0, sizeof g_pieces4); memset(g_prods, 0, sizeof g_prods); memset(g_grids, 0, sizeof g_grids); g_lvl[0] = 0;
     memset(g_pieces24, 0, sizeof g_pieces24);
     rns_preinit_pool_log(pool_log);                               /* rns_pool_log() as rns_init would set it (mn_logn_cap reads it) */
