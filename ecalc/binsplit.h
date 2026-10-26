@@ -62,6 +62,7 @@ int binsplit_ppn_proc(void);                       /* S2c: processes per node th
 size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *planes, size_t *arena, size_t *host);
 size_t binsplit_comm_resident_bytes(unsigned long N, int g);   /* the node's device pool bytes, allocated at init (ecalc.c budget_check: already taken) */
 extern const char *const bs_cap_name[2];
+size_t binsplit_div_product_limbs(unsigned long N);   /* the run's largest single product (the division's t = A_h mu: 2 k + 8 limbs, dm_layout's non-DKM tcap); ECALC_PLANE_CAP=run asks whether it fits one plane of the cap */
 void binsplit_seeds_begin(unsigned long N);
 void binsplit_free_pools(void);
 /* B7ACCT (results/GRID_GROUPS.md §B7ACCT): the general map's v-exchange slots resident per APU thread (bytes; hipMalloc'd by comm_layered.c beside the

@@ -18,7 +18,7 @@ COMM_OFI_NICS	str	unset	derived	NIC list, ; between devices	launch-line	-	TUNE17
 COMM_OFI_POOL_MB	int	0	0	MiB per device	launch-line	-	STD17.md+S18KITFIX.md	Y	ecalc	binsplit.c,comm_xshmem.c,ecalc.c	7	-	-	binsplit.c:694 sets it from the modelled need when unset
 COMM_RANK	int	0	0	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,mn.c,segv_trace.c,vpe.c	19	-	-	set per process by the launcher (mnrun.sh); excluded from the config hash
 COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_xshmem.c	7	-	-	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
-COMM_SIZE	int	1	conflict:0|1	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,ecalc.c,fatal.c,mem.c,mn.c,mn_plan.c,rns_mul.c,segv_trace.c,vpe.c	22	-	-	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
+COMM_SIZE	int	1	conflict:0|1	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,ecalc.c,fatal.c,mem.c,mn.c,mn_plan.c,rns_mul.c,segv_trace.c,vpe.c	24	-	-	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
 COMM_TRANSPORT	enum	unset	derived	shmem	launch-line	-	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c,rns_dist.c	4	-	-	mn.c: a transport is needed for COMM_SIZE > 1 (mnrun.sh sets it: xshmem, the S3a engine, when the launched executable has it (the default build, make XSHMEM=ofi, where libfabric is found; Q73 2026-10-21), else shmem; an explicit shmem is the fallback and the reference); tcp removed 2026-10-12
 DB_POOL_VERBOSE	int	0	derived	0|1|2	launch-line	-	T215.md+S18KITFIX.md	Y	ecalc	dbig.c	6	-	-	dbig.c:123: defaults to 1 when RNS_VERBOSE is set, else 0
 DB_POOL_VMM	bool	derived	derived	0|1	built-in default	-	R114.md	Y	ecalc	dbig.c	1	-	-	
