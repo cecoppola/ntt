@@ -84,7 +84,6 @@ void comm_wst_totals(uint64_t ns[WST_NP][3], uint64_t n[WST_NP][3]);   /* [phase
 enum { XK_OTHER, XK_REDIST, XK_RESULT, XK_SPILL, XK_ADDSH, XK_LAYEQ, XK_LAYV, XK_NK };
 extern __thread int comm_xtag;
 static inline int comm_xtag_set(int k) { int o = comm_xtag; comm_xtag = k; return o; }
-int comm_wst_get_phase(void);                         /* the current WST_ phase  */
 double comm_wst_t0(void); void comm_wst_ready_end(double t0);   /* S22: timing of the peer-ready waits */
 static inline void comm_wait(comm *c) { if (comm_wst_on != 0) comm_wst_wait(c); else c->ops->wait(c); }
 static inline void comm_barrier(comm *c) { if (comm_wst_on != 0) comm_wst_barrier(c); else c->ops->barrier(c); }

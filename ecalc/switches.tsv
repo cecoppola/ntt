@@ -34,7 +34,6 @@ DM_TIGHT	int	derived	derived		built-in default	-	L114.md+T114.md	Y	ecalc	binspli
 ECALC_ARENA_GB	float	0	0		built-in default	-	M11.md+A-mem.md	Y	ecalc	binsplit.c	2	-	-	
 ECALC_BG_THREADS	int	48	48		built-in default	-	-	Y	ecalc	ecalc.c,mn_out.c	4	-	-	
 ECALC_BUDGET_CHECK	bool	unset	unset	0|1	built-in default	-	C314.md+V314.md	Y	ecalc	ecalc.c	1	-	-	
-ECALC_BUDGET_RANK_GB	bool	derived	derived	0|1	test-only	-	C314.md	Y	ecalc	ecalc.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_CHECKPOINT	bool	0	unset	0|1	launch-line	-	P16.md+DOC15.md	Y	ecalc	ecalc.c	2	-	-	ecalc.c:580; 1 = budgeted top set (ECALC_CKPT_TOP=2)
 ECALC_CKPT_TOP	int	auto	derived	0|1|2	launch-line	-	N13.md	Y	ecalc	ecalc.c	2	-	-	ecalc.c:579: ECALC_CHECKPOINT ? 2 : 0
 ECALC_CKPT_TOP_SLACK	float	1	1		built-in default	-	N13.md+IO15.md	Y	ecalc	ecalc.c	2	-	-	
@@ -47,11 +46,8 @@ ECALC_FATAL_TEST	int	unset	unset		test-only	-	C314.md	Y	ecalc	binsplit.c	2	diagn
 ECALC_FATAL_WAIT	int	60	60		built-in default	-	C314.md	Y	ecalc	fatal.c	1	-	-	
 ECALC_INIT_ONLY	int	unset	unset		test-only	-	L114.md+P13b.md	Y	ecalc	ecalc.c	2	diagnostics (TESTING.md)	2027-04-12	
 ECALC_INIT_TL	bool	0	0	0|1	launch-line	-	MAP15.md	Y	ecalc	dbig.c	2	-	-	dbig.c
-ECALC_LIVE	bool	unset	unset	0|1	test-only	-	T114.md+M615.md	Y	ecalc	memsample.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_MEM_GUARD_GB	float	0	derived	>=0 GB	launch-line	aac7	IO15.md+DOC15.md	Y	ecalc	memsample.c	1	-	-	memsample.c:113; 0 = guard off
-ECALC_MEM_GUARD_PERIOD	float	1	1		test-only	-	IO15.md	Y	ecalc	memsample.c	2	diagnostics (TESTING.md)	2027-04-12	
 ECALC_MEM_SAMPLE	bool	derived	derived	0|1	test-only	-	IO15.md+S114.md	Y	ecalc	memsample.c	1	diagnostics (TESTING.md)	2027-04-12	
-ECALC_MEM_SAMPLE_FILE	bool	derived	derived	0|1	test-only	-	S114.md	Y	ecalc	memsample.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_NODE_GB	float	480	480		built-in default	aac7	P16.md+C314.md	Y	ecalc	binsplit.c,ecalc.c	10	-	-	
 ECALC_NP	enum	auto	derived	auto|3|4	launch-line	-	P15.md	Y	ecalc	crt.c,ecalc.c	3	-	-	ecalc.c: unset becomes auto at size > 1 (D18), 3 at size 1; crt.c reads auto
 ECALC_NP_AUTO_TERMS	bool	derived	derived	0|1	test-only	-	NP15.md	Y	ecalc	crt.c	1	diagnostics (TESTING.md)	2027-04-12	
@@ -81,10 +77,8 @@ MN_OUT_CHUNK_MB	int	256	256		built-in default	-	IO15.md+A-out.md	Y	ecalc	mn_out.
 MN_OUT_DKM_HI_TEST_CARRY	bool	unset	unset	0|1	test-only	-	EW15.md	Y	ecalc	ecalc.c	1	diagnostics (TESTING.md)	2027-04-12	
 MN_OUT_EARLY	int	1	1		built-in default	-	IO15.md	Y	ecalc	binsplit.c,ecalc.c	6	-	-	
 MN_OUT_STRIPE	bool	1	1	0|1	built-in default	-	IO15.md+SC15.md	Y	ecalc	mn_out.c	1	-	-	
-MN_OUT_STRIPE_FORCE	int	derived	derived		test-only	-	IO15.md	Y	ecalc	mn_out.c	2	diagnostics (TESTING.md)	2027-04-12	
 MN_OUT_THREADS	int	8	8		built-in default	-	IO15.md+TARGET_HW_REVIEW.md	Y	ecalc	mn_out.c	3	-	-	
 MN_PLAN_ONLY	str	unset	derived	D:g	launch-line	-	P15.md+T215.md	Y	ecalc	binsplit.c,ecalc.c,vpe.c	3	-	-	ecalc.c:451; prints the plan and exits
-MN_PLAN_QUIET	int	unset	unset		test-only	-	L13d.md	Y	ecalc	mn_plan.c	2	diagnostics (TESTING.md)	2027-04-12	
 MN_TREE_LOGN_TEST	int	0	0		test-only	-	G12.md+M13.md	Y	ecalc	mn.c,mn_plan.c	4	diagnostics (TESTING.md)	2027-04-12	
 MN_T_CHUNK_MB	float	1024	1024	MiB	launch-line	aac7	P214.md+S22.md	Y	ecalc	newton_db.c,rns_dist.c	3	-	-	rns_dist.c:1608
 MN_WAIT_STATS	bool	0	unset	0|1	launch-line	-	S27.md+S22.md	Y	ecalc	comm_util.c	1	-	-	comm_util.c:22 (atoi > 0)
@@ -99,8 +93,6 @@ RNS_BATCH_LOCAL_MIN	int	unset	unset		built-in default	-	P3.md+R.md	Y	ecalc	rns_m
 RNS_BATCH_SPLIT	int	0	derived	0|1|20..29	experiment	-	-	Y	ecalc	rns_mul.c	1	TARGET12 (S2)	2026-12-31	rns_mul.c; Q75 a: 0 = off (default, byte-identical); 1 = on under ECALC_PE_PER_GPU=1: a batch product too large for the one device's plane pool is cut into operand pieces (a ka x kb grid, each piece product through the local tier, summed into C with carries; temporaries in the pinned staging, 2 GiB per PE when the switch is 1); k in 20..29 = forced in any mode, pieces of at most 2^k limbs (tests); the planner prints the split lines instead of REFUSED
 RNS_BATCH_TILE_GB	float	unset	unset		built-in default	-	P.md	Y	ecalc	rns_mul.c	2	-	-	
 RNS_DIST_CACHE_MARGIN_GB	float	24	24		built-in default	-	TC15.md+M13.md	Y	ecalc	rns_dist.c	2	-	-	
-RNS_DIST_CACHE_PARTIAL_FORCE	bool	unset	unset	0|1	test-only	-	PC15.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
-RNS_INIT_POOL_LOG	int	unset	unset		test-only	-	T11.md+S51.md	Y	ecalc	rns_mul.c	2	archive:scripts_2026-10-23/aac6.conf (CPX launch note, T11.md)	2027-04-12	
 RNS_POOL1_GB	float	unset	unset		built-in default	-	R.md+T.md	Y	ecalc	mn_plan.c,rns_mul.c	4	-	-	
 RNS_POOL_GROW	int	0	0		test-only	-	B16.md+R.md	Y	ecalc	binsplit.c,rns_mul.c	6	diagnostics (TESTING.md)	2027-04-12	
 RNS_STRATEGY	bool	derived	derived	0|1	built-in default	-	B13b.md+G13d.md	Y	ecalc	rns_dist.c	1	-	-	

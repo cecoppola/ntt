@@ -10,13 +10,9 @@ BS_CKPT_BG_MBS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or faul
 DIST_GEN	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DIST_LOGN_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DIST_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-ECALC_BUDGET_RANK_GB	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_FATAL_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_INIT_ONLY	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-ECALC_LIVE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-ECALC_MEM_GUARD_PERIOD	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_MEM_SAMPLE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-ECALC_MEM_SAMPLE_FILE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_NP_AUTO_TERMS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_OUT_PACKED	fallback	coordinator (TASKS S)	2026-11-11	=0 (ASCII) kept as an output form; the 8-byte form =1 removed 2026-10-23 (Q87); default 2
 ECALC_PLANE_CAP	experiment	coordinator (TASKS S)	2026-11-11	`run` is the default (user 2026-10-25); keep 2^30, 2^31, fit as the explicit settings
@@ -25,13 +21,9 @@ ECALC_TEST_CORR	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fau
 ECALC_WINDOWS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 MEM_DPOOL_FILL	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 MN_OUT_DKM_HI_TEST_CARRY	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-MN_OUT_STRIPE_FORCE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-MN_PLAN_QUIET	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 MN_TREE_LOGN_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 NEWTON_DKM_TEST_HI	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 NEWTON_MN_RECIP_TS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-RNS_DIST_CACHE_PARTIAL_FORCE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-RNS_INIT_POOL_LOG	launch-line	archive:scripts_2026-10-23/aac6.conf (CPX launch note, T11.md)	2027-04-12	pool size of rns_init for the CPX nodes (29) and the unit tests; changes no digit
 RNS_POOL_GROW	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DIST_BIG	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_BIG_K	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting

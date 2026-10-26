@@ -96,7 +96,6 @@ DM_TIGHT				built-in default		L114.md+T114.md	the reciprocal's scratch reserved 
 ECALC_ARENA_GB				built-in default		M11.md+A-mem.md	the region arena per device, in GB, instead of the layout's own sizing (auto)
 ECALC_BG_THREADS				built-in default			the background OpenMP team of the recurrence and the writer (48)
 ECALC_BUDGET_CHECK				built-in default		C314.md+V314.md	`1` = after init every rank models its peak (device in use or the model's planes + arena, whichever is larger, + the host terms or VmRSS) and the ranks decide together (an allgather, the ...
-ECALC_BUDGET_RANK_GB				test-only		C314.md	`<rank>:<GB>` sets that rank's share of the node budget (one rank over while its node is not) (unset)
 ECALC_CKPT_TOP_SLACK				built-in default		N13.md+IO15.md	`ECALC_CKPT_TOP=2`: the seconds a release may wait for the writer (1)
 ECALC_CORR_PATCH				built-in default		KP15.md	the division's ±1 corrections (/dx/ ≤ 64) made after the size-1 writer started on X (the hook before the low product) are **not** applied to X: T1 takes X's residues from the writer thread ...
 ECALC_CORR_PATCH_ZONE				built-in default		K15.md	with `ECALC_CORR_PATCH`, the digits at the end whose T2 windows are checked after the patch instead of by the writer (4096)
@@ -104,10 +103,7 @@ ECALC_FATAL_ABORT				built-in default		S18W.md+C314.md	`1` = a fatal error ends 
 ECALC_FATAL_TEST				test-only		C314.md	`1` = the four bs worker threads fail together right after the seeds (the in-phase guards' pattern): one message, rc 3 (0)
 ECALC_FATAL_WAIT				built-in default		C314.md	seconds the first failing thread may spend on its report (the memory accounting) before a watchdog `_exit`s (60)
 ECALC_INIT_ONLY				test-only		L114.md+P13b.md
-ECALC_LIVE				test-only		T114.md+M615.md	1 = a `live:` line after every bs level, every tree level (size > 1), every Newton doubling and at the division's end: the block pool's live bytes per APU, the peak since the previous line, ...
-ECALC_MEM_GUARD_PERIOD				test-only		IO15.md
 ECALC_MEM_SAMPLE				test-only		IO15.md+S114.md	seconds between memory samples (RSS, MemFree, MemAvailable, Cached, Dirty, Writeback from `/proc/meminfo`, the pool's live bytes per APU), a summary line at exit (minimum MemAvailable, ...
-ECALC_MEM_SAMPLE_FILE				test-only		S114.md	the sampler's output file (`%d` = the node-process rank) instead of stderr (unset)
 ECALC_NODE_GB				built-in default		P16.md+C314.md
 ECALC_NP_AUTO_TERMS				test-only		NP15.md	under `ECALC_NP=auto`, the switch-over in terms (1 … 58 424 467 928, the three-prime bound): a lower value makes small runs form both counts (the forced tests of results/PRIMES_STRATEGY.md ...
 ECALC_ODIRECT				built-in default		S114.md+KP15.md	1 = the checkpoint files (the top-level set, in the background) and the output file are written with O_DIRECT through aligned buffers (`spill.c`'s `sp_file`; the last partial block padded, ...
@@ -125,9 +121,7 @@ MN_OUT_CHUNK_MB				built-in default		IO15.md+A-out.md	the streamed writer's digi
 MN_OUT_DKM_HI_TEST_CARRY				test-only		EW15.md
 MN_OUT_EARLY				built-in default		IO15.md	at size > 1 the part file starts at the division's hook (X formed, before the low product: `newton_mn_x_hook` → `mn_out_early_start`) in a background thread over the node's share, as the ...
 MN_OUT_STRIPE				built-in default		IO15.md+SC15.md	`<count>[:<stripe MB>[:<OSTs>]]` — each part file created with that Lustre layout (`lfs setstripe`); with `<OSTs>` the first OST is `(part × count) mod OSTs`.
-MN_OUT_STRIPE_FORCE				test-only		IO15.md
 MN_OUT_THREADS				built-in default		IO15.md+TARGET_HW_REVIEW.md	pwrite threads per chunk of the part file (8)
-MN_PLAN_QUIET				test-only		L13d.md	1 = `MN_PLAN_ONLY` / the planner prints nothing but the result lines (0)
 MN_TREE_LOGN_TEST				test-only		G12.md+M13.md	the tree's levels at a lowered plane cap so the grids run at 10¹⁰ on one node; the division at its own cap (0)
 NEWTON_DKM_TEST_HI				test-only		DKM15.md+EW15.md
 NEWTON_MN_GROUPS				built-in default		X.md+G13d.md	at size > 1 the reciprocal's early doublings on the smallest subgroup the model prefers (X1); 0 = the full group (1)
@@ -137,8 +131,6 @@ NEWTON_RECIP_GUARD				built-in default		R114.md	the reciprocal's cut (always on)
 RNS_BATCH_LOCAL_MIN				built-in default		P3.md+R.md	below this many products the striped batch path is used (16)
 RNS_BATCH_TILE_GB				built-in default		P.md	the batch tiers' plane budget per device in GB (a + b planes), capped by the pools (15)
 RNS_DIST_CACHE_MARGIN_GB				built-in default		TC15.md+M13.md	free device memory kept when sizing the cache (24)
-RNS_DIST_CACHE_PARTIAL_FORCE				test-only		PC15.md
-RNS_INIT_POOL_LOG				test-only		T11.md+S51.md	the log2 size `rns_init` uses for the pool in the unit tests (`rns_init(31)` is fixed there; a CPX XCD has 22.9 GB); `29` makes aac6's CPX nodes usable up to 4 × 10⁹ digits; unset = ...
 RNS_POOL1_GB				built-in default		R.md+T.md	plane pool 1 per device in GB (auto: the dist tier's 3q + 16 limbs)
 RNS_POOL_GROW				test-only		B16.md+R.md	a region pool that would grow inside bs aborts with the accounting unless 1 (the stress recipe sets it) (0)
 RNS_STRATEGY				built-in default		B13b.md+G13d.md	the single-node product's strategy (`dist_core`: top levels, reciprocal, division): `C` four-step; `B` prime-per-APU (planes that do not fit the pools from an extra per-APU buffer); `auto` ...

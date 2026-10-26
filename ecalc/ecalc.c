@@ -313,8 +313,7 @@ static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned lon
  *   to come   = rank peak - (device in use now + VmRSS now): what the rank still has to take from the node;
  *   node over = the sum of its ranks' peaks > ECALC_NODE_GB (default 480), or the sum of their "to come" > MemAvailable
  *               (/proc/meminfo, the smallest reading of the node's ranks); a rank is also over when its peak exceeds its
- *               share of the node budget (ECALC_NODE_GB / ranks on the node; ECALC_BUDGET_RANK_GB=<r>:<GB> sets rank r's
- *               share, a test hook: one rank over while the node is not).
+ *               share of the node budget (ECALC_NODE_GB / ranks on the node).
  * The ranks allgather their figures (the host name's hash, the node's ranks found by it) and all apply the same rule to the
  * same numbers: the collective verdict is a max-reduce of "over" over the communicator.  Default on (see budget_check
  * below); ECALC_BUDGET_CHECK=0 turns it off. */
@@ -332,17 +331,15 @@ static void budget_check(unsigned long N, int verbose)
     size_t cres = binsplit_comm_resident_bytes(N, gn); if (vpe_ppg()) cres /= (size_t)binsplit_ppn_proc();   /* the device pools exist already (the transport opened before rns_init) and are in the model's host term: not still to come (plq2: 2 n 1e10 Q2 was refused for 62 GB of them) */
     size_t dpk = (dev > pb + ab ? dev : pb + ab), hpk = rss > hb ? rss : hb, peak = dpk + hpk, now = dev + rss + cres;
     struct meminfo mi; memset(&mi, 0, sizeof mi); mem_meminfo(&mi);
-    const int K = 7;
-    uint64_t v[7] = { host_hash(), peak / L, dpk / L, hpk / L, peak > now ? (peak - now) / L : 0, mi.avail, (uint64_t)-1 };
-    const char *t = getenv("ECALC_BUDGET_RANK_GB");   /* test hook: <rank>:<GB> */
-    if (t) { int r = atoi(t); const char *c = strchr(t, ':'); if (c && r == me) v[6] = (uint64_t)(atof(c + 1) * 1e9); }
+    const int K = 6;
+    uint64_t v[6] = { host_hash(), peak / L, dpk / L, hpk / L, peak > now ? (peak - now) / L : 0, mi.avail };
     uint64_t *all = (uint64_t *)calloc((size_t)sz * K, 8);
     if (sz > 1) mn_allgather(mn_comm(0), v, K, all); else memcpy(all, v, sizeof v);
     int nover = 0, first = -1; char *over = (char *)calloc(sz, 1);
     for (int r = 0; r < sz; r++) {
         const uint64_t *a = all + (size_t)r * K; int nr = 0; uint64_t sum = 0, come = 0, avail = (uint64_t)-1;
         for (int q = 0; q < sz; q++) { const uint64_t *b = all + (size_t)q * K; if (b[0] != a[0]) continue; nr++; sum += b[1]; come += b[4]; if (b[5] < avail) avail = b[5]; }
-        double share = a[6] != (uint64_t)-1 ? (double)a[6] : node_gb * 1e9 / nr;
+        double share = node_gb * 1e9 / nr;
         int why = (double)sum > node_gb * 1e9 ? 1 : (avail && come > avail) ? 2 : (double)a[1] > share ? 3 : 0;
         over[r] = (char)why; if (why) { nover++; if (first < 0) first = r; }
         if (r == me) rns_dist_cache_budget(share - (double)a[1], nr);   /* this rank's room and its node's ranks for the transform-cache fit rule (rns_dist.c cache_avail) */
