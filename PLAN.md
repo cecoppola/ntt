@@ -110,7 +110,7 @@ Open work in this repository is in `TASKS.md`.
 1. Install the rules (`target/governance/install.sh`), probe the system (`target/probe/probe.sh`, login then one node; about
    30 s on aac7, m) and generate `target/config/target.conf` (`target/probe/gen_conf.py`).
 2. Build path 1 and path 2 (bench items `bld01`, `bld02`; about 25 s each on aac7, m).
-3. Bench (`target/bench/run.sh`, one worker per allocation, 57 items run once each in priority order; questions and the
+3. Bench (`target/bench/run.sh`, one worker per allocation, 59 items run once each in priority order; questions and the
    model constants they feed: `target/bench/QUESTIONS.md`): memory edge, correctness, fabric (injection, latency,
    all-to-all at 2/8/64 nodes), paths, launch shape, init, write, `MN_NONPOW2_CAP` cost (`prm08`), calibration.
 4. Ladder (`target/ladder/ladder.sh`): 1, 8, 64, 576 nodes on physically adjacent nodes at 8e9 digits per node (Q120), both paths,

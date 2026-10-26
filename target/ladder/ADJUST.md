@@ -32,6 +32,8 @@ L3 runs as a staircase (user decision Q121; commands in RESTART.md §8): s1 4.60
 Model s1 -> s2 +63 %, s2 -> s3 3.6x of wall. For the headline at the other levels (later): L0-L2 at 6.632e10 per node model
 102.7 / 118.2 / 149.6 s without write.
 `collect` prints the measured / model ratio per path; the model figure of `L<n>.conf` is for the conf's digits only.
+The model has no term for `ECALC_PLANE_CAP=2^30` (Q122): expect measured/model about 2.6 s lower than the default would give at
+L0 (aac7 1 n 8e9, m); the growth from level to level is the check.
 
 ## 2. Gate: move up when all of these hold (a: thresholds are ours, change them on evidence)
 
@@ -66,6 +68,7 @@ Keys in the summary are `p<path>r<run>.<key>` (`raw/<id>.log` is the full output
 | 9 | mean `total` is 1.5 x the model or more and no phase explains it | placement or NIC problem | Re-run L1 with `--set` unchanged on another cabinet (`--exclude` the first cabinet's hosts) to see if locality matters; check `fi_info` / NIC counts from the probe against 8 per node. |
 | 10 | `rc` 124 (timeout) | too slow or hung | Look at the last phase in `raw/*.log`; a hang in registration: confirm `FI_MR_CACHE_MONITOR=userfaultfd`; then raise `TIME_MIN` only if the log shows progress. |
 | 11 | run 1 of a fresh allocation much slower than run 2 on the same host | cold start (aac7 rehearsal 2026-10-25, m: first run 154.9 s, later runs on the same node 76.9-85.5 s; init 47.4 vs 23.6-24.2 s) | Time only from run 2 on (L0 has RUNS=2 for this); compare replicas at the same run index; do not exclude a host for its first run alone |
+| 12 | `ECALC_PLANE_CAP=2^30` (Q122, in L0-L3 and step s1) slower than the default at 8 nodes (bench `prm10`), or any refusal or rc 6 at start | the half-size plane pools add pieces to a level's products (unmeasured above 1 node; aac7 1 n 8e9: -2.64 s, m) | `--set ENV_ECALC_PLANE_CAP=` for the levels where it loses; keep it where it wins; record both |
 
 NPCAP (matters only from 4.5e10 digits per node, i.e. for the 3.82e13 headline later, not for the 8e9 campaign; bench item `prm08` measures `MN_NONPOW2_CAP` on vs off at a non-power-of-two node count): if it
 shows a large time cost for NPCAP off, the fallback for L3 is a smaller digit count with NPCAP on (about 2.67e13 fits, mod
