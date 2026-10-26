@@ -830,6 +830,16 @@ size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *plan
     if (host_) *host_ = host;
     return planes + arena + host;
 }
+/* ECALC_PLANE_CAP=run: the run's largest single product, in limbs: the division's t = A_h mu of 2 k + 8 limbs (dm_layout's tcap before DKM / tight
+ * trim it; k = dl + 4, dl the limbs of 10^d, from N alone as dm_layout reads them).  A 2^30 cap serves the run when this fits one mn plane of the cap
+ * (ecalc.c plane_cap_switch: <= 2^(mn_logn_cap(g)) at pool_log 30): above that the products are gridded into pieces and the plan has not been measured there
+ * (1 node: 2 k + 8 > 2^30 from about 9.66e9 digits; Q122 measured the cap up to 8e9). */
+size_t binsplit_div_product_limbs(unsigned long N)
+{
+    double lg = lgamma((double)N + 1.0) / log(10.0);
+    size_t dl = (size_t)ceil((lg - 50.0) / 18.0) + 1, k = dl + 4;
+    return 2 * k + 8;
+}
 /* MS: BS_LAYOUT_ONLY / its plan check at a point of g node-processes set COMM_SIZE to g while the point is laid out, and
  * restore the environment's value after (g = 0).  rns_pool0_np() reads COMM_SIZE, and P24's decision (rns_dist.c mn_p24_of)
  * reads rns_pool0_np(): without this the layout and its check did not see P24 (P24's open issue 3).  Nothing else in the
