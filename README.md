@@ -61,7 +61,7 @@ path 1 digit-identical and no slower.** Current figures are in `PLAN.md` section
    `mnrun.sh` adds, for a Cray build under `ECALC_PE_PER_GPU=1`, the NUMA placement (`MNRUN_PPG_CPUBIND=ldom`,
    `XSHMEM_CRAY_NUMA=1`), the automatic libsma heap and the plan. Digits are identical to path 1.
 
-The exchange worker thread runs in every layout (the polling alternative was removed 2026-10-25); `RNS_BATCH_SPLIT` is automatic under `ECALC_PE_PER_GPU=1`. The plain SHMEM transport and `COMM_TRACE` were removed 2026-10-25 (Q103). `mnrun.sh` sets the communicator environment; the
+The exchange worker thread runs in every layout; `RNS_BATCH_SPLIT` is automatic under `ECALC_PE_PER_GPU=1`; the plain SHMEM transport is gone (Q103), the transport is xshmem on both paths. `mnrun.sh` sets the communicator environment; the
 launch lines (test system and target) are in `PLAN.md` section 3; `target/kit/target_kit.sh -h` describes the target session.
 Cluster access is described in the private protocol.
 

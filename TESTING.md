@@ -24,8 +24,7 @@ covers it; its log shows the `I3:` line.
     tools/gate.sh --nodes 2 --alloc --line aac7            # own short allocation instead of a hold
 
 **Path 2 gate (the Cray SHMEM path, user rule Q85; run when `xshmem*`, `comm_xshmem.c`, `pe_geo.c`, the launcher's P branch or shared multi-node code changed).**
-Build with `make -B -C ecalc XSHMEM=cray GMP_HOME=<gmp>` (aac7: `module load cray-dsmml cray-openshmemx`; rebuild with `-B` when
-switching `XSHMEM`). Then 10⁹ digits identical to the reference at 1 node and at 2 nodes with
+Build as in `README.md` (path 2). Then 10⁹ digits identical to the reference at 1 node and at 2 nodes with
 `--env "ECALC_PE_PER_GPU=1 XSHMEM_LANES=2"` (the gate passes `--env` words to `mnrun.sh`), and `tests/t_xshmem correct` with `XSHMEM_LANES=2` at 1, 2 and 3 nodes
 x 4 PEs (build `make XSHMEM=cray GMP_HOME=<gmp> tests/t_xshmem`; every PE must print `XT_RESULT PASS`). Path 1 is the plain gate above and must stay digit-identical and no
 slower after any shared-code change. A timing claim between the paths needs interleaved pairs (ABBA) and an A/A control: aac7 run times are bimodal, so single runs prove nothing (`results/NODE_SLOWMODE.md §BM`, `results/XSHMEM.md` craylane). Digit reference at production size: 2 n 1e11 on both paths gives sha 578f5efb0ff2b9af of the part files' concatenated output (main after Q96, `results/XSHMEM.md §XWLAT`).
