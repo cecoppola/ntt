@@ -23,7 +23,7 @@ Times Eastern.
   is in points).
 - **Strategy (Phase 13).** For one dependent product prime-per-APU (B) is the fastest at 2^20..2^32 points; the boundary is memory not
   time (§S13). `RNS_STRATEGY=auto` (B where its planes fit the pools, else C; the grid prefers B-fitting pieces) is the default since
-  Phase 13c; B4 was slower and was removed 2026-10-12 (§B13b). `ECALC_PLANE_CAP` 2^31 default.
+  Phase 13c; B4 was slower and was removed 2026-10-12 (§B13b). The plane cap default is `run` (`results/MEMORY.md`).
 - **Superseded:** the planning tables in §P2415 §1.4/§4.2 and §NP15 §4 (modelled targets of 2026-09-28; later target figures are in
   results/TARGET.md); §P15's option (a)/(b) discussion (resolved: `auto`, then D18); the 2^35-cap option (c).
 

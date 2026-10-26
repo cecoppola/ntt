@@ -67,8 +67,7 @@ Timings (all m, current engine, after the 2026-10-21 default change Q73).
 
 Older figures (comm_ofi era, 1 n 1e11 129.3 s before the 2026-10-12 defaults, the 1 / 2 / 4 / 6 n scaling at 6.441e10 per node 67.6 / 119.4 / 172.2 / 204.6 s, 6 n 3.8646e11 190.7 to 202.1 s) are in `results/TIME_MODEL.md §M2a`, `§SCALE35` and `archive:results_merged_2026-10-23/NIGHT_RUNS.md`; the 4-6 node figures have not been re-measured on the current engine.
 
-**Not yet done.** ecalc has not run on the target machine. The 576-node layout is refused by the planner with the defaults: device 407.41 GB per node, margin -33.97 GB
-(m, planner, 2026-10-25, `plan_values.py --fit` with `ECALC_NP=auto MN_T_CHUNK_MB=2048`; section 3); it fitted with 14.48 GB of margin on 2026-10-19 before `MN_NONPOW2_CAP` auto (Q58) enlarged the planes, and fits again with `MN_NONPOW2_CAP=0`; the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
+**Not yet done.** ecalc has not run on the target machine. The 576-node layout is refused by the planner with the defaults (margin -33.97 GB, section 3); the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
 `results/TARGET.md §TGT`; at the user-supplied 100 GB/s injection peak per APU, a for the achieved rate); the write adds
 12.8 s at ecalc's assumed 1.0 GB/s per node and 1.0 s at the file system's 1 TB/s (mod); the target has run only the
 memory and exchange benchmarks (`results/TARGET.md §TGTBENCH2`).
@@ -98,8 +97,7 @@ asks for a pool of 2304 MiB and a heap of 2816 MiB (m, planner).
 nodes, profile) the device peak per node and per APU against `ECALC_DEVICE_GB` (target 373.44 GB per node, m; aac7 444.0
 in `profiles/aac7.conf`), the node against `ECALC_NODE_GB`, the margins and the largest consumers;
 `tools/plan_values.py --fit`, `mnrun.sh`, `tools/gate.sh` and the kit's plan stage print it and refuse a run that does not
-fit (`results/LAUNCH_DEFAULTS.md §FIT`). At 3.82 × 10¹³ digits on 576 nodes (target profile): device 407.41 GB per node,
-margin -33.97 GB, refused (m, planner, 2026-10-25, `ECALC_NP=auto MN_T_CHUNK_MB=2048`; node 443.49 GB, margin +36.51 GB; `DM_MN_WRAP` off, with it 433.18 GB); cause: `MN_NONPOW2_CAP` auto (Q58, 2026-10-20) takes 43/32 larger planes at 6.6e10 digits per node (planes +41.3, v-slots +3.9, comm pools +3.2 GB); with `MN_NONPOW2_CAP=0` the figure is the 2026-10-19 one, device 358.96 GB, margin +14.48 GB, node 395.04 GB (the 12.9 GB of earlier notes is the superseded L1 estimate, `results/LAUNCH_DEFAULTS.md §FIT`). Every setting that is not a plain
+fit (`results/LAUNCH_DEFAULTS.md §FIT`). At 3.82 × 10¹³ digits on 576 nodes (target profile, `ECALC_NP=auto MN_T_CHUNK_MB=2048`): device 407.41 GB per node, margin -33.97 GB, refused with `MN_NONPOW2_CAP` auto; with `MN_NONPOW2_CAP=0` 358.96 GB, margin +14.48 GB (m, planner, 2026-10-25; consumers and cause in `results/LAUNCH_DEFAULTS.md §FIT`). Every setting that is not a plain
 default has an owner and a review date (`tools/switch_registry.py --check`).
 
 ## 4. Plan to the target run

@@ -10,7 +10,7 @@ code and the central docs win. Reports are grouped by topic (`results/<TOPIC>.md
 History is outside the repository: the old measurement logs (`archive:RESULTS_ARCHIVE_1-114.md`,
 `archive:RESULTS_HISTORY_2026-10-12.md`, "RESULTS §NN" citations), the old-ID lookup, merged and superseded report sections
 (`archive:results_merged_2026-10-19/`, `archive:results_merged_2026-10-23/`, `archive:results_merged_2026-10-24/`),
-raw data and drivers (`archive:results_raw_2026-10-19/`).
+raw data and drivers (`archive:results_raw_2026-10-19/`); per-item sections of SESSIONS, CACHE, AAC7_PORT, OFI_FABRIC, SHMEM (`archive:repo_cl6_2026-10-25/results/`).
 
 Labels: **m** measured, **mod** modelled, **a** assumed. Times are wall-clock seconds. Test machine: aac7 (MI300A nodes,
 Slingshot; the only cluster in use).
@@ -31,7 +31,7 @@ Run times at the current engine are in `PLAN.md` §2; this table holds the figur
 | 4-node run-to-run modes (libfabric era, `comm_ofi`) | fast ≈ 181-185 s, slow ≈ 208-214 s: the inter-node all-to-all rate is set per launch | m | results/NODE_SLOWMODE.md §T05, §T09 |
 | 4-node calibration (libfabric era) | total ≈ 80.8 s + 1388 / r (r = all-to-all GB/s per APU thread), residual sd 1.6 s | m/mod | results/TOOLS_PROFILES.md §B07 |
 | target: 576 nodes, 3.82 × 10¹³ digits | ≈ 182-185.5 s without the write (profile `target_l4`; fabric rate assumed; 182 s in results/TIME_MODEL.md §L4, `PLAN.md` §2 quotes 185.5 s; the two differ by the model version, not re-reconciled here) | mod | results/TIME_MODEL.md §L4, `PLAN.md` §2 |
-| target device memory, rank 0, 3.82 × 10¹³ | device 407.41 GB per node vs the 373.44 GB edge: margin -33.97 GB, REFUSED with the defaults (`MN_NONPOW2_CAP` auto: planes 162.22 + arena 214.75 + comm pools 12.88 + bs growth 6.00 + v-slots 11.56 GB; `ECALC_NP=auto MN_T_CHUNK_MB=2048`, planner, 2026-10-25); `MN_NONPOW2_CAP=0` gives device 358.96 GB, margin +14.48 GB (the planner figure of 2026-10-19, which was never re-run after NPCAP's default of 2026-10-20) | mod/m | results/LAUNCH_DEFAULTS.md §FIT |
+| target device memory, rank 0, 3.82 × 10¹³ | device 407.41 GB per node vs the 373.44 GB edge: margin -33.97 GB, REFUSED with the defaults; `MN_NONPOW2_CAP=0` gives 358.96 GB, margin +14.48 GB (planner, 2026-10-25; consumers in the evidence file) | mod/m | results/LAUNCH_DEFAULTS.md §FIT |
 | target device edge | 93.36 GB per APU = 373.44 GB per node (n = 5, 0 % spread) | m (target) | results/TARGET.md §TGTBENCH2 |
 | `BS_ARENA_TRIM_GB=8` (opt-in, default 0), 2 n 1.2882e11 | arena -34.4 GB per node (266.3 -> 231.9); 115.2 s (7 runs) vs 111.4 s (5 runs); 3 n 1.9323e11: 149.4 vs 149.6 s; 0 remaps | m | results/MEMORY.md §ATRIM |
 | memory fit before every launch (D26): the planner refuses a run that does not fit | target 3.82e13:576: 407.41 GB device vs 373.44, refused (NPCAP auto); 358.96 with `MN_NONPOW2_CAP=0` (`DM_MN_WRAP` off; with it 384.73, refused); aac7 6 nodes 374.22 vs 444 | mod/m | results/LAUNCH_DEFAULTS.md §FIT |
@@ -67,7 +67,7 @@ names identify the change only.
 | `NEWTON_CHAIN_GUARD` (D25), `DM_MN_WRAP` (D22, automatic with ≥ 5 GB device margin, D26) | 2026-10-12/13 | guard removes a rare fatal (error -22 -> 0 units); wrap: 6 n dm -6.25 s [-11.47, -1.03], +5.4 GB per APU | m | results/DIVISION.md §RECIP, §P1 |
 | division in two quotient halves (DKM) | Phase 15 | -25.7 s at 10¹¹ | m | results/DIVISION.md §DKM15 |
 | P24: 24 digits per point, four primes in every multi-node product (D18) | 2026-10-12 | -38 % at 10¹⁰ on 2 processes; 2 n -8.9 s at 1.2882e11 | m | results/PRIMES_STRATEGY.md §P2415, §MEAS-P24 |
-| `RNS_STRATEGY=auto`, `ECALC_PLANE_CAP=2^31`, three primes at size 1, `ECALC_NP=auto` above the bound | Phase 13/15 | three primes: -17 % wall, -25.8 GB | m | results/PRIMES_STRATEGY.md §B13b, §NP15 |
+| `RNS_STRATEGY=auto`, three primes at size 1, `ECALC_NP=auto` above the bound | Phase 13/15 | three primes: -17 % wall, -25.8 GB | m | results/PRIMES_STRATEGY.md §B13b, §NP15 |
 | write overlapped with the division: `ECALC_CORR_PATCH=2`, `MN_OUT_EARLY=1`, `MN_OUT_DKM_HI=1`; packed 60-bit output `ECALC_OUT_PACKED=2` | Phase 15; 2026-10-12 | write hidden under the division; 0.4167 B/digit, 10¹⁰ write 18.6 vs 27.9 s ASCII | m | results/OUTPUT_IO.md §IO15, §O4 |
 | `FI_MR_CACHE_MONITOR=userfaultfd` set by `mnrun.sh` (`disabled` refused); `FI_UNIVERSE_SIZE`, `FI_LOG_LEVEL=warn` | 2026-10-06/11 | reproducer hangs 22/105 -> 0/104; 46 four-node runs, 0 segfaults | m | results/CRASHES_HANGS.md §S46, results/TARGET.md §TGTBENCH2 |
 | transport opened before the arenas (`COMM_INIT_EARLY`, built in) | 2026-10-05 | init segfault 8/78 before; ≥ 32 processes start | m | results/CRASHES_HANGS.md §S16 |
