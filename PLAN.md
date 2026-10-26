@@ -88,6 +88,11 @@ The exchange worker thread runs in every layout; `RNS_BATCH_SPLIT` is automatic 
 is xshmem on both paths (the plain SHMEM transport is gone, Q103). Both lines add `ECALC_NP=auto`, `MN_T_CHUNK_MB=2048`, the memory guard and the crash-trace handler. The full lines
 (`mnrun.sh` is called with them) are kept in:
 
+| system | line | source |
+|---|---|---|
+| aac7 | `LAUNCH_LINE_KEYS` of `profiles/aac7.conf` (`tools/profile_load.py aac7 --line`) | `tools/gate.sh --line aac7` runs it; one source (D15) |
+| target | `target/config/target.conf.template` (site values `__FILL__`, `MN_NONPOW2_CAP=0` by Q119); filled on the target by `target/probe/gen_conf.py` and committed there (Q112) | `target/RESTART.md` |
+
 Profiles (`profiles/*.conf`, loaded by `tools/profile_load.py`; precedence: explicit environment > profile > code default)
 hold what is machine-specific. Size-dependent values are computed, never typed: the SHMEM pool and library heap (planner
 `MN_PLAN_ONLY`), `FI_UNIVERSE_SIZE` (`mnrun.sh`) and the tree schedule `MN_GROUPS`. `tools/plan_values.py [--profile P]
