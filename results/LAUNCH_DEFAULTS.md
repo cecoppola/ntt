@@ -29,32 +29,9 @@ History. Slot release (now built in) cut the comm_ofi pool 4352 to 2304 MiB per 
 ## DEF — P24 as the multi-node default (D18) and DM_MN_WRAP in the memory model + 6-node A/B (D19 b)
 
 Question: D18 makes P24 the default for every multi-node product (three-prime path stays selectable); D19 (b): count `DM_MN_WRAP`'s extra block-pool memory in `dm_layout`/`mem_model.py` and time `DM_MN_WRAP=0` vs `=1` at 6 nodes with the new default. Branch `def` (from main d1d19bf).
-
-Change:
-- `crt.c ec_np_planes`: under `ECALC_NP=auto`, pool 0 holds four planes at every g > 1 (`mn_p24_of()` true for every multi-node product). New `ECALC_NP_MN3=1` (off by default; removed 2026-10-19, D56) kept the rule before D18 (four planes only from 32 node-processes). `ecalc.c`: `ECALC_NP` unset becomes `auto` at size > 1 (still 3 at size 1). `tools/gate.sh --mn-primes p24|3` replaces `--p24`; `mem_model.py np_planes` follows.
-- D19 (i): `binsplit.c dm_wrap_bytes` / `mem_model.py wrap_bytes`: with the wrap used, the mn division's low-product moment gains 2 quarters of P + 4 limbs per APU; the `layout:` line prints ` wrap <bytes>`.
-- `DM_MN_WRAP` default unchanged (0) in this item (changed later: D22, then D26 automatic, see FIT).
-
-#### 1. Planner and memory model (login node, m)
-- `MN_PLAN_ONLY=3.82e13:576`: plan check OK, 1236 products; tree 42/42, recip 49/49, div 18/18 pieces at four primes. Identical with `ECALC_NP_MN3=1` (at 576 the old rule already gave four planes). With `DM_MN_WRAP=1`: layout node 380.84 → 406.61 GB (+25.77), with v-slots 388.51 → 414.28.
-- `BS_LAYOUT_ONLY` at 6.441e10 × {1, 2, 4, 6} and 3.82e13/576 × 576, four variants: `--check-c` **0 terms not exact, largest arena difference 0.0000 %** (20 plane figures each).
-- Pool 0 at 6.441e10 per node, cap 2^31 (explicit; the C default is `run`, 2^31 here above its bound): g 2, 4, 6 planes 120.88 GB per node (P24) vs 103.70 with `ECALC_NP_MN3=1` (+17.18 GB per node, +4.3 GB per APU); g 576: 120.88 both.
-- Wrap term per APU (mod): 8.59 GB at 2 and 4 nodes, 5.73 at 6, 7.64 at 3.82e13/576; arena 214.75 → 240.52 GB, room node 386.84 → 412.61 GB: fits 480. At 2 nodes the model's 8.6 GB per APU is an upper bound against the 4.3 GB pool growth measured in P1 (3-prime form).
-
-#### 2. Gates (aac7 queue, 1e9 digits, m)
-All PASS (rc 0, VERIFY OK, digits identical): P24 at 2 nodes 18.79 s and 20.96 s (rebased), 1 node 12.27 s (three planes, unchanged at size 1), 4 nodes 20.30 s; `--mn-primes 3` (option removed 2026-10-19, D56) at 2 nodes 17.09 s and 17.03 s. Log checks `plane pool 0 for 4 primes` (P24) or `3 primes`. Device per APU max 33.1 of 137.4 GB (P24, 2 and 4 nodes; 4 nodes: planes 120.3 GB per node + block pool 8.6), 28.8 GB with three primes. At 6.441e10 per node the model gives the 4-node node peak 423.3 GB with P24 (mod), inside 480; MEAS-P24 measured 88.1 GB per APU in use at init at 2 nodes (`results/PRIMES_STRATEGY.md §MEAS-P24`).
-
-#### 3. 6-node A/B of DM_MN_WRAP with P24 (m)
-Item `87_def_abba6`, 2026-10-12 20:55-21:50, main f232085; 6 × 6.441e10 = 3.8646e11 digits, no digit output, aac7 line + `COMM_XSTATS=1 MN_WAIT_STATS=1`; A = `DM_MN_WRAP=0`, B = `=1`; rounds A B B A, cap 4 rounds. All 16 runs rc 0, VERIFY OK, four-prime plane pool; runs 181-229 s.
-
-| quantity | A mean (8) | B mean (8) | B − A per round | B − A mean, 95 % CI, 4 rounds |
-|---|---|---|---|---|
-| `total` (s) | 199.40 | 196.54 | −4.13, −2.62, −6.89, +2.19 | −2.86 [−8.92, +3.19], p 0.23 (cap reached) |
-| dm (s) | 84.88 | 78.63 | −3.46, −8.92, −9.26, −3.36 | −6.25 [−11.47, −1.03], p 0.032 |
-
-Device memory per APU (m): in use at init 81.6 → 88.1 GB (+6.5); block pool at the division 51.54 → 57.98 (+6.44; 60.13 on some APUs, +8.59); division window peak 46.88 → 52.25 (+5.37; model wrap term 5.73, mod); driver-reported peak 84.4 → 92.9 (+8.5 of 137.4).
-
 Verdict: D18 (P24 default) merged. `DM_MN_WRAP=1` saves 6.25 s of the division (p 0.032, 4 rounds) but `total` is n.s.; costs +5.4 GB per APU at the division's peak. Decision went to the user (became D22, then automatic D26). Open: `BS_LAYOUT_ONLY` reads `ECALC_NP` once per process (lay out multi-node points with `ECALC_NP=auto`); P24 at non-power-of-two groups below 32 nodes not gated; 4 more rounds could settle `total`; the wrap term was checked against one peak (5.37 vs 5.73 GB, 6 nodes) and P1's 2-node growth (4.3 vs 8.59 modelled). Raw: aac7 `<cluster work dir>/def/`.
+
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/LAUNCH_DEFAULTS.md`.)
 
 ## FIT — the memory fit before every launch, and DM_MN_WRAP automatic
 
@@ -88,24 +65,10 @@ Open: the device figure is the layout's, not a target measurement (bs growth 6.0
 ## S47 - exchange settings re-confirm at 4 nodes (aac7, batch 2026-10-11, track T2)
 
 Finished 2026-10-11 08:56; **verdict INCONCLUSIVE at 4 nodes**.
-
 Question: on the aac7 line (`e16_headline.sh`, 4 nodes, 6.441e10 digits per node = 2.5764e11 total, no digit output): (i) `MN_T_CHUNK_MB` 1024 (A) vs 2048 (B; aac7 line since 2026-10-08, S22 D2: 24 rounds, −42.3 s at 10 nodes); (ii) X2 off (A) vs on (B; since 2026-10-09, S31: −31.7 s at 10 nodes). `COMM_LAYER_VSLOT_SHARE=1` kept in both arms.
-
-Design: build via `gate.sh --build` at main `daeb0f9` (SHMEM; 1-node 1e9 gate PASS; 4-node gates with each non-default arm PASS, m); hold job 12471 (4 nodes exclusive); driver `archive:drivers/s47/s47_driver.sh` with watchdog; ABBA interleaved by round (i then ii; odd rounds A B, even B A); page cache evicted and MemAvailable ≥ 428 GB before each run; stop rule per comparison: ≥ 6 complete pairs and (95 % CI excludes 0 or half-width ≤ 3 s), or 10 pairs (cap); budget 2.5 h; a pair counts only if both runs are rc 0 + VERIFY OK. Phase 2 ran the batch queue (13 items, all rc 0).
-
-Results (m; paired difference B − A, positive = B slower; 95 % CI):
-
-| comparison | pairs | ecalc total | driver wall | B faster in |
-|---|---|---|---|---|
-| (i) T2048 vs T1024 | 10 | +6.98 s [-10.32, +24.28] | +8.00 [-8.86, +24.86] | 5/10 |
-| (ii) X2 on vs off | 9 | -2.68 s [-12.30, +6.93] | +0.00 [-7.70, +7.70] | 5/9 |
-
-Both CIs include 0; no difference shown; neither setting confirmed or refuted. All 77 completed runs VERIFY OK.
-- Bimodal totals: runs cluster at about 181-185 s (low) and 207-214 s (high), a 25-27 s gap (same size as the known slow-host stall, S32/S34; no host identified); round 1 slower still (225, 281 s). Counts low/high (threshold 195 s): (i) A 7/3, B 6/5; (ii) A 5/4, B 5/5. Both modes occur in every arm, so the mode is noise (cause unknown; slow-host or placement is a hypothesis). Pairs across modes show ±26 s, so the half-width stayed ~17 s (i) and ~10 s (ii) and the cap ended phase 1.
-- Failures: two runs crashed with a segfault at the end of init (42 s, rc 1, VERIFY FAILED), both arm A (ii r2 on aac7-n11; i r7 on aac7-n10); pairs dropped; independent of the setting, look like the known intermittent init crash; not investigated.
-- Queue bug fixed in the driver: `OUT` and `HOLD` were exported and inherited by queue items; `run_item` now uses `env -u OUT -u HOLD`.
 - Verdict: inconclusive; point estimates (+7.0 s, −2.7 s) well inside the noise (±17, ±10 s). Both settings stay on the aac7 line (evidence: the 10-node S22/S31 runs). To resolve at 4 nodes: remove the cause of the bimodality (per-host stage times, nodechk, fixed node set via `-w`); or about 30+ pairs for (i) (about 3.5 h per comparison, mod); or a paired design with A and B back to back on the same nodes using stage-level times. Rule (user): adopt/keep only on a CI that excludes 0 with identical digits. Raw: aac7 `<cluster work dir>/s47/run/`.
 
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/LAUNCH_DEFAULTS.md`.)
 
 ## AAC7OPT — the fastest settings on aac7 (main 815b7a0 = 208ae18 code, 2026-10-25 13:53-14:31 ET)
 

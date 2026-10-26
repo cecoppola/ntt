@@ -182,25 +182,6 @@ ofi P 14.79 s, Cray P lanes 2 15.11 s, Cray - ofi +0.32 s, 95 % CI [-0.51, 1.15]
 ## XDIAG: day-one checks T1-T8 triage and diagnostic arms (branch xdiag, 2026-10-24, aac7 2 n, measured)
 
 Items 9zz2_xdiagt (`t_xshmem`, `t_comm`; REF fba18db), 9zz3_xdiage (ecalc, 2 n 1e10; fba18db), 9zz4_xlane (REF bef6a16, main with Q96); all rc 0; ecalc runs VERIFY OK on every PE, no digit file. aac7 has libsma 11.8, one NIC per PE and no xpmem, so T1-T8 split as follows.
-
-| Check | On aac7 | Reading |
-|---|---|---|
-| T1 context l on NIC l | target-only | aac7 lanes are virtual (one NIC per PE) |
-| T2 host `signal_wait_until` on a device-heap word | target-only | aac7 cray heap is host memory (`caps: dev_heap 0 host_pollable 1`) |
-| T3 allocator names, `SHMEM_ENV_DISPLAY` | partial | the 11.8 settings dump is recorded (`c_env`, `correct` PASS, 8 PEs); device-heap names target-only |
-| T4 put_signal vs put+quiet+signal | run (ofi) | `XT_PUTSIG=nbi`: lat 8 B hop 14.9 us (same as split), a2a 64 MiB 10.3 GB/s per PE against 13.8 (split), stream equal 23.2; the split form stays |
-| T5 `shmem_ptr` | target-only | ofi `xshmem_ptr` is NULL (the `XSHMEM_LOCAL`/`XSHMEM_IPC` warning is printed); cray `XSHMEM_LOCAL=1` in ecalc: no change (below) |
-| T6 NIC count / bandwidth 1 vs 2 lanes | bandwidth only | stream 23.3 GB/s per PE in every lane count; NIC-APU map target-only |
-| T7 thread levels, quiet cost, 4 PEs per node | run | thread level 3; 8 B pingpong 14.9 us (ofi x4), 8.3 us (cray x4), 11.0 (ofi x1), 7.3 (cray x1) |
-| T8 translation misses | host heap only | ofi misses about 1e3 per section; cray host heap 1e7 per section (hipHostRegister'd libsma heap); the device-heap figure is target-only |
-
-**Transport-level tables** (`t_xshmem bw`, 2 n x 4, GB/s per PE, single runs): ofi a2a 16 / 64 MiB 13.75 / 13.80, stream 23.30; cray a2a (L1 runs, see lanes below) 11-17 at 64 MiB. 2 n x 1: ofi a2a 22.2 / 22.95, cray 8.9 / 8.6 (single runs; cray with one PE per node pays the host-heap path, 9zz2 c_bw1). `comm_ofi` (`t_comm --bw 1 5 64`, 2 n x 1): 16 MiB 7.6, 64 MiB 9.8 GB/s per thread against xshmem 22.2 / 22.95. 2 n x 4: 9zz2 died at 64 MiB slabs (device 0 pool 1024 MiB cannot hold 512 MiB more; a test-configuration limit, 4 ranks share device 0); 9zz4 with `COMM_OFI_POOL_MB=2048` ran: 16 MiB 5.33, 64 MiB 3.67 GB/s per thread against xshmem 13.75 / 13.80.
-
-**Flush, waw.** `XSHMEM_OFI_SIG=flush` passes `correct` at 2 n x 4; a2a / stream equal to dc (13.72 / 13.81, 23.29), 8 B hop latency 22.2 us against 14.9 (+7 us, flush chain per signal); ecalc 1e10 2 n D: +0.13 s, CI [-1.35, 1.61] (3 pairs): neutral, dc stays default. `waw` aborts "not yet implemented" (the switch is unbuilt; nothing to measure).
-
-**ecalc arms** (2 n 1e10, path 1 = layout D, 3 rounds, arm minus base, 95 % CI t(df 2) 4.303): `ECALC_XEX_THREAD=0` +1.48 s [0.29, 2.66] (base 22.35 s): the worker wins, in line with XWLAT. `XSHMEM_LOCAL=1 XSHMEM_IPC=1` (ignored by ofi, warning seen 2 per run) +0.03 s [-1.56, 1.61]: the A/A control, so the noise floor is about 1.5 s. comm_ofi (`COMM_TRANSPORT=shmem COMM_OFI=1`) +2.89 s [0.72, 5.06]: xshmem 11 % faster at 2 n 1e10. Path 1P (ofi, `ECALC_PE_PER_GPU=1`, 2 pairs): `ECALC_XEX_THREAD=0` +1.17 s [-3.1, 5.4] (base 15.0 s), not resolved. Path 2 (cray, P, L2, 2 rounds): poll-only 23.7 s against 15.8 s base (23.1 and 24.3 against 14.9 and 16.8; the CI [-11.9, 27.7] is wide at 2 pairs but every poll-only run is 6-9 s above every base run); `XSHMEM_LOCAL=1` (cray `shmem_ptr`) -0.28 s [-4.35, 3.79]: no effect, as expected without xpmem.
-
-**Lanes (9zz4, cray, 4 ABBA pairs from the per-run XT lines; the item's own XTSTAT lines are wrong and not cited).** Per pair L1 and L2 (a2a 64 MiB, GB/s per PE): L1 17.35, 11.29, 17.31, 11.59 (mean 14.39), L2 14.05, 15.39, 14.44, 15.41 (mean 14.82): L2 - L1 +0.44, CI [-6.04, 6.92]. a2a 16 MiB L1 13.59, L2 13.34 (-0.24, [-4.33, 3.85]); stream 16 MiB 21.85 / 21.55, 64 MiB 21.96 / 21.79 (-0.17, [-1.53, 1.19]). Whole run (path 2, 1e10, 3 ABBA pairs): L1 16.20 s, L2 16.65 s, L2 - L1 +0.45 s, CI [-1.43, 2.32]. Reading: lanes 1 vs 2 neutral. Cray L1 is bimodal in the microbenchmark (17.3 or 11.3-11.6 GB/s per PE, alternating by run); the 9zz2 single pair (L2 10.9, L1 17.5) was this bimodality, not a lane effect; L2 is steadier (14.0-15.4). The cause of the 11 / 17 split is not known (possibly which NIC / NUMA placement a run lands on).
-Stat-code bug (item 9zz4_xlane): the awk block reused the variable `k` as both the pair counter and the result of `split`, so the XTSTAT lines report 11 pairs and wrong means; the whole-run STAT line was computed separately and is correct.
-
 **Target-only list:** T1, T2, T5 on a device heap, T6 NIC-APU map and 1 vs 2 real NICs, T8 device-heap counters, the device-heap part of T3; `waw` once built.
+
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/XSHMEM.md`.)
