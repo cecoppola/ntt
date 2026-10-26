@@ -129,27 +129,18 @@ Implementation (`rns_dist.c`, `dist_core` only: the single-node C-form product; 
 
 ## S50: k_gather coalesced write (`DIST_GATHER_TILE`) -- measured, not adopted, removed
 
-Branch s50 from main daeb0f9 (2026-10-10/11). 
-
-#### 1. Design
-`k_gather` writes `x[il*C + j]` with a store strided by C (S40's next floor after the select-of-scalars change, already default as `DBIG_QSEL=1`). `k_gather_tile<QS,T>` (T = 16/32/64): a 256-thread block owns a T x T tile; read phase lane = il (contiguous source run), tile in LDS, write phase lane = j (contiguous destination row). Same arithmetic, digits cannot change; shapes with rows % T or C % T non-zero, or `DBIG_QSEL=0`, fall back. Switch `DIST_GATHER_TILE` = 0 (default) / 16 / 32 / 64 (1 = 32); two call sites in the single-node product; multi-node tier untouched. Probe `tests/t_gather_probe.c` with three tile variants.
+**Do not adopt**: no measurable gain (0.0 +- 0.9 s at 1 node) and shape-dependent (tile 32 slower at rows 1024 x C 524288). Disposition: the code stays off main (archive tag `archive/s50-gather-tile`); results and drivers (`archive:drivers/s50/`) kept. A gain would need to be >= 0.5 s at 1 node to show in 3 rounds.
 
 (Details moved to `archive:repo_cl6_2026-10-25/results/EXCHANGE.md`, 2026-10-25.)
 
 ## P2: speed up k_gather -- stopped after a micro-probe; no switch added
 
-2026-10-12. Question: is there kernel-level headroom in the gather?
-
-- Share of run time (m from reports; mod for canon passes): 1 node 6.441e10 digits, default `DIST_GATHER_RAW=2`: `k_gather_raw<1>` 2.0 s per APU (4.3 % of 47 s GPU time, `results/SINGLE_NODE.md §CAND`); 58 raw gathers ~34 ms each plus 232 canon passes ~3 ms each (~0.7 s mod, `results/EXCHANGE.md §K1b`); total ~2.7 s (mod) of ~70-80 s wall. At 2+ nodes the leaf's mdev uses the same path (saving ~1.4 s at 3.8e13); tree gathers (`k_gather_mn24_np`) have no kernel breakdown in any report.
-- Probe `t_gather_p2_probe.c` (aac7, 1 node, best of 8, all variants identical; rows 8192 x C 65536 / 1024 x C 524288, ms, m):
+- Verdict: remaining headroom 35 -> ~25 ms x 58 calls = **~0.6 s per run** (mod, upper bound; S50's tile gets ~0.3 s and measured -0.08 +- 0.88 s, `results/EXCHANGE.md §S50`); four ABBA rounds resolve ~+-1 s, so no change can be shown. No switch added; no gates (no product code changed). The real lever is layout (produce the operand already in the rank's rows or fold the pull into the multiplications' all-to-all): a design change (ALGORITHM.md), proposed for the user's priority.
 
 (Details moved to `archive:repo_cl6_2026-10-25/results/EXCHANGE.md`, 2026-10-25.)
 
 ## K6: single-node C-tier all-to-all — overlap across primes (`RNS_DIST_OVERLAP=1`) -- measured, not adopted, setting removed
 
-Branch k6 from main a448d73 (2026-10-12). Source: OPPORTUNITIES §B.3 K6 <- `results/KERNELS.md §S38 §2` ("10.0 s of the 24.4 s C time is exposed host wait at 1 node; only deeper overlap across primes remains").
-
-#### 1. What the 10.0 s is
-`DIST_STATS` `t_a2a` is the host time blocked in `chunk_post` + `chunk_wait`; with K = 8 and depth 1 the host waits for chunk k-1's push, which itself waits for k-1's row pass, so the wait covers GPU compute on the critical path and is not GPU idle. The push (3 GB per plane per APU at 240 GB/s, ~13 ms per transform at 2^31, m) overlaps the next row pass (mod 1.4 ms per chunk vs 1.6 ms of push); S38's "bandwidth lever is closed" stands. What is serialised: the **operand gathers**: per prime `k_gather(A)`, `k_gather(B)`, sync, three transforms, sync. S13 (m, aac6, 2^31 points, C form): load 0.35 s of 1.05 s per product (33 %); S38 rocprof `k_gather` 7.7 s per APU over the run; ~8 s of gathers over the 29 C products' 24.4 s at 6.441e10 (mod).
+- Verdict: the switch is correct (digits identical) but there is no measurable gain: -0.11 +- 0.15 s of 73 s (0.15 %), C-tier time not reduced. **Do not adopt**; the setting was removed (RESULTS, OPPORTUNITIES §K6).
 
 (Details moved to `archive:repo_cl6_2026-10-25/results/EXCHANGE.md`, 2026-10-25.)
