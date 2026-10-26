@@ -159,3 +159,34 @@ profile stays as it is (`MN_T_CHUNK_MB=2048` kept, no evidence either way under 
 noise floor of these pairs (`results/NODE_SLOWMODE.md §BM`).
 
 Sections moved to `archive:results_merged_2026-10-24/LAUNCH_DEFAULTS.md` (2026-10-24 cleanup): T08; ADOPT2.
+
+## P2JUMP — path 2's device need at 64 vs 576 nodes (2026-10-25)
+
+Question (TASKS "Path 2 at the target's scale"): at the same per-node share 1.736e10 (1e13 on 576 n) the planner gives path 2 (`ECALC_PE_PER_GPU=1 XSHMEM_LANES=2`) 380.23 GB per device-node at 576 n against a much smaller need at 64 n. Method (all modelled): `tools/plan_values.py --fit` of an xshmem build of main 1739cd4's planner (ECALC_DEVICE_GB 373.44, ECALC_NODE_GB 414), digits = 1.736e10 x nodes, the terms read from its `plan fit` lines; no node touched. This binary reproduces 380.23 GB at 576 n exactly but gives 276.13 GB at 64 n, not the 293.31 GB quoted in TASKS (cause of the 17 GB difference not found; the 64 n value is the same at 2-64 n and at 128, 256 and 512 n).
+
+**Sweep, device GB per node, path 2 (planes + arena + comm_ofi pools + v-slots; wrap = DM_MN_WRAP's figure when the rule turns it on):**
+
+| nodes | device | planes | arena | ofi pools | v-slots | note |
+|---|---|---|---|---|---|---|
+| 1 | 178.42 | 103.70 | 68.72 | 0 | 0 | |
+| 2-64, 128, 256, 512 (powers of two) | 276.13 | 120.88 | 146.03 | 3.22 | 0 | the same at every power of two |
+| 96, 192, 384 | 340.23 | 120.88 | 120.26 | 47.24 | 45.85 | non-power-of-two |
+| 448 | 327.28 | 120.88 | 120.26 | 40.80 | 39.34 | |
+| 288, 576 | 371.64 (380.23 with the wrap) | 120.88 | 120.26 | 63.35 | 61.15 | node 467 GB (budget 414) |
+| path 1 (layout D) 64 / 576 | 232.10 / 238.97 | 120.88 | 103.08 / 96.64 | 2.15 / 9.66 | 0 / 5.79 | same share, `MN_NONPOW2_CAP` has no effect below 4.5e10 per node |
+
+**Cause.** The jump is not the node count itself but "is the group a power of two". A power-of-two group uses `ntt_dist`'s transform, which takes its exchange scratch from the block pool: v-slots 0 (`rns_mul_dist_mn_vslot` returns 0). 576 nodes = 2304 PEs = 9 x 2^8 (and the tree's groups 192 and 576) are not powers of two, so every product uses the general map, whose v-exchange slots (two per APU, 2 x (A + max(A, B)), hipMalloc'd beside the arena, kept to the run's end) are resident: 1.92 GB per APU in layout D (K = 8 chunks) but 15.29 GB per APU under one process per GPU, because `DIST_CHUNKS` defaults to 1 under vPE (ntt_dist.c, rns_dist.c: "one exchange per transform") and the slot size is proportional to 1/K (15.29 / 1.92 = 7.97; the Python model with K = 1 gives 15.31). The v-slots set the comm_ofi pools too (`XSHMEM_HEAP_MB` 15104 = 256 MiB + 2 x 7291 MiB slot, per APU) and the planner books them twice: 61.15 + 63.35 GB. The arena shrinks by 25.8 GB at the same time (general-map grid), so the net is +95.5 GB (371.64 vs 276.13) and +104.1 with the wrap. 96 = 3 x 32 is already +64 GB; 448 = 7 x 64 is +51 GB. 576 = 9 x 64 is the worst because the top group and the 192 group both stay general-map; nothing here is the 576-node scale itself.
+
+**Fix options (modelled, path 2 at 1.736e10 per node, 576 n):**
+
+| setting | device | node | v-slots | ofi pools |
+|---|---|---|---|---|
+| default (`DIST_CHUNKS` unset = 1) | 380.23 refused | 467.17 | 61.15 | 63.35 |
+| `DIST_CHUNKS=2` | 318.56 fits | 414.09 | 30.62 | 32.21 |
+| `DIST_CHUNKS=4` | 288.22 | 383.76 | 15.32 | 17.18 |
+| `DIST_CHUNKS=8` | 273.06 (= the 64 n figure less 3) | 368.59 | 7.67 | 9.66 |
+| `DIST_CHUNKS=16` | 264.94 | 360.47 | 3.84 | 5.37 |
+
+`MN_NONPOW2_CAP=0` changes nothing here (it is off by auto below 4.5e10 per node). `COMM_ALLTOALLV_DEPTH=1` changes nothing in the planner. `MN_GROUPS` cannot help: the top group must be all 576 nodes. A power-of-two node count (512) avoids it (276.13) but is not the target. Digit safety: `DIST_CHUNKS` only re-slices the rows of one exchange (digits were identical for 4 -> 8 on layout D, README), but under vPE K > 1 has not been run, the K = 1 default was chosen for message size (64 KiB at K = 8), and the effect on time is unmeasured: it needs the gate at 3 nodes (12 PEs, general map) with `ECALC_PE_PER_GPU=1` and an ABBA at 3 n before anything is adopted. Smallest change that fits: `DIST_CHUNKS=2` (node 414.09 against 480 GB real budget), or 4 (margin +85 GB device).
+
+**The 6.632e10 per node share (earlier note), same binary:** device with `DIST_CHUNKS` unset, `MN_NONPOW2_CAP` auto (on from 4.5e10): 362.03 (2 n), 430.75 (8 n), 456.52 (64 n), 671.15 GB (576 n; planes 162.22, v-slots 91.69); with `MN_NONPOW2_CAP=0` 576 n is 560.62 and with also `DIST_CHUNKS=8` 453.45 GB (v-slots 7.67). The growth from 2 to 64 n at that share is the tree term of path 2 (arena 232 / 301 / 326 GB at 2 / 8 / 64 n, tree 44.95 / 63.74 / 70.02 per APU) while layout D stays at 360.95 GB: path 2's plan runs the tree over the nodes (`plan pe` line: the groups below a node are not modelled until the PE-level products exist), so each deeper level adds a bigger product per PE; the dm need (55.96 GB per APU) is the same in both. No K or cap setting removes that: path 2 needs a PE-level tree model (and then a smaller real footprint) to fit 6.6e10 per node; values here differ by 8-9 GB from the earlier note's (447.93 / 473.70 / 517.67), a planner or settings difference not traced.
