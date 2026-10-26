@@ -14,6 +14,10 @@ Labels: **m** measured, **mod** modelled, **a** assumed.
 
 - Compute ⌊10^d · e⌋ in decimal, for d = **3.82 × 10¹³** digits, on **576 nodes** of four AMD MI300A APUs each (user
   decision 2026-10-12). The target machine is never accessed from this project; the user runs the test kit there.
+- First target campaign (user decision Q120, 2026-10-25): "reduce the number of digits until all the code paths work, and then
+  plan to run those. We can always increase the number of digits later if the smaller runs succeed." It runs 8 × 10⁹ digits
+  per node (4.608 × 10¹² on 576 nodes), where layout D, P and path 2 all fit at 1, 8, 64 and 576 nodes (mod, planner); the
+  3.82 × 10¹³ run follows once the small runs succeed.
 - Constraints per node: device memory ≤ **373.44 GB** (the measured `hipMalloc` edge on the target, 93.36 GB per APU, m),
   host total ≤ **480 GB** (the budget check's default). Each node has 8 NICs (two per APU) on the target and one per APU on aac7.
 - What is known about the target (user-supplied 2026-10-12, a; re-assessed in `results/TARGET.md §TGT`):
@@ -63,8 +67,8 @@ Timings (all m, current engine, after the 2026-10-21 default change Q73).
 
 Older figures (comm_ofi era, 1 n 1e11 129.3 s before the 2026-10-12 defaults, the 1 / 2 / 4 / 6 n scaling at 6.441e10 per node 67.6 / 119.4 / 172.2 / 204.6 s, 6 n 3.8646e11 190.7 to 202.1 s) are in `results/TIME_MODEL.md §M2a`, `§SCALE35` and `archive:results_merged_2026-10-23/NIGHT_RUNS.md`; the 4-6 node figures have not been re-measured on the current engine.
 
-**Not yet done.** ecalc has not run on the target machine. The 576-node layout fitted with 14.48 GB of device margin
-(mod, planner, 2026-10-19, section 3; re-check 2026-10-25 (m, planner, `plan_values.py --fit` with `ECALC_NP=auto MN_T_CHUNK_MB=2048`): device 407.41 GB per node, margin -33.97 GB, refused; identical on main 0d052a9 and after cleanup round 4; cause open (TASKS)); the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
+**Not yet done.** ecalc has not run on the target machine. The 576-node layout is refused by the planner with the defaults: device 407.41 GB per node, margin -33.97 GB
+(m, planner, 2026-10-25, `plan_values.py --fit` with `ECALC_NP=auto MN_T_CHUNK_MB=2048`; section 3); it fitted with 14.48 GB of margin on 2026-10-19 before `MN_NONPOW2_CAP` auto (Q58) enlarged the planes, and fits again with `MN_NONPOW2_CAP=0`; the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
 `results/TARGET.md §TGT`; at the user-supplied 100 GB/s injection peak per APU, a for the achieved rate); the write adds
 12.8 s at ecalc's assumed 1.0 GB/s per node and 1.0 s at the file system's 1 TB/s (mod); the target has run only the
 memory and exchange benchmarks (`results/TARGET.md §TGTBENCH2`).
@@ -81,7 +85,7 @@ The two lines are kept in:
 | system | line | source |
 |---|---|---|
 | aac7 | `LAUNCH_LINE_KEYS` of `profiles/aac7.conf` (`tools/profile_load.py aac7 --line`) | `tools/gate.sh --line aac7` runs it; one source (D15) |
-| target | `profiles/target.conf.template` (site values `__FILL__`); the filled copy stays out of git | `ecalc/target_kit.sh` |
+| target | `target/config/target.conf.template` (site values `__FILL__`, `MN_NONPOW2_CAP=0` by Q119); filled on the target by `target/probe/gen_conf.py` and committed there (Q112) | `target/RESTART.md` |
 
 Profiles (`profiles/*.conf`, loaded by `tools/profile_load.py`; precedence: explicit environment > profile > code default)
 hold what is machine-specific. Size-dependent values are computed, never typed: the SHMEM pool and library heap (planner
@@ -94,23 +98,25 @@ asks for a pool of 2304 MiB and a heap of 2816 MiB (m, planner).
 nodes, profile) the device peak per node and per APU against `ECALC_DEVICE_GB` (target 373.44 GB per node, m; aac7 444.0
 in `profiles/aac7.conf`), the node against `ECALC_NODE_GB`, the margins and the largest consumers;
 `tools/plan_values.py --fit`, `mnrun.sh`, `tools/gate.sh` and the kit's plan stage print it and refuse a run that does not
-fit (`results/LAUNCH_DEFAULTS.md §FIT`). At 3.82 × 10¹³ digits on 576 nodes (target profile): device 358.96 GB per node,
-margin +14.48 GB (2026-10-19; re-check 2026-10-25 (m, planner, `plan_values.py --fit` with `ECALC_NP=auto MN_T_CHUNK_MB=2048`): device 407.41 GB per node, margin -33.97 GB, refused; identical on main 0d052a9 and after cleanup round 4; cause open (TASKS); the 12.9 GB of earlier notes is the superseded L1 estimate, `results/LAUNCH_DEFAULTS.md`); node 395.85 GB, margin +84.15 GB; `DM_MN_WRAP` off (with it: 384.73 GB, over the edge; m, planner). Every setting that is not a plain
+fit (`results/LAUNCH_DEFAULTS.md §FIT`). At 3.82 × 10¹³ digits on 576 nodes (target profile): device 407.41 GB per node,
+margin -33.97 GB, refused (m, planner, 2026-10-25, `ECALC_NP=auto MN_T_CHUNK_MB=2048`; node 443.49 GB, margin +36.51 GB; `DM_MN_WRAP` off, with it 433.18 GB); cause: `MN_NONPOW2_CAP` auto (Q58, 2026-10-20) takes 43/32 larger planes at 6.6e10 digits per node (planes +41.3, v-slots +3.9, comm pools +3.2 GB); with `MN_NONPOW2_CAP=0` the figure is the 2026-10-19 one, device 358.96 GB, margin +14.48 GB, node 395.04 GB (the 12.9 GB of earlier notes is the superseded L1 estimate, `results/LAUNCH_DEFAULTS.md §FIT`). Every setting that is not a plain
 default has an owner and a review date (`tools/switch_registry.py --check`).
 
 ## 4. Plan to the target run
 
 Open work in this repository is in `TASKS.md`.
 
-**Target session** (the user runs it; the steps are in `ecalc/target_kit.sh -h`):
-1. Fill `profiles/target.conf` from the template (modules, ROCm, NICs, partition, memory); `tools/profile_load.py target --check`.
-2. Kit preflight: environment record, build (path 2: `make XSHMEM=cray`), libfabric memory monitor (uffd), plan check
-   (`MN_PLAN_ONLY` must end with `plan check ... OK`), the memory edge, a node screen (`tools/nodescreen.sh`).
-3. Measurements: A3 (kit stage `a3`: injection per NIC, one vs two NICs per APU; disabled since 2026-10-25, its `t_comm` test was removed with Q103 -- a `tests/t_xshmem bw` replacement is on TASKS) and A4 (all-to-all scaling with node count).
-   These replace the assumed fabric rate in the model; re-run `mn_model.py estimate` and recheck the size against the grid steps.
-4. A/B on the target of `MN_T_CHUNK_MB` 1024 vs 2048 (aac7 evidence only so far; X2, the pooled exchange slots, is built in with no switch).
-5. Growing runs (a few nodes, then larger groups), each VERIFY OK; then the 576-node run with the write, RECHECK and
-   `unpack_digits` off the clock, and a prefix compare against a 10¹¹ reference.
+**Target session** (an agent team on the target runs it; the entry point is `target/RESTART.md`: probe, builds, bench, ladder 1/8/64/576 nodes; the older staged kit is `target/kit/target_kit.sh -h`):
+1. Install the rules (`target/governance/install.sh`), probe the system (`target/probe/probe.sh`, login then one node; about
+   30 s on aac7, m) and generate `target/config/target.conf` (`target/probe/gen_conf.py`).
+2. Build path 1 and path 2 (bench items `bld01`, `bld02`; about 25 s each on aac7, m).
+3. Bench (`target/bench/run.sh`, one worker per allocation, 57 items run once each in priority order; questions and the
+   model constants they feed: `target/bench/QUESTIONS.md`): memory edge, correctness, fabric (injection, latency,
+   all-to-all at 2/8/64 nodes), paths, launch shape, init, write, `MN_NONPOW2_CAP` cost (`prm08`), calibration.
+4. Ladder (`target/ladder/ladder.sh`): 1, 8, 64, 576 nodes on physically adjacent nodes at 8e9 digits per node (Q120), both paths,
+   replicas in parallel at the lower levels, adjustments between runs by `target/ladder/ADJUST.md`; every run VERIFY OK.
+5. Larger sizes at 576 nodes as a staircase (user decision Q121): 1e13 then 3.82e13 on path 1 (layout D; path 2 fits to about 1.3e10 per node at 576, mod); the 576-node run with the write, RECHECK and `unpack_digits` off the clock, and a prefix compare against a reference;
+   raw results committed in `target/results/` for the offline work afterwards.
 
 **Risks.**
 
@@ -118,7 +124,7 @@ Open work in this repository is in `TASKS.md`.
 |---|---|
 | fabric rate at 576 nodes below the assumption | the kit measures it first; the size can drop to the next grid step |
 | a slow or faulty node | node screen and `initchk.py` before the run; exclusion only (`MNRUN_EXCLUDE_HOSTS`), no spares; any 572-576 nodes pass the plan check |
-| device memory near the edge | budget check (rc 8) before compute; guard (rc 9) during; 14.48 GB margin (mod, planner, 2026-10-19; -33.97 GB on the 2026-10-25 re-check, open) |
+| device memory near the edge | budget check (rc 8) before compute; guard (rc 9) during; -33.97 GB margin with `MN_NONPOW2_CAP` auto, +14.48 GB with `MN_NONPOW2_CAP=0` (m, planner, 2026-10-25; `results/LAUNCH_DEFAULTS.md §FIT`) |
 | hangs in the ROCr / libfabric memory registration | `FI_MR_CACHE_MONITOR=userfaultfd` (0/104 hangs against 22/105, m) |
 | crash without a trace | `ECALC_SEGV_TRACE=1` on the launch line |
 | wrong digits | T1/T2 in the run, RECHECK and `unpack_digits` after it |

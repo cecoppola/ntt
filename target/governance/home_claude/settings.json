@@ -1,0 +1,106 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Bash(sudo apt install *)",
+      "Bash(sudo apt remove *)",
+      "Bash(sudo apt-get install *)",
+      "Bash(sudo apt-get remove *)",
+      "Bash(sudo dpkg -i *)"
+    ]
+  },
+  "model": "opus",
+  "effortLevel": "high",
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "high",
+      "autoCompactWindow": 400000
+    },
+    "claude-fable-5-1": {
+      "effortLevel": "medium",
+      "autoCompactWindow": 1000000
+    },
+    "claude-sonnet-5-5": {
+      "effortLevel": "medium",
+      "autoCompactWindow": 250000
+    },
+    "claude-haiku-5-5": {
+      "effortLevel": "medium",
+      "autoCompactWindow": 125000
+    }
+  },
+  "theme": "auto",
+  "switchModelsOnFlag": false,
+  "remoteControlAtStartup": false,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/git_guard.py"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh ~/.claude/hooks/coordinator_inject.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/kill-orphan-claude.sh",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh ~/.claude/hooks/post_compact_inject.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I ~/.claude/hooks/ctx_watch.py"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto|manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I ~/.claude/hooks/precompact_extract.py",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  },
+  "autoCompactWindow": 500000,
+  "env": {
+    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"
+  }
+}

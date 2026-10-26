@@ -30,8 +30,9 @@ History (the old plan, measurement logs, older reports, moved drivers) is kept o
 |---|---|
 | `ecalc/` | the program (C/HIP), its `Makefile`, launch and test scripts, the time and memory models, the switch registry |
 | `ecalc/tests/` | one GMP-checked test program per module (`t_ntt`, `t_mul`, `t_dbig`, `t_newton`, `t_mn_grid`, …) and the test harness headers |
-| `tools/` | `gate.sh`, `unpack_digits`, the profile loader and checks, node screen, `target_probe.sh` (target bring-up facts, profiles/README.md runbook) |
-| `profiles/` | machine profiles: `aac7.conf`, `target.conf.template` |
+| `tools/` | `gate.sh`, `unpack_digits`, the profile loader and checks, node screen |
+| `profiles/` | machine profiles: `aac7.conf` |
+| `target/` | the remote session on the target system: probe, config generator and template (`target/config/target.conf.template`), kit (`target/kit/target_kit.sh`), conventions in `target/FORMATS.md` |
 | `tests/` | Python unit tests of the tools (`test_tools.py`) |
 
 ## Build and run
@@ -61,7 +62,7 @@ path 1 digit-identical and no slower.** Current figures are in `PLAN.md` section
    `XSHMEM_CRAY_NUMA=1`), the automatic libsma heap and the plan. Digits are identical to path 1.
 
 The exchange worker thread runs in every layout (the polling alternative was removed 2026-10-25); `RNS_BATCH_SPLIT` is automatic under `ECALC_PE_PER_GPU=1`. The plain SHMEM transport and `COMM_TRACE` were removed 2026-10-25 (Q103). `mnrun.sh` sets the communicator environment; the
-launch lines (test system and target) are in `PLAN.md` section 3; `ecalc/target_kit.sh -h` describes the target session.
+launch lines (test system and target) are in `PLAN.md` section 3; `target/kit/target_kit.sh -h` describes the target session.
 Cluster access is described in the private protocol.
 
 ## Test

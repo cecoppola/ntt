@@ -16,7 +16,7 @@
 #   tools/nodescreen.sh --hold JOBID [--out DIR] [--cold-gb 4] [--local-digits 1e8] [--mn-digits-per-node 1e8] [--no-mn] [--no-local]
 #                       [--timeout-local 120] [--timeout-mn 240] [--thr 3] [--min-excess 2] [--min-avail-gb 0] [--exclude-hosts LIST]
 #                       [--flagged-file FILE] [--ecalc-dir DIR] [--want-nics N]
-#   --flagged-file FILE  append the EXCLUDE hosts to FILE (target_kit.sh's $OUT/flagged_hosts.txt: later kit stages then drop them)
+#   --flagged-file FILE  append the EXCLUDE hosts to FILE (target/kit/target_kit.sh's $OUT/flagged_hosts.txt: later kit stages then drop them)
 #   --exclude-hosts LIST hosts of the allocation never used by the screen (srun -x), reported as such
 #   --want-nics N        flag a node whose runtime sees fewer than N cxi NICs (fi_info -p cxi domains; a node with 1 NIC aborts a SHMEM launch with
 #                        SHMEM_OFI_NUM_NICS=4, results/NODE_SLOWMODE.md §NIC); default $SHMEM_OFI_NUM_NICS, 0 = report only

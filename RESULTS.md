@@ -31,10 +31,10 @@ Run times at the current engine are in `PLAN.md` §2; this table holds the figur
 | 4-node run-to-run modes (libfabric era, `comm_ofi`) | fast ≈ 181-185 s, slow ≈ 208-214 s: the inter-node all-to-all rate is set per launch | m | results/NODE_SLOWMODE.md §T05, §T09 |
 | 4-node calibration (libfabric era) | total ≈ 80.8 s + 1388 / r (r = all-to-all GB/s per APU thread), residual sd 1.6 s | m/mod | results/TOOLS_PROFILES.md §B07 |
 | target: 576 nodes, 3.82 × 10¹³ digits | ≈ 182-185.5 s without the write (profile `target_l4`; fabric rate assumed; 182 s in results/TIME_MODEL.md §L4, `PLAN.md` §2 quotes 185.5 s; the two differ by the model version, not re-reconciled here) | mod | results/TIME_MODEL.md §L4, `PLAN.md` §2 |
-| target device memory, rank 0, 3.82 × 10¹³ | margin +14.48 GB under the 373.44 GB/node edge (device 358.96 GB per node; `MN_T_CHUNK_MB=2048`, X2, slot release; the planner figure of 2026-10-19 that replaced the 12.9 GB of L1; not re-run since `BS_ARENA_ROOM` 0.14; re-check 2026-10-25 (m, planner, `plan_values.py --fit` with `ECALC_NP=auto MN_T_CHUNK_MB=2048`): device 407.41 GB per node, margin -33.97 GB, refused; identical on main 0d052a9 and after cleanup round 4; cause open (TASKS)) | mod | results/LAUNCH_DEFAULTS.md §FIT |
+| target device memory, rank 0, 3.82 × 10¹³ | device 407.41 GB per node vs the 373.44 GB edge: margin -33.97 GB, REFUSED with the defaults (`MN_NONPOW2_CAP` auto: planes 162.22 + arena 214.75 + comm pools 12.88 + bs growth 6.00 + v-slots 11.56 GB; `ECALC_NP=auto MN_T_CHUNK_MB=2048`, planner, 2026-10-25); `MN_NONPOW2_CAP=0` gives device 358.96 GB, margin +14.48 GB (the planner figure of 2026-10-19, which was never re-run after NPCAP's default of 2026-10-20) | mod/m | results/LAUNCH_DEFAULTS.md §FIT |
 | target device edge | 93.36 GB per APU = 373.44 GB per node (n = 5, 0 % spread) | m (target) | results/TARGET.md §TGTBENCH2 |
 | `BS_ARENA_TRIM_GB=8` (opt-in, default 0), 2 n 1.2882e11 | arena -34.4 GB per node (266.3 -> 231.9); 115.2 s (7 runs) vs 111.4 s (5 runs); 3 n 1.9323e11: 149.4 vs 149.6 s; 0 remaps | m | results/MEMORY.md §ATRIM |
-| memory fit before every launch (D26): the planner refuses a run that does not fit | target 3.82e13:576: 358.96 GB device vs 373.44 (`DM_MN_WRAP` off; with it 384.73, refused); aac7 6 nodes 374.22 vs 444 | mod/m | results/LAUNCH_DEFAULTS.md §FIT |
+| memory fit before every launch (D26): the planner refuses a run that does not fit | target 3.82e13:576: 407.41 GB device vs 373.44, refused (NPCAP auto); 358.96 with `MN_NONPOW2_CAP=0` (`DM_MN_WRAP` off; with it 384.73, refused); aac7 6 nodes 374.22 vs 444 | mod/m | results/LAUNCH_DEFAULTS.md §FIT |
 | node screen NIC check `tools/nodescreen.sh --want-nics N` | flags nodes whose runtime sees fewer cxi NICs; 4-node check: 4 seen, all flagged at want 8 (positive control) | m | results/NODE_SLOWMODE.md §NIC |
 | checkpoint recheck at scale | 6 n 3.8646e11: write 1473 s, VERIFY OK, RECHECK OK on all nodes; recheck 7380 s (model ≈ 1 h); "short read" was NFS EIO under 512 MiB reads, reads now ≤ 64 MiB with retries | m/mod | results/CHECKPOINT.md §CKPT |
 
@@ -82,7 +82,7 @@ names identify the change only.
 
 ## Launch-line settings in force (not code defaults)
 
-On both launch lines (`profiles/aac7.conf` `LAUNCH_LINE_KEYS`; `profiles/target.conf.template`).
+On both launch lines (`profiles/aac7.conf` `LAUNCH_LINE_KEYS`; `target/config/target.conf.template`).
 
 | setting | effect | label | evidence |
 |---|---|---|---|
@@ -94,7 +94,7 @@ On both launch lines (`profiles/aac7.conf` `LAUNCH_LINE_KEYS`; `profiles/target.
 ## Open measurement questions
 
 - Fabric injection rate per NIC on the target and its fall-off at 576 nodes (A3, A4): every target time above uses an
-  assumed rate. The target kit `ecalc/target_kit.sh` measures both (results/TOOLS_PROFILES.md §A06).
+  assumed rate. The target kit `target/kit/target_kit.sh` measures both (results/TOOLS_PROFILES.md §A06).
 - `MN_T_CHUNK_MB` 1024 vs 2048 on the target: not yet measured there (X2 is built in, no switch).
 - Path 2 on the target (Cray SHMEM 12.1): the init gap (+8 s on aac7), the day-one checks T1-T8 on a device heap (results/XSHMEM.md §XDIAG), two real NICs per PE.
 - The cause of the aac7 slow modes (per-launch NIC group at 4 n; bimodal 3 n run times) is not established (results/NODE_SLOWMODE.md §A14, §BM).

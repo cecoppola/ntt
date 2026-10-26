@@ -19,3 +19,4 @@ __pycache__/
 # built by tools/Makefile
 tools/unpack_digits
 tools/wbench
+target/kit/kit_out_*

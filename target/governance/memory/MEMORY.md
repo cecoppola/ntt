@@ -1,0 +1,22 @@
+- [ecalc restart note](ecalc-restart-note.md) — resume: project rules live only in /home/machinus/apucode/CLAUDE.md; live state in docs/STATUS.md; `bin/state`
+- [aac7 packing](aac7-packing.md) — run 2-6 concurrent queue items (4+2 … 1×6) while the node limit is 6; never idle; diagnose at 4 n (4+2), not 6 n
+- [No admin requests](no-admin-requests.md) — work with existing aac7 settings; never propose admin/root changes; no node cleanup needed for other users
+- [Context cycle](context-400k-keep-working.md) — at ~370k write docs/RESTART.md, keep working; auto-compact at 400k; hooks reprint note + IDs
+- [VS Code ext-host OOM](vscode-exthost-oom.md) — duplicate sessions = ext-host OOM crashes; Claude Status disabled; orphan-kill hook
+- [Research first](research-subagents.md) — deep recursive online research before aac7 tests; launch research agents on my own initiative
+- [Local machine limits](local-machine-limits.md) — 7 GB laptop froze 2026-10-18; max 3 local agents (>=2.5 GB free), no local builds/-j8 or memory tests; heavy work on aac7
+- [Re-arm watcher](rearm-watcher.md) — re-arm rcwait on every event + keep >=2 h queued; a miss idled aac7 5 h (2026-10-19)
+- [aac7q scheduling](aac7q-name-order.md) — runner starts the largest waiting item first (ties by name), then backfills; 6 n items jump ahead
+- [No overwrite of running items](aac7q-no-overwrite-running.md) — regenerate under a NEW name if started; withdraw = move queue file, then scancel (else resubmitted)
+- [Fewer aac7 reboots](aac7-fewer-reboots.md) — NIC losses follow job-end reboots; run items inside one long session hold (~/aac7q/bundle/), not one job each
+- [Target redirect](target-redirect.md) — 2026-10-21: build Cray SHMEM 12.1-style comm on aac7 via libfabric behind xshmem.h; no more 11.8 tuning
+- [Design to target hardware](design-to-target-hardware.md) — 4 GPUs + 8 NICs/node; one PE per GPU, 2 NICs each; counts are parameters
+- [aac7 never idle](aac7-never-idle.md) — user 2026-10-21: whenever aac7 is unused, queue a useful task at once; do not ask
+- [Item ref short sha](item-ref-short-sha.md) — gen_*.sh items need a 7-char ref; full sha fails the worktree check
+- [Hold chaining](aac7q-hold-chaining.md) — a queued next hold gives up after 5 pending timeouts (~75 min); qadd it near the current T_END and verify it runs
+- [Atomic bundle copy](bundle-atomic-copy.md) — cp7 to ~/aac7q/ then mv into bundle7; direct scp into an idle hold ran a half-written item
+- [Two paths open](two-paths-open.md) — keep fastest libfabric path + fastest SHMEM path; SHMEM changes must not regress libfabric (Q85)
+- [Kit: wait for user](kit-wait-for-user.md) — never ask about starting the bring-up kit v2; the user will say when
+- [aac7 exclude list goes stale](aac7-exclude-stale.md) — idle nodes stuck in ~/aac7q/exclude cost hours 2026-10-24; rescreen via hold NIC check
+- [No task-list prompts](no-task-list-prompts.md) — keep open work on TASKS; never ask to start it or list it; report when ongoing work is done
+- [Target folder rules](target-folder-rules.md) — target/ project: raw data + verbatim rule files allowed, leak guard ignored, never secrets; docs/ stays untracked

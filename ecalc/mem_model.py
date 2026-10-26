@@ -343,6 +343,9 @@ def tree_need_dev_flat(nq_leaf, g, scratch_out=None, logr_delta=0):
     if scratch_out is not None: scratch_out.append(top_scratch); scratch_out.append(top_q)
     return best + best // 16
 
+class NoGrid(ValueError):
+    """a product that no grid of at most 32 x 32 pieces holds within the plane cap: the C code's `grid: ... limbs at ... points` fatal"""
+
 def split_grid_cap(na, nb, cap, minpts):
     """rns_dist.c split_grid_cap (the mn tier: 2^k planes): the grid (ka, kb) with the fewest plane points, then the fewest pieces"""
     best = None
@@ -354,6 +357,7 @@ def split_grid_cap(na, nb, cap, minpts):
             while pts < pa + pb: pts <<= 1
             pts = max(pts, minpts); cost = i * j * pts
             if best is None or cost < best[0] or (cost == best[0] and i * j < best[1] * best[2]): best = (cost, i, j)
+    if best is None: raise NoGrid("no grid of at most 32 x 32 pieces: %d x %d limbs at %d points" % (na, nb, cap))
     return best[1], best[2]
 
 # MS (Phase 15): P24's branch of rns_mul_dist_mn_scratch (MN_P24, results/PRIMES_STRATEGY.md §P2415; rns_dist.c mn_p24_of / p24_grid_shape / p24_split).
@@ -389,6 +393,7 @@ def p24_grid_shape(na, nb, g, pool_log=31):
             while pts < n: pts <<= 1
             pts = max(pts, minpts); cost = i * j * pts
             if best is None or cost < best[0] or (cost == best[0] and i * j < best[1] * best[2]): best = (cost, i, j)
+    if best is None: raise NoGrid("no grid of at most 32 x 32 pieces: %d x %d limbs at %d points (P24)" % (na, nb, cap))
     return best[1], best[2]
 
 def mn_scratch(na, nb, has_x, g, share_a, share_b, share_c, pool_log=31, logr_delta=0, t_chunk_mb=0, p24=None):

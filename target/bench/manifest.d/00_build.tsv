@@ -1,0 +1,5 @@
+id	tier	prio	nodes	est_min	deps	questions	cmd
+# builds run on the login node (nodes 0: no allocation); bld01/bld02 write e.binary (relative to target/) which run.sh turns into ECALC1/ECALC2
+bld01	1	0	0	8	-	TQ02	bld01.sh
+bld02	1	1	0	8	-	TQ03	bld02.sh
+sys01	1	2	1	5	-	TQ01	sys01.sh

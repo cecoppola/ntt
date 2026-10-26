@@ -46,7 +46,8 @@ def main():
         for d, ds, fs in os.walk(root):
             ds[:] = [x for x in ds if x != ".git"]
             files += [os.path.relpath(os.path.join(d, x), root) for x in fs]
-    files = [f for f in files if os.path.isfile(os.path.join(root, f))]
+    # target/governance/ holds copies of the private rule files (Q113), not repository docs
+    files = [f for f in files if os.path.isfile(os.path.join(root, f)) and not f.startswith("target/governance/")]
     fileset = set(files)
     dirset = {os.path.dirname(f) for f in files}
     for f in list(dirset):
@@ -84,7 +85,7 @@ def main():
     # results/*.md are dated evidence records (frozen when written); only the central docs must cite live paths.
     targets = [f for f in CENTRAL if f in fileset]
     # files the docs name before they exist (planned) or that runs create (generated)
-    PLANNED = {"profiles/target.conf", "tools/target_probe.sh", "ecalc/results/mnaccept"}
+    PLANNED = {"profiles/target.conf", "ecalc/results/mnaccept"}
     for f in targets:
         L = lines(f) or []
         d = os.path.dirname(f)
