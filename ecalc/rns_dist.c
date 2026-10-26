@@ -178,7 +178,7 @@ struct dist_slot { const void *key; size_t lo, n, q; uint64_t *pl[NR]; int mn, n
 static struct { int n, nmn, navail, tried, init; struct dist_slot s[DIST_CACHE_MAX]; size_t hits, misses, bytes; double t_alloc;
                 size_t slot_bytes, slot_q; int pc; } g_cache;     /* Phase 15 TC: one slot's bytes per APU, and the q (limbs per prime per rank) it holds under the cache fit (0: unbounded);
                                                                * Phase 15 PC: pc = the slots now are RNS_DIST_CACHE_PARTIAL's (planes from the block pool for one grid product) */
-/* ---- Phase 15 TC (internal target task list T7, results/CACHE.md §TC15): the slots sized to the cap and bounded by the budget (the cache fit,
+/* ---- Phase 15 TC (internal target task list T7, results/CACHE.md): the slots sized to the cap and bounded by the budget (the cache fit,
  * on every launch line since 2026-09-28, built in 2026-10-12; the unsized form -- 16 GiB slots counted by the free memory alone, +37.5 %
  * or OOM at the target -- was removed):
  *   size   a slot is rns_pool0_np() x 2^(c - 2) limbs per APU, c = min(dist_logn_max, POOL_LOG): the largest rank plane of either tier
@@ -1396,7 +1396,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         oA.hs = hseg; oA.ds = dseg; oA.cnt = cnt; oB.hs = hseg + 2 * g; oB.ds = dseg + 2 * g; oB.cnt = cnt + 4 * g; oX.hs = hseg + 4 * g; oX.ds = dseg + 4 * g; oX.cnt = cnt + 8 * g;
         comm *cl = lay_get(G, d);
         /* (Phase 14 P2's DIST_MN_SYM_SLABS=1, the slabs and scratch in the transport's symmetric pool, was removed 2026-10-12: not the
-         * design, results/SHMEM.md §P214) */
+         * design, results/SHMEM.md) */
         uint64_t *cx = X ? db_pool_alloc(dv, q * 8) : 0, *tmp = (gen || vpe_on()) ? 0 : db_pool_alloc(dv, q * 8);   /* (vPE: the flat communicator needs no layered scratch) */
         /* A1: the cache planes of A and B on this rank: cache_pl(slA / slB, d, p, q) for primes p < kA / kB (Phase 15 PC) */
         /* planes: xa[4] in pool 0, xb (q + 16: the CRT's carry limb) | sbuf | rbuf in pool 1 */
@@ -1751,7 +1751,7 @@ void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb)
  * unless a whole piece is zero). */
 void rns_dist_plan_pools(size_t pool0_bytes, size_t pool1_bytes) { g_plan_pool[0] = pool0_bytes; g_plan_pool[1] = pool1_bytes; }
 void rns_dist_plan_cap_test(int logn) { g_cap_test = logn; }
-/* Phase 15 TC (results/CACHE.md §TC15): the plan's line for the mn transform cache -- where it is first wanted (the first mn grid product;
+/* Phase 15 TC (results/CACHE.md): the plan's line for the mn transform cache -- where it is first wanted (the first mn grid product;
  * ), the slots the default takes if hipMemGetInfo lets it (outside
  * every budget) and what the cache fit would take against node_bytes (the layout's node: plane pools + arena + tables + the init
  * host, binsplit_node_bytes -- the run's own check uses its measured init peak where that is larger) */
@@ -1918,7 +1918,7 @@ size_t rns_mul_dist_mn_vslot(size_t na, size_t nb, int g)
     }
     return vslot_shape(logR, logC, g);
 }
-/* Phase 14 P2 (results/SHMEM.md §P214): the xshmem transport's staging for the same product, limbs per APU thread = the send + receive of
+/* Phase 14 P2 (results/SHMEM.md): the xshmem transport's staging for the same product, limbs per APU thread = the send + receive of
  * its largest staged exchange (with XSHMEM_ROUND_MB 0 comm_xshmem.c stages every buffer per exchange, released after it; the
  * four APU threads run the same exchange at once, so the pool holds 4 of these): the result exchange (xb -> rbO: my rows of the
  * piece RT(nc), and my window's part win / NL()), the redistribution of A or B (my share's part va / NL() + 2 g rows out, my rows RT(pa)

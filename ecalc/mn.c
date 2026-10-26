@@ -279,7 +279,7 @@ int mn_selftest(int logR, int logC, int verbose)
     if (mn_size() & (mn_size() - 1)) { printf("mn: self-test over the plain meshes skipped (size %d is not a power of two; the layered self-test covers the transform nodes)\n", mn_size()); return 1; }
     int nr = mn_size();
     if (logR < NTT_LOGN_MIN) logR = NTT_LOGN_MIN;   /* the column pass is ntt_fwd(..., p->logR, ...): logR itself must be a valid transform size */
-    /* (results/OFI_FABRIC.md §P16's growth pattern) the fixed 2^11 rows give R/ranks < 32 from 128
+    /* (results/OFI_FABRIC.md's growth pattern) the fixed 2^11 rows give R/ranks < 32 from 128
      * ranks on (k_twpack_r's grid is rk/32 blocks, 0 at R/ranks = 16: a silent no-op, not a HIP error).  Grow logR until
      * R/ranks >= 32, as the layered test does; below 128 ranks R/ranks is already >= 32 (2048/64
      * = 32) so the loop never fires and behavior is unchanged. */

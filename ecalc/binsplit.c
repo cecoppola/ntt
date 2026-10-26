@@ -456,7 +456,7 @@ size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *b
     if (tree_top) *tree_top = tt;
     return all;
 }
-/* X2 (results/OFI_FABRIC.md §XEFF item 2): the v-slots come from the comm pool (comm_sym_alloc), so the pool rule counts them and the hipMalloc'd budget does not */
+/* X2 (results/OFI_FABRIC.md item 2): the v-slots come from the comm pool (comm_sym_alloc), so the pool rule counts them and the hipMalloc'd budget does not */
 /* S31: each v-slot is allocated once at the model's per-slot maximum of its group size g (env COMM_LAYER_VSLOT_MB_<g>, MiB; comm_layered.c need_vslot),
  * not regrown with every larger product -- a slot regrown in the comm pool (free, then allocate) strands holes between the short-lived staging blocks (S28: 10 nodes,
  * COMM_OFI_POOL_MB 4096 "too small" with 1432 MiB free but no 1023 MiB hole).  A hand-set COMM_LAYER_VSLOT_MB or COMM_LAYER_VSLOT_MB_<g> wins.  Called by the pool rule on every rank. */

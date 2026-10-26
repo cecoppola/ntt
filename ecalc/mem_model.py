@@ -659,7 +659,7 @@ CHAIN_GUARD_CODE = 1                                                            
 LEAN_CODE = True                                                   # int15k: DM_MN_LEAN, built in since 2026-10-12 -- the lean mn division set at size > 1 (opts lean)
 DEFAULTS = dict(tight=True, early_free=True, t_chunk_mb=1024, shift_chunk_mb=1024, pool='plan', vmm=True, round_mb=0, cap=1 << 31, seed_fill=SEED_FILL, out_early=True,
                 arena_room=ARENA_ROOM, dkm=DKM_CODE, lean=LEAN_CODE)   # cap: ECALC_PLANE_CAP 2^31 (13c); the C default is `run` since 2026-10-25 (2^30 where the largest division product fits its plane, else 2^31): the model still assumes 2^31 when cap is not given, so it over-predicts the plane pools of a default run in that range; explicit caps are exact
-TARGET_LAUNCH = dict(round_mb=1024)                     # D2 (results/SHMEM.md §V114): the target's launch line
+TARGET_LAUNCH = dict(round_mb=1024)                     # D2 (results/SHMEM.md): the target's launch line
 TARGET_NP = 'auto'                                      # the user's decision 1 of 2026-09-28: ECALC_NP=auto on the target's launch line (four primes only for the
                                                         # products over the three-prime bound; pool 0 at four planes at 576, pool 1 at three); history: 4 (the decision
                                                         # of 2026-09-27: three primes cannot hold the target's mn pieces, MN_PLAN_ONLY refuses them, results/PRIMES_STRATEGY.md §P15;
@@ -767,7 +767,7 @@ SHMEM_SELFTEST = 128 << 20                                # mn_selftest_layered'
 SHMEM_MARGIN = 256 << 20                                  # first-fit slack and the small exchanges (spills, counts, reductions): assumed
 
 def mn_stage(na, nb, g, share_a, share_b, share_c, pool_log=31, logr_delta=0, t_chunk_mb=0, parts=None, round_mb=0):
-    """Phase 14 P2 (results/SHMEM.md §P214): the SHMEM transport's staging for one mn_core product C = A B over g nodes, per APU thread
+    """Phase 14 P2 (results/SHMEM.md): the SHMEM transport's staging for one mn_core product C = A B over g nodes, per APU thread
     (limbs; send + receive of its largest staged exchange -- the staging is allocated per exchange and released after it, and
     the four APU threads run the same exchange at once, so the pool holds NR of these).  The code's buffers (mn_scratch's
     terms): the result exchange (rns_dist.c: xb in plane pool 1 -> rbO from the block pool, neither in the symmetric pool)
@@ -881,7 +881,7 @@ def cache_mn_bytes(g, pool_log=31, np=4, slots=CACHE_MN_SLOTS_CODE, fit=False):
     return slots * NRN * np * np2_q(1 << (c - 2), g) * 8 if g > 1 else 0
 
 def cache_report():
-    """the cache at the target and one step below (TARGET_LAUNCH), and at the single-node test points of results/CACHE.md §TC15"""
+    """the cache at the target and one step below (TARGET_LAUNCH), and at the single-node test points of results/CACHE.md"""
     groups = '2,4,8,16,32,64,192,576'
     print('== Phase 15 TC: the mn transform cache (%d slots; GB per node, modelled)' % CACHE_MN_SLOTS_CODE)
     for T in (TARGET_DIGITS, TARGET_BELOW):
@@ -999,7 +999,7 @@ def _mem_per_node(D, g=1, opts=None):
     if g == 1 and o['vmm'] and o['seed_fill'] and o['decimal'] and not aroom > 0:   # Phase 15 (2026-09-27): the fill's division grows the pool at size 1 (measured at 1e11); AS: none with BS_ARENA_ROOM (replayed)
         dev_dm = max(dev_dm, dev_init + VMM_DM_GROW_FILL)
     peak = max(dev_init + host_init, dev_bs + max(host_init, host_dm), dev_dm + host_dm) * (1 + o['margin'])   # (the measured node = device max + host HWM)
-    # Phase 15 TC (results/CACHE.md §TC15): the mn transform cache -- not in node_peak (the numbers the docs cite); the default code's slots
+    # Phase 15 TC (results/CACHE.md): the mn transform cache -- not in node_peak (the numbers the docs cite); the default code's slots
     # (2 slots x 16 GiB per APU at four primes) live from the first mn grid product (the tree at the target) to the division's end,
     # so they add to the bs and dm peaks: node_peak_cache.  cache_fit_slots: what RNS_DIST_CACHE_FIT would take against this model's peak.
     cmn = cache_mn_bytes(g, o['pool_log'], npp, CACHE_MN_SLOTS_CODE) if g > 1 else 0

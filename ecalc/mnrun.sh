@@ -13,7 +13,7 @@
 # ECALC_LOG_CLOCKS=1 runs aac7env.sh --log (rocm-smi clocks, the APU / NIC NUMA map) on every node before the command.
 # Phase 16 D: MNRUN_UNLOAD=<modules> (unset by default) is unloaded before MNRUN_MODULES in every wrapper and the plan call -- a versioned
 # rocm module (rocm/7.2.4) conflicts with the default rocm/7.0.3 of the login shell (aac7env.sh sets both from AAC7_ROCM).
-# Phase 16 P (results/OFI_FABRIC.md §P16): MNRUN_NODES=<n> (unset by default) uses at most the first n nodes of the allocation -- 4 PEs on one node
+# Phase 16 P (results/OFI_FABRIC.md): MNRUN_NODES=<n> (unset by default) uses at most the first n nodes of the allocation -- 4 PEs on one node
 # (`MNRUN_NODES=1 mnrun.sh 4`) or a 2-node A/B inside a 4-node job.
 # T27 (results/TOOLS_PROFILES.md §T27): MNRUN_PRINT_ENV=1 (default 0) computes everything as for a launch -- the plan's pool, the heap, the libfabric
 # defaults -- but prints the computed variables as `export K=V` lines on stdout and exits 0 instead of
@@ -44,7 +44,7 @@ print_env_exit() {   # T27: the variables mnrun.sh sets or computes for the laun
 __fmc=${FI_MR_CACHE_MONITOR-}; __fmc=${__fmc,,}
 if [ "$__fmc" = disabled ]; then echo "mnrun.sh: refusing FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR: it corrupts exchanges silently (S46 section 4.6). Unset it (memhooks, the default) or use userfaultfd." >&2; exit 1; fi
 export MNRUN_DIR=$(cd "$(dirname "$0")" && pwd)
-# Phase 16 V: the Cray default module picks up AAC7_ROCM (default rocm/7.2.4, results/AAC7_PORT.md §V16) instead of the bare "rocm" alias;
+# Phase 16 V: the Cray default module picks up AAC7_ROCM (default rocm/7.2.4, results/AAC7_PORT.md) instead of the bare "rocm" alias;
 # rocm/7.0.3 (the login default) must be unloaded first (module conflict).
 case "${AAC7_ROCM:-}" in ""|*/*) ;; *) AAC7_ROCM=rocm/$AAC7_ROCM;; esac   # merge V+D: a bare version (D: 7.2.4) means rocm/<version>
 if [ -z "${MNRUN_MODULES+x}" ]; then if [ -d /opt/cray/pe/sma ]; then MNRUN_MODULES="cray-dsmml cray-openshmemx ${AAC7_ROCM:-rocm/7.2.4}"; else MNRUN_MODULES=rocm; fi; fi
@@ -55,7 +55,7 @@ if [ "$PRINT_ENV" != 0 ]; then nodes=$(seq -f "print-env-node%g" 1 "$P"); else  
 nodes=$(scontrol show hostnames "$(squeue -j "$SLURM_JOB_ID" -h -o %N)")
 fi
 [ -n "${MNRUN_NODELIST:-}" ] && nodes=$(echo "$MNRUN_NODELIST" | tr , "\n")   # s29: run on exactly these nodes of the allocation (unset: all, in squeue order)
-# S35 wrap-up: MNRUN_EXCLUDE_HOSTS="h1,h2" (default empty = off) names slow hosts (aac7: aac7-n01, a ~20 s host->device upload stall, results/SESSIONS.md §S31).
+# S35 wrap-up: MNRUN_EXCLUDE_HOSTS="h1,h2" (default empty = off) names slow hosts (aac7: aac7-n01, a ~20 s host->device upload stall, results/SESSIONS.md).
 # If one is in the node list: default MNRUN_EXCLUDE_MODE=warn warns on stderr and changes nothing; MNRUN_EXCLUDE_MODE=drop removes it (the run then uses the remaining nodes;
 # ranks shift, so it needs >= the nodes asked for, else fewer nodes are used as with MNRUN_NODES).
 if [ -n "${MNRUN_EXCLUDE_HOSTS:-}" ]; then

@@ -42,7 +42,7 @@ Run times at the current engine are in `PLAN.md` §2; this table holds the figur
 
 | change | since | effect | label | evidence |
 |---|---|---|---|---|
-| `COMM_TRANSPORT=xshmem`, `XSHMEM_ROUND_MB=128` is the only multi-node transport (`XSHMEM_ORDER` fixed to `rot` 2026-10-25) (default build `XSHMEM=ofi`); the plain SHMEM transport (`COMM_TRANSPORT=shmem`, `comm_shmem.c`) and `COMM_TRACE` were removed 2026-10-25 (Q103) | 2026-10-21 | 3 n 1.9323e11: xshmem 149.3 s (sd 1.2, n 8) vs libfabric reference 157.3 s (sd 6.8, n 9), paired -8.5 s [-14.0, -3.0], 8/8 pairs; default 153.2 vs plain shmem 161.3 s (10 n 8.1e11: libfabric 1669.98 vs shmem 3532.05 s, `results/OFI_FABRIC.md §OFI17`); gates 1/2/3 n PASS, mnaccept mn 5/5, unit 9/9; whole-exchange staging fails the memory budget at full size, hence the rounds | m | results/XSHMEM.md §10, §7 |
+| `COMM_TRANSPORT=xshmem`, `XSHMEM_ROUND_MB=128` is the only multi-node transport (`XSHMEM_ORDER` fixed to `rot` 2026-10-25) (default build `XSHMEM=ofi`); the plain SHMEM transport (`COMM_TRANSPORT=shmem`, `comm_shmem.c`) and `COMM_TRACE` were removed 2026-10-25 (Q103) | 2026-10-21 | 3 n 1.9323e11: xshmem 149.3 s (sd 1.2, n 8) vs libfabric reference 157.3 s (sd 6.8, n 9), paired -8.5 s [-14.0, -3.0], 8/8 pairs; default 153.2 vs plain shmem 161.3 s (10 n 8.1e11: libfabric 1669.98 vs shmem 3532.05 s, `results/OFI_FABRIC.md`); gates 1/2/3 n PASS, mnaccept mn 5/5, unit 9/9; whole-exchange staging fails the memory budget at full size, hence the rounds | m | results/XSHMEM.md §10, §7 |
 | Cray SHMEM backend `xshmem_cray.h` (`XSHMEM=cray`), zero engine changes | 2026-10-21 | 1e9 identical at 1, 2, 3 n; `t_xshmem` PASS; first-run failure (unregistered heap tail page) fixed | m | results/XSHMEM.md §8 |
 | one process per GPU `ECALC_PE_PER_GPU=1` (path 2 layout; default layout stays D), `XSHMEM_LANES`, `RNS_BATCH_SPLIT` (automatic under `ECALC_PE_PER_GPU=1`, Q110, 2026-10-25) | 2026-10-23 | digits identical to D at 1, 2, 3 n on both backends; P faster at small sizes, equal at 3 n 1e11 (path 1) | m | results/XSHMEM.md §PPG, §BSPLIT |
 | NUMA placement for Cray builds under P (`XSHMEM_CRAY_NUMA=1`, `MNRUN_PPG_CPUBIND=ldom`, set by `mnrun.sh`) | 2026-10-23 | cured the Cray stalls (40-107 s runs -> 35-38 s at 3 n 1e10); THP disable did not | m | results/XSHMEM.md craylane |
@@ -72,8 +72,8 @@ names identify the change only.
 | `FI_MR_CACHE_MONITOR=userfaultfd` set by `mnrun.sh` (`disabled` refused); `FI_UNIVERSE_SIZE`, `FI_LOG_LEVEL=warn` | 2026-10-06/11 | reproducer hangs 22/105 -> 0/104; 46 four-node runs, 0 segfaults | m | results/CRASHES_HANGS.md §S46, results/TARGET.md §TGTBENCH2 |
 | transport opened before the arenas (`COMM_INIT_EARLY`, built in) | 2026-10-05 | init segfault 8/78 before; ≥ 32 processes start | m | results/CRASHES_HANGS.md §S16 |
 | `DIST_CHUNKS=8` (was 4) | 2026-10-07 | device -13.4 GB at 576 nodes for +2.4 s | mod | results/GRID_GROUPS.md §S45 |
-| exchange slots in the node budget; `COMM_LAYER_VSLOT_SHARE` and `_RELEASE` always on; transform cache sized and counted | 2026-10-07..19 | -8.4 GB per node (share) and -8.60 GB device peak (release) at 4 n; cache required at the target | m/mod | results/GRID_GROUPS.md §S36, §C06, §B7ACCT, results/CACHE.md §TC15 |
-| `BS_SEED_FILL=128`, `DB_POOL_VMM=1`, `MN_T_CHUNK_MB=1024` code default | Phase 14/15 | seeds fill their lengths; no in-phase allocation; pool 81.6 -> 45.0 GB per node | m/mod | results/SINGLE_NODE.md §T215, results/DIVISION.md §R114, results/SHMEM.md §P214 |
+| exchange slots in the node budget; `COMM_LAYER_VSLOT_SHARE` and `_RELEASE` always on; transform cache sized and counted | 2026-10-07..19 | -8.4 GB per node (share) and -8.60 GB device peak (release) at 4 n; cache required at the target | m/mod | results/GRID_GROUPS.md §S36, §C06, §B7ACCT, results/CACHE.md |
+| `BS_SEED_FILL=128`, `DB_POOL_VMM=1`, `MN_T_CHUNK_MB=1024` code default | Phase 14/15 | seeds fill their lengths; no in-phase allocation; pool 81.6 -> 45.0 GB per node | m/mod | results/SINGLE_NODE.md §T215, results/DIVISION.md §R114, results/SHMEM.md |
 | `MN_NONPOW2_CAP` auto from 4.5e10 digits per node-process (Q58) | 2026-10-20 | 6 n 3.70e11 -18.3 s (libfabric), +41.3 GB plane memory per node; 3 n 6e10 +8.9 s with it on | m | results/DIVISION.md §NPCAP |
 | `BS_ARENA_ROOM` 0.14 (was 0.16; Q99) | 2026-10-25 | -8.6 GB device memory per node at the 2 n bs-phase peak, 0 remaps, time neutral (4 ABBA pairs); `BS_ARENA_ROOM=0.16` restores | m | results/MEMORY.md §AS15 |
 | `ECALC_BUDGET_CHECK=1`, `ECALC_MEM_GUARD_GB` | Phase 14 | named stop (rc 8 / rc 9) instead of the OOM killer | m | results/MEMORY.md §L114 |
@@ -86,8 +86,8 @@ On both launch lines (`profiles/aac7.conf` `LAUNCH_LINE_KEYS`; `target/config/ta
 
 | setting | effect | label | evidence |
 |---|---|---|---|
-| `MN_T_CHUNK_MB=2048` | aac7: 24 paired rounds, mean -42.3 s, p ≈ 0.04; 4-node recheck inconclusive (+6.98 s [-10.3, +24.3]); 2 n 5e10 under P: 1024 vs 2048 +0.62 s over 9 pairs (2026-10-25, §AAC7OPT) | m | results/SESSIONS.md §S22, results/LAUNCH_DEFAULTS.md §S47, §AAC7OPT |
-| X2: the pooled exchange slots (`COMM_LAYER_VSLOT_POOL`, now built in, no switch) | -31.7 s at 10 nodes (CI -55.7 .. -7.8) | m | results/SESSIONS.md §S31 |
+| `MN_T_CHUNK_MB=2048` | aac7: 24 paired rounds, mean -42.3 s, p ≈ 0.04; 4-node recheck inconclusive (+6.98 s [-10.3, +24.3]); 2 n 5e10 under P: 1024 vs 2048 +0.62 s over 9 pairs (2026-10-25, §AAC7OPT) | m | results/SESSIONS.md, results/LAUNCH_DEFAULTS.md §S47, §AAC7OPT |
+| X2: the pooled exchange slots (`COMM_LAYER_VSLOT_POOL`, now built in, no switch) | -31.7 s at 10 nodes (CI -55.7 .. -7.8) | m | results/SESSIONS.md |
 | `ECALC_SEGV_TRACE=1` | crash-trace handler only | - | results/LAUNCH_DEFAULTS.md §B01 |
 | aac7 fastest settings (2026-10-25): layout by size -- 1 n 6.6e10 the defaults (P +9.6 s), 2 n up to 5e10 `ECALC_PE_PER_GPU=1` on the default build (-14.7 s, -27 %), above that D; path 2 +13.9 s vs P; `ECALC_NP`, `BS_SEED_CHUNK_MB`, `ECALC_BG_THREADS`, `MN_T_CHUNK_MB`, `XSHMEM_ROUND_MB` within noise; `ECALC_NP=4` +7.5 s | m | results/LAUNCH_DEFAULTS.md §AAC7OPT |
 

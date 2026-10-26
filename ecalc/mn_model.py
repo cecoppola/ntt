@@ -49,16 +49,16 @@ LIMB_DIGITS = 18                # decimal limbs (RESULTS 67)
 EC_NP = 4
 K_CHUNKS = 8                    # the slab pipeline (M7; DIST_CHUNKS)
 CACHE_MN_SLOTS = int(os.environ.get('MN_MODEL_CACHE_SLOTS', '2'))   # RNS_DIST_CACHE_MN default over shares (archive:results_merged_2026-10-24/GRID_GROUPS.md §G); Phase 15 CX: MN_MODEL_CACHE_SLOTS=n prices n
-                                # slots (0: the cache off -- what the 480 GB budget allows at the target, results/CACHE.md §TC15, CX15.md)
-CACHE_MODEL = os.environ.get('MN_MODEL_CACHE', 'code')   # Phase 15 CX (results/CACHE.md §CX15): 'code' = the hits as the code takes them (cache_pieces: the slots'
+                                # slots (0: the cache off -- what the 480 GB budget allows at the target, results/CACHE.md, CX15.md)
+CACHE_MODEL = os.environ.get('MN_MODEL_CACHE', 'code')   # Phase 15 CX (results/CACHE.md): 'code' = the hits as the code takes them (cache_pieces: the slots'
                                 # designation, the cuts' skips, the planes' q) x CACHE_HIT_F; 'old' = the term before CX (at >= 2 slots every piece after
                                 # the first with one operand cached; nothing at 1 slot)
 CACHE_HIT_F = 0.96              # Phase 15 CX: a hit's saving as a fraction of its piece, measured over modelled (piece_cost fwd=2 - fwd=1 over fwd=2 on the aac6
-                                # fabric, the same pieces) -- FITTED on aac6, results/CACHE.md §CX15: tests/cx_grid (the target's 9 grid shapes at cap 2^27, cache
+                                # fabric, the same pieces) -- FITTED on aac6, results/CACHE.md: tests/cx_grid (the target's 9 grid shapes at cap 2^27, cache
                                 # 0/1/2 interleaved; 489 hit pieces) 1.043 at 2 node-processes, 0.976 at 4; ecalc 1e10 end to end (the hit pieces against
                                 # themselves in the cache-off run) 0.965 at 2 (4 runs), 0.840 at 4 (4 runs); mean 0.956.  The model's structure (1 of the 3
                                 # transforms per prime, one redistribution) holds within -16..+4 %; ASSUMED to carry to the target's fabric
-# Phase 15 CX proposals (results/CACHE.md §CX15 section 3; off unless set): CACHE_PRIMES = k -> a slot holds k of the piece's primes (k / np of a hit's transform
+# Phase 15 CX proposals (results/CACHE.md section 3; off unless set): CACHE_PRIMES = k -> a slot holds k of the piece's primes (k / np of a hit's transform
 # saving, no redistribution saved); CACHE_LOOP = 'long' -> mn_grid's loop along the grid's longer axis (the slots follow); CACHE_SLOTS_PHASE =
 # {'tree': n, 'dm': n} -> the slots per phase (the tree's arena slack, the division's room); cache_slots_now() is what _product_cost prices
 CACHE_PRIMES = None
@@ -284,7 +284,7 @@ def split_grid(na, nb, cap, g):
     return best[1], best[2], best[3]
 
 def cache_pieces(na, nb, g, cap, lowcut=0, highcut=None, slots=2):
-    """Phase 15 CX (results/CACHE.md §CX15): mn_grid's pieces and the transform cache's state per operand, as the code decides them (rns_dist.c
+    """Phase 15 CX (results/CACHE.md): mn_grid's pieces and the transform cache's state per operand, as the code decides them (rns_dist.c
     mn_grid + mn_core + cache_plan, not pinned): the grid (split_grid), the pieces in the code's order (j outer, i inner) with the cuts'
     skips (grid_piece_skipped), each piece's plane (mn_shape of its own la + lb: a smaller last piece can have a smaller q, and a slot hits
     only at the same q), the slots' designation (nA = min(ka, N - 1) for A's pieces i < nA, B's piece j in slot nA + j % nB) and the lookups.
@@ -1736,7 +1736,7 @@ def plan(g, T, design=None, groups=None, fab=None):
 
 
 # ============================================================================================================
-# Phase 15 CX (results/CACHE.md §CX15): the mn transform cache at the target -- what the slots are worth (the code's hits x CACHE_HIT_F) and
+# Phase 15 CX (results/CACHE.md): the mn transform cache at the target -- what the slots are worth (the code's hits x CACHE_HIT_F) and
 # the ways to hold one inside 480 GB, each with its memory and its modelled gain.  The rooms per node (modelled, mem_model / the
 # standing estimate): the tree levels 480 - the bs-phase node (device 411.0 + host 44.4) + the arena's slack at the tree (arena - tree
 # need: a slot drawn from the block pool), the division 480 - (device 417.0 + host 28.8); a slot = k primes x 2^29 limbs x 8 B x 4 APUs.
