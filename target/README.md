@@ -8,7 +8,7 @@ starts with `RESTART.md`; conventions are in `FORMATS.md`.
 
 | step | what | where | time |
 |---|---|---|---|
-| 0 | install the rules and memory (`RESTART.md` §Install) | login node | 5 min |
+| 0 | install the rules and memory (`RESTART.md` §2: `bash target/governance/install.sh`) | login node | 5 min |
 | 1 | system facts: `probe/probe.sh` on a login node, then inside a one-node job; `probe/gen_conf.py` → `config/target.conf` | login + 1 node | ≤ 10 min |
 | 2 | build path 1 and path 2 (bench items `bld01`, `bld02`) | login node | ~5 min |
 | 3 | bench: workers loop `bench/run.sh` in parallel allocations; answers in `results/bench/ANSWERS.md` | 1-64 nodes each | minutes per item |

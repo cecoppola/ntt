@@ -8,10 +8,11 @@ coordinator on the development side, which has no access to the target. Conventi
 
 1. `git clone` this repository (or `git pull` the existing clone) on the target login node; `cd` into it.
    `APU=$(dirname "$PWD")` — the work root (the parent of the clone; it plays the role of the development side's work root).
-2. Install the rules and memory (§2). Start the coordinator session (Claude Code) in the clone.
-3. Read this file to the end, then `target/FORMATS.md`, then `target/README.md`.
-4. Start a log: `target/results/LOG.md` (dated lines, times with the time zone).
-5. Run step 1 (§5) now; it takes minutes and everything else depends on it.
+   The rules call the clone `ntt/`; if yours has another name, nothing breaks (only prose).
+2. Install the rules and memory (§2: `bash target/governance/install.sh`). Restart Claude Code in the clone so the hooks load.
+3. Read this file to the end, then `target/FORMATS.md`; `target/README.md` is the one-page run order.
+4. Start a log: `mkdir -p target/results; echo "$(date '+%F %T %Z') session start" >> target/results/LOG.md` (dated lines, time zone).
+5. Run step 1 (§5) now; it takes minutes and everything else depends on it. Nothing else needs a decision from the user first.
 
 ## 1. Mission (the user's request of 2026-10-25, verbatim)
 
@@ -55,7 +56,7 @@ The user's decisions on this project (2026-10-25):
 | Q119 | `MN_NONPOW2_CAP=0` on the target launch line (the 3.82e13 headline fits on 576 nodes only with it off) + a bench A/B of the setting (`prm08`) |
 | Q120 | first make every code path work on 576 nodes at a small size (8e9 digits per node); raise the digits only after those runs succeed |
 | Q121 | L3 is a staircase on 576 nodes: 4.608e12 on both paths → 1e13 (path 1; path 2 does not fit) → 3.82e13 on path 1, each step after the previous passed |
-| Q122 | `ECALC_PLANE_CAP=2^30` (half-size plane pools) on the 8e9 campaign's launch line: ladder L0-L3 and step s1, bench runs at the share; dropped for s2/s3 (`--set ENV_ECALC_PLANE_CAP=`); bench `prm09`/`prm10` measure it on the target (ADJUST rule 12); (c) 2026-10-25: the launch setting is removed: the code default `ECALC_PLANE_CAP=run` picks 2^30 at the share and 2^31 for s2/s3 |
+| Q122 | plane pools: no launch setting (2026-10-25 (c)); the code default `ECALC_PLANE_CAP=run` picks 2^30 at the 8e9 share and 2^31 above about 9.6e9 per node (s2/s3); bench `prm09`/`prm10` measure 2^30 against 2^31 on the target (ADJUST rule 12) |
 
 ## 2. Install the rules (do this first)
 
@@ -84,7 +85,8 @@ How the rules apply on the target (they were written for the development side):
   the 6-node packing limit, the NIC-loss workarounds, the password file) do not apply on the target; their intent does:
   pack work so no allocated node idles, use long allocations and run many items inside them, drivers with done-markers
   for long waits, never touch other users' jobs, kill only by single PID.
-- The private `docs/` files (STATUS, DECISIONS, AGENT_PROTOCOL) do not exist in the clone (Q117). On the target the
+- The private `docs/` files (STATUS, DECISIONS, AGENT_PROTOCOL, TARGET) do not exist in the clone (Q117); where the rules say
+  "read docs/AGENT_PROTOCOL.md first", read the repository's `README.md` (doc map) and this file instead. On the target the
   coordinator keeps its live state in `target/results/LOG.md` and decisions in `target/results/DECISIONS.md` (create both).
 - The local leak-guard git hooks are not part of the clone; on the target nothing blocks a commit, so the coordinator
   itself makes sure no password, key or token is ever committed (Q116). Raw data (host names, paths, versions) is fine (Q112).
@@ -209,7 +211,7 @@ binaries itself.
 
 ## 7. Step 3 — the bench (parallel workers)
 
-The bench answers the questions in `target/bench/QUESTIONS.md` (63+ rows: band 0-99 ladder-critical, 100-199
+The bench answers the questions in `target/bench/QUESTIONS.md` (68 rows, TQ01-TQ84: band 0-99 ladder-critical, 100-199
 optimization, 200+ calibration for offline work; each row names the decision it drives and the model constant it
 feeds). Items are listed in `target/bench/manifest.d/*.tsv` (id, tier, prio, nodes, est_min, deps, questions, cmd) and
 run once each; arms of an A/B run at the same time on disjoint hosts of the item's allocation instead of repeats.
@@ -232,6 +234,10 @@ to `results/bench/_old/`). A failed path-2 build does not block anything: path-2
 items: `aggregate.py`, commit `target/results/` (coordinator). Read `ANSWERS.md` as it fills: answers in band 0-99 can
 change the ladder's settings (ADJUST.md) before L1.
 
+Two questions have no bench script and are run by hand after the ladder's L0 passes (the rows say how): TQ83 (kit stages
+`s2chk` and `nodechk`: `target/kit/target_kit.sh --jobid J --out DIR --only build,s2chk` and `--only build,nodechk`; the kit is
+older and optional) and TQ84 (path 2 with `DIST_CHUNKS=2|4`, the digits of K=1,2,4 at 3 nodes (12 PEs: `SLURM_JOB_ID=J mnrun.sh 3 env ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 DIST_CHUNKS=K ./ecalc 1e10`, `VERIFY OK`, equal digit hash with a path 1 run of the same digits; `tools/gate.sh` is the aac7 form of that gate). Record both in `results/LOG.md`.
+
 ## 8. Step 4 — the ladder (1, 8, 64, 576 nodes)
 
 Sizes are fixed (Q114). The digits are the first campaign's share of **8 × 10⁹ digits per node** (user decision Q120,
@@ -240,22 +246,24 @@ increase the number of digits later if the smaller runs succeed"): at 8e9 per no
 layout D (path 1), P (path 1, one process per GPU) and path 2 (Cray SHMEM) — while at the 3.82e13 headline's share
 (6.632e10 per node) P and path 2 are refused from 8 nodes on (mod, planner 2026-10-25):
 
-| level | nodes (APUs) | digits | replicas in parallel | paths | write | model wall (mod, D, no write / write) | worst plan (path 2, mod) |
-|---|---|---|---|---|---|---|---|
-| L0 | 1 (4) | 8e9 | 8, 2 runs each | both, order alternating | no | 16.8 / 19.9 s | device 144 GB, node 191 GB |
-| L1 | 8 (32) | 6.4e10 | 4, 2 runs | both | no | 22.6 / 24.6 s | device 216 GB, node 293 GB |
-| L2 | 64 (256) | 5.12e11 | 2, 2 runs | both | first replica | 25.8 / 27.6 s | device 216 GB, node 293 GB |
-| L3 | 576 (2304) | 4.608e12 | 1, 2 runs | both | yes | 32.0 / 33.2 s | device 328.69 GB (+44.75), node 406.32 GB (+7.68 vs 414) |
+| level | nodes (APUs) | digits | replicas in parallel | paths | write | worst plan (path 2, mod) |
+|---|---|---|---|---|---|---|
+| L0 | 1 (4) | 8e9 | 8, 2 runs each | both, order alternating | no | device 144 GB, node 191 GB |
+| L1 | 8 (32) | 6.4e10 | 4, 2 runs | both | no | device 216 GB, node 293 GB |
+| L2 | 64 (256) | 5.12e11 | 2, 2 runs | both | first replica | device 216 GB, node 293 GB |
+| L3 | 576 (2304) | 4.608e12 | 1, 2 runs | both | yes | device 328.69 GB (+44.75), node 406.32 GB (+7.68 vs 414) |
+
+The model walls (mod) per level and step are in `ladder/ADJUST.md` §1; the settings are `ladder/levels/L<n>.conf`.
 
 L3 is a staircase on 576 nodes (user decision Q121): each step only after the previous one passed the ADJUST.md gate.
 Path 2 (and P) fits at 576 nodes up to about 1.3e10 digits per node with a 480 GB node budget (device +10.39 GB) and
 about 9.1e9 with 414 GB (5.23e12 on 576 nodes); layout D fits up to the headline with `MN_NONPOW2_CAP=0` (mod, planner 2026-10-25):
 
-| step | digits (per node) | paths | write | model wall (mod, D, no write / write) | plan at 576 nodes (mod) |
-|---|---|---|---|---|---|
-| s1 | 4.608e12 (8e9) | both | yes | 32.0 / 33.2 s | path 2 device 328.69 GB (+44.75) |
-| s2 | 1e13 (1.74e10) | 1 (path 2 refused, dropped by `ladder.sh`) | no | 52.3 / 55.3 s | D device 238.97 GB (+134.47); path 2 device 380.23 (−6.79) |
-| s3 | 3.82e13 (6.632e10) | 1 | no | 187.1 / 191.2 s | D device 358.96 GB (+14.48), node 395.04 GB |
+| step | digits (per node) | paths | write | plan at 576 nodes (mod) |
+|---|---|---|---|---|
+| s1 | 4.608e12 (8e9) | both | yes | path 2 device 328.69 GB (+44.75) |
+| s2 | 1e13 (1.74e10) | 1 (path 2 refused, dropped by `ladder.sh`) | no | D device 238.97 GB (+134.47); path 2 device 380.23 (−6.79) |
+| s3 | 3.82e13 (6.632e10) | 1 | no | D device 358.96 GB (+14.48), node 395.04 GB |
 
 ```bash
 target/ladder/ladder.sh --level L3 --run-tag s1
@@ -270,7 +278,7 @@ Run 1 of a fresh allocation is a cold start (ADJUST rule 11): every level does 2
 `ladder.sh` drops a path whose plan is refused and runs the level on the other one.
 
 ```bash
-python3 target/ladder/locality.py nodes --save                  # physical table -> results/probe/topology.tsv (once)
+python3 target/ladder/locality.py nodes --save                  # refresh the physical table with the current node states (step 1 made it first)
 target/ladder/ladder.sh --level L0 --dry-run                    # plan check, the groups it would use, the job lines
 target/ladder/ladder.sh --level L0                              # submits 8 replicas (one sbatch each, adjacent groups)
 target/ladder/ladder.sh --collect L0                            # after the DONE markers: mean/min/max, spread, VERIFY, hash agreement
