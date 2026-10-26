@@ -25,7 +25,6 @@ One line each (what, why, size); nothing here is started without the user's word
 - aac7 bimodal run times (3 n 1e11, both backends): about half the runs are 5-8 % slower in every compute phase (measured 2026-10-23, 9zs19-9zs29); not time-correlated (Fisher p = 1.0) and absent at 1 node without network (271 runs, unimodal, 9zv3_bm2d, results/NODE_SLOWMODE.md §BM), so it needs the fabric or more than one node; next: the 3 n ABBA with per-launch NIC counters once three nodes with working NICs exist (aac7 has two on 2026-10-24); until then pair every A/B run.
 - Cray SHMEM path remaining gap (final +7.5 %, CI +3.4 to +11.5 %, 11 interleaved pairs, results/XSHMEM.md craylane): init +8 s (libsma heap NIC registration 6.2 s, hipHostRegister 1.5 s, barrier 1.4 s; aac7 4 KiB shared heap, needs THP shmem or hugetlb, admin) and a ~4.5 s first-exchange post (stream sync on every PE; not GPU page-table first touch); re-measure both on the target (Cray SHMEM 12.1) before any work here. Cray default layout D is 2.4x slower than P (four APU threads share one libsma heap at thread level 3); the target layout is P.
 - Same-node peer path follow-ups (`XSHMEM_PEER`, default on under P since Q100, results/SINGLE_NODE.md §PEER): a 3 n run for the gain and the per-PE heap peak (needs a third NIC node); signals and control words by direct writes and copies spread over several SDMA engines (dm still +3.5 s behind D at 1 n 3.3e10, m); the Cray path through `shmem_ptr` at the target session.
-- XSHMEM target-only day-one checks (aac7 part done, results/XSHMEM.md XDIAG): T1, T2, T5 and T8 on the device heap, the T6 NIC-APU map, `XSHMEM_OFI_SIG=waw` (unbuilt) if the target needs it; at the target session.
 - Default start-up time (measured 2026-10-22, results/XSHMEM.md §PPG S2d): layout D spends 25-31 s in init at 3 n 1e11 (region pools / VMM arenas 13.5-15 s, plane pools ~5 s, layered self-test 3.7-4.2 s, staging ~2 s) against ~10 s with one process per GPU: one process mapping memory for 4 GPUs is serialised in the HIP runtime (D ~20 GB/s per node vs P ~150 GB/s). Tried and not adopted: skip the layered self-test (`MN_SELFTEST`, since removed, 3 n 1e11 -1.55 s [-4.25, +1.14], the cost is building the meshes), `DB_POOL_VMM=0` (init -6.0 s but bs +4.8 s), plane pools mapped in a helper thread (`RNS_INIT_OVERLAP`, no gain: the runtime serialises the mappings; results/APUMULT.md §INIT). Remaining lever: per-device allocator processes so D maps like P (L-A, ~20 s, modelled), not started.
 - 6 n paired ABBA of grid [2,6] against [6], at least 8 runs per arm (earlier data +23 +/- 12 s, unexplained, m); aac7, one item.
 - Watch item, start-up hang at 7.7e10 (A114 E1): not reproduced on current main, 0 in 301 runs (95 % bound 1.0 %, 2026-10-25, results/CRASHES_HANGS.md §A114); any hang caught by `ECALC_INIT_TL=1` plus `eu-stack` reopens it.
@@ -41,13 +40,6 @@ Only decisions that no central doc states: the others are in `README.md` (two pa
 
 Performance ideas, open or tried, are in `OPPORTUNITIES.md`.
 
-## Target session (later)
+## Target session
 
-| # | item | status | where |
-|---|---|---|---|
-| 6 | Handoff document | later | |
-| 7 | Target-side options (need a target session): `MN_T_CHUNK_MB=2048` A/B (T11b), division overlap gate (T12, S-2), X2 try (T13; X2 is now built in, no switch), kit `nodechk` rehearsal (T14) | open | internal target task list |
-| 26 | **Kit paths not rehearsed** (A06): 2-NIC a3, 8-node a4, s2chk, `--spares` STOP, plan REFUSED | open (target session) | results/TOOLS_PROFILES.md §A06 |
-| 28 | **Target bring-up:** populate `profiles/target.conf` as soon as access exists; runbook and probe script written 2026-10-14 (profiles/README.md "Target bring-up runbook", `target/probe/probe.sh`), login dry run OK | needs the target for the rest | results/TOOLS_PROFILES.md §C01 |
-| 29 | **Hugetlb on the target:** the target has hugetlb pages and cray-shmem 12.1.0 (untested): test the libsma symmetric heap on hugetlb with `XSHMEM=cray` (aac7: init +6.2 s of NIC registration on a 4 KiB heap) and re-run the stall checks (results/SHMEM.md); aac7 has no free hugetlb pages | target session | results/SHMEM.md, results/XSHMEM.md craylane |
-| 31 | **Gap at 5 or more peers and at scale** on the target fabric with cray-shmem 12.1: run the day-one checks T1-T8 (results/XSHMEM.md §8) and path 2 against path 1 at 4, 8 and 16 nodes | target session | results/XSHMEM.md |
+Target work: `target/RESTART.md` and `target/bench/QUESTIONS.md`.
