@@ -2,6 +2,8 @@
 id	tier	prio	nodes	est_min	deps	questions	cmd
 gpu01	2	100	1	25	ntt01	TQ30	gpu01.sh
 prm08	2	102	36	25	scl01	TQ81	prm08.sh
+prm09	2	103	1	10	ntt02	TQ82	prm09.sh
+prm10	2	104	8	12	scl01	TQ82	prm10.sh
 ntt03	2	105	1	20	ntt01	TQ58	ntt03.sh
 gpu02	2	108	1	15	ntt01	TQ31,TQ32,TQ33	gpu02.sh
 ini02	2	110	1	15	ntt01	TQ34,TQ35	ini02.sh

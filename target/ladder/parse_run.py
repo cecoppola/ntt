@@ -34,6 +34,7 @@ def parse(text, nodes=None, hosts=None):
     r = {}
     res = {}
     pernode = {}                       # (host, rank) -> {dc, t1, write}
+    tails = set()                      # the tail digits printed by the process holding the end of the result
     dig = set()
     penode = {}                        # PE index -> node index (one process per GPU: the lines say `pe N`, not the host)
     ok_lines = fail_lines = 0
@@ -77,6 +78,8 @@ def parse(text, nodes=None, hosts=None):
         mm = re.match(r"digits: (\S*?)\.\.\.(\S*)", line)
         if mm:
             dig.add("%s %s...%s" % (rank if rank is not None else "0", mm.group(1), mm.group(2)))
+            if mm.group(2):
+                tails.add(mm.group(2))
         if rank is not None:
             mm = re.match(r"(dc|T1)\s+([0-9.]+) s", line)
             if mm:
@@ -108,6 +111,8 @@ def parse(text, nodes=None, hosts=None):
     else:
         v = "NONE"
     r["verify"], r["verify_ok_lines"] = v, str(ok_lines)
+    if tails:                                   # the last digits of the whole result: the same for every process layout
+        r["digits_tail"] = ",".join(sorted(tails))
     if dig:
         r["digits_hash"] = hashlib.sha256("\n".join(sorted(dig)).encode()).hexdigest()[:16]
         r["digits_lines"] = str(len(dig))
@@ -181,7 +186,7 @@ def collect(dirs, model_nw=None, model_w=None, expect=None):
     out = []
     allok = True
     heads = set()
-    allhash = set()
+    alltail = set()
     for p in sorted(rows):
         runs = rows[p]
         tot = [float(v["total_s"]) for v in runs.values() if "total_s" in v and v.get("verify") == "OK"]
@@ -190,10 +195,10 @@ def collect(dirs, model_nw=None, model_w=None, expect=None):
         for v in runs.values():
             if "e_head" in v:
                 heads.add(v["e_head"])
-        allhash |= hashes
+        alltail |= set(v["digits_tail"] for v in runs.values() if "digits_tail" in v)
         nok = sum(1 for x in ver if x == "OK")
         nbadrc = sum(1 for v in runs.values() if v.get("rc", "0") != "0")
-        allok = allok and nok == len(ver) and len(ver) > 0 and nbadrc == 0
+        allok = allok and nok == len(ver) and len(ver) > 0 and nbadrc == 0 and len(hashes) == 1
         line = "path %s: runs %d, VERIFY OK %d" % (p[1], len(ver), nok) + (", rc != 0 in %d" % nbadrc if nbadrc else "")
         if tot:
             mean = sum(tot) / len(tot)
@@ -213,8 +218,10 @@ def collect(dirs, model_nw=None, model_w=None, expect=None):
         if slow:
             line += "; slow hosts " + ",".join(slow)
         out.append(line)
-    if len(allhash) != 1:                       # one digit string across all runs of all paths
-        out.append("digit hash across paths: %s" % ("none (no digit lines)" if not allhash else "DIFFER %s" % ",".join(sorted(allhash))))
+    # the per-process digit lines depend on the process layout (path 1 and path 2 split the result differently), so the hash is compared
+    # within a path; across paths the last digits of the result must agree
+    if len(alltail) != 1:
+        out.append("last digits across paths: %s" % ("none (no tail digits)" if not alltail else "DIFFER %s" % ",".join(sorted(alltail))))
         allok = False
     if expect and len(dirs) < expect:
         out.append("replicas finished %d of %d" % (len(dirs), expect))
