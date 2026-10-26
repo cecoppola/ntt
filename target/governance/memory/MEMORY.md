@@ -20,3 +20,4 @@
 - [aac7 exclude list goes stale](aac7-exclude-stale.md) — idle nodes stuck in ~/aac7q/exclude cost hours 2026-10-24; rescreen via hold NIC check
 - [No task-list prompts](no-task-list-prompts.md) — keep open work on TASKS; never ask to start it or list it; report when ongoing work is done
 - [Target folder rules](target-folder-rules.md) — target/ project: raw data + verbatim rule files allowed, leak guard ignored, never secrets; docs/ stays untracked
+- [Keep dirs tidy](keep-dirs-tidy.md) — one main copy each; remove worktrees/items/run dirs right after they finish (archive first); never touch dirs in use
