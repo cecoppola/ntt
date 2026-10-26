@@ -61,7 +61,7 @@ Change:
 #### 1. Planner and memory model (login node, m)
 - `MN_PLAN_ONLY=3.82e13:576`: plan check OK, 1236 products; tree 42/42, recip 49/49, div 18/18 pieces at four primes. Identical with `ECALC_NP_MN3=1` (at 576 the old rule already gave four planes). With `DM_MN_WRAP=1`: layout node 380.84 → 406.61 GB (+25.77), with v-slots 388.51 → 414.28.
 - `BS_LAYOUT_ONLY` at 6.441e10 × {1, 2, 4, 6} and 3.82e13/576 × 576, four variants: `--check-c` **0 terms not exact, largest arena difference 0.0000 %** (20 plane figures each).
-- Pool 0 at 6.441e10 per node, cap 2^31: g 2, 4, 6 planes 120.88 GB per node (P24) vs 103.70 with `ECALC_NP_MN3=1` (+17.18 GB per node, +4.3 GB per APU); g 576: 120.88 both.
+- Pool 0 at 6.441e10 per node, cap 2^31 (explicit; the C default is `run`, 2^31 here above its bound): g 2, 4, 6 planes 120.88 GB per node (P24) vs 103.70 with `ECALC_NP_MN3=1` (+17.18 GB per node, +4.3 GB per APU); g 576: 120.88 both.
 - Wrap term per APU (mod): 8.59 GB at 2 and 4 nodes, 5.73 at 6, 7.64 at 3.82e13/576; arena 214.75 → 240.52 GB, room node 386.84 → 412.61 GB: fits 480. At 2 nodes the model's 8.6 GB per APU is an upper bound against the 4.3 GB pool growth measured in P1 (3-prime form).
 
 #### 2. Gates (aac7 queue, 1e9 digits, m)

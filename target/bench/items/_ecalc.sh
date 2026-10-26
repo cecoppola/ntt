@@ -82,7 +82,7 @@ EC_BG_PIDS=()
 # (TGT_SITE=aac7 scale 0.1) still applies on top of it.  The later goal stays 3.82e13 in total (cor03 checks it too).
 TGT_SHARE=${TGT_SHARE:-8000000000}; export TGT_SHARE
 # TGT_SHARE_CAP: the plane cap of runs at exactly the campaign share per node (user decision Q122, 2026-10-25: ECALC_PLANE_CAP=2^30
-# on the 8e9 campaign's launch line; aac7 1 n 8e9: total -2.64 s [-2.98, -2.30], compute unchanged, digits identical, m).  A caller's
+# on the 8e9 campaign's launch line; aac7 1 n 8e9: total -2.64 s [-2.98, -2.30], compute unchanged, digits identical, m).  Since 2026-10-25 the code default is `run` (the same 2^30 at the share); the line is kept explicit.  A caller's
 # ECALC_PLANE_CAP word or environment wins; TGT_SHARE_CAP= (empty) turns it off.  Not applied at other sizes (the cap refuses ~9e9+ per node).
 TGT_SHARE_CAP=${TGT_SHARE_CAP-2^30}; export TGT_SHARE_CAP
 

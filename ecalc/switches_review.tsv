@@ -19,7 +19,7 @@ ECALC_MEM_SAMPLE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fa
 ECALC_MEM_SAMPLE_FILE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_NP_AUTO_TERMS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_OUT_PACKED	fallback	coordinator (TASKS S)	2026-11-11	=0 (ASCII) kept as an output form; the 8-byte form =1 removed 2026-10-23 (Q87); default 2
-ECALC_PLANE_CAP	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
+ECALC_PLANE_CAP	experiment	coordinator (TASKS S)	2026-11-11	`run` is the default (user 2026-10-25); keep 2^30, 2^31, fit as the explicit settings
 ECALC_PLANE_CAP_IDX	internal	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	internal channel from the planner to the library; do not set by hand
 ECALC_TEST_CORR	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_WINDOWS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit

@@ -370,7 +370,7 @@ static void budget_check(unsigned long N, int verbose)
  * without it a 2^31 product would grow a 2^30 pool inside a phase and abort).  ECALC_PLANE_CAP=run takes 2^30 when the run's largest product (the division's 2 k + 8 limbs, binsplit_div_product_limbs) fits one mn plane at that cap, else 2^31 (the start-up gain of 2^30
  * without a size the 2^30 plane was not measured at; not with ECALC_PE_PER_GPU).  ECALC_PLANE_CAP=fit takes the larger cap whose
  * node total (binsplit_node_bytes: the plane pools at the prime count + the arena + the host init constants) fits ECALC_NODE_GB
- * (default 480, the safe budget).  Unset: 2^31 (the default), unless POOL_LOG or DIST_LOGN_TEST is given; =off: the knobs as
+ * (default 480, the safe budget).  Unset: `run` (the default; 2^31 with ECALC_PE_PER_GPU, `fit` with ECALC_PE_PER_GPU=1 and XSHMEM_PES_PER_GPU > 1), unless POOL_LOG or DIST_LOGN_TEST is given; =off: the knobs as
  * given.  A knob set in the environment that disagrees with the cap is refused.  BS_LAYOUT_ONLY is served here, before
  * rns_init, so the layout report needs no device.  The cap index c is pool_log - 30 (bs_cap_name). */
 static int g_layout_refused;                                         /* BS_LAYOUT_ONLY's prime-set check refused a point */
@@ -378,9 +378,10 @@ static void layout_refused_exit(void) { fflush(stdout); _exit(EC_RC_FATAL); }
 static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
 {
     const char *e = getenv("ECALC_PLANE_CAP"); int c = -1;
-    if (!e) { if (!getenv("POOL_LOG") && !getenv("DIST_LOGN_TEST")) {   /* default 2^31, unless a knob it sets is given */
+    int dflt = 0;                                                          /* the cap came from the default, not the environment (the verbose line says so) */
+    if (!e) { if (!getenv("POOL_LOG") && !getenv("DIST_LOGN_TEST")) {   /* default `run` (2^30 or 2^31 by the run's size), unless a knob it sets is given */
             const char *pg = getenv("ECALC_PE_PER_GPU"), *pp = getenv("XSHMEM_PES_PER_GPU");
-            e = pg && atoi(pg) == 1 && pp && atoi(pp) > 1 ? "fit" : "2^31";   /* 2 PEs share one GPU: every PE's plane pool is a full cap, so take the larger cap whose node total fits ECALC_NODE_GB (the plan then models the shared device) */
+            e = pg && atoi(pg) == 1 && pp && atoi(pp) > 1 ? "fit" : "run"; dflt = 1;   /* 2 PEs share one GPU: every PE's plane pool is a full cap, so take the larger cap whose node total fits ECALC_NODE_GB (the plan then models the shared device) */
         } }
     else if (!strcmp(e, "off")) e = NULL;                                  /* ECALC_PLANE_CAP=off: POOL_LOG and DIST_LOGN_TEST as given */
     if (e && *e) {
@@ -398,7 +399,7 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
             size_t need = binsplit_div_product_limbs(N); int pl0 = rns_pool_log(), lc;
             rns_preinit_pool_log(30); lc = ppg ? 0 : rns_mul_dist_mn_logcap_g(sz); rns_preinit_pool_log(pl0);   /* the mn tier's plane cap at pool_log 30 for this group size (before rns_init, as `fit`) */
             c = !ppg && need <= ((size_t)1 << lc) ? 0 : 1;   /* ECALC_PE_PER_GPU: not modelled here, 2^31 */
-            if (verbose) printf("ECALC_PLANE_CAP=run: plane cap %s (largest product %zu limbs %s 2^%d, the 2^30 cap's plane over %d node%s%s)\n", bs_cap_name[c], need, c ? ">" : "<=", ppg ? 0 : lc, sz, sz > 1 ? "s" : "", ppg ? "; ECALC_PE_PER_GPU set: not modelled, 2^31" : "");
+            if (verbose) printf("ECALC_PLANE_CAP=run%s: plane cap %s (largest product %zu limbs %s 2^%d, the 2^30 cap's plane over %d node%s%s)\n", dflt ? " (default)" : "", bs_cap_name[c], need, c ? ">" : "<=", ppg ? 0 : lc, sz, sz > 1 ? "s" : "", ppg ? "; ECALC_PE_PER_GPU set: not modelled, 2^31" : "");
         }
         if (c < 0) { fprintf(stderr, "ECALC_PLANE_CAP=%s: one of 2^30, 2^31 (or 30, 31), fit or run\n", e); exit(2); }
         char pl[8]; snprintf(pl, sizeof pl, "%d", 30 + c);
@@ -526,7 +527,7 @@ int main(int argc, char **argv)
     { const char *es = getenv("COMM_SIZE"), *er = getenv("COMM_RANK"); int sz = es ? atoi(es) : 1, rk = er ? atoi(er) : 0;   /* M2: this process's term range (mn_init below checks the rest) */
       if (sz > 1 && !vpe_on()) { unsigned __int128 nn = N; bs_a0 = 1 + (unsigned long)(nn * rk / sz); bs_b1 = 1 + (unsigned long)(nn * (rk + 1) / sz); } }
     rns_after_staging_hook = vpe_on() ? seeds_begin_vpe : (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N;   /* I2: the seeds during the pool allocations */
-    pool_log = plane_cap_switch(pool_log, N, verbose);   /* ECALC_PLANE_CAP (2^31 by default; exits for BS_LAYOUT_ONLY) */
+    pool_log = plane_cap_switch(pool_log, N, verbose);   /* ECALC_PLANE_CAP (`run` by default; exits for BS_LAYOUT_ONLY) */
     struct bs_fit fit; int fit_g = getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1; if (fit_g < 1) fit_g = 1;
     { int pl0 = rns_pool_log(); rns_preinit_pool_log(pool_log); binsplit_fit(N, fit_g, &fit); rns_preinit_pool_log(pl0); }   /* FIT (D26): the memory fit at rank 0's layout; decides DM_MN_WRAP when unset (every rank alike) */
     if (!plan && verbose && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0)) binsplit_fit_print(&fit, (double)d_out, fit_g, "memory fit: ");
