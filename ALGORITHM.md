@@ -177,7 +177,7 @@ With three primes form B transforms on three APUs and the fourth only takes part
 
 ### 4.5 Plane cap and grids
 
-The largest single transform is the **plane cap**: 2³¹ points per node by default (`ECALC_PLANE_CAP`: 2³⁰, 2³¹, `fit` or `run`, which takes 2³⁰ while the division's largest product fits one plane; the
+The largest single transform is the **plane cap**: 2³⁰ or 2³¹ points per node by default (`ECALC_PLANE_CAP`, default `run`: 2³⁰ while the division's largest product fits one plane, about 9.6e9 digits per node and below, else 2³¹; also 2³⁰, 2³¹ or `fit`; the
 distributed tier's planes are powers of two, while form B and the batch tier keep their 3·2^k lengths). For g nodes
 the cap is 2^(31 + ⌊log₂ g⌋) points (`mn_logn_cap`). A product with nc above the cap is cut into a **grid** of ka × kb
 piece products:

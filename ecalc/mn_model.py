@@ -1985,7 +1985,7 @@ def estimate_main(argv=None):
     ap.add_argument("--no-cache-fit", action="store_true", help="without RNS_DIST_CACHE_FIT on the launch line: the code's default 2 slots priced (137.4 GB per node at the target that no budget holds: TC15)")
     ap.add_argument("--ascii", action="store_true", help="ECALC_OUT_PACKED=0: the ASCII part file (1 B/digit) instead of the packed default (0.444 B/digit)")
     ap.add_argument("--strategy", default="auto", choices=STRATEGIES, help="RNS_STRATEGY (agent B, Phase 13b)")
-    ap.add_argument("--cap", default="2^31", choices=list(mem_model.CAPS) + ["rule"], help="the plane cap (default 2^31 since Phase 13c; rule = the pre-13c size rule)")
+    ap.add_argument("--cap", default="2^31", choices=list(mem_model.CAPS) + ["rule"], help="the plane cap (default 2^31 since Phase 13c, the model's own; the C default is now ECALC_PLANE_CAP=run, 2^30 up to about 9.6e9 digits per node: pass --cap 2^30 there; rule = the pre-13c size rule)")
     ap.add_argument("--chunk", default="both", choices=CHUNKS, help="off | shift (MDB_SHIFT_CHUNK_MB) | both (+ MN_T_CHUNK_MB, the default since Phase 14), at --chunk-mb")
     ap.add_argument("--chunk-mb", type=float, default=CHUNK_MB)
     ap.add_argument("--depth", type=int, default=2, choices=(1, 2), help="the uneven exchange's depth (agent X, Phase 13b)")

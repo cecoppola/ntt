@@ -55,7 +55,7 @@ The user's decisions on this project (2026-10-25):
 | Q119 | `MN_NONPOW2_CAP=0` on the target launch line (the 3.82e13 headline fits on 576 nodes only with it off) + a bench A/B of the setting (`prm08`) |
 | Q120 | first make every code path work on 576 nodes at a small size (8e9 digits per node); raise the digits only after those runs succeed |
 | Q121 | L3 is a staircase on 576 nodes: 4.608e12 on both paths → 1e13 (path 1; path 2 does not fit) → 3.82e13 on path 1, each step after the previous passed |
-| Q122 | `ECALC_PLANE_CAP=2^30` (half-size plane pools) on the 8e9 campaign's launch line: ladder L0-L3 and step s1, bench runs at the share; dropped for s2/s3 (`--set ENV_ECALC_PLANE_CAP=`); bench `prm09`/`prm10` measure it on the target (ADJUST rule 12) |
+| Q122 | `ECALC_PLANE_CAP=2^30` (half-size plane pools) on the 8e9 campaign's launch line: ladder L0-L3 and step s1, bench runs at the share; dropped for s2/s3 (`--set ENV_ECALC_PLANE_CAP=`); bench `prm09`/`prm10` measure it on the target (ADJUST rule 12); (c) 2026-10-25: the launch setting is removed: the code default `ECALC_PLANE_CAP=run` picks 2^30 at the share and 2^31 for s2/s3 |
 
 ## 2. Install the rules (do this first)
 
@@ -259,8 +259,8 @@ about 9.1e9 with 414 GB (5.23e12 on 576 nodes); layout D fits up to the headline
 
 ```bash
 target/ladder/ladder.sh --level L3 --run-tag s1
-target/ladder/ladder.sh --level L3 --run-tag s2 --set DIGITS=10000000000000 --set ENV_ECALC_PLANE_CAP= --set WRITE=0 --set MODEL_NOWRITE_S=52.3 --set MODEL_WRITE_S=55.3
-target/ladder/ladder.sh --level L3 --run-tag s3 --set DIGITS=38200000000000 --set PATH=1 --set ENV_ECALC_PLANE_CAP= --set WRITE=0 --set MODEL_NOWRITE_S=187.1 --set MODEL_WRITE_S=191.2
+target/ladder/ladder.sh --level L3 --run-tag s2 --set DIGITS=10000000000000 --set WRITE=0 --set MODEL_NOWRITE_S=52.3 --set MODEL_WRITE_S=55.3
+target/ladder/ladder.sh --level L3 --run-tag s3 --set DIGITS=38200000000000 --set PATH=1 --set WRITE=0 --set MODEL_NOWRITE_S=187.1 --set MODEL_WRITE_S=191.2
 ```
 
 A step that fails stops the staircase: record it, try the ADJUST.md rules, and do not move up. The write was tested at

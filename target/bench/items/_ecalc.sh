@@ -81,10 +81,7 @@ EC_BG_PIDS=()
 # 6.632e10 is refused for P and C from 8 nodes on.  Items write `dig $TGT_SHARE [NODES]` / `ecalc_digits $TGT_SHARE`, so TGT_DIGITS_SCALE
 # (TGT_SITE=aac7 scale 0.1) still applies on top of it.  The later goal stays 3.82e13 in total (cor03 checks it too).
 TGT_SHARE=${TGT_SHARE:-8000000000}; export TGT_SHARE
-# TGT_SHARE_CAP: the plane cap of runs at exactly the campaign share per node (user decision Q122, 2026-10-25: ECALC_PLANE_CAP=2^30
-# on the 8e9 campaign's launch line; aac7 1 n 8e9: total -2.64 s [-2.98, -2.30], compute unchanged, digits identical, m).  A caller's
-# ECALC_PLANE_CAP word or environment wins; TGT_SHARE_CAP= (empty) turns it off.  Not applied at other sizes (the cap refuses ~9e9+ per node).
-TGT_SHARE_CAP=${TGT_SHARE_CAP-2^30}; export TGT_SHARE_CAP
+# plane cap: none set here (Q122 (c), 2026-10-25): the code default ECALC_PLANE_CAP=run picks 2^30 at the campaign share, 2^31 above ~9.6e9 per node.
 
 # known digit hashes (unpack_digits -q | sha1sum | cut -c1-16, main, aac7, identical on both paths and every node count)
 ecalc_ref_hash() { case "$1" in 1000000000) echo bf9f4b08758b40d9;; 10000000000) echo 3fc025473586ed22;; 100000000000) echo 578f5efb0ff2b9af;; esac; }
@@ -215,10 +212,6 @@ ecalc_run() {         # TAG SHAPE NODES DIGITS [VAR=VALUE ...]
     # reporting settings unless the caller or target.conf set them
     for w in ECALC_VERBOSE=2 MEM_REPORT_DEVS=1 ECALC_SEGV_TRACE=1 ECALC_MEM_GUARD_GB=6; do
         local k=${w%%=*}; [ -n "${!k+x}" ] || words=("$w" "${words[@]}"); done
-    if [ -n "$TGT_SHARE_CAP" ] && [ -z "${ECALC_PLANE_CAP+x}" ] && [[ " ${words[*]} " != *" ECALC_PLANE_CAP="* ]] \
-       && [ "$d" = "$(awk -v s="$(ecalc_digits "$TGT_SHARE")" -v n="$n" 'BEGIN { printf "%.0f", s * n }')" ]; then
-        words+=("ECALC_PLANE_CAP=$TGT_SHARE_CAP")      # Q122: the campaign share runs as the target launch line does
-    fi
     h=$(_ec_hosts_of "$n") || true
     if [ -z "$h" ] && [ -z "${ECALC_REPLAY:-}" ]; then echo "ecalc_run $tag: fewer than $n hosts in HOSTS_SUB/HOSTS" > "$lg"; E_RC=98; _ec_save "$tag"; return 98; fi
     E_HOSTS=$h
