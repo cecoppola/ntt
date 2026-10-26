@@ -75,7 +75,7 @@ class T(unittest.TestCase):
             p = os.path.join(d, f"r{k}")
             os.makedirs(p)
             with open(os.path.join(p, "summary.txt"), "w") as f:
-                f.write(f"level=L0\nnodes=1\ndigits=7\np1r1.total_s={tot}\np1r1.verify=OK\np1r1.digits_hash={h}\np1r1.e_head=2718\n")
+                f.write(f"level=L0\nnodes=1\ndigits=7\np1r1.total_s={tot}\np1r1.verify=OK\np1r1.digits_hash={h}\np1r1.e_head=2718\np1r1.digits_tail=4711\n")
             dirs.append(p)
         lines, ok = pr.collect(dirs, 90.0, None)
         self.assertFalse(ok)                                   # the hashes differ
