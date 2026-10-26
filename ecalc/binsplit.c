@@ -736,7 +736,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
             dv = (stg > vsp ? stg : vsp) + mg + gb + ((size_t)1 << 20); }
         g_ofi_dev_mb = ((dv + ((size_t)1 << 20) - 1) >> 20); g_ofi_dev_mb = (g_ofi_dev_mb + 255) / 256 * 256;
     }
-    if (by) snprintf(by, bylen, "COMM_OFI: SHMEM staging 128 MiB (host ops), control %.1f MiB; the device staging in 4 comm_ofi pools of %zu MiB = %.1f MiB by %s + margin%s", control / 1048576.0, g_ofi_dev_mb, best * 8 / 1048576.0, who, "");
+    if (by) snprintf(by, bylen, "SHMEM staging 128 MiB (host ops), control %.1f MiB; the device staging in 4 device pools of %zu MiB = %.1f MiB by %s + margin%s", control / 1048576.0, g_ofi_dev_mb, best * 8 / 1048576.0, who, "");
     size_t stg0 = (size_t)128 << 20;
     size_t need = stg0 + control + mailbox + ((size_t)256 << 20);
     return need;
@@ -757,20 +757,20 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
     size_t have = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : g_ofi_dev_mb ? mb : 8192;   /* OFIMEM: unset = the need */
     const char *er = getenv("COMM_RANK"); int rank0 = !er || atoi(er) == 0;
     if (plan) { printf("plan pool   the SHMEM pool per node-process: COMM_SHMEM_POOL_MB=%zu (%s); the SHMEM heap (SHMEM_SYMMETRIC_SIZE / SHMEM_SYMMETRIC_HEAP_SIZE) >= %zu MiB", mb, by, mb + 512);
-                if (g_ofi_dev_mb) printf("; the comm_ofi pools 4 x COMM_OFI_POOL_MB=%zu", ofi_pool_mb());
+                if (g_ofi_dev_mb) printf("; the device pools 4 x COMM_OFI_POOL_MB=%zu", ofi_pool_mb());
                 if (g_ofi_dev_mb && xsh_on()) printf("; XSHMEM_HEAP_MB=%zu", getenv("XSHMEM_HEAP_MB") ? (size_t)atol(getenv("XSHMEM_HEAP_MB")) : ofi_pool_mb());
                 printf("\n"); return mb; }
     if (g_ofi_dev_mb) {   /* the device pools sized by the rule */
         if (!getenv("COMM_SHMEM_POOL_MB")) { char v[32]; snprintf(v, sizeof v, "%zu", mb); bs_setenv("COMM_SHMEM_POOL_MB", v, 1); have = mb; }
         if (!getenv("COMM_OFI_POOL_MB")) { char v[32]; snprintf(v, sizeof v, "%zu", g_ofi_dev_mb); bs_setenv("COMM_OFI_POOL_MB", v, 1); }
-        else if ((size_t)atol(getenv("COMM_OFI_POOL_MB")) < g_ofi_dev_mb && rank0) fprintf(stderr, "comm_ofi pool: WARNING: COMM_OFI_POOL_MB=%s is below the modelled need of this run, %zu MiB per device\n", getenv("COMM_OFI_POOL_MB"), g_ofi_dev_mb);
+        else if ((size_t)atol(getenv("COMM_OFI_POOL_MB")) < g_ofi_dev_mb && rank0) fprintf(stderr, "device pool: WARNING: COMM_OFI_POOL_MB=%s is below the modelled need of this run, %zu MiB per device\n", getenv("COMM_OFI_POOL_MB"), g_ofi_dev_mb);
         if (xsh_on() && !getenv("XSHMEM_HEAP_MB")) { char v[32]; snprintf(v, sizeof v, "%zu", ofi_pool_mb()); bs_setenv("XSHMEM_HEAP_MB", v, 1); }   /* the xshmem DATA heap per loopback PE = the device pool law */
-        if (rank0) printf("comm_shmem pool: COMM_OFI: the SHMEM pool %zu MiB (need %zu MiB) + 4 comm_ofi pools of COMM_OFI_POOL_MB=%zu (%s)\n", mb > have ? mb : have, mb, ofi_pool_mb(), by);
+        if (rank0) printf("pool: the SHMEM pool %zu MiB (need %zu MiB) + 4 device pools of COMM_OFI_POOL_MB=%zu (%s)\n", mb > have ? mb : have, mb, ofi_pool_mb(), by);
     }
     if (mb > have) {
         char v[32]; snprintf(v, sizeof v, "%zu", mb); bs_setenv("COMM_SHMEM_POOL_MB", v, 1);
-        if (rank0) printf("comm_shmem pool: COMM_SHMEM_POOL_AUTO=1 -- COMM_SHMEM_POOL_MB %zu -> %zu (%s)\n", have, mb, by);
-    } else if (rank0 && getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2) printf("comm_shmem pool: COMM_SHMEM_POOL_MB=%zu holds the modelled need %zu MiB (%s)\n", have, mb, by);
+        if (rank0) printf("pool: COMM_SHMEM_POOL_AUTO=1 -- COMM_SHMEM_POOL_MB %zu -> %zu (%s)\n", have, mb, by);
+    } else if (rank0 && getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2) printf("pool: COMM_SHMEM_POOL_MB=%zu holds the modelled need %zu MiB (%s)\n", have, mb, by);
     return mb;
 }
 /* BS_LAYOUT_ONLY="D:g[,D:g...]" -- print the arena request binsplit_pregrow would make for D digits
@@ -829,6 +829,16 @@ size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *plan
     if (arena_) *arena_ = arena;
     if (host_) *host_ = host;
     return planes + arena + host;
+}
+/* ECALC_PLANE_CAP=run: the run's largest single product, in limbs: the division's t = A_h mu of 2 k + 8 limbs (dm_layout's tcap before DKM / tight
+ * trim it; k = dl + 4, dl the limbs of 10^d, from N alone as dm_layout reads them).  A 2^30 cap serves the run when this fits one mn plane of the cap
+ * (ecalc.c plane_cap_switch: <= 2^(mn_logn_cap(g)) at pool_log 30): above that the products are gridded into pieces and the plan has not been measured there
+ * (1 node: 2 k + 8 > 2^30 from about 9.66e9 digits; Q122 measured the cap up to 8e9). */
+size_t binsplit_div_product_limbs(unsigned long N)
+{
+    double lg = lgamma((double)N + 1.0) / log(10.0);
+    size_t dl = (size_t)ceil((lg - 50.0) / 18.0) + 1, k = dl + 4;
+    return 2 * k + 8;
 }
 /* MS: BS_LAYOUT_ONLY / its plan check at a point of g node-processes set COMM_SIZE to g while the point is laid out, and
  * restore the environment's value after (g = 0).  rns_pool0_np() reads COMM_SIZE, and P24's decision (rns_dist.c mn_p24_of)
@@ -922,16 +932,16 @@ void binsplit_fit_print(const struct bs_fit *F, double D, int g, const char *pre
            "node %.2f GB vs the node budget %.0f GB (ECALC_NODE_GB): margin %+.2f GB; host %.2f GB\n",
            pre, D, g, g > 1 ? "es" : "", F->device * G, F->device * G / bs_nrn(), F->limit * G, (F->limit - F->device) * G, F->node * G, F->budget * G, (F->budget - F->node) * G, F->host * G);
     int bs = F->dev_bs > F->dev_dm;
-    printf("%sdevice at the %s phase (the peak; the %s phase %.2f GB) = planes %.2f + arena %.2f + comm_ofi pools %.2f%s + v-slots %.2f GB\n",
+    printf("%sdevice at the %s phase (the peak; the %s phase %.2f GB) = planes %.2f + arena %.2f + device pools %.2f%s + v-slots %.2f GB\n",
            pre, bs ? "bs" : "dm", bs ? "dm" : "bs", (bs ? F->dev_dm : F->dev_bs) * G, F->planes * G, F->arena * G, F->ofi * G, bs && F->grow ? " + the bs growth 6.00" : "",
            (bs ? (size_t)bs_nrn() * F->vslot_top : (size_t)bs_nrn() * F->vslot) * G);
     if (g > 1) { char rt[24] = "7.00", tr[24] = "6.00";   /* S2c: one process per PE: runtime and transport once per process of the node */
                  if (bs_ppn_proc() > 1) { snprintf(rt, sizeof rt, "7.00 x %zu", bs_ppn_proc()); snprintf(tr, sizeof tr, "6.00 x %zu", bs_ppn_proc()); }
-                 printf("%shost %.2f GB = runtime %s + staging 4.29 + transport %s + SHMEM pool %.2f + comm_ofi pools %.2f + the larger of the seed buffers %.2f and the writer's 0.65 (+ 0.90 MN_OUT_EARLY) GB\n",
+                 printf("%shost %.2f GB = runtime %s + staging 4.29 + transport %s + SHMEM pool %.2f + device pools %.2f + the larger of the seed buffers %.2f and the writer's 0.65 (+ 0.90 MN_OUT_EARLY) GB\n",
                       pre, F->host * G, rt, tr, F->pool * G, F->ofi_all * G, F->seedbuf * G); }
     else printf("%shost %.2f GB (the measured size-1 host high-water mark, mem_model host_size1_vmm%s)\n", pre, F->host * G, bs_ppn_proc() > 1 ? " + a runtime per further process" : "");
     printf("%sthe consumers per APU (largest first): arena %.2f GB (the dm need %.2f: reciprocal set v2 %.2f, division %.2f%s, the bs top levels v3 %.2f, the hole %.2f, the room %.2f; the tree %.2f; "
-           "the bs regions %.2f), plane pools %.2f, v-slots %.2f, comm_ofi pool %.2f\n",
+           "the bs regions %.2f), plane pools %.2f, v-slots %.2f, device pool %.2f\n",
            pre, F->arena * G / bs_nrn(), F->need_dev * G, F->v2 * G, F->div * G, F->wrapb ? "" : "", F->v3 * G, F->hole * G, F->room * G, F->tree_dev * G, F->bs2 * G / bs_nrn(), F->planes * G / bs_nrn(), F->vslot * G, F->ofi * G / bs_nrn());
     if (g > 1)
         printf("%sDM_MN_WRAP=%d (%s): device with the wrap %.2f GB, without %.2f GB (the wrap's term %.2f GB per APU); %s\n", pre, F->wrap, F->wrap_env ? "set" : "automatic",

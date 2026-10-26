@@ -367,7 +367,8 @@ static void budget_check(unsigned long N, int verbose)
 }
 /* the plane cap as one switch.  ECALC_PLANE_CAP = 2^30 | 2^31 (also 30, 31) sets the two knobs that make a cap: POOL_LOG (the
  * plane pools' base, the batch and mdev tiers' 2^pool_log) and DIST_LOGN_TEST (the single-node dist tier's 2^k cap = pool_log;
- * without it a 2^31 product would grow a 2^30 pool inside a phase and abort).  ECALC_PLANE_CAP=fit takes the larger cap whose
+ * without it a 2^31 product would grow a 2^30 pool inside a phase and abort).  ECALC_PLANE_CAP=run takes 2^30 when the run's largest product (the division's 2 k + 8 limbs, binsplit_div_product_limbs) fits one mn plane at that cap, else 2^31 (the start-up gain of 2^30
+ * without a size the 2^30 plane was not measured at; not with ECALC_PE_PER_GPU).  ECALC_PLANE_CAP=fit takes the larger cap whose
  * node total (binsplit_node_bytes: the plane pools at the prime count + the arena + the host init constants) fits ECALC_NODE_GB
  * (default 480, the safe budget).  Unset: 2^31 (the default), unless POOL_LOG or DIST_LOGN_TEST is given; =off: the knobs as
  * given.  A knob set in the environment that disagrees with the cap is refused.  BS_LAYOUT_ONLY is served here, before
@@ -391,7 +392,15 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
             for (c = 1; c > 0; c--) if ((double)binsplit_node_bytes(N, sz, c, ec_np_init(), 0, 0, 0) <= budget) break;
             if (verbose) printf("ECALC_PLANE_CAP=fit: plane cap %s (node %.1f GB of %.0f at %d primes)\n", bs_cap_name[c], binsplit_node_bytes(N, sz, c, ec_np_init(), 0, 0, 0) * 1e-9, budget * 1e-9, ec_np_init());
         }
-        if (c < 0) { fprintf(stderr, "ECALC_PLANE_CAP=%s: one of 2^30, 2^31 (or 30, 31), or fit\n", e); exit(2); }
+        if (c < 0 && !strcmp(e, "run")) {                  /* 2^30 when its plane holds the run's largest product (as the C that would refuse or abort reads it), else 2^31 */
+            int sz = getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1; if (sz < 1) sz = 1;
+            int ppg = vpe_on();
+            size_t need = binsplit_div_product_limbs(N); int pl0 = rns_pool_log(), lc;
+            rns_preinit_pool_log(30); lc = ppg ? 0 : rns_mul_dist_mn_logcap_g(sz); rns_preinit_pool_log(pl0);   /* the mn tier's plane cap at pool_log 30 for this group size (before rns_init, as `fit`) */
+            c = !ppg && need <= ((size_t)1 << lc) ? 0 : 1;   /* ECALC_PE_PER_GPU: not modelled here, 2^31 */
+            if (verbose) printf("ECALC_PLANE_CAP=run: plane cap %s (largest product %zu limbs %s 2^%d, the 2^30 cap's plane over %d node%s%s)\n", bs_cap_name[c], need, c ? ">" : "<=", ppg ? 0 : lc, sz, sz > 1 ? "s" : "", ppg ? "; ECALC_PE_PER_GPU set: not modelled, 2^31" : "");
+        }
+        if (c < 0) { fprintf(stderr, "ECALC_PLANE_CAP=%s: one of 2^30, 2^31 (or 30, 31), fit or run\n", e); exit(2); }
         char pl[8]; snprintf(pl, sizeof pl, "%d", 30 + c);
         const char *knob[2] = { "POOL_LOG", "DIST_LOGN_TEST" };
         for (int k = 0; k < 2; k++) {

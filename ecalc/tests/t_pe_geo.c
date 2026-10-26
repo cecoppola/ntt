@@ -1,11 +1,17 @@
-/* t_pe_geo.c -- pe_geo on mock sysfs trees; host only, no GPU, no boot.
- * Build: cc -O2 -DPE_GEO_NOBOOT -I.. t_pe_geo.c ../pe_geo.c -o t_pe_geo     Run: ./t_pe_geo   (prints "t_pe_geo: N checks, 0 failed") */
+/* t_pe_geo.c -- pe_geo on mock sysfs trees (host only, no GPU, no boot), and with `live` on a real launch.
+ * Build: make XSHMEM=ofi tests/t_pe_geo (host-only cc: -DPE_GEO_NOBOOT -I.. t_pe_geo.c ../pe_geo.c)     Run: ./t_pe_geo   (prints "t_pe_geo: N checks, 0 failed")
+ * live (boot over PMI2 + pe_geo, one line per PE, rank 0 the verdict; expected shape in results/XSHMEM.md):
+ *   srun -N<n> --ntasks-per-node=<p> ... ./tests/t_pe_geo live
+ * Checks: boot allgather of a 3000 B blob (chunking) returns every rank's bytes; all PEs agree on nics; no two PEs of a node share a NIC when pes_per_gpu == 1. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include "pe_geo.h"
+#ifndef PE_GEO_NOBOOT
+#include "xshmem_boot.h"
+#endif
 
 static int nchk, nbad;
 #define CHECK(c) do { nchk++; if (!(c)) { nbad++; printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); } } while (0)
@@ -35,8 +41,37 @@ static void rmroot(void) { char c[600]; snprintf(c, sizeof c, "rm -rf '%s'", bas
 static void clearenv_all(void) { unsetenv("COMM_OFI_NICS"); unsetenv("XSHMEM_LANES"); unsetenv("XSHMEM_PES_PER_GPU"); }
 static char bus(int g, char *b) { sprintf(b, "0000:0%d:00.0", g + 1); return 0; }
 
-int main(void)
+#ifndef PE_GEO_NOBOOT
+static int live(void)
 {
+    pe_topo tv, *t = &tv; pe_geo_init(t);
+    char s[400]; pe_geo_str(t, s, sizeof s);
+    int bad = 0, len = 3000;
+    unsigned char *blob = (unsigned char *)malloc(len), *all = (unsigned char *)malloc((size_t)t->npes * len);
+    for (int i = 0; i < len; i++) blob[i] = (unsigned char)(t->pe * 31 + i * 7);
+    boot_allgather(blob, len, all);
+    for (int r = 0; r < t->npes; r++) for (int i = 0; i < len; i++) if (all[(size_t)r * len + i] != (unsigned char)(r * 31 + i * 7)) { bad++; break; }
+    /* gather the topo structs */
+    pe_topo *tt = (pe_topo *)malloc((size_t)t->npes * sizeof tv); boot_allgather(t, sizeof tv, tt);
+    for (int r = 0; r < t->npes; r++) {
+        if (tt[r].nics != t->nics) bad++;
+        if (tt[r].node == t->node && r != t->pe && t->pes_per_gpu == 1 && tt[r].nics && t->nics && tt[r].nic[0] == t->nic[0] && t->nics == 1) { bad++; fprintf(stderr, "PE %d and %d share NIC %d\n", r, t->pe, t->nic[0]); }
+    }
+    printf("%s%s\n", s, bad ? "  BAD" : "");
+    fflush(stdout); boot_fence();
+    if (t->pe == 0) printf("t_pe_geo live: %d PEs, %s\n", t->npes, bad ? "problems on rank 0 (see BAD lines)" : "rank 0 ok");
+    boot_finalize();
+    return bad != 0;
+}
+#endif
+
+int main(int argc, char **argv)
+{
+#ifndef PE_GEO_NOBOOT
+    if (argc > 1 && !strcmp(argv[1], "live")) return live();
+#else
+    (void)argc; (void)argv;
+#endif
     pe_topo tv, *t = &tv; char b[16];
     /* aac7 shape: 4 NUMA, 1 cxi each, 4 PEs per node, 2 nodes */
     newroot("aac7"); tree(4, 4, 4); clearenv_all();
