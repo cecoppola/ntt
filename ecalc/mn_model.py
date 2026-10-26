@@ -924,7 +924,7 @@ class Design:
         if self.shift_mb: e['MDB_SHIFT_CHUNK_MB'] = int(self.shift_mb)
         if self.t_mb: e['MN_T_CHUNK_MB'] = int(self.t_mb)
         e['COMM_ALLTOALLV_DEPTH'] = self.depth
-        if self.p15 and self.round_mb: e['COMM_SHMEM_ROUND_MB'] = int(self.round_mb)   # the model env's key for the 'shmem' pool model (the C's name is XSHMEM_ROUND_MB); the target's launch line (D2); the rest are the code's defaults
+        if self.p15 and self.round_mb: e['XSHMEM_ROUND_MB'] = int(self.round_mb)   # the C's name; the target's launch line (D2); the rest are the code's defaults
         if self.cache_fit: e['RNS_DIST_CACHE_FIT'] = 1                    # Phase 15 DOC2: the launch line (the user's decision 2 of 2026-09-28)
         if self.p15b and not self.p15c: e['BS_ARENA_ROOM'] = 0; e['DIST_TWREC_G'] = 0   # B1 on today's code
         return e
@@ -1567,7 +1567,7 @@ def seed_wait15(Dt, g, T, init, fast=False):
 
 
 
-def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, staging="code", design=None):
+def memory(D, g, form="grid", groups=None, transport="xshmem", pool_log=31, staging="code", design=None):
     """the per-node memory model (mem_model.mem_per_node): GB of device at the dm peak, host (with the SHMEM pool), the node peak"""
     if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1
     o = dict(_OLD13); o.update(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging)   # Phase 15: the old forms unless the design is p15
@@ -1581,7 +1581,7 @@ def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, stagi
                 cache_slot=gb("cache_slot"), cache_fit_slots=r["cache_fit_slots"], cache_fit_room=gb("cache_fit_room"), layout_node=gb("layout_node"))   # Phase 15 DOC2
 
 # ------------------------------------------------------------------------------------------------------------
-def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=None, dc_exposed=None, groups=None, form="grid", transport="shmem", pool_log=31, staging="code", design=None, corrections=0):
+def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=None, dc_exposed=None, groups=None, form="grid", transport="xshmem", pool_log=31, staging="code", design=None, corrections=0):
     """one run of g nodes at D digits per node.  design None: the legacy constants (four primes, the Phase 10/11 phase table;
     --calib and the Phase 12 tables); a Design: the code after Phase 13b step 0 and the row's options (Phase 13b D)"""
     global DZ, CACHE_RUN_SLOTS
@@ -1701,7 +1701,7 @@ def print_run(fab, r, rule):
           % (r["form"], r["staging"], m["device"], m["planes"], m["arena"], m["regions"], m["dm_need"], m["tree_need"], m["top_scratch"], m["exchange"], m["host"], m["shmem_pool"], m["shmem_staging"], m["node"], NODE_GB,
              "" if m["node"] <= NODE_GB else "  ** DOES NOT FIT **"))
 
-def max_digits(g, node_gb, form="grid", groups=None, transport="shmem", staging="code", design=None):
+def max_digits(g, node_gb, form="grid", groups=None, transport="xshmem", staging="code", design=None):
     """the largest D per node (to 1e8) whose modelled node peak fits node_gb (design None: the legacy four-prime memory)"""
     if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1
     o = dict(_OLD13, form=form, groups=groups, transport=transport, staging=staging)   # Phase 15: a p15 design's mem_opts override the old forms
@@ -1921,10 +1921,10 @@ EST_LABELS = {
     "output": "the part file at --write-bw GB/s per node: 0.6 = the target's Lustre single-stream rate, MEASURED there (the apumult catalog: 0.58-0.64 write, 0.78-0.86 read), ASSUMED to hold with 576 nodes writing at once; 2.0 = the node-local NVMe assumed before.  Phase 15 (2026-09-27): packed, 8 bytes per 18 digits (ECALC_OUT_PACKED=1: 32.8 GB per node at the target, exact), started at the division's hook (MN_OUT_EARLY=1) and hidden under 0.577 of the division (OVL1, FITTED at size 1 and ASSUMED at size > 1); the process's exit 2.4 s (MEASURED) on both walls.  --b0: the ASCII file after T1, exposed whole",
     "p15b": "modelled (Phase 15, the defaults of 2026-09-27, mn_model DEFAULT15B, calibrated on RESULTS 86's paired 1e11 series within -3.1..+2.0 %: `mn_model.py --calib15b`): bs without the seed wait x 0.769 (BS_SEED_FILL, MEASURED at 1e11, ASSUMED at the target's leaf); the seeds' end on SEED15B (BI_MUL1_FAST, FITTED on ten runs; no slow path above 2^33); NEWTON_RECIP_MID in the fabric's reciprocal (66 pieces = the C plan); DIST_TWREC x 0.98 on the pieces' local passes (MODELLED from C2's -2.8 s at 1e11); ECALC_NP=4 at size > 1 (the plan check refuses three primes at 4.25e13 on 576: results/PRIMES_STRATEGY.md §P15)",
     "p15c": "modelled (Phase 15 DOC2, main B2 of 2026-09-28): BS_ARENA_ROOM=0.16 -- the node's arena in whole VMM chunks + 0.16 x the hole (mem_model, exact against BS_LAYOUT_ONLY: +16.5 GB of arena at 5.1e13), at size 1 the division x 0.785 (P15C_DIV1, MEASURED at 1e11: no remaps); DIST_TWREC_G=1 (the general map's packs x 0.95, G5, MODELLED); ECALC_NP=auto (four primes only for pieces over the three-prime bound; pool 0 at four planes at 576, pool 1 at three); RNS_DIST_CACHE_FIT=1: the mn cache at the slots the code's budget rule allows (0 at the target), each slot's hit x CACHE_HIT_F 0.96 (FITTED by CX on aac6); `mn_model.py --calib15c` against the fin15e 1e11 pairs (-2.1..-3.9 % on B2)",
-    "host15": "modelled (Phase 15): + DB_POOL_VMM's two 8 GiB pinned seed buffers at init (measured 21.5 GB pinned on one node), the bs phase's +6 GB device (measured 2.1-5.8), the SHMEM pool = the plan's need (256 MiB steps) = the C plan exactly (43008 MiB; 9472 with COMM_SHMEM_ROUND_MB=1024)",
+    "host15": "modelled (Phase 15): + DB_POOL_VMM's two 8 GiB pinned seed buffers at init (measured 21.5 GB pinned on one node), the bs phase's +6 GB device (measured 2.1-5.8), the SHMEM pool = the plan's need (256 MiB steps) = the C plan exactly (43008 MiB; 9472 with XSHMEM_ROUND_MB=1024)",
 }
 
-def estimate(g, D, tree="grid", groups=None, fabric=None, rule="model", transport="shmem", staging="code", verbose=False, design=DEFAULT, corrections=0):
+def estimate(g, D, tree="grid", groups=None, fabric=None, rule="model", transport="xshmem", staging="code", verbose=False, design=DEFAULT, corrections=0):
     """the estimate for g nodes at D digits per node: a dict of the numbers (seconds, GB, bytes) and their labels.
     design: an mn_model.Design (default: DEFAULT15, the code's defaults + the target's launch line); None = the legacy (Phase 12) model.
     Phase 15 (D3): wall_s = the wall with the part file written (at the fabric's write_bw), nowrite_s without it."""
@@ -2022,7 +2022,7 @@ def estimate_main(argv=None):
     print("ecalc estimate -- %s; tree form %s, SHMEM staging %s, MN_GROUPS %s, fabric %.0f GB/s per APU, %.1f us per message, dragonfly group %d, %d layers, taper %.2f, part files %.2f GB/s per node%s"
           % ("legacy (Phase 12: four primes)" if design is None else "design %s, ECALC_NP=%d%s, NTT_MODMUL=%d%s" % (design.name(), design.np,
              " (%s at size > 1)" % design.np_mn if design.np_mn and design.np_mn != design.np else "", design.modmul,
-             (", COMM_SHMEM_ROUND_MB=%g, the part file %s" % (design.round_mb, "%s, from the division's hook (MN_OUT_EARLY)" % ("packed" if design.packed else "ASCII") if design.p15b else
+             (", XSHMEM_ROUND_MB=%g, the part file %s" % (design.round_mb, "%s, from the division's hook (MN_OUT_EARLY)" % ("packed" if design.packed else "ASCII") if design.p15b else
               ("after T1" if design.out_overlap == 'none' else "under half the division"))) if design.p15 else " (the Phase 13/14 model)"),
              a.tree, a.staging, a.groups or "(default)", a.bw, a.lat * 1e6, a.group, a.layers, a.taper, a.write_bw,
              "" if design is None or not design.p15b else "; BS_ARENA_ROOM %.2f, DIST_TWREC_G=%d, the mn cache %s" % (design.arena_room, TWREC_G,
