@@ -17,7 +17,7 @@ Owner of items TGT, TGT17, TGTBENCH2, CAP17, SC15, MS15, DOC15, L13d, G13d, S13d
 
 Question: where do the user's target facts go, which backlog rows change, what does the digit write cost against the file system rate, does any launch value change. Branch `tgt`, merged; no code or default changed.
 - Change: `mn_model.py` constants `TARGET_NICS_PER_APU=2`, `TARGET_NIC_GBS=50` (so `TARGET_BW_APU` stays 100 GB/s), `TARGET_FS_SINGLE_FILE_GBS=1000` at 32 writers per node (`TARGET_WRITE_BW_FS` 1.736 GB/s per node, now printed beside the write rates); `TARGET_WRITE_BW` (1.0 GB/s per node, ecalc's writer) unchanged. `profiles/target.conf.template` keys filled; `COMM_OFI_NICS` no longer set there.
-- ROCm 7.14.0 (m, aac7 login node): `ecalc` and `make all` build with `-DCOMM_SHMEM`; the `ld.lld` relocation failure of `results/AAC7_PORT.md §V16` does not reproduce. Not run on a compute node.
+- ROCm 7.14.0 (m, aac7 login node): `ecalc` and `make all` build with `-DCOMM_SHMEM`; the `ld.lld` relocation failure of `results/AAC7_PORT.md` does not reproduce. Not run on a compute node.
 - ecalc's writer: one process per node, 8 pwrite threads per 256 MB chunk (`MN_OUT_THREADS=8`, `MN_OUT_CHUNK_MB=256`), O_DIRECT on Lustre, two part files per node (1152 files in all): 8 writers per node into per-node files, not 32 into one.
 - Write cost at 3.82 × 10¹³ (15.92 TB packed, 27.63 GB per node; no-write wall 185.5 s, mod):
 

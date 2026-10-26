@@ -4,7 +4,7 @@
 #   p2: make XSHMEM=cray (Cray SHMEM backend, -lsma)          -> build/<sha7>-p2/ecalc/ecalc
 # The tree is a copy of ecalc/ and tools/ (so p1 and p2 can build at the same time and mnrun.sh finds its own ecalc next to it).
 # Modules: MNRUN_MODULES / MNRUN_UNLOAD from config/target.conf (or the environment) are tried first; when that is unset or fails, the
-# candidates of the kit's build stage (ecalc/target_kit.sh stage_build): the loaded rocm, the validated list rocm/7.2.4 7.2.3 7.0.3,
+# candidates of the kit's build stage (target/kit/target_kit.sh stage_build): the loaded rocm, the validated list rocm/7.2.4 7.2.3 7.0.3,
 # then the other rocm/<version> newest first (aac7: 7.12-7.14 failed to link ecalc with an -fPIC device-link error, so a failing
 # newest ROCm is expected to fall back and the result says which one linked).  Env: BLD_JOBS (8), BLD_TESTS (extra test binaries),
 # TARGET_ROCM / TARGET_SMA_MODULE / TARGET_DSMML_MODULE (as in the kit), GMP_HOME.

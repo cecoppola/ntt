@@ -1,4 +1,4 @@
-/* t_nodechk - per-node health probe for target/kit/target_kit.sh stage nodechk (2026-10-09, the aac7 aac7-n01 finding, results/SESSIONS.md §S31).
+/* t_nodechk - per-node health probe for target/kit/target_kit.sh stage nodechk (2026-10-09, the aac7 aac7-n01 finding, results/SESSIONS.md).
  * Prints ONE machine-readable line per node:  NODECHK host=<h> MemTotal_kB=.. MemFree_kB=.. MemAvailable_kB=.. Cached_kB=..
  * HugePages_Total=.. HugePages_Free=.. Hugepagesize_kB=.. apu0_s=.. apu1_s=.. ...   (apu<d>_s = median of <reps> timed 1 GB
  * host->device hipMemcpy uploads from a pre-touched pageable malloc buffer to device d; the aac7 stall was ~20 s in db_from_bi

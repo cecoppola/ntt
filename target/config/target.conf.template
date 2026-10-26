@@ -1,9 +1,7 @@
-# profiles/target.conf.template -- template for the production machine's profile.  Copy to profiles/target.conf (kept
-# OUT of git: it holds site specifics) and replace every __FILL__.  Format and rules: profiles/README.md.
-# Draft 2026-10-11 (agent c01); NOT read by any script yet.  Tracked file: generic values only, no site name, no module names,
-# no paths from the private notes.  A key still at __FILL__ must make the future entry point refuse to start (validation rule).
-# 2026-10-12 (agent TGT): the keys the user-supplied target facts determine are filled (versions and generic HPE/AMD product
-# module names only); site-specific keys stay __FILL__.
+# target/config/target.conf.template -- the keys of the target machine's configuration. probe/gen_conf.py fills every key the probe
+# determines and writes config/target.conf (committed, Q112: site specifics are allowed there); a key still at __FILL__ is filled by
+# hand with a '# how determined' comment. lib/common.sh (tgt_conf) loads it into the environment; ecalc/mnrun.sh reads the same keys from the environment.
+# Evidence tags: (m) measured, (mod) modelled, (a) assumed, (u) user-supplied. Format: target/FORMATS.md §8.
 #
 # Target facts (user-supplied 2026-10-12; tagged (u)):
 #   576 nodes x 4 MI300A APUs = 2304 APUs, one process per node; 8 Slingshot NICs per node at 400 Gb/s = 2 per APU
@@ -12,15 +10,15 @@
 #   Same as aac7: CCE 21.0.0, libfabric 2.3.1 (the uffd evidence, G1/S46, is on 2.3.1), Slurm 25.11 (aac7 25.11.4).
 #   Differs: ROCm 7.14.0 (aac7 line: 7.2.4), OpenSHMEMX 12.1.0 (aac7: 11.8.0; 12.x untested), 2 NICs per APU (aac7: 1).
 # Machine class assumed: Cray EX-style, 4 x MI300A per node (one process per node, four APU threads), Slingshot with cxi NICs,
-# Cray OpenSHMEMX, shared parallel file system for the output.  Evidence tags: (m) measured, (mod) modelled, (a) assumed.
+# Cray OpenSHMEMX, shared parallel file system for the output.
 
 # ---- [modules/build] ------------------------------------------------------------------------------------------------
 # How to determine: `module avail rocm cray-openshmemx cray-dsmml` on a login node; the ROCm version of the compute image
-# (`module list` inside a one-node job). ecalc/target_kit.sh stage 'build' picks them and writes kit_modules.env -- copy from there.
+# (`module list` inside a one-node job). target/kit/target_kit.sh stage 'build' picks them and writes kit_modules.env -- copy from there.
 # target libraries: ROCm 7.14.0, cray-shmem 12.1.0, libfabric 2.3.1, CCE 21.0.0 -- user-supplied; module names are determined on the target
 TARGET_ROCM=__FILL__               # the ROCm module name/version on the target (aac7 build with XSHMEM=cray passed; run time vs 7.2.4 not yet measured, OPPORTUNITIES M7d)
 TARGET_SMA_MODULE=__FILL__         # the OpenSHMEM module on the target (confirm with `module avail`; the kit auto-detects only cray-openshmemx/*)
-TARGET_DSMML_MODULE=__FILL__          # the dsmml module (target_kit.sh TARGET_DSMML_MODULE)
+TARGET_DSMML_MODULE=__FILL__          # the dsmml module (target/kit/target_kit.sh TARGET_DSMML_MODULE)
 MNRUN_MODULES=__FILL__                # the full module line: "<TARGET_DSMML_MODULE> <TARGET_SMA_MODULE> <TARGET_ROCM>" (kit_modules.env); needs the dsmml version
 MNRUN_UNLOAD=__FILL__                 # modules to unload first (a versioned rocm conflicts with a login default); empty if none conflicts
 GMP_HOME=__FILL__                     # a GMP built from source if the site has no gmp.h: `ls $GMP_HOME/include/gmp.h`; remove the key if the site provides one

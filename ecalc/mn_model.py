@@ -39,7 +39,7 @@ PHASES = {          #  init   batch   top    recip   div    wall
 # per APU): load 0.33 + ntt 0.67 + crt/out 0.11 = 1.11 s; with the B operand's transform cached 0.72 s.
 T_PIECE_31 = 1.11
 T_PIECE_31_BHIT = 0.72
-# the four-step transform at 2^31 over the four APUs (results/EXCHANGE.md §C, DIST_STATS, per THREE transforms of one prime):
+# the four-step transform at 2^31 over the four APUs (archive:results_merged_2026-10-24/EXCHANGE.md §C, DIST_STATS, per THREE transforms of one prime):
 # rows 0.0624 cols 0.0429 packs 0.0385 exchange (xGMI push) 0.0571, exposed 0.0089 (84 % hidden).
 T_XGMI_31 = 0.0571 / 3          # the xGMI stage per transform per prime, 2^29 points per APU
 HIDDEN_XGMI = 0.84
@@ -49,16 +49,16 @@ LIMB_DIGITS = 18                # decimal limbs (RESULTS 67)
 EC_NP = 4
 K_CHUNKS = 8                    # the slab pipeline (M7; DIST_CHUNKS)
 CACHE_MN_SLOTS = int(os.environ.get('MN_MODEL_CACHE_SLOTS', '2'))   # RNS_DIST_CACHE_MN default over shares (archive:results_merged_2026-10-24/GRID_GROUPS.md §G); Phase 15 CX: MN_MODEL_CACHE_SLOTS=n prices n
-                                # slots (0: the cache off -- what the 480 GB budget allows at the target, results/CACHE.md §TC15, CX15.md)
-CACHE_MODEL = os.environ.get('MN_MODEL_CACHE', 'code')   # Phase 15 CX (results/CACHE.md §CX15): 'code' = the hits as the code takes them (cache_pieces: the slots'
+                                # slots (0: the cache off -- what the 480 GB budget allows at the target, results/CACHE.md, CX15.md)
+CACHE_MODEL = os.environ.get('MN_MODEL_CACHE', 'code')   # Phase 15 CX (results/CACHE.md): 'code' = the hits as the code takes them (cache_pieces: the slots'
                                 # designation, the cuts' skips, the planes' q) x CACHE_HIT_F; 'old' = the term before CX (at >= 2 slots every piece after
                                 # the first with one operand cached; nothing at 1 slot)
 CACHE_HIT_F = 0.96              # Phase 15 CX: a hit's saving as a fraction of its piece, measured over modelled (piece_cost fwd=2 - fwd=1 over fwd=2 on the aac6
-                                # fabric, the same pieces) -- FITTED on aac6, results/CACHE.md §CX15: tests/cx_grid (the target's 9 grid shapes at cap 2^27, cache
+                                # fabric, the same pieces) -- FITTED on aac6, results/CACHE.md: tests/cx_grid (the target's 9 grid shapes at cap 2^27, cache
                                 # 0/1/2 interleaved; 489 hit pieces) 1.043 at 2 node-processes, 0.976 at 4; ecalc 1e10 end to end (the hit pieces against
                                 # themselves in the cache-off run) 0.965 at 2 (4 runs), 0.840 at 4 (4 runs); mean 0.956.  The model's structure (1 of the 3
                                 # transforms per prime, one redistribution) holds within -16..+4 %; ASSUMED to carry to the target's fabric
-# Phase 15 CX proposals (results/CACHE.md §CX15 section 3; off unless set): CACHE_PRIMES = k -> a slot holds k of the piece's primes (k / np of a hit's transform
+# Phase 15 CX proposals (archive:repo_cl6_2026-10-25/results/CACHE.md section 3; off unless set): CACHE_PRIMES = k -> a slot holds k of the piece's primes (k / np of a hit's transform
 # saving, no redistribution saved); CACHE_LOOP = 'long' -> mn_grid's loop along the grid's longer axis (the slots follow); CACHE_SLOTS_PHASE =
 # {'tree': n, 'dm': n} -> the slots per phase (the tree's arena slack, the division's room); cache_slots_now() is what _product_cost prices
 CACHE_PRIMES = None
@@ -284,7 +284,7 @@ def split_grid(na, nb, cap, g):
     return best[1], best[2], best[3]
 
 def cache_pieces(na, nb, g, cap, lowcut=0, highcut=None, slots=2):
-    """Phase 15 CX (results/CACHE.md §CX15): mn_grid's pieces and the transform cache's state per operand, as the code decides them (rns_dist.c
+    """Phase 15 CX (results/CACHE.md): mn_grid's pieces and the transform cache's state per operand, as the code decides them (rns_dist.c
     mn_grid + mn_core + cache_plan, not pinned): the grid (split_grid), the pieces in the code's order (j outer, i inner) with the cuts'
     skips (grid_piece_skipped), each piece's plane (mn_shape of its own la + lb: a smaller last piece can have a smaller q, and a slot hits
     only at the same q), the slots' designation (nA = min(ka, N - 1) for A's pieces i < nA, B's piece j in slot nA + j % nB) and the lookups.
@@ -1736,7 +1736,7 @@ def plan(g, T, design=None, groups=None, fab=None):
 
 
 # ============================================================================================================
-# Phase 15 CX (results/CACHE.md §CX15): the mn transform cache at the target -- what the slots are worth (the code's hits x CACHE_HIT_F) and
+# Phase 15 CX (results/CACHE.md): the mn transform cache at the target -- what the slots are worth (the code's hits x CACHE_HIT_F) and
 # the ways to hold one inside 480 GB, each with its memory and its modelled gain.  The rooms per node (modelled, mem_model / the
 # standing estimate): the tree levels 480 - the bs-phase node (device 411.0 + host 44.4) + the arena's slack at the tree (arena - tree
 # need: a slot drawn from the block pool), the division 480 - (device 417.0 + host 28.8); a slot = k primes x 2^29 limbs x 8 B x 4 APUs.
@@ -1916,7 +1916,7 @@ EST_LABELS = {
     "exposed": "modelled: the fabric time not hidden under the local passes -- assumes 100 GB/s per APU, 2 us per message (--bw, --lat), the general map's overlap (GEN_HIDE)",
     "fabric": "modelled: bytes through the node's eight NICs and over the dragonfly's global links (MN_TOPO_GROUP = 64, two-layer all-to-all)",
     "device": "modelled: mem_model (the code's own sizing formulas; measured to 0.05 % at size 1: 4e10 313.3 GB at four primes / 287.5 at three, 8e10 369.1, 1e11 431.2; at 10^10/4 19.9 GB arena)",
-    "host": "modelled: 7 GB runtime + 4 GiB staging + the seed buffers at init + 6 GB per process of transport + the SHMEM pool ('pool': the larger of COMM_SHMEM_POOL_MB (8192) and the pool the run needs -- Phase 14 P2's law (--staging code, the default): 4 APU threads x the largest staged exchange's send + receive (the division's A_h mu result exchange: my rows of the piece + a quarter of my share of C inside it; MN_T_CHUNK_MB bounds it) + the control blocks; measured to 0.01 % at 1e8-1e10 on 2 nodes and 1e9-1e10 on 4 processes, results/SHMEM_ITEMS.md §P214)",
+    "host": "modelled: 7 GB runtime + 4 GiB staging + the seed buffers at init + 6 GB per process of transport + the SHMEM pool ('pool': the larger of COMM_SHMEM_POOL_MB (8192) and the pool the run needs -- Phase 14 P2's law (--staging code, the default): 4 APU threads x the largest staged exchange's send + receive (the division's A_h mu result exchange: my rows of the piece + a quarter of my share of C inside it; MN_T_CHUNK_MB bounds it) + the control blocks; measured to 0.01 % at 1e8-1e10 on 2 nodes and 1e9-1e10 on 4 processes, archive:results_merged_2026-10-24/SHMEM_ITEMS.md §P214)",
     "fits": "modelled against 502 GB per node (the MI300A's usable HBM; 480 GB = the safe budget with a 5 % margin)",
     "output": "the part file at --write-bw GB/s per node: 0.6 = the target's Lustre single-stream rate, MEASURED there (the apumult catalog: 0.58-0.64 write, 0.78-0.86 read), ASSUMED to hold with 576 nodes writing at once; 2.0 = the node-local NVMe assumed before.  Phase 15 (2026-09-27): packed, 8 bytes per 18 digits (ECALC_OUT_PACKED=1: 32.8 GB per node at the target, exact), started at the division's hook (MN_OUT_EARLY=1) and hidden under 0.577 of the division (OVL1, FITTED at size 1 and ASSUMED at size > 1); the process's exit 2.4 s (MEASURED) on both walls.  --b0: the ASCII file after T1, exposed whole",
     "p15b": "modelled (Phase 15, the defaults of 2026-09-27, mn_model DEFAULT15B, calibrated on RESULTS 86's paired 1e11 series within -3.1..+2.0 %: `mn_model.py --calib15b`): bs without the seed wait x 0.769 (BS_SEED_FILL, MEASURED at 1e11, ASSUMED at the target's leaf); the seeds' end on SEED15B (BI_MUL1_FAST, FITTED on ten runs; no slow path above 2^33); NEWTON_RECIP_MID in the fabric's reciprocal (66 pieces = the C plan); DIST_TWREC x 0.98 on the pieces' local passes (MODELLED from C2's -2.8 s at 1e11); ECALC_NP=4 at size > 1 (the plan check refuses three primes at 4.25e13 on 576: results/PRIMES_STRATEGY.md §P15)",
@@ -1961,7 +1961,7 @@ def estimate_main(argv=None):
     ap.add_argument("--D", type=float, nargs="*", default=[4e10, 7.7e10, 1e11])
     ap.add_argument("--tree", default="grid", choices=("grid", "flat"), help="the top product's memory form: grid (Phase 12 G) or flat (the code at 7aded87)")
     ap.add_argument("--groups", default=None, help="MN_GROUPS (e.g. 2,4,8,16,32,64,192,576); default = the code's schedule")
-    ap.add_argument("--staging", default="code", choices=("code", "sym", "resident", "per_exchange", "cached"), help="Phase 14 P2: code (the default: the measured law, mem_model.shmem_pool -- the staged exchanges' largest send + receive x 4 APU threads + the control blocks; results/SHMEM_ITEMS.md §P214), sym (DIST_MN_SYM_SLABS=1: + 3 q per APU of resident slabs); the hypotheses before: the SHMEM transport's staging in its pool: resident (Phase 12 S: the callers' slabs in the pool, no staging), per_exchange (the staging freed after each wait), cached (the code at 7aded87: kept per live communicator -- 345 GB per node at 576)")
+    ap.add_argument("--staging", default="code", choices=("code", "sym", "resident", "per_exchange", "cached"), help="Phase 14 P2: code (the default: the measured law, mem_model.shmem_pool -- the staged exchanges' largest send + receive x 4 APU threads + the control blocks; archive:results_merged_2026-10-24/SHMEM_ITEMS.md §P214), sym (DIST_MN_SYM_SLABS=1: + 3 q per APU of resident slabs); the hypotheses before: the SHMEM transport's staging in its pool: resident (Phase 12 S: the callers' slabs in the pool, no staging), per_exchange (the staging freed after each wait), cached (the code at 7aded87: kept per live communicator -- 345 GB per node at 576)")
     ap.add_argument("--as-is", action="store_true", help="the code at main 7aded87: --tree flat --staging cached")
     ap.add_argument("--rule", default="model", choices=("model", "full"))
     ap.add_argument("--fabric", default=os.environ.get("MN_MODEL_PROFILE", "target_l4"), choices=("target", "aac7", "aac7_c16", "target-m", "aac7_s48", "aac7_l4", "aac7_l4a", "target_l4"), help="Phase 16 C: the fabric profile -- target_l4 (the DEFAULT since 2026-10-11, user-adopted: the target fabric with the L4 refit layv factor, results/TIME_MODEL.md §L4); target (the previous default: the constants as before, layv 0.655) or aac7 (B01, 2026-10-11: the S48 refit, an alias of aac7_s48, aac7_fit.json (s48); the previous aac7, mn_model.AAC7, is aac7_c16: the measured Slingshot-11 / Cray OpenSHMEMX rates and AAC7_CONSTS; --bw / --lat / --write-bw given explicitly still win); TGTBENCH2: target-m = the target fabric (still ASSUMED) with the constants measured on the target (mn_model.TARGET_M_CONSTS: MAP_RATE 0.010) and a line comparing the modelled device with the measured 373.44 GB/node edge")

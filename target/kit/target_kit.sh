@@ -58,7 +58,7 @@
 #            of time on the target, so this tries candidates in order and keeps the first that links: just
 #            $TARGET_ROCM if set, else rocm/7.2.4, rocm/7.2.3, rocm/7.0.3 (whichever are available), then any
 #            other rocm/<version> module newest first (picking blindly-newest once chose rocm/7.14.0 on aac7,
-#            which fails to link -- results/AAC7_PORT.md §V16).  SMA/DSMML modules auto-detect as before; override any of
+#            which fails to link -- results/AAC7_PORT.md).  SMA/DSMML modules auto-detect as before; override any of
 #            the three with TARGET_ROCM / TARGET_SMA_MODULE / TARGET_DSMML_MODULE / GMP_HOME.  The chosen set is
 #            written to $OUT/kit_modules.env; every later stage sources it and loads the same modules inside its
 #            own srun (not whatever the caller's shell happened to have), and records the ROCm actually seen on
@@ -94,7 +94,7 @@
 #             S-2 (division overlap): MN_WAIT_STATS "dm" (= reciprocal + division) wait, per APU thread (node sum / 4),
 #               max node; reciprocal and division split; spread max-min (the skew bound).  Rule: build only if the
 #               exposed wait is above about 30 s.  CAVEAT printed with it: the literal wait includes the transfer itself
-#               (results/SESSIONS.md §S22 2.3), and the 576-node value is modelled at 34 s; judge the 8-node figure against
+#               (results/SESSIONS.md 2.3), and the 576-node value is modelled at 34 s; judge the 8-node figure against
 #               S22's aac7 table (n=2: recip 10 + division 32; n=8: 22 + 73 s per thread).
 #            Needs an ecalc built WITH MN_WAIT_STATS (in main since D3, comm_util.c; the stage says so if no
 #            wait-stats line appears).  The command for the target team:
@@ -402,7 +402,7 @@ stage_build() {
         TARGET_DSMML_MODULE=${TARGET_DSMML_MODULE:-cray-dsmml}
 
         # ROCm choice (Phase S18 fix): picking the newest rocm/x.y.z (sort -V | tail -1) used to pick rocm/7.14.0 on
-        # aac7, which FAILS to link ecalc (results/AAC7_PORT.md §V16: 7.12/7.13/7.14 and rocm-new/10.0.0 all fail the same
+        # aac7, which FAILS to link ecalc (results/AAC7_PORT.md: 7.12/7.13/7.14 and rocm-new/10.0.0 all fail the same
         # -fPIC device-link error; 7.2.4 is the newest that links).  The target's ROCm is unknown ahead of time, so
         # try candidates in order and keep the first that actually builds: $TARGET_ROCM alone if the caller set it;
         # else the validated list (rocm/7.2.4, rocm/7.2.3, rocm/7.0.3) in that order, filtered to what's available,
@@ -738,7 +738,7 @@ stage_a4() {
 # =============================================================================================================
 # Stage: s2chk (OPT-IN) -- the target's S-2 (division overlap) and A37-R1 (GPU seed) gates, one run per node count
 # =============================================================================================================
-# The gates (results/SESSIONS.md §S22 sections 2 and 3; TASKS.md S-2 / A37-R1, both SHELVED by the user 2026-10-08, kept as options):
+# The gates (results/SESSIONS.md sections 2 and 3; TASKS.md S-2 / A37-R1, both SHELVED by the user 2026-10-08, kept as options):
 #   A37-R1: build the GPU seed only if the seed thread ends later than ~18 s AND > 2 s after the last background mapping.
 #   S-2:    build the division overlap only if the exposed division/reciprocal wait is above ~30 s per APU thread.
 # The greps are the ones the S22/S23 drivers used: `tl` lines from ECALC_INIT_TL=1 ("seed thread ends (..)", "APU<d>

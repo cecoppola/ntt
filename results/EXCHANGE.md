@@ -129,68 +129,18 @@ Implementation (`rns_dist.c`, `dist_core` only: the single-node C-form product; 
 
 ## S50: k_gather coalesced write (`DIST_GATHER_TILE`) -- measured, not adopted, removed
 
-Branch s50 from main daeb0f9 (2026-10-10/11). 
-
-#### 1. Design
-`k_gather` writes `x[il*C + j]` with a store strided by C (S40's next floor after the select-of-scalars change, already default as `DBIG_QSEL=1`). `k_gather_tile<QS,T>` (T = 16/32/64): a 256-thread block owns a T x T tile; read phase lane = il (contiguous source run), tile in LDS, write phase lane = j (contiguous destination row). Same arithmetic, digits cannot change; shapes with rows % T or C % T non-zero, or `DBIG_QSEL=0`, fall back. Switch `DIST_GATHER_TILE` = 0 (default) / 16 / 32 / 64 (1 = 32); two call sites in the single-node product; multi-node tier untouched. Probe `tests/t_gather_probe.c` with three tile variants.
-
-#### 4. Results (m; aac7 hold, aac6 nodes)
-Probe (1 node, remote source, best of reps), rows 8192 x C 65536: 4-way select (default) 35.24 ms; tile 16 31.27 (0.89x); **tile 32 30.23 (0.86x)**; tile 64 35.72 (1.01x); 0 mismatches. Second shape rows 1024 x C 524288: select 26.30 ms, tile 32 32.80 (1.25x slower), tile 64 35.07. The tile saves ~5 ms of one 35 ms launch; the product calls it twice.
-Gates (1 node, 1e9): `=0` and `=32` PASS, digits identical (aac6 CPX gates also PASS).
-ABBA (A = off, B = tile 32; mean B-A, positive = tile slower):
-
-| where | scale | rounds | mean B-A | CI half-width | result |
-|---|---|---|---|---|---|
-| aac7 1 node | 6.441e10 | 3 | **-0.08 s** | 0.88 s | ns |
-| aac7 4 nodes | 6.441e10 per node | 4 (cap) | **-0.07 s** | 30.6 s | ns (bimodal +-26 s, S47) |
-| aac6 CPX | 4e9 | 5 | -0.046 s | 0.655 s | ns |
-| aac6 PPAC slot 1 / slot 2 | 6.441e10 | 5 / 5 | +0.507 / -0.293 s | 0.591 / 1.029 s | ns |
-
-The micro-gain (5 ms x 2 launches, ~0.01 s) is two orders below run noise.
-Engine gates (`mnaccept --only unit,e9,full`, aac7 4-node, tile exported): 7 passed, 4 failed: `t_bs` (2 of 10 checks), `t_mn_grid` (timeout), two `e9 size 1` (missing reference file on aac7: environment). t_bs / t_mn_grid were not compared against a no-tile baseline (doubt whether pre-existing; neither is known to use the single-node k_gather).
-
-#### 5. Verdict
 **Do not adopt**: no measurable gain (0.0 +- 0.9 s at 1 node) and shape-dependent (tile 32 slower at rows 1024 x C 524288). Disposition: the code stays off main (archive tag `archive/s50-gather-tile`); results and drivers (`archive:drivers/s50/`) kept. A gain would need to be >= 0.5 s at 1 node to show in 3 rounds.
+
+(Details moved to `archive:repo_cl6_2026-10-25/results/EXCHANGE.md`, 2026-10-25.)
 
 ## P2: speed up k_gather -- stopped after a micro-probe; no switch added
 
-2026-10-12. Question: is there kernel-level headroom in the gather?
-
-- Share of run time (m from reports; mod for canon passes): 1 node 6.441e10 digits, default `DIST_GATHER_RAW=2`: `k_gather_raw<1>` 2.0 s per APU (4.3 % of 47 s GPU time, `results/SINGLE_NODE.md §CAND`); 58 raw gathers ~34 ms each plus 232 canon passes ~3 ms each (~0.7 s mod, `results/EXCHANGE.md §K1b`); total ~2.7 s (mod) of ~70-80 s wall. At 2+ nodes the leaf's mdev uses the same path (saving ~1.4 s at 3.8e13); tree gathers (`k_gather_mn24_np`) have no kernel breakdown in any report.
-- Probe `t_gather_p2_probe.c` (aac7, 1 node, best of 8, all variants identical; rows 8192 x C 65536 / 1024 x C 524288, ms, m):
-
-| variant | shape 1 | shape 2 |
-|---|---|---|
-| raw gather, strided write, remote source (today) | 35.4 | 21.2 |
-| same, local source | 35.2 | 22.1 |
-| tiled write 32x32, remote source | 30.4 | 32.0 |
-| tiled write 32x32, local source | **3.8** | 3.9 |
-| other tile shapes, remote | 33.5-36.6 | 33.5-36.6 |
-| read-only of the same limbs, remote (coalesced) | **24.3** | 24.4 |
-| kernel copy / DMA of 3 remote quarters (4x the bytes) | 142 / 220 | 142 / 220 |
-
-- Reading: the strided store bounds only a local source (35 -> 3.8 ms). With the striped (3/4 remote) source the floor is the remote read, ~24 ms (~130 GB/s of pull); the best tile reaches 30 ms and is slower at shape 2. Staging remote quarters by copy is slower.
 - Verdict: remaining headroom 35 -> ~25 ms x 58 calls = **~0.6 s per run** (mod, upper bound; S50's tile gets ~0.3 s and measured -0.08 +- 0.88 s, `results/EXCHANGE.md §S50`); four ABBA rounds resolve ~+-1 s, so no change can be shown. No switch added; no gates (no product code changed). The real lever is layout (produce the operand already in the rank's rows or fold the pull into the multiplications' all-to-all): a design change (ALGORITHM.md), proposed for the user's priority.
+
+(Details moved to `archive:repo_cl6_2026-10-25/results/EXCHANGE.md`, 2026-10-25.)
 
 ## K6: single-node C-tier all-to-all — overlap across primes (`RNS_DIST_OVERLAP=1`) -- measured, not adopted, setting removed
 
-Branch k6 from main a448d73 (2026-10-12). Source: OPPORTUNITIES §B.3 K6 <- `results/KERNELS.md §S38 §2` ("10.0 s of the 24.4 s C time is exposed host wait at 1 node; only deeper overlap across primes remains").
-
-#### 1. What the 10.0 s is
-`DIST_STATS` `t_a2a` is the host time blocked in `chunk_post` + `chunk_wait`; with K = 8 and depth 1 the host waits for chunk k-1's push, which itself waits for k-1's row pass, so the wait covers GPU compute on the critical path and is not GPU idle. The push (3 GB per plane per APU at 240 GB/s, ~13 ms per transform at 2^31, m) overlaps the next row pass (mod 1.4 ms per chunk vs 1.6 ms of push); S38's "bandwidth lever is closed" stands. What is serialised: the **operand gathers**: per prime `k_gather(A)`, `k_gather(B)`, sync, three transforms, sync. S13 (m, aac6, 2^31 points, C form): load 0.35 s of 1.05 s per product (33 %); S38 rocprof `k_gather` 7.7 s per APU over the run; ~8 s of gathers over the 29 C products' 24.4 s at 6.441e10 (mod).
-
-#### 2. Design
-`RNS_DIST_OVERLAP=1` (`rns_dist.c` `dist_core`, single-node C form only): a second stream `g` per rank runs the gathers of prime p+1 under the transforms of prime p (A into the untouched `xa[p+1]`; B via an alternating spare plane when pool 0 has one, else via a hook `dist_plan.after_cols` fired after prime p's column inverse, the last reader of `xb`); one `hipStreamSynchronize` per product instead of per prime. Same kernels on the same data, only stream placement changes; hazards checked. Expected gain (mod): up to ~6 s at 6.441e10 minus xGMI contention between gather reads and pushes.
-
-#### 4-5. Results (m)
-- 2-node aac7 gate (1e9, switch on): PASS (VERIFY OK, digits identical, ecalc 19.05 s; correctness only).
-- aac6: `cmp4e9` PASS (1 777 782 789 bytes identical, `RNS_STRATEGY=C`, off vs on); gate 1e9 on PASS (11.30 s), strategy C PASS (12.36 s); `t_strategy` rc 0.
-- ABBA (A = off, B = on), total seconds:
-
-| size | rounds | mean B-A | 95 % CI half | significant | deltas (s) | arm A mean |
-|---|---|---|---|---|---|---|
-| 1e10 | 8 (cap) | -0.32 | 0.55 | no | -1.0, 0.8, 0.3, -0.5, -0.5, 0.2, -0.9, -0.9 | 24.35 s |
-| 6.441e10 | 3 | -0.11 | 0.15 | no | -0.1, -0.1, -0.2 | 73.41 s |
-
-C-tier seconds at 6.441e10 (29 C products, arm A 20.68 s): mean diff +0.242 s, CI half 0.658 s, not significant; at 1e10 no C products.
 - Verdict: the switch is correct (digits identical) but there is no measurable gain: -0.11 +- 0.15 s of 73 s (0.15 %), C-tier time not reduced. **Do not adopt**; the setting was removed (RESULTS, OPPORTUNITIES §K6).
+
+(Details moved to `archive:repo_cl6_2026-10-25/results/EXCHANGE.md`, 2026-10-25.)

@@ -13,12 +13,12 @@ here. Entry point for a new session: `target/RESTART.md`.
 | `FORMATS.md` | this file | here |
 | `governance/` | copies of the rule files (CLAUDE.md files, coordinator rules, settings, hooks, agents, memory); install steps in RESTART.md | here |
 | `lib/common.sh` | shared shell functions (§3); every script sources it | here |
-| `probe/` | step 2: `probe.sh` (fast system facts), `probe_shmem.c`, `gen_conf.py` (facts → `config/target.conf`) | here |
+| `probe/` | step 1: `probe.sh` (fast system facts), `probe_shmem.c`, `gen_conf.py` (facts → `config/target.conf`) | here |
 | `config/` | `target.conf.template`; `target.conf` (generated on the target, committed) | template here, conf on target |
 | `bench/` | step 3: `manifest.d/*.tsv`, `QUESTIONS.md` (question register), `run.sh` (claiming runner), `items/<id>.sh`, `aggregate.py` | here |
 | `ladder/` | step 4: `ladder.sh`, `locality.py`, `parse_run.py` (log parser, replica collect), `levels/L0..L3.conf`, `ADJUST.md` (rules for changes between runs); tests `tests/test_locality.py`, `tests/test_ladder_parse.py` | here |
-| `kit/` | `target_kit.sh` (the older staged kit; bench items call its stages) | moved here |
-| `build/` | binaries built on the target (`build/<sha7>-<variant>/ecalc`); never committed | target |
+| `kit/` | `target_kit.sh`: the older staged bring-up kit (optional; some bench items and TQ83 use its stages) | here |
+| `build/` | binaries built on the target by `bld01`/`bld02` (`build/<sha7>-p1|p2/`); git-ignored | target |
 | `results/` | everything measured on the target, committed raw (decision Q112) | target |
 
 `results/` layout:
@@ -29,9 +29,10 @@ results/probe/topology.tsv              host -> physical location table (localit
 results/bench/<id>/                     one dir per bench item: claim, summary.txt, raw/, DONE
 results/bench/METRICS.tsv               all m.* values of all items (aggregate.py)
 results/bench/ANSWERS.md                question register with the answers filled (aggregate.py)
+results/bench/_slurm/  _old/            worker sbatch logs; results moved aside by `run.sh --reclaim --force`
 results/ladder/<level>/<tag>-r<k>/      one dir per ladder replica (a job): summary.txt (keys p<path>r<run>.<key>), raw/, DONE
 results/ladder/<level>/<tag>.submit.txt  job ids, hosts, done markers of one submit; results/ladder/LADDER.md = collect output; results/ladder/exclude.txt = hosts to leave out
-results/LOG.md                          the coordinator's dated log of the session (times with time zone)
+results/LOG.md  DECISIONS.md  HANDOFF.md the coordinator's dated log (times with time zone), its decisions with options, the closing hand-off (RESTART §10)
 ```
 
 ## 2. Roles on the target
@@ -154,7 +155,7 @@ Ladder sizes are fixed (decision Q114): L0 1 node (4 APUs), L1 8 nodes (32), L2 
 `ladder/ladder.sh --level L0|L1|L2|L3 [--replicas R] [--run-tag T] [--set KEY=VALUE ...]` reads `ladder/levels/<level>.conf`
 (NODES, DIGITS, PATH=1|2|both, RUNS, REPLICAS, WRITE=0|1|first, TIME_MIN, `ENV_<NAME>=value` words), picks R disjoint adjacent groups (`locality.py pick`), checks the memory
 plan first (`MN_PLAN_ONLY`), runs ecalc on each group (replicas in parallel, one allocation each), verifies the digits,
-and writes `results/ladder/<level>/<run>/summary.txt`. Options: `--path`, `--run-tag`, `--dry-run`, `--site aac7|target`, `--partition`, `--nodelist-file`, `--jobid J` (drivers run inside that allocation instead of sbatch), `--exclude`, `--no-plan`; `ladder.sh --collect L [--run-tag T]` gathers the replicas (mean/min/max/spread of `total`, VERIFY, digit-hash agreement, measured/model) into `results/ladder/LADDER.md`. A level whose plan does not fit is refused with the largest fitting digit count (rc 4). `ladder/ADJUST.md` says which measured numbers change which
+and writes `results/ladder/<level>/<run>/summary.txt`. Options: `--path`, `--run-tag`, `--dry-run`, `--site aac7|target`, `--partition`, `--nodelist-file`, `--jobid J` (drivers run inside that allocation instead of sbatch), `--exclude`, `--sbatch-opts`, `--nodes-from FILE|topology.tsv`, `--no-plan`; `ladder.sh --collect L [--run-tag T]` gathers the replicas (mean/min/max/spread of `total`, VERIFY, digit-hash agreement, measured/model) into `results/ladder/LADDER.md`. A level whose plan does not fit is refused with the largest fitting digit count (rc 4). `ladder/ADJUST.md` says which measured numbers change which
 settings before the next run and when to move up a level.
 
 ## 11. Rules for every agent in target/

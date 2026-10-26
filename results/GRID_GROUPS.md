@@ -97,30 +97,13 @@ Branch `s36`, commit db9cb7f. Status at writing: code built on aac7, gates and A
 
 Finding that shaped the design: every general-map group owns a layered communicator per APU thread whose two v-slots grow to that group's largest product and stay to the run's end, so levels' slots add up (`binsplit_vslot_bytes`: `lower + max(top, dm)`). The tree runs level after level and a node is in one group per level, so a level's slots are dead when the next level starts; only the whole-machine group is reused. With X2 the slots live in the comm pool; S31 showed that regrowing slots there (free, alloc, staging blocks in between) fragments the first-fit pool (S28's 10-node failure), so S36 does not free per level.
 
-Design `COMM_LAYER_VSLOT_SHARE=1`: one pair of slots per device (`g_vsh[dev]` in `comm_layered.c`) shared by every layered communicator of that APU thread; `need_vslot_shared` completes the previous owner's pending v-exchange on hand-over (`complete_v`), grows only if a level needs more, frees with the last communicator (refcount); works with the pool (X2) and with hipMalloc. Pool rule (`vslot_prealloc_env`): under SHARE every `COMM_LAYER_VSLOT_MB_<g>` is set to the overall per-slot maximum (allocated once, no regrow). Model: `binsplit_vslot_bytes` returns `max(largest lower level, top, dm)` instead of the sum; `mem_model.py vslot_resident` likewise. Digits cannot change (only where buffers live and when reused).
-
-Modelled saving (mod, `DIST_CHUNKS` 8 = the code default):
-
-| case | v-slots per APU, sum -> max | saving per node |
-|---|---|---|
-| 576 nodes, 3.71e13, `...,64,192,576` (default) | 3.364 -> 1.917 GB | **5.79 GB** |
-| 576 nodes, `...,64,576` | 1.917 -> 1.917 | 0 (one general level) |
-| 10 nodes x 6.441e10 | 1.724 -> 1.724 | **0** (one general level) |
-| 4 nodes x 5e10, `DIST_GEN=1` (the A/B) | 4.31 -> 2.16 | 8.6 GB (test case only) |
-
-The idea table's -11.5 GB (S-1) was for `DIST_CHUNKS` 4; DC8 halves it (5.8 GB). Saving is device memory at the 576 target only (smaller comm pool under X2; smaller hipMalloc budget otherwise).
-
-Test plan (as armed): gates at 2 and 4 nodes with `DIST_GEN=1` (needed because at 4 nodes every group is a power of two): 1e9 digits identical; A/B ABBA at 4 nodes x 5e10 digits, A = base + X2 + `DIST_GEN=1`, B = A + SHARE, expectation (mod) B-A peak device about -8.6 GB per node, wall about 0 (the test case's 5e10 per node: modelled A peak 333 GB). Not tested at scale at writing: 576-node behaviour (cut last group, pool symmetry across group sizes), later covered by S45 and C06.
+(Details moved to `archive:repo_cl6_2026-10-25/results/GRID_GROUPS.md`, 2026-10-25.)
 
 ## S45 — CPU-only validation of COMM_LAYER_VSLOT_SHARE=1 at the 576-node shape (2026-10-10, branch s45 = s36 + main 13c244e)
 
 Verdict: **SHARE=1 is effective and safe on the target launch line** (COMM_OFI=1, no X2). Plan and layout change only the v-slot term; a many-rank host test (up to 600 ranks, non-power-of-two groups, a cut last group) found no wrong data, no leak and symmetric pool offsets. It is a TCP / host emulation, not the real SHMEM / OFI transports.
 
-1. Login-node plan / layout (m, C code; `archive:results_raw_2026-10-19/S45/`; target launch block of main 13c244e, `MN_PLAN_ONLY=37100000000000:576`, `BS_LAYOUT_ONLY=64409722236:576`): levels 1-6 are exact power-of-two groups; **level 7: 3 groups of 192; level 8: the whole 576**; only levels 7, 8 and dm own v-slots; the target has **no cut last group**. v-slot per APU: level 7 1.447 GB, level 8 / dm 1.917 GB; SHARE=0 sum 3.364 = 13.46 GB per node, SHARE=1 max 1.917 = 7.67 GB per node: **saving 5.79 GB per node** (S36's model). Plan check OK both ways (1236 products, 103 / 107 pieces unchanged), only `vslot` and budget lines change. With OFI pools counted (`mn_model.py estimate --target`, mod): **357.5 -> 351.7 GB per node vs the 373.44 GB edge (margin 15.9 -> 21.7 GB)**, node 400.8 -> 395.0 GB, times unchanged. X2 (not on the launch line): the pool rule sets MB_192 = MB_576 = 915 MiB under SHARE (691 / 915 without), SHMEM pool 23040 -> 17664 MiB, node 391.7 -> 386.0. `vslot_resident` (mod): one general level or 512 / 256 as the last lower level: 0 saving; 3 general levels (`...,96,192,576`): 4.811 -> 1.917 GB = 11.58 GB per node.
-2. Many-rank host simulation (`ecalc/tests/lay_host/`, new; no product code changed; compiles a rewritten copy of `comm_layered.c` against a host shim, one process per APU, TCP meshes, per level batches of unequal v-exchanges with data checked word for word, owner hand-over with the previous owner's exchange pending, symmetric-pool emulations `ofi` (top-down last fit, the launch line) and `shmem` (first fit, control blocks in the pool)). Shapes: 36 nodes `12,36` (144 ranks) and `6,12,36` (peak live 4.81 -> 3.83 MB per process with SHARE); 72 nodes `24,72` (2.70 -> 2.38 MB); **144 nodes `48,144` (576 ranks, the 192/576 shape): 6/6 VERIFY OK, peak 2.686 -> 2.368 MB per process (-11.8 %, m), symmetric on both pool emulations**; cut shapes 39 / 150 nodes (156 / 600 ranks) and 15 nodes `6,15`: no-X2 OK, X2 OFI OK with SHARE=1 (symmetric), SHARE=0 asymmetric (288 mismatches at 15 nodes: a hazard of the existing X2 path, not of SHARE), SHMEM single pool asymmetric for SHARE 0 and 1 (control blocks differ by group size, assumed sizes; one run lost to a TCP timeout). Every run: 0 wrong words, 0 live bytes and 0 live symmetric blocks after destroy. Neither asymmetry occurs on the target (no cut group, no X2); C06 shows offsets need not agree anyway.
-3. Without X2 the v-slots are hipMalloc'd, so SHARE acts identically (-5.79 GB per node, mod; counted in the node budget with `ECALC_VSLOT_BUDGET=1`).
-
-Doubts: kernels, one-sided puts and the real pool code are not exercised; sizes small; the target numbers are modelled except the layout lines. Rerun: `ecalc/tests/lay_host/build.sh`, `s45_all.sh <t_lay> <outdir>`.
+(Details moved to `archive:repo_cl6_2026-10-25/results/GRID_GROUPS.md`, 2026-10-25.)
 
 ## S52 — more digits at 576 nodes (layout checks) and message aggregation (design) (2026-10-10/11, branch s52 from main daeb0f9)
 
@@ -131,44 +114,7 @@ CPU only (model scripts and the aac7 login node's plan/layout printers); no engi
 2. **Do not go above 3.82e13**: at 3.83e13 the C plan adds pieces (largest tree group 42 -> 54 pieces, 109 -> 121 in all) and the model's wall jumps +20 s (185.9 -> 206.1 s, +11 %) for +0.3 % digits; from 3.88e13 the device peak steps to 366.5 GB (margin 4.8 GB with rank 0); 4.08e13 is over the edge (375.1 GB, -3.8 GB).
 3. **Messages:** 2.65 M per APU at 576 (mod): reciprocal 1.098 M, division 0.927 M, tree 0.624 M; 93-95 % are transform-chunk messages (K = 8 chunks x 575 peers). Memory-neutral coalescing saves 0.48-0.66 M messages (18-25 %) = **1.0-1.4 s at 2 us, 2.4-4.5 s at 8.5 us, 3.7-8.4 s at 20 us** (mod). Larger savings need memory or are lost.
 
-#### 2. Layout and plan at 576 nodes (all plans `plan check OK`, `ECALC_NP=auto`, 1236-1238 products)
-
-| digits (e13) | pieces total / tree largest (m) | C layout device_with GB (m) | est. device GB (mod) | rank 0 (+2.1) | margin to 373.44, rank 0 | est. node GB of 480 | wall no write s (mod) |
-|---|---|---|---|---|---|---|---|
-| 3.71 | 103 / 107 | 344.37 | 351.7 | 353.8 | 19.6 | 394 | 180.3 |
-| 3.80 | 109 / 109 | 348.66 | 357.9 | 360.0 | 13.4 | 402 | 185.2 |
-| **3.82** | 109 / 109 | 348.66 | 357.9 | 360.0 | **13.4** | 402 | **185.9** |
-| 3.83 | 109 / 121 | 348.66 | 357.9 | 360.0 | 13.4 | 402 | 206.1 |
-| 3.86 | 109 / 125 | 348.66 | 359.7 | 361.8 | 11.6 | 402 | 211.7 |
-| 3.88 | 109 / 125 | 348.66 | 366.5 | 368.6 | 4.8 | 411 | 211.9 |
-| 3.90 | 111 / 127 | 352.96 | 366.5 | 368.6 | 4.8 | 411 | 215.8 |
-| 4.08 | 119 / 133 | 352.96 | 375.1 | 377.2 | **-3.8** | 419 | 226.7 |
-
-The C layout steps by one 4.3 GB arena chunk between 3.88 and 3.90e13; the model steps slightly earlier and is the conservative basis (on the exact C-layout basis the rank-0 margin at 3.82e13 is 22.7 GB). The estimate's device figure carries +7.3 GB over the C layout (bs phase and other terms). The rank-0 allowance is applied in the unfavourable direction. The 373.44 GB edge was measured on the target (n = 5, TGTBENCH2). Part-file volume 0.444 B/digit = 17.0 TB (mod). Recommendation: request **38200000000000** (6.632e10 per node); 3.80e13 has the same layout and 0.7 s less. M1's earlier "+6.5 % digits" ignored the plan step at 3.83e13 and the arena step at 3.88e13.
-
-#### 3-4. Messages and schemes (mod; 47 GB/s per APU, 6.441e10 digits per node, base wall 219.0 s no write)
-
-Per APU: tree levels g = 2..64: 48 120 msgs; g = 192: 229 582; g = 576: 346 150; reciprocal (49 pieces) **1 098 275**; division (16 pieces) **927 475**; total **2 649 602**, 2 475 035 (93 %) transform-chunk messages. Messages already go one per node (four slabs aggregated per destination node); what multiplies the count is K chunks x n_tr exchanges per piece x 575 peers. The reciprocal's messages are small (0.016-1.05 MB; 0.6 M are <= 0.5 MB) because its operands are 4-64x below the cap while K stays 8; the division's and the g = 576 level's slabs (478-537 MB) are already at the cap.
-
-| scheme | memory | msgs per APU | wall @2 us (saving) | @8.5 us | @20 us |
-|---|---|---|---|---|---|
-| base (K = 8) | - | 2 649 602 | 219.0 | 237.5 | 268.4 |
-| S1 coalesce to the slab bound (general-map groups only) | none | 2 173 502 | 218.0 (-1.0) | 235.1 (-2.4) | 264.6 (-3.7) |
-| S1 on all groups | none | 1 990 999 | 217.5 (-1.4) | 233.0 (-4.5) | 259.9 (-8.4) |
-| S2 bundle the piece's n_tr exchanges | none | 1 954 320 | 217.6 (-1.4) | 233.4 (-4.1) | 260.7 (-7.6) |
-| S3 uniform K = 4 | +13.4 GB per node (the whole margin) | 1 460 970 | 216.5 (-2.5) | 227.9 (-9.6) | 247.1 (-21.2) |
-| S3 K = 2 | more (a) | 842 203 | 215.3 (-3.7) | 223.0 (-14.5) | 235.7 (-32.6) |
-| S4 3-layer relay (G = 64) | not modelled | 864 083 | 290.9 (+72.0) | 298.4 (+60.9) | 311.0 (+42.7) |
-
-S1/S2 are bounded by the 1.2 M messages already at the slab bound; the total latency bill is 2.65 M x lat = 5.3 / 22.5 / 53.0 s. S4 loses (NIC bytes double 13.7 -> 27.9 TB per node, mod): rejected. S3 trades against digits (13.4 GB about 2.3e12 digits, +6 %, about +13 s): pays only above about 12 us per message. Per-message costs: 2 us (a, the design value), 8.5 us (m, aac7 at 4-10 nodes), 20 us (pessimistic).
-
-#### 5. Design (not implemented): `DIST_COALESCE=1`
-Replace the fixed K by K' = min(K, 2^ceil(log2(ceil(slab_total / S_max)))) per transform exchange (S_max = the run's largest chunk slab, 536.9 MB at the cap 2^31) on the general map only (groups 192 and 576, the reciprocal's g = 576 steps), bundle a piece's n_tr exchanges when their sum fits S_max, group the single-chunk redistribution exchanges A and B; memory-neutral by construction, digits unchanged; gates: `tools/gate.sh --build` 1 and 2 nodes, e9, 4e10, a forced 4-node general-map run with `COMM_XSTATS=1`. The saving cannot be measured below the target (message count grows with g: 30k at 10 nodes, 2.65 M at 576). Expected 0.5-2.8 % of the wall (mod).
-
-#### Decision 2026-10-11: DIST_COALESCE skipped
-The user decided not to build `DIST_COALESCE` unless the target's per-message cost is shown to be >= 8.5 us (assumed 2 us: saving 1.0-1.4 s, 0.5-0.7 %). No code, no switch row. Reopen only with a measured target per-message cost of 8.5 us or more (then the section 5 gates apply).
-
-Doubts: the rank-0 sign convention is read two ways in the sources (both give a margin above 10 GB at 3.82e13); the model's time knee at 3.82 -> 3.83e13 is plan step (m) + model pricing (mod) and should be rechecked after the S48 refit; the estimate's +7.3 GB means the true margin may be 2-5 GB larger; overlap loss from a smaller K is not modelled (a). Next: the user decides 3.82e13 vs 3.80e13 (TGT, results/TARGET.md).
+(Details moved to `archive:repo_cl6_2026-10-25/results/GRID_GROUPS.md`, 2026-10-25.)
 
 ## B06 — uneven node-group schedules (MN_GROUPS with a non-dividing last group), 2026-10-11, aac7, main bc80001
 

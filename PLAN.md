@@ -44,13 +44,12 @@ division, packed output) and verifies itself on every run (T1 residues, T2 windo
 nodes on aac7 (the only test cluster; aac6 is set aside), digits identical to GMP reference digits up to 10¹¹ and
 identical between the two supported multi-node paths (sha 578f5efb0ff2b9af at 2 n 1e11 on main after Q96, m).
 
-**Two supported multi-node paths (Q85).** Build and run lines are in `README.md`. Path 1: libfabric
+**Two supported multi-node paths (Q85).** Build and run lines are in section 3. Path 1: libfabric
 (`COMM_TRANSPORT=xshmem` over `xshmem_ofi.c`, layout D, the default, Q73). Path 2: Cray SHMEM (`XSHMEM=cray`,
 `xshmem_cray.h`, one process per GPU, `XSHMEM_LANES=2`; the target shape). Path 2 is +7.5 % against path 1 at 3 nodes,
 10¹¹ digits (CI +3.4 to +11.5 %, 11 interleaved pairs), the whole gap is start-up (init +8 s, aac7-specific). The
 exchange worker is the default in every layout (Q96: init -6.5 to -7.5 s, host memory halved, bs and dm neutral). The
-plain SHMEM transport (`COMM_TRANSPORT=shmem`) and `COMM_TRACE` were removed 2026-10-25 (Q103; the proxy mode and the
-virtual-PE thread mode earlier, Q78, Q86); the transport is xshmem on both paths. `XSHMEM_PEER` is on by default under one process per GPU (Q100). aac7 run times are bimodal (about half the runs 5-8 % slower, both
+plain SHMEM transport, `COMM_TRACE`, the proxy mode and the virtual-PE thread mode are removed (Q103, Q78, Q86; list in `RESULTS.md`). `XSHMEM_PEER` is on by default under one process per GPU (Q100). aac7 run times are bimodal (about half the runs 5-8 % slower, both
 backends), so every A/B comparison is paired (`results/NODE_SLOWMODE.md §BM`).
 
 Timings (all m, current engine, after the 2026-10-21 default change Q73).
@@ -67,20 +66,27 @@ Timings (all m, current engine, after the 2026-10-21 default change Q73).
 
 Older figures (comm_ofi era, 1 n 1e11 129.3 s before the 2026-10-12 defaults, the 1 / 2 / 4 / 6 n scaling at 6.441e10 per node 67.6 / 119.4 / 172.2 / 204.6 s, 6 n 3.8646e11 190.7 to 202.1 s) are in `results/TIME_MODEL.md §M2a`, `§SCALE35` and `archive:results_merged_2026-10-23/NIGHT_RUNS.md`; the 4-6 node figures have not been re-measured on the current engine.
 
-**Not yet done.** ecalc has not run on the target machine. The 576-node layout is refused by the planner with the defaults: device 407.41 GB per node, margin -33.97 GB
-(m, planner, 2026-10-25, `plan_values.py --fit` with `ECALC_NP=auto MN_T_CHUNK_MB=2048`; section 3); it fitted with 14.48 GB of margin on 2026-10-19 before `MN_NONPOW2_CAP` auto (Q58) enlarged the planes, and fits again with `MN_NONPOW2_CAP=0`; the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
+**Not yet done.** ecalc has not run on the target machine. The 576-node layout is refused by the planner with the defaults (margin -33.97 GB; with `MN_NONPOW2_CAP=0` +14.48 GB; m, planner, 2026-10-25, `results/LAUNCH_DEFAULTS.md §FIT`); the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
 `results/TARGET.md §TGT`; at the user-supplied 100 GB/s injection peak per APU, a for the achieved rate); the write adds
 12.8 s at ecalc's assumed 1.0 GB/s per node and 1.0 s at the file system's 1 TB/s (mod); the target has run only the
 memory and exchange benchmarks (`results/TARGET.md §TGTBENCH2`).
 
 ## 3. Defaults and launch lines
 
-The code defaults are the tested configuration; nothing has to be set for a one-node run. Every setting, with its default
-and evidence, is in the switch table of `ecalc/README.md`; what is in force with its evidence is in `RESULTS.md`.
+The code defaults are the tested configuration; nothing has to be set for a one-node run (the defaults, with their
+evidence, are in the switch table of `ecalc/README.md` and `RESULTS.md`; `ECALC_PLANE_CAP` defaults to `run` since 2026-10-25).
 
-The multi-node launch line adds the transport settings of the chosen path (`README.md`), `ECALC_NP=auto`,
-`MN_T_CHUNK_MB=2048`, the memory guard and the crash-trace handler; `mnrun.sh` sets the libfabric variables (`ecalc/README.md`).
-The two lines are kept in:
+**The two supported paths (Q85; the one owner of their build and launch lines).** Digits are identical between them.
+
+| | path 1: libfabric | path 2: Cray SHMEM (the target shape) |
+|---|---|---|
+| build | `make -C ecalc GMP_HOME=<gmp>` (default `XSHMEM=ofi`; libfabric and the PMI2 header must be found; `tools/gate.sh` requires `-DXSHMEM_OFI` in the log of a multi-node build) | `make -B -C ecalc XSHMEM=cray GMP_HOME=<gmp>` (aac7: `module load cray-dsmml cray-openshmemx`; `-B` when switching `XSHMEM`) |
+| launch | `./mnrun.sh <nodes> env ./ecalc <digits>`: layout D, one process per node, four APU threads, `COMM_TRANSPORT=xshmem` | `./mnrun.sh <nodes> env ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 ./ecalc <digits>`: one process per GPU, two lanes |
+| added by `mnrun.sh` | the communicator and libfabric variables | the same, and under `ECALC_PE_PER_GPU=1` the NUMA placement (`MNRUN_PPG_CPUBIND=ldom`, `XSHMEM_CRAY_NUMA=1`), the automatic libsma heap and the plan |
+
+The exchange worker thread runs in every layout; `RNS_BATCH_SPLIT` is automatic under `ECALC_PE_PER_GPU=1`; the transport
+is xshmem on both paths (the plain SHMEM transport is gone, Q103). Both lines add `ECALC_NP=auto`, `MN_T_CHUNK_MB=2048`, the memory guard and the crash-trace handler. The full lines
+(`mnrun.sh` is called with them) are kept in:
 
 | system | line | source |
 |---|---|---|
@@ -98,8 +104,7 @@ asks for a pool of 2304 MiB and a heap of 2816 MiB (m, planner).
 nodes, profile) the device peak per node and per APU against `ECALC_DEVICE_GB` (target 373.44 GB per node, m; aac7 444.0
 in `profiles/aac7.conf`), the node against `ECALC_NODE_GB`, the margins and the largest consumers;
 `tools/plan_values.py --fit`, `mnrun.sh`, `tools/gate.sh` and the kit's plan stage print it and refuse a run that does not
-fit (`results/LAUNCH_DEFAULTS.md §FIT`). At 3.82 × 10¹³ digits on 576 nodes (target profile): device 407.41 GB per node,
-margin -33.97 GB, refused (m, planner, 2026-10-25, `ECALC_NP=auto MN_T_CHUNK_MB=2048`; node 443.49 GB, margin +36.51 GB; `DM_MN_WRAP` off, with it 433.18 GB); cause: `MN_NONPOW2_CAP` auto (Q58, 2026-10-20) takes 43/32 larger planes at 6.6e10 digits per node (planes +41.3, v-slots +3.9, comm pools +3.2 GB); with `MN_NONPOW2_CAP=0` the figure is the 2026-10-19 one, device 358.96 GB, margin +14.48 GB, node 395.04 GB (the 12.9 GB of earlier notes is the superseded L1 estimate, `results/LAUNCH_DEFAULTS.md §FIT`). Every setting that is not a plain
+fit (`results/LAUNCH_DEFAULTS.md §FIT`, which owns the figures for the target and aac7 sizes; the 576-node result today is in section 2). Every setting that is not a plain
 default has an owner and a review date (`tools/switch_registry.py --check`).
 
 ## 4. Plan to the target run
@@ -124,7 +129,7 @@ Open work in this repository is in `TASKS.md`.
 |---|---|
 | fabric rate at 576 nodes below the assumption | the kit measures it first; the size can drop to the next grid step |
 | a slow or faulty node | node screen and `initchk.py` before the run; exclusion only (`MNRUN_EXCLUDE_HOSTS`), no spares; any 572-576 nodes pass the plan check |
-| device memory near the edge | budget check (rc 8) before compute; guard (rc 9) during; -33.97 GB margin with `MN_NONPOW2_CAP` auto, +14.48 GB with `MN_NONPOW2_CAP=0` (m, planner, 2026-10-25; `results/LAUNCH_DEFAULTS.md §FIT`) |
+| device memory near the edge | budget check (rc 8) before compute; guard (rc 9) during; margins per `MN_NONPOW2_CAP` setting in `results/LAUNCH_DEFAULTS.md §FIT` |
 | hangs in the ROCr / libfabric memory registration | `FI_MR_CACHE_MONITOR=userfaultfd` (0/104 hangs against 22/105, m) |
 | crash without a trace | `ECALC_SEGV_TRACE=1` on the launch line |
 | wrong digits | T1/T2 in the run, RECHECK and `unpack_digits` after it |

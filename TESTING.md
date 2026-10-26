@@ -24,8 +24,7 @@ covers it; its log shows the `I3:` line.
     tools/gate.sh --nodes 2 --alloc --line aac7            # own short allocation instead of a hold
 
 **Path 2 gate (the Cray SHMEM path, user rule Q85; run when `xshmem*`, `comm_xshmem.c`, `pe_geo.c`, the launcher's P branch or shared multi-node code changed).**
-Build with `make -B -C ecalc XSHMEM=cray GMP_HOME=<gmp>` (aac7: `module load cray-dsmml cray-openshmemx`; rebuild with `-B` when
-switching `XSHMEM`). Then 10⁹ digits identical to the reference at 1 node and at 2 nodes with
+Build as in `PLAN.md` section 3 (path 2). Then 10⁹ digits identical to the reference at 1 node and at 2 nodes with
 `--env "ECALC_PE_PER_GPU=1 XSHMEM_LANES=2"` (the gate passes `--env` words to `mnrun.sh`), and `tests/t_xshmem correct` with `XSHMEM_LANES=2` at 1, 2 and 3 nodes
 x 4 PEs (build `make XSHMEM=cray GMP_HOME=<gmp> tests/t_xshmem`; every PE must print `XT_RESULT PASS`). Path 1 is the plain gate above and must stay digit-identical and no
 slower after any shared-code change. A timing claim between the paths needs interleaved pairs (ABBA) and an A/A control: aac7 run times are bimodal, so single runs prove nothing (`results/NODE_SLOWMODE.md §BM`, `results/XSHMEM.md` craylane). Digit reference at production size: 2 n 1e11 on both paths gives sha 578f5efb0ff2b9af of the part files' concatenated output (main after Q96, `results/XSHMEM.md §XWLAT`).
@@ -37,12 +36,7 @@ slower after any shared-code change. A timing claim between the paths needs inte
 - `--line` selects the launch line (the test system's is the `LAUNCH_LINE_KEYS` of `profiles/aac7.conf`, printed by
   `tools/profile_load.py aac7 --line`; the target's is supplied as a file); `--profile NAME` loads `profiles/NAME.conf`; `--env "K=V …"` adds settings; `--digits` and
   `--ref` change size and reference (only 10⁹ has a default reference).
-- At `--nodes` > 1 the gate checks the multi-node product form. Since the user's decision D18 (2026-10-12, `results/LAUNCH_DEFAULTS.md §DEF`)
-  every multi-node product runs the four-prime 24-digit form P24 (`ec_np_planes` in `crt.c` gives pool 0 four planes at
-  g > 1, so `mn_p24_of()` in `rns_dist.c` is true): the run log must show `plane pool 0 for 4 primes`.
-  (The `--mn-primes` option and the three-prime path `ECALC_NP_MN3` were removed 2026-10-19, D56.)
-  A missing line is a FAIL; the digits must be identical as always. (Replaces `--p24`, which forced P24 through
-  `ECALC_NP_AUTO_TERMS` when it switched on only from 32 nodes.)
+- At `--nodes` > 1 every multi-node product runs the four-prime 24-digit form P24 (D18; `results/LAUNCH_DEFAULTS.md §DEF`): the run log must show `plane pool 0 for 4 primes`; a missing line is a FAIL, and the digits must be identical as always.
 - **Memory fit (FIT, user decision D26, `results/LAUNCH_DEFAULTS.md §FIT`).** Before any node time is used (before `--alloc`'s sbatch and before
   the run in a hold) the gate prints the run's memory fit, `tools/plan_values.py --fit` on the launch line (`fit.txt`): the
   planner's device peak per node and per APU against the device limit `ECALC_DEVICE_GB` (the profile's measured edge; code
@@ -104,13 +98,7 @@ module (`t_ntt`, `t_arith`, `t_crt`, `t_mul`, `t_dbig`, `t_bs`, `t_newton`, `t_d
     srun --jobid=<hold> -N1 --gpus=4 --overlap ./tests/t_ntt 24            # arguments are the test's size
     srun --jobid=<hold> -N1 --gpus=4 --overlap ./ref/gen_e 1000000000 ref  # reference digits by GMP
 
-`tests/harness.h` provides the assertions. `tests/tref.h` is the tests' reference product (TREF, `results/CODE_REDUCTION.md §TREF`):
-`tref_check` compares a product exactly with GMP up to 2^21 product limbs (product-tree conversions of decimal limbs,
-OpenMP-parallel) and above that by the residue form -- every limb below B, the length, residues modulo three 62-bit primes,
-the low 64 limbs exactly and the top limbs within the exact bounds of the leading 64 x 64 limb product; `tref_mul` gives a
-reference value (GMP, or the one-node device product at the default plane checked by the residue form); `tref_faults`
-checks the reference itself (one limb changed low, in the middle or at the top must fail; `t_mul` runs it on every product
-of sections 1 and 2). The two Phase 15 model replays (`archive:scripts_2026-10-23/t2_seed_model.py`, `archive:scripts_2026-10-23/as_pool_replay.py`) are archived; `tools/test_unpack.py` and `tests/t_out` test the packed format.
+`tests/harness.h` provides the assertions. `tests/tref.h` is the tests' reference product (`results/CODE_REDUCTION.md §TREF`): `tref_check` compares a product exactly with GMP up to 2^21 product limbs and above that by the residue form (limbs below B, length, residues modulo three 62-bit primes, the low 64 limbs exactly, the top limbs within exact bounds); `tref_faults` checks the reference itself (a changed limb must fail; `t_mul` runs it on every product). `tools/test_unpack.py` and `tests/t_out` test the packed format.
 Python unit tests of the tools (`switch_registry.py`, `doccheck.py`, the models; stdlib, each < 5 s): `python3 -m unittest discover -s tests` from the repository root (`tests/test_tools.py`).
 
 Digits against a reference:

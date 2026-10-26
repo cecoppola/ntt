@@ -22,40 +22,17 @@ Current state (cross-checked against ecalc/README.md and RESULTS.md; the README 
 ## C01 -- machine profile templates (step one of the profile plan)
 
 Agent c01, 2026-10-11, branch `c01` (from main bc80001). CPU only; read-only login-node commands. New files only, nothing reads them yet.
-
 Built: `profiles/README.md` (format, precedence plan defaults < profile < overrides, evidence citation rule); `profiles/aac7.conf` (33 keys), `archive:scripts_2026-10-23/aac6.conf` (5 keys + commented CPX keys), `profiles/target.conf.template` (38 keys, 13 `__FILL__`, each with a "how to determine"); `tools/profile_check.sh` (read-only; sources a profile in `env -i`, compares to the e16 LINE and the aac7env exports, flags UNFILLED, UNKNOWN, REMOVAL-SLATED). A private draft of the target profile exists outside git.
-
-Check against main bc80001 (m): aac7.conf 33 keys: MATCH 23, MISMATCH 0, PROFILE-ONLY 10, UNKNOWN 0, REMOVAL-SLATED 0. The PROFILE-ONLY keys are ones no script sets or that b01 added (`ECALC_SEGV_TRACE`, `COMM_OFI`, `COMM_SHMEM_IMPL`, `SHMEM_CRAY`, `GMP_HOME`, `MNRUN_EXCLUDE_HOSTS/MODE`, and three that equal mnrun.sh defaults and could be deleted). aac6: no mismatch. Target template: 13 UNFILLED as expected, plus UNKNOWN for meta keys with no consumer (`TARGET_PARTITION`, `TARGET_NODES`, `ECALC_OUT_DIR`). Negative test (a bogus key, `MN_T_CHUNK_MB=1024`, `COMM_OFI_DC=1`): reported UNKNOWN, MISMATCH, REMOVAL-SLATED respectively.
-
-Facts read on login nodes (m, 2026-10-11): aac6 has no `/opt/cray/pe/sma` and no cxi; PPAC_MI300A_SPX 192 CPUs 514000 MB. aac7 has `/opt/cray/pe/sma`, no cxi on the login node; partition 192 CPUs 500000 MB.
-
-Open questions at the time: keys without a code consumer; host exclusions (`aac7-n01` is in the profile, a second always-exclude node was not added, reason not in a results file); `ECALC_NODE_GB` (code default 480 is the target's figure, aac7 has 500000 MB, not set); no "unset" section in the format; `MN_T_CHUNK_MB` 2048 for the target (the target line was 1024 pending its own A/B, +4.3 GB window temporaries mod against a 21.7 GB margin); the typed pool 1536 and heap 2048M should be computed (see T27); `COMM_SHMEM_IMPL`/`COMM_OFI` recorded though auto-detected; aac6 profile thin by design.
-
 Verdict: templates delivered with no behaviour change. Next step was the loader (O3).
+
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/TOOLS_PROFILES.md`.)
 
 ## O3 -- P1 step 2: profile loading and validation
 
 Branch `o3`; all script-side, no ecalc C source changed.
-
-Design:
-- `tools/profile_load.py NAME|path` sources a profile in a clean shell and prints `export` lines only for keys the caller has not set (explicit env > profile > code default; an explicitly empty value wins). Exports `ECALC_PROFILE_NAME/FROM/OVER`. `--validate`, `--validate-all`, `--show` are read-only. Errors (exit 1): unknown switch (not in `ecalc/switches.tsv`, not an external-library prefix, not named in a script; with "did you mean"), `__FILL__`, non KEY=value line, duplicate key, unsourceable file.
-- `tools/with_profile.sh NAME -- cmd` validates, loads, prints a `config-src:` line (profile, keys from profile, keys overridden by env) and execs.
-- `tools/gate.sh`: new `--profile P`; `--build` first runs `switch_registry.py --check` and `profile_load.py --validate-all` (failure = gate FAIL).
-- Provenance in the run's own `config:` line was not done (C change); the wrapper prints `config-src:` before the run instead.
-- The registry was stale on main (one name missing, three rows with no code site; 5 problems), regenerated to 0 problems. This changes a compiled header, hence the cluster gates.
-
-Local tests (m): registry check 5 -> 0 problems; `--validate-all` 0 problems; bad profile (`ECALC_NPP`, bare `FOO`, duplicate) rc 1 with the expected messages; with no profile the environment is identical with and without the tooling; the aac7 profile adds 37 variables (34 keys + 3 provenance); `ECALC_NP=4` set by the caller wins and appears in `env-over`.
-
-Cluster gates (m, 1e9 digits, 2026-10-12):
-| gate | line | result |
-|---|---|---|
-| aac7 2 nodes, A (plain) | aac7 line | PASS, rc 0, VERIFY OK, digits identical, segv 0, ecalc total 23.31 s |
-| aac7 2 nodes, B (`--profile aac7`) | profile | PASS, same checks, total 19.10 s, `config-src: profile=aac7` |
-| aac6 1 node, A (`--build`) | standard | PASS, total 11.82 s |
-| aac6 1 node, B (`--profile aac6`) | profile | PASS, total 12.18 s; keys from profile: `MNRUN_MODULES, COMM_SHMEM_IMPL, COMM_SHMEM_SERIAL, OMPI_MCA_memheap_base_max_segments, ECALC_SEGV_TRACE` |
-Totals are single runs, not a timing comparison.
-
 Verdict: PASS, profile loading and validation work on both machines; the merge of o3 was left to the user. Next: wire mnrun.sh / e16_headline.sh / target_kit.sh to the loader; a gate B failure would be a profile gap.
+
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/TOOLS_PROFILES.md`.)
 
 ## T27 — parameter system: computed size values and review dates for settings
 
@@ -89,27 +66,10 @@ Decisions (user): (1) target launch block: options (a) `eval "$(tools/plan_value
 ## B07 - `ecalc/calib_table.py` (step 1 of the calibration plan in archive:results_merged_2026-10-24/TOOLS_PROFILES.md §B05)
 
 Task b07 (2026-10-11, base bc80001, branch b07). CPU only. 99 logs from aac7 (S47 48, S50 abba4_0024 16, S51 abba4 12 and abba4b 23) plus driver tsv files.
-
 The tool: `ecalc/calib_table.py LOGDIR_OR_FILES... [--tsv F] [--fit [--oos]] [--ab [--exchange-exp EXP]] [--driver-tsv FILES] [--config REGEX=NAME] [--selftest]`. One row per log: label, exp/round/arm from the file name, nodes and digits (from `MN_PLAN_ONLY=`), total, init, bs, tree, recip, dm and sub-stages, dc, other, VmHWM, single-node chain, r (mean of the `comm_shmem ... all-to-all ... GB/s per APU thread` lines), mode (slow < 11.95, fast > 12.3 GB/s), flags (chain > 2.6 s, init >= 36 s, no VERIFY OK, no total), `clean`, per-phase memory, xstats/wait columns when those lines exist. `--fit`: OLS `stage = a + b / r` over clean runs per (nodes, digits/node, config), residual sd, optional leave-one-source-out. `--ab`: pairs with both arms clean; reports raw B - A, the rate-adjusted residual difference (CI slightly optimistic), an ANCOVA cross-check (quote this CI), per-stage values, the mean r of each arm with a WARNING when they differ (> 2 % or significant), a CAVEAT for exchange-changing experiments, and pairs needed for a target half-width (`--target-hw`, default 2 s).
-
-Acceptance 1, T05 clean 4-node runs (99 logs, 63 clean 4-node with a rate; mod):
-| quantity | B05 | calib_table (n = 63) |
-|---|---|---|
-| total = a + b / r | 80.8 + 1388 / r | 81.1 + 1384 / r |
-| residual sd | 1.61 s (raw 11.9) | 1.62 s (raw 11.87) |
-| bs | 46.3 + 337 / r, sd 1.55 | 46.4 + 336 / r, sd 1.55 |
-| dm | 2.1 + 1030 / r | 2.2 + 1029 / r, sd 0.94 s |
-| recip | - | 3.2 + 258 / r, sd 0.36 s |
-Out-of-sample (leave one source out, total): abba4 (n=11) bias -1.9 s sd 2.0; abba4_0024 (n=16) +0.1, 1.3; abba4b (n=7) +0.2, 2.5; S47 (n=29) +0.9, 1.1.
-
-Acceptance 2, S47 ABBA, rate-adjusted effects (4 nodes, B - A of `total`, negative = B faster; 6 usable pairs each, the rest held a chain spike or cold start; S47 fit on 29 clean runs: total = 84.4 + 1348 / r, sd 0.94 s):
-| effect | raw 95 % CI (n=6) | rate-adjusted | ANCOVA | mean r A / B |
-|---|---|---|---|---|
-| T2048 (`MN_T_CHUNK_MB` 1024 -> 2048) | +6.9 s [-7.0, +20.7] | -1.08 s [-2.03, -0.14] | -0.91 s [-1.99, +0.18] | 13.73 / 12.86 |
-| X2 (`COMM_LAYER_INTER2` + `VSLOT_POOL` 0 -> 1) | -4.2 s [-15.7, +7.3] | +0.41 s [-0.59, +1.41] | +0.44 s [-0.54, +1.42] | 12.80 / 13.34 |
-Stages (adjusted): T2048 dm -0.09, bs -0.69, recip +0.15; X2 dm +0.41, bs +0.24, recip +0.14. Reading (mod): the adjusted CIs are 10x narrower than the raw ones (+-14 and +-11.5 s). T2048 is about -1 s, none of it in dm's exchange-bound term; X2 no effect within +-1.4 s. Caveats: both arms change the exchange, so the covariate moves with the arm and the true effect lies between raw and adjusted (resolving needs the probe, C04, or a per-phase rate the arm does not touch); usable pairs, not the adjustment, limit the CI (5 of 11 and 4 of 10 rounds dropped); the residual-difference CI treats the fit as known, use ANCOVA when they disagree about 0.
-
 Files: `ecalc/calib_table.py` (new, about 400 lines, stdlib), `ecalc/README.md` (one row). Open: `--table` output for `archive:scripts_2026-10-23/refit_s48.py` and the ABBA stop rule on the adjusted CI not wired; `config` is `-` for all current logs (drivers should echo an `env:` line, else pass `--config`); xstats/wait columns not validated against T09 logs.
+
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/TOOLS_PROFILES.md`.)
 
 ## A06 (N6): target_kit.sh hand-off items
 

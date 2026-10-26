@@ -22,85 +22,32 @@ Current state (cross-checked with `ecalc/README.md`; where an item below says "o
 
 ## §AS15 — Phase 15 Batch 2, row 2: arena sizing for `BS_SEED_FILL=128` (the division's VMM remaps)
 
-Agent AS, branch `p15-AS` from main f184d51 (B1). Labels: measured, replayed (an exact port of the pool driven by a measured trace), modelled.
-
-**Approach.** Record every block-pool event (`DB_POOL_TRACE=1`, print only), replay the pool offline (`archive:scripts_2026-10-23/as_pool_replay.py`, exact port of `dbig.c` placement) and try arena layouts before node time.
-
-**Trace at 10¹¹ (B1 defaults, job 21610, s24-16, m):** total 207.41 s, dm 105.50 s; **15 remaps summing 9.49 s** (APUs 1–3: 11.11 and 4.17 GB in the reciprocal, 22.22 GB for `t`, a growth of 2 chunks costing 0.22–3.80 s, 22.22 GB for `xq`). Replay: 116 blocks, 0 mismatches, same 15 remaps. Causes: (1) the arena (63.82 GB) is not a whole number of 2 GiB chunks; the last chunk's remainder lies after the tail's end, so the "spill to the tail's very end" rule finds no extent ending there and carves the bs top level's second output from the front of the tail; (2) with whole chunks, the division's `t` (22.22 GB) meets 31.09 GB free in two extents (11.11 + 19.98) because the freed top-level children leave 8.07 GB holes (dm_layout v3 counts bytes, not holes).
-
-Replayed layouts (APUs 1–3): B1 15 remaps; whole chunks 9; + 1 chunk 6; **+ 2 chunks (68.72 GB per APU) 0**.
-
-**More sizes (jobs 21610, 21615; every replay exact).** Remaps on B1 (m): 2 × 10¹⁰ 0; 4 × 10¹⁰ 2 (0.44 s); 6 × 10¹⁰ 4; 8 × 10¹⁰ 3 (1.14 s); 9 × 10¹⁰ 9 (3.35 s); 10¹¹ 15; 1.16 / 1.2 / 1.3 × 10¹¹ 4 (2.33 / 2.17 / 3.01 s). `dm` at 10¹¹ fill 0: 91.15 s vs fill 128: 105.50 s (one run each, the cost the fill brought). The extra room that removes remaps is not monotone (greedy placement); the tail's size and the "large" threshold do not help at a fixed arena. **Rule: room = f × hole (the division's largest block per APU) in the dm need, arenas in whole chunks. Every f in [0.13, 0.23] leaves 0 remaps over ten traces; 0.25 leaves 4; f = 0.16 chosen** (least memory).
-
-**Switch `BS_ARENA_ROOM=<f>` (off by default; needs the VMM pool).** `binsplit.c`: `bs_arena_room()`, `as_arena()` (arena in whole `DB_POOL_VMM_CHUNK_GB` chunks), `dm_layout` gets `room = f × hole`; `dbig.c`: `db_pool_vmm_chunk()`, `DB_POOL_TRACE=1`; `mem_model.py` follows (`dm_layout(room=)`, `arena_of(chunk=)`); README rows `BS_ARENA_ROOM`, `DB_POOL_TRACE`; `archive:scripts_2026-10-23/as_pool_replay.py`, `tests/as_sweep.sh`. Off = byte-identical layout to B1. `--check-c` exact at f = 0 and 0.16 (10 points each). Mapped arena change (modelled from the port): 2 × 10¹⁰ +4.3 GB, 4 × 10¹⁰ 0, 10¹¹ +12.9 (exactly the 2 chunks × 3 APUs B1 maps inside the division), 1.3 × 10¹¹ +17.2, target share (7.38 × 10¹⁰ : 576, NP=4) +8.6 GB per node.
-
-**Node runs.** First series (job 21619) found a bug: `binsplit_pregrow` rounded from the unrounded cap and `arena_get` re-rounded to 2 MiB, so the arena ended a few MiB into a 33rd chunk (the §2 defect again); fixed in 1667150; check run (job 21626): arenas 39/32/32/32 chunks, 0 remaps, 0 growths, dm 88.48 s, VERIFY OK. **Paired series at 10¹¹ (job 21626 + 21634, s24-26, interleaved, all VERIFY OK, m):**
-
-| (means) | switch off | switch on | delta |
-|---|---|---|---|
-| dm, no digit file (3 + 3) | 100.87 s | 88.48 s | **−12.4 s** |
-| total, no digit file | 191.88 s | 179.67 s | **−12.2 s (−6.4 %)** |
-| dm, digits written (2 + 2) | 103.90 s | 89.36 s | −14.5 s |
-| total, digits written | 194.97 s | 179.61 s | **−15.4 s (−7.9 %)** |
-| remaps | 15 (5.6–9.4 s, 3 growths) | **0** | |
-
-Digit files identical (sha1 ×2, `digcmp.sh` ×1). The gain exceeds the remap seconds (the events stall all four APUs). 4 × 10¹⁰: dm −0.6 s, total −0.2 s. **Memory: node peak at 10¹¹ unchanged (421 GB measured in both arms; device 393.6, host 27.3–27.6)**: the 12.9 GB are mapped at init instead of by the growth.
-
-**1.3 × 10¹¹ and the budget fix (3fa6f30).** With the room, 1.3 × 10¹¹ was refused at init (budget check rc 8, node peak 480.8 > 480; the check counts measured VmRSS 24.9 GB where the layout counts 15.6), and B1 remaps only 4 times there (2.45 s). So the room is dropped when the node with it would exceed `ECALC_NODE_GB` (`as_room_fits`; `mem_model.py` decides alike; arenas stay in whole chunks): the one-node ceiling is unchanged. Remaining runs (jobs 21651, 21655, b0db7ac; m): 1.3 × 10¹¹ off 271.36 s / on (room dropped) 267.79 s (dm 141.5 / 140.6); sizes 3, 5, 7 × 10¹⁰ total 43.52 / 70.60 / 107.37 s, 1.05 / 1.1 / 1.25 × 10¹¹ 191.89 / 203.97 / 260.31 s, all 0 remaps; 10¹¹ digits written identical by sha1 and `digcmp.sh` against `results/e_1e11.out`. All seven new traces replay exactly. Gate (job 21650, `BS_ARENA_ROOM=0.16 mnaccept --stress --only unit,e9,mn,stress`): **16 PASS 0 FAIL** (t_dbig 0 555 checks; stress 10/10 identical).
-
 **Recommendation (user's decision):** adopt `BS_ARENA_ROOM=0.16` with `BS_SEED_FILL=128`; the whole-chunk rounding alone is free and removes the reciprocal's remaps. Open: f chosen on 17 traced sizes, placement greedy so an untested size can still remap (one traced run answers any size); `mem_model.py` node peak with the room is pessimistic (+16.3 GB at 10¹¹, one-node ceiling 1.24 vs 1.34 × 10¹¹ modelled) while the run cannot be refused (budget rule); effect at the 576 target unmeasured. 576-node estimate unchanged: **4.25 × 10¹³ digits in 256.0 s (4.27 min) without the write, 285.7 s with the packed write** (modelled, RESULTS §87 / DOC15), node memory 416.0 GB of 480 on defaults, 429.0 with the room (modelled).
+
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/MEMORY.md`.)
 
 ## §MAP15 — Phase 15 Batch 2, row 5 (N2): the arena's mapping, the seeds and level 1
 
 Agent MAP, branch `p15-MAP` from `int15d` 3e0a0db (= main B1 f184d51 + NP + AS + N3x, all off by default). **STOPPED after a second node failure; nothing here is adopted except the print-only timeline.**
-
-**Feasibility timeline at 10¹¹ (job 21659, s24-30, 2add00f = int15d + `ECALC_INIT_TL=1`, m).** Arena chunks are 2 GiB; p0 = parity-0 half (seeds' target, mapped inside `binsplit_pregrow` by four threads), p1 = parity-1 half (level 1's outputs, mapped by four background threads under the mapper lock), rest = dm extra. Defaults: planes done 6.88 s, p0 mapped 7.25 → 19.13 s (0.186 s/chunk), seed thread idle **6.92 s** waiting for the pools, p1 + rest mapped by 33.62 s (0.215 s/chunk), seeds end 35.49, **level 1 starts 35.96, done 40.74**. With `BS_ARENA_ROOM=0.16`: level 1 starts 35.07; room + 96 seed threads 36.46; room + `ECALC_SEED_ORDER=after` 37.90. Per chunk the mapper holds its lock 0.15–0.24 s (`hipMemCreate` 0.12–0.16, `hipMemSetAccess` ≈ 0.058, `hipMemMap` + zeroing ≈ 0); the lock is not fair. **What binds:** level 1 needs p0 and p1 of every APU, 124 chunks (266 GB); seeds end 34.6–36.0 s and the p1 mapping 31.3–34.7 s, both on the critical path. Modelled expected gain of overlapping (seeds need only the chunks they write, one mapping stream in need order): level 1 from 35–36.5 s to ≈ 27–30 s, −5…−8 s at 10¹¹ (modelled).
-
-**The stream `DB_POOL_VMM_STREAM=<W>`** (`dbig.c`: under the switch `db_vmm_arena_alloc` only reserves VA; W workers map units of `DB_POOL_VMM_STREAM_BATCH` (2) chunks in need order after the plane pools; `binsplit.c`: every seed DMA waits for its own chunks via `seed_wait_map` / `db_vmm_wait_range`; the rest is released at the first device top-tier level, `db_vmm_stream_rest`). First runs (job 21661, s24-26, m): W = 4: VERIFY OK but 216.91 s (one seed DMA launch blocked 32.9 s behind the workers; 0.27 s/chunk) so W = 1 is the form; W = 1: seeds end **28.33 s** (vs 34.3–35.5) but level 1's chunks are mapped at 34.93 s (0.216 s/chunk), so level 1 does not move; **the node rebooted** during the run (Slurm NODE_FAIL). Repeat on s24-30 (job 21662, rest deferred to the device top tier): seeds end 29.23 s, level 1 at 35.90 s, then the mdev tier took 39.6 s (≈ 27 normally), the reciprocal 59.7 s (≈ 38), and **the node rebooted again in dm**. Every other run (15, stream off or W = 4) was VERIFY OK. Common factor of the failures (not proven; earlier unrelated NODE_FAILs exist, jobs 20629, 20945): VMM chunks created and mapped while GPU kernels run bs products. `DB_POOL_VMM_STREAM` now refuses to run without `DB_POOL_VMM_STREAM_ACK=1` (b94072c). **No further node work with the switch.**
-
 **Conclusions.** (a) The stream removes the seeds' idle wait exactly as modelled (seeds end 28.3 / 29.2 s instead of 34.3–35.5, m) but level 1 does not move: **the mapping itself is the floor**, ≈ 0.2 s per 2 GiB chunk whoever calls it (one worker 0.216; old pregrow threads 0.16–0.19; old background mappers 0.20–0.23 under seed load; 0.131 only with the CPU idle; `hipMemCreate` ≈ 70 %, `hipMemSetAccess` ≈ 30 %). The runtime serialises the calls, four workers map slower and starve launches. Letting bs levels wait only for their own chunks would overlap mapping with compute, the regime preceding both failures: not built. (b) Seed threads at 10¹¹ on the old path (m): 192 threads (default) level 1 at 35.07 / 35.40 s; 96: 36.46 (spans 16.6 → 19.9 s); 48: 47.63 (spans 35.7 s): **keep all threads**. (c) Timeline facts: `rns_init` staging + contexts 1.5–2.5 s, plane pools 4.2–5.6 s (≈ 0.045 s/GB); seed pinned buffers (2 × 8 GiB) cost 1.4–1.6 s at start. **The remaining lever is the mapping rate outside the VMM path:** hipMalloc maps at 0.036–0.05 s/GB against hipMemCreate's 0.077–0.1 (R114 §6b); R114 measured the VMM arena at +8 s of init at 10¹¹ vs the hipMalloc arena. With `BS_ARENA_ROOM=0.16` the division at 10¹¹ remaps 0 times (§AS15), so `DB_POOL_VMM=0` where memory allows may be worth one paired series (untested; no code needed).
-
 Tests: timeline, stream off, 10¹¹ × 7 (job 21659): 7 × VERIFY OK, totals 187.1–199.5 s; r0c (room, stream off) 179.07 s VERIFY OK; e9 stream W = 4 VERIFY OK 12.41 s. **Gates owed before anything merges** (not run after the node failures): `t_dbig 0`, `mnaccept --stress --only unit,e9,mn,stress` at b94072c, stream off. Open: two nodes (s24-26, s24-30) needed the admin; if ever retried, a unit test that maps chunks on one APU while kernels run on all four first, on a node that can be spared. **Merge only `ECALC_INIT_TL` (5162a8f, print only); do not adopt `DB_POOL_VMM_STREAM`.** 576-node estimate unchanged: 4.25 × 10¹³ digits in ≈ 256 s without the write, ≈ 286 s with it (modelled, RESULTS §87 / DOC15); node memory 416 of 480 GB.
+
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/MEMORY.md`.)
 
 ## §DL15 — the arena sized to DKM's division, and the room check on the model's node (Phase 15 Batch 3, agent DL)
 
-Branch `p15-DL` from `int15i` ab8daa2.
-
-**New 576-node ceilings (modelled; arena by `BS_LAYOUT_ONLY`; `tests/dl15_ceilings.py`; launch line `ECALC_NP=auto RNS_DIST_CACHE_FIT=1 COMM_SHMEM_ROUND_MB=1024 COMM_TRANSPORT=shmem`):**
-
-| | largest total digits fitting 480 GB with the room kept | room turns off from | largest size at all (room dropped, whole chunks) |
-|---|---|---|---|
-| built (`NEWTON_DKM=1`, default) | **5.396 × 10¹³** (471.93 GB) | 5.398 × 10¹³ | **5.532 × 10¹³** |
-| `NEWTON_DKM=0` (new check) | 5.166 × 10¹³ | 5.168 × 10¹³ | 5.422 × 10¹³ |
-| one node, built | 1.320 × 10¹¹ | 1.322 × 10¹¹ | 1.382 × 10¹¹ |
-
-Node at 5.1 × 10¹³: 471.93 → **463.34 GB** (arena 300.65 → 292.06). **Finding: the room-0 figures overstate the ceiling by one chunk**: the VMM pool maps every arena in whole 2 GiB chunks even with `BS_ARENA_ROOM=0`, while `mem_model`'s room-0 node counts it unrounded; so MS's room-0 ceilings (5.571 / 5.696 × 10¹³ with DKM) are really **5.422 / 5.532 × 10¹³**, and 5.55 × 10¹³ does not fit (480.52 GB).
-
 **Built (`binsplit.c`, `mem_model.py`).** (1) `dm_layout` follows `NEWTON_DKM` (DKM layout at size > 1 always, at size 1 only in the device flow n_Q ≥ 9/8 · 2^`BS_MDEV_LOGL`): reciprocal's jl at h, DKM's division set, the hole is DKM's largest block (size 1: step 1's `X_hi·Q`, n_Q + ⌈k/2⌉ + 8 limbs, which `mul_grid` reserves whole; size > 1: t, k + 8 limbs; the model had used k + 8 at size 1 too, smaller than that block). With `NEWTON_DKM=0` the layout lines are byte-identical to ab8daa2's. (2) `as_room_fits` counts the model's node (planes by the `auto` rule, arena with the room, 6.0 GB of VMM bs growth, host HWM); `mem_model.as_room_fits` / `room_host` is the twin; `BS_LAYOUT_ONLY` prints a `room:` line, the layout line gains ` dkm 1`. (3) `--check-c` exact on 16 layout files (0 terms not exact, room terms included). (4) Outside: `mn_model.py` passes `dkm=DKM`; `--check-c`'s `MN_P24` default 2; `DEFAULTS15D` the new `mem_per_node` base; README rows `NEWTON_DKM`, `BS_ARENA_ROOM`, `BS_LAYOUT_ONLY`.
-
 **Tests (aac6, m).** Batch A (job 21801, s24-16): 10¹¹ ×4 alternating new / base (ab8daa2), all `NEWTON_DKM=1`: identical to `e_1e11.out`; arena **283.5 vs 289.9 GB (−6.4 GB)**, device at init 387.2 vs 393.6; 0 remaps, 0 growths, 0 hipMalloc; division window peak 54.07 GB per APU in both (76.3 % of the new pool); `dm` 72.49 / 74.24 s new vs 72.93 / 74.63 base: **neutral** (new_2's bs outlier 105.1 s vs 78.8–82.9 s is noise). Stage D (timing series) not run. Batch B (job 21805, s24-30): 1.3 × 10¹¹ new: room kept, arena 335.0 GB, 0 remaps, dm 114.25 s, VERIFY OK, budget peak 464.1 GB; base (old check dropped the room): 2 remaps (0.92 s), dm 117.70 s; 4 × 10¹⁰ identical; 10¹⁰ at sizes 2/3/4 identical (window peak 5.52 / 2.96 / 2.76 GB per APU, 43–49 % of the pool). Batch C (job 21808): `mnaccept --stress --only unit,e9,mn,corr,stress` **20 passed 0 failed**.
+Open issues: (1) the target's mn division peak is counted, not measured (DKM mn path peaks at 5.5 u + product scratch; reservation 55.54 GB per APU vs 54.11 counted at 5.1 × 10¹³: margin 1.4 GB, modelled; today's path 6.0 u = 59.0 GB vs 56.83 reserved, already over, M6's finding; sizes 2–4 on one node are 43–49 % of pool so do not test it; a 2-node `ECALC_VERBOSE=2` run at a dm-bound size would); (2) `mem_model`'s node should round VMM arenas to chunks at `BS_ARENA_ROOM=0` (not done); (3) size-1 room host uses log10 N! (< 0.02 GB difference).
 
-Open issues: (1) the target's mn division peak is counted, not measured (DKM mn path peaks at 5.5 u + product scratch; reservation 55.54 GB per APU vs 54.11 counted at 5.1 × 10¹³: margin 1.4 GB, modelled; today's path 6.0 u = 59.0 GB vs 56.83 reserved, already over, M6's finding; sizes 2–4 on one node are 43–49 % of pool so do not test it; a 2-node `ECALC_LIVE=1` run at a dm-bound size would); (2) `mem_model`'s node should round VMM arenas to chunks at `BS_ARENA_ROOM=0` (not done); (3) size-1 room host uses log10 N! (< 0.02 GB difference).
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/MEMORY.md`.)
 
 ## §K8 — init and the seed wait at one node: where the time goes, and why reordering does not help (2026-10-12)
 
 Task K8 (OPPORTUNITIES B.3), branch `k8` off main a448d73, not merged. aac6, one node, one run per arm, `ECALC_INIT_TL=1 ECALC_VERBOSE=2`, all VERIFY OK. **Result: diagnosis only, no switch proposed; code unchanged** (the two patches, `RNS_HOOK_CONCUR` in `rns_mul.c` and `ECALC_VMM_FILL` in `dbig.c`, are in `archive:results_merged_2026-10-19/`'s original of this item).
-
-**Where the time goes (m, init timeline; 6.441e10 default, two runs):** staging + contexts 1.1–2.6 s; plane pools (103 GB, hipMalloc + memset, 4 APUs in parallel) 4.1–6.0 s; region arenas parity-0 half (VMM, 39 chunks, 78 GiB) 7.0 s; peer access 0.1–0.3 s; init 14.1–14.5 s; background mapping of the parity-1 halves (45 chunks, one at a time under `g_vmm_map_mx`) 9.4–11.5 s with 4–8 s queued per APU; seed thread 18.7 s (buffers 1.5, spans 11.8, DMA issue 3.1); bs waits for the seeds 10.2–11.5 s; level 1 starts 24.8–26.5 s; total 73.0–74.7 s. At 1e10: init 8.3–10.4, level 1 11.3–13.8 s, total 23.2–25.6 s.
-What binds: (1) **seeds and background mapping finish together** (6.441e10: last mapper 25.9 s, seed thread 26.2 s); level 1 needs both. (2) The seeds' DMA issue time is contention: `hipMemcpyAsync` / the copy kernel block while another thread is in a HIP memory call: 3.1 s with the mappers, 0.24 s with `ECALC_VMM_BG=0`; with `RNS_PLANES_FIRST=0` 10.1 s (one issue 8.3 s behind the plane pools' hipMalloc/hipMemset). (3) The mapping rate is driver-bound and does not scale with threads: VMM arenas ≈ 11–13 GiB/s with four APUs in parallel, ≈ 8 GiB/s for the one-at-a-time background mappers; hipMalloc for planes 18–25 GB/s; the window maps ≈ 159 GB (1e10) or ≈ 280 GB (6.441e10). Modelled floor at 6.441e10: ≈ 20–21 s before level 1 vs 24.8–26.5 s measured (4–5 s window, only if the seeds finish without the HIP runtime).
-
-**Levers tried (switches off by default; 6.441e10 level-1 start vs default 26.46 / 24.78 s, m):**
-
-| lever | level 1 | total | verdict |
-|---|---|---|---|
-| `RNS_HOOK_CONCUR=1` (seed hook in its own thread concurrent with plane pools) | 37.98 s (+11.5; at 1e10 −0.6, noise) | 96.3 s (+21.6) | rejected: hipMemCreate waits behind the planes' hipMalloc (arena creates 5–8 s), seeds stall 6.2 s then DMA issue 9.7 s |
-| `RNS_PLANES_FIRST=0` | 28.96 (+2.5) | 77.5 | worse (planes 14.7 s under seed DMAs) |
-| `ECALC_VMM_FILL=1` (finished APU maps more chunks while another still maps) | 28.13 / 29.04 (+3.4 / +4.3) | 76.2 / 77.3 | rejected: driver does not map faster in parallel, parity-0 phase 7 → 12 s |
-| `DB_POOL_VMM_CHUNK_GB=8` | 28.43 (+2.0) | 77.2 | worse |
-| `ECALC_VMM_BG=0` | 30.06 (+3.6) | 77.5 | worse (seeds wait 7.75 s for regions, DMA issue 0.24 s) |
-| `DB_POOL_VMM=0` | 30.56 (+4.1) | 79.3 | worse (synchronous hipMalloc arenas ≈ 20 GB/s, seeds wait 8.8 s) |
-
 Differences 2.0–11.5 s vs default spread 1.7 s: verdicts hold without ABBA. What could still work (not built): (1) seed DMAs that need no HIP runtime call (worth ≈ 4–5 s at 6.441e10, modelled; led to §K8b); (2) fewer bytes mapped before level 1, lazy parity-1 mapping (interacts with `vmm_bg_map`, do after G1). K8 as a reordering lever is closed.
+
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/MEMORY.md`.)
 
 ## §P3 — shorten the start-up mapping phase: evaluated by reading code and A09, no change made (STOPPED)
 
@@ -109,24 +56,9 @@ Nothing built or run. Starting point (m, archive:results/A09.md, 6.441e10 per no
 ## §L114 — L1 — Phase 14 (PLAN §34), window W1: E2 tight reservation (`DM_TIGHT`) and E5's layout half (`DM_TAIL_DEAD`)
 
 Branch `p14-L1` from main @ ae1d872. Files: `binsplit.c` (dm_layout, device-tier top levels, layout report), `binsplit.h`, `newton_db.c` (`recip_db2` reservations only), `dbig.c/.h` (`db_pool_retarget_tail`), `mem_model.py`, README (two switch rows). Switches off by default. Labels: measured / modelled (`mem_model.py` = `dm_layout` to the byte) / assumed.
-
 **`DM_TIGHT=1` (E2).** Reciprocal (`recip_db2`): r, r2, t1 reserved once after the seed at the last doubling's sizes (jl = ⌈k/2⌉ anchored: r at jl + 4, r2 at 2 jl + 4, t1 at take + jl + 2 + 8), blocks never move (r' copied from r2 into r's block at every doubling but the last); values identical, only capacities change. Last doubling live set **5.2 n_Q + piece vs 6.2 n_Q today** (measured today at 1.058 × 10¹¹: peak live 294.7 GB = 6.27 n_Q). The first form (t1 freed and re-reserved per doubling) churned and fell back to hipMalloc at 4e10. Block pool (`ext_take`, `db_pool_pack_large`): under DM_TIGHT large requests go by a packing rule (bs: highest free end outside the tail; dm: tail's back first, then highest free end), blocks may be carved from an extent's middle (`carve_at`). Device top levels free each pair's P1, P2 after P = P1·Q2 + P2 and Q1, Q2 after Q = Q1·Q2 (top level then 3.3 n_Q instead of 4.4 n_Q; skipped under `ECALC_RES_LOG`). `dm_layout`: v2 = 2Q + r(jl+4) + r2(2jl+4) + hole + piece; new division term div = 2Q + max(µ(k+1) + t(2k+8), X(k) + xq(n_Q+k+8)) + piece = 5.2 n_Q + piece (never binds by default, floor once the reciprocal is tight); v3 = max(4 in + out, 2 in + 2 out) · 9/8 + hole.
 
-**`DM_TAIL_DEAD` (E5's layout half).** `=1`: v3 without the hole; after the top level the pool's tail is retargeted to the back of each APU's largest free extent (`db_pool_retarget_tail`; `SHORT` falls back to in-phase hipMalloc); safe on its own. `=2`: also v2 without P (P on disk): needs a spill, `binsplit_pregrow` refuses unless `dm_p_spill_wired` or `ECALC_INIT_ONLY=1`.
-
-**Layout check.** `mem_model.py --check-c` vs `BS_LAYOUT_ONLY`, six variants × six points (36 `layout:` lines): **every term exact, 0 terms not exact**; default arena byte-identical to the pre-change layout (1e11: 310.29 GB; 576 share 309.21 GB). At 1e11 DM_TIGHT: v2 63.41 G per device, division 62.07 G, arena 258.63 GB node (V0 310.29).
-
-**Modelled savings (`--savings`, node peak GB):** V0 → `DM_TIGHT=1`: 4e10 299.6 → 281.7 (−17.9); 1e11 427.9 → **376.3 (−51.7)**; 1.3e11 522.0 → 441.9; 1.68e11 641.0 → 531.3; 7.38e10 × 576 451.7 → **428.2 (−23.5)** (the tree's 294 GB then binds). `DM_TAIL_DEAD=1` alone: 1e11 −11.9. **Ceilings (modelled):** one node 502 / 524 GB: V0 1.235e11 / 1.305e11 (measured 1.30, §P13b) → **`DM_TIGHT=1` 1.554e11 / 1.648e11 (+26 %)**; 576 per node 480 / 502 GB: 8.09e10 / 8.61e10 → 8.73e10 / 9.34e10 (+8 %), total 5.03e13 / 5.38e13.
-
-**Finding: E5 (P spilled) gives ≈ 0 over E2 until E6.** With the reciprocal tight the division's own set (5.2 n_Q + piece) is the floor: `DM_TAIL_DEAD=2` moves the 1e11 node by −0.8 GB (+0.5 % ceiling) over DM_TIGHT alone; the whole spill programme (E5 + E6, two exposed disk reads) would buy 4–9 GB (1e11 node 372.2 vs 376.3) because the arena is then the bs regions' own size (≈ 5.5 n_Q); the study's 1.30 → 1.68 × 10¹¹ is mostly E2's gain, available without disk. The next lever would be the batch tier's ring layout (F2's `BATCH_PAIR_INMADV` row). For the 576 share none of the dm variants matters beyond the first 23.5 GB.
-
-**Node tests (aac6, m; every run digit-identical / VERIFY OK):**
-- Batch 1 (job 21131, df36cef): `t_newton 20` ±tight OK; e9 decimal / binary and forced device-tier top levels OK; **4e10 tight 62.16 s** (baseline 63.5 ± 1.5, RESULTS §80: no time cost), arena 114.4 GB (132.3 before), but one in-phase hipMalloc (4.44 GB, r2 at the last doubling found no extent: placement, not bytes); init-only 1e11 tight device 362.3 GB = modelled to 0.01 GB (arenas 258.6 GB in 10.96 s). Fix 47ced5f (packing rule).
-- Batches 2, 3 (jobs 21132, 21134, 47ced5f, 9f04815): 4e10 tight 63.36 / **61.17 s**, `DM_TAIL_DEAD=1` 62.86 / 63.47; 1e11 tight 308.56 s (22 GB in-phase hipMalloc) / **253.99 s (dm 139.1)**; remaining fallbacks came from the division (t = 2 n_Q contiguous; window moment S + Q + X + xq + Aw = 6.2 n_Q), motivating the third form (tail = t's block holding r + t1; Aw before the low product, S freed there).
-- Batch 4 (job 21151, 540a20d): 4e10 default 63.01 s / tight 63.51 s (arena 114.4 vs 132.3 GB); 1e11 default 235.83 s (arena 310.3) / tight 237.15 s (arena 259.9, −50.4 GB; **reciprocal 45.63 vs 62.05 s**, 22.22 GB fallback in the division on 2 APUs); 1.4e11 tight 2³¹: reciprocal clean (peak live 326.7 GB = 5.25 n_Q), but t (31.1 GB) found the tail 2.6 GB short and `mem_oom` exited (TASKS A3). Cause of the remaining reciprocal fallback: the last doubling's shift `r >>= 1` went into the small r2 block; fixed in 23a7f43.
-- Batch 5 (job 21154, 23a7f43): 4e10 default 63.54 s, tight 63.62 s (recip 9.61, reciprocal clean); one fallback left: division's t (8.89 GB) found the tail's free part 8.78 of 9.03 GB because 7 small blocks spilled into the tail; fix 916fbae (r reserved inside the tail below t1, `db_pool_pin_tail`). Batch 6 (`l114_node6.sh`) was the gate run for it; **its results are not recorded in this file**, so the E2 gate (hipMalloc 0 in the phase at 4e10 / 1e11 / 1.4e11) is not shown as met here.
-
-Open issues: the tight schedule assumes the last doubling converges at once (every run to 1.25 × 10¹¹ shows `corrections 0/0`); per-doubling fragmentation to be read from `DB_POOL_VERBOSE` at 4e10 and 1.4–1.6 × 10¹¹; the size > 1 formula keeps the size-1 shape over the shares (sharded reciprocal's live set not re-derived).
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/MEMORY.md`.)
 
 ### §ATRIM — BS_ARENA_TRIM_GB (trim the dm arena need; merged 2026-10-23 from ATRIM.md)
 
@@ -142,6 +74,4 @@ Open issues: the tight schedule assumes the last doubling converges at once (eve
 | 3 n 1.9323e11 | S | - | 149.4 (m) | - | 0 |
 | 3 n 1.9323e11 | TR8 | - | 149.6 (m) | - | 0 |
 
-**Verdict.** Needs more data: memory saving is large at 2 n and time is neutral (3 n) to slightly better (2 n); the digits gate (item 9lu_atrim_gate: 1 n and 2 n, SHMEM and libfabric) decides whether it stays opt-in.
-**Open issues.** No adoption decision; gate result pending; no 4 n / 6 n data.
-**RESUME.** Branch `atrim` merged with main eb0c5f0; next: collect 9lu_atrim_gate.
+**Verdict.** Merged as an opt-in (`BS_ARENA_TRIM_GB`, default 0): the memory saving is large at 2 n and time is neutral to slightly better; the measured row is in `RESULTS.md`. No adoption decision; no 4 n / 6 n data.
