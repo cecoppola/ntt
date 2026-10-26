@@ -148,9 +148,7 @@ Branch `o5` (from main 0298fe2), TASKS items 39 / 37; design basis `archive:resu
 
 **Design.** B4 (C07, m on CPX): APUs 0–2 transform 2.5 n points, APU 3 1.5 n, plus a separate `k_b4_pw` pass with a peer read; B4 was +2.8 % slower than B. B5 keeps B4's planes, split (`k_bsplit`) and forward; the inverse of each third's 2^logk block is run as independent pieces (bit-reversed layout: the lower half and the two quarters of the upper half are complete inverse DITs, only the last two DIT stages mix them): I1 per-APU `ntt_inv_pw` of the lower half (local) and quarter B (peer read) on APUs 0–2, quarter A of each prime's plane on APU 3; I2 `k_b5_merge` (the two last DIT stages, the 2^-1 scalings and for 3·2^k the radix-3 stage in one pass); CRT as B4. Transform points per APU 2.25 n each (B4 2.5 / 2.5 / 2.5 / 1.5; B 3 / 3 / 3 / 0); memory identical to B4; one more barrier. Digits byte-identical to C by construction; `RNS_STRATEGY_CHECK=1` re-forms every product by C. Modelled gain (C07 basis, B form 4.4 s of 94 s at 6.441 × 10¹⁰ on 1 node): −0.6 to −0.8 s per 1-node run (mod); at 1e10 0.1–0.2 s (mod) against ≈ 0.3 s noise.
 
-**Results** (aac7 queue item 85, 2026-10-11; m): gates 2 nodes 1e9 PASS (total 21.18 s) and 1 node PASS (11.06 s); `t_strategy 28 1 V` rc 0, 8 B5 products used; CHECK 1e10 B5 rc 0, total 8.90 s. **ABBA 1e10, 1 node, 8 pairs (A = B, B = B5): total +0.077 s [−0.754, +0.909], p ≥ 0.05; B-form time +0.027 s [+0.024, +0.031], p < 0.05** (sd 0.005). The aac6 driver never ran (hold did not start in 25 min).
-
-**Verdict.** B5 is correct but gives no wall-clock gain (the inverse form itself 0.027 s slower, 0.03 s of an 8.9 s run). Not adopted. Open (historical): a lower balance than 2.25 n would need the forward split too; `k_b5_merge` could be fused into the last inverse pass.
+(Details moved to `archive:repo_cl6_2026-10-25/results/DIVISION.md`, 2026-10-25.)
 
 ## NPCAP — `MN_NONPOW2_CAP`: non-power-of-two groups on the next power-of-two plane (default auto since 2026-10-20, user Q58; items 9bf, 9bg, 9bj, 9bi, 9bo, 9bp, 9jf, 9ji, 9jd; m)
 

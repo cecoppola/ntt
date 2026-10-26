@@ -53,7 +53,7 @@ Branch `s44` = s41 + `tools/s44_*.sh` + a test knob (`RNS_INIT_POOL_LOG`, commit
 
 **Regression (s12-09)**: `t_ntt 24` fails only the speed check (forward rate 0.25-0.34 TB/s vs 0.9; 5 of 3215 checks, a CPX XCD has 1/6 of the bandwidth); `t_verify` 334, `t_out` 1, `t_patch` both forms PASS; with the knob `t_mul` 189, `t_dbig` 555, `t_newton` 620, `t_bs` 10 checks PASS; `t_mn_grid` not run. e9 gates (1e9, POOL_LOG=29): defaults, TOP=1, QSEL=1, TOP+QSEL, ADDSUB2=0, LIMB_BASE=2 (and with TOP + QSEL): all VERIFY OK, identical (6.79-14.21 s).
 
-**ABBA (4e9, POOL_LOG=29, 4 nodes in parallel, >= 3 rounds, stop p < 0.05 or 6 rounds; all runs VERIFY OK; delta = B - A per node, pooled over rounds treated as independent)**: (b) defaults vs `MAXIDX_TOP=1`: per node +0.07, -0.22, -0.35 (sig), -0.26 s; pooled (24 rounds) **-0.19 +- 0.19 s** (borderline, t = -2.1); (c) TOP=1 vs TOP=1 + QSEL=1: +0.02, -0.37, -0.35 (sig), -0.75 (sig) s; pooled (20 rounds) **-0.30 +- 0.19 s** (t = -3.3); (a) `ADDSUB2=0` vs defaults: -0.11, -0.36, -0.36, -0.36 s; pooled (24 rounds) **-0.30 +- 0.20 s** (t = -3.1). Reading: each switch gains about 0.2-0.4 s of 17-23 s (1-2 %), no node shows a slowdown beyond noise; round-position effects make per-round deltas noisy. CPX XCD devices are not the production target: this is coverage of a second hardware configuration, not a replacement for the aac7 ABBAs.
+(Details moved to `archive:repo_cl6_2026-10-25/results/KERNELS.md`, 2026-10-25.)
 
 ## S51: kernel round 2, part b (K2 k_addsub3, K3 k_modq_m, K4 k_crt_batch_m) -- FINISHED: K2+K3 propose default (1-node significant on aac7 and aac6, 4-node ns), K4 no gain
 
