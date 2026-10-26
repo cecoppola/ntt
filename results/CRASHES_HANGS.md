@@ -53,50 +53,24 @@ Fisher exact (two-sided): base vs bg0 22/105 vs 0/104 p < 1e-6; base vs uffd p <
 
 **Finding (m, 3 independent traces, identical offsets):** the multi-node segfault is inside `hipMemMap`, called from `vmm_map_run` (`ecalc/dbig.c`) in `vmm_bg_map`, the background VMM mapper thread (one pthread per APU, started by `db_vmm_arena_alloc` when `first < arena`, released by `db_vmm_bg_release` from `rns_init`). Symbolised: `libamdhip64.so.7` (ROCm 7.2.4) fault at `+0x3f8624`, via `+0x403b0d, +0x3cbd39, +0x8cf57/+0x8d21d, +0x36bb8e`; at about 42 s wall, when the mapper runs against init / level 1 work and SHMEM/libfabric registration. Consequence: `ECALC_VMM_SAFE=2` (a tail-of-thread fix) cannot help.
 
-**Switch `ECALC_VMM_BG=0`** (branch `s34`, off by default, digits unchanged): map the whole arena synchronously, no `vmm_bg_map` thread; cost is the mapping time the thread hid in init.
+`ECALC_VMM_BG=0` (synchronous mapping) gave 0/420 segfaults against 4/422 for the default (Fisher two-sided p = 0.124, m: suggestive, not conclusive). The follow-up soak and the adopted fix are in §S46.
 
-**Final soak (2026-10-09, branch s34 8424ed1, 6.441e10 digits per node, m; segfaults counted from log text).**
-
-| arm | nodes | runs | segfaults | non-OK | mean wall |
-|---|---|---|---|---|---|
-| A base | 2 | 422 | 4 | 8 | 204.2 s |
-| B `ECALC_VMM_BG=0` | 2 | 420 | 0 | 2 | 224.2 s (+20.0 s, +9.8 %) |
-| A base | 1 | 121 | 0 | - | 118.6 s |
-| B `ECALC_VMM_BG=0` | 1 | 121 | 0 | - | 120.0 s |
-
-Fisher exact, 4/422 vs 0/420: one-sided p = **0.063**, two-sided **0.124**: suggestive, not conclusive; stays an off-by-default option. The soak ended early on 10-09 (holds cancelled, NODE_FAIL); "Memory required by task is not available" errors then were allocation teardown. aac7 now has a QOS of at most 6 nodes per user. Host finding: the slow host aac7-n01 (`db_from_bi` upload stall 20.7-25.2 s vs about 1 s, follows the host) is unique in the stall only; low MemAvailable (441 vs 520 GB on 13 nodes) is not unique to it and varies with page cache. Kit rehearsal (m): `t_nodechk` 1 GB upload 0.017 s per APU.
-
-**S35: `ECALC_VMM_BG=2` (branch `s35`, commit 015994a; removed in W2A A1).** Kept the mapper thread but serialised it against every HIP memory-management call with one recursive process-wide mutex (`db_hipmm_lock`, link-time `--wrap` of `hipMalloc`, `hipFree`, VMM calls, stream create/destroy in `hipmm.c`). Gate 2 nodes x 1e9 PASS (digits identical, 21.16 s vs 23.50 s base, m). Not covered: HSA calls made by the libraries themselves. The S46 reproducer showed it hangs (9/9) and does not remove the hazard.
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/CRASHES_HANGS.md`.)
 
 ## §S30 — the reciprocal's late node, and today's two segfaults (2026-10-08; analysis only)
 
-**Late node (m).** `NEWTON_MN_RECIP_TS=1` (print) and `NEWTON_MN_CHAIN_BCAST=1` (only node 0 runs the single-node chain `recip_db2` and allgathers r0; digits identical) were tested in an ABBA of 7 rounds at 10 nodes: B - A = **-2.70 s, CI [-13.3, +7.9]**, null (A 394.2 s, B 391.5 s). Why: node 1 is 19.3-25.0 s in the "chain" stage in all 16 runs while nodes 0, 2..9 take 1.0-1.2 s; in the B arm node 1 still needs 20.7-24.1 s although it runs no chain, and the other nodes wait 19.5-23.2 s in the allgather: the stall moved, total unchanged. On node 1 between gather and stage end only `db_init`, `db_from_bi` (first device allocation + 270 KB upload) and `bi_free` run; the stall sits there or is a host-level stall (i; not proven). Node 1 = aac7-n01 in every S27/S30/S31 run, so host and rank effects cannot be separated. The 1-node ladder (S25) scales with exponent 0.97 (14.4 s per 1e10), the 10-node exponent 1.48 is exchange/scale cost, not compute.
+Late node (m): `NEWTON_MN_CHAIN_BCAST` (only node 0 runs the one-node chain) was null in a 7-round ABBA at 10 nodes (-2.70 s, CI [-13.3, +7.9]); the slow chain stage follows node 1, not the algorithm (switch removed 2026-10-11). Two start-up segfaults at the end of the init-time VMM mapping, no backtrace; they lead to §S34 and §S46.
 
-**Two segfaults (m).** d30_r4s2_A (s30 base arm, task 5 on aac7-n21) and x2_r3s2_B (s31 X2 arm, task 6 on aac7-n30), both at wall 42 s: last log line "background mapping done" (queued for the mapper lock 10.07 / 9.66 s), 0.3-0.5 s before the "bs: level 1 done" of a clean run, i.e. at the end of the init-time VMM background mapping / start of binsplit level 1. No backtrace (`ECALC_SEGV_TRACE` not set, no core). aac7-n30 also hosted the unexplained 2026-10-06 segfault (3 events, weak, p about 0.2). Crash rate (m): 2 of 54 10-node logs of that day = 3.7 % (95 % CI about 0.5-12.7 %), 0 of 59 before; the base arm crashed too, so not an S30/S31 switch. Plausible cause (i): unsynchronised tails of the mapper thread (`hipStreamDestroy`, `hipSetDevice` outside `g_vmm_map_mx`, parity-1 `db_vmm_arena_wait` not joining) overlapping level 1 with 40 mapper threads queued 8-11 s on the lock; alternatively libfabric/cxi or SHMEM at the same moment. Recommendation then: `ECALC_SEGV_TRACE=1` on every 10-node run, a per-rank host label, and a host-vs-rank permuted-nodelist test for node 1; follow-up is §S34 and §S46.
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/CRASHES_HANGS.md`.)
 
 ## §S16 — the intermittent startup segfault of ecalc under Cray OpenSHMEMX on aac7 (Phase 16 S)
 
 **Symptom (m).** 2 nodes, `COMM_TRANSPORT=shmem`, 1e10 digits: task 1 segfaults inside Cray's `shmem_init_thread` in 3 of 23 launches (after `bs: arenas 45.1 GB allocated`); 0 of 24 at 1e9 / `t_comm`; PE 0 then hangs in PMI. At 1e10 the init runs in a process with about 45 GB of VMM address ranges mapped and a busy seed thread; at 1e9 the seeds are done.
-
 **Switch `COMM_INIT_EARLY=1`** (b658922): pool rule and `mn_init` before `mem_sampler_start` / `rns_init`; self-tests stay after. Adopted later as built-in (W2A A2 removed the switch).
-
-**Diagnosis (mod from four faulting frames).** The faulting thread is a ROCm HSA runtime worker (`libhsa-runtime64.so.1` + `libamdhip64.so.7` + `malloc` on a 294 MB rwxp thread stack) jumping through a corrupt pointer (`rip` = 0x21041, 0xfffffffffffff000, 0xffffffffffe00000). Cray OpenSHMEMX 11.8 over libfabric 2.3.1/cxi without `/dev/kdreg2` uses the **memhooks** MR-cache monitor, which binary-patches glibc's `mmap/munmap/madvise/brk/sbrk/mremap` during `shmem_init_thread`; the patch is not atomic against a thread executing those functions at that moment. Tools: `ecalc/tools/segv2.c`, a preload recording the library's SIGSEGV handler and printing the backtrace and maps lines first.
-
-**Rates (m; 1e10 digits, 2 nodes).**
-
-| toolchain | variant | segfaults / launches |
-|---|---|---|
-| ROCm 7.0.3, Cray OpenSHMEMX 11.8.0, libfabric 2.3.1 | control | **8 / 78 = 10.3 %** (A16 3/23, b1 1/10, b2 0/10, b3 3/25, b4 1/10) |
-| same | `COMM_INIT_EARLY=1` | **0 / 55** |
-| same | `DB_POOL_VMM=0` | 0 / 10 |
-| same | `FI_MR_CACHE_MONITOR=disabled` | 0 / 10 |
-| ROCm 7.2.4 | control / `COMM_INIT_EARLY=1` | 0 / 10, 0 / 10 (rate bounded, not measured: P(0 of 10 | 10.3 %) = 0.34) |
-
-Control 8/78 vs early 0/55: one-sided Fisher **p = 1.2e-02**; binomial P(0 of 55 | 10.3 %) = 2.6e-03. Digits identical at 1e9 (2 nodes, 2 runs) and 1e10 (every batch's first run). `mnaccept --only unit,e9,mn` with the switch on ROCm 7.2.4: 15 passed, 1 failed (`t_mn_grid` 2 procs, rc 124 over the TCP transport, the same failure without the switch: §A01). No cost measured (total 53-59 s with and without).
-
 **Trap for any SHMEM-on-cxi setup.** Cray OpenSHMEMX 11.8 / libfabric 2.3.1 (cxi) without `/dev/kdreg2` uses memhooks, which patches glibc's mmap family in place during `shmem_init_thread`; a thread executing those functions then can continue at a garbage address (about 10 % at 1e10 x 2 nodes, 0 at 1e9). Initialise SHMEM before any device mapping, or use `userfaultfd` (see §S46); never call `shmem_init` from a process with live HIP worker threads. The PE hangs in PMI afterwards (launch under `timeout`).
-
 Other findings: `mnaccept.sh`'s `MNRUN_CPUS_PER_TASK=auto` broke every unit step on >= 2 nodes (`scontrol show node` printed one `CPUTot` per node; fixed in bc17d32 with `head -1`); the "killed step poisons the node" trap did not reproduce in 5 killed steps (`scancel <stepid>` after `timeout 300`); a ROCm 7.2.4 build needs `module unload rocm; module load rocm/7.2.4` at launch and the explicit `HIPCC` path (RUNPATH loses to the login's `LD_LIBRARY_PATH`).
+
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/CRASHES_HANGS.md`.)
 
 ## §G2 — hang bound for the `DBIG_QSEL=1` start-up hang (aac6 CPX soak)
 

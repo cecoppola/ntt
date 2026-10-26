@@ -5,49 +5,26 @@ Owner of items B01, L1, T08, ADOPT2, DEF, FIT, S47, AAC7OPT (old IDs resolve thr
 ## Topic summary
 
 What is current (see `ecalc/README.md` Switches table, which wins on any difference):
-- Launch line today: the `LAUNCH_LINE_KEYS` of `profiles/aac7.conf` (`MN_T_CHUNK_MB=2048`, `ECALC_MEM_GUARD_GB`, `ECALC_DEVICE_GB`, `ECALC_VERBOSE`, `MEM_REPORT_DEVS`, `ECALC_LOG_CLOCKS`) and `profiles/target.conf.template`; `ECALC_SEGV_TRACE=1` is set by `gate.sh`. B01/L1's line (`MN_T_CHUNK_MB=2048`, `COMM_LAYER_VSLOT_POOL=1`, `COMM_LAYER_VSLOT_RELEASE=1`, `ECALC_SEGV_TRACE=1`, `RNS_DIST_CACHE_FIT=1`) is history: X2's `COMM_LAYER_INTER2` was removed 2026-10-23, and the VSLOT and cache-fit switches are built in with no switch (since 2026-10-12). Fastest aac7 settings by size: §AAC7OPT.
+- Launch lines: the build and launch lines of both paths and the sources of the aac7 and target lines are owned by `PLAN.md` section 3 (not repeated here); `ECALC_SEGV_TRACE=1` is set by `gate.sh`. The B01/L1 line (`COMM_LAYER_INTER2`, VSLOT and cache-fit switches) is history: X2 was removed 2026-10-23, the others are built in (2026-10-12). Fastest aac7 settings by size: §AAC7OPT.
 - K2 + K3 (`DBIG_ADDSUB3`, `DBIG_MODQ_MONT`) default 1 (T08); `=0` is the fallback. K4 `RNS_CRT_SUB` stays off.
 - `P24_CRT_SCAN=1` (D24) and `NEWTON_CHAIN_GUARD=1` (D25) are code defaults (ADOPT2); the guard costs +0.25 s [-1.00, +1.50] (n.s.) at 1 node.
 - P24 (four primes, 24 digits per point) is the default for every multi-node product (D18, DEF); `ECALC_NP_MN3=1` kept the three-prime path as a fallback (removed 2026-10-19, D56). P24 costs +17.18 GB planes per node at 6.441 × 10¹⁰ digits per node (m).
 - `DM_MN_WRAP` is now AUTOMATIC (D26, FIT): unset = 1 only when the device peak with the wrap is at most `ECALC_DEVICE_GB` − `ECALC_DEVICE_MARGIN_GB`; a set value wins. DEF's "DM_MN_WRAP default stays 0" and B01/L1's rank-0 figures are superseded by FIT. (D22 had made 1 the default in between; the automatic rule replaced it.)
 - Memory fit before every launch (FIT): planner/runs print `plan fit` / `memory fit:`; a run that does not fit is refused (`plan REFUSED`, exit 8; `mnrun.sh` exit 4; `gate.sh` FAIL). Current target figure: 3.82 × 10¹³ digits on 576 nodes with the defaults (`MN_NONPOW2_CAP` auto = on): device 407.41 GB vs the 373.44 GB edge, margin -33.97 GB, REFUSED (planner, m, 2026-10-25; wrap off); with `MN_NONPOW2_CAP=0`: 358.96 GB, +14.48 GB (the 2026-10-19 figure; with wrap 384.73, refused). Cause: NPCAP's larger planes (see the table note). `ECALC_DEVICE_GB` default 373.44; `profiles/aac7.conf` 444.0 (m).
-- Superseded numbers: B01's 3.79 × 10¹³ vs 3.82 × 10¹³ question (3.82 × 10¹³ margin 4.3 GB, below the 10 GB rule) is closed by L1 (margin 12.9 GB with slot release) and then FIT's planner figures; mem_model's own `dev_max` omits the transport pools (the C `binsplit_fit` is the source of truth).
 - S47 (4-node re-confirm of T2048 and X2) was inconclusive; both stay on the aac7 line on their 10-node evidence (`results/SESSIONS.md`, S31).
 - Open: P24 at non-power-of-two groups below 32 nodes not gated; DEF's 6-node `total` difference for the wrap not significant (n.s.); FIT figures are layout values, not a target measurement.
 
 ## B01 -- launch-line decisions of 2026-10-11 (branch b01 from main bc80001)
 
-Changes (no code default changed):
-- Target line: `MN_T_CHUNK_MB=2048`, X2, `ECALC_SEGV_TRACE=1`, `RNS_DIST_CACHE_FIT=1` (no `RNS_DIST_CACHE_MN`; `cache_guard` accepts FIT=1), carried in `target/kit/target_kit.sh` `S2_LINE_DEFAULT`. aac7 line `e16_headline.sh` already had T2048 + X2 + FIT (only stale comments changed); `tools/gate.sh` always sets SEGV_TRACE.
-- `ECALC_SEGV_TRACE` (`segv_trace.c`): off = one getenv; on = installs SIGSEGV/SIGBUS/SIGABRT handlers that print and re-raise. Nothing else.
-- `mn_model.py` `aac7` is now an alias of `aac7_s48` (previous profile `aac7_c16`); 4 nodes, 1.6e11: aac7 107.5 s = aac7_s48, aac7_c16 232.3 s (mod). `estimate.py` default is still `target`. `--spares N` kept, documented "not used".
+History. Put `MN_T_CHUNK_MB=2048` and the X2 exchange on the target line (X2 removed 2026-10-23); modelled 576-node memory at 3.82e13 with them was 369.1 GB rank 0 (margin 4.3 GB, mod), which L1 improved. Superseded by FIT.
 
-Memory at 576 nodes (mod unless noted; `mn_model.py estimate --fabric target-m --g 576`, `COMM_LAYER_VSLOT_SHARE=1`, only `MN_T_CHUNK_MB=2048`, `MDB_SHIFT_CHUNK_MB=1024`; plain `--chunk-mb 2048` overstates by ~4 GB). X2 = +0.5 GB (user's figure), rank 0 = +2.1 GB (S52). GB:
-
-| digits | T1024 device | T2048 device | + X2 + rank 0 | margin to 373.44 | node total |
-|---|---|---|---|---|---|
-| 3.71e13 | 351.7 | 357.9 (+6.2) | 360.5 | 12.9 (fits ≥ 10) | 402 of 480 |
-| 3.82e13 | 357.9 | 366.5 (+8.6) | 369.1 | 4.3 (below 10) | 411 of 480 |
-| 3.79e13 | - | 360.3 | 362.9 | 10.5 | - |
-| 3.80e13 | - | 366.5 | 369.1 | 4.3 | - |
-
-- Largest size with ≥ 10 GB rank-0 margin: about 3.79e13. The T2048 step is +6.2 GB in the model (rounds to the 4.3 GB arena chunk); the C layout (m, aac7 login node, `BS_LAYOUT_ONLY`) shows exactly +4.30 GB `device_with` (334.70 → 339.00 at 3.71e13; 339.00 → 343.29 at 3.82e13). `MN_PLAN_ONLY=<D>:576` with the full line: plan check OK at 3.71e13 and 3.82e13, 1236 products, SHMEM pool 17664 MB (m).
-- Decision: T2048 + X2 on the line (done); size is the user's later call.
-- Gates (aac7, m, 1e9 digits): `gate.sh --build --nodes 1` PASS, 12.50 s; `--nodes 2` PASS, 19.55 s; kit plan at 2 nodes OK. Branch b01 pushed, not merged at report time; 576-node memory with T2048+X2 modelled only.
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/LAUNCH_DEFAULTS.md`.)
 
 ## L1 -- COMM_LAYER_VSLOT_RELEASE=1 on the launch lines (user, 2026-10-11)
 
-Code default unchanged at the time (0; later built in, see summary).
-- Changes: `COMM_LAYER_VSLOT_RELEASE=1` after `COMM_LAYER_VSLOT_POOL=1` in `e16_headline.sh` LINE, `target/kit/target_kit.sh` `S2_LINE_DEFAULT`, `profiles/aac7.conf`, `profiles/target.conf.template`, `tools/c04_queue_item.sh`, README launch table. `tools/profile_check.sh profiles/aac7.conf -q`: 34 keys, MATCH 24, MISMATCH 0, UNKNOWN 0 (m).
-- Memory at 576 nodes, full target line (T2048 + X2 + RELEASE), C code on the aac7 login node (`MN_PLAN_ONLY`, `BS_LAYOUT_ONLY`, `COMM_OFI_PLAN_CXI=1`): plan check OK at three sizes, 1236 products; comm_ofi pool 4352 → 2304 MiB per APU (m). Rank-0 estimate = B01's figure minus the measured layout delta:
+History. Slot release (now built in) cut the comm_ofi pool 4352 to 2304 MiB per APU and the 576-node device figure by 8.59 GB (m, layout), restoring a 12.9 GB margin at 3.82e13 (mod). Superseded by FIT.
 
-| digits | layout device_with RELEASE 0 → 1 (m) | delta | rank-0 before (B01, mod) | rank-0 with RELEASE (mod) | margin to 373.44 (mod) |
-|---|---|---|---|---|---|
-| 3.71e13 | 357.25 → 348.66 | -8.59 GB | 360.5 | 351.9 | 21.5 GB |
-| 3.79e13 | 357.25 → 348.66 | -8.59 GB | 362.9 | 354.3 | 19.1 GB |
-| 3.82e13 | 361.55 → 352.96 | -8.59 GB | 369.1 | 360.5 | 12.9 GB (above the 10 GB rule again) |
-
-- Gate item `91_l1_gate.sh` (2 nodes) was queued, not finished at report time; merge needed gate PASS and kit plan check OK. Branch l1 pushed. Verdict: RELEASE restores the 3.82e13 margin (12.9 GB, mod).
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/LAUNCH_DEFAULTS.md`.)
 
 ## DEF — P24 as the multi-node default (D18) and DM_MN_WRAP in the memory model + 6-node A/B (D19 b)
 

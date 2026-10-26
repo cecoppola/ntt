@@ -49,21 +49,10 @@ Multi-node, one launch per allocation of `<nodes>` nodes (`SLURM_JOB_ID=<hold>` 
     SLURM_JOB_ID=<hold> ./mnrun.sh <nodes> env <settings> ./ecalc <digits> [outfile]
 
 **Two supported multi-node paths (user rule Q85, 2026-10-23): both stay working; a change to shared code must leave
-path 1 digit-identical and no slower.** Current figures are in `PLAN.md` section 2.
-
-1. **Libfabric** (default build). Build `make -C ecalc GMP_HOME=<gmp>` (default `XSHMEM=ofi`: libfabric and the
-   PMI2 header must be found; `tools/gate.sh` requires `-DXSHMEM_OFI` in the build log of a multi-node build).
-   Run `./mnrun.sh <nodes> env ./ecalc <digits>`: layout D (one process per node, four APU threads), `COMM_TRANSPORT=xshmem`,
-   no other setting.
-2. **Cray SHMEM** (the target shape). Build `make -B -C ecalc XSHMEM=cray GMP_HOME=<gmp>` (aac7: `module load
-   cray-dsmml cray-openshmemx`; rebuild with `-B` when switching `XSHMEM`).
-   Run `./mnrun.sh <nodes> env ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 ./ecalc <digits>`: one process per GPU, two lanes.
-   `mnrun.sh` adds, for a Cray build under `ECALC_PE_PER_GPU=1`, the NUMA placement (`MNRUN_PPG_CPUBIND=ldom`,
-   `XSHMEM_CRAY_NUMA=1`), the automatic libsma heap and the plan. Digits are identical to path 1.
-
-The exchange worker thread runs in every layout; `RNS_BATCH_SPLIT` is automatic under `ECALC_PE_PER_GPU=1`; the plain SHMEM transport is gone (Q103), the transport is xshmem on both paths. `mnrun.sh` sets the communicator environment; the
-launch lines (test system and target) are in `PLAN.md` section 3; `target/kit/target_kit.sh -h` describes the target session.
-Cluster access is described in the private protocol.
+path 1 digit-identical and no slower.** Path 1 is libfabric (the default build, layout D); path 2 is Cray SHMEM (the
+target shape, one process per GPU). Their build and launch lines, the settings `mnrun.sh` adds and the defaults are
+owned by `PLAN.md` section 3; current figures are in `PLAN.md` section 2; `target/kit/target_kit.sh -h` describes the
+target session. Cluster access is described in the private protocol.
 
 ## Test
 

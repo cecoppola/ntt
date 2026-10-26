@@ -19,30 +19,8 @@ Analysis of existing logs only (no cluster jobs), session 2026-10-11: 93 four-no
 **Answer.** The slow mode is a per-run communication slowdown: the inter-node all-to-all runs at 10.9 instead of 13.8 GB/s per APU thread (-21 %) on all four PEs at once, and every
 network-bound dm product takes 25-30 % longer (constant ratio from first to last stage). GPU compute and init are unchanged. It is a two-state switch redrawn independently per run (~29 %
 of runs slow): independent of arm, node, rank, ABBA position, preceding run, time of day, hold or MemAvailable.
-**Classification** (mean of the 4 PEs' all-to-all rate; clean gap: slow 8.5-11.7 GB/s in 27 runs, fast 12.3-14.0 in 66). Clean runs only (chain <= 2.6 s, init < 36 s; 16 slow, 47 fast):
 
-| quantity | slow | fast | slow - fast |
-|---|---|---|---|
-| total s | 208.3 (sd 1.7) | 181.4 (sd 1.4) | +26.8 (1.15x) |
-| bs / dm s | 77.3 / 96.7 | 70.7 / 76.8 | +6.6 / +20.0 (1.09x / 1.26x) |
-| reciprocal products / dm step 1 / step 2 / X_lo*Q s | 21.29 / 33.32 / 13.30 / 22.73 | 16.39 / 26.12 / 10.64 / 17.63 | +4.9 / +7.2 / +2.7 / +5.1 (1.25-1.30x) |
-| init / dc s | 30.3 / 2.98 | 29.8 / 2.96 | unchanged |
-| all-to-all GB/s per APU thread | 10.89 | 13.80 | -2.9 (0.79x; ratio 0.78-0.79 on every PE) |
-
-Per-level tree times are +16 % on every node; per-device compute counters (S51) are identical in slow and fast runs.
-**Tested and not separating the modes:** arm (14 slow of 45 vs 13 of 46); one bad node or rank (all PEs slow together; PE0 is slowest in 26 of 27 slow but also 64 of 66 fast runs, structural);
-sub-stage (all network products, no compute); ABBA position (2, 5, 5, 4 slow of 13, 13, 13, 12); alternation (P(slow after fast) 0.32, after slow 0.26, runs test z = 0.5: memoryless);
-preceding run; gap since previous run (driver artefact); MemAvailable after init (120.7 vs 126.0 GB, Welch t = -1.45); hold (12471 and 12496 both show both modes); time of day; 2-node link route
-(S48 2-node in-chassis pair: 144.1 s slow vs 133.9 fast, dm +7-14 %: the mode occurs on a single in-chassis pair, smaller effect with less traffic).
-**Best-supported explanation (moderate evidence, mechanism unidentified).** The network throughput seen by the whole job is in one of two states per run (~0.79x when slow). Logs cannot say whether
-the state lives in the fabric/NICs or is created at process start (route, endpoint layout, registered-buffer placement); external traffic would fit only if it flipped on minute timescales and stayed
-constant within a run. (Resolved toward launch-time NIC state in §A13 and §A14.)
-**Second, separate effect (not the bimodality).** The single-node reciprocal chain (normally 2.2-2.4 s) took 3-89 s in 29 of 93 runs (S47 12/40, S51b 16/23, S51 1/12, S50 0/16), independent of the comm
-mode; it explains every total above 213 s (231-285 s) and the 185-202 s "fast" runs. Init 46-53 s instead of 28-32 s in the first one or two runs of a fresh start. Hypothesis (low evidence, untested):
-cold host-side state (page cache, first touch, HIP module/JIT cache).
-**Proposed confirming test (not run as such).** 24 real 4-node runs with a stand-alone 4-node all-to-all probe before and after each, `COMM_XSTATS=1 MN_WAIT_STATS=1`, NIC counters sampled; environmental state
-predicts probe rate tracks the run's mode (correlation > 0.8), process-start state predicts it does not (this is what §A13 then did). **Open.** Three "partial" runs (12.3-12.8 GB/s) in cold-start or
-chain-spike runs sit between the modes.
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/NODE_SLOWMODE.md`.)
 
 ## §T09 - the bimodal 4-node totals (2026-10-11, aac7, session task t09)
 

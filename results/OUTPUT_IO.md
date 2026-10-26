@@ -34,9 +34,7 @@ Overnight 2026-10-11/12, branch `o4` (from main 0298fe2). Question: what is miss
 ## §IO15 — Phase 15 agent IO: output I/O on a network file system, packed digits, write scheduling, the memory guard
 
 PLAN §36.4 row 1f, branch `p15-IO` from int15 0b80ca3. Every switch off by default (digits unchanged), measured on aac6.
-
 **0. Summary of verdicts.**
-
 | item | switch | verdict | evidence |
 |---|---|---|---|
 | W1 write mode on a network FS | `ECALC_OUT_MODE`, `MN_OUT_THREADS` | **keep O_DIRECT**: fastest on aac6's NFS from a compute node (0.116 GB/s = the 1 GbE link) and the login node (0.64-0.96 vs 0.36-0.48 GB/s buffered + fsync, 10 GbE); buffered forms hold up to 10.7 GB of page cache | §3 |
@@ -46,48 +44,12 @@ PLAN §36.4 row 1f, branch `p15-IO` from int15 0b80ca3. Every switch off by defa
 | W5a stripe | `MN_OUT_STRIPE` | command path tested with a fake `lfs`; unmeasured on Lustre | |
 | W7 O_DIRECT by FS type | `ECALC_ODIRECT=auto` | local and NFS detected, both O_DIRECT; Lustre -> O_DIRECT is assumed | |
 | W6 top set at the target | - | run without it (default) or `=2`; RECHECK keeps its residue form | analysis |
-| N3 memory guard | `ECALC_MEM_GUARD_GB` | works: rc 9, one line naming rank, host, phase | §2.1 |
-
+| N3 memory guard | `ECALC_MEM_GUARD_GB` | works: rc 9, one line naming rank, host, phase; the silent sampler runs every 1 s (fixed) | §2.1 |
 **The 576-node estimate (mod, `mn_model.py --D 7.38e10 --g 576`):** 4.25 x 10^13 digits; without the write about 238 s; with the ASCII part file at an assumed 2 GB/s 260 s, at 0.6-0.8 GB/s 316-347 s; **packed at 0.6-0.8 GB/s 264-278 s**; each node assumed to get its single-stream rate at once (aggregate unmeasured, TARGET §6 item 5(b)). Without `MN_OUT_EARLY` the whole write is exposed: +123 s ASCII / +55 s packed at 0.6 GB/s.
-
 **1. Design.**
-- *W1* `ECALC_OUT_MODE` = `direct` (O_DIRECT, default), `buffered`, `sync` (buffered + `fsync` + DONTNEED), `drop` (`fdatasync` + DONTNEED per chunk), `auto` (W7); `MN_OUT_THREADS` (8).
-- *W7* (`spill.c`): `ECALC_ODIRECT=auto` picks O_DIRECT per file by `statfs` f_type: local disks and NFS O_DIRECT (from W1's measurement; the per-file-system rule is a constant since 2026-10-19: `ECALC_ODIRECT_NFS`/`_LUSTRE`/`_OTHER` were removed), **Lustre O_DIRECT is an assumption** (`ECALC_ODIRECT_LUSTRE=0` overrides; TARGET §6 item 5(a) measures it), tmpfs/ramfs buffered.
-- *W2* `ECALC_OUT_PACKED=1`: 4096-byte header (magic `ECPACK18`, version 1: endianness, part index/count, d, d_out, limb range, digit range, `complete` flag, the eight T1 primes and the part's digit residues) then limbs 8 bytes little-endian, most significant first: 0.444 B/digit. Verification stays whole: T1 digit residues from the bytes handed to the writer, T2 windows from digits formatted from those limbs (`packed_digits`; `verify.c` got `tier2_window_offsets`), tail and first digits too. `tools/unpack_digits <parts>` writes exact ASCII (`-o`, `--cmp <ref>`, `-n`), parts in any order, each part's digits checked mod the eight primes against the header. `tools/test_unpack.py`: PASS. `ECALC_RECHECK=1` reads packed parts (detected by magic).
-- *W5* (a) stripe layout `MN_OUT_STRIPE=<count>[:<MB>[:<OSTs>]]` (`lfs setstripe` or `llapi_file_create`; Lustre only; the no-code alternative is `lfs setstripe` on the output directory, TARGET §6 item 5(c)); (b) waves `MN_OUT_WAVES=<n>` (ranks in waves of ceil(size/n), barrier on mesh 0); (c) analysis only (§4); (d) `MN_OUT_EARLY=1` (integrator's addition from MD15, where 42.8 of 43.4 s of `dc` waited for the writer): the division calls `newton_mn_x_hook` right after `X = (A_h mu) >> ...`, `mn_out_early_start` all-gathers the T2 tails and starts a background `mn_out_run` over the node's share; `out_stage` joins it; if a correction changed X the part file is redone (later replaced by §KP15's patch); waves are ignored with it.
-- *N3* `ECALC_MEM_GUARD_GB=<x>`: below it the sampler calls `ec_fatal(EC_RC_MEMGUARD = 9)` with MemAvailable, MemFree, Cached, Dirty, RSS and pool live bytes; silent sampler every `ECALC_MEM_GUARD_PERIOD` s (1) without `ECALC_MEM_SAMPLE`.
-- *W6* RECHECK now says which form (residue form without a top set) it ran.
-
-**2. Tests (aac6; batches E, B, C, Eck, D, F, W2, W3).**
-- *2.1 Gates and function (10^9 unless noted):* e9 decimal and binary identical (11.4 s); packed + top set identical, RECHECK OK (P, Q from the tree level-0 set; residue form with `sync`, P, Q from the sidecar); 1 MB chunks (954 chunks) identical; packed 10^6..10^8 identical; size 2 packed + top set identical, RECHECK OK on both nodes; size 3 `MN_OUT_WAVES=3` identical; size 4 waves rc 8 (budget check: 4 ranks x default 2^31 planes = 542 GB > 480; rerun at POOL_LOG=29); stripe command path correct with the fake lfs; W7 detects `local` / `NFS`; N3: immediate (`ECALC_MEM_GUARD_GB=100000`) rc 9, during-run stop at 5.0 s, size 2 both ranks print; W5d size 2 `dc` 4.5 -> 0; at 10^10 size 2 parts' sha1 3fc02547... = `e_1e10.out`'s, `dc` 3.89 -> **0.00 s**, total 115.6 -> 108.5 s (one run each).
-- *2.2 W2 at 10^11, local disk (batch C, paired):* ASCII vs packed: `total` 243.61 s (T1 22.6) vs **217.89 s** (T1 0.7); process wall 304.7 vs **247.6 s**; file 100.00 GB, writer 59.05 s (1.69 GB/s) vs 44.44 GB, 27.42 s (1.62 GB/s); sha1 578f5efb... both; RECHECK file pass 156.9 vs **77.9 s**. Both runs had two corrections (the file rewritten; with ASCII T1 waited 22.6 s). **Packed: -25.7 s without the write, -57 s with it** (one run each). Converter on local NVMe: to a pipe 72.8 s, `-n` 25.5 s (1.74 GB/s), `-o` 179 s (0.56 GB/s written); formatting 2.6 s, residues 4.4 s.
-- *2.3 10^11 packed to aac6 NFS (batch D):* total 576.8 s, wall **992.6 s**, 44.44 GB, writer 407.0 s (0.109 GB/s: 1 GbE); two corrections, T1 waited 359.6 s, the file written twice. Converted from NFS: sha1 **578f5efb...** identical, 395.7 s; RECHECK OK in 397 s.
-- *2.4 Checkpoints with O_DIRECT (batch Eck):* 10^11 `ECALC_CKPT_TOP` off 232.01 s / wall 290.0; `=1` 232.08 s / 290.4, 88.89 GB top set in 44.25 s (2.01 GB/s) in the background, waited 0.00 s; `=2` 241.03 s (bs noise), not dropped; all sha1 578f5efb...; 10^10 size 2: none 113.03 s, tree sets 110.88 s (top tree set 3.60 s, 8.3 GB), all sets 122.31 s (leaf snapshots synchronous, +10 s in bs). Verdict: on a 2 GB/s local disk the top set is free with O_DIRECT; the question is only slow disks (W6).
-- *2.5 Gates, size 4, two real nodes:* `mnaccept --only unit,e9`: 10 passed, 0 failed. Size 4 on one node: waves, `MN_OUT_EARLY` packed, waves=4 packed all identical, RECHECK OK on 4 packed parts. Two real nodes (TCP, 1 GbE, 10^9): waves ASCII node 0 wrote 4.43 s while node 1 waited 4.56 s; `MN_OUT_EARLY` packed `dc` 4.5 -> 0.0, total 183.2 -> 177.1 s, identical; the NFS write and the division's TCP exchange share the 1 GbE link (early writer 9.5 s instead of 2.0).
-- *2.6 Two real nodes at 3 x 10^9, parts to NFS (batch W3, one run each):* n3 (as today) `dc` 12.39 s, total 557.64 s; **e3 `MN_OUT_EARLY=1` `dc` 0.00 s but the division's `X Q + window` +12.9 s (91.62 -> 104.51), writer 4x slower, total 554.74 s (net -2.9 s, noise level)**; w3 `MN_OUT_WAVES=2` `dc` 26.8 s, total 564.82 s (+14.4 s: one extra write). All VERIFY OK, same parts' sha1 1f0889f6.... On the target Lustre runs over the same Slingshot NICs as SHMEM (8 x 400 Gb/s against ~0.6 GB/s of writing: contention should be small, a) - measure at TARGET §6 item 5(d).
-
-**3. W1 measurements on aac6's NFS.**
-- *3.1 Login node (10 GbE; `tools/wbench`, 2 GB, one run each):* O_DIRECT 0.64-0.96 GB/s (threads 1/2/8/32, chunk 16 MB-1 GB: within +-20 % noise); buffered no sync 1.27 (cache, not a disk rate); `sync` 0.44-0.48; `drop` 0.36-0.43. O_DIRECT is 1.5-2x the buffered forms that reach the server.
-- *3.2 Compute node (1 GbE; job 21473):* `dd` 4 GiB O_DIRECT 94.5 MB/s, buffered + fsync 106 MB/s; wbench O_DIRECT 0.109-0.116 GB/s. ecalc at 10^10 (10.00 GB ASCII, 4.44 GB packed), one run each, total (no write) / wall (with write) / writer GB/s / Cached max:
-
-| run | mode | total | wall | GB/s | Cached / Dirty max (GB) |
-|---|---|---|---|---|---|
-| loc (local `/tmp`) | O_DIRECT | 25.75 | 30.6 | 2.37 | 0.6 / 0.0 |
-| d8 / d32 / d32c | O_DIRECT 8 / 32 / 32 (1 GB chunk) threads | 23.91 / 24.63 / 24.22 | **110.8** / 111.4 / 110.8 | 0.116 | 0.6-0.7 / 0.0 |
-| d2 | O_DIRECT 2 threads | 25.65 | 122.0 | 0.104 | 0.7 / 0.0 |
-| buf | buffered | 24.56 | 116.3 (84.1 s in `close`) | 0.109 | **10.7 / 7.8** |
-| sync / sync32 | buffered + fsync + DONTNEED | 25.79 / 25.32 | 121.5 / 120.8 | 0.105 | 10.7-10.8 / 8.6-9.9 |
-| drop | fdatasync + DONTNEED per chunk | 25.27 | 126.2 | 0.099 | 0.9 / 0.3 |
-| **pkd** | **packed**, O_DIRECT | 25.20 | **65.3** | 0.113 | 0.8 / 0.0 |
-| pks | packed, sync | 23.94 | 67.4 | 0.104 | 5.2 / 3.3 |
-
- **W1 verdict:** the link is the limit (1 GbE ~0.117 GB/s); **O_DIRECT with >= 8 threads is best, within 1 % of the link**; buffered forms 5-10 % slower and hide the write in `close()`; `drop` slowest (-15 %); threads (8 -> 32) and chunk (256 -> 1024 MB) change nothing; 2 threads lose 10 %. The Phase 14 reference run's 112 MB/s was the 1 GbE link, not O_DIRECT. **Packed cuts the with-write wall 110.8 -> 65.3 s (-41 %)**; without the write both about 24-26 s.
-
-**4. W5(c): the top set and the part file within a node.** At size > 1 with `ECALC_CKPT_TOP` the top tree set (about 35 GB per node at the target, mod) is written in the background through the reciprocal and division; P must be on disk before `S = P + Q`. **The order is forced by memory:** writing the part file first would hold P and Q (about 2 x 17.5 GB per node) past the division on a node at 434-460 of 480 GB (mod). When the disk is the limit, the order does not change the node's end: at 0.6 GB/s, 35 + 73.8 GB = 181 s of writing (packed 113 s), of which at most about 60 s hide under the reciprocal and division (mod). Levers: the bytes, the overlap (`MN_OUT_EARLY`), the aggregate (waves, stripes).
-
-**5. W6: the top set at the target.** Without the set RECHECK still compares the run's recorded P, Q residues with the recurrence recomputed from scratch, and checks digits, windows, X mod q and the T1 identity; lost is only check (2) (that the residue kernel read the P, Q it multiplied) and the restart point. So `ECALC_CKPT_TOP=2` does not remove RECHECK; it moves it to the residue form (the plan's "silently removes RECHECK" corrected, 0d67ad0). A packed top set was rejected (P, Q are already base-10^18 limbs). **Proposal:** run the target headline without the top set (the default); if a restart point is wanted use `=2` (at 0.6 GB/s the 35 GB set needs 58 s against about 60 s of reciprocal + division (mod): dropped or barely finished; restart costs about 45 s to read back at 0.8 GB/s).
-
 **6. Open issues.** Everything about Lustre is unmeasured (TARGET §6 item 5 (a)-(d); `tools/wbench` measures (a) and (b) without a GPU). Corrections rewrite the file (size 1 always; size > 1 with `MN_OUT_EARLY`; doubled the write at 10^11 on NFS; replaced by §KP15's patch). `MN_OUT_EARLY` holds about 0.9 GB of host buffers (about 0.2 % of 480 GB; `MN_OUT_CHUNK_MB=64` quarters it). (`MN_OUT_WAVES` was removed 2026-10-20.) The packed file has no per-chunk checksum beyond the part residues (a flipped bit is found, not located). Minimal edits outside the IO files: `verify.c`, `newton_db.c` / `newton.h`, `ecalc.c`.
+
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/OUTPUT_IO.md`.)
 
 ## §KP15 — the correction patch on packed output (a defect on main, B2 44c1642)
 

@@ -310,7 +310,7 @@ budget).
 | `comm_util.c` | shared helpers |
 | `comm_copy.c` | N7D: the GPU copy kernel for copies that touch a host-registered pool (called from `comm_xshmem.c`'s `COPY`) |
 
-Builds: the default build (`XSHMEM=ofi`, where libfabric and the PMI2 header are found) runs `COMM_TRANSPORT=xshmem` multi-node; `XSHMEM=cray` builds path 2 (`README.md`). The transport is xshmem on both paths. The transport, the meshes and the
+Builds: the default build (`XSHMEM=ofi`, where libfabric and the PMI2 header are found) runs `COMM_TRANSPORT=xshmem` multi-node; `XSHMEM=cray` builds path 2 (`PLAN.md` section 3). The transport is xshmem on both paths. The transport, the meshes and the
 communicators are opened before any HIP thread exists, because opening them after the arenas crashed in a vendor
 initialisation (8 of 78 runs, m).
 
