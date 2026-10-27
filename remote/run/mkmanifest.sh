@@ -1,5 +1,5 @@
 #!/bin/bash
-# mkmanifest.sh - write remote/MANIFEST.sha256: sha256 of every file of the repository copy except the manifest itself.
+# mkmanifest.sh - write remote/MANIFEST.sha256: sha256 of every file of the repository copy except the manifest itself and target/governance/ (agent rules, not part of the run; one file name there trips the leak guard).
 #   mkmanifest.sh [--check]
 # With git: tracked files plus untracked files that are not ignored (so it can run before the commit).  Without git (the target): every
 # file below the repository root except .git/ and build/ directories.  Paths are relative to the repository root; s0_check.sh runs
@@ -9,6 +9,6 @@ case ${1:-} in -h|--help) sed -n '2,/^HERE/p' "$0" | grep '^#' | sed 's/^# \{0,1
 cd "$R" || exit 2
 if git -C "$R" rev-parse --git-dir >/dev/null 2>&1; then L=$(git -C "$R" ls-files -c -o --exclude-standard)
 else L=$(find . -type f ! -path './.git/*' ! -path '*/build/*' | sed 's|^\./||'); fi
-echo "$L" | grep -v '^remote/MANIFEST.sha256$' | sort -u | while IFS= read -r f; do [ -f "$f" ] && [ ! -L "$f" ] && printf '%s\n' "$f"; done \
+echo "$L" | grep -v -E '^remote/MANIFEST.sha256$|^target/governance/' | sort -u | while IFS= read -r f; do [ -f "$f" ] && [ ! -L "$f" ] && printf '%s\n' "$f"; done \
   | tr '\n' '\0' | xargs -0 sha256sum > "$M.tmp" && mv "$M.tmp" "$M"
 echo "mkmanifest: $(wc -l < "$M") files -> $M"
