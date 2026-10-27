@@ -18,6 +18,8 @@ lines in 4 cases, all on = identical digits, ABBA no slower). Still open, in ord
   95 % interval +1.37 .. +2.18 s, dm 5.55 -> 7.04 s; path 1 single runs 11.86 -> 12.16 s); the other new switches show no
   slowdown on path 2 (together: ABBA 16.96 -> 16.78 s, no difference resolved, m). Keep it off (not in the target plan); rework
   (event-query copy completion, batch the ready peers: results/XSHMEM.md B2) or remove before the merge.
+  6.4e10 ABBA (m), off vs mask+shoup+tree: one process per device 89.68 -> 87.79 s (-2.1 %, interval -2.33 .. -1.44 s);
+  one per node 76.95 -> 77.50 s (+0.7 %, -0.08 .. +1.18 s, not resolved; split by switch in item s7m).
   Launcher `-c` auto confirmed (m): `-c 192` for one task per node, `-c 48` for 4, none when `MNRUN_CPUS_PER_TASK=` is empty.
 - Class 4: APU balance of the top bs levels (`BS_TOP_SPREAD`): design in results/MEMORY.md, not built.
 - Class 4: pre-published landing offsets for the exchange rounds: not feasible with one signal word per pair; needs a
