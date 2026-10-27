@@ -62,6 +62,7 @@ ECALC_PE_PER_GPU	bool	0	derived	0/1	experiment	-	-	Y	ecalc	ecalc.c,mem.c,vpe.c	3
 ECALC_PLANE_CAP	bool	derived	derived	0|1	experiment	-	P13b.md+CAP17.md	Y	ecalc	ecalc.c	1	coordinator (TASKS S)	2026-11-11	
 ECALC_PLANE_CAP_IDX	int	derived	derived		test-only	-	-	Y	ecalc	binsplit.c,ecalc.c	3	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	
 ECALC_RECHECK	bool	0	unset	0|1	launch-line	-	V.md+KP15.md	Y	ecalc	ecalc.c	2	-	-	ecalc.c: standalone recheck of a finished run
+ECALC_RESIDUE	str	off	unset	shoup	experiment	-	S22.md	Y	ecalc	residue_shoup.h	1	TARGET12 (S22)	2026-12-31	residue_shoup.h: the digit residues of packed_mods (mn_out.c) and vf_digits_mods (verify.c): shoup = Shoup precomputed-quotient multiply per Horner step (bit-identical, no 128-bit division); default = the  0.000000orm
 ECALC_SEGV_TRACE	bool	0	derived	0|1	launch-line	aac7	S18W.md+S30.md	Y	ecalc	segv_trace.c	1	-	-	segv_trace.c:146
 ECALC_TEST_CORR	int	0	0		test-only	-	DKM15.md+KP15.md	Y	ecalc	newton_db.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_TEST_DIE_PE	int	-1	unset	-1..	test-only	-	-	Y	ecalc	ecalc.c	2	TARGET12 (S2)	2027-04-12	ecalc.c; kill test (ECALC_PE_PER_GPU gate): PE <n> dies by ec_fatal after the bs phase; unset = off
@@ -79,6 +80,7 @@ MN_NONPOW2_MIN	num	4.5e10	unset	>0	built-in default	-	-	Y	ecalc	rns_mul.c	1	T2 (
 MN_OUT_CHUNK_MB	int	256	256		built-in default	-	IO15.md+A-out.md	Y	ecalc	mn_out.c	2	-	-	
 MN_OUT_DKM_HI_TEST_CARRY	bool	unset	unset	0|1	test-only	-	EW15.md	Y	ecalc	ecalc.c	1	diagnostics (TESTING.md)	2027-04-12	
 MN_OUT_EARLY	int	1	1		built-in default	-	IO15.md	Y	ecalc	binsplit.c,ecalc.c	6	-	-	
+MN_OUT_EARLY_ALWAYS	bool	0	unset	0/1	experiment	-	S22.md	Y	ecalc	ecalc.c	2	TARGET12 (S22)	2026-12-31	ecalc.c mn_hooks_set: 1 = the early output hook (MN_OUT_EARLY) also without an output file: the writer computes the digit residues only, overlapped with the division, and writes nothing
 MN_OUT_STRIPE	bool	1	1	0|1	built-in default	-	IO15.md+SC15.md	Y	ecalc	mn_out.c	1	-	-	
 MN_OUT_THREADS	int	8	8		built-in default	-	IO15.md+TARGET_HW_REVIEW.md	Y	ecalc	mn_out.c	3	-	-	
 MN_PLAN_ONLY	str	unset	derived	D:g	launch-line	-	P15.md+T215.md	Y	ecalc	binsplit.c,ecalc.c,vpe.c	3	-	-	ecalc.c:451; prints the plan and exits

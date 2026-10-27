@@ -130,6 +130,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_PLANE_CAP` | derived | experiment | the plane cap, `2^30` or `2^31` (or `30`, `31`) or `fit` (the larger whose node total fits `ECALC_NODE_GB`, default 480) or `run` (2^30 when the run's largest product, the division's 2 k + 8 limbs, fits one plane of that cap: about 9.6e9 digits per node and below; else 2^31; 2^31 with `ECALC_PE_PER_GPU`; prints one `ECALC_PLANE_CAP=run:` line, `run (default):` when unset); the default is `run` (2026-10-25, user): `2^31` forces the old cap; with `POOL_LOG` or `DIST_LOGN_TEST` given the knobs stay as given, and `fit` is the default with `ECALC_PE_PER_GPU=1` and `XSHMEM_PES_PER_GPU` > 1; sets `POOL_LOG` and `DIST_LOGN_TEST` and refuses a conflicting one; ... | P13b.md+CAP17.md |
 | `ECALC_PLANE_CAP_IDX` | derived | test-only | set by `ecalc.c` for the bs sizing pass (the plane-cap index in use); do not set | - |
 | `ECALC_RECHECK` | 0 | launch-line | 1: the standalone recheck of a finished run's files instead of a run (0). | V.md+KP15.md |
+| `ECALC_RESIDUE` | off | experiment | residue_shoup.h: the digit residues of packed_mods (mn_out.c) and vf_digits_mods (verify.c): shoup = Shoup precomputed-quotient multiply per Horner ... | S22.md |
 | `ECALC_SEGV_TRACE` | 0 | launch-line | `1` = install a SIGSEGV/SIGBUS/SIGABRT handler right after `main` knows `COMM_RANK` (`segv_trace.c`): on the signal it prints, with `write(2)` only (async-signal-safe, no malloc/printf), ... | S18W.md+S30.md |
 | `ECALC_TEST_CORR` | 0 | test-only | - | DKM15.md+KP15.md |
 | `ECALC_TEST_DIE_PE` | -1 | test-only | ecalc.c; kill test (ECALC_PE_PER_GPU gate): PE <n> dies by ec_fatal after the bs phase; unset = off | - |
@@ -147,6 +148,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `MN_OUT_CHUNK_MB` | 256 | built-in default | the streamed writer's digit chunk per node (256) | IO15.md+A-out.md |
 | `MN_OUT_DKM_HI_TEST_CARRY` | unset | test-only | - | EW15.md |
 | `MN_OUT_EARLY` | 1 | built-in default | at size > 1 the part file starts at the division's hook (X formed, before the low product: `newton_mn_x_hook` → `mn_out_early_start`) in a background thread over the node's share, as the ... | IO15.md |
+| `MN_OUT_EARLY_ALWAYS` | 0 | experiment | ecalc.c mn_hooks_set: 1 = the early output hook (MN_OUT_EARLY) also without an output file: the writer computes the digit residues only, overlapped ... | S22.md |
 | `MN_OUT_STRIPE` | 1 | built-in default | `<count>[:<stripe MB>[:<OSTs>]]` — each part file created with that Lustre layout (`lfs setstripe`); with `<OSTs>` the first OST is `(part × count) mod OSTs`. | IO15.md+SC15.md |
 | `MN_OUT_THREADS` | 8 | built-in default | pwrite threads per chunk of the part file (8) | IO15.md+TARGET_HW_REVIEW.md |
 | `MN_PLAN_ONLY` | unset | launch-line | `<total digits>:<g>` — the plan of a run (every large product's grid, pieces, planes, from the code's own decisions; no device) and exit. | P15.md+T215.md |
@@ -214,7 +216,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | TARGET1 (S2) | 2026-12-31 | `ECALC_VPE_LANES` |
 | experiment | TARGET1 (S3a) | 2026-12-31 | `XSHMEM_LOOPBACK_PES`, `XSHMEM_ROUND_MB` |
 | experiment | TARGET12 (S2) | 2026-12-31 | `ECALC_PE_PER_GPU`, `RNS_BATCH_SPLIT` |
-| experiment | TARGET12 (S22) | 2026-12-31 | `ECALC_OMP_TEAM` |
+| experiment | TARGET12 (S22) | 2026-12-31 | `ECALC_OMP_TEAM`, `ECALC_RESIDUE`, `MN_OUT_EARLY_ALWAYS` |
 | experiment | TASK4 peer | 2026-12-31 | `XSHMEM_PEER` |
 | experiment | TGTSHAPE | 2026-12-31 | `XSHMEM_HEAP_SLACK_MB` |
 | experiment | craylane | 2026-12-31 | `XSHMEM_CRAY_GPU_PRETOUCH`, `XSHMEM_CRAY_HEAP_THP`, `XSHMEM_CRAY_NOMEMSET`, `XSHMEM_CRAY_NUMA`, `XSHMEM_CRAY_PUTSIG_SPLIT`, `XSHMEM_CRAY_SIGSET`, `XSHMEM_CRAY_TEST`, `XSHMEM_LANE_CTX`, `XSHMEM_LANE_POLL`, `XSHMEM_LANE_TRACE`, `XSHMEM_SIG_LANES`, `XSHMEM_THP_DISABLE`, `XSHMEM_THREAD_LEVEL` |

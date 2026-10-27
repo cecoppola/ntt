@@ -12,6 +12,7 @@
 #include <hip/hip_runtime.h>
 #include "mn_out.h"
 #include "mem.h"
+#include "residue_shoup.h"                                  /* B3a: ECALC_RESIDUE=shoup */
 #include "omp_team.h"                                     /* A1: ECALC_OMP_TEAM */
 #include "vpe.h"                                        /* S1e: PE layout (ECALC_PE_PER_GPU) -- rank = PE, the PE's own device */
 #include "spill.h"                                    /* ECALC_ODIRECT */
@@ -288,6 +289,10 @@ static void packed_mods(const uint64_t *l, size_t n, uint64_t *out)
     for (int t = 0; t < T; t++) {
         size_t a = n * t / T, e = n * (t + 1) / T; uint64_t v[T1_NQ], b[T1_NQ];
         for (int j = 0; j < T1_NQ; j++) { v[j] = 0; b[j] = B % t1_q[j]; }
+        if (ec_residue_shoup()) {                                   /* B3a: the Shoup step (residue_shoup.h), the same values */
+            uint64_t w[T1_NQ]; for (int j = 0; j < T1_NQ; j++) w[j] = rs_w(b[j], t1_q[j]);
+            for (size_t i = a; i < e; i++) for (int j = 0; j < T1_NQ; j++) v[j] = rs_step(v[j], b[j], w[j], t1_q[j], l[i]);
+        } else
         for (size_t i = a; i < e; i++) for (int j = 0; j < T1_NQ; j++) v[j] = (uint64_t)(((unsigned __int128)v[j] * b[j] + l[i]) % t1_q[j]);
         for (int j = 0; j < T1_NQ; j++) cv[(size_t)t * T1_NQ + j] = v[j];
     }

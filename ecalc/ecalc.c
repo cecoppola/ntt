@@ -460,7 +460,8 @@ static int env_vpe_bg_threads(void)                    /* the background team of
 /* the division's hooks, set once (the slots in newton.h are process-wide; a hook finds the flow's out_ctx through oc_of) */
 static void mn_hooks_set(struct out_ctx *oc, const char *outfile)
 {
-    if (outfile && (getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) : 1)) {   /* default 1 */ newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = oc; }
+    /* MN_OUT_EARLY_ALWAYS=1 (B3b, default off): the hook also without an output file: the writer then computes the digit residues only (no file is opened) while the division runs */
+    if ((outfile || (getenv("MN_OUT_EARLY_ALWAYS") && atoi(getenv("MN_OUT_EARLY_ALWAYS")))) && (getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) : 1)) {   /* default 1 */ newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = oc; }
     /* the writer on X_hi after DKM's step 1 (MN_OUT_DKM_HI, always on since 2026-10-12; the =0 fallback was removed 2026-10-23, Q87): needs the early writer and the deferred corrections */
     if (newton_mn_x_hook && newton_x_defer) { newton_mn_xhi_hook = mn_early_hi_hook; newton_mn_xlo_hook = mn_early_lo_hook; }
 }

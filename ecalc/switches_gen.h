@@ -61,6 +61,7 @@ static const char *const cfg_names[] = {
     "ECALC_PLANE_CAP",
     "ECALC_PLANE_CAP_IDX",
     "ECALC_RECHECK",
+    "ECALC_RESIDUE",
     "ECALC_SEGV_TRACE",
     "ECALC_TEST_CORR",
     "ECALC_TEST_DIE_PE",
@@ -78,6 +79,7 @@ static const char *const cfg_names[] = {
     "MN_OUT_CHUNK_MB",
     "MN_OUT_DKM_HI_TEST_CARRY",
     "MN_OUT_EARLY",
+    "MN_OUT_EARLY_ALWAYS",
     "MN_OUT_STRIPE",
     "MN_OUT_THREADS",
     "MN_PLAN_ONLY",
@@ -121,4 +123,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_THP_DISABLE",
     "XSHMEM_THREAD_LEVEL",
 };
-#define CFG_NAMES_N 119
+#define CFG_NAMES_N 121

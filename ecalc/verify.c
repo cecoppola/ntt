@@ -1,3 +1,4 @@
+#define _GNU_SOURCE   /* sched_getaffinity, CPU_COUNT (omp_team.h); verify.c is compiled as host C */
 /* verify.c - see verify.h */
 #include <stdio.h>
 #include <pthread.h>
@@ -8,6 +9,7 @@
 #include "verify.h"
 #include "bigint.h"
 #include "omp_team.h"
+#include "residue_shoup.h"                   /* B3a: ECALC_RESIDUE=shoup */
 
 typedef unsigned __int128 u128;
 /* the first eight primes above 2^62 (RESULTS.md, "proposed tier-1 primes": 2^62 + 135, 169, 177, 187, 189, 193, 253, 277).
@@ -131,6 +133,15 @@ void vf_digits_mods(const char *s, size_t n, const uint64_t *qs, int nq, uint64_
         size_t k0 = n * t / T, k1 = n * (t + 1) / T;
         uint64_t v[16], p18[16]; for (int j = 0; j < nq; j++) { v[j] = 0; p18[j] = 1000000000000000000ULL % qs[j]; }
         size_t k = k0;
+        if (ec_residue_shoup()) {                           /* B3a: the Shoup step (residue_shoup.h), the same values */
+            uint64_t w18[16], w10[16]; for (int j = 0; j < nq; j++) { w18[j] = rs_w(p18[j], qs[j]); w10[j] = rs_w(10 % qs[j], qs[j]); }
+            for (; k + 18 <= k1; k += 18) {
+                uint64_t c = 0;
+                for (int i = 0; i < 18; i++) c = c * 10 + (uint64_t)(s[k + i] - '0');
+                for (int j = 0; j < nq; j++) v[j] = rs_step(v[j], p18[j], w18[j], qs[j], c >= qs[j] ? c % qs[j] : c);
+            }
+            for (; k < k1; k++) for (int j = 0; j < nq; j++) v[j] = rs_step(v[j], 10 % qs[j], w10[j], qs[j], (uint64_t)(s[k] - '0') % qs[j]);   /* (digit < q unless q <= 9) */
+        }
         for (; k + 18 <= k1; k += 18) {
             uint64_t c = 0;
             for (int i = 0; i < 18; i++) c = c * 10 + (uint64_t)(s[k + i] - '0');
