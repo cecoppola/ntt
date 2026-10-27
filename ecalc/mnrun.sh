@@ -87,6 +87,9 @@ case "${MNRUN_CPUS_PER_TASK:-}" in
     auto) ncpu=$(scontrol show node "$(echo "$use" | head -1)" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p'); [ -n "$ncpu" ] && [ "$ncpu" -ge "$per" ] && copt+=(-c $((ncpu / per)));;
     *) copt+=(-c "$MNRUN_CPUS_PER_TASK");;
 esac
+# a login environment with SLURM_HINT=nomultithread (seen on the target) pins each task to its first cores at start; OpenMP then
+# latches 1-2 threads (the default seed threads ran 10x slower, m aac7 1 node: 156 s vs 15.4 s at 8e9).  MNRUN_KEEP_HINT=1 keeps it.
+if [ "${SLURM_HINT:-}" = nomultithread ] && [ "${MNRUN_KEEP_HINT:-0}" = 0 ]; then echo "mnrun.sh: SLURM_HINT=nomultithread not passed to srun (MNRUN_KEEP_HINT=1 keeps it)" >&2; unset SLURM_HINT; fi
 list=$(echo "$use" | paste -sd,)
 # COMM_TRANSPORT given as a leading VAR=value word of the command (`mnrun.sh 2 env COMM_TRANSPORT=xshmem ... ./ecalc`, the launch line's form) counts as well;
 # the same for ECALC_LOG_CLOCKS, which the wrappers test before the command runs
