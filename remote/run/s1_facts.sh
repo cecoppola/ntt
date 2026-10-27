@@ -16,7 +16,7 @@ PART=${PART:-${REMOTE_PARTITION:-}}
 PROBE=$R/target/probe/probe.sh; GEN=$R/target/probe/gen_conf.py
 PW=(); [ "$REMOTE_SITE" = aac7 ] && PW=(--want-sma 11.8)   # the rehearsal site has SMA 11.8, the target 12.1 (probe default)
 L=$RUN/login; N=$RUN/node
-OWN=; wl="$HERE/s1_facts.sh"
+OWN= WASOWN=; wl="$HERE/s1_facts.sh"
 if [ "$DRY" = 1 ]; then
     rl_would "$PROBE --only login --out $L"
     rl_would "(no REMOTE_JOB/--jobid) sbatch -N1 --exclusive --gpus-per-node=4 -t $TLIM -J remote_s1 ${PART:+-p $PART }--wrap 'sleep ...'  # own one-node job, cancelled at the end"
@@ -44,7 +44,7 @@ if [ $NONODE = 0 ]; then
         if rl_isnum "$OWN"; then
             rl_say "own one-node job $OWN submitted; waiting up to 300 s"
             t0=$SECONDS; while [ "$(rl_job_state "$OWN")" != RUNNING ] && [ $((SECONDS - t0)) -lt 300 ]; do sleep 10; done
-            if [ "$(rl_job_state "$OWN")" = RUNNING ]; then JOB=$OWN; else rl_say "own job did not start in 300 s: node probe skipped"; cancel_own; fi
+            if [ "$(rl_job_state "$OWN")" = RUNNING ]; then JOB=$OWN; WASOWN=1; else rl_say "own job did not start in 300 s: node probe skipped"; cancel_own; fi
         else rl_say "no one-node job possible: $(head -c 200 "$RUN/raw/sbatch.err")"; OWN=; rl_errfiles "$RUN/raw/sbatch.err"; fi
     fi
     if [ -n "$JOB" ]; then
@@ -63,7 +63,7 @@ args=("$L"); [ -f "$N/facts.tsv" ] && args+=("$N")
 rl_tmo 120 python3 -I "$GEN" "${args[@]}" -o "$conf" > "$RUN/raw/gen_conf.txt" 2>&1 < /dev/null; grc=$?
 # ---- facts
 fact() { local k=$1 v=; [ -f "$N/facts.tsv" ] && v=$(awk -F'\t' -v k="$k" '$1 == k { v = $2 } END { print v }' "$N/facts.tsv"); [ -n "$v" ] || v=$(awk -F'\t' -v k="$k" '$1 == k { v = $2 } END { print v }' "$L/facts.tsv"); echo "${v:-missing}" | cut -c1-120; }
-rl_kv login_probe_rc "$lrc"; rl_kv node_probe_rc "$nrc"; rl_kv node_job "${JOB:-none}${OWN:+ (own one-node job, outside the session allocation)}"; rl_kv node_probe_host "${PHOST:-none}"
+rl_kv login_probe_rc "$lrc"; rl_kv node_probe_rc "$nrc"; rl_kv node_job "${JOB:-none}${WASOWN:+ (own one-node job, outside the session allocation)}"; rl_kv node_probe_host "${PHOST:-none}"
 rl_kv gpu_count "$(fact gpu.count)"; rl_kv gpu_names "$(fact gpu.names)"
 rl_kv nics_cxi "$(fact net.cxi_count)"; rl_kv nics_per_apu "$(fact net.nics_per_apu)"
 mk=$(fact mem.available_kb); rl_kv mem_available_gb "$(awk -v k="$mk" 'BEGIN { if (k + 0 > 0) printf "%.0f", k / 1048576; else print "missing" }')"
