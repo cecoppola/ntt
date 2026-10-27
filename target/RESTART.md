@@ -303,7 +303,7 @@ machine, so schedule it when the bench prio < 200 items are done or the session 
 | rc 9 during a run | the memory guard (`ECALC_MEM_GUARD_GB=6`) stopped the run before the OOM killer: lower `ECALC_NODE_GB` by the overshoot it prints |
 | rc 134 | `abort()` (core file) — with `ECALC_SEGV_TRACE=1` the trace is in the log; keep the log in `results/` |
 | `fi_enable(-28)` with several PEs per node | launch Slurm-native (`srun --ntasks`), as `mnrun.sh` does (TGTBENCH2, m target) |
-| a task gets only 2 CPUs | `MNRUN_CPUS_PER_TASK=auto` (mnrun.sh: CPUs / tasks per node) (A16, m aac7) |
+| a task gets only 1-2 CPUs | `mnrun.sh` defaults to `MNRUN_CPUS_PER_TASK=auto` (CPUs / tasks per node; since 2026-10-27, A16 m aac7, m target); `MNRUN_CPUS_PER_TASK=` (empty) = no `-c` |
 | link or load errors after `module load rocm` | a versioned ROCm conflicts with the login default: `MNRUN_UNLOAD` in target.conf (the probe fills it) |
 | APUs invisible inside a job step | `--gpus-per-node=4` in the job (the ladder's default sbatch options) and `--gpu-bind=none` on the step (`mnrun.sh` adds it; probe: `PROBE_SRUN_EXTRA`); both only where `scontrol show node` lists a gpu GRES (`MNRUN_GRES=auto|on|off`; a site with `Gres=(null)` rejects them: leave them out, `../remote/FACTS.md` Known problems) |
 | `locality: no node with an xname` / ladder `no group` | `scontrol show node` carries no HPE xname: write a host → xname map (one `host xname` per line, e.g. from `/etc/cray/xname` on each node), `python3 target/ladder/locality.py nodes --map MAP --save`, then `ladder.sh ... --nodes-from target/results/probe/topology.tsv` (its node states are those of the save: re-save before each level) |
@@ -321,3 +321,12 @@ machine, so schedule it when the bench prio < 200 items are done or the session 
 - Commit and push `target/results/` (the coordinator, every 30-60 min and now).
 - `bench/aggregate.py`; check `results/bench/ANSWERS.md` and `METRICS.tsv` are committed.
 - Write `target/results/HANDOFF.md`: what ran, what is left (by priority), surprises, the next questions.
+
+## 11. Next session plan (2026-10-27; details and paste blocks: `remote/ROUTE.md` "Next target session")
+
+Order: (1) the s3 gate at 1 and 2 nodes first (multi-node changes ship off by default; the target's 2-node gate decides); (2) 2 + 2 nodes at 8e9 per node, proven line against
+`ECALC_OMP_TEAM=mask ECALC_RESIDUE=shoup` with the team line and `ECALC_INIT_TL=1` (self-test seconds: keep the self-test while under 15 s; expect dc 14 s -> under 1 s);
+(3) 64 nodes, three arms `XSHMEM_ROUND_MB` 128 / 1024 / 0 with `MN_WAIT_STATS=1 NEWTON_MN_RECIP_TS=1`; (4) 64 nodes flat against `XSHMEM_COLL=tree`, layout D against P;
+(5) 576 nodes, 4.608e12, best settings, two runs in one allocation (warm against cold) with `ECALC_INIT_TL=1 COMM_HANG_DETAIL=1 MEM_REPORT_DEVS=1`; (6) benches `net02`, `net04`, `net05`,
+`mem01`, `io01`, `io02`; (7) the 2e13 and 3e13 reruns (`COMM_HANG_DETAIL=1`; `ECALC_FIT_PER_APU=1`). `mnrun.sh` now defaults `MNRUN_CPUS_PER_TASK` to auto. Model for the A/B:
+`results/TIME_MODEL.md` §target_fit; staging fit: `results/MEMORY.md`.

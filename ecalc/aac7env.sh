@@ -61,7 +61,7 @@ if [ -d /opt/cray/pe/sma ]; then
     module unload rocm/7.0.3 > /dev/null 2>&1 || true
     module load $MNRUN_MODULES > /dev/null 2>&1 || true
 fi
-export MNRUN_CPUS_PER_TASK=${MNRUN_CPUS_PER_TASK:-auto}
+export MNRUN_CPUS_PER_TASK=${MNRUN_CPUS_PER_TASK-auto}   # (mnrun.sh defaults to auto too; an explicitly empty value is kept = no -c)
 export MNACCEPT_TMP=${MNACCEPT_TMP:-$HOME/p16/mnaccept_tmp${SLURM_JOB_ID:+_$SLURM_JOB_ID}}   # one directory per job: concurrent queue items deleted each other's digits (results/CODE_REDUCTION.md §W2A)
 export AAC7_PART=${AAC7_PART:-192C4G1H_MI300A_RHEL9_A1}
 # AAC7_FI_TUNE was an empty opt-in (results/AAC7_PORT.md: no tunable passed the bar); removed 2026-10-12.

@@ -51,7 +51,7 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 | `mnrun.sh`, `aac7env.sh` | the multi-process launcher (both xshmem paths); the aac7 environment (the aac7 launch line is in `profiles/aac7.conf`) |
 | `mnaccept.sh`, `digcmp.sh` | the standing regression; digit compare |
 | `../target/kit/target_kit.sh` | the target session in stages (`-h`; `--dry-run` prints every command): environment, build, uffd, plan, memory edge, node screen (slow nodes; NIC count vs `SHMEM_OFI_NUM_NICS`, `--want-nics`), A3/A4 fabric tests, init check; one `KIT_SUMMARY.txt` |
-| `mn_model.py` (with its `estimate` subcommand), `mem_model.py`, `aac7_fit.json` (the refit and design-table generators are archived: `archive:scripts_2026-10-23/`) | time and memory models and their fits |
+| `mn_model.py` (with its `estimate` subcommand), `mem_model.py`, `aac7_fit.json` (the refit and design-table generators are archived: `archive:scripts_2026-10-23/`) | time and memory models and their fits (`mn_model.py estimate --fabric target_fit`: the profile fitted to the target's 2/64/576-node runs, results/TIME_MODEL.md §target_fit; the model's `XSHMEM_ROUND_MB` is the code's 128) |
 | `ref/`, `tests/` | reference generator; unit tests (`tests/harness.h`) |
 
 ## Switches
@@ -170,7 +170,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `RNS_POOL_GROW` | 0 | test-only | a region pool that would grow inside bs aborts with the accounting unless 1 (the stress recipe sets it) (0) | B16.md+R.md |
 | `RNS_STRATEGY` | derived | built-in default | the single-node product's strategy (`dist_core`: top levels, reciprocal, division): `C` four-step; `B` prime-per-APU (planes that do not fit the pools from an extra per-APU buffer); `auto` ... | B13b.md+G13d.md |
 | `RNS_VERBOSE` | 0 | launch-line | 1 per-call times, 2 CRT re-runs; also the pool allocations' times (unset) | PS15.md+M.md |
-| `XSHMEM_COLL` | unset | unclassified | - | - |
+| `XSHMEM_COLL` | flat | experiment | experiment, default flat: tree = dissemination (ceil(log2 n) rounds, offsets only with the log n partners) instead of every member to every member; digits identical; results/XSHMEM.md | - |
 | `XSHMEM_CRAY_GPU_PRETOUCH` | 0 | experiment | diagnosis, default 0 (XSHMEM=cray): 1 = at init one GPU kernel on the PE's device reads a byte of every 4 KiB page of the hipHostRegister'ed DATA heap (populates the GPU page tables; tests ... | - |
 | `XSHMEM_CRAY_HEAP_THP` | 0 | experiment | diagnosis, default 0 (XSHMEM=cray): 1 = madvise(MADV_HUGEPAGE) on the DATA heap before it is zeroed and MADV_COLLAPSE after; 2 = only report; each PE prints the heap mapping's ... | - |
 | `XSHMEM_CRAY_NOMEMSET` | 0 | experiment | diagnosis, default 0 (XSHMEM=cray): 1 = skip the engine's zeroing of the DATA heap (a fresh libsma zero mapping); with `XSHMEM_LANE_TRACE` set, the init prints shmem_init_thread and heap ... | - |
@@ -189,7 +189,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `XSHMEM_PEER` | -1 | experiment | (default: on with one PE per process, Q100 2026-10-25; `0` = off, the NIC path; the default layout D is unaffected): same-node PEs exchange payload by device copies (`hipMemcpyAsync` on one ... | - |
 | `XSHMEM_PES_PER_GPU` | 1 | experiment | PEs per GPU (default 1; the 2-PEs-per-GPU fallback of design 2.2) / a prefix for every `/sys` path (mock trees of `tests/t_pe_geo`) | - |
 | `XSHMEM_ROUND_MB` | 128 | experiment | the xshmem engine (`COMM_TRANSPORT=xshmem`) carries an all-to-all whose pair exceeds this / (n − 1) MiB in rounds that stage at most this many MiB each way (the self slab is not staged; one ... | - |
-| `XSHMEM_ROUND_PIPE` | unset | unclassified | - | - |
+| `XSHMEM_ROUND_PIPE` | 0 | experiment | experiment, default 0: 1 = per-peer completion in the rounds exchange (a pair posts chunk j + 1 when its peer acknowledged chunk j) instead of the all-peer round barrier; digits identical; results/XSHMEM.md | - |
 | `XSHMEM_SIG_LANES` | 0 | experiment | diagnosis, default off: signals on every lane instead of lane 0 only | - |
 | `XSHMEM_THP_DISABLE` | 0 | experiment | diagnosis, default 0: 1 = prctl(PR_SET_THP_DISABLE) in the engine init, so this process takes no THP faults (and no direct-compaction stalls) | - |
 | `XSHMEM_THREAD_LEVEL` | 3 | experiment | default 3 (MULTIPLE): thread level of the engine's SHMEM init; 2 = SERIALIZED as the ofi backend | - |
@@ -221,6 +221,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | TARGET12 (S22) | 2026-12-31 | `ECALC_OMP_TEAM`, `ECALC_RESIDUE`, `MN_OUT_EARLY_ALWAYS` |
 | experiment | TASK4 peer | 2026-12-31 | `XSHMEM_PEER` |
 | experiment | TGTSHAPE | 2026-12-31 | `XSHMEM_HEAP_SLACK_MB` |
+| experiment | comm | 2026-12-31 | `XSHMEM_COLL`, `XSHMEM_ROUND_PIPE` |
 | experiment | craylane | 2026-12-31 | `XSHMEM_CRAY_GPU_PRETOUCH`, `XSHMEM_CRAY_HEAP_THP`, `XSHMEM_CRAY_NOMEMSET`, `XSHMEM_CRAY_NUMA`, `XSHMEM_CRAY_PUTSIG_SPLIT`, `XSHMEM_CRAY_SIGSET`, `XSHMEM_CRAY_TEST`, `XSHMEM_LANE_CTX`, `XSHMEM_LANE_POLL`, `XSHMEM_LANE_TRACE`, `XSHMEM_SIG_LANES`, `XSHMEM_THP_DISABLE`, `XSHMEM_THREAD_LEVEL` |
 | fallback | P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF) | 2026-11-11 | `DM_MN_WRAP` |
 | fallback | coordinator (TASKS S) | 2026-11-11 | `ECALC_OUT_PACKED` |

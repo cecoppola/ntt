@@ -8,8 +8,9 @@
 # Launched by plain srun (Cray's PMI), rank = PE.  COMM_SHMEM_POOL_MB is the planner's pool figure (unset: the run's modelled need from MN_PLAN_ONLY for
 # ecalc, else 8192); it sizes XSHMEM_HEAP_MB, and for the Cray backend the heap SHMEM_SYMMETRIC_SIZE = XT_SYMMETRIC_HEAP_SIZE (host hugepages).  A
 # COMM_SHMEM_POOL_MB word of the command wins over the plan.  MNRUN_MODULES is the module line of every
-# wrapper (default `rocm`; `cray-dsmml cray-openshmemx rocm` where /opt/cray/pe/sma exists); MNRUN_CPUS_PER_TASK adds srun -c
-# (unset: as before; `auto`: the node's CPUs / tasks per node -- aac7's srun confines a task to 2 CPUs otherwise);
+# wrapper (default `rocm`; `cray-dsmml cray-openshmemx rocm` where /opt/cray/pe/sma exists); MNRUN_CPUS_PER_TASK sets srun -c
+# (unset = `auto`: the node's CPUs / tasks per node, since 2026-10-27 -- srun confines a task to 1-2 CPUs otherwise, m aac7 and the target;
+# an explicitly empty value `MNRUN_CPUS_PER_TASK=` passes no -c, the old line; a number is passed as -c <n>);
 # ECALC_LOG_CLOCKS=1 runs aac7env.sh --log (rocm-smi clocks, the APU / NIC NUMA map) on every node before the command.
 # Phase 16 D: MNRUN_UNLOAD=<modules> (unset by default) is unloaded before MNRUN_MODULES in every wrapper and the plan call -- a versioned
 # rocm module (rocm/7.2.4) conflicts with the default rocm/7.0.3 of the login shell (aac7env.sh sets both from AAC7_ROCM).
@@ -82,7 +83,7 @@ copt=()
 # S32: MNRUN_LABEL=1 adds srun --label (every output line prefixed "<rank>: ").  (MNRUN_ARBITRARY, unused, was removed 2026-10-12.)
 [ "${MNRUN_ARBITRARY:-0}" = 0 ] || { echo "mnrun.sh: MNRUN_ARBITRARY was removed (2026-10-12, unused); unset it" >&2; exit 1; }
 [ "${MNRUN_LABEL:-0}" != 0 ] && copt+=(--label)
-case "${MNRUN_CPUS_PER_TASK:-}" in
+case "${MNRUN_CPUS_PER_TASK-auto}" in   # unset = auto; set but empty = no -c
     "") ;;
     auto) ncpu=$(scontrol show node "$(echo "$use" | head -1)" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p'); [ -n "$ncpu" ] && [ "$ncpu" -ge "$per" ] && copt+=(-c $((ncpu / per)));;
     *) copt+=(-c "$MNRUN_CPUS_PER_TASK");;

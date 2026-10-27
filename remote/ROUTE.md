@@ -108,3 +108,34 @@ run dirs listed, then write the REPORT block (AGENT.md). Remind the user: the re
 3. `s5_run.sh --nodes 576 --digits 4608e9 --path 1` (s1; planner decides), then, if the wall is within 1.5 x model,
 `s5_run.sh --nodes 576 --digits 38.2e12 --path 1 --env "MN_NONPOW2_CAP=0"` (or the largest the planner approves).
 4. REPORT. About 5-6 round trips, 60-90 min plus queue. Skipped: S4 tuning, the 64-node step, path 2.
+
+## Next target session (after the 2026-10-26 runs; settings words are plain env words; arms run one after the other inside the hold)
+
+Facts behind it: `FACTS.md` "Measured runs on the target". New switches are off by default unless stated: `ECALC_OMP_TEAM=mask` (team sizes from the
+affinity mask), `ECALC_RESIDUE=shoup` (digit residue), `XSHMEM_COLL=tree` (collectives), `ECALC_INIT_TL=1` (init timeline lines),
+`MN_WAIT_STATS=1`, `NEWTON_MN_RECIP_TS=1`, `COMM_HANG_DETAIL=1`, `MEM_REPORT_DEVS=1`; `mnrun.sh` now gives every task `srun -c <CPUs per task>` by default
+(`MNRUN_CPUS_PER_TASK=` empty restores the old line). Settings a script cannot take as an option are written as `--a/--b/--env` words.
+The multi-node changes shipped off by default, so the FIRST step is the gate at 1 AND 2 nodes (user decision); stop if it fails.
+
+1. Gate (1 paste): `bash remote/run/chain.sh "s2_build.sh --path both --jobs 32" "s3_gate.sh --nodes 1,2 --path both --digits 1e9" "s3_gate.sh --nodes 2 --path both --digits 1e10"`
+   (hashes bf9f4b08758b40d9 and 3fc025473586ed22; allocation as in S0+S1 with 64 nodes at least, ask for 576 for step 5).
+2. Threads and residue, 2 nodes, 8e9 per node (1 paste, expected dc 14 s -> under 1 s, total about 39 s):
+   `bash remote/run/s4_ab.sh --nodes 2 --digits 16e9 --path 1 --a "BS_SEED_THREADS=144" --b "ECALC_OMP_TEAM=mask ECALC_RESIDUE=shoup ECALC_INIT_TL=1" --rounds 2`
+   Check in the B log: the rank-0 team line (team sizes and affinity count: 192 expected), the `tl` init lines; the self-test seconds: keep the
+   self-test while it stays under 15 s (note the number in the report); digits identical in both arms. Optional, old line for comparison (3 min):
+   `MNRUN_CPUS_PER_TASK= bash remote/run/s5_run.sh --nodes 2 --digits 16e9 --path 1` (expect the old 182.7 s).
+3. Round size, 64 nodes, 8e9 per node, three arms (the planner check of each arm runs first; `XSHMEM_ROUND_MB=0` stages the whole exchange, the planner may refuse it):
+   `bash remote/run/chain.sh "s5_run.sh --nodes 64 --digits 512e9 --path 1 --env \"BS_SEED_THREADS=144 ECALC_OMP_TEAM=mask ECALC_RESIDUE=shoup MN_WAIT_STATS=1 NEWTON_MN_RECIP_TS=1 XSHMEM_ROUND_MB=128\"" "s5_run.sh ... XSHMEM_ROUND_MB=1024" "s5_run.sh ... XSHMEM_ROUND_MB=0"`
+   (the same words in all three, only the last word differs). Model prediction (`results/TIME_MODEL.md` §target_fit): small at 64 nodes (bs 21.6 / 20.8, dm 26.9 / 25.7 s);
+   the staging costs 7.5 GB (1024) and 38 GB (0) more host memory per node at 3.82e13 (`results/MEMORY.md`). A/B with intervals when time allows: `s4_ab.sh --nodes 64 --digits 512e9 --path 1 --a "XSHMEM_ROUND_MB=128" --b "XSHMEM_ROUND_MB=1024"`.
+4. Collectives and layout, 64 nodes: `s4_ab.sh --nodes 64 --digits 512e9 --path 1 --a "" --b "XSHMEM_COLL=tree"`, then layout D vs P:
+   `bash remote/run/chain.sh "s5_run.sh --nodes 64 --digits 512e9 --path 1 --env \"<best>\"" "s5_run.sh --nodes 64 --digits 512e9 --path 2 --env \"<best>\""` (path 2 = layout P with `ECALC_PE_PER_GPU=1 XSHMEM_LANES=2`, added by the script; its planner may refuse at 64 nodes: record it; layout P never ran on the target).
+5. 576 nodes, 4.608e12, best settings of 2-4, TWO runs in one allocation (first = cold, second = warm; compare init: the 111 s anomaly):
+   `bash remote/run/chain.sh "s5_run.sh --nodes 576 --digits 4608e9 --path 1 --env \"<best> ECALC_INIT_TL=1 COMM_HANG_DETAIL=1 MEM_REPORT_DEVS=1\"" "s5_run.sh --nodes 576 --digits 4608e9 --path 1 --env \"<best> ECALC_INIT_TL=1 COMM_HANG_DETAIL=1 MEM_REPORT_DEVS=1\""`
+   Report both inits and the `tl` lines of the slowest node; the level lines `mn: node R level L ... in X s` (Fit A of the analysis predicts 2.1, 2.9, 3.3, 3.7, 4.1, 4.8 s for levels 1-6; compare).
+6. Benches (when time remains; a worker per allocation, `target/RESTART.md` §7): `net02` (put rate, latency, 1 vs 2 lanes), `net04` / `net05` (all-to-all scaling),
+   `mem01` (VMM edge per APU: is the 93.36 GB hipMalloc edge the real limit? aac7 ran 109.9 GB on APU 0), `io01` / `io02`.
+7. Failures, only after 1-5: re-run 2e13 on 576 nodes with `COMM_HANG_DETAIL=1`, then 3e13 with `ECALC_FIT_PER_APU=1` (a planner refusal means the per-APU edge is the cause), then the 3.82e13 attempt with the best round size and `MN_NONPOW2_CAP=0`.
+
+Missing script features (follow-ups, not invented here): several 64-node arms RUNNING AT ONCE in one hold (the scripts run one step at a time; the arms above are sequential,
+about 3 min each), and a team-size / init-timeline summary line in `s5_run.sh` / `s4_ab.sh` (read the log with `show.sh latest tail 60` for now).

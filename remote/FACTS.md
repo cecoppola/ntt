@@ -3,7 +3,7 @@
 Reader: the browser agent (cannot run anything; reads this static copy and the user's pasted output). Labels on every number:
 **m** measured (where), **mod** modelled (planner `tools/plan_values.py`, `ecalc/mn_model.py`), **a** assumed, **u** user-supplied.
 Nothing here is a measurement of the target unless it says "target, m". Times are wall seconds of `ecalc`'s own `total` line.
-Sections are cited by name: Machine, Target site measured 2026-10-26, Paths and launch settings, Memory limits and the planner, Time model, Reading ecalc
+Sections are cited by name: Machine, Target site measured 2026-10-26, Measured runs on the target, Paths and launch settings, Memory limits and the planner, Time model, Reading ecalc
 output, Known problems and fixes, Settings worth testing, Decisions in force, Where to read more.
 
 ## Machine
@@ -69,6 +69,26 @@ Switches for the next try (off by default): `COMM_HANG_DETAIL=1` (the HANG messa
 (the planner also checks the busiest APU against the device limit; 3e13 plans 373 of 373.44 GB per node, mod); `MEM_REPORT_DEVS=1`.
 `BS_SEED_THREADS=auto` is now the default. Switch rows: `ecalc/README.md`.
 
+## Measured runs on the target (2026-10-26; target, m; all VERIFY OK, cold starts, path 1, layout D, `ECALC_PLANE_CAP=run`)
+
+Seconds of `ecalc`'s own lines; "seed default" = the old default (OpenMP team latched from the 1-2 CPUs the hand launch gave each task); no output file except the 1e9 and 1e10 smoke runs.
+
+| run | nodes | digits (per node) | settings | total | init | bs | dm | dc |
+|---|---|---|---|---|---|---|---|---|
+| smoke | 1 | 1e9 | path 1 / path 2, output | 28.25 / 26.49 | 7.1 / 5.2 | 20.2 / 20.3 | 0.49 / 0.50 | 0.11 |
+| 2 n | 2 | 1e10 (5e9) | path 1 / path 2, output | 115.20 / 115.77 | 103.6 / 102.5 | 3.3 / 3.6 | 7.87 / 9.63 | 0.40 / 0.04 |
+| L0 | 1 | 8e9 | seed default, path 1 / path 2 | 157.11 / 158.60 | 8.7 / 10.9 | 146.4 / 145.6 | 1.45 | 0.38 |
+| n8 | 8 | 6.4e10 (8e9) | seed default | 188 | 150 | 10 | 14 | 14 |
+| n64 | 64 | 5.12e11 (8e9) | seed default | 209.49 | 139.7 | 24.4 | 31.0 | 14.3 |
+| n576 | 576 | 4.608e12 (8e9) | seed default | 282.24 | 124.1 | 61.3 | 73.3 | 14.5 |
+| sweep | 2 | 1.6e10 (8e9) | seed threads default / 48 / 96 / 144 / 192 | 182.67 / 42.51 / 40.57 / 39.09 / 40.60 | 155.7 / - / - / 12.9 / - | 4.5-5.0 | 7.6-7.8 | 14.1-14.3 |
+| n64 st144 | 64 | 5.12e11 (8e9) | seed 144 | 84.62 / 84.07 | 15.8 / 15.6 | 23.7 | 30.8 | 14.3 |
+| n576 st144 | 576 | 4.608e12 (8e9) | seed 144 (best run) | 255.30 | 111.0 | 56.5 | 73.3 | 14.5 |
+
+Weak scaling at 8e9 per node, `BS_SEED_THREADS=144` (m): 2 nodes init 12.9, bs 4.6, dm 7.6, dc 14.1, total 39.1; 64 nodes 15.8 / 23.7 / 30.8 / 14.3 / 84.6; 576 nodes 111.0 (trend about 18) / 56.5 / 73.3 / 14.5 / 255.3 (about 162 at the trend init). Best run: 4.608e12 digits on 576 nodes in 255.3 s. Model gap (`target_l4` profile, mod): 18.1 / 23.4 / 28.9 s at 2 / 64 / 576 nodes, i.e. 2.2x / 3.6x / 8.8x; the fabric moves 2.9 % of the 400 GB/s per node peak at 576 nodes (11.5 GB/s per node effective; 21 and 18 at 2 and 64). The `target_fit` profile (fitted to the six bs / dm points, per-round sync term) is in `results/TIME_MODEL.md` §target_fit. At 576 nodes: reciprocal 41.0 s, division 25.2 s of products plus shifts 15.1 s (124 calls of 122 ms; model 0.49 s), VmHWM 21.7 GB per node; the dc 14.5 s is the digit residue (13.15 s).
+
+Per-APU calibration of the planner (aac7, m): the planner's per-APU maximum is 106.88 GB against 105.6 GB measured on APU 0 at 9e10 digits per node, and 111.18 against 109.9 GB at 1e11 (1.3 GB above measured both times; APUs 1-3 hold 86-91 GB). On the target at 64 nodes the measured per-APU peaks are 2.7-6.5 GB above the planner's per-APU figure while the node total is 6-9 GB below plan (APU 0 holds region 0's arena). `ECALC_FIT_PER_APU=1` makes the planner check this busiest APU.
+
 ## Paths and launch settings
 
 Two multi-node paths; digits are identical between them (user rule Q85, both must keep working).
@@ -93,7 +113,7 @@ Launch settings of the target (`target/config/target.conf.template`; the probe f
 | `ECALC_MEM_GUARD_GB` | 6 | stops with rc 9 before the OOM killer |
 | `ECALC_SEGV_TRACE`, `ECALC_VERBOSE`, `MEM_REPORT_DEVS` | 1, 2, 1 | trace on crash; phase lines; per-APU memory rows. `ECALC_VERBOSE=2` costs at most a few s (+2.0 s over 4 pairs, not resolved, m aac7) |
 | `ECALC_PLANE_CAP` | unset = `run` | 2^30 plane pools up to about 9.6e9 digits per node, 2^31 above; not a launch setting (Q122) |
-| `MNRUN_CPUS_PER_TASK` | `auto` | else srun confines a task to 2 CPUs (m aac7) |
+| `MNRUN_CPUS_PER_TASK` | unset = `auto` (since 2026-10-27) | CPUs / tasks per node as `srun -c`; else srun confines a task to 1-2 CPUs (m aac7 and the target: a hand launch ran the seed team and the digit residue 15-30x slow); an explicitly empty value passes no `-c` (old line) |
 | `MNRUN_MODULES`, `MNRUN_UNLOAD` | site values | path 2 needs `cray-dsmml cray-openshmemx <rocm>`; unload a conflicting login `rocm` |
 | computed, never typed | pool `COMM_SHMEM_POOL_MB`, heap `SHMEM_SYMMETRIC_SIZE`=`XT_SYMMETRIC_HEAP_SIZE`, `MN_GROUPS`, `POOL_LOG` | by the planner / `mnrun.sh`; `tools/plan_values.py --exports <digits> <nodes>` prints them |
 | bad nodes | `MNRUN_EXCLUDE_HOSTS=h1,h2`, `MNRUN_EXCLUDE_MODE=drop` | no spares (decision 2026-10-11); `drop` shifts ranks, so ask for N + excluded nodes |
@@ -224,7 +244,7 @@ Return codes (ecalc exit codes from `ecalc/fatal.h`, `memsample.h`; `mnrun.sh` h
 | rc 4 / rc 8 at start | plan does not fit: lower digits to the printed maximum, or the memory settings above |
 | rc 9 | memory guard: lower `ECALC_NODE_GB` by the printed overshoot |
 | `fi_enable(-28)` with several PEs per node | launch Slurm-native (`srun --ntasks`), as `mnrun.sh` does (m target, TGTBENCH2) |
-| a task gets 2 CPUs | `MNRUN_CPUS_PER_TASK=auto` (m aac7) |
+| a task gets 1-2 CPUs | `mnrun.sh` now defaults to `MNRUN_CPUS_PER_TASK=auto` (m aac7, m target); a hand `srun` needs `-c <CPUs per task>`; `MNRUN_CPUS_PER_TASK=` (empty) restores the old line |
 | link/load errors after `module load rocm` | versioned ROCm conflicts with the login default: `MNRUN_UNLOAD` |
 | APUs invisible in a step | `--gpus-per-node=4` in the allocation, `--gpu-bind=none` on the step (`mnrun.sh` adds it); not on a site without GRES (next row) |
 | `Invalid generic resource (gres) specification` from sbatch/srun (m target: `scontrol show node` -> `Gres=(null)` on the compute nodes) | the site lists no GPU GRES, so every `--gpus*` / `--gpu-bind` option is refused although the GPUs are there. Automatic: `MNRUN_GRES=auto` (default, `ecalc/gres.sh`) leaves the options out unless `sinfo`/`scontrol` list a gpu GRES (aac7 does: unchanged); the answer is cached in `MNRUN_GRES_RESOLVED`; s1 prints `gres_gpu=`. Manual: `MNRUN_GRES=off` (or `on` to force the options) in the environment of every stage; for a hand-written launch drop `--gpus*` and `--gpu-bind` |
