@@ -156,8 +156,8 @@ rl_job_mine() { [ "$(rl_tmo 30 squeue -h -j "$1" -o %u 2>/dev/null | head -1)" =
 rl_hosts_all() { local n; n=$(rl_tmo 30 squeue -h -j "$1" -o %N 2>/dev/null | head -1); [ -n "$n" ] && rl_tmo 30 scontrol show hostnames "$n" 2>/dev/null; }
 rl_exclude_list() { # comma list: --exclude / REMOTE_EXCLUDE, target.conf's MNRUN_EXCLUDE_HOSTS, aac7's ~/aac7q/exclude* files
     local l=${EXCLUDE:-}${REMOTE_EXCLUDE:+,$REMOTE_EXCLUDE}${MNRUN_EXCLUDE_HOSTS:+,$MNRUN_EXCLUDE_HOSTS}
-    if [ "$REMOTE_SITE" = aac7 ]; then local f; for f in "$HOME"/aac7q/exclude*; do [ -f "$f" ] && l="$l,$(grep -v '^ *#' "$f" | tr -s ' \n,' ',' )"; done; fi
-    echo "$l" | tr ',' '\n' | grep -E '^[A-Za-z0-9._-]+$' | sort -u | paste -sd,
+    if [ "$REMOTE_SITE" = aac7 ]; then local f; for f in "$HOME"/aac7q/exclude "$HOME"/aac7q/exclude_slow; do [ -f "$f" ] && l="$l,$(sed 's/#.*//' "$f" | awk '{ print $1 }' | paste -sd,)"; done; fi
+    echo "$l" | tr ', ' '\n\n' | grep -E '^[A-Za-z0-9._-]+$' | sort -u | paste -sd,
 }
 rl_pick_hosts() {   # JOB N [SKIP] -> comma list of N usable hosts of the allocation (excluded hosts left out); rc 1 if fewer
     local job=$1 n=$2 skip=${3:-0} ex all l
