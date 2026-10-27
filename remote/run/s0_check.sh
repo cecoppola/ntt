@@ -10,7 +10,7 @@ while [ $# -gt 0 ]; do case $1 in --dry-run) DRY=1;; -h|--help) rl_help "$0"; ex
 rl_init s0
 bad=0; warn=0
 if [ "$DRY" = 1 ]; then
-    rl_would "(cd $R && sha256sum -c remote/MANIFEST.sha256)"; rl_would "exec bits of ecalc/mnrun.sh tools/nodescreen.sh target/bench/items/*.sh remote/run/*.sh"; rl_would "command -v python3 cc gcc hipcc amdclang make sbatch salloc srun sinfo squeue module"
+    rl_would "(cd $R && sha256sum -c remote/MANIFEST.sha256)"; rl_would "exec bit of ecalc/mnrun.sh"; rl_would "command -v python3 cc gcc hipcc amdclang make sbatch salloc srun sinfo squeue module"
     rl_would "module avail rocm / cray-shmem / cray-openshmemx / cray-dsmml / libfabric / gmp"; rl_would "sinfo -h -o '%P %a %l %D %t'"
     rl_finish SKIP "$HERE/s0_check.sh"
 fi
@@ -25,7 +25,7 @@ else rl_kv manifest "MISSING remote/MANIFEST.sha256"; bad=1; fi
 rl_kv repo "$R"; rl_kv host "$(hostname -s 2>/dev/null)"; rl_kv site "$REMOTE_SITE"
 # ---- exec bits (a copy through zip / scp -r may lose them; ecalc/mnrun.sh and the item helpers are executed directly by the stages)
 nox=0; fixg=""; noxl=""
-for g in ecalc/mnrun.sh tools/nodescreen.sh 'target/bench/items/*.sh' 'remote/run/*.sh'; do
+for g in ecalc/mnrun.sh; do   # the only script the wrapped tools execute directly (_ecalc.sh); all others run through bash or are sourced
     gm=0; for f in $(cd "$R" && ls -d $g 2>/dev/null); do [ -x "$R/$f" ] || { gm=$((gm + 1)); noxl="$noxl $f"; }; done
     [ $gm -gt 0 ] && { nox=$((nox + gm)); fixg="$fixg $g"; }
 done
