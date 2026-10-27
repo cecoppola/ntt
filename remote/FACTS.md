@@ -31,7 +31,7 @@ Two multi-node paths; digits are identical between them (user rule Q85, both mus
 
 | | path 1: libfabric (default build) | path 2: Cray SHMEM (the target's shape) |
 |---|---|---|
-| build | `make -C ecalc GMP_HOME=<gmp>` (XSHMEM=ofi; needs libfabric + PMI2 header; log must show `-DXSHMEM_OFI`) | `make -B -C ecalc XSHMEM=cray GMP_HOME=<gmp>` with the cray-dsmml and cray-openshmemx modules (`-B` when switching) |
+| build (GMP not needed for ecalc, tools and the s2 tests; `GMP_HOME` only for the unit tests and ref/gen_e) | `make -C ecalc` (XSHMEM=ofi; needs libfabric + PMI2 header; log must show `-DXSHMEM_OFI`) | `make -B -C ecalc XSHMEM=cray` with the cray-dsmml and cray-openshmemx modules (`-B` when switching) |
 | launch | `SLURM_JOB_ID=<J> ecalc/mnrun.sh <nodes> env ./ecalc <digits>` : layout D = one process per node, 4 APU threads | `SLURM_JOB_ID=<J> ecalc/mnrun.sh <nodes> env ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 ./ecalc <digits>` : one process per GPU, 2 lanes (lane k = NIC k) |
 | third shape "P" | path 1 with `ECALC_PE_PER_GPU=1` (one process per GPU): fastest on aac7 at 2 nodes where it fits, slower at 1 node | - |
 | `<nodes>` | the node count; `mnrun.sh` uses the first N nodes of the allocation (`MNRUN_NODES`, `MNRUN_NODELIST`) | same |
