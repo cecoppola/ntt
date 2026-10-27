@@ -998,6 +998,10 @@ def _mem_per_node(D, g=1, opts=None):
     dev_bs = dev_init + (VMM_BS_GROW if o['vmm'] else 0) + NRN * vs['tree_top']   # Phase 15: the bs phase's measured growth under VMM; counted with the host HWM; B7ACCT: + the v-slots of the tree's top level
     if g == 1 and o['vmm'] and o['seed_fill'] and o['decimal'] and not aroom > 0:   # Phase 15 (2026-09-27): the fill's division grows the pool at size 1 (measured at 1e11); AS: none with BS_ARENA_ROOM (replayed)
         dev_dm = max(dev_dm, dev_init + VMM_DM_GROW_FILL)
+    # ECALC_FIT_PER_APU (diag 2026-10-26): the busiest APU, binsplit.c's dev_apu_max -- region 0 holds the top batch levels, so the largest region's
+    # arena (not the node mean) + a quarter of the planes + the v-slots + the device pool; the phase max (dm: v-slots; bs: + the growth, the tree top's)
+    _am = max(arena_mapped if o["tail"] else bs); _ofi_apu = pdet.get('ofi_dev_mb', 0) << 20
+    dev_apu_max = planes // NRN + _am + _ofi_apu + max(vs['per_apu'], (int(VMM_BS_GROW) // NRN if o['vmm'] else 0) + vs['tree_top'])
     peak = max(dev_init + host_init, dev_bs + max(host_init, host_dm), dev_dm + host_dm) * (1 + o['margin'])   # (the measured node = device max + host HWM)
     # Phase 15 TC (results/CACHE.md): the mn transform cache -- not in node_peak (the numbers the docs cite); the default code's slots
     # (2 slots x 16 GiB per APU at four primes) live from the first mn grid product (the tree at the target) to the division's end,
@@ -1018,7 +1022,7 @@ def _mem_per_node(D, g=1, opts=None):
                 arena_room=aroom, room_node=room_node, dkm=L['dkm'],
                 planes=planes, regions_bs=bs_total, arena=sum(arena), arena_mapped=sum(arena_mapped), dm_need=NRN * L['need_dev'], tree_need=NRN * tree, top_scratch=NRN * sc[0] if g > 1 else 0,
                 pool_in_phase=pool_in_phase, pool_total=pool_total, exchange=xchg, shmem_staging=stg, shmem_pool=pool, shmem_pool_by=pdet.get('by', ''), shmem_pool_only=pdet.get('shmem_only', pool), ofi_pools=NRN * (pdet.get('ofi_dev_mb', 0) << 20),
-                dev_init=dev_init, dev_dm=dev_dm, dev_bs=dev_bs, dev_max=max(dev_init, dev_bs, dev_dm), shmem_need=pdet.get("need", 0), host_init=host_init, host_dm=host_dm, host_hwm=max(host_init, host_dm),
+                dev_init=dev_init, dev_dm=dev_dm, dev_bs=dev_bs, dev_max=max(dev_init, dev_bs, dev_dm), dev_apu_max=dev_apu_max, shmem_need=pdet.get("need", 0), host_init=host_init, host_dm=host_dm, host_hwm=max(host_init, host_dm),
                 vslot=NRN * vs['per_apu'], vslot_tree=NRN * vs['tree_top'], vslot_levels=vs['levels'],   # B7ACCT (bytes per node)
                 node_peak=peak)
 

@@ -13,6 +13,7 @@ BS_SEED_CHUNK_MB	int	derived	derived		built-in default	-	H.md+R114.md	Y	ecalc	bi
 BS_SEED_FILL	bool	unset	unset	0|1	built-in default	-	T215.md+DOC15.md	Y	ecalc	binsplit.c	1	-	-	
 BS_SEED_TERMS	int	derived	derived		built-in default	-	T215.md+WP7.md	Y	ecalc	binsplit.c	5	-	-	
 BS_SEED_THREADS	bool	derived	derived	0|1	built-in default	-	I.md+S22.md	Y	ecalc	binsplit.c	3	-	-	
+COMM_HANG_DETAIL	int	unset	unset		built-in default	-	-	Y	ecalc	comm_xshmem.c	2	-	-	
 COMM_LAYER_VSLOT_MB	bool	derived	derived	0|1	built-in default	-	-	Y	ecalc	comm_layered.c	1	-	-	
 COMM_OFI_NICS	str	unset	derived	NIC list, ; between devices	launch-line	-	TUNE17.md+TGTBENCH2.md	Y	ecalc	pe_geo.c	1	-	-	comm_ofi.c:123; unset = automatic
 COMM_OFI_POOL_MB	int	0	0	MiB per device	launch-line	-	STD17.md+S18KITFIX.md	Y	ecalc	binsplit.c,comm_xshmem.c,ecalc.c	7	-	-	binsplit.c:694 sets it from the modelled need when unset
@@ -44,6 +45,7 @@ ECALC_DEVICE_MARGIN_GB	float	5	5	GB per node	built-in default	-	-	Y	ecalc	binspl
 ECALC_FATAL_ABORT	bool	derived	derived	0|1	built-in default	-	S18W.md+C314.md	Y	ecalc	fatal.c	1	-	-	
 ECALC_FATAL_TEST	int	unset	unset		test-only	-	C314.md	Y	ecalc	binsplit.c	2	diagnostics (TESTING.md)	2027-04-12	
 ECALC_FATAL_WAIT	int	60	60		built-in default	-	C314.md	Y	ecalc	fatal.c	1	-	-	
+ECALC_FIT_PER_APU	int	unset	unset		built-in default	-	-	Y	ecalc	binsplit.c	4	-	-	
 ECALC_INIT_ONLY	int	unset	unset		test-only	-	L114.md+P13b.md	Y	ecalc	ecalc.c	2	diagnostics (TESTING.md)	2027-04-12	
 ECALC_INIT_TL	bool	0	0	0|1	launch-line	-	MAP15.md	Y	ecalc	dbig.c	2	-	-	dbig.c
 ECALC_MEM_GUARD_GB	float	0	derived	>=0 GB	launch-line	aac7	IO15.md+DOC15.md	Y	ecalc	memsample.c	1	-	-	memsample.c:113; 0 = guard off
