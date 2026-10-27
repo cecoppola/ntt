@@ -78,7 +78,7 @@ Branch `p14-L1` from main @ ae1d872. Files: `binsplit.c` (dm_layout, device-tier
 
 ## XSHMEM_ROUND_MB 128 / 1024 / 0 at the target sizes: staging fit (B5, 2026-10-27; modelled, planner not run)
 
-Input for the target A/B (`XSHMEM_ROUND_MB` 128 / 1024 / 0). Python only: `mn_model.memory` (-> `mem_model.mem_per_node`) with the target's launch design, `MN_T_CHUNK_MB=2048`, `MN_NONPOW2_CAP=0` at 576 nodes; the C planner (`tools/plan_values.py --fit`) needs a current build and was not available locally (the aac7 binary predates the code), so the C planner's own lines on the target are the check. Calibration: the model's device peak at 3.82e13 / 576 nodes is 349.9 GB against the C planner's 358.96 GB (m, planner, target analysis; the model is 9 GB low, 2.5 %); the round size does not enter the device figure.
+Input for the target A/B (`XSHMEM_ROUND_MB` 128 / 1024 / 0). Python only: `mn_model.memory` (-> `mem_model.mem_per_node`) with the target's launch design, `MN_T_CHUNK_MB=2048`, `MN_NONPOW2_CAP=0` at 576 nodes; the C planner (`tools/plan_values.py --fit`) needs a current build and was not available locally (the aac7 binary predates the code), so the C planner's own lines on the target are the check. Calibration: at 3.82e13 / 576 nodes (round 128, cap 0) the model's device peak is 349.9 GB against the C planner's 358.96 GB (9 GB low, 2.5 %) and its node peak 394.0 GB against the planner's 395.04 GB (planner figures: remote/FACTS.md); the round size does not enter the device figure.
 
 | nodes, digits | round MB | host GB | SHMEM pool GB | node GB (model) | device GB (model) |
 | --- | --- | --- | --- | --- | --- |
