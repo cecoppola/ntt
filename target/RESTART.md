@@ -303,7 +303,7 @@ machine, so schedule it when the bench prio < 200 items are done or the session 
 | rc 9 during a run | the memory guard (`ECALC_MEM_GUARD_GB=6`) stopped the run before the OOM killer: lower `ECALC_NODE_GB` by the overshoot it prints |
 | rc 134 | `abort()` (core file) — with `ECALC_SEGV_TRACE=1` the trace is in the log; keep the log in `results/` |
 | `fi_enable(-28)` with several PEs per node | launch Slurm-native (`srun --ntasks`), as `mnrun.sh` does (TGTBENCH2, m target) |
-| a task gets only 2 CPUs | `MNRUN_CPUS_PER_TASK=auto` (mnrun.sh: CPUs / tasks per node) (A16, m aac7) |
+| a task gets only 1-2 CPUs | `mnrun.sh` defaults to `MNRUN_CPUS_PER_TASK=auto` (CPUs / tasks per node; since 2026-10-27, A16 m aac7, m target); `MNRUN_CPUS_PER_TASK=` (empty) = no `-c` |
 | link or load errors after `module load rocm` | a versioned ROCm conflicts with the login default: `MNRUN_UNLOAD` in target.conf (the probe fills it) |
 | APUs invisible inside a job step | `--gpus-per-node=4` in the job (the ladder's default sbatch options) and `--gpu-bind=none` on the step (`mnrun.sh` adds it; probe: `PROBE_SRUN_EXTRA`); both only where `scontrol show node` lists a gpu GRES (`MNRUN_GRES=auto|on|off`; a site with `Gres=(null)` rejects them: leave them out, `../remote/FACTS.md` Known problems) |
 | `locality: no node with an xname` / ladder `no group` | `scontrol show node` carries no HPE xname: write a host → xname map (one `host xname` per line, e.g. from `/etc/cray/xname` on each node), `python3 target/ladder/locality.py nodes --map MAP --save`, then `ladder.sh ... --nodes-from target/results/probe/topology.tsv` (its node states are those of the save: re-save before each level) |

@@ -93,7 +93,7 @@ Launch settings of the target (`target/config/target.conf.template`; the probe f
 | `ECALC_MEM_GUARD_GB` | 6 | stops with rc 9 before the OOM killer |
 | `ECALC_SEGV_TRACE`, `ECALC_VERBOSE`, `MEM_REPORT_DEVS` | 1, 2, 1 | trace on crash; phase lines; per-APU memory rows. `ECALC_VERBOSE=2` costs at most a few s (+2.0 s over 4 pairs, not resolved, m aac7) |
 | `ECALC_PLANE_CAP` | unset = `run` | 2^30 plane pools up to about 9.6e9 digits per node, 2^31 above; not a launch setting (Q122) |
-| `MNRUN_CPUS_PER_TASK` | `auto` | else srun confines a task to 2 CPUs (m aac7) |
+| `MNRUN_CPUS_PER_TASK` | unset = `auto` (since 2026-10-27) | CPUs / tasks per node as `srun -c`; else srun confines a task to 1-2 CPUs (m aac7 and the target: a hand launch ran the seed team and the digit residue 15-30x slow); an explicitly empty value passes no `-c` (old line) |
 | `MNRUN_MODULES`, `MNRUN_UNLOAD` | site values | path 2 needs `cray-dsmml cray-openshmemx <rocm>`; unload a conflicting login `rocm` |
 | computed, never typed | pool `COMM_SHMEM_POOL_MB`, heap `SHMEM_SYMMETRIC_SIZE`=`XT_SYMMETRIC_HEAP_SIZE`, `MN_GROUPS`, `POOL_LOG` | by the planner / `mnrun.sh`; `tools/plan_values.py --exports <digits> <nodes>` prints them |
 | bad nodes | `MNRUN_EXCLUDE_HOSTS=h1,h2`, `MNRUN_EXCLUDE_MODE=drop` | no spares (decision 2026-10-11); `drop` shifts ranks, so ask for N + excluded nodes |
@@ -224,7 +224,7 @@ Return codes (ecalc exit codes from `ecalc/fatal.h`, `memsample.h`; `mnrun.sh` h
 | rc 4 / rc 8 at start | plan does not fit: lower digits to the printed maximum, or the memory settings above |
 | rc 9 | memory guard: lower `ECALC_NODE_GB` by the printed overshoot |
 | `fi_enable(-28)` with several PEs per node | launch Slurm-native (`srun --ntasks`), as `mnrun.sh` does (m target, TGTBENCH2) |
-| a task gets 2 CPUs | `MNRUN_CPUS_PER_TASK=auto` (m aac7) |
+| a task gets 1-2 CPUs | `mnrun.sh` now defaults to `MNRUN_CPUS_PER_TASK=auto` (m aac7, m target); a hand `srun` needs `-c <CPUs per task>`; `MNRUN_CPUS_PER_TASK=` (empty) restores the old line |
 | link/load errors after `module load rocm` | versioned ROCm conflicts with the login default: `MNRUN_UNLOAD` |
 | APUs invisible in a step | `--gpus-per-node=4` in the allocation, `--gpu-bind=none` on the step (`mnrun.sh` adds it); not on a site without GRES (next row) |
 | `Invalid generic resource (gres) specification` from sbatch/srun (m target: `scontrol show node` -> `Gres=(null)` on the compute nodes) | the site lists no GPU GRES, so every `--gpus*` / `--gpu-bind` option is refused although the GPUs are there. Automatic: `MNRUN_GRES=auto` (default, `ecalc/gres.sh`) leaves the options out unless `sinfo`/`scontrol` list a gpu GRES (aac7 does: unchanged); the answer is cached in `MNRUN_GRES_RESOLVED`; s1 prints `gres_gpu=`. Manual: `MNRUN_GRES=off` (or `on` to force the options) in the environment of every stage; for a hand-written launch drop `--gpus*` and `--gpu-bind` |

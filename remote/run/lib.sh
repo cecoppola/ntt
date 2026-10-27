@@ -136,7 +136,7 @@ rl_site_defaults() {
     export REMOTE_PARTITION=${REMOTE_PARTITION:-${AAC7_PARTITION:-192C4G1H_MI300A_RHEL9_A1}}
     export TCONF=${TCONF:-/nonexistent/target.conf}        # not the target's settings
     export ECALC_DEVICE_GB=${ECALC_DEVICE_GB:-444.0} ECALC_NODE_GB=${ECALC_NODE_GB:-420} ECALC_MEM_GUARD_GB=${ECALC_MEM_GUARD_GB:-6}
-    export MN_T_CHUNK_MB=${MN_T_CHUNK_MB:-2048} ECALC_NP=${ECALC_NP:-auto} MNRUN_CPUS_PER_TASK=${MNRUN_CPUS_PER_TASK:-auto}
+    export MN_T_CHUNK_MB=${MN_T_CHUNK_MB:-2048} ECALC_NP=${ECALC_NP:-auto} MNRUN_CPUS_PER_TASK=${MNRUN_CPUS_PER_TASK-auto}
     export REMOTE_MAXD_PER_NODE=${REMOTE_MAXD_PER_NODE:-10000000000}
 }
 rl_digits_site() {  # DIGITS NODES -> digits actually run (aac7: capped at REMOTE_MAXD_PER_NODE x nodes; the target: unchanged)

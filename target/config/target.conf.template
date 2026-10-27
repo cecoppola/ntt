@@ -27,7 +27,7 @@ GMP_HOME=__FILL__                     # a GMP built from source if the site has 
 # How to determine: `sinfo -o '%P %c %m %D'`; the production queue name and node limit from the site's user guide.
 TARGET_PARTITION=__FILL__             # sbatch -p value for whole-node jobs
 TARGET_NODES=576                      # (u) node count of the headline run (the plan's g; user decision 2026-10-12: 3.82e13 digits on 576 nodes)
-MNRUN_CPUS_PER_TASK=auto              # srun may confine a task to 2 CPUs otherwise (A16, m on the sister machine); mnrun.sh's 'auto' = CPUs / tasks per node
+MNRUN_CPUS_PER_TASK=auto              # srun may confine a task to 1-2 CPUs otherwise (A16, m on the sister machine and the target); mnrun.sh's default since 2026-10-27 (unset = auto = CPUs / tasks per node; empty = no -c)
 
 # ---- [paths] --------------------------------------------------------------------------------------------------------
 # How to determine: a file system that sustains the part-file write (shared FS, not a RAM /tmp): `df -h <dir>`; `lfs getstripe <dir>` if Lustre;

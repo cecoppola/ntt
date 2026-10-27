@@ -153,5 +153,41 @@ class GenConfOutDir(unittest.TestCase):
         self.assertEqual(c.get("ECALC_OUT_DIR"), "/lus/ecalc_out")
 
 
+class CpusPerTask(unittest.TestCase):
+    """mnrun.sh: MNRUN_CPUS_PER_TASK unset = auto (srun -c CPUs / tasks per node); set but empty = no -c; a number = -c <n>."""
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        for name, body in (("srun", 'echo "SRUN $*"'), ("squeue", "echo n01"), ("sinfo", "echo gpu:4"),
+                           ("scontrol", 'case "$*" in *hostnames*) echo n01;; *"show node"*) echo "NodeName=n01 Gres=gpu:4(S:0-3) CPUTot=192";; esac')):
+            p = os.path.join(self.d, name)
+            with open(p, "w") as f:
+                f.write("#!/bin/sh\n" + body + "\n")
+            os.chmod(p, 0o755)
+
+    def tearDown(self):
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def c_opt(self, value=None):
+        e = {"PATH": self.d + ":" + os.environ["PATH"], "SLURM_JOB_ID": "1"}
+        script = "unset MNRUN_CPUS_PER_TASK; "
+        if value is not None:
+            script += "export MNRUN_CPUS_PER_TASK=%s; " % value
+        r = sh(script + "bash ecalc/mnrun.sh 1 true", e)
+        line = [l for l in r.stdout.splitlines() if l.startswith("SRUN")]
+        self.assertTrue(line, r.stdout + r.stderr)
+        w = line[0].split()
+        return w[w.index("-c") + 1] if "-c" in w else None
+
+    def test_unset_is_auto(self):
+        self.assertEqual(self.c_opt(None), "192")
+
+    def test_empty_keeps_old_line(self):
+        self.assertIsNone(self.c_opt(""))
+
+    def test_auto_and_number(self):
+        self.assertEqual(self.c_opt("auto"), "192")
+        self.assertEqual(self.c_opt("7"), "7")
+
+
 if __name__ == "__main__":
     unittest.main()
