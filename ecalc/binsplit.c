@@ -1,3 +1,4 @@
+#define _GNU_SOURCE   /* sched_getaffinity, CPU_COUNT (BS_SEED_THREADS=auto); binsplit.c is compiled as C */
 /* binsplit.c - see binsplit.h */
 #include <stdio.h>
 #include "fatal.h"
