@@ -21,7 +21,7 @@
  * tiny_exchange; XSHMEM_COLL=tree: dissemination, ceil(log2 n) rounds, partner (me + 2^k) % n, see tiny_tree).  send / recv / allreduce_modq / alltoallv_host / allgather (device) are 0: comm_util.c's fallbacks apply.
  *
  * CTRL layout (words, per communicator id < MAXID, a pure function of the id, so no exchange at create):
- *   ctrl + id * 7 * nw : ROFF[n] SIG[n] VAL0[n] VAL1[n] VSEQ0[n] VSEQ1[n] SOFF[n]   (n = nw: the largest member count = the nodes; with ECALC_PE_PER_GPU
+ *   ctrl + id * 7 * nw : ROFF[n] SIG[n] VAL0[n] VAL1[n] VSEQ0[n] VSEQ1[n] SOFF[n]   (9 * nw with COMM_SEQ_CHECK=1: + CHK0[n] CHK1[n]; n = nw: the largest member count = the nodes; with ECALC_PE_PER_GPU
  *   (S1a) the PEs, K * nodes, and only XS_MAXID_VPE ids)
  * Threads: mesh d is driven by APU thread d (device d current at create; the main thread is thread 0).  Every entry selects the loopback
  * PE of the comm (XSHMEM_SELECT); a debug flag catches two threads inside one comm. */
@@ -639,7 +639,7 @@ static void x_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
             const uint64_t *w = WORD(p, W_SOFF, m);
             while (!sigge(w, 1)) if (!(++spins & 4095)) {
                 if (now_s() - t0 > g_hang_s) { if (getenv("COMM_HANG_DETAIL") && atoi(getenv("COMM_HANG_DETAIL"))) hang_handshake_detail(p); die_hang(p, "the allgather handshake", m); }
-                if (g_seqchk && !(spins & 0xffff) && chk_ahead(p, m)) {   /* m has already made call number tseq + 1 (this call) as another collective */
+                if (g_seqchk && !(spins & 0xffff) && chk_ahead(p, m) && !sigge(w, 1)) {   /* (re-test the handshake word: m's own handshake word precedes its check word) */   /* m has already made call number tseq + 1 (this call) as another collective */
                     char b0[112], b1[112]; chk_text(rd64(WORD(p, W_CHK0, m)), b0, sizeof b0); chk_text(rd64(WORD(p, W_CHK1, m)), b1, sizeof b1);
                     ec_fatal(EC_RC_FATAL, "comm_xshmem: pe %d: COMM_SEQ_CHECK: call-sequence divergence on comm %d (%d members): this member is in its first allgather_host (the handshake), member %d (pe %d) has never sent its handshake word but is in another small collective (even-parity: %s | odd-parity: %s)\n",
                              X.K * X.q + p->lpe, p->id, n, m, p->pe[m], b0, b1); }

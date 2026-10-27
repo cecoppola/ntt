@@ -179,7 +179,7 @@ static void coll_body(void *unused)
     if (pe == 0) printf("T_VPE_COLL_TIME XSHMEM_COLL=%s n %d reps %d: barrier %.1f us, allreduce_max %.1f us, allgather_host 16 B %.1f us (per call, PE 0)\n", em, npe, reps, us[0], us[1], us[2]);
 }
 /* ---- hs (handshake stress): first calls on many new communicators, and per-PE signal bursts ----
- * Part 1: for every communicator size g in 2..8 (aligned powers of two on XT_HS_SLOTS slots (default 12, at most 14), 3 5 6 7 on 4 slots: at most 52 communicators per PE, the limit is 64) the first
+ * Part 1: for every communicator size g in 2..8 (aligned powers of two on XT_HS_SLOTS slots (default 12, at most 13), 3 5 6 7 on 4 slots: at most 52 communicators per PE, the limit is 64) the first
  * allgather_host of a NEW communicator (all members enter together after a flat barrier; the first call = the handshake of comm_xshmem.c, flat or tree by XSHMEM_COLL), then XT_HS_REPS (20)
  * steady calls; every result is checked.  PE 0 prints per size the number of communicators, the first-call time (mean and max) and the steady time.
  * Part 2: a burst of N 8-byte signals from every PE to the other PEs in rotated order (comm_xshmem_burst), N in 64 256 1024 2303 4608 (up to XT_HS_BURST_MAX): one unpaced burst and one paced
@@ -190,7 +190,7 @@ static void hs_body(void *unused)
     int npe = vpe_npe(), pe = vpe_pe(); const char *em = getenv("XSHMEM_COLL"); if (!em || !*em) em = "flat";
     int reps = getenv("XT_HS_REPS") ? atoi(getenv("XT_HS_REPS")) : 20, slots = getenv("XT_HS_SLOTS") ? atoi(getenv("XT_HS_SLOTS")) : 12;
     int bmax = getenv("XT_HS_BURST_MAX") ? atoi(getenv("XT_HS_BURST_MAX")) : 4608, hb = getenv("XT_HS_BATCH") ? atoi(getenv("XT_HS_BATCH")) : 64;
-    if (slots > 14) slots = 14;
+    if (slots > 13) slots = 13;   /* (slot 14: the skew case below, 15: the node group) */
     if (slots < 1) slots = 1;
     comm *flat = vpe_comm(); CHK(flat != 0, "no flat communicator"); if (!flat) return;
     double first_sum[9] = { 0 }, first_max[9] = { 0 }, steady_sum[9] = { 0 }; int ncomm[9] = { 0 };
@@ -202,6 +202,7 @@ static void hs_body(void *unused)
                 int g0 = pe / g * g, gg = g < npe - g0 ? g : npe - g0;
                 if (g0 == 0 && gg == npe && slot == 0) continue;   /* (that run is the flat communicator) */
                 comm_barrier(flat);
+                if (gg < g) continue;   /* a short last run would share an id with the runs of its own size (after the barrier: every PE entered it) */
                 comm *c = vpe_sub_slot(g0, gg, slot);
                 CHK(c != 0, "no communicator [%d,%d) slot %d", g0, g0 + gg, slot); if (!c) continue;
                 int n = comm_size(c), me = comm_rank(c); uint64_t mine[2] = { (uint64_t)pe * 3 + 1, (uint64_t)slot }, all[16];
@@ -222,7 +223,7 @@ static void hs_body(void *unused)
         if (pe == 0) printf("T_VPE_HS_FIRST XSHMEM_COLL=%s npe %d size %d: %d communicators, first call mean (worst PE) %zu us, max %zu us; steady call mean (worst PE) %zu us\n", em, npe, g, ncomm[g], sm, mx, st);
     }
     if (npe >= 2) {   /* COMM_SEQ_CHECK: a legitimate barrier + allreduce_max, then a skewed FIRST allgather on a fresh communicator must pass (no false divergence) */
-        comm *c = vpe_sub_slot(pe / 2 * 2, npe - pe / 2 * 2 >= 2 ? 2 : 1, 13);
+        comm *c = (npe - pe / 2 * 2 >= 2) ? vpe_sub_slot(pe / 2 * 2, 2, 14) : 0;
         if (c && comm_size(c) == 2) {
             comm_barrier(c); (void)comm_allreduce_max(c, 3);
             if (comm_rank(c) == 1) usleep(300000);
