@@ -3,7 +3,7 @@
 Reader: the browser agent (cannot run anything; reads this static copy and the user's pasted output). Labels on every number:
 **m** measured (where), **mod** modelled (planner `tools/plan_values.py`, `ecalc/mn_model.py`), **a** assumed, **u** user-supplied.
 Nothing here is a measurement of the target unless it says "target, m". Times are wall seconds of `ecalc`'s own `total` line.
-Sections are cited by name: Machine, Paths and launch settings, Memory limits and the planner, Time model, Reading ecalc
+Sections are cited by name: Machine, Target site measured 2026-10-26, Paths and launch settings, Memory limits and the planner, Time model, Reading ecalc
 output, Known problems and fixes, Settings worth testing, Decisions in force, Where to read more.
 
 ## Machine
@@ -15,7 +15,7 @@ output, Known problems and fixes, Settings worth testing, Decisions in force, Wh
 | fabric peak | 400 Gb/s per NIC, 100 GB/s injection per APU, 400 GB/s per node | u (measured value unknown: first thing to measure) |
 | software | ROCm 7.14.0, cray-shmem (OpenSHMEMX) 12.1.0, libfabric 2.3.1, CCE 21.0.0 | u |
 | device edge | `hipMalloc` edge 373.44 GB per node = 93.36 GB per APU (the planner's `ECALC_DEVICE_GB`) | target, m (5 runs) |
-| host budget | `ECALC_NODE_GB` 414-480 (code default 480; set from the probe) | a |
+| host budget | `ECALC_NODE_GB=487` from MemAvailable 515.7 GB on an idle node (code default 480; the old 414 was an assumption) | target, m 2026-10-26 |
 | file system | about 1 TB/s cumulative into ONE file with 32 writers per node; ecalc's own writer rate unmeasured | u |
 | physical size | 4 / 32 / 256 / 2304 APUs = 1 node / 1 chassis / 1 rack / all (ladder levels L0-L3 = 1 / 8 / 64 / 576 nodes) | u |
 | dev cluster (aac7) | same node type, ROCm 7.2.4, Cray SHMEM 11.8, **1 NIC per APU**, 6 nodes per user; all aac7 numbers below are from it | m |
@@ -24,6 +24,50 @@ Differences that make aac7 numbers only a guide: 2 NICs per APU (aac7: 1), ROCm 
 than 7.2.4 at 1e11, m aac7), Cray SHMEM 12.1 (aac7: 11.8; path 2 never ran on 12.1), 576 nodes (aac7 tested to 10).
 What ecalc is: floor(10^d * e) by binary splitting of sum 1/k!, Newton reciprocal, two-half division, NTT products mod
 3-4 primes over 4 APUs and node groups; every run self-verifies (T1 residues, T2 windows, `VERIFY OK`).
+
+## Target site, measured 2026-10-26
+
+Hand-run by the user (no agent on the system); every row target, m, 2026-10-26. Nodes sampled in depth matched on every field;
+ecalc ran on 1, 2, 8, 64 and 576 nodes and every node started it at least once (no slow or faulty node seen).
+
+| item | value |
+|---|---|
+| scheduler | Slurm 25.11: one default partition holding all 576 nodes; whole nodes only; no time or size limit; no GPU GRES on the compute nodes (`Gres=(null)`); `MpiDefault=cray_shasta`; allocations of 576 nodes start within seconds when the partition is idle |
+| login environment | sets `SLURM_HINT=nomultithread` and `SLURM_DISTRIBUTION=block:block` (see Known problems) |
+| topology | `topology/tree`: nine 64-node leaf switches = the nine dragonfly groups, consecutive node numbers (1-64, 65-128, ...); no xnames, so cabinet/chassis/blade are unknown |
+| node | 4 APUs, 96 Zen 4 cores = 192 threads, 4 NUMA nodes (one per APU): numa0 CPUs 0-23,96-119; numa1 24-47,120-143; numa2 48-71,144-167; numa3 72-95,168-191; distance 10 local / 32 remote |
+| memory | MemTotal 501.3 GiB; MemAvailable 515.7 GB idle (393.5 GB during the division step of a 64-node run); Slurm RealMemory 509,000 MB; each APU reports 128 GiB of VRAM from the shared HBM |
+| kernel settings | THP `always`; hugepages about 0 (8 total, 0 free); `numa_balancing=0`; memlock unlimited; open files 16,384; `max_map_count` 65530; Rocky 9.6, kernel 5.14 el9_6 |
+| NIC to NUMA | cxi0,1 -> numa0; cxi2,3 -> numa1; cxi4,5 -> numa2; cxi6,7 -> numa3; 400 Gb/s links up, MTU 2112, PCIe Gen5 x16. ecalc's `pe_geo` map picks exactly these pairs for APU 0-3 with `COMM_OFI_NICS` unset (1, 2, 64, 576 nodes) |
+| modules | `rocm/7.14.0` (default; 7.1.1 and 7.2.4 also), `cray-shmem/12.1.0`, `cray-dsmml/0.5.0`, `cray-pmi/6.1.17`, `libfabric/2.3.1`, CCE 21.0.0. The PE default `cray-openshmemx/11.8.0` conflicts with `cray-shmem/12.1.0`. `gmp/6.3.0` sets `GMP_BASE`, not `GMP_HOME` |
+| userfaultfd | `vm.unprivileged_userfaultfd=0` yet `FI_MR_CACHE_MONITOR=userfaultfd` works (user-mode only): the launcher default stays |
+| SHMEM 12.1 | probe built; rc 0 for 1, 2, 4 PEs and for 2, 4, 8 NICs (one PE accepts `SHMEM_OFI_NUM_NICS=2`) |
+| build | both paths build and run after the three site fixes (PMI 6.1.17 library dir, SHMEM 12.1.0 prefix, no `--gpus-per-node`), now automatic in the Makefile and `ecalc/gres.sh` (Known problems) |
+| file system | Lustre over the fabric, no quota limit for the user; ecalc's writer (O_DIRECT, 8 threads): 0.42 GB in 0.08-0.09 s at 1 node (about 5 GB/s), 1.04 GB parts in 0.21-0.31 s at 2 nodes (3.4-5.0 GB/s per part); no multi-node aggregate rate measured |
+| harmless warnings | `cxip_domain_enable ... unrestricted service ID` once per NIC per node (4,608 lines at 576 nodes); path 2: `ofi_monitor_subscribe ... ret = -14` and `DATA heap base ... is not page aligned` |
+
+Measured behaviour (m; ecalc's own counters, not a fabric benchmark):
+
+| observation | value |
+|---|---|
+| node uniformity | init 139.50-139.74 s (old seed default) and dc residue 13.08-13.34 s across 64 nodes; 577 `VERIFY OK` at 576 nodes |
+| exchange rate | 3.61 GB/s per APU thread at 2 nodes, 1e10 (11,192 exchanges, 172.64 GB; path 2: 3.60); 4.51 GB/s at 64 nodes, 5.12e11 (13,623 exchanges, 971.92 GB); against the 100 GB/s NIC peak per APU. DATA heap peak 257 of 512 MiB |
+| tree levels, 64 nodes | levels 1-6 mean 1.94, 2.42, 2.98, 4.14, 4.55, 5.50 s; node spread <= 0.5 s per level |
+| transport open | slowest rank 2.29 s (576 nodes, init only), 3.04 s (576 nodes, 2e13) |
+| self-tests | four-mesh test 88-93 s at 2 nodes, 119-125 s at 64 (88 % of init) under the old seed default (CPU contention, a symptom); with explicit seed threads init is 13-16 s. At 576 nodes the plain-mesh test is skipped (not a power of two) and the layered one takes 3.07-3.45 s |
+| device memory | 64 nodes: 120.3 GB per node, 27.9-36.5 GB per APU; 1 node 8e9: 105.8 GB, 23.8-34.5 per APU. Per-APU peak is 2.7-6.5 GB above the planner's per-APU figure (APU 0 holds the largest arena) while the node total is 6-9 GB below plan |
+| host memory | RSS 8.8 GB, HWM 13.0 GB per node at 64 nodes; VmHWM 21.7 GB (576 nodes, 144 seed threads), 25.5 GB (old default); about 288-290 GB host in use at 2e13 init |
+
+Failures at 576 nodes (not attributed to hardware by the analysis; the cause is open):
+
+| run | symptom | what to collect next time |
+|---|---|---|
+| 2e13 | `comm_xshmem: pe N: HANG (> 900 s) in the allgather handshake`, printed by two lpe-0 PEs | the first non-HANG error lines with their times (`die(`, `boot_abort`, `srun: error`, `Killed`, oom); which PEs printed the last tree-level line (the PEs that did not are the missing group); elapsed time from the previous level to the HANG; node state of the missing group |
+| 3e13 | `P24 CRT flag 1` on several nodes (flag 1 = fifth limb nonzero: wrong residues, not a legitimate overflow) | the full P24 lines (node, plane, prime); whether the same nodes fail again; any allocation failure before it; the `MEM_REPORT_DEVS` per-APU lines and the planner fit line at that size; whether 2e13 passes P24 |
+
+Switches for the next try (off by default): `COMM_HANG_DETAIL=1` (the HANG message lists the peers that have not arrived), `ECALC_FIT_PER_APU=1`
+(the planner also checks the busiest APU against the device limit; 3e13 plans 373 of 373.44 GB per node, mod); `MEM_REPORT_DEVS=1`.
+`BS_SEED_THREADS=auto` is now the default. Switch rows: `ecalc/README.md`.
 
 ## Paths and launch settings
 
@@ -45,7 +89,7 @@ Launch settings of the target (`target/config/target.conf.template`; the probe f
 | `MN_NONPOW2_CAP` | 0 | Q119: 3.82e13 on 576 fits only with it off; auto default is off below 4.5e10 digits per node anyway |
 | `FI_MR_CACHE_MONITOR` | `userfaultfd` | memhooks hangs 22/105, uffd 0/104 (m aac7); `disabled` gives silently WRONG exchanges, refused by `mnrun.sh` |
 | `FI_LOG_LEVEL` | `warn` | `FI_UNIVERSE_SIZE` = max(4096, 4 x tasks), computed by `mnrun.sh` |
-| `ECALC_DEVICE_GB` / `ECALC_NODE_GB` | 373.44 / probe value (414-480) | plan refuses a run that exceeds them |
+| `ECALC_DEVICE_GB` / `ECALC_NODE_GB` | 373.44 / 487 (m) | plan refuses a run that exceeds them |
 | `ECALC_MEM_GUARD_GB` | 6 | stops with rc 9 before the OOM killer |
 | `ECALC_SEGV_TRACE`, `ECALC_VERBOSE`, `MEM_REPORT_DEVS` | 1, 2, 1 | trace on crash; phase lines; per-APU memory rows. `ECALC_VERBOSE=2` costs at most a few s (+2.0 s over 4 pairs, not resolved, m aac7) |
 | `ECALC_PLANE_CAP` | unset = `run` | 2^30 plane pools up to about 9.6e9 digits per node, 2^31 above; not a launch setting (Q122) |
@@ -77,7 +121,7 @@ VMM growth) against 373.44 GB, with a 5 GB margin rule for the automatic `DM_MN_
 | 6.632e10 | 576 | D, cap auto (on) | 407.41 | REFUSED (-33.97) |
 | 6.632e10 | 8-576 | P / path 2 | 430 (8 n) to 671 (576 n) | refused from 8 nodes on |
 
-- Largest sizes on 576 nodes (mod): about 4.19e13 digits with `MN_NONPOW2_CAP=0`, about 2.67e13 with it on; path 2 / P about 5.2e12-7.5e12 (1.3e10 per node with a 480 GB node budget, about 9.1e9 with 414).
+- Largest sizes on 576 nodes (mod): about 4.19e13 digits with `MN_NONPOW2_CAP=0`, about 2.67e13 with it on; path 2 / P about 5.2e12-7.5e12 (1.3e10 per node with a 480-487 GB node budget, about 9.1e9 with the old 414 assumption).
 - Why path 2 jumps at 576 nodes: 576 nodes = 2304 PEs is not a power of two, so every product uses the general exchange map whose v-slots (about 61 GB per node at 1.74e10) are zero at power-of-two node counts. `DIST_CHUNKS=K` slices the exchange rows (code default: 1 under `ECALC_PE_PER_GPU=1`, i.e. path 2; 8 otherwise): v-slots 30.6 / 15.3 / 7.7 GB for K = 2 / 4 / 8 (mod). Digit safety of DIST_CHUNKS: identical for 4 vs 8 on layout D (m aac7); path 2 at non-power-of-two counts untested (TQ84).
 - `ECALC_PLANE_CAP=run` prints `ECALC_PLANE_CAP=run (default): plane cap 2^30 ...` (or 2^31). Cap 2^30 saves 2.64 s [-2.98, -2.30] at 8e9 on 1 node, about 2.8 s at 2 n, digits identical (hash 3e78c1b2a0276963 at 8e9, m aac7); above 2 nodes unmeasured.
 - Measured on aac7 (m): P fits 2 n to 5e10 (5.5e10 refused, 425.8 GB host vs 420); D fits 2 n to about 1.2e11; one node edge 1.44 / 1.30e11 at cap 2^30 / 2^31 (three primes). Init floor is 0.06-0.075 s per GB mapped (kernel page clearing, one lock): 0.070 s/GB on aac7 (target reportedly 0.010 s/GB with a generic harness, u, unconfirmed).
@@ -264,7 +308,6 @@ Extract one section of a file on the target (no editor needed):
 `awk '/^## FIT/{f=1;print;next} /^## /{f=0} f' results/LAUNCH_DEFAULTS.md | cut -c1-400 | head -60`;
 a bounded look at a run: `remote/run/show.sh <run dir|stage|latest> [errors|tail N|grep PATTERN|phases|env|files]`.
 
-Open facts only the target can supply (not in the repository): module names and versions as installed, partition and QOS limits,
-`MemAvailable` and the usable node budget, whether userfaultfd works, the real injection rate with 1 and 2 lanes, all-to-all scaling and
-latency, Cray SHMEM 12.1 behaviour and start-up time for path 2, ROCm 7.14 speed against 7.2.4, the file-system rate of ecalc's own writer,
-node-to-node variation and slow-launch behaviour, the dragonfly group size, and whether the 2^30 plane cap still saves start-up above 2 nodes.
+Open facts only the target can supply (not in the repository; module names, partition limits, `MemAvailable` and userfaultfd are answered in Target site): the real injection rate with 1 and 2 lanes, all-to-all scaling and
+latency, start-up time for path 2, ROCm 7.14 speed against 7.2.4, the file-system rate of ecalc's own writer,
+slow-launch behaviour, and whether the 2^30 plane cap still saves start-up above 2 nodes.

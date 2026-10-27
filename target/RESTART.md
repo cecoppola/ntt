@@ -132,7 +132,7 @@ aac7 times are bimodal (about one run in three is 5-8 % slower on both paths), s
 target, with many nodes, run the arms at the same time on different node groups instead (the bench does).
 
 **Memory (the hard limit).** Device memory per node ≤ 373.44 GB (the `hipMalloc` edge measured on the target, 93.36 GB
-per APU, m); host ≤ `ECALC_NODE_GB` (480 by default, set from the probe). The planner (`MN_PLAN_ONLY=<digits>:<nodes>`,
+per APU, m); host ≤ `ECALC_NODE_GB` (487, from MemAvailable 515.7 GB on an idle node, m 2026-10-26; code default 480). The planner (`MN_PLAN_ONLY=<digits>:<nodes>`,
 `tools/plan_values.py --fit`) is the authority; `mnrun.sh` refuses a run that does not fit (rc 8), the guard stops a run
 before the OOM killer (rc 9). At 3.82e13 on 576: device 358.96 GB (+14.48 GB) only with `MN_NONPOW2_CAP=0` (user decision
 Q119; with the code default 407.41 GB, refused; mod, planner). The largest size that fits: about 4.19e13 with
@@ -187,7 +187,7 @@ python3 target/ladder/locality.py nodes --from "$L/raw/scontrol_nodes.txt" --sav
 Check at once (they decide the first runs): `gpu.count` = 4, `net.cxi_count` = 8 and `net.nics_per_apu` = 2,
 `shmem.rc.*` = 0 (the Cray SHMEM 12.1 test ran with 1, 2 and 4 PEs and with 2/4/8 NICs), `uffd.*` (the libfabric memory
 monitor `FI_MR_CACHE_MONITOR=userfaultfd` needs it: 0/104 hangs against 22/105 with memhooks, m on aac7), `lib.gmp_h`
-(ecalc needs GMP; if missing, build it into `$APU/gmp` from source and set `GMP_HOME`), the partition limits in
+(GMP is needed only by the unit tests and `ref/gen_e`; the gmp module sets `GMP_BASE`, which s2 accepts; if missing, build it into `$APU/gmp` and set `GMP_HOME`), the partition limits in
 `slurm.part.*` / `slurm.qos` / `slurm.assoc` (largest job, time limit, jobs per user: they size the worker team, §4).
 `gen_conf.py` prints the keys it could not fill; fill them by hand with a `# how determined` comment. Commit the probe
 results and `target/config/target.conf` right away (Q112).
@@ -202,6 +202,8 @@ and `bld02` (path 2) into `target/build/<sha7>-p1|p2/` (copies of `ecalc/` and `
 target/bench/run.sh --jobid none --only bld01,bld02      # login-node worker: runs only nodes=0 items
 cat target/results/bench/bld0?/summary.txt               # status=PASS, e.binary=build/<sha7>-pN/ecalc/ecalc
 ```
+
+Site facts measured on the target (Slurm, NUMA/NIC map, modules, warnings, failures at 576 nodes): `remote/FACTS.md`, section "Target site, measured 2026-10-26". The three site fixes it found (PMI 6.1.17 library directory, SHMEM 12.1.0 prefix, no `--gpus-per-node` where the nodes list no GRES) and the login-environment `SLURM_HINT` are now handled in the code (Makefile, `ecalc/gres.sh`, `mnrun.sh`, `BS_SEED_THREADS=auto`): no environment file and no patched `mnrun.sh` copy are needed.
 
 Modules come from `target/config/target.conf` (`MNRUN_MODULES`, `MNRUN_UNLOAD`; path 2 needs the Cray SHMEM 12.1 and
 dsmml modules, `make -B XSHMEM=cray`). GMP: `GMP_HOME` (if the site has none: build GMP 6.x from source into `$APU/gmp`,
@@ -251,13 +253,13 @@ layout D (path 1), P (path 1, one process per GPU) and path 2 (Cray SHMEM) — w
 | L0 | 1 (4) | 8e9 | 8, 2 runs each | both, order alternating | no | device 144 GB, node 191 GB |
 | L1 | 8 (32) | 6.4e10 | 4, 2 runs | both | no | device 216 GB, node 293 GB |
 | L2 | 64 (256) | 5.12e11 | 2, 2 runs | both | first replica | device 216 GB, node 293 GB |
-| L3 | 576 (2304) | 4.608e12 | 1, 2 runs | both | yes | device 328.69 GB (+44.75), node 406.32 GB (+7.68 vs 414) |
+| L3 | 576 (2304) | 4.608e12 | 1, 2 runs | both | yes | device 328.69 GB (+44.75), node 406.32 GB (+7.68 vs the old 414 assumption; the measured budget is 487) |
 
 The model walls (mod) per level and step are in `ladder/ADJUST.md` §1; the settings are `ladder/levels/L<n>.conf`.
 
 L3 is a staircase on 576 nodes (user decision Q121): each step only after the previous one passed the ADJUST.md gate.
-Path 2 (and P) fits at 576 nodes up to about 1.3e10 digits per node with a 480 GB node budget (device +10.39 GB) and
-about 9.1e9 with 414 GB (5.23e12 on 576 nodes); layout D fits up to the headline with `MN_NONPOW2_CAP=0` (mod, planner 2026-10-25):
+Path 2 (and P) fits at 576 nodes up to about 1.3e10 digits per node with a 480-487 GB node budget (device +10.39 GB) and
+about 9.1e9 with the old 414 GB assumption (5.23e12 on 576 nodes); layout D fits up to the headline with `MN_NONPOW2_CAP=0` (mod, planner 2026-10-25):
 
 | step | digits (per node) | paths | write | plan at 576 nodes (mod) |
 |---|---|---|---|---|
