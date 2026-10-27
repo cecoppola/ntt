@@ -198,14 +198,16 @@ static int bs_rt(int *rk, int *home)
 /* (S2c: a PE process has the CPUs of its own mask to itself: no division by the lanes) */
 static int bs_nthreads(void) { return omp_get_max_threads(); }
 /* the seed pass's team (BS_SEED_THREADS): a number = that many; "auto" = 3/4 of the CPUs the calling thread may run on right now (its
- * affinity mask; init's allocations widen the mask to the cpuset, mem_unpin, and a thread created later inherits it); unset = omp_get_max_threads().
+ * affinity mask; init's allocations widen the mask to the cpuset, mem_unpin, and a thread created later inherits it); unset = auto (2026-10-26;
+ * before: omp_get_max_threads(), BS_SEED_THREADS=omp restores it).
  * omp_get_max_threads() is fixed when the OpenMP runtime starts, from the launch mask: under an srun that gives each task one core
  * (SLURM_HINT=nomultithread, no -c) it stays 1-2 while the mask is widened afterwards -- the seeds then ran 1-2 threads (target 2026-10-26: init 150 s,
  * explicit 48-192 threads 13-16 s).  An explicit num_threads() is not limited by it. */
 static int seed_nthreads(void)
 {
     const char *e = getenv("BS_SEED_THREADS");
-    if (!e) return bs_nthreads();
+    if (!e) e = "auto";
+    if (!strcmp(e, "omp")) return bs_nthreads();
     if (!strcmp(e, "auto")) {
         cpu_set_t m; int n = sched_getaffinity(0, sizeof m, &m) == 0 ? CPU_COUNT(&m) : 0;
         if (n < 1) n = omp_get_num_procs();
