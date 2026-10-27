@@ -1,8 +1,8 @@
 # gres.sh - sourced (not run): MNRUN_GRES=auto|on|off, whether srun/sbatch/salloc get GPU options (--gpus*, --gpu-bind).
 #   mn_gres_on [NODE] [PARTITION]   rc 0 = pass the GPU options, rc 1 = leave them out.  on / off decide at once; auto (default) asks Slurm
 #                                   once and caches the answer in MNRUN_GRES_RESOLVED (exported, so child scripts do not ask again):
-#                                   the node's `scontrol show node -o` (NODE), else `sinfo -h -N -o %G` (PARTITION, else all) must list
-#                                   a gpu GRES.  Slurm unreachable or silent = unknown = rc 0 (the options stay, nothing changes).
+#                                   the node's `scontrol show node -o` (NODE), else every node of `sinfo -h -N -o %G` (PARTITION, else the default
+#                                   partition) must list a gpu GRES.  Slurm unreachable or silent = unknown = rc 0 (the options stay, nothing changes).
 #   mn_gres_strip "OPTIONS" [NODE] [PARTITION]   OPTIONS without the --gpus*=..., --gpu-bind=... words when the GPU options are off
 # Why: a site whose compute nodes list no GRES (Gres=(null)) rejects every --gpus* option ("Invalid generic resource (gres)
 # specification") although the GPUs are there; aac7 lists gpu:4, so auto keeps the options there.
@@ -15,8 +15,11 @@ mn_gres_on() {
         if [ -n "$out" ]; then case "$out" in *Gres=*gpu*) MNRUN_GRES_RESOLVED=on;; *) MNRUN_GRES_RESOLVED=off;; esac; fi
     fi
     if [ -z "${MNRUN_GRES_RESOLVED:-}" ] && command -v sinfo >/dev/null 2>&1; then
-        out=$(timeout 30 sinfo -h -N ${2:+-p "$2"} -o %G 2>/dev/null)
-        if [ -n "$out" ]; then case "$out" in *gpu*) MNRUN_GRES_RESOLVED=on;; *) MNRUN_GRES_RESOLVED=off;; esac; fi
+        local p=${2:-}   # no partition: the default one (sinfo marks it with *); other partitions may hold other GPU nodes
+        [ -n "$p" ] || p=$(timeout 30 sinfo -h -o %P 2>/dev/null | sed -n 's/\*$//p' | head -1)
+        out=$(timeout 30 sinfo -h -N ${p:+-p "$p"} -o %G 2>/dev/null)
+        # on only if every node of the partition lists a gpu GRES
+        if [ -n "$out" ]; then if echo "$out" | grep -qv gpu; then MNRUN_GRES_RESOLVED=off; else MNRUN_GRES_RESOLVED=on; fi; fi
     fi
     [ -n "${MNRUN_GRES_RESOLVED:-}" ] && export MNRUN_GRES_RESOLVED
     [ "${MNRUN_GRES_RESOLVED:-on}" = on ]
