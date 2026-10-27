@@ -17,6 +17,7 @@ static const char *const cfg_names[] = {
     "COMM_LAYER_VSLOT_MB",
     "COMM_OFI_NICS",
     "COMM_OFI_POOL_MB",
+    "COMM_SEQ_CHECK",
     "COMM_SHMEM_POOL_MB",
     "COMM_SIZE",
     "COMM_TRANSPORT",
@@ -111,8 +112,10 @@ static const char *const cfg_names[] = {
     "XSHMEM_CRAY_SIGSET",
     "XSHMEM_CRAY_TEST",
     "XSHMEM_CTRL",
+    "XSHMEM_HANG_S",
     "XSHMEM_HEAP_MB",
     "XSHMEM_HEAP_SLACK_MB",
+    "XSHMEM_HS_BATCH",
     "XSHMEM_LANES",
     "XSHMEM_LANE_CTX",
     "XSHMEM_LANE_POLL",
@@ -122,7 +125,8 @@ static const char *const cfg_names[] = {
     "XSHMEM_PES_PER_GPU",
     "XSHMEM_ROUND_MB",
     "XSHMEM_SIG_LANES",
+    "XSHMEM_SPARSE",
     "XSHMEM_THP_DISABLE",
     "XSHMEM_THREAD_LEVEL",
 };
-#define CFG_NAMES_N 123
+#define CFG_NAMES_N 127

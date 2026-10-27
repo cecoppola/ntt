@@ -18,6 +18,7 @@ COMM_LAYER_VSLOT_MB	bool	derived	derived	0|1	built-in default	-	-	Y	ecalc	comm_l
 COMM_OFI_NICS	str	unset	derived	NIC list, ; between devices	launch-line	-	TUNE17.md+TGTBENCH2.md	Y	ecalc	pe_geo.c	1	-	-	comm_ofi.c:123; unset = automatic
 COMM_OFI_POOL_MB	int	0	0	MiB per device	launch-line	-	STD17.md+S18KITFIX.md	Y	ecalc	binsplit.c,comm_xshmem.c,ecalc.c	7	-	-	binsplit.c:694 sets it from the modelled need when unset
 COMM_RANK	int	0	0	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,mn.c,segv_trace.c,vpe.c	21	-	-	set per process by the launcher (mnrun.sh); excluded from the config hash
+COMM_SEQ_CHECK	bool	0	unset	0|1	built-in default	-	-	Y	ecalc	comm_xshmem.c	1	comm	2027-04-12	comm_xshmem.c; every small collective and handshake
 COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_xshmem.c	7	-	-	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
 COMM_SIZE	int	1	conflict:0|1	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,ecalc.c,fatal.c,mem.c,mn.c,mn_plan.c,rns_mul.c,segv_trace.c,vpe.c	24	-	-	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
 COMM_TRANSPORT	enum	unset	derived	shmem	launch-line	-	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c,rns_dist.c	4	-	-	mn.c: a transport is needed for COMM_SIZE > 1 (mnrun.sh sets it: xshmem, the S3a engine, when the launched executable has it (the default build, make XSHMEM=ofi, where libfabric is found; Q73 2026-10-21), else shmem; an explicit shmem is the fallback and the reference); tcp removed 2026-10-12
@@ -47,7 +48,7 @@ ECALC_FATAL_TEST	int	unset	unset		test-only	-	C314.md	Y	ecalc	binsplit.c	2	diagn
 ECALC_FATAL_WAIT	int	60	60		built-in default	-	C314.md	Y	ecalc	fatal.c	1	-	-	
 ECALC_FIT_PER_APU	int	unset	unset		built-in default	-	-	Y	ecalc	binsplit.c	4	-	-	
 ECALC_INIT_ONLY	int	unset	unset		test-only	-	L114.md+P13b.md	Y	ecalc	ecalc.c	2	diagnostics (TESTING.md)	2027-04-12	
-ECALC_INIT_TL	bool	0	0	0|1	launch-line	-	MAP15.md	Y	ecalc	comm_xshmem.c,dbig.c,mn.c	5	-	-	dbig.c
+ECALC_INIT_TL	bool	0	0	0|1	launch-line	-	MAP15.md	Y	ecalc	comm_xshmem.c,dbig.c,ecalc.c,mn.c,xshmem_ofi.c	7	-	-	dbig.c
 ECALC_MEM_GUARD_GB	float	0	derived	>=0 GB	launch-line	aac7	IO15.md+DOC15.md	Y	ecalc	memsample.c	1	-	-	memsample.c:113; 0 = guard off
 ECALC_MEM_SAMPLE	bool	derived	derived	0|1	test-only	-	IO15.md+S114.md	Y	ecalc	memsample.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_NODE_GB	float	480	480		built-in default	aac7	P16.md+C314.md	Y	ecalc	binsplit.c,ecalc.c	10	-	-	
@@ -112,8 +113,10 @@ XSHMEM_CRAY_PUTSIG_SPLIT	int	0	derived	0|1	experiment	-	-	Y	ecalc	xshmem_cray.h	
 XSHMEM_CRAY_SIGSET	int	0	derived	0|1|2|3	experiment	-	-	Y	ecalc	xshmem_cray.h	1	craylane	2026-12-31	xshmem_cray.h; runtime override of the compiled signal-set selector (0 shmemx_ctx_signal_set, 2 uint64_p, 3 zero-length putsig; 1 only if compiled with it)
 XSHMEM_CRAY_TEST	int	0	derived	0|1	experiment	-	-	Y	ecalc	xshmem_cray.h	1	craylane	2026-12-31	xshmem_cray.h; runtime override of the signal-test selector (1 = shmem_uint64_test)
 XSHMEM_CTRL	str	heap	unset	heap|host	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (B1)	2026-12-31	xshmem.h xshmem_cfg_load; host = control words in a host region (design 1.3 b)
+XSHMEM_HANG_S	float	900	unset	> 0	built-in default	-	-	Y	ecalc	comm_xshmem.c	1	comm	2027-04-12	comm_xshmem.c
 XSHMEM_HEAP_MB	int	0	0	MiB per PE	experiment	-	-	Y	ecalc	binsplit.c,xshmem.h	4	TARGET1 (B1)	2026-12-31	xshmem.h; 0 = backend default; binsplit.c sets it under COMM_TRANSPORT=xshmem
 XSHMEM_HEAP_SLACK_MB	int	0	unset	MiB	experiment	-	-	Y	ecalc	comm_xshmem.c	2	TGTSHAPE	2026-12-31	comm_xshmem.c; MiB added to each loopback PE's DATA heap (default 0 = the plan's figure exactly); the Cray backend needs a few MiB more than the planner's heap (control and alignment come out of the same heap)
+XSHMEM_HS_BATCH	int	0	unset	>= 0	experiment	-	-	Y	ecalc	comm_xshmem.c	1	comm	2026-12-31	comm_xshmem.c; flat handshake and small collectives
 XSHMEM_LANES	int	1	1	1..4	experiment	-	-	Y	ecalc	pe_geo.c,xshmem.h	2	TARGET1 (B1)	2026-12-31	xshmem.h, pe_geo.c; lanes (contexts) per PE; may exceed the NICs (virtual lanes); the engine clamps above 4
 XSHMEM_LANE_CTX	str	serialized	unset	serialized|private|none	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; the options of the lane contexts (SHMEM_CTX_SERIALIZED / PRIVATE / none)
 XSHMEM_LANE_POLL	int	0	unset	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; a waiting PE also polls its extra lanes (quiet on a lane with nothing outstanding)
@@ -123,6 +126,7 @@ XSHMEM_PEER	int	-1	-1	-1|0|1	experiment	-	-	Y	ecalc	xshmem.h	1	TASK4 peer	2026-1
 XSHMEM_PES_PER_GPU	int	1	1	>=1	experiment	-	-	Y	ecalc	comm_xshmem.c,ecalc.c,pe_geo.c,vpe.c,xshmem_cray.h	7	TARGET1 (B1)	2026-12-31	pe_geo.c; PEs per GPU (target fallback 2)
 XSHMEM_ROUND_MB	float	128	128	>= 0	experiment	-	-	Y	ecalc	xshmem_round.h	1	TARGET1 (S3a)	2026-12-31	comm_xshmem.c, xshmem_round.h; unset = 128 (Q73 2026-10-21; 0 where the engine polls: ECALC_XEX_THREAD=0, planner and engine alike); 0 = off, whole-exchange staging; m > 0: an all-to-all whose pair exceeds m/(n-1) MiB goes in rounds staging at most m MiB each way (needs ECALC_XEX_THREAD=1); the planner sizes XSHMEM_HEAP_MB from it
 XSHMEM_SIG_LANES	int	0	unset	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; signals to member i go on lane i mod N (after every payload lane is quiet)
+XSHMEM_SPARSE	bool	0	unset	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	comm	2026-12-31	comm_xshmem.c; alltoall / alltoallv exchanges (whole and in rounds)
 XSHMEM_THP_DISABLE	int	0	derived	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; 1 = prctl(PR_SET_THP_DISABLE) at engine init (no THP faults in this process: avoids direct compaction stalls)
 XSHMEM_THREAD_LEVEL	int	3	unset	0|1|2|3	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; thread level of xshmem_init_thread (3 MULTIPLE default; 2 SERIALIZED as the ofi backend)
 DIST_BIG	int	derived	derived		test-only	-	-	prose	tests	t_dist.c,t_mul.c	3	ecalc/tests/t_dist.c	2027-04-12	
