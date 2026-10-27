@@ -122,6 +122,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_NP` | auto | launch-line | the number of NTT primes: 3 (Phase 13b step 0: −17 % wall, −25.8 GB of planes; `ecalc.c` sets it when unset; 4 was the binary-limb count, archived with archive:PLAN §28.5). | P15.md |
 | `ECALC_NP_AUTO_TERMS` | derived | test-only | under `ECALC_NP=auto`, the switch-over in terms (1 … 58 424 467 928, the three-prime bound): a lower value makes small runs form both counts (the forced tests of results/PRIMES_STRATEGY.md ... | NP15.md |
 | `ECALC_ODIRECT` | 1 | built-in default | 1 = the checkpoint files (the top-level set, in the background) and the output file are written with O_DIRECT through aligned buffers (`spill.c`'s `sp_file`; the last partial block padded, ... | S114.md+KP15.md |
+| `ECALC_OMP_TEAM` | omp | experiment | omp_team.h: size of the host OpenMP teams (bs_nthreads, packed_mods residue, verify.c, mem.c hstage): omp = omp_get_max_threads() (latched from the ... | S22.md |
 | `ECALC_OUT_MODE` | derived | built-in default | the part file's write mode: `direct` (O_DIRECT), `buffered` (page cache, no sync: the pre-Phase-14 form), `sync` (buffered, `fsync` + `posix_fadvise(DONTNEED)` at close), `drop` (buffered, ... | IO15.md |
 | `ECALC_OUT_ODIRECT` | derived | built-in default | with `ECALC_ODIRECT=1`, 0 keeps the output file buffered (1) | S114.md+KP15.md |
 | `ECALC_OUT_PACKED` | 2 | built-in default | (`packed_fmt.h` version 2): the same header and checks, the limbs (< 2^60) as a little-endian 60-bit stream, 15 bytes per 2 limbs (7.5 B per 18 digits = 0.4167 B/digit, -6.25 % bytes ... | KP15.md+IO15.md |
@@ -129,6 +130,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_PLANE_CAP` | derived | experiment | the plane cap, `2^30` or `2^31` (or `30`, `31`) or `fit` (the larger whose node total fits `ECALC_NODE_GB`, default 480) or `run` (2^30 when the run's largest product, the division's 2 k + 8 limbs, fits one plane of that cap: about 9.6e9 digits per node and below; else 2^31; 2^31 with `ECALC_PE_PER_GPU`; prints one `ECALC_PLANE_CAP=run:` line, `run (default):` when unset); the default is `run` (2026-10-25, user): `2^31` forces the old cap; with `POOL_LOG` or `DIST_LOGN_TEST` given the knobs stay as given, and `fit` is the default with `ECALC_PE_PER_GPU=1` and `XSHMEM_PES_PER_GPU` > 1; sets `POOL_LOG` and `DIST_LOGN_TEST` and refuses a conflicting one; ... | P13b.md+CAP17.md |
 | `ECALC_PLANE_CAP_IDX` | derived | test-only | set by `ecalc.c` for the bs sizing pass (the plane-cap index in use); do not set | - |
 | `ECALC_RECHECK` | 0 | launch-line | 1: the standalone recheck of a finished run's files instead of a run (0). | V.md+KP15.md |
+| `ECALC_RESIDUE` | off | experiment | residue_shoup.h: the digit residues of packed_mods (mn_out.c) and vf_digits_mods (verify.c): shoup = Shoup precomputed-quotient multiply per Horner ... | S22.md |
 | `ECALC_SEGV_TRACE` | 0 | launch-line | `1` = install a SIGSEGV/SIGBUS/SIGABRT handler right after `main` knows `COMM_RANK` (`segv_trace.c`): on the signal it prints, with `write(2)` only (async-signal-safe, no malloc/printf), ... | S18W.md+S30.md |
 | `ECALC_TEST_CORR` | 0 | test-only | - | DKM15.md+KP15.md |
 | `ECALC_TEST_DIE_PE` | -1 | test-only | ecalc.c; kill test (ECALC_PE_PER_GPU gate): PE <n> dies by ec_fatal after the bs phase; unset = off | - |
@@ -146,6 +148,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `MN_OUT_CHUNK_MB` | 256 | built-in default | the streamed writer's digit chunk per node (256) | IO15.md+A-out.md |
 | `MN_OUT_DKM_HI_TEST_CARRY` | unset | test-only | - | EW15.md |
 | `MN_OUT_EARLY` | 1 | built-in default | at size > 1 the part file starts at the division's hook (X formed, before the low product: `newton_mn_x_hook` → `mn_out_early_start`) in a background thread over the node's share, as the ... | IO15.md |
+| `MN_OUT_EARLY_ALWAYS` | 0 | experiment | ecalc.c mn_hooks_set: 1 = the early output hook (MN_OUT_EARLY) also without an output file: the writer computes the digit residues only, overlapped ... | S22.md |
 | `MN_OUT_STRIPE` | 1 | built-in default | `<count>[:<stripe MB>[:<OSTs>]]` — each part file created with that Lustre layout (`lfs setstripe`); with `<OSTs>` the first OST is `(part × count) mod OSTs`. | IO15.md+SC15.md |
 | `MN_OUT_THREADS` | 8 | built-in default | pwrite threads per chunk of the part file (8) | IO15.md+TARGET_HW_REVIEW.md |
 | `MN_PLAN_ONLY` | unset | launch-line | `<total digits>:<g>` — the plan of a run (every large product's grid, pieces, planes, from the code's own decisions; no device) and exit. | P15.md+T215.md |
@@ -167,7 +170,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `RNS_POOL_GROW` | 0 | test-only | a region pool that would grow inside bs aborts with the accounting unless 1 (the stress recipe sets it) (0) | B16.md+R.md |
 | `RNS_STRATEGY` | derived | built-in default | the single-node product's strategy (`dist_core`: top levels, reciprocal, division): `C` four-step; `B` prime-per-APU (planes that do not fit the pools from an extra per-APU buffer); `auto` ... | B13b.md+G13d.md |
 | `RNS_VERBOSE` | 0 | launch-line | 1 per-call times, 2 CRT re-runs; also the pool allocations' times (unset) | PS15.md+M.md |
-| `XSHMEM_COLL` | flat | experiment | experiment, default flat: tree = dissemination (ceil(log2 n) rounds, offsets only with the log n partners) instead of every member to every member; digits identical; results/XSHMEM.md | - |
+| `XSHMEM_COLL` | unset | unclassified | - | - |
 | `XSHMEM_CRAY_GPU_PRETOUCH` | 0 | experiment | diagnosis, default 0 (XSHMEM=cray): 1 = at init one GPU kernel on the PE's device reads a byte of every 4 KiB page of the hipHostRegister'ed DATA heap (populates the GPU page tables; tests ... | - |
 | `XSHMEM_CRAY_HEAP_THP` | 0 | experiment | diagnosis, default 0 (XSHMEM=cray): 1 = madvise(MADV_HUGEPAGE) on the DATA heap before it is zeroed and MADV_COLLAPSE after; 2 = only report; each PE prints the heap mapping's ... | - |
 | `XSHMEM_CRAY_NOMEMSET` | 0 | experiment | diagnosis, default 0 (XSHMEM=cray): 1 = skip the engine's zeroing of the DATA heap (a fresh libsma zero mapping); with `XSHMEM_LANE_TRACE` set, the init prints shmem_init_thread and heap ... | - |
@@ -186,7 +189,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `XSHMEM_PEER` | -1 | experiment | (default: on with one PE per process, Q100 2026-10-25; `0` = off, the NIC path; the default layout D is unaffected): same-node PEs exchange payload by device copies (`hipMemcpyAsync` on one ... | - |
 | `XSHMEM_PES_PER_GPU` | 1 | experiment | PEs per GPU (default 1; the 2-PEs-per-GPU fallback of design 2.2) / a prefix for every `/sys` path (mock trees of `tests/t_pe_geo`) | - |
 | `XSHMEM_ROUND_MB` | 128 | experiment | the xshmem engine (`COMM_TRANSPORT=xshmem`) carries an all-to-all whose pair exceeds this / (n − 1) MiB in rounds that stage at most this many MiB each way (the self slab is not staged; one ... | - |
-| `XSHMEM_ROUND_PIPE` | 0 | experiment | experiment, default 0: 1 = per-peer completion in the rounds exchange (a pair posts chunk j + 1 when its peer acknowledged chunk j) instead of the all-peer round barrier; digits identical; results/XSHMEM.md | - |
+| `XSHMEM_ROUND_PIPE` | unset | unclassified | - | - |
 | `XSHMEM_SIG_LANES` | 0 | experiment | diagnosis, default off: signals on every lane instead of lane 0 only | - |
 | `XSHMEM_THP_DISABLE` | 0 | experiment | diagnosis, default 0: 1 = prctl(PR_SET_THP_DISABLE) in the engine init, so this process takes no THP faults (and no direct-compaction stalls) | - |
 | `XSHMEM_THREAD_LEVEL` | 3 | experiment | default 3 (MULTIPLE): thread level of the engine's SHMEM init; 2 = SERIALIZED as the ofi backend | - |
@@ -215,9 +218,9 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | TARGET1 (S2) | 2026-12-31 | `ECALC_VPE_LANES` |
 | experiment | TARGET1 (S3a) | 2026-12-31 | `XSHMEM_LOOPBACK_PES`, `XSHMEM_ROUND_MB` |
 | experiment | TARGET12 (S2) | 2026-12-31 | `ECALC_PE_PER_GPU`, `RNS_BATCH_SPLIT` |
+| experiment | TARGET12 (S22) | 2026-12-31 | `ECALC_OMP_TEAM`, `ECALC_RESIDUE`, `MN_OUT_EARLY_ALWAYS` |
 | experiment | TASK4 peer | 2026-12-31 | `XSHMEM_PEER` |
 | experiment | TGTSHAPE | 2026-12-31 | `XSHMEM_HEAP_SLACK_MB` |
-| experiment | comm | 2026-12-31 | `XSHMEM_COLL`, `XSHMEM_ROUND_PIPE` |
 | experiment | craylane | 2026-12-31 | `XSHMEM_CRAY_GPU_PRETOUCH`, `XSHMEM_CRAY_HEAP_THP`, `XSHMEM_CRAY_NOMEMSET`, `XSHMEM_CRAY_NUMA`, `XSHMEM_CRAY_PUTSIG_SPLIT`, `XSHMEM_CRAY_SIGSET`, `XSHMEM_CRAY_TEST`, `XSHMEM_LANE_CTX`, `XSHMEM_LANE_POLL`, `XSHMEM_LANE_TRACE`, `XSHMEM_SIG_LANES`, `XSHMEM_THP_DISABLE`, `XSHMEM_THREAD_LEVEL` |
 | fallback | P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF) | 2026-11-11 | `DM_MN_WRAP` |
 | fallback | coordinator (TASKS S) | 2026-11-11 | `ECALC_OUT_PACKED` |

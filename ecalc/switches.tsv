@@ -17,7 +17,7 @@ COMM_HANG_DETAIL	int	unset	unset		built-in default	-	-	Y	ecalc	comm_xshmem.c	2	-
 COMM_LAYER_VSLOT_MB	bool	derived	derived	0|1	built-in default	-	-	Y	ecalc	comm_layered.c	1	-	-	
 COMM_OFI_NICS	str	unset	derived	NIC list, ; between devices	launch-line	-	TUNE17.md+TGTBENCH2.md	Y	ecalc	pe_geo.c	1	-	-	comm_ofi.c:123; unset = automatic
 COMM_OFI_POOL_MB	int	0	0	MiB per device	launch-line	-	STD17.md+S18KITFIX.md	Y	ecalc	binsplit.c,comm_xshmem.c,ecalc.c	7	-	-	binsplit.c:694 sets it from the modelled need when unset
-COMM_RANK	int	0	0	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,mn.c,segv_trace.c,vpe.c	19	-	-	set per process by the launcher (mnrun.sh); excluded from the config hash
+COMM_RANK	int	0	0	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,mn.c,segv_trace.c,vpe.c	21	-	-	set per process by the launcher (mnrun.sh); excluded from the config hash
 COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_xshmem.c	7	-	-	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
 COMM_SIZE	int	1	conflict:0|1	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,ecalc.c,fatal.c,mem.c,mn.c,mn_plan.c,rns_mul.c,segv_trace.c,vpe.c	24	-	-	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
 COMM_TRANSPORT	enum	unset	derived	shmem	launch-line	-	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c,rns_dist.c	4	-	-	mn.c: a transport is needed for COMM_SIZE > 1 (mnrun.sh sets it: xshmem, the S3a engine, when the launched executable has it (the default build, make XSHMEM=ofi, where libfabric is found; Q73 2026-10-21), else shmem; an explicit shmem is the fallback and the reference); tcp removed 2026-10-12
@@ -54,6 +54,7 @@ ECALC_NODE_GB	float	480	480		built-in default	aac7	P16.md+C314.md	Y	ecalc	binspl
 ECALC_NP	enum	auto	derived	auto|3|4	launch-line	-	P15.md	Y	ecalc	crt.c,ecalc.c	3	-	-	ecalc.c: unset becomes auto at size > 1 (D18), 3 at size 1; crt.c reads auto
 ECALC_NP_AUTO_TERMS	bool	derived	derived	0|1	test-only	-	NP15.md	Y	ecalc	crt.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_ODIRECT	int	1	1		built-in default	-	S114.md+KP15.md	Y	ecalc	spill.c	3	-	-	
+ECALC_OMP_TEAM	str	omp	unset	omp|mask	experiment	-	S22.md	Y	ecalc	omp_team.h	1	TARGET12 (S22)	2026-12-31	omp_team.h: size of the host OpenMP teams (bs_nthreads, packed_mods residue, verify.c, mem.c hstage): omp = omp_get_max_threads() (latched from the launch CPU mask: 1-2 under an srun without -c); mask = the CPUs the calling thread may run on now (affinity mask), unless OMP_NUM_THREADS is set (it wins) or the PE-per-GPU flow runs (the PE share: mask / PEs per node; background threads keep their own team); with mask rank 0 prints one `omp team:` line (mask CPUs, OMP max, seed, bs, residue, bg threads)
 ECALC_OUT_MODE	bool	derived	derived	0|1	built-in default	-	IO15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_ODIRECT	int	derived	derived		built-in default	-	S114.md+KP15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_PACKED	int	2	2		built-in default	-	KP15.md+IO15.md	Y	ecalc	mn_out.c	1	coordinator (TASKS S)	2026-11-11	
@@ -61,6 +62,7 @@ ECALC_PE_PER_GPU	bool	0	derived	0/1	experiment	-	-	Y	ecalc	ecalc.c,mem.c,vpe.c	3
 ECALC_PLANE_CAP	bool	derived	derived	0|1	experiment	-	P13b.md+CAP17.md	Y	ecalc	ecalc.c	1	coordinator (TASKS S)	2026-11-11	
 ECALC_PLANE_CAP_IDX	int	derived	derived		test-only	-	-	Y	ecalc	binsplit.c,ecalc.c	3	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	
 ECALC_RECHECK	bool	0	unset	0|1	launch-line	-	V.md+KP15.md	Y	ecalc	ecalc.c	2	-	-	ecalc.c: standalone recheck of a finished run
+ECALC_RESIDUE	str	off	unset	shoup	experiment	-	S22.md	Y	ecalc	residue_shoup.h	1	TARGET12 (S22)	2026-12-31	residue_shoup.h: the digit residues of packed_mods (mn_out.c) and vf_digits_mods (verify.c): shoup = Shoup precomputed-quotient multiply per Horner step (bit-identical, no 128-bit division); default = the % form
 ECALC_SEGV_TRACE	bool	0	derived	0|1	launch-line	aac7	S18W.md+S30.md	Y	ecalc	segv_trace.c	1	-	-	segv_trace.c:146
 ECALC_TEST_CORR	int	0	0		test-only	-	DKM15.md+KP15.md	Y	ecalc	newton_db.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_TEST_DIE_PE	int	-1	unset	-1..	test-only	-	-	Y	ecalc	ecalc.c	2	TARGET12 (S2)	2027-04-12	ecalc.c; kill test (ECALC_PE_PER_GPU gate): PE <n> dies by ec_fatal after the bs phase; unset = off
@@ -78,6 +80,7 @@ MN_NONPOW2_MIN	num	4.5e10	unset	>0	built-in default	-	-	Y	ecalc	rns_mul.c	1	T2 (
 MN_OUT_CHUNK_MB	int	256	256		built-in default	-	IO15.md+A-out.md	Y	ecalc	mn_out.c	2	-	-	
 MN_OUT_DKM_HI_TEST_CARRY	bool	unset	unset	0|1	test-only	-	EW15.md	Y	ecalc	ecalc.c	1	diagnostics (TESTING.md)	2027-04-12	
 MN_OUT_EARLY	int	1	1		built-in default	-	IO15.md	Y	ecalc	binsplit.c,ecalc.c	6	-	-	
+MN_OUT_EARLY_ALWAYS	bool	0	unset	0/1	experiment	-	S22.md	Y	ecalc	ecalc.c	2	TARGET12 (S22)	2026-12-31	ecalc.c mn_hooks_set: 1 = the early output hook (MN_OUT_EARLY) also without an output file: the writer computes the digit residues only, overlapped with the division, and writes nothing; measured aac7 1 node layout P 8e9: dm 3.11 -> 3.92 s with it on (the writer competes with the division), so it stays off
 MN_OUT_STRIPE	bool	1	1	0|1	built-in default	-	IO15.md+SC15.md	Y	ecalc	mn_out.c	1	-	-	
 MN_OUT_THREADS	int	8	8		built-in default	-	IO15.md+TARGET_HW_REVIEW.md	Y	ecalc	mn_out.c	3	-	-	
 MN_PLAN_ONLY	str	unset	derived	D:g	launch-line	-	P15.md+T215.md	Y	ecalc	binsplit.c,ecalc.c,vpe.c	3	-	-	ecalc.c:451; prints the plan and exits
@@ -99,7 +102,7 @@ RNS_POOL1_GB	float	unset	unset		built-in default	-	R.md+T.md	Y	ecalc	mn_plan.c,r
 RNS_POOL_GROW	int	0	0		test-only	-	B16.md+R.md	Y	ecalc	binsplit.c,rns_mul.c	6	diagnostics (TESTING.md)	2027-04-12	
 RNS_STRATEGY	bool	derived	derived	0|1	built-in default	-	B13b.md+G13d.md	Y	ecalc	rns_dist.c	1	-	-	
 RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	31	-	-	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
-XSHMEM_COLL	str	flat	unset	flat|tree	experiment	-	-	Y	ecalc	comm_xshmem.c	1	comm	2026-12-31	comm_xshmem.c; barrier / allreduce_max / allgather_host
+XSHMEM_COLL	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_xshmem.c	1	-	-	
 XSHMEM_CRAY_GPU_PRETOUCH	int	0	0	0|1	experiment	-	-	Y	ecalc	xshmem_cray.h	1	craylane	2026-12-31	xshmem_cray.h; 1 = a GPU kernel reads one byte per 4 KiB page of the registered DATA heap at init (GPU page-table population)
 XSHMEM_CRAY_HEAP_THP	int	0	0	0|1|2	experiment	-	-	Y	ecalc	xshmem_cray.h	1	craylane	2026-12-31	xshmem_cray.h; XSHMEM_CRAY=cray DATA heap: 1 = MADV_HUGEPAGE before zeroing + MADV_COLLAPSE after, 2 = only report the backing (smaps line per PE)
 XSHMEM_CRAY_NOMEMSET	int	0	unset	0|1	experiment	-	-	Y	ecalc	xshmem_cray.h	1	craylane	2026-12-31	xshmem_cray.h; diagnosis: skip our zeroing of the DATA heap (libsma heap is a fresh zero mapping)
@@ -118,7 +121,7 @@ XSHMEM_LOOPBACK_PES	int	1	1	1..8	experiment	-	-	Y	ecalc	xshmem.h	1	TARGET1 (S3a)
 XSHMEM_PEER	int	-1	-1	-1|0|1	experiment	-	-	Y	ecalc	xshmem.h	1	TASK4 peer	2026-12-31	xshmem.h; node-local PEs exchange payload by device copies through hipIpc-mapped DATA heaps (xshmem_ptr) instead of the NIC; ofi backend, one PE per process; inert on cray
 XSHMEM_PES_PER_GPU	int	1	1	>=1	experiment	-	-	Y	ecalc	comm_xshmem.c,ecalc.c,pe_geo.c,vpe.c,xshmem_cray.h	7	TARGET1 (B1)	2026-12-31	pe_geo.c; PEs per GPU (target fallback 2)
 XSHMEM_ROUND_MB	float	128	128	>= 0	experiment	-	-	Y	ecalc	xshmem_round.h	1	TARGET1 (S3a)	2026-12-31	comm_xshmem.c, xshmem_round.h; unset = 128 (Q73 2026-10-21; 0 where the engine polls: ECALC_XEX_THREAD=0, planner and engine alike); 0 = off, whole-exchange staging; m > 0: an all-to-all whose pair exceeds m/(n-1) MiB goes in rounds staging at most m MiB each way (needs ECALC_XEX_THREAD=1); the planner sizes XSHMEM_HEAP_MB from it
-XSHMEM_ROUND_PIPE	int	0	unset	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	comm	2026-12-31	comm_xshmem.c; only with rounds (XSHMEM_ROUND_MB > 0)
+XSHMEM_ROUND_PIPE	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_xshmem.c	1	-	-	
 XSHMEM_SIG_LANES	int	0	unset	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; signals to member i go on lane i mod N (after every payload lane is quiet)
 XSHMEM_THP_DISABLE	int	0	derived	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; 1 = prctl(PR_SET_THP_DISABLE) at engine init (no THP faults in this process: avoids direct compaction stalls)
 XSHMEM_THREAD_LEVEL	int	3	unset	0|1|2|3	experiment	-	-	Y	ecalc	comm_xshmem.c	1	craylane	2026-12-31	comm_xshmem.c; thread level of xshmem_init_thread (3 MULTIPLE default; 2 SERIALIZED as the ofi backend)

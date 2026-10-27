@@ -12,6 +12,8 @@
 #include <hip/hip_runtime.h>
 #include "mn_out.h"
 #include "mem.h"
+#include "residue_shoup.h"                                  /* B3a: ECALC_RESIDUE=shoup */
+#include "omp_team.h"                                     /* A1: ECALC_OMP_TEAM */
 #include "vpe.h"                                        /* S1e: PE layout (ECALC_PE_PER_GPU) -- rank = PE, the PE's own device */
 #include "spill.h"                                    /* ECALC_ODIRECT */
 #include <sys/stat.h>                                 /* the patch (fstat) */
@@ -281,12 +283,16 @@ static void packed_mods(const uint64_t *l, size_t n, uint64_t *out)
     const uint64_t B = 1000000000000000000ULL;
     for (int j = 0; j < T1_NQ; j++) out[j] = 0;
     if (!n) return;
-    int T = omp_get_max_threads(); if ((size_t)T > n / 1024 + 1) T = (int)(n / 1024 + 1);
+    int T = ec_team(); if ((size_t)T > n / 1024 + 1) T = (int)(n / 1024 + 1);
     uint64_t *cv = (uint64_t *)malloc((size_t)T * T1_NQ * 8);
 #pragma omp parallel for num_threads(T) schedule(static)
     for (int t = 0; t < T; t++) {
         size_t a = n * t / T, e = n * (t + 1) / T; uint64_t v[T1_NQ], b[T1_NQ];
         for (int j = 0; j < T1_NQ; j++) { v[j] = 0; b[j] = B % t1_q[j]; }
+        if (ec_residue_shoup()) {                                   /* B3a: the Shoup step (residue_shoup.h), the same values */
+            uint64_t w[T1_NQ]; for (int j = 0; j < T1_NQ; j++) w[j] = rs_w(b[j], t1_q[j]);
+            for (size_t i = a; i < e; i++) for (int j = 0; j < T1_NQ; j++) v[j] = rs_step(v[j], b[j], w[j], t1_q[j], l[i]);
+        } else
         for (size_t i = a; i < e; i++) for (int j = 0; j < T1_NQ; j++) v[j] = (uint64_t)(((unsigned __int128)v[j] * b[j] + l[i]) % t1_q[j]);
         for (int j = 0; j < T1_NQ; j++) cv[(size_t)t * T1_NQ + j] = v[j];
     }
@@ -491,7 +497,7 @@ static void *early_run(void *a)
 {
     struct mn_out_early *e = (struct mn_out_early *)a;
     vpe_adopt();                                       /* S1e: a helper thread of this PE (device, engine PE; a no-op with the switch off) */
-    omp_set_num_threads(g_bgt > 0 ? g_bgt : getenv("ECALC_BG_THREADS") ? atoi(getenv("ECALC_BG_THREADS")) : 48);   /* the background team, as the one-node writer's (vPE: the PE's CPUsADS per PE, ecalc.c) */
+    ec_team_set(g_bgt > 0 ? g_bgt : getenv("ECALC_BG_THREADS") ? atoi(getenv("ECALC_BG_THREADS")) : 48);   /* the background team, as the one-node writer's (vPE: the PE's CPUsADS per PE, ecalc.c) */
     double t0 = mem_now();
     if (e->two) {                                      /* the X_hi part now (finished here), then the X_lo part once released */
         mn_out_run(&e->o_hi, &e->src_hi); mn_out_finish(&e->o_hi); e->t_hi = mem_now() - t0;

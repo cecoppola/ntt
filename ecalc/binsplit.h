@@ -27,6 +27,8 @@ extern bs_stats bs_st;
 extern int bs_seed_terms;                       /* 256 (BS_SEED_TERMS) */
 unsigned long bs_seed_terms_for(unsigned long bend);
 long bs_seed_fill(void);                                  /* the fill in limbs (BS_SEED_FILL; 128 by default; 0 = the fixed span) */   /* the run's seed span for terms ending at bend (BS_SEED_FILL, else BS_SEED_TERMS / 256) */
+int bs_team_size(void);                                    /* the whole-node team (ECALC_OMP_TEAM) and the seed pass's team: the start-up line */
+int bs_seed_team_size(void);
 extern int bs_verbose;
 /* the top-level set (ECALC_CKPT_TOP, read by ECALC_RECHECK): this node's P and Q (shares) and their mdb descriptors
  * desc[10] = P.n P.N P.g0 P.g P.sh.n, the same for Q, as tree set `level` (size 1: 0; size > 1: mn_tree's top level);

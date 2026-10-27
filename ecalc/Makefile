@@ -24,7 +24,7 @@ OFI_CFLAGS = -I$(LIBFABRIC)/include
 OFI_LIBS   = -L$(LIBFABRIC)/lib64 -lfabric -Wl,-rpath,$(LIBFABRIC)/lib64
 endif
 
-TESTS = tests/t_arith tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_strategy tests/t_cap tests/t_seed tests/t_patch tests/t_p24 tests/t_crtk tests/t_vpe
+TESTS = tests/t_arith tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_strategy tests/t_cap tests/t_residue tests/t_seed tests/t_patch tests/t_p24 tests/t_crtk tests/t_vpe
 OBJS  = ntt.o ntt3.o mem.o crt.o comm_xgmi.o comm_copy.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o rns_local.o dbig.o newton_db.o newton.o binsplit.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o config_line.o vpe.o
 REF   = ref/gen_e
 HDRS  = $(wildcard *.h)                 # every object and test depends on every header (one rule instead of a dependency line per file)
@@ -60,6 +60,8 @@ tests/t_dist: tests/t_dist.c tests/comm_local.c tests/comm_sim4.c $(OBJS) $(HDRS
 
 # tests with fewer objects: the plane cap (host only), the CRT, the transforms, the allocator
 tests/t_cap: tests/t_cap.c tests/harness.h
+	gcc $(CFLAGS) -o $@ $< $(GMP_LIBS) -lm
+tests/t_residue: tests/t_residue.c residue_shoup.h tests/harness.h bigint.h
 	gcc $(CFLAGS) -o $@ $< $(GMP_LIBS) -lm
 tests/t_crt: tests/t_crt.c crt.o mem.o bigint.o fatal.o $(HDRS) tests/harness.h
 	$(HIPC) $< -x none crt.o mem.o bigint.o fatal.o -o $@ $(GMP_LIBS)

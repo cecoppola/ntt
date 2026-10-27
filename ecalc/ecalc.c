@@ -33,6 +33,7 @@
 #include "memsample.h"                               /* E1, E12 */
 #include "spill.h"                                   /* E3 (the output file under ECALC_ODIRECT) */
 #include "fatal.h"                                   /* ec_quit, EC_RC_BUDGET */
+#include "omp_team.h"                              /* A1: ECALC_OMP_TEAM */
 #include "vpe.h"                                   /* PE identity (ECALC_PE_PER_GPU=1, off by default) */
 #include "segv_trace.h"                               /* s18w task 2: ECALC_SEGV_TRACE=1 (default 0) */
 extern "C" size_t comm_layered_vbytes(int dev);      /* B7ACCT (comm_layered.c) */
@@ -56,7 +57,7 @@ static void meta_line(const char *bench)
  * joins where its result is first needed. ---- */
 static int g_bg_threads = 48;
 struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started, joined; double t; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
-static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); omp_set_num_threads(g_bg_threads);
+static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); ec_team_set(g_bg_threads);
     for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(b->a0, b->b1, t1_q[i], &b->p[i], &b->qq[i]); b->t = mem_now() - t0;
     return 0; }
 static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->started) return; pthread_create(&b->th, 0, pq_bg_run, b); b->started = 1; }   /* O2: after the seeds */
@@ -74,7 +75,7 @@ static void x_bg_writer(struct x_bg *b)                /* the chunked writer ove
 }
 static void *x_bg_run(void *a)
 {
-    struct x_bg *b = (struct x_bg *)a; omp_set_num_threads(g_bg_threads);
+    struct x_bg *b = (struct x_bg *)a; ec_team_set(g_bg_threads);
     double t0 = mem_now();
     { mn_out_src src = x_bg_src(b); mn_out_res_share(&src, b->Xres); }   /* the device kernel on the device X (B1), else the host Horner */
     b->t_res = mem_now() - t0; sem_post(&b->res_ready);
@@ -101,7 +102,7 @@ static void x_bg_gate(void *a, mn_out *o)             /* the writer at s: X_hi's
 }
 static void *x_bg_run_hi(void *a)
 {
-    struct x_bg *b = (struct x_bg *)a; omp_set_num_threads(g_bg_threads);
+    struct x_bg *b = (struct x_bg *)a; ec_team_set(g_bg_threads);
     double t0 = mem_now(); g_xhi.t_hi = t0;
     mn_out_res_share(&g_xhi.src_hi, g_xhi.res_hi);
     b->t_res = mem_now() - t0;
@@ -246,7 +247,7 @@ static int out_stage(struct out_ctx *c)
         }
     } else if (c->early) {                            /* the part file streamed during the low product */
         double tj = mem_now(); o = mn_out_early_join(c->early, &c->t_early);
-        node_pfx(c); printf("      the part file%s started in the division (MN_OUT_EARLY%s): its writer ran %.2f s, joined after %.2f s here%s\n", c->hi ? "s" : "", c->hi ? ", MN_OUT_DKM_HI: X_hi's after step 1, X_lo's at the release" : "", c->t_early, mem_now() - tj, c->ncorr && !c->defer ? "; X corrected after it started: redoing the part file" : "");
+        node_pfx(c); printf("      %s started in the division (MN_OUT_EARLY%s): its writer ran %.2f s, joined after %.2f s here%s\n", c->outfile ? (c->hi ? "the part files" : "the part file") : "the residues (no output file)", c->hi ? ", MN_OUT_DKM_HI: X_hi's after step 1, X_lo's at the release" : "", c->t_early, mem_now() - tj, c->ncorr && !c->defer ? "; X corrected after it started: redoing the part file" : "");
         oh = mn_out_early_hi(c->early);
         if (c->ncorr && !c->defer) {   /* (with ECALC_CORR_PATCH=2 the corrections are deferred to the tail patch below) */ mn_out_finish(o); mn_out_boundaries(o, &src, cm); mn_out_run(o, &src); }   /* (every rank: the corrections are the group's) */
     } else {
@@ -459,7 +460,8 @@ static int env_vpe_bg_threads(void)                    /* the background team of
 /* the division's hooks, set once (the slots in newton.h are process-wide; a hook finds the flow's out_ctx through oc_of) */
 static void mn_hooks_set(struct out_ctx *oc, const char *outfile)
 {
-    if (outfile && (getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) : 1)) {   /* default 1 */ newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = oc; }
+    /* MN_OUT_EARLY_ALWAYS=1 (B3b, default off): the hook also without an output file: the writer then computes the digit residues only (no file is opened) while the division runs */
+    if ((outfile || (getenv("MN_OUT_EARLY_ALWAYS") && atoi(getenv("MN_OUT_EARLY_ALWAYS")))) && (getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) : 1)) {   /* default 1 */ newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = oc; }
     /* the writer on X_hi after DKM's step 1 (MN_OUT_DKM_HI, always on since 2026-10-12; the =0 fallback was removed 2026-10-23, Q87): needs the early writer and the deferred corrections */
     if (newton_mn_x_hook && newton_x_defer) { newton_mn_xhi_hook = mn_early_hi_hook; newton_mn_xlo_hook = mn_early_lo_hook; }
 }
@@ -600,7 +602,9 @@ int main(int argc, char **argv)
     if (getenv("ECALC_BG_THREADS")) g_bg_threads = atoi(getenv("ECALC_BG_THREADS"));
     if (vpe_on()) {                                  /* the process-wide settings of the PE flow, once, before the flow */
         if (mn_size_ < 2) ec_fatal(EC_RC_FATAL, "ecalc: ECALC_PE_PER_GPU=1 needs at least 2 PEs (%d): run on 2+ nodes or more tasks per node\n", mn_size_);
-        g_bg_threads = env_vpe_bg_threads(); mn_out_bg_threads(g_bg_threads);
+        g_bg_threads = env_vpe_bg_threads();
+        if (ec_team_on()) { ec_team_share = vpe_lanes(); if (ec_team() < g_bg_threads) g_bg_threads = ec_team(); }   /* A1: with =mask a PE's teams are its share of the node (or OMP_NUM_THREADS), bg included */
+        mn_out_bg_threads(g_bg_threads);
         if (vpe_ppg()) printf("ppg: %s: background team %d threads (this process's affinity mask of %d CPUs; OMP max %d), device %d\n", ec_log_prefix(), g_bg_threads, g_bg_threads, omp_get_max_threads(), vpe_device());   /* S2: one line per process (the mask is the PE's own) */
         if (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0)
             printf("vpe: %d PEs = %d per node x %d node%s; background team %d threads per PE (%d CPUs / %d PEs per node; OMP max %d); two part files per PE\n",
@@ -610,6 +614,9 @@ int main(int argc, char **argv)
         { int cp = getenv("ECALC_CORR_PATCH") ? atoi(getenv("ECALC_CORR_PATCH")) : 2; newton_x_defer = cp >= 2; }   /* (as the flow's size > 1 rule) */
         mn_hooks_set(0, outfile);
     }
+    if (ec_team_on() && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0))   /* A1: ECALC_OMP_TEAM=mask (nothing printed with it off) */
+        printf("omp team: ECALC_OMP_TEAM=mask (rule: %s): affinity mask %d CPUs, omp_get_max_threads %d, seed threads %d, bs team %d, residue team %d, bg threads %d\n",
+               ec_team_rule(), ec_team_mask_count(), omp_get_max_threads(), bs_seed_team_size(), bs_team_size(), ec_team(), g_bg_threads);
     struct flow_ctx fc; memset(&fc, 0, sizeof fc);
     fc.N = N; fc.d = d; fc.d_out = d_out; fc.outfile = outfile; fc.verbose = verbose; fc.pool_log = pool_log; fc.mn_size = mn_size_; fc.t00 = t00; fc.t_ri = t_ri;
     vpe_run(flow_run, &fc);                          /* off: once on this thread (the off path's flow, as before); process mode: this process's PE */
