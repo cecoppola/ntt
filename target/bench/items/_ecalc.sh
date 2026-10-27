@@ -131,7 +131,7 @@ _ec_hosts_of() {      # NODES -> comma list of the first NODES hosts of HOSTS_SU
 _ec_clean_log() { if [ -f "$1" ] && [ "$(stat -c %s "$1" 2>/dev/null || echo 0)" -gt 2097152 ]; then gzip -f "$1" && E_LOG=$1.gz; fi; }
 
 ecalc_srun() {        # TAG PATHNO NODES CMD...
-    local tag=$1 pn=$2 n=$3 h t0 rc lg ppn=${PPN:-1} gpus=${GPUS:-4} copt=(); shift 3
+    local tag=$1 pn=$2 n=$3 h t0 rc lg ppn=${PPN:-1} gpus=${GPUS:-4} copt=() gopt=(); shift 3
     lg=$OUT/raw/$tag.log
     _ec_path "$pn" >/dev/null 2>&1
     h=$(_ec_hosts_of "$n") || true; [ -n "$h" ] || { echo "ecalc_srun $tag: fewer than $n hosts" > "$lg"; return 98; }
@@ -140,8 +140,10 @@ ecalc_srun() {        # TAG PATHNO NODES CMD...
     if [ -z "$cpt" ]; then nc=${SLURM_CPUS_ON_NODE:-$(scontrol show node "${h%%,*}" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p')}
         [ -n "$nc" ] && [ "$nc" -ge "$ppn" ] && cpt=$((nc / ppn)); fi
     [ -n "$cpt" ] && copt=(-c "$cpt")
+    [ -f "$TGT_ROOT/../ecalc/gres.sh" ] && . "$TGT_ROOT/../ecalc/gres.sh"
+    gopt=(--gpus-per-node="$gpus"); type mn_gres_on >/dev/null 2>&1 && { mn_gres_on "${h%%,*}" || gopt=(); }   # MNRUN_GRES: none where the nodes list no GRES
     t0=$(date +%s)
-    timeout -k 20 $(( ${TMO:-${TGT_ITEM_MIN:-10}} * 60 )) srun --jobid="$JOBID" --export=ALL -N "$n" -w "$h" --ntasks=$((n * ppn)) --ntasks-per-node="$ppn" --gpus-per-node="$gpus" "${copt[@]}" --overlap \
+    timeout -k 20 $(( ${TMO:-${TGT_ITEM_MIN:-10}} * 60 )) srun --jobid="$JOBID" --export=ALL -N "$n" -w "$h" --ntasks=$((n * ppn)) --ntasks-per-node="$ppn" "${gopt[@]}" "${copt[@]}" --overlap \
         bash -lc "$(_ec_pre)"'exec "$@"' _ "$@" > "$lg" 2>&1 < /dev/null
     rc=$?; E_SRUN_WALL_S=$(( $(date +%s) - t0 )); return $rc
 }

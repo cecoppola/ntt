@@ -46,6 +46,8 @@ gmp_build() {
     rl_site_set GMP_HOME "$P"; return 0
 }
 rl_errfiles "$RUN/raw/gmp.log"
+# the site gmp module sets GMP_BASE (not GMP_HOME): use it when GMP_HOME is unset and it holds the header
+if [ -z "${GMP_HOME:-}" ] && [ -n "${GMP_BASE:-}" ] && [ -f "$GMP_BASE/include/gmp.h" ]; then GMP_HOME=$GMP_BASE; rl_say "GMP_HOME <- GMP_BASE=$GMP_BASE (gmp module)"; fi
 if gmp_ok; then rl_kv gmp "${GMP_HOME:-system}"
 elif [ $NOGMP = 1 ]; then rl_kv gmp "none (--no-gmp)"
 else

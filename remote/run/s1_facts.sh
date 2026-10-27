@@ -20,7 +20,7 @@ L=$RUN/login; N=$RUN/node
 OWN= WASOWN=; wl="$HERE/s1_facts.sh"
 if [ "$DRY" = 1 ]; then
     rl_would "$PROBE --only login --out $L"
-    rl_would "(no REMOTE_JOB/--jobid) sbatch -N1 --exclusive --gpus-per-node=4 -t $TLIM -J remote_s1 ${PART:+-p $PART }${REMOTE_ACCOUNT:+-A $REMOTE_ACCOUNT }--wrap 'sleep ...'  # own one-node job, cancelled at the end"
+    rl_would "(no REMOTE_JOB/--jobid) sbatch -N1 --exclusive $(rl_gres_opts "${PART:-}") -t $TLIM -J remote_s1 ${PART:+-p $PART }${REMOTE_ACCOUNT:+-A $REMOTE_ACCOUNT }--wrap 'sleep ...'  # own one-node job, cancelled at the end"
     rl_would "$PROBE --only node --jobid <job> --out $N"
     rl_would "python3 $GEN $L $N -o $R/target/config/target.conf"
     rl_would "site.env <- REMOTE_PARTITION REMOTE_MODULES_P1 REMOTE_MODULES_P2 REMOTE_UNLOAD GMP_HOME"
@@ -40,7 +40,7 @@ if [ $NONODE = 0 ]; then
     if [ -z "$JOB" ]; then
         secs=$(( $(rl_tlim_secs "$TLIM") + 30 ))
         EXL=$(rl_exclude_list)
-        out=$(rl_tmo 120 sbatch --parsable -N1 --exclusive --gpus-per-node=4 -t "$TLIM" -J remote_s1 --no-requeue -o "$RUN/raw/slurm_s1.out" ${PART:+-p "$PART"} ${REMOTE_ACCOUNT:+-A "$REMOTE_ACCOUNT"} ${EXL:+-x "$EXL"} --wrap "sleep $secs" 2>"$RUN/raw/sbatch.err")
+        out=$(rl_tmo 120 sbatch --parsable -N1 --exclusive $(rl_gres_opts "${PART:-}") -t "$TLIM" -J remote_s1 --no-requeue -o "$RUN/raw/slurm_s1.out" ${PART:+-p "$PART"} ${REMOTE_ACCOUNT:+-A "$REMOTE_ACCOUNT"} ${EXL:+-x "$EXL"} --wrap "sleep $secs" 2>"$RUN/raw/sbatch.err")
         OWN=${out%%;*}
         if rl_isnum "$OWN"; then
             rl_say "own one-node job $OWN submitted; waiting up to 300 s"
@@ -66,6 +66,7 @@ rl_tmo 120 python3 -I "$GEN" "${args[@]}" -o "$conf" > "$RUN/raw/gen_conf.txt" 2
 fact() { local k=$1 v=; [ -f "$N/facts.tsv" ] && v=$(awk -F'\t' -v k="$k" '$1 == k { v = $2 } END { print v }' "$N/facts.tsv"); [ -n "$v" ] || v=$(awk -F'\t' -v k="$k" '$1 == k { v = $2 } END { print v }' "$L/facts.tsv"); echo "${v:-missing}" | cut -c1-120; }
 rl_kv login_probe_rc "$lrc"; rl_kv node_probe_rc "$nrc"; rl_kv node_job "${JOB:-none}${WASOWN:+ (own one-node job, outside the session allocation)}"; rl_kv node_probe_host "${PHOST:-none}"
 rl_kv gpu_count "$(fact gpu.count)"; rl_kv gpu_names "$(fact gpu.names)"
+if mn_gres_on "" "${PART:-}"; then rl_kv gres_gpu "listed or unknown: --gpus options used (MNRUN_GRES=${MNRUN_GRES:-auto})"; else rl_kv gres_gpu "NOT listed by the nodes: --gpus/--gpu-bind options left out (MNRUN_GRES=${MNRUN_GRES:-auto}, FACTS.md Known problems)"; fi
 rl_kv nics_cxi "$(fact net.cxi_count)"$([ "$REMOTE_SITE" = aac7 ] || echo ' (8 expected)'); rl_kv nics_per_apu "$(fact net.nics_per_apu)"
 mk=$(fact mem.available_kb); rl_kv mem_available_gb "$(awk -v k="$mk" 'BEGIN { if (k + 0 > 0) printf "%.0f", k / 1048576; else print "missing" }')"
 rl_kv cpus "$(fact cpu.total)"; rl_kv rocm "$(fact rocm.version_file)"; rl_kv hipcc "$(fact rocm.hipcc_version)"

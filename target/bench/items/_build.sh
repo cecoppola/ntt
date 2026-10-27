@@ -47,10 +47,19 @@ cur_rocm=
 declare -a CANDS=()
 if [ -n "${MNRUN_MODULES:-}" ]; then CANDS+=("${MNRUN_UNLOAD:-}|$MNRUN_MODULES"); fi
 if [ $HAVE_MOD = 1 ]; then
-    sma=${TARGET_SMA_MODULE:-$(module -t avail cray-openshmemx 2>&1 | grep -oE '^cray-openshmemx/[0-9][0-9.]*' | sort -V | tail -1)}
+    # SHMEM module: the newest of cray-shmem (12.1 style) and cray-openshmemx (11.8) by version; a site with only cray-openshmemx (aac7) is unchanged.
+    # cray-shmem conflicts with a loaded cray-openshmemx (the PE default module): that one is unloaded first (= module swap).  cray-pmi (the
+    # versioned PMI library directory) is added with cray-shmem.
+    sma=${TARGET_SMA_MODULE:-$(module -t avail cray-shmem cray-openshmemx 2>&1 | grep -oE '^(cray-shmem|cray-openshmemx)/[0-9][0-9.]*' | sort -t/ -k2 -V | tail -1)}
     dsm=${TARGET_DSMML_MODULE:-$(module -t avail cray-dsmml 2>&1 | grep -oE '^cray-dsmml/[0-9][0-9.]*' | sort -V | tail -1)}
     [ -n "$sma" ] || sma=cray-openshmemx; [ -n "$dsm" ] || dsm=cray-dsmml
-    pre=; [ $V = p2 ] && pre="$dsm $sma "
+    pre=; ulx=
+    if [ $V = p2 ]; then
+        pre="$dsm $sma "
+        case "$sma" in cray-shmem*)
+            ulx=$(module -t list 2>&1 | grep -oE '^cray-openshmemx(/[0-9][0-9.]*)?' | tr '\n' ' ')
+            pmi=$(module -t avail cray-pmi 2>&1 | grep -oE '^cray-pmi/[0-9][0-9.]*' | sort -V | tail -1); [ -n "$pmi" ] && pre="$pre$pmi ";; esac
+    fi
     avail=$(module -t avail rocm 2>&1 | grep -oE '^rocm/[0-9][0-9.]*' | sort -Vu)
     declare -a R=()
     if [ -n "${TARGET_ROCM:-}" ]; then R=("$TARGET_ROCM")
@@ -60,7 +69,7 @@ if [ $HAVE_MOD = 1 ]; then
         for o in $(echo "$avail" | sort -Vr); do R+=("$o"); done
     fi
     declare -A seen=()
-    for r in "${R[@]}"; do [ -n "${seen[$r]:-}" ] && continue; seen[$r]=1; CANDS+=("$cur_rocm|$pre$r"); done
+    for r in "${R[@]}"; do [ -n "${seen[$r]:-}" ] && continue; seen[$r]=1; CANDS+=("$cur_rocm$ulx|$pre$r"); done
 fi
 CANDS+=("|")      # as is: whatever the shell has (no module command, or the last resort)
 say "candidates: ${#CANDS[@]}"

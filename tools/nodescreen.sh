@@ -24,6 +24,7 @@
 # Runs inside an existing hold (srun --overlap, no -w, --mem=0 -c1 as the session rules say); kills only its own srun PIDs; never cancels a job.
 # No credentials or target values in this file.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); ROOT=$(cd "$HERE/.." && pwd); E=${NS_ECALC_DIR:-$ROOT/ecalc}
+. "$ROOT/ecalc/gres.sh"   # MNRUN_GRES: GPU options only where the nodes list a gpu GRES
 HOLD=${SLURM_JOB_ID:-} OUT= COLD=4 LDIG=1e8 MDIG=1e8 DO_MN=1 DO_LOCAL=1 TMO_L=120 TMO_M=240 THR=3 MINEX=2 MINAV=0 EXCL= FLAGF= WANT=${SHMEM_OFI_NUM_NICS:-0}
 while [ $# -gt 0 ]; do
   case $1 in
@@ -81,7 +82,7 @@ chmod +x "$OUT/node_local.sh"
 if [ "$DO_LOCAL" = 1 ]; then
   rm -f "$OUT"/local/*.log
   S=$(date +%s.%N)
-  timeout -s TERM "$((TMO_L * 2 + 30))" srun --jobid="$HOLD" --export=ALL,NS_MODULES="$MODS",NS_UNLOAD="$UNL",NS_WANT_NICS="$WANT" -N"$N" --ntasks="$N" --ntasks-per-node=1 --gpus-per-node=4 --mem=0 -c1 --overlap \
+  timeout -s TERM "$((TMO_L * 2 + 30))" srun --jobid="$HOLD" --export=ALL,NS_MODULES="$MODS",NS_UNLOAD="$UNL",NS_WANT_NICS="$WANT" -N"$N" --ntasks="$N" --ntasks-per-node=1 $(mn_gres_strip "--gpus-per-node=4" "$(scontrol show hostnames "$(squeue -h -j "$HOLD" -o %N 2>/dev/null)" 2>/dev/null | head -1)") --mem=0 -c1 --overlap \
       --nodelist="$NODELIST" --output="$OUT/local/%N.log" --error="$OUT/local/%N.err" bash -l "$OUT/node_local.sh" "$E" "$COLD" "$DIGL" "$TMO_L" < /dev/null &
   SPID=$!; wait "$SPID"; RC_L=$?; SPID=
   W_L=$(awk -v a="$S" -v b="$(date +%s.%N)" 'BEGIN{printf "%.1f", b-a}')

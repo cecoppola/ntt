@@ -13,7 +13,8 @@
 #   --out DIR     output dir of the part (default target/results/probe/<host>-<YYYYmmdd-HHMM>); with both parts DIR/login, DIR/node.
 #   --build-only  only build the SHMEM test on this machine (modules picked from the facts); no srun.
 #   --dry-run     print the commands (with their time limits) and stop; nothing is run or written.
-#   PROBE_SRUN_EXTRA="--gpus-per-node=4"   extra srun options (if the site hides the APUs from a step).
+#   PROBE_SRUN_EXTRA="--gpus-per-node=4"   extra srun options (if the site hides the APUs from a step; GPU options are dropped where the nodes
+#                 list no GRES: MNRUN_GRES=auto|on|off, ecalc/gres.sh).
 #   Every call is wrapped in `timeout 10` (exceptions: the SHMEM build 60 s and runs 40 s).  A missing command, a timeout or a
 #   skipped call (budget used up) never stops the probe: the fact is recorded as `missing` (or `none` = ran, nothing found).
 # Output dir: facts.tsv (key TAB value TAB source), raw/<name>.txt (full output of each call), raw/_commands.tsv (name, command,
@@ -38,7 +39,7 @@
 # loc.*     xname xname_parts nodeaddr nodehostname node_features node_gres scontrol_nodes_count
 # slurm.*   version default_partition sinfo_summary partitions part.<name> cfg.<key> qos assoc reservations queue_load sshare
 #           topology_switches topology_conf own_jobs
-# fs.*      mounts mount.<mountpoint with / as _> dir.<VAR> lustre_df lustre_stripe.<n> shared_types
+# fs.*      mounts mount.<mountpoint with / as _> writable_mounts dir.<VAR> lustre_df lustre_stripe.<n> shared_types
 # lim.*     memlock nofile stack ulimit_a
 # env.*     matching (names only) value.<NAME> for FI_ SHMEM XT_ CXI HSA HIP ROCR SLURM_JOB CRAY MPICH PMI vars
 # uffd.*    sysctl syscall kernel_ge_6_1 madv_collapse
@@ -63,6 +64,7 @@ case "$ONLY" in ""|login|node) ;; *) echo "probe.sh: --only login|node" >&2; exi
 UN=$(id -un 2>/dev/null); HN=$(hostname -s 2>/dev/null); TS=$(date +%Y%m%d-%H%M)
 T0=$SECONDS; DEADLINE=110
 EXTRA=${PROBE_SRUN_EXTRA:-}
+[ -f "$HERE/../../ecalc/gres.sh" ] && { . "$HERE/../../ecalc/gres.sh"; [ -z "$EXTRA" ] || EXTRA=$(mn_gres_strip "$EXTRA"); }   # MNRUN_GRES: GPU options dropped where the nodes list no GRES
 
 # ---- primitives -------------------------------------------------------------------------------------------------------------------
 # cap NAME CMD...: run CMD (<= ${T:-10} s, no stdin) into raw/NAME.txt; records rc and seconds in raw/_commands.tsv
@@ -202,12 +204,13 @@ part_login() {
     fx mod.avail_cce module_avail "$AV | grep -iE '^(cce|cray-cce)/' | paste -sd' '"
     fx mod.avail_gmp module_avail "$AV | grep -iE '^(gmp|cray-gmp)' | paste -sd' '"
     if [ "$DRY" != 1 ]; then
-        local av r s d pm
+        local av r s d pm q
         av=$(sed 's/(default)//;s/(D)//;s/(L)//' "$RAW/module_avail.txt" 2>/dev/null | grep -E '^[A-Za-z0-9_.+-]+/[0-9]' | sort -u)
         r=$(echo "$av" | grep -iE '^(rocm|amd)/' | grep -F "$W_ROCM" | grep -vE 'afar|therock|new' | head -1)
         s=$(echo "$av" | grep -iE '^(cray-openshmemx|cray-shmem|cray-sma)' | grep -F "$W_SMA" | head -1)
         d=$(echo "$av" | grep -iE '^cray-dsmml' | sort -V | tail -1)
         pm=; [ -n "$r" ] && [ -n "$s" ] && [ -n "$d" ] && pm="$d $s $r"
+        case "$s" in cray-shmem*) q=$(echo "$av" | grep -E '^cray-pmi/' | sort -V | tail -1); [ -n "$q" ] && [ -n "$pm" ] && pm="$pm $q";; esac   # 12.1 style: cray-pmi gives the versioned PMI libs
         fact mod.pick_rocm "${r:-none}" "match $W_ROCM"; fact mod.pick_sma "${s:-none}" "match $W_SMA"; fact mod.pick_dsmml "${d:-none}" "highest cray-dsmml"
         fact mod.pick_modules "${pm:-none}" "dsmml sma rocm"
     fi
@@ -280,6 +283,7 @@ part_fs() {
     cap df_hT df -hT
     cap df_PT df -PT -x tmpfs -x devtmpfs -x squashfs -x overlay -x efivarfs
     fxm fs.mount df_PT "awk 'NR>1 && \$3>1e8 {m=\$7; gsub(/\//,\"_\",m); sub(/^_/,\"\",m); if(m==\"\") m=\"root\"; printf \"%s\ttype=%s mount=%s size_kB=%s avail_kB=%s\n\", m, \$2, \$7, \$3, \$5}'"
+    fx fs.writable_mounts df_PT 'awk "NR>1{print \$7}" | while read -r m; do [ -w "$m" ] && echo "$m"; done | sort -u | paste -sd" " | grep . || echo none'   # mount points this user can write (gen_conf: output dir candidates)
     fx fs.shared_types df_PT "awk 'NR>1{print \$2}' | sort -u | grep -E 'lustre|gpfs|nfs|beegfs|daos|wekafs|panfs' | paste -sd' '"
     capsh fs_dirs df 'for v in HOME SCRATCH WORK PROJECT PROJWORK LUSTRE_HOME; do d=${!v:-}; [ -n "$d" ] && [ -d "$d" ] && { printf "%s\t" "$v"; echo "$d"; df -PT "$d" | tail -1; }; done'
     fxm fs.dir fs_dirs "paste - - | awk -F'\t' '{print \$1\"\t\"\$2\" \"\$3}' | head -20"
@@ -389,11 +393,12 @@ part_shmem() {
         # login part not run in this dir: pick here
         if [ "$DRY" = 1 ]; then pm="<picked modules>"; else
             capmod module_avail -t avail
-            local av r s d; av=$(sed 's/(default)//;s/(D)//;s/(L)//' "$RAW/module_avail.txt" 2>/dev/null | grep -E '^[A-Za-z0-9_.+-]+/[0-9]' | sort -u)
+            local av r s d q; av=$(sed 's/(default)//;s/(D)//;s/(L)//' "$RAW/module_avail.txt" 2>/dev/null | grep -E '^[A-Za-z0-9_.+-]+/[0-9]' | sort -u)
             r=$(echo "$av" | grep -iE '^(rocm|amd)/' | grep -F "$W_ROCM" | grep -vE 'afar|therock|new' | head -1)
             s=$(echo "$av" | grep -iE '^(cray-openshmemx|cray-shmem|cray-sma)' | grep -F "$W_SMA" | head -1)
             d=$(echo "$av" | grep -iE '^cray-dsmml' | sort -V | tail -1)
             pm=; [ -n "$r" ] && [ -n "$s" ] && [ -n "$d" ] && pm="$d $s $r"
+            case "$s" in cray-shmem*) q=$(echo "$av" | grep -E '^cray-pmi/' | sort -V | tail -1); [ -n "$q" ] && [ -n "$pm" ] && pm="$pm $q";; esac
             fact mod.pick_modules "${pm:-none}" "dsmml sma rocm"
         fi
     fi
@@ -409,13 +414,19 @@ part_shmem() {
     (   # subshell: the module changes stay here
         if type module >/dev/null 2>&1; then
             for m in $(modrun -t list | grep -oE '(rocm|amd)[A-Za-z0-9_.+-]*/[0-9][A-Za-z0-9_.+-]*'); do module unload "$m" >/dev/null 2>&1; done
+            case " $pm " in *" cray-shmem"*) for m in $(modrun -t list | grep -oE '^cray-openshmemx(/[0-9][0-9.]*)?'); do module unload "$m" >/dev/null 2>&1; done;; esac   # cray-shmem conflicts with the PE default cray-openshmemx
             module load $pm > "$RAW/module_load.txt" 2>&1; echo "rc=$?" >> "$RAW/module_load.txt"
         else echo "rc=127 (no module command)" > "$RAW/module_load.txt"; fi
         fact shmem.modules_loaded "$pm ($(tail -1 "$RAW/module_load.txt" 2>/dev/null))" raw/module_load.txt
-        sma=${CRAY_OPENSHMEMX_PREFIX:-$(ls -d /opt/cray/pe/sma/*/ofi/sma 2>/dev/null | sort -V | tail -1)}
-        dsm=${CRAY_DSMML_PREFIX:-$(ls -d /opt/cray/pe/dsmml/*/dsmml 2>/dev/null | sort -V | tail -1)}
-        T=60 cap shmem_build "$cc" -O1 -o "$bin" "$HERE/probe_shmem.c" -I"$sma"/include -I"$dsm"/include -L"$sma"/lib64 -L"$dsm"/lib -L/opt/cray/pe/lib64 \
-            -lsma -lpmi -lpmi2 -ldsmml -ldl -Wl,-rpath,"$sma"/lib64 -Wl,-rpath,"$dsm"/lib -Wl,-rpath,/opt/cray/pe/lib64
+        # the same discovery as ecalc/Makefile: the module's prefix variable, else the newest installed (12.1 style first)
+        sma=${CRAY_OPENSHMEMX_PREFIX:-}
+        for v in CRAY_SHMEM_PREFIX CRAY_SHMEM_DIR CRAY_SMA_PREFIX SMA_HOME; do [ -n "$sma" ] || { [ -f "${!v:-/nonexistent}/include/shmem.h" ] && sma=${!v}; }; done
+        [ -n "$sma" ] || sma=$(ls -d /opt/cray/shmem/sma/*/ofi /opt/cray/pe/sma/*/ofi/sma 2>/dev/null | sort -V | tail -1)
+        dsm=${CRAY_DSMML_PREFIX:-$(ls -d /opt/cray/shmem/dsmml/* /opt/cray/pe/dsmml/*/dsmml 2>/dev/null | sort -V | tail -1)}
+        pmil=; for d in /opt/cray/pe/lib64 ${CRAY_PMI_PREFIX:+$CRAY_PMI_PREFIX/lib} /opt/cray/pe/pmi/default/lib $(ls -d /opt/cray/pe/pmi/*/lib 2>/dev/null | sort -V | tail -1); do
+            [ -f "$d/libpmi2.so" ] && { pmil=$d; break; }; done; [ -n "$pmil" ] || pmil=/opt/cray/pe/lib64
+        T=60 cap shmem_build "$cc" -O1 -o "$bin" "$HERE/probe_shmem.c" -I"$sma"/include -I"$dsm"/include -L"$sma"/lib64 -L"$dsm"/lib -L"$pmil" \
+            -lsma -lpmi -lpmi2 -ldsmml -ldl -Wl,-rpath,"$sma"/lib64 -Wl,-rpath,"$dsm"/lib -Wl,-rpath,"$pmil"
         if [ $? -ne 0 ] || [ ! -x "$bin" ]; then fact shmem.build "FAILED: $(head -c 200 "$RAW/shmem_build.txt" | tr '\n' ' ')" raw/shmem_build.txt; exit 0; fi
         fact shmem.build ok raw/shmem_build.txt
         export SHMEM_SYMMETRIC_SIZE=1073741824 XT_SYMMETRIC_HEAP_SIZE=1073741824
