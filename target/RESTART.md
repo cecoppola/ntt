@@ -321,3 +321,12 @@ machine, so schedule it when the bench prio < 200 items are done or the session 
 - Commit and push `target/results/` (the coordinator, every 30-60 min and now).
 - `bench/aggregate.py`; check `results/bench/ANSWERS.md` and `METRICS.tsv` are committed.
 - Write `target/results/HANDOFF.md`: what ran, what is left (by priority), surprises, the next questions.
+
+## 11. Next session plan (2026-10-27; details and paste blocks: `remote/ROUTE.md` "Next target session")
+
+Order: (1) the s3 gate at 1 and 2 nodes first (multi-node changes ship off by default; the target's 2-node gate decides); (2) 2 + 2 nodes at 8e9 per node, proven line against
+`ECALC_OMP_TEAM=mask ECALC_RESIDUE=shoup` with the team line and `ECALC_INIT_TL=1` (self-test seconds: keep the self-test while under 15 s; expect dc 14 s -> under 1 s);
+(3) 64 nodes, three arms `XSHMEM_ROUND_MB` 128 / 1024 / 0 with `MN_WAIT_STATS=1 NEWTON_MN_RECIP_TS=1`; (4) 64 nodes flat against `XSHMEM_COLL=tree`, layout D against P;
+(5) 576 nodes, 4.608e12, best settings, two runs in one allocation (warm against cold) with `ECALC_INIT_TL=1 COMM_HANG_DETAIL=1 MEM_REPORT_DEVS=1`; (6) benches `net02`, `net04`, `net05`,
+`mem01`, `io01`, `io02`; (7) the 2e13 and 3e13 reruns (`COMM_HANG_DETAIL=1`; `ECALC_FIT_PER_APU=1`). `mnrun.sh` now defaults `MNRUN_CPUS_PER_TASK` to auto. Model for the A/B:
+`results/TIME_MODEL.md` §target_fit; staging fit: `results/MEMORY.md`.
