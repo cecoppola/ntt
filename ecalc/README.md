@@ -115,7 +115,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_FATAL_WAIT` | 60 | built-in default | seconds the first failing thread may spend on its report (the memory accounting) before a watchdog `_exit`s (60) | C314.md |
 | `ECALC_FIT_PER_APU` | unset | built-in default | `1`: the planner's device fit also compares the busiest APU (a quarter of the planes + the largest region's arena + the device pool's share + the v-slots; region 0 holds the top batch levels) against its quarter of ECALC_DEVICE_GB and refuses above it, and prints a `per APU (max)` line; the default 0 keeps the node-mean fit and the output unchanged (`binsplit.c binsplit_fit`; twin `mem_model.py` key `dev_apu_max`). | - |
 | `ECALC_INIT_ONLY` | unset | test-only | - | L114.md+P13b.md |
-| `ECALC_INIT_TL` | 0 | launch-line | 1 = init's timeline as `tl <s since rns_init began>` lines: rns_init's steps, each arena's mapping with the HIP calls split (create / map / access / zero), the background mappers (start, ... | MAP15.md |
+| `ECALC_INIT_TL` | 0 | launch-line | 1 = init's timeline as `tl <s since rns_init began>` lines: rns_init's steps, each arena's mapping with the HIP calls split (create / map / access / zero), the background mappers (start, ... The xshmem engine adds `tl <s since the engine init began>  xshmem:` lines (rank 0 only, at most 12 per kind plus a summary): init phases (boot/fabric open, lane contexts, CTRL heap, DATA heap, workers), each communicator created (id, members, s), the first-call allgather handshakes, and mn_init's transport and mesh seconds. | MAP15.md |
 | `ECALC_MEM_GUARD_GB` | 0 | launch-line | the sampler stops the run (rc 9, `EC_RC_MEMGUARD`) through `ec_fatal` — one line naming rank, host, the last phase boundary and the figures — when MemAvailable falls below this many GB; ... | IO15.md+DOC15.md |
 | `ECALC_MEM_SAMPLE` | derived | test-only | seconds between memory samples (RSS, MemFree, MemAvailable, Cached, Dirty, Writeback from `/proc/meminfo`, the pool's live bytes per APU), a summary line at exit (minimum MemAvailable, ... | IO15.md+S114.md |
 | `ECALC_NODE_GB` | 480 | built-in default | - | P16.md+C314.md |
@@ -167,6 +167,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `RNS_POOL_GROW` | 0 | test-only | a region pool that would grow inside bs aborts with the accounting unless 1 (the stress recipe sets it) (0) | B16.md+R.md |
 | `RNS_STRATEGY` | derived | built-in default | the single-node product's strategy (`dist_core`: top levels, reciprocal, division): `C` four-step; `B` prime-per-APU (planes that do not fit the pools from an extra per-APU buffer); `auto` ... | B13b.md+G13d.md |
 | `RNS_VERBOSE` | 0 | launch-line | 1 per-call times, 2 CRT re-runs; also the pool allocations' times (unset) | PS15.md+M.md |
+| `XSHMEM_COLL` | flat | experiment | experiment, default flat: tree = dissemination (ceil(log2 n) rounds, offsets only with the log n partners) instead of every member to every member; digits identical; results/XSHMEM.md | - |
 | `XSHMEM_CRAY_GPU_PRETOUCH` | 0 | experiment | diagnosis, default 0 (XSHMEM=cray): 1 = at init one GPU kernel on the PE's device reads a byte of every 4 KiB page of the hipHostRegister'ed DATA heap (populates the GPU page tables; tests ... | - |
 | `XSHMEM_CRAY_HEAP_THP` | 0 | experiment | diagnosis, default 0 (XSHMEM=cray): 1 = madvise(MADV_HUGEPAGE) on the DATA heap before it is zeroed and MADV_COLLAPSE after; 2 = only report; each PE prints the heap mapping's ... | - |
 | `XSHMEM_CRAY_NOMEMSET` | 0 | experiment | diagnosis, default 0 (XSHMEM=cray): 1 = skip the engine's zeroing of the DATA heap (a fresh libsma zero mapping); with `XSHMEM_LANE_TRACE` set, the init prints shmem_init_thread and heap ... | - |
@@ -215,6 +216,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | TARGET12 (S2) | 2026-12-31 | `ECALC_PE_PER_GPU`, `RNS_BATCH_SPLIT` |
 | experiment | TASK4 peer | 2026-12-31 | `XSHMEM_PEER` |
 | experiment | TGTSHAPE | 2026-12-31 | `XSHMEM_HEAP_SLACK_MB` |
+| experiment | comm | 2026-12-31 | `XSHMEM_COLL` |
 | experiment | craylane | 2026-12-31 | `XSHMEM_CRAY_GPU_PRETOUCH`, `XSHMEM_CRAY_HEAP_THP`, `XSHMEM_CRAY_NOMEMSET`, `XSHMEM_CRAY_NUMA`, `XSHMEM_CRAY_PUTSIG_SPLIT`, `XSHMEM_CRAY_SIGSET`, `XSHMEM_CRAY_TEST`, `XSHMEM_LANE_CTX`, `XSHMEM_LANE_POLL`, `XSHMEM_LANE_TRACE`, `XSHMEM_SIG_LANES`, `XSHMEM_THP_DISABLE`, `XSHMEM_THREAD_LEVEL` |
 | fallback | P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF) | 2026-11-11 | `DM_MN_WRAP` |
 | fallback | coordinator (TASKS S) | 2026-11-11 | `ECALC_OUT_PACKED` |

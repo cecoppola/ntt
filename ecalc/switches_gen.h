@@ -98,6 +98,7 @@ static const char *const cfg_names[] = {
     "RNS_POOL_GROW",
     "RNS_STRATEGY",
     "RNS_VERBOSE",
+    "XSHMEM_COLL",
     "XSHMEM_CRAY_GPU_PRETOUCH",
     "XSHMEM_CRAY_HEAP_THP",
     "XSHMEM_CRAY_NOMEMSET",
@@ -120,4 +121,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_THP_DISABLE",
     "XSHMEM_THREAD_LEVEL",
 };
-#define CFG_NAMES_N 118
+#define CFG_NAMES_N 119

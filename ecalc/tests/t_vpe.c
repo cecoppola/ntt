@@ -1,11 +1,14 @@
 /* t_vpe.c - PE identity and the PE communicators in the one-process-per-GPU layout (ECALC_PE_PER_GPU=1; vpe.h, mn.c, comm_xshmem.c).  (The thread-mode parts were removed 2026-10-23, Q86.)
  *
- *   t_vpe [all|probe|host] [--ppg] | t_vpe info|die|badlayout      (--ppg is accepted and implied: every run is process mode)
+ *   t_vpe [all|probe|coll|host] [--ppg] | t_vpe info|die|badlayout      (--ppg is accepted and implied: every run is process mode)
  *     host    no GPU, no network: identity arithmetic (vpe_set_nodes / lanes), the log prefix; in forked children vpe_sub out of range (fatal, rc 3) and vpe_sub NULL for a PE outside the run
  *     probe   the sub-communicator probe (D1): on every PE, the aligned groups of 2 and 4 PEs of a node and the contiguous runs of 3, 6, 12 PEs: barrier,
  *             allreduce_max, allgather_host, alltoallv of random counts on each; prints T_VPE_PROBE PASS|FAIL per process
  *     all     host + probe + the flat communicator (alltoall, alltoallv of random counts incl. zeros, allreduce_max, allgather_host, barrier) + the
  *             tree's group schedule for the PE count against mn_groups_parse; prints T_VPE_RESULT PASS|FAIL per process
+ *     coll    the small collectives only (XSHMEM_COLL=flat|tree, whichever the environment sets: run both): on the flat communicator and on runs of 2, 3, 5, 6, 7 PEs (any n, not only
+ *             powers of two) XT_COLL_ITERS (200) rounds of random back-to-back barrier / allreduce_max / allgather_host (random block sizes, 8 B to 4 KiB), every result checked; then a
+ *             timing line per collective on the flat communicator (microseconds per call, XT_COLL_REPS = 500 calls); prints T_VPE_RESULT PASS|FAIL per process, T_VPE_COLL_TIME on PE 0
  *   ONE PROCESS PER PE: launched as 4 tasks per node (mnrun.sh with ECALC_PE_PER_GPU=1: COMM_TRANSPORT=xshmem, XSHMEM_LOOPBACK_PES=1; make XSHMEM=ofi), 1, 2, 3 nodes = 4, 8, 12 PEs.
  *   all / probe: identity (vpe_idx = the local id, lanes = tasks per node, device, prefix, leaders), the node barrier (a laggard PE holds the others), the node group exercised, then the flat
  *   communicator and sub-communicator parts (one T_VPE_RESULT / T_VPE_PROBE line per PE: 4 per node).  Without COMM_TRANSPORT=xshmem the communicator parts are skipped (SKIP line).
@@ -112,7 +115,54 @@ static void exercise(comm *c, int g0, const char *tag)
     HIPC(hipFree(ds)); HIPC(hipFree(dr)); HIPC(hipFree(des)); HIPC(hipFree(der)); HIPC(hipStreamDestroy(st));
     free(sc); free(hs); free(hr); free(es); free(er);
 }
-static int g_mode_probe, g_mode_all;
+static int g_mode_probe, g_mode_all, g_mode_coll;
+static uint64_t g_rng;
+static uint64_t rnd(void) { g_rng ^= g_rng << 13; g_rng ^= g_rng >> 7; g_rng ^= g_rng << 17; return g_rng; }   /* xorshift64: the same stream on every member of a communicator */
+static uint64_t cv(int pe, int it) { uint64_t x = ((uint64_t)pe + 1) * 0x9E3779B97F4A7C15ull ^ ((uint64_t)it * 0xD1B54A32D192ED03ull + 7); x ^= x >> 29; return x >> 3; }
+/* random back-to-back small collectives on c (rank 0 = PE g0), identical op sequence on all members (seeded by g0, n) */
+static void coll_check(comm *c, int g0, const char *tag, int iters)
+{
+    int n = comm_size(c), pe = vpe_pe(); g_rng = 0x1234567ull + (uint64_t)g0 * 977 + (uint64_t)n * 31;
+    char *sb = (char *)malloc(4096), *rb = (char *)malloc((size_t)n * 4096);
+    for (int it = 0; it < iters; it++) {
+        int op = (int)(rnd() % 3); size_t bytes = 8 * (1 + rnd() % 512); if (rnd() % 8 == 0) bytes = 4096; if (rnd() % 8 == 0) bytes = 8;
+        if (op == 0) { if (pe == g0 + (int)(rnd() % (uint64_t)n)) usleep(50); comm_barrier(c); }   /* a laggard member: the others must wait for it */
+        else if (op == 1) {
+            size_t want = 0; for (int i = 0; i < n; i++) if (cv(g0 + i, it) > want) want = (size_t)cv(g0 + i, it);
+            size_t got = comm_allreduce_max(c, (size_t)cv(pe, it)); CHK(got == want, "%s it %d: max %zu want %zu", tag, it, got, want);
+        } else {
+            for (size_t j = 0; j < bytes; j++) sb[j] = (char)(cv(pe, it) >> (j % 7));
+            memset(rb, 0xEE, (size_t)n * bytes); comm_allgather_host(c, sb, rb, bytes);
+            size_t bad = 0; for (int i = 0; i < n; i++) for (size_t j = 0; j < bytes; j++) if (rb[(size_t)i * bytes + j] != (char)(cv(g0 + i, it) >> (j % 7))) bad++;
+            CHK(bad == 0, "%s it %d: allgather %zu bytes (of %zu) wrong, block %zu B", tag, it, bad, (size_t)n * bytes, bytes);
+        }
+    }
+    comm_barrier(c); free(sb); free(rb);
+}
+static double tnow(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
+static void coll_body(void *unused)
+{
+    (void)unused;
+    int npe = vpe_npe(), pe = vpe_pe(); const char *em = getenv("XSHMEM_COLL"); if (!em || !*em) em = "flat";
+    int iters = getenv("XT_COLL_ITERS") ? atoi(getenv("XT_COLL_ITERS")) : 200, reps = getenv("XT_COLL_REPS") ? atoi(getenv("XT_COLL_REPS")) : 500;
+    comm *flat = vpe_comm(); CHK(flat != 0, "no flat communicator"); if (!flat) return;
+    coll_check(flat, 0, "flat comm", iters);
+    static const int sizes[] = { 2, 3, 5, 6, 7 };
+    for (unsigned i = 0; i < sizeof sizes / sizeof *sizes; i++) {
+        int g = sizes[i]; if (g > npe) continue;
+        int g0 = pe / g * g, gg = g < npe - g0 ? g : npe - g0; comm *c = vpe_sub(g0, gg); CHK(c != 0, "no run [%d,%d)", g0, g0 + gg); if (!c) continue;
+        char tag[64]; snprintf(tag, sizeof tag, "run [%d,%d)", g0, g0 + gg); coll_check(c, g0, tag, iters);
+    }
+    comm_barrier(flat);
+    uint64_t blk[2] = { (uint64_t)pe, 1 }, *all = (uint64_t *)calloc((size_t)npe * 2, 8); double t0, us[3];
+    for (int k = 0; k < 3; k++) {
+        comm_barrier(flat); t0 = tnow();
+        for (int i = 0; i < reps; i++) { if (k == 0) comm_barrier(flat); else if (k == 1) (void)comm_allreduce_max(flat, (size_t)i + (size_t)pe); else comm_allgather_host(flat, blk, all, 16); }
+        us[k] = 1e6 * (tnow() - t0) / (reps > 0 ? reps : 1);
+    }
+    free(all);
+    if (pe == 0) printf("T_VPE_COLL_TIME XSHMEM_COLL=%s n %d reps %d: barrier %.1f us, allreduce_max %.1f us, allgather_host 16 B %.1f us (per call, PE 0)\n", em, npe, reps, us[0], us[1], us[2]);
+}
 /* the partition of the PEs into runs of g (the last one cut): this PE's run, exercised */
 static void partition(int g, const char *what)
 {
@@ -243,14 +293,14 @@ int main(int argc, char **argv)
 {
     const char *mode = argc > 1 && strncmp(argv[1], "--", 2) ? argv[1] : "all";
     g_ppg = 1;                                           /* process mode only (the thread mode was removed); --ppg is accepted */
-    g_mode_probe = !strcmp(mode, "probe"); g_mode_all = !strcmp(mode, "all");
+    g_mode_probe = !strcmp(mode, "probe"); g_mode_all = !strcmp(mode, "all"); g_mode_coll = !strcmp(mode, "coll");
     if (g_ppg) {                                         /* S2a: this process is ONE PE (srun, SLURM_LOCALID); without srun (host on a login node): local 0 of 4 */
         cpu_set_t m; sched_getaffinity(0, sizeof m, &m); cpustr(&m, g_launch_mask, sizeof g_launch_mask);
         setenv("ECALC_PE_PER_GPU", "1", 1);
         if (!strcmp(mode, "badlayout") && getenv("SLURM_LOCALID") && atoi(getenv("SLURM_LOCALID")) == 1) setenv("SLURM_LOCALID", "2", 1);
         if (!getenv("SLURM_LOCALID")) { setenv("ECALC_VPE_LANES", "4", 0); vpe_set_ppg(0); } else vpe_ppg_init();
     }
-    if (!g_mode_all && !g_mode_probe && strcmp(mode, "host") && strcmp(mode, "info") && strcmp(mode, "die") && strcmp(mode, "badlayout")) { printf("usage: t_vpe [all|probe|host] [--ppg] | t_vpe info|die|badlayout\n"); return 2; }
+    if (!g_mode_all && !g_mode_probe && !g_mode_coll && strcmp(mode, "host") && strcmp(mode, "info") && strcmp(mode, "die") && strcmp(mode, "badlayout")) { printf("usage: t_vpe [all|probe|coll|host] [--ppg] | t_vpe info|die|badlayout\n"); return 2; }
     vpe_set_forced(1);
     host_part();
     if (!strcmp(mode, "host")) { printf("\nt_vpe host: %s (%d checks)\n", g_fail ? "FAILED" : "OK", g_checks); return g_fail != 0; }
@@ -266,8 +316,10 @@ int main(int argc, char **argv)
         else if (g_ppg && !strcmp(mode, "die")) vpe_run(die_body, 0);
         else if (g_ppg && !strcmp(mode, "badlayout")) { vpe_run(die_body, 0); }   /* (mn_init fataled on the PE with the wrong id; the others wait here until the step is killed) */
         else {
+            if (g_mode_coll) vpe_run(coll_body, 0);
+            else {
             if (g_ppg) { vpe_run(ppg_ident, 0); vpe_run(ppg_node_group, 0); }
-            vpe_run(comm_body, 0);
+            vpe_run(comm_body, 0); }
         }
         mn_finalize();
     }

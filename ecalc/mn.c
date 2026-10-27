@@ -144,6 +144,7 @@ static int mn_init_ppg(void)
     flat = comm_xshmem_create_flat(0, npe, 0);
     printf("mn: pe %d of %d (node %d of %d, local %d of %d): device %d of %d visible, numa %d, cxi%d (%d NIC%s), one flat communicator over %d PEs over xshmem (one process per PE): created in %.2f s\n",
            pe, npe, node, nn, local, ppn, v[4], ndev, v[5], v[7], v[6], v[6] == 1 ? "" : "s", npe, mem_now() - tx);
+    { const char *tl = getenv("ECALC_INIT_TL"); if (tl && atoi(tl) > 0 && pe == 0) printf("tl          mn_init: transport init + identity checks + the flat communicator %.2f s (pe 0; the engine's own lines are `tl ... xshmem:`)\n", mem_now() - tx); }   /* ECALC_INIT_TL=1 (print only) */
     mn_comm_mark("start (the meshes created)");
     return npe;
 }
@@ -174,12 +175,13 @@ int mn_init(void)
     if (g_xshmem) {
         if (!comm_xshmem_available()) { ec_fatal(EC_RC_FATAL, "mn: COMM_TRANSPORT=xshmem but the xshmem backend is not available (make XSHMEM=ofi)\n"); }
         double tx = mem_now();
-        g_size = comm_xshmem_init(); g_rank = comm_xshmem_rank();
+        g_size = comm_xshmem_init(); g_rank = comm_xshmem_rank(); double t_eng = mem_now() - tx;
         if (g_size <= 1) { g_size = 1; g_rank = 0; comm_xshmem_finalize(); g_xshmem = 0; return 1; }
 #pragma omp parallel for num_threads(NA) schedule(static)
         for (int d = 0; d < NA; d++) { HIP_CHECK(hipSetDevice(d)); g_cm[d] = mesh_create(0, 1, g_size, d); }
         HIP_CHECK(hipSetDevice(0));
         printf("mn: node %d of %d, four meshes of %d PEs over xshmem: created in %.2f s\n", g_rank, g_size, g_size, mem_now() - tx);
+        { const char *tl = getenv("ECALC_INIT_TL"); if (tl && atoi(tl) > 0 && g_rank == 0) printf("tl          mn_init: transport init %.2f s, four meshes created %.2f s (node 0; the engine's own lines are `tl ... xshmem:`)\n", t_eng, mem_now() - tx - t_eng); }   /* ECALC_INIT_TL=1 (print only) */
         mn_comm_mark("start (the meshes created)");   /* the marks' origin */
         return g_size;
     }

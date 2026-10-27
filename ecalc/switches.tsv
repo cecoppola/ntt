@@ -47,7 +47,7 @@ ECALC_FATAL_TEST	int	unset	unset		test-only	-	C314.md	Y	ecalc	binsplit.c	2	diagn
 ECALC_FATAL_WAIT	int	60	60		built-in default	-	C314.md	Y	ecalc	fatal.c	1	-	-	
 ECALC_FIT_PER_APU	int	unset	unset		built-in default	-	-	Y	ecalc	binsplit.c	4	-	-	
 ECALC_INIT_ONLY	int	unset	unset		test-only	-	L114.md+P13b.md	Y	ecalc	ecalc.c	2	diagnostics (TESTING.md)	2027-04-12	
-ECALC_INIT_TL	bool	0	0	0|1	launch-line	-	MAP15.md	Y	ecalc	dbig.c	2	-	-	dbig.c
+ECALC_INIT_TL	bool	0	0	0|1	launch-line	-	MAP15.md	Y	ecalc	comm_xshmem.c,dbig.c,mn.c	5	-	-	dbig.c
 ECALC_MEM_GUARD_GB	float	0	derived	>=0 GB	launch-line	aac7	IO15.md+DOC15.md	Y	ecalc	memsample.c	1	-	-	memsample.c:113; 0 = guard off
 ECALC_MEM_SAMPLE	bool	derived	derived	0|1	test-only	-	IO15.md+S114.md	Y	ecalc	memsample.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_NODE_GB	float	480	480		built-in default	aac7	P16.md+C314.md	Y	ecalc	binsplit.c,ecalc.c	10	-	-	
@@ -99,6 +99,7 @@ RNS_POOL1_GB	float	unset	unset		built-in default	-	R.md+T.md	Y	ecalc	mn_plan.c,r
 RNS_POOL_GROW	int	0	0		test-only	-	B16.md+R.md	Y	ecalc	binsplit.c,rns_mul.c	6	diagnostics (TESTING.md)	2027-04-12	
 RNS_STRATEGY	bool	derived	derived	0|1	built-in default	-	B13b.md+G13d.md	Y	ecalc	rns_dist.c	1	-	-	
 RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	31	-	-	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
+XSHMEM_COLL	str	flat	unset	flat|tree	experiment	-	-	Y	ecalc	comm_xshmem.c	1	comm	2026-12-31	comm_xshmem.c; barrier / allreduce_max / allgather_host
 XSHMEM_CRAY_GPU_PRETOUCH	int	0	0	0|1	experiment	-	-	Y	ecalc	xshmem_cray.h	1	craylane	2026-12-31	xshmem_cray.h; 1 = a GPU kernel reads one byte per 4 KiB page of the registered DATA heap at init (GPU page-table population)
 XSHMEM_CRAY_HEAP_THP	int	0	0	0|1|2	experiment	-	-	Y	ecalc	xshmem_cray.h	1	craylane	2026-12-31	xshmem_cray.h; XSHMEM_CRAY=cray DATA heap: 1 = MADV_HUGEPAGE before zeroing + MADV_COLLAPSE after, 2 = only report the backing (smaps line per PE)
 XSHMEM_CRAY_NOMEMSET	int	0	unset	0|1	experiment	-	-	Y	ecalc	xshmem_cray.h	1	craylane	2026-12-31	xshmem_cray.h; diagnosis: skip our zeroing of the DATA heap (libsma heap is a fresh zero mapping)
