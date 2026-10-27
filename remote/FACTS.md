@@ -79,7 +79,7 @@ VMM growth) against 373.44 GB, with a 5 GB margin rule for the automatic `DM_MN_
 | 6.632e10 | 8-576 | P / path 2 | 430 (8 n) to 671 (576 n) | refused from 8 nodes on |
 
 - Largest sizes on 576 nodes (mod): about 4.19e13 digits with `MN_NONPOW2_CAP=0`, about 2.67e13 with it on; path 2 / P about 5.2e12-7.5e12 (1.3e10 per node with a 480 GB node budget, about 9.1e9 with 414).
-- Why path 2 jumps at 576 nodes: 576 nodes = 2304 PEs is not a power of two, so every product uses the general exchange map whose v-slots (about 61 GB per node at 1.74e10) are zero at power-of-two node counts. `DIST_CHUNKS=K` slices the exchange rows: v-slots 30.6 / 15.3 / 7.7 GB for K = 2 / 4 / 8 (mod). Digit safety of DIST_CHUNKS: identical for 4 vs 8 on layout D (m aac7); path 2 at non-power-of-two counts untested (TQ84).
+- Why path 2 jumps at 576 nodes: 576 nodes = 2304 PEs is not a power of two, so every product uses the general exchange map whose v-slots (about 61 GB per node at 1.74e10) are zero at power-of-two node counts. `DIST_CHUNKS=K` slices the exchange rows (code default: 1 under `ECALC_PE_PER_GPU=1`, i.e. path 2; 8 otherwise): v-slots 30.6 / 15.3 / 7.7 GB for K = 2 / 4 / 8 (mod). Digit safety of DIST_CHUNKS: identical for 4 vs 8 on layout D (m aac7); path 2 at non-power-of-two counts untested (TQ84).
 - `ECALC_PLANE_CAP=run` prints `ECALC_PLANE_CAP=run (default): plane cap 2^30 ...` (or 2^31). Cap 2^30 saves 2.64 s [-2.98, -2.30] at 8e9 on 1 node, about 2.8 s at 2 n, digits identical (hash 3e78c1b2a0276963 at 8e9, m aac7); above 2 nodes unmeasured.
 - Measured on aac7 (m): P fits 2 n to 5e10 (5.5e10 refused, 425.8 GB host vs 420); D fits 2 n to about 1.2e11; one node edge 1.44 / 1.30e11 at cap 2^30 / 2^31 (three primes). Init floor is 0.06-0.075 s per GB mapped (kernel page clearing, one lock): 0.070 s/GB on aac7 (target reportedly 0.010 s/GB with a generic harness, u, unconfirmed).
 - rc 8 / `plan REFUSED`: lower the digits (refusal prints the largest that fits), or `MN_T_CHUNK_MB=1024`, `ECALC_NP=3`, `MN_NONPOW2_CAP=0`, or `DIST_CHUNKS`. rc 9: lower `ECALC_NODE_GB` by the overshoot it prints.
@@ -151,9 +151,9 @@ joined lines; per-node ranges differ between layouts, so compare hashes only bet
 
 Reference digit hashes (first 16 hex of sha1 of the unpacked ASCII digits, m aac7, `ecalc_ref_hash` in `target/bench/items/_ecalc.sh`):
 1e9 `bf9f4b08758b40d9`; 1e10 `3fc025473586ed22`; 1e11 `578f5efb0ff2b9af`; 8e9 `3e78c1b2a0276963`. Larger sizes have no stored reference on
-the development side: judge by VERIFY OK on all ranks and equal digits between paths and replicas. The coordinator's brief quotes
-last digits `...29680671395813714711` for 8e9 per node at 2 nodes (1.6e10 digits); that string is not stored in the repository, treat
-it as unverified (a).
+the development side: judge by VERIFY OK on all ranks and equal digits between paths and replicas. Measured reference: 1.6e10 digits
+(8e9 per node at 2 nodes) end in `...862935846376248170970671395813714711` (m, aac7 2026-10-25, path 1, identical with and without
+the 2^30 plane cap; the last node's `mn: node N: digits:` line).
 
 Return codes (ecalc exit codes from `ecalc/fatal.h`, `memsample.h`; `mnrun.sh` header):
 
