@@ -79,7 +79,7 @@ BS_ARENA_ROOM				built-in default		AS15.md+DL15.md	with DB_POOL_VMM: f > 0 lays 
 BS_BALANCE_N				built-in default			levels with at most this many nodes are balanced over the four regions; 0 = never (16)
 BS_CKPT_BG_CHUNK_MB				built-in default		N13.md	the top-level set's background writer: its DMA chunk (256; bounds the time to stop); *test*: emulate a disk of this many MB/s (unset)
 BS_CKPT_BG_MBS				test-only		N13.md	the top-level set's background writer: its DMA chunk (256; bounds the time to stop); *test*: emulate a disk of this many MB/s (unset)
-BS_MDEV_LOGL				built-in default		M3.md+A-ckpt.md	products above 2^this limbs go to the mdev tier; lower it to test at 10⁹ (30)
+BS_MDEV_LOGL				built-in default		M3.md+A-ckpt.md	products above 2^this limbs go to the mdev tier; lower it to test at 10⁹ (30); 29 on target runs from 1e13 digits (balances the 4 APUs, `results/MEMORY.md` §B4; `remote/ROUTE.md` S6)
 BS_SEED_CHUNK_MB				built-in default		H.md+R114.md	the seed stream's buffered chunk per region (8192 with `DB_POOL_VMM`, the default; 2048 without)
 BS_SEED_FILL				built-in default		T215.md+DOC15.md	the seed span chosen per run as the largest S whose last span has at most this many limbs, so the batch tier's products fill their lengths: 128 fills 2ᵏ (S = 239 at 4 × 10¹⁰, 229 at 10¹¹), ...
 BS_SEED_TERMS				built-in default		T215.md+WP7.md	the seed span in terms (256; set in the environment it turns `BS_SEED_FILL`'s default off)
@@ -143,4 +143,3 @@ ECALC_OMP_TEAM	omp	str	omp|mask	experiment	omp_team.h: size of the host OpenMP t
 ECALC_RESIDUE	off	str	shoup	experiment	residue_shoup.h: the digit residues of packed_mods (mn_out.c) and vf_digits_mods (verify.c): shoup = Shoup precomputed-quotient multiply per Horner step (bit-identical, no 128-bit division); default = the % form	S22.md
 MN_OUT_EARLY_ALWAYS	0	bool	0/1	experiment	ecalc.c mn_hooks_set: 1 = the early output hook (MN_OUT_EARLY) also without an output file: the writer computes the digit residues only, overlapped with the division, and writes nothing; measured aac7 1 node layout P 8e9: dm 3.11 -> 3.92 s with it on (the writer competes with the division), so it stays off	S22.md
 XSHMEM_COLL	flat	str	flat|tree	experiment	comm_xshmem.c; barrier / allreduce_max / allgather_host		experiment, default flat: tree = dissemination (ceil(log2 n) rounds, offsets only with the log n partners) instead of every member to every member; digits identical; results/XSHMEM.md
-XSHMEM_ROUND_PIPE	0	int	0|1	experiment	comm_xshmem.c; only with rounds (XSHMEM_ROUND_MB > 0)		experiment, default 0: 1 = per-peer completion in the rounds exchange (a pair posts chunk j + 1 when its peer acknowledged chunk j) instead of the all-peer round barrier; digits identical; results/XSHMEM.md

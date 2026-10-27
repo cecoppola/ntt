@@ -76,7 +76,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `BS_CKPT_BG_MBS` | 0 | test-only | the top-level set's background writer: its DMA chunk (256; bounds the time to stop); *test*: emulate a disk of this many MB/s (unset) | N13.md |
 | `BS_CKPT_DIR` | unset | launch-line | the directory of the top-level set (`ECALC_CKPT_TOP`); unset = `<outfile>.top`. | W.md+WP7.md |
 | `BS_LAYOUT_ONLY` | unset | launch-line | `D:g[,D:g…]` — print the arena request `binsplit_pregrow` would make for D digits per node over g node-processes (one `layout:` line each) and exit; `mem_model.py --check-c <log>` compares ... | MS15.md+B7ACCT.md |
-| `BS_MDEV_LOGL` | derived | built-in default | products above 2^this limbs go to the mdev tier; lower it to test at 10⁹ (30) | M3.md+A-ckpt.md |
+| `BS_MDEV_LOGL` | derived | built-in default | products above 2^this limbs go to the mdev tier; lower it to test at 10⁹ (30); 29 on target runs from 1e13 digits (balances the 4 APUs, `results/MEMORY.md` §B4; `remote/ROUTE.md` S6) | M3.md+A-ckpt.md |
 | `BS_SEED_CHUNK_MB` | derived | built-in default | the seed stream's buffered chunk per region (8192 with `DB_POOL_VMM`, the default; 2048 without) | H.md+R114.md |
 | `BS_SEED_FILL` | unset | built-in default | the seed span chosen per run as the largest S whose last span has at most this many limbs, so the batch tier's products fill their lengths: 128 fills 2ᵏ (S = 239 at 4 × 10¹⁰, 229 at 10¹¹), ... | T215.md+DOC15.md |
 | `BS_SEED_TERMS` | derived | built-in default | the seed span in terms (256; set in the environment it turns `BS_SEED_FILL`'s default off) | T215.md+WP7.md |
@@ -189,7 +189,6 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `XSHMEM_PEER` | -1 | experiment | (default: on with one PE per process, Q100 2026-10-25; `0` = off, the NIC path; the default layout D is unaffected): same-node PEs exchange payload by device copies (`hipMemcpyAsync` on one ... | - |
 | `XSHMEM_PES_PER_GPU` | 1 | experiment | PEs per GPU (default 1; the 2-PEs-per-GPU fallback of design 2.2) / a prefix for every `/sys` path (mock trees of `tests/t_pe_geo`) | - |
 | `XSHMEM_ROUND_MB` | 128 | experiment | the xshmem engine (`COMM_TRANSPORT=xshmem`) carries an all-to-all whose pair exceeds this / (n − 1) MiB in rounds that stage at most this many MiB each way (the self slab is not staged; one ... | - |
-| `XSHMEM_ROUND_PIPE` | 0 | experiment | experiment, default 0: 1 = per-peer completion in the rounds exchange (a pair posts chunk j + 1 when its peer acknowledged chunk j) instead of the all-peer round barrier; digits identical; results/XSHMEM.md | - |
 | `XSHMEM_SIG_LANES` | 0 | experiment | diagnosis, default off: signals on every lane instead of lane 0 only | - |
 | `XSHMEM_THP_DISABLE` | 0 | experiment | diagnosis, default 0: 1 = prctl(PR_SET_THP_DISABLE) in the engine init, so this process takes no THP faults (and no direct-compaction stalls) | - |
 | `XSHMEM_THREAD_LEVEL` | 3 | experiment | default 3 (MULTIPLE): thread level of the engine's SHMEM init; 2 = SERIALIZED as the ofi backend | - |
@@ -221,7 +220,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | TARGET12 (S22) | 2026-12-31 | `ECALC_OMP_TEAM`, `ECALC_RESIDUE`, `MN_OUT_EARLY_ALWAYS` |
 | experiment | TASK4 peer | 2026-12-31 | `XSHMEM_PEER` |
 | experiment | TGTSHAPE | 2026-12-31 | `XSHMEM_HEAP_SLACK_MB` |
-| experiment | comm | 2026-12-31 | `XSHMEM_COLL`, `XSHMEM_ROUND_PIPE` |
+| experiment | comm | 2026-12-31 | `XSHMEM_COLL` |
 | experiment | craylane | 2026-12-31 | `XSHMEM_CRAY_GPU_PRETOUCH`, `XSHMEM_CRAY_HEAP_THP`, `XSHMEM_CRAY_NOMEMSET`, `XSHMEM_CRAY_NUMA`, `XSHMEM_CRAY_PUTSIG_SPLIT`, `XSHMEM_CRAY_SIGSET`, `XSHMEM_CRAY_TEST`, `XSHMEM_LANE_CTX`, `XSHMEM_LANE_POLL`, `XSHMEM_LANE_TRACE`, `XSHMEM_SIG_LANES`, `XSHMEM_THP_DISABLE`, `XSHMEM_THREAD_LEVEL` |
 | fallback | P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF) | 2026-11-11 | `DM_MN_WRAP` |
 | fallback | coordinator (TASKS S) | 2026-11-11 | `ECALC_OUT_PACKED` |

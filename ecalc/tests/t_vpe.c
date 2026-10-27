@@ -111,7 +111,7 @@ static void exercise(comm *c, int g0, const char *tag)
     HIPC(hipMemcpy(er, der, sl * n * 8, hipMemcpyDeviceToHost));
     bad = 0; for (int s = 0; s < n; s++) for (size_t j = 0; j < sl; j++) if (er[s * sl + j] != wv(g0 + s, pe, j)) bad++;
     CHK(bad == 0, "%s: alltoall %zu words wrong", tag, bad);
-    {   /* a large alltoallv (1000 to 9900 words per pair, zeros excluded): several chunks per pair when the engine runs in rounds (XSHMEM_ROUND_MB=0.01 -> 4 KiB chunks; with XSHMEM_ROUND_PIPE=1 the pairs advance on their own) */
+    {   /* a large alltoallv (1000 to 9900 words per pair, zeros excluded): several chunks per pair when the engine runs in rounds (XSHMEM_ROUND_MB=0.01 -> 4 KiB chunks) */
         uint64_t *bs_, *br_; size_t *bc = (size_t *)calloc((size_t)n * 4, sizeof(size_t)), *bd = bc + n, *rc2 = bc + 2 * n, *rd2 = bc + 3 * n;
         for (int t = 0; t < n; t++) { bc[t] = 8 * (1000 + 40 * cntw(pe, g0 + t)); rc2[t] = 8 * (1000 + 40 * cntw(g0 + t, pe)); }
         size_t bts = comm_prefix(bc, bd, n), btr = comm_prefix(rc2, rd2, n);
