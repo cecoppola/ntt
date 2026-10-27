@@ -9,7 +9,7 @@ problems), `MANIFEST.sha256` (copy check), `run/*.sh` (the scripts the agent's c
 
 ## Prepare (once, before the session)
 
-1. Download the branch `remote-v1` from GitHub as one archive (`Code` > `Download ZIP` with the branch selected,). Put the archive on the target and unpack it
+1. Download the branch `remote-v1` from GitHub as one archive (`Code` > `Download ZIP` with the branch selected). Put the archive on the target and unpack it
    anywhere on a file system visible to the compute nodes (no git needed). Do not edit the files.
 2. On the target: `cd <unpacked dir> && bash remote/run/s0_check.sh` - checks the copy against the manifest and the tools
    (the agent's first command is the same). Fix a missing or changed file by unpacking again.

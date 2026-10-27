@@ -59,6 +59,9 @@ the exact pattern, <= 80 lines). 3. Match FACTS.md "known problems" and ROUTE.md
 (setting first, patch last) with a re-run of only the failed stage, or the stage's fallback. Two failed attempts on
 the same stage: take the fallback, note it as a problem in the REPORT. A digit mismatch (VERIFY FAILED, hash differs)
 is never "fixed by moving on": stop climbing, keep the logs, try the other path or another node group, report it.
+Before ruling out a path or a setting, check the evidence: it came from a node of the session allocation (s1 prints
+`node_job` and `node_probe_host`; a probe in its own one-node job may land on a bad node), and the failing step's
+errors were read (`show.sh <run dir> errors`). A failure seen once on one node is a node suspect, not a path verdict.
 Time rule: if the remaining time is below the next stage's budget plus 20 %, jump to the minimal route (ROUTE.md).
 
 ## Running results table (keep it in every reply that changes it)

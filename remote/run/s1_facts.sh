@@ -38,7 +38,8 @@ if [ $NONODE = 0 ]; then
     if [ -n "$JOB" ] && [ "$(rl_job_state "$JOB")" != RUNNING ]; then rl_say "job $JOB is not running: not used for the node probe"; JOB=; fi
     if [ -z "$JOB" ]; then
         secs=$(echo "$TLIM" | awk -F: '{ print ($1 * 3600 + $2 * 60 + $3) + 30 }')
-        out=$(rl_tmo 120 sbatch --parsable -N1 --exclusive --gpus-per-node=4 -t "$TLIM" -J remote_s1 --no-requeue -o "$RUN/raw/slurm_s1.out" ${PART:+-p "$PART"} --wrap "sleep $secs" 2>"$RUN/raw/sbatch.err")
+        EXL=$(rl_exclude_list)
+        out=$(rl_tmo 120 sbatch --parsable -N1 --exclusive --gpus-per-node=4 -t "$TLIM" -J remote_s1 --no-requeue -o "$RUN/raw/slurm_s1.out" ${PART:+-p "$PART"} ${EXL:+-x "$EXL"} --wrap "sleep $secs" 2>"$RUN/raw/sbatch.err")
         OWN=${out%%;*}
         if rl_isnum "$OWN"; then
             rl_say "own one-node job $OWN submitted; waiting up to 300 s"
@@ -47,7 +48,8 @@ if [ $NONODE = 0 ]; then
         else rl_say "no one-node job possible: $(head -c 200 "$RUN/raw/sbatch.err")"; OWN=; rl_errfiles "$RUN/raw/sbatch.err"; fi
     fi
     if [ -n "$JOB" ]; then
-        rl_say "node probe in job $JOB (<= 8 min)"
+        PHOST=$(rl_tmo 30 squeue -h -j "$JOB" -o %N 2>/dev/null | head -1)
+        rl_say "node probe in job $JOB on ${PHOST:-?} (<= 8 min)"
         rl_tmo 600 bash "$PROBE" --only node ${PW[@]+"${PW[@]}"} --jobid "$JOB" --out "$N" > "$RUN/raw/probe_node.log" 2>&1 < /dev/null; nrc=$?
         rl_errfiles "$RUN/raw/probe_node.log"
         cancel_own
@@ -61,7 +63,7 @@ args=("$L"); [ -f "$N/facts.tsv" ] && args+=("$N")
 rl_tmo 120 python3 -I "$GEN" "${args[@]}" -o "$conf" > "$RUN/raw/gen_conf.txt" 2>&1 < /dev/null; grc=$?
 # ---- facts
 fact() { local k=$1 v=; [ -f "$N/facts.tsv" ] && v=$(awk -F'\t' -v k="$k" '$1 == k { v = $2 } END { print v }' "$N/facts.tsv"); [ -n "$v" ] || v=$(awk -F'\t' -v k="$k" '$1 == k { v = $2 } END { print v }' "$L/facts.tsv"); echo "${v:-missing}" | cut -c1-120; }
-rl_kv login_probe_rc "$lrc"; rl_kv node_probe_rc "$nrc"; rl_kv node_job "${JOB:-none}"
+rl_kv login_probe_rc "$lrc"; rl_kv node_probe_rc "$nrc"; rl_kv node_job "${JOB:-none}${OWN:+ (own one-node job, outside the session allocation)}"; rl_kv node_probe_host "${PHOST:-none}"
 rl_kv gpu_count "$(fact gpu.count)"; rl_kv gpu_names "$(fact gpu.names)"
 rl_kv nics_cxi "$(fact net.cxi_count)"; rl_kv nics_per_apu "$(fact net.nics_per_apu)"
 mk=$(fact mem.available_kb); rl_kv mem_available_gb "$(awk -v k="$mk" 'BEGIN { if (k + 0 > 0) printf "%.0f", k / 1048576; else print "missing" }')"
