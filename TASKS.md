@@ -16,7 +16,8 @@ lines in 4 cases, all on = identical digits, ABBA no slower). Still open, in ord
 - Class 1: 2-node gates (both paths) of `cand`, then merge to main (needs a second networked aac7 node, free from 10-31).
 - Class 4: `XSHMEM_ROUND_PIPE=1` is slower at 1 node (aac7 2026-10-27, m: path 2 ABBA 16.98 -> 18.75 s at 8e9 digits, +10.5 %,
   95 % interval +1.37 .. +2.18 s, dm 5.55 -> 7.04 s; path 1 single runs 11.86 -> 12.16 s); the other new switches show no
-  slowdown on path 2 (together: ABBA 16.96 -> 16.78 s, no difference resolved, m). Keep it off (not in the target plan); rework or remove before the merge.
+  slowdown on path 2 (together: ABBA 16.96 -> 16.78 s, no difference resolved, m). Keep it off (not in the target plan); rework
+  (event-query copy completion, batch the ready peers: results/XSHMEM.md B2) or remove before the merge.
   Launcher `-c` auto confirmed (m): `-c 192` for one task per node, `-c 48` for 4, none when `MNRUN_CPUS_PER_TASK=` is empty.
 - Class 4: APU balance of the top bs levels (`BS_TOP_SPREAD`): design in results/MEMORY.md, not built.
 - Class 4: pre-published landing offsets for the exchange rounds: not feasible with one signal word per pair; needs a
