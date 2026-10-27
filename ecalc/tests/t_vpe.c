@@ -111,6 +111,19 @@ static void exercise(comm *c, int g0, const char *tag)
     HIPC(hipMemcpy(er, der, sl * n * 8, hipMemcpyDeviceToHost));
     bad = 0; for (int s = 0; s < n; s++) for (size_t j = 0; j < sl; j++) if (er[s * sl + j] != wv(g0 + s, pe, j)) bad++;
     CHK(bad == 0, "%s: alltoall %zu words wrong", tag, bad);
+    {   /* a large alltoallv (1000 to 9900 words per pair, zeros excluded): several chunks per pair when the engine runs in rounds (XSHMEM_ROUND_MB=0.01 -> 4 KiB chunks; with XSHMEM_ROUND_PIPE=1 the pairs advance on their own) */
+        uint64_t *bs_, *br_; size_t *bc = (size_t *)calloc((size_t)n * 4, sizeof(size_t)), *bd = bc + n, *rc2 = bc + 2 * n, *rd2 = bc + 3 * n;
+        for (int t = 0; t < n; t++) { bc[t] = 8 * (1000 + 40 * cntw(pe, g0 + t)); rc2[t] = 8 * (1000 + 40 * cntw(g0 + t, pe)); }
+        size_t bts = comm_prefix(bc, bd, n), btr = comm_prefix(rc2, rd2, n);
+        uint64_t *h1 = (uint64_t *)calloc(bts / 8 + 1, 8), *h2 = (uint64_t *)calloc(btr / 8 + 1, 8);
+        for (int t = 0; t < n; t++) for (size_t j = 0; j < bc[t] / 8; j++) h1[bd[t] / 8 + j] = wv(pe, g0 + t, j);
+        HIPC(hipMalloc(&bs_, bts + 8)); HIPC(hipMalloc(&br_, btr + 8)); HIPC(hipMemcpy(bs_, h1, bts, hipMemcpyHostToDevice));
+        comm_alltoallv(c, bs_, bc, bd, br_, rc2, rd2, st); comm_wait(c);
+        HIPC(hipMemcpy(h2, br_, btr, hipMemcpyDeviceToHost));
+        size_t bad2 = 0; for (int s_ = 0; s_ < n; s_++) for (size_t j = 0; j < rc2[s_] / 8; j++) if (h2[rd2[s_] / 8 + j] != wv(g0 + s_, pe, j)) bad2++;
+        CHK(bad2 == 0, "%s: large alltoallv %zu words wrong (of %zu)", tag, bad2, btr / 8);
+        HIPC(hipFree(bs_)); HIPC(hipFree(br_)); free(bc); free(h1); free(h2);
+    }
     comm_barrier(c);
     HIPC(hipFree(ds)); HIPC(hipFree(dr)); HIPC(hipFree(des)); HIPC(hipFree(der)); HIPC(hipStreamDestroy(st));
     free(sc); free(hs); free(hr); free(es); free(er);

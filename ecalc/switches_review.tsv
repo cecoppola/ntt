@@ -75,3 +75,4 @@ XSHMEM_CRAY_NOMEMSET	experiment	craylane	2026-12-31	Cray init time
 XSHMEM_CRAY_GPU_PRETOUCH	experiment	craylane	2026-12-31	Cray first-exchange stream sync
 XSHMEM_PEER	experiment	TASK4 peer	2026-12-31	XSHMEM engine / backend arm, off by default; review when the P-layout intra-node path is adopted or dropped
 XSHMEM_COLL	experiment	comm	2026-12-31	tree collectives vs flat at target scale; adopt or drop after the 64-node A/B
+XSHMEM_ROUND_PIPE	experiment	comm	2026-12-31	per-peer round completion vs the round barrier at target scale; adopt or drop after the 64-node A/B

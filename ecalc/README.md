@@ -186,6 +186,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `XSHMEM_PEER` | -1 | experiment | (default: on with one PE per process, Q100 2026-10-25; `0` = off, the NIC path; the default layout D is unaffected): same-node PEs exchange payload by device copies (`hipMemcpyAsync` on one ... | - |
 | `XSHMEM_PES_PER_GPU` | 1 | experiment | PEs per GPU (default 1; the 2-PEs-per-GPU fallback of design 2.2) / a prefix for every `/sys` path (mock trees of `tests/t_pe_geo`) | - |
 | `XSHMEM_ROUND_MB` | 128 | experiment | the xshmem engine (`COMM_TRANSPORT=xshmem`) carries an all-to-all whose pair exceeds this / (n − 1) MiB in rounds that stage at most this many MiB each way (the self slab is not staged; one ... | - |
+| `XSHMEM_ROUND_PIPE` | 0 | experiment | experiment, default 0: 1 = per-peer completion in the rounds exchange (a pair posts chunk j + 1 when its peer acknowledged chunk j) instead of the all-peer round barrier; digits identical; results/XSHMEM.md | - |
 | `XSHMEM_SIG_LANES` | 0 | experiment | diagnosis, default off: signals on every lane instead of lane 0 only | - |
 | `XSHMEM_THP_DISABLE` | 0 | experiment | diagnosis, default 0: 1 = prctl(PR_SET_THP_DISABLE) in the engine init, so this process takes no THP faults (and no direct-compaction stalls) | - |
 | `XSHMEM_THREAD_LEVEL` | 3 | experiment | default 3 (MULTIPLE): thread level of the engine's SHMEM init; 2 = SERIALIZED as the ofi backend | - |
@@ -216,7 +217,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | TARGET12 (S2) | 2026-12-31 | `ECALC_PE_PER_GPU`, `RNS_BATCH_SPLIT` |
 | experiment | TASK4 peer | 2026-12-31 | `XSHMEM_PEER` |
 | experiment | TGTSHAPE | 2026-12-31 | `XSHMEM_HEAP_SLACK_MB` |
-| experiment | comm | 2026-12-31 | `XSHMEM_COLL` |
+| experiment | comm | 2026-12-31 | `XSHMEM_COLL`, `XSHMEM_ROUND_PIPE` |
 | experiment | craylane | 2026-12-31 | `XSHMEM_CRAY_GPU_PRETOUCH`, `XSHMEM_CRAY_HEAP_THP`, `XSHMEM_CRAY_NOMEMSET`, `XSHMEM_CRAY_NUMA`, `XSHMEM_CRAY_PUTSIG_SPLIT`, `XSHMEM_CRAY_SIGSET`, `XSHMEM_CRAY_TEST`, `XSHMEM_LANE_CTX`, `XSHMEM_LANE_POLL`, `XSHMEM_LANE_TRACE`, `XSHMEM_SIG_LANES`, `XSHMEM_THP_DISABLE`, `XSHMEM_THREAD_LEVEL` |
 | fallback | P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF) | 2026-11-11 | `DM_MN_WRAP` |
 | fallback | coordinator (TASKS S) | 2026-11-11 | `ECALC_OUT_PACKED` |

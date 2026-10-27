@@ -90,6 +90,7 @@ static struct {
     int nl; size_t lmin; unsigned long long lb[MAXL];   /* XSHMEM_LANES > 1: lanes in use, the smallest chunk per lane, payload bytes put per lane */
 } X = { 1, {0}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, PTHREAD_MUTEX_INITIALIZER, 0, 0, {}, {} };
 
+static int g_rpipe;                        /* XSHMEM_ROUND_PIPE=1 (needs rounds): per-peer completion in the rounds exchange, see xex_pipe (default 0 = the all-peer round barrier of xex_round) */
 static int g_ctree;                        /* XSHMEM_COLL=tree: dissemination collectives (default 0 = flat, every member to every member) */
 static struct { int on, ncomm, nhs, nline; double t0, csum, cmax, hsum, hmax; } XT;   /* ECALC_INIT_TL=1: the start-up timeline of the engine (print only) */
 #define XTL(...) do { if (XT.on && X.q == 0) { printf("tl %7.2f  xshmem: ", now_s() - XT.t0); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -157,6 +158,7 @@ typedef struct xpriv {
     /* rounds (XSHMEM_ROUND_MB > 0): per-pair sequences (oseq[r] my sends to r, iseq[r] r's sends to me; a pair advances by its round count,
      * which both ends derive from the pair's byte count), the state machine of the pending exchange, the own stream of the staging copies */
     int rounds, rph, rneed, rdone; long rK, rj; size_t rch; const char *vsb; char *vrb; size_t *oseq, *iseq; hipStream_t rs; int rs_made;
+    long *pq;                                           /* XSHMEM_ROUND_PIPE: 5 arrays of n: chunks sent, chunks received, chunks published, fresh (received this step), ready (sendable this step) */
     size_t gscr; int gready; size_t *gpeer;             /* allgather_host: my scratch (heap offset), the members' */
 } xpriv;
 #define PRIV(c) ((xpriv *)(c)->priv)
@@ -231,6 +233,7 @@ static int xex_send(xpriv *p)
 }
 static void xex_hang(xpriv *p);
 static int xex_round(xpriv *p);
+static int xex_pipe(xpriv *p);
 static void *worker(void *a)
 {
     xpe *lp = (xpe *)a; struct xpriv *act[MAXPEND]; int na = 0; unsigned idle = 0, wdev_ = (unsigned)-1;
@@ -251,7 +254,7 @@ static void *worker(void *a)
         for (int i = 0; i < na; i++) {
             xpriv *p = act[i];
             if (!p->rounds && wdev_ != (unsigned)p->dev) { HIP_CHECK(hipSetDevice(p->dev)); wdev_ = (unsigned)p->dev; }   /* S1b: the worker works on its PE's device (it was device 0 for every PE: under vPE four workers on one device) */
-            if (p->rounds ? xex_round(p) : xex_send(p)) { act[i] = act[--na]; i--; lp->busy = na; __atomic_store_n(&p->flushed, 1, __ATOMIC_RELEASE); prog = 1; }
+            if (p->rounds ? (g_rpipe ? xex_pipe(p) : xex_round(p)) : xex_send(p)) { act[i] = act[--na]; i--; lp->busy = na; __atomic_store_n(&p->flushed, 1, __ATOMIC_RELEASE); prog = 1; }
         }
         if (prog) idle = 0;
         else {
@@ -327,6 +330,71 @@ static int xex_round(xpriv *p)    /* one step; 1 when every round is done (the p
             p->rj++; p->rph = 0;
         }
     }
+}
+/* ---- XSHMEM_ROUND_PIPE=1: the rounds exchange with per-peer completion ----
+ * Same words, chunking, staging slots (one per peer: min(c, count) bytes) and pair sequences as xex_round (a pair's chunk j is word seq pair_seq + 1 + j); only the
+ * lock-step is gone: a pair advances on its own.  Per peer r: chunk j of mine goes out when r's ROFF word for it arrived (r publishes it after it has received AND copied
+ * out chunk j - 1); chunk j of r's lands when its SIG word arrives, after which (copy-out done, stream synced) I publish chunk j + 1.  Safety, all per pair:
+ *  - a receive slot (r's staging slot, or the caller's rb range) is written only after my ROFF for that chunk, and the next ROFF is published only after the copy-out: no early overwrite;
+ *  - my send slot of r is re-staged only after the lane quiet that completed the previous put (one quiet per step covers every peer put in the step), before its SIG word;
+ *  - a ROFF word of r holds chunk j until I send chunk j (r publishes j + 1 only after my SIG j, which I send after reading ROFF j), so the exact sequence check cannot see a newer value;
+ *    likewise a SIG word: I post chunk j + 1 only after r's ROFF j + 1, published after r consumed SIG j;
+ *  - the exchange ends when every peer is done both ways; the pair sequences advance as in xex_round, so the next exchange's words cannot be confused with this one's
+ *    (a peer finishes only after my last SIG, which I send after reading its last ROFF).
+ * One non-blocking step: receive side (SIG arrived: copy out, sync once), publish next chunks, send side (ROFF arrived: stage, sync once, put, one quiet, signals). */
+static int xex_pipe(xpriv *p)    /* 1 when every pair is done both ways */
+{
+    int n = p->n, me = p->me, prog = 0; size_t c = p->rch; xpe *lp = p->lp; long *sj = p->pq, *rj = sj + n, *pub = rj + n, *fr = pub + n, *rdy = fr + n;
+    if (wdev != p->dev) { HIP_CHECK(hipSetDevice(p->dev)); wdev = p->dev; }
+    if (p->rph == 0) {                                                       /* start: publish chunk 0 to every sender */
+        memset(p->posted, 0, (size_t)n); memset(p->rxdone, 0, (size_t)n); memset(p->pq, 0, 5 * (size_t)n * sizeof(long));
+        for (int q = 0; q < n; q++) { int i = ORD(p, q); if (i == me) continue;
+            const char *land = p->rin ? p->vrb + (p->rcnt[i] ? p->rdsp[i] : 0) : lp->data + p->rst + p->rpre[i];
+            xshmem_ctx_signal_set(lp->lane, WORD(p, W_ROFF, me), PACK(p->iseq[i] + 1, xshmem_off(land)), p->pe[i]); pub[i] = 1; }
+        p->rph = 1; p->rj = 0;
+    }
+    int cp = 0, nf = 0;
+    for (int q = 0; q < n; q++) { int i = ORD(p, q); if (i == me || rj[i] >= rcount(p->rcnt[i], c) || rj[i] >= pub[i]) continue;   /* receive side */
+        long j = rj[i]; uint64_t seq = p->iseq[i] + 1 + (uint64_t)j; const uint64_t *w = WORD(p, W_SIG, i);
+        if (!sigge(w, PACK(seq, 0))) continue;
+        uint64_t v = rd64(w); if ((v >> 40) != seq) die(p, "pipe signal sequence mismatch");
+        size_t want = rlen(p->rcnt[i], c, j), o = (size_t)j * c;
+        if ((v & VMASK) != want) ec_fatal(EC_RC_FATAL, "comm_xshmem: alltoallv count mismatch (pipe, chunk %ld): rank %d sends %ld bytes to rank %d, which expects %zu\n", j, i, (long)(v & VMASK), me, want);
+        if (!p->rin && want) { COPY(p->vrb + p->rdsp[i] + o, lp->data + p->rst + p->rpre[i], want, p->rs); cp = 1; }
+        rj[i]++; fr[nf++] = i; prog = 1;
+    }
+    if (cp) SYNC(p->rs);                                                     /* the slots are free again before their next ROFF */
+    for (int k = 0; k < nf; k++) { int i = (int)fr[k];
+        if (rj[i] < rcount(p->rcnt[i], c)) { size_t o = (size_t)rj[i] * c;
+            const char *land = p->rin ? p->vrb + (p->rcnt[i] ? p->rdsp[i] + o : 0) : lp->data + p->rst + p->rpre[i];
+            xshmem_ctx_signal_set(lp->lane, WORD(p, W_ROFF, me), PACK(p->iseq[i] + 1 + (uint64_t)rj[i], xshmem_off(land)), p->pe[i]); pub[i]++; }
+        else p->rxdone[i] = 1; }
+    int nr = 0;
+    for (int q = 0; q < n; q++) { int i = ORD(p, q); if (i == me || sj[i] >= rcount(p->scnt[i], c)) continue;     /* send side */
+        uint64_t seq = p->oseq[i] + 1 + (uint64_t)sj[i]; const uint64_t *w = WORD(p, W_ROFF, i);
+        if (!sigge(w, PACK(seq, 0))) continue;
+        if ((rd64(w) >> 40) != seq) die(p, "pipe offset sequence mismatch");
+        rdy[nr++] = i;
+    }
+    if (nr) {
+        if (!p->sin) { int any = 0;
+            for (int k = 0; k < nr; k++) { int i = (int)rdy[k]; size_t o = (size_t)sj[i] * c, len = rlen(p->scnt[i], c, sj[i]);
+                if (len) { COPY(lp->data + p->sst + p->spre[i], p->vsb + p->sdsp[i] + o, len, p->rs); any = 1; } }
+            if (any) SYNC(p->rs); }
+        unsigned touched = 0;
+        for (int k = 0; k < nr; k++) { int i = (int)rdy[k]; size_t o = (size_t)sj[i] * c, len = rlen(p->scnt[i], c, sj[i]); uint64_t v = rd64(WORD(p, W_ROFF, i));
+            if (len) touched |= lane_put(lp, xshmem_at((ptrdiff_t)(v & VMASK)), p->sin ? p->vsb + p->sdsp[i] + o : lp->data + p->sst + p->spre[i], len, p->pe[i]); }
+        if (touched) lane_quiet(lp, touched);                                /* every put of this step complete: the slots are free, the payload is visible before its signal */
+        for (int k = 0; k < nr; k++) { int i = (int)rdy[k];
+            xshmem_ctx_signal_set(sig_lane(lp, i), WORD(p, W_SIG, me), PACK(p->oseq[i] + 1 + (uint64_t)sj[i], rlen(p->scnt[i], c, sj[i])), p->pe[i]);
+            if (++sj[i] >= rcount(p->scnt[i], c)) p->posted[i] = 1; }
+        prog = 1;
+    }
+    if (prog) { long m = -1; for (int r = 0; r < n; r++) if (r != me && (m < 0 || rj[r] < m)) m = rj[r]; p->rj = m < 0 ? 0 : m; }   /* (the HANG message: the slowest pair) */
+    for (int r = 0; r < n; r++) if (r != me && (sj[r] < rcount(p->scnt[r], c) || rj[r] < rcount(p->rcnt[r], c))) return 0;
+    sig_quiet(lp);                                                           /* my signals are out: sb reusable */
+    for (int r = 0; r < n; r++) if (r != me) { p->oseq[r] += (uint64_t)rcount(p->scnt[r], c); p->iseq[r] += (uint64_t)rcount(p->rcnt[r], c); }
+    return 1;
 }
 static void xex_post_rounds(xpriv *p, const void *sb, void *rb, hipStream_t s)
 {
@@ -640,7 +708,7 @@ static void x_destroy(comm *c)
     enter(p); xshmem_ctx_quiet(XSHMEM_CTX_DEFAULT); leave(p);
     if (p->gready) { xfree(p->lp, p->gscr); free(p->gpeer); }
     if (p->rs_made) { HIP_CHECK(hipStreamDestroy(p->rs)); }
-    free(p->pe); free(p->oseq); free(p->scnt); free(p->posted); free(p); free(c);
+    free(p->pq); free(p->pe); free(p->oseq); free(p->scnt); free(p->posted); free(p); free(c);
 }
 static const struct comm_ops xsh_ops = { x_rank, x_size, x_alltoall, x_wait, x_barrier, 0, x_max, x_destroy, 0, 0, 0, x_allgather_host, x_alltoallv, 0, x_sym_alloc, x_sym_free };
 
@@ -655,6 +723,7 @@ int comm_xshmem_init(void)
     if (X.inited) { pthread_mutex_unlock(&X.lock); return X.nodes; }
     { const char *e = getenv("ECALC_INIT_TL"); XT.on = e && atoi(e) > 0; XT.t0 = now_s(); }
     double tl_a = XT.t0, tl_b = 0, tl_c = 0, tl_d = 0, tl_e = 0;
+    { const char *e = getenv("XSHMEM_ROUND_PIPE"); g_rpipe = e && atoi(e) > 0; }
     { const char *e = getenv("XSHMEM_COLL"); if (e && *e && strcmp(e, "flat") && strcmp(e, "tree")) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_COLL=%s: flat or tree\n", e); g_ctree = e && !strcmp(e, "tree"); }
     xshmem_cfg_t cfg; xshmem_cfg_load(&cfg);
     { const char *er = xshmem_round_env(); double m = er ? atof(er) : 0; X.rbytes = m > 0 ? (size_t)(m * 1048576.0) : 0; }
@@ -721,6 +790,7 @@ int comm_xshmem_init(void)
     char rbuf[40]; if (X.rbytes) snprintf(rbuf, sizeof rbuf, "%zu MiB", X.rbytes >> 20); else snprintf(rbuf, sizeof rbuf, "off (whole exchange)");
     if (X.q == 0) fprintf(stderr, "comm_xshmem: %d node-processes x %d loopback PEs, DATA heap %zu MiB + CTRL %zu KiB per PE, order %s, worker thread %s, rounds %s, thread level %d\n",
                           X.nodes, K, db >> 20, cb >> 10, "rot", "on", rbuf, prov);
+    if (g_rpipe && X.q == 0) fprintf(stderr, X.rbytes ? "comm_xshmem: XSHMEM_ROUND_PIPE=1: per-peer completion in the rounds exchange\n" : "comm_xshmem: XSHMEM_ROUND_PIPE=1 is inert (rounds are off: XSHMEM_ROUND_MB=0)\n");
     if (g_ctree && X.q == 0) fprintf(stderr, "comm_xshmem: XSHMEM_COLL=tree: dissemination barrier / allreduce_max / allgather_host (ceil(log2 n) rounds)\n");
     XTL("init: boot + library init (PMI, fabric open, %d PEs) %.2f s; lane contexts %.2f s; CTRL heap %.2f s; DATA heap %.2f s (%zu MiB per PE); workers %.2f s; total %.2f s",
         np, tl_b - tl_a, tl_c - tl_b, tl_d - tl_c, tl_e - tl_d, db >> 20, now_s() - tl_e, now_s() - tl_a);
@@ -736,6 +806,7 @@ static comm *make_comm(int n, int me, int id, int lpe, int dev, int pe_start, in
     p->n = n; p->me = me; p->id = id; p->lpe = lpe; p->dev = dev; p->lp = &X.pe[lpe];
     p->pe = (int *)malloc((size_t)n * sizeof(int)); for (int r = 0; r < n; r++) p->pe[r] = flat ? pe_start + r : X.K * (pe_start + r * pe_stride) + lpe;
     p->scnt = (size_t *)calloc(6 * (size_t)n, sizeof(size_t)); p->rcnt = p->scnt + n; p->sdsp = p->scnt + 2 * n; p->rdsp = p->scnt + 3 * n; p->spre = p->scnt + 4 * n; p->rpre = p->scnt + 5 * n;
+    p->pq = g_rpipe ? (long *)calloc(5 * (size_t)n, sizeof(long)) : 0;
     p->oseq = (size_t *)calloc(2 * (size_t)n, sizeof(size_t)); p->iseq = p->oseq + n;
     p->posted = (char *)calloc(2 * (size_t)n, 1); p->rxdone = p->posted + n; p->tarr = (double *)calloc((size_t)n, sizeof(double));
     if (XT.on) {            /* ECALC_INIT_TL=1: the communicator's creation (local: no message), the first XTL_MAXLINES lines, the sum and maximum at finalize */
