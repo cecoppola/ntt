@@ -65,8 +65,10 @@ Failures at 576 nodes (not attributed to hardware by the analysis; the cause is 
 | 2e13 | `comm_xshmem: pe N: HANG (> 900 s) in the allgather handshake`, printed by two lpe-0 PEs | the first non-HANG error lines with their times (`die(`, `boot_abort`, `srun: error`, `Killed`, oom); which PEs printed the last tree-level line (the PEs that did not are the missing group); elapsed time from the previous level to the HANG; node state of the missing group |
 | 3e13 | `P24 CRT flag 1` on several nodes (flag 1 = fifth limb nonzero: wrong residues, not a legitimate overflow) | the full P24 lines (node, plane, prime); whether the same nodes fail again; any allocation failure before it; the `MEM_REPORT_DEVS` per-APU lines and the planner fit line at that size; whether 2e13 passes P24 |
 
-Switches for the next try (off by default): `COMM_HANG_DETAIL=1` (the HANG message lists the peers that have not arrived), `ECALC_FIT_PER_APU=1`
-(the planner also checks the busiest APU against the device limit; 3e13 plans 373 of 373.44 GB per node, mod); `MEM_REPORT_DEVS=1`.
+Switches for the next try (off by default): `COMM_HANG_DETAIL=1` (the HANG message lists the peers that have not arrived), `XSHMEM_HANG_S=3600` (the HANG timeout, default 900),
+`COMM_SEQ_CHECK=1` (call-sequence divergence is fatal naming both calls), `XSHMEM_HS_BATCH=k` (paced, rotated flat handshake), `P24_CHECK=1|2` (input limb checks; a CRT flag prints the product, piece, node and first bad position),
+`ECALC_FIT_PER_APU=1` (the planner also checks the busiest APU against the device limit; 3e13 plans 373 of 373.44 GB per node, mod); `MEM_REPORT_DEVS=1`.
+Code reading (mod, results/XSHMEM.md T2): the two 2e13 PEs are both in node range 512-575 (the last level-6 group), so a straggler past the fixed 900 s is the most likely cause, then call-order divergence, then a flat burst.
 `BS_SEED_THREADS=auto` is now the default. Switch rows: `ecalc/README.md`.
 
 ## Measured runs on the target (2026-10-26; target, m; all VERIFY OK, cold starts, path 1, layout D, `ECALC_PLANE_CAP=run`)
