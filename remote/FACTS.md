@@ -62,7 +62,7 @@ NUMA placement) and `srun --kill-on-bad-exit=1`.
 
 ## Memory limits and the planner
 
-The planner decides before any launch: `tools/plan_values.py --fit <digits> <nodes>` (exit 0 fits, 1 refused) or
+The planner decides before any launch: `python3 -I tools/plan_values.py --fit --ecalc <REMOTE_ECALC1 (path 1) or REMOTE_ECALC2 (path 2) from site.env> <digits> <nodes>` (path 2: add `--env "ECALC_PE_PER_GPU=1 XSHMEM_LANES=2"`; exit 0 fits, 1 refused) or
 `MN_PLAN_ONLY=<digits>:<nodes> ./ecalc`; `mnrun.sh` runs it first and refuses with exit 4. It needs the xshmem build of the run
 (a login node is enough). Device peak per node = max(division phase: planes + arena + comm pools + v-slots; leaf phase: same + 6 GB
 VMM growth) against 373.44 GB, with a 5 GB margin rule for the automatic `DM_MN_WRAP`.

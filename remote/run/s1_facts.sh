@@ -11,6 +11,7 @@ JOB= NONODE=0 PART= TLIM=0:30:00
 while [ $# -gt 0 ]; do case $1 in
   --jobid) JOB=${2:?}; shift;; --no-node) NONODE=1;; --partition) PART=${2:?}; shift;; --time) TLIM=${2:?}; shift;; --dry-run) DRY=1;;
   -h|--help) rl_help "$0"; exit 0;; *) echo "s1_facts.sh: unknown option $1 (--help)" >&2; exit 2;; esac; shift; done
+rl_tlim_secs "$TLIM" >/dev/null || { echo "s1_facts.sh: --time $TLIM: use MM, MM:SS, HH:MM:SS, D-HH, D-HH:MM or D-HH:MM:SS" >&2; exit 2; }
 rl_init s1
 PART=${PART:-${REMOTE_PARTITION:-}}
 PROBE=$R/target/probe/probe.sh; GEN=$R/target/probe/gen_conf.py
@@ -19,7 +20,7 @@ L=$RUN/login; N=$RUN/node
 OWN= WASOWN=; wl="$HERE/s1_facts.sh"
 if [ "$DRY" = 1 ]; then
     rl_would "$PROBE --only login --out $L"
-    rl_would "(no REMOTE_JOB/--jobid) sbatch -N1 --exclusive --gpus-per-node=4 -t $TLIM -J remote_s1 ${PART:+-p $PART }--wrap 'sleep ...'  # own one-node job, cancelled at the end"
+    rl_would "(no REMOTE_JOB/--jobid) sbatch -N1 --exclusive --gpus-per-node=4 -t $TLIM -J remote_s1 ${PART:+-p $PART }${REMOTE_ACCOUNT:+-A $REMOTE_ACCOUNT }--wrap 'sleep ...'  # own one-node job, cancelled at the end"
     rl_would "$PROBE --only node --jobid <job> --out $N"
     rl_would "python3 $GEN $L $N -o $R/target/config/target.conf"
     rl_would "site.env <- REMOTE_PARTITION REMOTE_MODULES_P1 REMOTE_MODULES_P2 REMOTE_UNLOAD GMP_HOME"
@@ -37,14 +38,14 @@ if [ $NONODE = 0 ]; then
     rl_resolve_job || JOB=
     if [ -n "$JOB" ] && [ "$(rl_job_state "$JOB")" != RUNNING ]; then rl_say "job $JOB is not running: not used for the node probe"; JOB=; fi
     if [ -z "$JOB" ]; then
-        secs=$(echo "$TLIM" | awk -F: '{ print ($1 * 3600 + $2 * 60 + $3) + 30 }')
+        secs=$(( $(rl_tlim_secs "$TLIM") + 30 ))
         EXL=$(rl_exclude_list)
-        out=$(rl_tmo 120 sbatch --parsable -N1 --exclusive --gpus-per-node=4 -t "$TLIM" -J remote_s1 --no-requeue -o "$RUN/raw/slurm_s1.out" ${PART:+-p "$PART"} ${EXL:+-x "$EXL"} --wrap "sleep $secs" 2>"$RUN/raw/sbatch.err")
+        out=$(rl_tmo 120 sbatch --parsable -N1 --exclusive --gpus-per-node=4 -t "$TLIM" -J remote_s1 --no-requeue -o "$RUN/raw/slurm_s1.out" ${PART:+-p "$PART"} ${REMOTE_ACCOUNT:+-A "$REMOTE_ACCOUNT"} ${EXL:+-x "$EXL"} --wrap "sleep $secs" 2>"$RUN/raw/sbatch.err")
         OWN=${out%%;*}
         if rl_isnum "$OWN"; then
             rl_say "own one-node job $OWN submitted; waiting up to 300 s"
-            t0=$SECONDS; while [ "$(rl_job_state "$OWN")" != RUNNING ] && [ $((SECONDS - t0)) -lt 300 ]; do sleep 10; done
-            if [ "$(rl_job_state "$OWN")" = RUNNING ]; then JOB=$OWN; WASOWN=1; else rl_say "own job did not start in 300 s: node probe skipped"; cancel_own; fi
+            t0=$SECONDS; while :; do ost=$(rl_job_state "$OWN"); case $ost in RUNNING) break;; PENDING|CONFIGURING) ;; *) break;; esac; [ $((SECONDS - t0)) -lt 300 ] || break; sleep 10; done
+            if [ "$ost" = RUNNING ]; then JOB=$OWN; WASOWN=1; else rl_say "own job did not start in 300 s: node probe skipped"; cancel_own; fi
         else rl_say "no one-node job possible: $(head -c 200 "$RUN/raw/sbatch.err")"; OWN=; rl_errfiles "$RUN/raw/sbatch.err"; fi
     fi
     if [ -n "$JOB" ]; then
@@ -65,7 +66,7 @@ rl_tmo 120 python3 -I "$GEN" "${args[@]}" -o "$conf" > "$RUN/raw/gen_conf.txt" 2
 fact() { local k=$1 v=; [ -f "$N/facts.tsv" ] && v=$(awk -F'\t' -v k="$k" '$1 == k { v = $2 } END { print v }' "$N/facts.tsv"); [ -n "$v" ] || v=$(awk -F'\t' -v k="$k" '$1 == k { v = $2 } END { print v }' "$L/facts.tsv"); echo "${v:-missing}" | cut -c1-120; }
 rl_kv login_probe_rc "$lrc"; rl_kv node_probe_rc "$nrc"; rl_kv node_job "${JOB:-none}${WASOWN:+ (own one-node job, outside the session allocation)}"; rl_kv node_probe_host "${PHOST:-none}"
 rl_kv gpu_count "$(fact gpu.count)"; rl_kv gpu_names "$(fact gpu.names)"
-rl_kv nics_cxi "$(fact net.cxi_count)"; rl_kv nics_per_apu "$(fact net.nics_per_apu)"
+rl_kv nics_cxi "$(fact net.cxi_count)"$([ "$REMOTE_SITE" = aac7 ] || echo ' (8 expected)'); rl_kv nics_per_apu "$(fact net.nics_per_apu)"
 mk=$(fact mem.available_kb); rl_kv mem_available_gb "$(awk -v k="$mk" 'BEGIN { if (k + 0 > 0) printf "%.0f", k / 1048576; else print "missing" }')"
 rl_kv cpus "$(fact cpu.total)"; rl_kv rocm "$(fact rocm.version_file)"; rl_kv hipcc "$(fact rocm.hipcc_version)"
 rl_kv sma_versions "$(fact lib.sma_versions)"; rl_kv sma_prefix "$(fact lib.sma_prefix)"; rl_kv libfabric "$(fact lib.fi_version)"; rl_kv libfabric_cxi_domains "$(fact lib.fi_cxi_domain_count)"
@@ -95,5 +96,7 @@ v=PASS
 [ "$nrc" = 0 ] || v=PARTIAL
 [ "$grc" = 0 ] || { v=FAIL; rl_errfiles "$RUN/raw/gen_conf.txt"; }
 case "$(fact gpu.count)" in 4) ;; *) [ "$REMOTE_SITE" = aac7 ] || v=PARTIAL;; esac
+nic=$(fact net.cxi_count)
+if [ "$REMOTE_SITE" != aac7 ] && [ "$nic" != 8 ]; then v=PARTIAL; rl_line "advisory: NICs per node = $nic (8 expected on the target; checked: gpu_count 4, nics_cxi 8, SHMEM test rc 0)"; fi
 echo "$shm" | grep -q -E '=[1-9]' && v=PARTIAL
 rl_finish "$v" "$HERE/s2_build.sh --path both --jobs 32"

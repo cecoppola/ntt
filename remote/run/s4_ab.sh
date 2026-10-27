@@ -14,7 +14,8 @@ while [ $# -gt 0 ]; do case $1 in
   --rounds) ROUNDS=${2:?}; shift;; --aa) AA=1;; --no-warmup) WARM=0;; --tmo) TMO=${2:?}; shift;; --jobid) JOB=${2:?}; shift;; --exclude) EXCLUDE=${2-}; shift;;
   --dry-run) DRY=1;; -h|--help) rl_help "$0"; exit 0;; *) echo "s4_ab.sh: unknown option $1 (--help)" >&2; exit 2;; esac; shift; done
 [ -n "$NN" ] && [ -n "$DIG" ] && [ -n "$P" ] || { echo "s4_ab.sh: --nodes, --digits and --path are required (--help)" >&2; exit 2; }
-rl_isnum "$NN" && rl_isnum "$DIG" && rl_isnum "$ROUNDS" || { echo "s4_ab.sh: numeric --nodes/--digits/--rounds" >&2; exit 2; }
+rl_posint "$NN" && rl_posint "$ROUNDS" && rl_isnum "$DIG" || { echo "s4_ab.sh: --nodes and --rounds are positive integers, --digits numeric" >&2; exit 2; }
+NN=$((10#$NN)); ROUNDS=$((10#$ROUNDS))
 case $P in 1|2) ;; *) echo "s4_ab.sh: --path 1|2" >&2; exit 2;; esac
 [ $AA = 1 ] && BW=$AW
 rl_init s4

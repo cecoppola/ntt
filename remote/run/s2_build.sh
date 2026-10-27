@@ -13,7 +13,8 @@ while [ $# -gt 0 ]; do case $1 in
   --path) PATHS=${2:?}; shift;; --jobs) JOBS=${2:?}; shift;; --node) NODE=1;; --jobid) JOB=${2:?}; shift;; --no-gmp) NOGMP=1;; --dry-run) DRY=1;;
   -h|--help) rl_help "$0"; exit 0;; *) echo "s2_build.sh: unknown option $1 (--help)" >&2; exit 2;; esac; shift; done
 case $PATHS in 1|2|both) ;; *) echo "s2_build.sh: --path 1|2|both" >&2; exit 2;; esac
-rl_isnum "$JOBS" || { echo "s2_build.sh: --jobs N" >&2; exit 2; }
+rl_posint "$JOBS" || { echo "s2_build.sh: --jobs N (a positive integer)" >&2; exit 2; }
+JOBS=$((10#$JOBS))
 rl_init s2
 rl_conf
 BUILD=$R/target/bench/items/_build.sh
@@ -40,7 +41,7 @@ gmp_build() {
     fi
     [ -n "$tb" ] || { echo "no GMP tarball (put gmp-6.3.0.tar.xz into $REMOTE_OUT or set REMOTE_GMP_URL)" >> "$RUN/raw/gmp.log"; return 1; }
     mkdir -p "$RUN/gmpsrc" && tar -C "$RUN/gmpsrc" -xf "$tb" >> "$RUN/raw/gmp.log" 2>&1 || return 1
-    ( cd "$RUN"/gmpsrc/gmp-* && rl_tmo 1500 ./configure --prefix="$P" >> "$RUN/raw/gmp.log" 2>&1 && rl_tmo 1500 make -j"$JOBS" >> "$RUN/raw/gmp.log" 2>&1 && rl_tmo 600 make install >> "$RUN/raw/gmp.log" 2>&1 ) || return 1
+    ( cd "$RUN"/gmpsrc/gmp-* && rl_tmo 1500 ./configure --prefix="$P" --enable-fat >> "$RUN/raw/gmp.log" 2>&1 && rl_tmo 1500 make -j"$JOBS" >> "$RUN/raw/gmp.log" 2>&1 && rl_tmo 600 make install >> "$RUN/raw/gmp.log" 2>&1 ) || return 1
     rm -rf "$RUN/gmpsrc"; [ -f "$P/include/gmp.h" ] || return 1
     rl_site_set GMP_HOME "$P"; return 0
 }
@@ -69,6 +70,12 @@ if [ $NODE = 1 ]; then rl_resolve_job || rl_die "--node needs --jobid or REMOTE_
 pids=(); for p in "${want[@]}"; do rl_say "building path $p (make -j$JOBS)"; wrap "$p" & pids+=($!); done
 rcs=(); i=0; for pid in "${pids[@]}"; do wait "$pid"; rcs[$i]=$?; i=$((i + 1)); done
 ok1=0 ok2=0 i=0
+loaded_mods() {   # PATH -> the modules of the build environment that matter for a launch (target mode, when the winning candidate was "as is")
+    local lm
+    if [ $NODE = 1 ]; then lm=$(rl_tmo 60 srun --jobid="$JOB" -N1 -n1 --overlap --export=ALL bash -lc 'module -t list 2>&1' < /dev/null 2>/dev/null)
+    else lm=$(rl_tmo 30 bash -lc 'module -t list 2>&1' < /dev/null 2>/dev/null); fi
+    echo "$lm" | grep -a -E '^(rocm|cray-openshmemx|cray-shmem|cray-sma|cray-dsmml|libfabric)(/|$)' | { if [ "$1" = 1 ]; then grep -v -E '^cray-(dsmml|openshmemx|shmem|sma)'; else cat; fi; } | paste -sd' '
+}
 sv() { grep -a -m1 "^$2=" "$RUN/bld_p$1/summary.txt" 2>/dev/null | sed 's/^[^=]*=//'; }
 rl_line "builds:"
 for p in "${want[@]}"; do
@@ -83,7 +90,10 @@ for p in "${want[@]}"; do
         rl_kv "path$p.rc" 0
         tl=""; for t in t_edge t_nodechk t_xshmem t_pe_geo; do [ -x "$(dirname "$abs")/tests/$t" ] && tl="$tl $t"; done; [ -x "$(dirname "$abs")/../tools/unpack_digits" ] && tl="$tl unpack_digits"
         rl_kv "path$p.tests" "${tl# }"
-        if [ $p = 1 ]; then ok1=1; rl_site_set REMOTE_ECALC1 "$abs"; rl_site_set REMOTE_MODULES_P1 "$(sv 1 e.MNRUN_MODULES)"; else ok2=1; rl_site_set REMOTE_ECALC2 "$abs"; rl_site_set REMOTE_MODULES_P2 "$(sv 2 e.MNRUN_MODULES)"; fi
+        wm=$(sv "$p" e.MNRUN_MODULES)
+        if [ -z "$wm" ] && [ "$REMOTE_SITE" != aac7 ]; then wm=$(loaded_mods "$p"); [ -n "$wm" ] && rl_kv "path$p.modules_stored" "$wm (candidate 'as is': the loaded modules)"; fi
+        [ -z "$wm" ] && [ "$REMOTE_SITE" != aac7 ] && rl_kv "path$p.modules_note" "no module list known: REMOTE_MODULES_P$p not stored (mnrun.sh would use its built-in default)"
+        if [ $p = 1 ]; then ok1=1; rl_site_set REMOTE_ECALC1 "$abs"; [ -n "$wm" ] && rl_site_set REMOTE_MODULES_P1 "$wm"; else ok2=1; rl_site_set REMOTE_ECALC2 "$abs"; [ -n "$wm" ] && rl_site_set REMOTE_MODULES_P2 "$wm"; fi
         u=$(sv "$p" e.MNRUN_UNLOAD); [ -n "$u" ] && rl_site_set REMOTE_UNLOAD "$u"
     else
         rl_kv "path$p.rc" "$rc"; rl_kv "path$p.result" "FAILED: $(sv "$p" note | cut -c1-200)"

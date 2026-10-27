@@ -14,7 +14,8 @@ while [ $# -gt 0 ]; do case $1 in
   --write) WDIR=${2:?}; shift;; --exclude) EXCLUDE=${2-}; shift;; --tmo) TMO=${2:?}; shift;; --jobid) JOB=${2:?}; shift;; --dry-run) DRY=1;;
   -h|--help) rl_help "$0"; exit 0;; *) echo "s5_run.sh: unknown option $1 (--help)" >&2; exit 2;; esac; shift; done
 [ -n "$NN" ] && [ -n "$DIG" ] && [ -n "$P" ] || { echo "s5_run.sh: --nodes, --digits and --path are required (--help)" >&2; exit 2; }
-rl_isnum "$NN" && rl_isnum "$DIG" || { echo "s5_run.sh: numeric --nodes/--digits (64e9, 38.2e12 or an integer)" >&2; exit 2; }
+rl_posint "$NN" && rl_isnum "$DIG" || { echo "s5_run.sh: --nodes a positive integer, --digits numeric (64e9, 38.2e12 or an integer)" >&2; exit 2; }
+NN=$((10#$NN))
 case $P in 1|2) ;; *) echo "s5_run.sh: --path 1|2" >&2; exit 2;; esac
 rl_init s5
 D=$(rl_digits_site "$DIG" "$NN")

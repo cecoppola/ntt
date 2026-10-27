@@ -12,7 +12,8 @@ while [ $# -gt 0 ]; do case $1 in
   --exclude) EXCLUDE=${2-}; shift;; --dry-run) DRY=1;; -h|--help) rl_help "$0"; exit 0;; *) echo "s3_gate.sh: unknown option $1 (--help)" >&2; exit 2;; esac; shift; done
 case $PATHS in 1|2) pl=$PATHS;; both) pl="1 2";; *) echo "s3_gate.sh: --path 1|2|both" >&2; exit 2;; esac
 rl_isnum "$DIG" || { echo "s3_gate.sh: --digits like 1e9" >&2; exit 2; }
-nl=$(echo "$NODES" | tr ',' ' '); for n in $nl; do rl_isnum "$n" || { echo "s3_gate.sh: --nodes 1,2" >&2; exit 2; }; done
+nl=$(echo "$NODES" | tr ',' ' '); [ -n "$nl" ] || { echo "s3_gate.sh: --nodes 1,2" >&2; exit 2; }; for n in $nl; do rl_posint "$n" || { echo "s3_gate.sh: --nodes 1,2 (positive integers)" >&2; exit 2; }; done
+nl=$(for n in $nl; do echo $((10#$n)); done | paste -sd" ")
 maxn=$(echo "$nl" | tr ' ' '\n' | sort -n | tail -1)
 rl_init s3
 if [ "$DRY" = 1 ]; then

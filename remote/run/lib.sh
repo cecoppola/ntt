@@ -41,6 +41,10 @@ rl_kv() { local k=$1; shift; echo "$k=$*" >> "$RUN/summary.body"; }
 rl_line() { echo "$*" >> "$RUN/summary.body"; }
 rl_would() { echo "  would run: $*" >> "$RUN/summary.body"; }
 rl_errfiles() { RL_ERRFILES+=("$@"); }
+rl_tilde() {        # stdin -> stdout with the value of $HOME written as ~ (pasted paths stay usable as commands, the home path is not shown)
+    local h=${HOME:-}; if [ -z "$h" ] || [ "$h" = / ]; then cat; return; fi
+    h=$(printf '%s' "$h" | sed 's/[][\.*^$#+?(){}|]/\\&/g'); sed -E "s#$h(/|\$|[^A-Za-z0-9_.-])#~\\1#g"
+}
 
 rl_cat() { local x; for x in "$@"; do [ -f "$x" ] || continue; case $x in *.gz) zcat "$x";; *) cat "$x";; esac; done 2>/dev/null; }
 rl_errs() {     # FILES... -> up to 15 distinct error-looking lines (rank labels / times stripped, digits folded for the dedupe)
@@ -63,12 +67,12 @@ rl_finish() {   # VERDICT [NOTE] NEXT: print the summary block, exit by verdict
         [ -n "$note" ] && echo "note=$note"
         cat "$body"
         if [ "$v" = FAIL ]; then
-            local e; e=$(rl_errs "${RL_ERRFILES[@]}")
+            local e; e=$(rl_errs ${RL_ERRFILES[@]+"${RL_ERRFILES[@]}"})
             [ -n "$e" ] && { echo "errors:"; echo "$e" | sed 's/^/  /'; }
         fi
         echo "next=$next"
         echo "=== END $STAGE ==="
-    } > "$out"
+    } | rl_tilde > "$out"
     nl=$(wc -l < "$out")
     if [ "$nl" -gt 84 ]; then { head -n 70 "$out"; echo "... ($((nl - 74)) more lines: $out)"; tail -n 4 "$out"; }; else cat "$out"; fi
     echo "$v" > "$RUN/DONE"
@@ -80,6 +84,15 @@ rl_trap() { local rc=$?; if [ "$RL_FINISHED" != 1 ] && [ -n "$RUN" ]; then rl_fi
 rl_tmo() { local s=$1; shift; timeout -k 10 "$s" "$@"; }       # SECONDS CMD...
 rl_num() { awk -v x="$1" 'BEGIN { printf "%.0f", x }'; }        # 64e9 / 38.2e12 / plain integer -> integer
 rl_isnum() { awk -v x="$1" 'BEGIN { exit !(x ~ /^[0-9]+([.][0-9]+)?([eE][+]?[0-9]+)?$/ && x + 0 > 0) }'; }
+rl_posint() { case ${1:-} in ''|*[!0-9]*) return 1;; esac; [ "$1" -gt 0 ] 2>/dev/null; }    # positive integer (digits only, no 1e3 / 1.5)
+rl_tlim_secs() {    # SLURM TIME -> seconds: MM | MM:SS | HH:MM:SS | D-HH | D-HH:MM | D-HH:MM:SS; rc 1 if not one of these
+    case ${1:-} in ''|*[!0-9:-]*) return 1;; esac
+    echo "$1" | awk '{ d = 0; r = $0; if (index(r, "-")) { split(r, a, "-"); if (a[1] == "" || a[2] == "" || index(a[2], "-")) exit 1; d = a[1]; r = a[2]; dd = 1 } else if (r ~ /-/) exit 1
+        n = split(r, f, ":"); if (n > 3) exit 1; for (i = 1; i <= n; i++) if (f[i] == "") exit 1
+        if (dd) { s = d * 86400 + f[1] * 3600 + (n > 1 ? f[2] * 60 : 0) + (n > 2 ? f[3] : 0) }
+        else if (n == 1) s = f[1] * 60; else if (n == 2) s = f[1] * 60 + f[2]; else s = f[1] * 3600 + f[2] * 60 + f[3]
+        print s }'
+}
 rl_fmt() { awk -v x="$1" 'BEGIN { printf "%.4g", x }'; }
 rl_user() { id -un 2>/dev/null || echo "${USER:-user}"; }
 rl_have() { command -v "$1" >/dev/null 2>&1; }
@@ -151,20 +164,34 @@ rl_conf() {         # load target/config/target.conf (not in aac7 mode) into the
 rl_nou() { set +u; "$@"; local r=$?; set -u; return $r; }   # _ecalc.sh and the target helpers are not written for set -u
 
 # ---- allocation ---------------------------------------------------------------------------------------------------------
-rl_job_state() { rl_tmo 30 squeue -h -j "$1" -o %T 2>/dev/null | head -1; }
+rl_job_state() {    # JOB -> state (PENDING, RUNNING, ...) or empty = gone; an empty squeue is retried 3 x (5 s apart) and checked with scontrol before "gone"
+    local i s
+    for i in 1 2 3; do
+        s=$(rl_tmo 30 squeue -h -j "$1" -o %T 2>/dev/null | head -1); [ -n "$s" ] && { echo "$s"; return 0; }
+        s=$(rl_tmo 30 scontrol show job -o "$1" 2>/dev/null | grep -a -o 'JobState=[A-Z_]*' | head -1 | cut -d= -f2); [ -n "$s" ] && { echo "$s"; return 0; }
+        [ $i -lt 3 ] && sleep 5
+    done
+    return 0
+}
+rl_job_alive() { case $(rl_job_state "$1") in PENDING|RUNNING|CONFIGURING|COMPLETING|SUSPENDED|RESIZING) return 0;; *) return 1;; esac; }
 rl_job_mine() { [ "$(rl_tmo 30 squeue -h -j "$1" -o %u 2>/dev/null | head -1)" = "$(rl_user)" ]; }
 rl_hosts_all() { local n; n=$(rl_tmo 30 squeue -h -j "$1" -o %N 2>/dev/null | head -1); [ -n "$n" ] && rl_tmo 30 scontrol show hostnames "$n" 2>/dev/null; }
-rl_exclude_list() { # comma list: --exclude / REMOTE_EXCLUDE, target.conf's MNRUN_EXCLUDE_HOSTS, aac7's ~/aac7q/exclude* files
+rl_exclude_list() { # comma list: --exclude / REMOTE_EXCLUDE, target.conf's MNRUN_EXCLUDE_HOSTS, aac7's $HOME/aac7q/exclude* files
     local l=${EXCLUDE:-}${REMOTE_EXCLUDE:+,$REMOTE_EXCLUDE}${MNRUN_EXCLUDE_HOSTS:+,$MNRUN_EXCLUDE_HOSTS}
     if [ "$REMOTE_SITE" = aac7 ]; then local f; for f in "$HOME"/aac7q/exclude "$HOME"/aac7q/exclude_slow; do [ -f "$f" ] && l="$l,$(sed 's/#.*//' "$f" | awk '{ print $1 }' | paste -sd,)"; done; fi
-    echo "$l" | tr ', ' '\n\n' | grep -E '^[A-Za-z0-9._-]+$' | sort -u | paste -sd,
+    # split at commas/blanks outside [...] so Slurm ranges like nid[001-003,007] stay whole
+    echo "$l" | tr ' ' ',' | awk '{ d = 0; o = ""; for (i = 1; i <= length($0); i++) { c = substr($0, i, 1); if (c == "[") d++; else if (c == "]") d--
+        if (c == "," && d <= 0) { print o; o = "" } else o = o c } print o }' | grep -E '^[][A-Za-z0-9._,-]+$' | sort -u | paste -sd,
+}
+rl_usable_hosts() { # JOB -> the hosts of the allocation, one per line, excluded hosts left out
+    local ex all; ex=$(rl_exclude_list); all=$(rl_hosts_all "$1") || return 0
+    [ -n "$all" ] || return 0
+    if [ -n "$ex" ]; then all=$(echo "$all" | grep -Fvxf <(rl_tmo 30 scontrol show hostnames "$ex" 2>/dev/null || echo "$ex" | tr ',' '\n') || true); fi
+    echo "$all"
 }
 rl_pick_hosts() {   # JOB N [SKIP] -> comma list of N usable hosts of the allocation (excluded hosts left out); rc 1 if fewer
-    local job=$1 n=$2 skip=${3:-0} ex all l
-    ex=$(rl_exclude_list); all=$(rl_hosts_all "$job") || return 1
-    [ -n "$all" ] || return 1
-    if [ -n "$ex" ]; then all=$(echo "$all" | grep -Fvxf <(echo "$ex" | tr ',' '\n') || true); fi
-    l=$(echo "$all" | tail -n +$((skip + 1)) | head -n "$n" | paste -sd,)
+    local job=$1 n=$2 skip=${3:-0} l
+    l=$(rl_usable_hosts "$job" | tail -n +$((skip + 1)) | head -n "$n" | paste -sd,)
     [ "$(echo "$l" | tr ',' '\n' | grep -c .)" -ge "$n" ] || return 1
     echo "$l"
 }
@@ -208,10 +235,10 @@ rl_prep() {         # "PATHS" MAXNODES: config, job, binaries, hosts, _ecalc.sh;
     rl_need_running "$JOB"
     for p in $paths; do if [ -x "$(rl_bin "$p")" ]; then any=1; else rl_say "path $p: no binary (run s2_build.sh)"; fi; done
     [ $any = 1 ] || rl_die "no ecalc binary for path(s) $paths (s2_build.sh first)"
-    n=$maxn; HOSTS_ALL=
-    while [ "$n" -ge 1 ]; do HOSTS_ALL=$(rl_pick_hosts "$JOB" "$n") && break; HOSTS_ALL=; n=$((n - 1)); done
+    HOSTS_ALL=$(rl_usable_hosts "$JOB")    # one Slurm query, then truncate
     [ -n "$HOSTS_ALL" ] || rl_die "no usable node in job $JOB"
-    NHOSTS=$n
+    NHOSTS=$(echo "$HOSTS_ALL" | grep -c .); [ "$NHOSTS" -gt "$maxn" ] && NHOSTS=$maxn
+    HOSTS_ALL=$(echo "$HOSTS_ALL" | head -n "$NHOSTS" | paste -sd,)
     rl_ecsetup "$JOB" "$HOSTS_ALL"
     rl_kv job "$JOB"; rl_kv nodes_usable "$NHOSTS"
 }
@@ -220,9 +247,14 @@ rl_ecrun() {        # TAG PATH NODES DIGITS [VAR=VALUE ...] -> E_* (see _ecalc.s
     rl_nou ecalc_run "$tag" "$(rl_shape "$p")" "$n" "$d" "$@"
 }
 rl_ecfield() { eval "echo \${$1:-}"; }
-rl_digits_tail() {  # LOG -> last digits printed by the process that holds the end of the result (empty if none)
+rl_digits_tail() {  # LOG -> last digits printed by the process that holds the END of the result (one string; empty if none)
+    # lines: "digits: 2718...5103..." (one process) | "mn: pe|node N: digits: HEAD...TAIL (this node's range)"; ranks without a TAIL are skipped,
+    # of several with a tail the highest pe/node index wins (the last range ends the result), ties: the last line
     local f=$1; [ -f "$f" ] || f=$f.gz; [ -f "$f" ] || return 0
-    { case $f in *.gz) zcat "$f";; *) cat "$f";; esac; } | sed -E 's/^ *[0-9]+: //' | grep -a -E '^(mn: (pe|node) [0-9]+: )?digits: [0-9]*\.\.\.[0-9]+' | sed -E 's/.*\.\.\.//; s/[^0-9].*//' | sort -u | paste -sd,
+    { case $f in *.gz) zcat "$f";; *) cat "$f";; esac; } | sed -E 's/^ *[0-9]+: //' | grep -a -E '^(mn: (pe|node) [0-9]+: )?digits: [0-9]*\.\.\.[0-9]+' \
+      | awk 'BEGIN { br = -2 } { r = -1; if (match($0, /^mn: (pe|node) [0-9]+: /)) { q = substr($0, 1, RLENGTH); gsub(/[^0-9]/, "", q); r = q + 0 }
+               t = $0; sub(/^[^.]*\.\.\./, "", t); sub(/[^0-9].*/, "", t)
+               if (r >= br) { br = r; bt = t } } END { if (bt != "") print bt }'
 }
 
 # ---- planner ------------------------------------------------------------------------------------------------------------
@@ -230,11 +262,22 @@ rl_fit() {          # PATH NODES DIGITS [words] -> rc 0 fits / 1 refused / 2 fai
     local p=$1 n=$2 d=$3; shift 3
     local bin lf env=("$@")
     bin=$(rl_bin "$p"); lf=$RUN/raw/fit_${p}_${n}_$d.log
-    [ "$p" = 2 ] && env=(ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 "${env[@]}")
-    local rc
-    MNRUN_MODULES=$(rl_mods "$p") MNRUN_UNLOAD=$(rl_unload) rl_tmo 300 python3 -I "$R/tools/plan_values.py" --fit --ecalc "$bin" --env "${env[*]}" "$d" "$n" > "$lf" 2>&1 < /dev/null
+    [ "$p" = 2 ] && env=(ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 ${env[@]+"${env[@]}"})
+    local rc via=login
+    MNRUN_MODULES=$(rl_mods "$p") MNRUN_UNLOAD=$(rl_unload) rl_tmo 300 python3 -I "$R/tools/plan_values.py" --fit --ecalc "$bin" --env "${env[*]-}" "$d" "$n" > "$lf" 2>&1 < /dev/null
     rc=$?
     FIT_LINE=$(grep -a -E 'plan fit +(FITS|REFUSED)|plan REFUSED' "$lf" | tail -1 | sed 's/^ *//' | cut -c1-200)
+    [ $rc = 1 ] && [ -z "$FIT_LINE" ] && grep -a -q -E 'Traceback|Error' "$lf" && rc=2    # a crash is not a refusal
+    if [ $rc -ge 2 ] && [ -n "${JOB:-}" ] && [ "$(rl_job_state "$JOB")" = RUNNING ]; then   # planner could not run here: once more on a node of the allocation
+        rl_log "fit p$p n$n d$d: planner failed on the login node (rc $rc); retry through srun on job $JOB"
+        mv "$lf" "$lf.login"; via=srun
+        MNRUN_MODULES=$(rl_mods "$p") MNRUN_UNLOAD=$(rl_unload) rl_tmo 330 srun --overlap --jobid "$JOB" -N1 -n1 --export=ALL python3 -I "$R/tools/plan_values.py" --fit --ecalc "$bin" --env "${env[*]-}" "$d" "$n" > "$lf" 2>&1 < /dev/null
+        rc=$?
+        FIT_LINE=$(grep -a -E 'plan fit +(FITS|REFUSED)|plan REFUSED' "$lf" | tail -1 | sed 's/^ *//' | cut -c1-200)
+        [ $rc = 1 ] && [ -z "$FIT_LINE" ] && rc=2    # srun's own failure looks like rc 1
+    fi
+    rl_log "fit p$p n$n d$d: planner via $via, rc $rc"
+    FIT_VIA=$via
     [ $rc -le 2 ] && return $rc; return 2
 }
 rl_maxfit() {       # PATH NODES HIGH [words] -> the largest digit count (3 significant figures) that fits, by bisection over [1e8 x nodes, HIGH]
@@ -253,7 +296,7 @@ rl_maxfit() {       # PATH NODES HIGH [words] -> the largest digit count (3 sign
 rl_model() {        # NODES DIGITS -> the modelled no-write wall in seconds, or NA
     local n=$1 d=$2 fab=() out
     [ "$REMOTE_SITE" = aac7 ] && fab=(--fabric aac7)
-    out=$(rl_tmo 120 python3 -I "$R/ecalc/mn_model.py" estimate --g "$n" --D "$(awk -v d="$d" -v n="$n" 'BEGIN { printf "%.6g", d / n }')" "${fab[@]}" 2>/dev/null \
+    out=$(rl_tmo 120 python3 -I "$R/ecalc/mn_model.py" estimate --g "$n" --D "$(awk -v d="$d" -v n="$n" 'BEGIN { printf "%.6g", d / n }')" ${fab[@]+"${fab[@]}"} 2>/dev/null \
         | awk -v n="$n" '$1 == n && $4 == "|" { print $5; exit }')
     echo "${out:-NA}"
 }

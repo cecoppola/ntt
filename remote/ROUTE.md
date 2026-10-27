@@ -22,10 +22,13 @@ Total 12-20 round trips. Tell the user the allocation time you ask for at S1: (s
 bash remote/run/chain.sh "s0_check.sh" "alloc.sh --nodes 576 --time <H:MM:SS>" "s1_facts.sh"
 ```
 Holding all 576 nodes costs the same wait as 64 if the queue is idle; if alloc does not start within 5 min (the summary
-says PENDING) re-run `alloc.sh` with `--nodes 64`, later with 8 (subsets are chosen inside the allocation; scale-up then
-uses what was granted). Add `--partition/--account` after the first error says which are needed (s0 lists partitions).
-Go on if: s0 PASS (manifest clean, python3, compiler, srun/salloc, ROCm/SMA/libfabric modules found) and s1 PASS (4 GPUs
-and 8 NICs per node, SHMEM test rc 0, `site.env` written). s1 PARTIAL: read what is missing (FACTS known problems).
+says PENDING) re-run `alloc.sh` with `--nodes 64`, later with 8: a PENDING hold of another size is cancelled and replaced
+by the new one, a RUNNING hold of another size is refused (`alloc.sh --release`, then `alloc.sh --nodes N`); subsets are
+chosen inside the allocation, scale-up then uses what was granted). Add `--partition/--account` after the first error says which are needed (s0 lists partitions).
+Go on if: s0 PASS (manifest clean, python3, compiler, srun/salloc, ROCm/SMA/libfabric modules found) and s1 PASS (checked:
+4 GPUs and 8 CXI NICs per node = `gpu_count`, `nics_cxi`; SHMEM test rc 0 in `shmem_test_rc`; `site.env` written). s1 PARTIAL
+with `advisory: NICs per node = N`: the NIC count is not 8, read FACTS known problems before going on. s0 PARTIAL with
+`exec_bits=missing`: run the `chmod +x ...` printed in `next=` (the copy lost the execute bits), then s0 again.
 s0 FAIL on changed files: have the user unpack again. Module not found: ask for `module avail <name>` only.
 
 ## S2 + S3 (one paste, build then gates)

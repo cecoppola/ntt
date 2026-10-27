@@ -10,7 +10,7 @@ while [ $# -gt 0 ]; do case $1 in --dry-run) DRY=1;; -h|--help) rl_help "$0"; ex
 rl_init s0
 bad=0; warn=0
 if [ "$DRY" = 1 ]; then
-    rl_would "(cd $R && sha256sum -c remote/MANIFEST.sha256)"; rl_would "command -v python3 cc gcc hipcc amdclang make sbatch salloc srun sinfo squeue module"
+    rl_would "(cd $R && sha256sum -c remote/MANIFEST.sha256)"; rl_would "exec bits of ecalc/mnrun.sh tools/nodescreen.sh target/bench/items/*.sh remote/run/*.sh"; rl_would "command -v python3 cc gcc hipcc amdclang make sbatch salloc srun sinfo squeue module"
     rl_would "module avail rocm / cray-shmem / cray-openshmemx / cray-dsmml / libfabric / gmp"; rl_would "sinfo -h -o '%P %a %l %D %t'"
     rl_finish SKIP "$HERE/s0_check.sh"
 fi
@@ -19,11 +19,17 @@ rl_say "manifest check"
 if [ -f "$R/remote/MANIFEST.sha256" ]; then
     ( cd "$R" && timeout 120 sha256sum -c remote/MANIFEST.sha256 > "$RUN/raw/manifest.txt" 2>&1 ); mrc=$?
     nfiles=$(grep -c . "$R/remote/MANIFEST.sha256"); nchg=$(grep -c ': FAILED$' "$RUN/raw/manifest.txt"); nmiss=$(grep -c 'No such file' "$RUN/raw/manifest.txt")
-    nchg=$((nchg - nmiss)); [ $nchg -lt 0 ] && nchg=0
     rl_kv manifest_files "$nfiles"; rl_kv manifest_changed "$nchg"; rl_kv manifest_missing "$nmiss"
     if [ $mrc -ne 0 ]; then bad=1; grep -E ': FAILED' "$RUN/raw/manifest.txt" | head -n 20 | sed 's/^/  differs: /' >> "$RUN/summary.body"; fi
 else rl_kv manifest "MISSING remote/MANIFEST.sha256"; bad=1; fi
-rl_kv repo "$R"; rl_kv host "$(hostname -s 2>/dev/null)"; rl_kv user "$(rl_user)"; rl_kv site "$REMOTE_SITE"
+rl_kv repo "$R"; rl_kv host "$(hostname -s 2>/dev/null)"; rl_kv site "$REMOTE_SITE"
+# ---- exec bits (a copy through zip / scp -r may lose them; ecalc/mnrun.sh and the item helpers are executed directly by the stages)
+nox=0; fixg=""; noxl=""
+for g in ecalc/mnrun.sh tools/nodescreen.sh 'target/bench/items/*.sh' 'remote/run/*.sh'; do
+    gm=0; for f in $(cd "$R" && ls -d $g 2>/dev/null); do [ -x "$R/$f" ] || { gm=$((gm + 1)); noxl="$noxl $f"; }; done
+    [ $gm -gt 0 ] && { nox=$((nox + gm)); fixg="$fixg $g"; }
+done
+if [ $nox = 0 ]; then rl_kv exec_bits ok; else rl_kv exec_bits "missing ($nox files)"; rl_kv noexec_files "$(echo $noxl | cut -c1-300)"; warn=1; fi
 # ---- tools
 tools=""; miss_req=""; miss_opt=""
 for t in python3 make sbatch srun sinfo squeue salloc scontrol; do
@@ -58,4 +64,4 @@ if rl_have sinfo; then
     rl_kv nodes_total "$(awk -F'|' '{ n += $4 } END { print n + 0 }' "$RUN/raw/sinfo.txt")"
 fi
 if [ $bad = 1 ]; then rl_errfiles "$RUN/raw/manifest.txt"; rl_finish FAIL "the copy or required tools are not in order" "fix the listed items (recopy the folder if files differ), then $HERE/s0_check.sh"; fi
-rl_finish "$([ $warn = 1 ] && echo PARTIAL || echo PASS)" "$HERE/alloc.sh --nodes 1 --time 1:00:00 && $HERE/s1_facts.sh"
+rl_finish "$([ $warn = 1 ] && echo PARTIAL || echo PASS)" "${fixg:+cd $R && chmod +x$fixg && }$HERE/alloc.sh --nodes 1 --time 1:00:00 && $HERE/s1_facts.sh"
