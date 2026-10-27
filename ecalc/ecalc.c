@@ -33,6 +33,7 @@
 #include "memsample.h"                               /* E1, E12 */
 #include "spill.h"                                   /* E3 (the output file under ECALC_ODIRECT) */
 #include "fatal.h"                                   /* ec_quit, EC_RC_BUDGET */
+#include "omp_team.h"                              /* A1: ECALC_OMP_TEAM */
 #include "vpe.h"                                   /* PE identity (ECALC_PE_PER_GPU=1, off by default) */
 #include "segv_trace.h"                               /* s18w task 2: ECALC_SEGV_TRACE=1 (default 0) */
 extern "C" size_t comm_layered_vbytes(int dev);      /* B7ACCT (comm_layered.c) */
@@ -610,6 +611,9 @@ int main(int argc, char **argv)
         { int cp = getenv("ECALC_CORR_PATCH") ? atoi(getenv("ECALC_CORR_PATCH")) : 2; newton_x_defer = cp >= 2; }   /* (as the flow's size > 1 rule) */
         mn_hooks_set(0, outfile);
     }
+    if (ec_team_on() && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0))   /* A1: ECALC_OMP_TEAM=mask (nothing printed with it off) */
+        printf("omp team: ECALC_OMP_TEAM=mask: affinity mask %d CPUs, omp_get_max_threads %d, seed threads %d, bs team %d, residue team %d, bg threads %d\n",
+               ec_team_mask_count(), omp_get_max_threads(), bs_seed_team_size(), bs_team_size(), ec_team(), g_bg_threads);
     struct flow_ctx fc; memset(&fc, 0, sizeof fc);
     fc.N = N; fc.d = d; fc.d_out = d_out; fc.outfile = outfile; fc.verbose = verbose; fc.pool_log = pool_log; fc.mn_size = mn_size_; fc.t00 = t00; fc.t_ri = t_ri;
     vpe_run(flow_run, &fc);                          /* off: once on this thread (the off path's flow, as before); process mode: this process's PE */

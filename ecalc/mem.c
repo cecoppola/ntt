@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <hip/hip_runtime.h>
 #include "mem.h"
+#include "omp_team.h"                                     /* A1: ECALC_OMP_TEAM */
 
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
@@ -236,7 +237,7 @@ void *mem_hstage_alloc(int dev, size_t bytes, double *touch_s, double *reg_s)
     int node = mem_numa_node_of_device(dev);
     double t0 = mem_now();
     /* first touch from threads on the node: one page per stride, in parallel */
-    int nt = mem_par_init ? mem_ncpus_node(node) : omp_get_max_threads();
+    int nt = mem_par_init ? mem_ncpus_node(node) : ec_team();
     (void)nt;
 #pragma omp parallel num_threads(nt)
     {

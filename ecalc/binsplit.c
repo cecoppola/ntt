@@ -16,6 +16,7 @@
 #include "binsplit.h"
 #include "rns_mul.h"
 #include "mem.h"
+#include "omp_team.h"                                     /* A1: ECALC_OMP_TEAM */
 #include "dbig.h"
 #include "spill.h"
 #include "memsample.h"
@@ -197,7 +198,7 @@ static int bs_rt(int *rk, int *home)
 }
 /* the omp thread count of a whole-node team: all cores, or a PE's share of them (the cores of the process divided by its lanes) */
 /* (S2c: a PE process has the CPUs of its own mask to itself: no division by the lanes) */
-static int bs_nthreads(void) { return omp_get_max_threads(); }
+static int bs_nthreads(void) { return ec_team(); }   /* A1: ECALC_OMP_TEAM=mask sizes it from the affinity mask (omp_team.h) */
 /* the seed pass's team (BS_SEED_THREADS): a number = that many; "auto" = 3/4 of the CPUs the calling thread may run on right now (its
  * affinity mask; init's allocations widen the mask to the cpuset, mem_unpin, and a thread created later inherits it); unset = auto (2026-10-26;
  * before: omp_get_max_threads(), BS_SEED_THREADS=omp restores it).
@@ -208,14 +209,16 @@ static int seed_nthreads(void)
 {
     const char *e = getenv("BS_SEED_THREADS");
     if (!e) e = "auto";
-    if (!strcmp(e, "omp")) return bs_nthreads();
+    if (!strcmp(e, "omp")) return omp_get_max_threads();
     if (!strcmp(e, "auto")) {
         cpu_set_t m; int n = sched_getaffinity(0, sizeof m, &m) == 0 ? CPU_COUNT(&m) : 0;
         if (n < 1) n = omp_get_num_procs();
         n -= n / 4; return n < 1 ? 1 : n;
     }
-    int n = atoi(e); return n < 1 ? bs_nthreads() : n;
+    int n = atoi(e); return n < 1 ? omp_get_max_threads() : n;
 }
+int bs_team_size(void) { return bs_nthreads(); }        /* the start-up line (ecalc.c) */
+int bs_seed_team_size(void) { return seed_nthreads(); }
 /* copy limbs out of (or into) region r's pool with the threads of r's node (a lone memcpy from device memory runs at a few GB/s) */
 static void region_copy(uint64_t *dst, const uint64_t *src, size_t limbs, int r)
 {

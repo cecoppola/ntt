@@ -17,7 +17,7 @@ COMM_HANG_DETAIL	int	unset	unset		built-in default	-	-	Y	ecalc	comm_xshmem.c	2	-
 COMM_LAYER_VSLOT_MB	bool	derived	derived	0|1	built-in default	-	-	Y	ecalc	comm_layered.c	1	-	-	
 COMM_OFI_NICS	str	unset	derived	NIC list, ; between devices	launch-line	-	TUNE17.md+TGTBENCH2.md	Y	ecalc	pe_geo.c	1	-	-	comm_ofi.c:123; unset = automatic
 COMM_OFI_POOL_MB	int	0	0	MiB per device	launch-line	-	STD17.md+S18KITFIX.md	Y	ecalc	binsplit.c,comm_xshmem.c,ecalc.c	7	-	-	binsplit.c:694 sets it from the modelled need when unset
-COMM_RANK	int	0	0	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,mn.c,segv_trace.c,vpe.c	19	-	-	set per process by the launcher (mnrun.sh); excluded from the config hash
+COMM_RANK	int	0	0	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,mn.c,segv_trace.c,vpe.c	21	-	-	set per process by the launcher (mnrun.sh); excluded from the config hash
 COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_xshmem.c	7	-	-	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
 COMM_SIZE	int	1	conflict:0|1	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,ecalc.c,fatal.c,mem.c,mn.c,mn_plan.c,rns_mul.c,segv_trace.c,vpe.c	24	-	-	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
 COMM_TRANSPORT	enum	unset	derived	shmem	launch-line	-	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c,rns_dist.c	4	-	-	mn.c: a transport is needed for COMM_SIZE > 1 (mnrun.sh sets it: xshmem, the S3a engine, when the launched executable has it (the default build, make XSHMEM=ofi, where libfabric is found; Q73 2026-10-21), else shmem; an explicit shmem is the fallback and the reference); tcp removed 2026-10-12
@@ -54,6 +54,7 @@ ECALC_NODE_GB	float	480	480		built-in default	aac7	P16.md+C314.md	Y	ecalc	binspl
 ECALC_NP	enum	auto	derived	auto|3|4	launch-line	-	P15.md	Y	ecalc	crt.c,ecalc.c	3	-	-	ecalc.c: unset becomes auto at size > 1 (D18), 3 at size 1; crt.c reads auto
 ECALC_NP_AUTO_TERMS	bool	derived	derived	0|1	test-only	-	NP15.md	Y	ecalc	crt.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_ODIRECT	int	1	1		built-in default	-	S114.md+KP15.md	Y	ecalc	spill.c	3	-	-	
+ECALC_OMP_TEAM	str	omp	unset	omp|mask	experiment	-	S22.md	Y	ecalc	omp_team.h	1	TARGET12 (S22)	2026-12-31	omp_team.h: size of the host OpenMP teams (bs_nthreads, packed_mods residue, verify.c, mem.c hstage): omp = omp_get_max_threads() (latched from the launch CPU mask: 1-2 under an srun without -c); mask = the CPUs the calling thread may run on now (affinity mask); with mask rank 0 prints one `omp team:` line (mask CPUs, OMP max, seed, bs, residue, bg threads)
 ECALC_OUT_MODE	bool	derived	derived	0|1	built-in default	-	IO15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_ODIRECT	int	derived	derived		built-in default	-	S114.md+KP15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_PACKED	int	2	2		built-in default	-	KP15.md+IO15.md	Y	ecalc	mn_out.c	1	coordinator (TASKS S)	2026-11-11	

@@ -7,6 +7,7 @@
 #include <omp.h>
 #include "verify.h"
 #include "bigint.h"
+#include "omp_team.h"
 
 typedef unsigned __int128 u128;
 /* the first eight primes above 2^62 (RESULTS.md, "proposed tier-1 primes": 2^62 + 135, 169, 177, 187, 189, 193, 253, 277).
@@ -29,7 +30,7 @@ uint64_t vf_pow_mod(uint64_t b, unsigned long e, uint64_t q)
 uint64_t vf_limbs_mod(const uint64_t *a, size_t n, uint64_t q)
 {
     if (!n) return 0;
-    int T = omp_get_max_threads(); if ((size_t)T > n / 4096 + 1) T = (int)(n / 4096 + 1);
+    int T = ec_team(); if ((size_t)T > n / 4096 + 1) T = (int)(n / 4096 + 1);
     uint64_t *cv = (uint64_t *)malloc(2 * T * 8), *cw = cv + T;
     uint64_t b64 = BI_B10 % q;   /* B mod q */
 #pragma omp parallel for num_threads(T) schedule(static)
@@ -48,7 +49,7 @@ void vf_limbs_mods(const uint64_t *a, size_t n, const uint64_t *qs, int nq, uint
 {
     for (int j = 0; j < nq; j++) out[j] = 0;
     if (!n) return;
-    int T = omp_get_max_threads(); if ((size_t)T > n / 4096 + 1) T = (int)(n / 4096 + 1);
+    int T = ec_team(); if ((size_t)T > n / 4096 + 1) T = (int)(n / 4096 + 1);
     uint64_t *cv = (uint64_t *)malloc((size_t)T * nq * 8);
 #pragma omp parallel for num_threads(T) schedule(static)
     for (int t = 0; t < T; t++) {
@@ -67,7 +68,7 @@ void vf_limbs_mods(const uint64_t *a, size_t n, const uint64_t *qs, int nq, uint
 uint64_t vf_digits_mod(const char *s, size_t n, uint64_t q)
 {
     if (!n) return 0;
-    int T = omp_get_max_threads(); if ((size_t)T > n / 4096 + 1) T = (int)(n / 4096 + 1);
+    int T = ec_team(); if ((size_t)T > n / 4096 + 1) T = (int)(n / 4096 + 1);
     uint64_t *cv = (uint64_t *)malloc(2 * T * 8), *cw = cv + T;
 #pragma omp parallel for num_threads(T) schedule(static)
     for (int t = 0; t < T; t++) {
@@ -96,9 +97,9 @@ static void pq_span(unsigned long a, unsigned long b, uint64_t q, uint64_t *p, u
 }
 void vf_pq_range_mod(unsigned long a0, unsigned long b1, uint64_t q, uint64_t *p, uint64_t *qq)
 {
-    int T = omp_get_max_threads() * 4; unsigned long M = b1 > a0 ? b1 - a0 : 0;
+    int T = ec_team() * 4; unsigned long M = b1 > a0 ? b1 - a0 : 0;
     uint64_t *cp = (uint64_t *)malloc(2 * T * 8), *cq = cp + T;
-#pragma omp parallel for schedule(dynamic, 1)
+#pragma omp parallel for num_threads(ec_team()) schedule(dynamic, 1)
     for (int t = 0; t < T; t++) {
         unsigned long a = a0 + (unsigned long)((u128)M * t / T), b = a0 + (unsigned long)((u128)M * (t + 1) / T);
         if (b > a) pq_span(a, b, q, &cp[t], &cq[t]); else { cp[t] = 0; cq[t] = 1; }
@@ -123,7 +124,7 @@ void vf_digits_mods(const char *s, size_t n, const uint64_t *qs, int nq, uint64_
 {
     for (int j = 0; j < nq; j++) out[j] = 0;
     if (!n) return;
-    int T = omp_get_max_threads(); if ((size_t)T > n / 4096 + 1) T = (int)(n / 4096 + 1);
+    int T = ec_team(); if ((size_t)T > n / 4096 + 1) T = (int)(n / 4096 + 1);
     uint64_t *cv = (uint64_t *)malloc((size_t)T * nq * 8);
 #pragma omp parallel for num_threads(T) schedule(static)
     for (int t = 0; t < T; t++) {

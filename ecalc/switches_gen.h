@@ -53,6 +53,7 @@ static const char *const cfg_names[] = {
     "ECALC_NP",
     "ECALC_NP_AUTO_TERMS",
     "ECALC_ODIRECT",
+    "ECALC_OMP_TEAM",
     "ECALC_OUT_MODE",
     "ECALC_OUT_ODIRECT",
     "ECALC_OUT_PACKED",
@@ -120,4 +121,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_THP_DISABLE",
     "XSHMEM_THREAD_LEVEL",
 };
-#define CFG_NAMES_N 118
+#define CFG_NAMES_N 119

@@ -74,3 +74,4 @@ XSHMEM_CRAY_PUTSIG_SPLIT	experiment	craylane	2026-12-31	Cray speed work (gap to 
 XSHMEM_CRAY_NOMEMSET	experiment	craylane	2026-12-31	Cray init time
 XSHMEM_CRAY_GPU_PRETOUCH	experiment	craylane	2026-12-31	Cray first-exchange stream sync
 XSHMEM_PEER	experiment	TASK4 peer	2026-12-31	XSHMEM engine / backend arm, off by default; review when the P-layout intra-node path is adopted or dropped
+ECALC_OMP_TEAM	experiment	TARGET12 (S22)	2026-12-31	A1: default flip to mask once gated on the target (hand launches 1-2 threads)

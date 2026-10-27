@@ -12,6 +12,7 @@
 #include <hip/hip_runtime.h>
 #include "mn_out.h"
 #include "mem.h"
+#include "omp_team.h"                                     /* A1: ECALC_OMP_TEAM */
 #include "vpe.h"                                        /* S1e: PE layout (ECALC_PE_PER_GPU) -- rank = PE, the PE's own device */
 #include "spill.h"                                    /* ECALC_ODIRECT */
 #include <sys/stat.h>                                 /* the patch (fstat) */
@@ -281,7 +282,7 @@ static void packed_mods(const uint64_t *l, size_t n, uint64_t *out)
     const uint64_t B = 1000000000000000000ULL;
     for (int j = 0; j < T1_NQ; j++) out[j] = 0;
     if (!n) return;
-    int T = omp_get_max_threads(); if ((size_t)T > n / 1024 + 1) T = (int)(n / 1024 + 1);
+    int T = ec_team(); if ((size_t)T > n / 1024 + 1) T = (int)(n / 1024 + 1);
     uint64_t *cv = (uint64_t *)malloc((size_t)T * T1_NQ * 8);
 #pragma omp parallel for num_threads(T) schedule(static)
     for (int t = 0; t < T; t++) {
