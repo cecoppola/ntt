@@ -92,6 +92,7 @@ NEWTON_MN_GROUPS	int	1	1		built-in default	-	X.md+G13d.md	Y	ecalc	newton_db.c	2	
 NEWTON_MN_RECIP_TS	int	0	0		test-only	-	S30.md	Y	ecalc	newton_db.c	2	diagnostics (TESTING.md)	2027-04-12	
 NEWTON_MN_SPLIT	int	derived	derived		built-in default	-	A37CMP.md+A-div.md	Y	ecalc	newton_db.c	2	-	-	
 NEWTON_RECIP_GUARD	bool	unset	unset	0|1	built-in default	-	R114.md	Y	ecalc	newton_db.c	1	-	-	
+P24_CHECK	int	0	0	0|1|2	diagnostic	-	-	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	rns_dist.c p24_check: 1 = every P24 operand limb checked < 10^18 (inputs < 10^24, the CRT bound's premise) as packed and as received, the CRT also flags c >= 10^60 at s = 0 and 6; a hit is fatal with the product kind, piece, node, PE, sizes and first bad position; 2 = also no transform cache on P24 products; 0 = off, no cost
 PE_GEO_SYSFS_ROOT	str			path prefix	test-only	-	-	Y	ecalc	pe_geo.c	1	TARGET1 (B3)	2026-12-31	pe_geo.c; prefix of every /sys path (mock trees for tests/t_pe_geo); unset = the real /sys
 POOL_LOG	int	31	31	29..31	launch-line	-	A-mem.md+M13.md	Y	ecalc	ecalc.c	3	-	-	ecalc.c:rewritten by ECALC_PLANE_CAP (default `run`: 30 or 31 by the run size); 31 when ECALC_PLANE_CAP=off
 RNS_BATCH_LOCAL_MIN	int	unset	unset		built-in default	-	P3.md+R.md	Y	ecalc	rns_mul.c	2	-	-	

@@ -988,7 +988,35 @@ static comm *lay_get(mn_group *G, int d)
     if (!G->lay[d]) G->lay[d] = comm_layered_create(RS[d].cm, G->all[d], d);
     return G->lay[d];
 }
+/* P24_CHECK (default 0; results/PRIMES_STRATEGY.md §P24 audit): 1 = every P24 operand's limbs are checked < 10^18 (so every input point < 10^24: the
+ * premise of the CRT's bound) twice per product -- as packed by this node ("sent": the stored share is bad) and as received ("received": the
+ * exchange or the sender's share is bad) -- and the CRT also flags c >= 10^60 at s = 0 and 6 (p24_crt_set_check; the always-on flag covers s = 12 only);
+ * any hit is fatal with the product's kind, piece, node, PE, sizes and the first bad position.  2 = also no transform cache on P24 products
+ * (a flag that goes away then is a cache defect).  Off: no kernel, no copy, no allocation. */
+static int p24_check(void) { static int v = -1; if (v < 0) { const char *e = getenv("P24_CHECK"); v = e ? atoi(e) : 0; if (v < 0) v = 0; } return v; }
+static char g_p24_what[160]; static size_t g_p24_seq; static int g_p24_ka = 1, g_p24_kb = 1, g_p24_pi = -1, g_p24_pj = -1; static size_t g_p24_pa, g_p24_pb;   /* the running product (mn_grid / mn_piece_form, main thread) */
+__global__ void k_chk24(const uint64_t *b, size_t n, unsigned long long *res)
+{
+    size_t t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; t < n; t += stride) if (b[t] >= EC_1E18) { atomicAdd(&res[0], 1ULL); atomicMin(&res[1], (unsigned long long)t); }
+}
+static size_t p24_chk_limbs(const uint64_t *b, size_t n, hipStream_t s, size_t *first)     /* the limbs >= 10^18 among b[0, n), and the first one's index */
+{
+    unsigned long long h[2] = { 0, ~0ULL }, *dv = 0; *first = 0;
+    if (!n) return 0;
+    HIP_CHECK(hipMalloc((void **)&dv, sizeof h)); HIP_CHECK(hipMemcpyAsync(dv, h, sizeof h, hipMemcpyHostToDevice, s));
+    k_chk24<<<nblk(n), 256, 0, s>>>(b, n, dv);
+    HIP_CHECK(hipMemcpyAsync(h, dv, sizeof h, hipMemcpyDeviceToHost, s)); HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipFree(dv));
+    *first = (size_t)h[1]; return (size_t)h[0];
+}
 struct mn_ctx { mn_group *G; int node, g, nr; size_t R, C, n; int p24; };   /* p24 (Phase 15 Batch 3): the operands' sequences are the in-runs of p24.h */
+static void p24_chk_in(const struct mn_ctx *X, const mdbv *op, const char *nm, int d, const uint64_t *b, size_t n, const char *where, hipStream_t s)
+{
+    size_t first, bad = p24_chk_limbs(b, n, s, &first);
+    if (!bad) return;
+    ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24_CHECK input: operand %s %s: %zu of %zu limbs >= 10^18 (the first at sequence index %zu); product #%zu (%s), piece %d,%d of the %d x %d grid (%zu x %zu limbs per piece); node %d, PE %d of %d, APU thread %d; view offset %zu, %zu limbs; plane R %zu x C %zu = %zu points\n",
+             nm, where, bad, n, first, g_p24_seq, g_p24_what, g_p24_pi, g_p24_pj, g_p24_ka, g_p24_kb, g_p24_pa, g_p24_pb, X->node, X->g * d + X->G->me, X->nr, d, op->off, op->len, X->R, X->C, X->n);
+}
 /* P24: rank rho's in-run (ex 1) or out-run (ex 0) map, and the first index of its sequence at or above limb l */
 static inline struct p24_run mn_run(const struct mn_ctx *X, int rho, int ex) { return p24_rank_run(X->R, X->C, X->nr, rho, ex); }
 static inline size_t mn_seq_start(const struct mn_ctx *X, size_t l, int rho) { if (!X->p24) return seq_start(l, X->R, X->nr, rho); struct p24_run m = mn_run(X, rho, 1); return p24_seq_start(&m, l); }
@@ -1015,7 +1043,7 @@ static void seg_tables(const struct mn_ctx *X, const mdbv *op, int d, struct seg
 static void seg_bytes(const struct seg *sg, int g, size_t *cnt, size_t *dsp) { for (int r = 0; r < g; r++) { cnt[r] = (sg[r].t1 - sg[r].t0) * 8; dsp[r] = sg[r].off * 8; } }
 /* one operand: pack my part, exchange over mesh d (an alltoallv of the segments), the received sequence in rb */
 struct rdst { struct seg *hs, *ds; size_t *cnt; uint64_t *sb, *rb; size_t tend; };   /* per operand and APU: the tables, the buffers, the received sequence's end */
-static void redistribute(const struct mn_ctx *X, const mdbv *op, struct rdst *o, int d, hipStream_t s)
+static void redistribute(const struct mn_ctx *X, const mdbv *op, struct rdst *o, int d, hipStream_t s, const char *nm)
 {
     int g = X->g; size_t stot, rtot, S;
     struct seg *ss = o->hs, *rs = o->hs + g;
@@ -1033,7 +1061,9 @@ static void redistribute(const struct mn_ctx *X, const mdbv *op, struct rdst *o,
         else k_pack_mn<<<nblk((size_t)g * S), 256, 0, s>>>(o->sb, a, lo, X->R, X->nr, g, d, S, o->ds);
     }
     HIP_SYNC(s);
+    if (X->p24 && p24_check()) p24_chk_in(X, op, nm, d, o->sb, stot, "as packed here (the stored share)", s);
     { int xk_ = comm_xtag_set(XK_REDIST); comm_alltoallv(X->G->all[d], o->sb, scnt, sdsp, o->rb, rcnt, rdsp, s); comm_xtag_set(xk_); } comm_wait(X->G->all[d]);
+    if (X->p24 && p24_check()) p24_chk_in(X, op, nm, d, o->rb, rtot, "as received (the exchange)", s);
     db_pool_free(LD(d), o->sb); o->sb = 0;
 }
 /* the (carry, propagate) flags of the g nodes' shares, all-gathered over the group's mesh 0 (one byte per node, host
@@ -1353,7 +1383,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     /* A1 over shares: an operand whose transform is cached skips its redistribution, gathers and forward transforms on every
      * node (the keys are the views' mdb, offset and length -- the same decision on every node of the group).  P24: no cache (Phase 15 PC:
      * under RNS_DIST_CACHE_PARTIAL=1 cached too, keyed apart; a slot of k < np primes holds primes 0 .. k - 1: kA / kB below) */
-    const int cok = cache_slots() && (!p24 || g_cache.pc);
+    const int cok = cache_slots() && (!p24 || g_cache.pc) && !(p24 && p24_check() >= 2);   /* P24_CHECK=2: no cache on P24 products */
     int ha = cok ? cache_lookup(A->m, A->off, A->len, q, 1, np, p24) : -1, hb = cok ? cache_lookup(B->m, B->off, B->len, q, 1, np, p24) : -1;
     if (!cok) slA = slB = -1; else cache_plan(&slA, &slB, ha, hb, A->m, A->off, A->len, B->m, B->off, B->len, q, 1, np, p24);
     const int kA = cache_slot_k(slA, np), kB = cache_slot_k(slB, np);   /* PC: the primes A's / B's slot holds (np for a held slot) */
@@ -1410,15 +1440,15 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         double s0 = mem_now(), tpl = s0 - tpl0, tfa = 0, tfb = 0, tiv = 0;
         /* A: every node packs and exchanges; every rank gathers its rows for the four primes */
         if (ha < 0 && p24) {                                /* P24: A's points from its in-runs; A's sequence freed before B's (the operands' peak max(A, B)) */
-            redistribute(&X0, A, &oA, d, s);
+            redistribute(&X0, A, &oA, d, s, "A");
             struct p24_c18s cs; for (int p = 0; p < EC_NP; p++) for (int i = 0; i < 3; i++) cs.c[3 * p + i] = c18[p][i];
             k_gather_mn24_np<<<nblk(qs), 256, 0, s>>>(xa[0], xa[1], xa[2], xa[3], np, oA.rb, oA.tend, R, C, a0, rows, ec_mod_get(0), ec_mod_get(1), ec_mod_get(2), ec_mod_get(3), cs);   /* the four planes in one pass */
             HIP_SYNC(s); db_pool_free(dv, oA.rb); oA.rb = 0;
         } else if (ha < 0) {
-            redistribute(&X0, A, &oA, d, s);
+            redistribute(&X0, A, &oA, d, s, "A");
             for (int p = 0; p < np; p++) k_gather_mn<<<nblk(qs), 256, 0, s>>>(xa[p], oA.rb, oA.tend, rows, C, ec_mod_get(p), 1, 1);
         } else if (!afull) {                                /* Phase 15 PC: a partial hit -- primes < kA from the slot, the others gathered as a miss */
-            redistribute(&X0, A, &oA, d, s);
+            redistribute(&X0, A, &oA, d, s, "A");
             for (int p = kA; p < np; p++) {
                 if (p24) k_gather_mn24<<<nblk(qs), 256, 0, s>>>(xa[p], oA.rb, oA.tend, R, C, a0, rows, ec_mod_get(p), c18[p][0], c18[p][1], c18[p][2]);
                 else k_gather_mn<<<nblk(qs), 256, 0, s>>>(xa[p], oA.rb, oA.tend, rows, C, ec_mod_get(p), 1, 1);
@@ -1426,8 +1456,8 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             if (p24) { HIP_SYNC(s); db_pool_free(dv, oA.rb); oA.rb = 0; }   /* (as the P24 miss: A's sequence freed before B's) */
             for (int p = 0; p < kA; p++) HIP_CHECK(hipMemcpyAsync(xa[p], cache_pl(slA, d, p, q), q * 8, hipMemcpyDeviceToDevice, s));
         } else for (int p = 0; p < np; p++) HIP_CHECK(hipMemcpyAsync(xa[p], cache_pl(slA, d, p, q), q * 8, hipMemcpyDeviceToDevice, s));   /* A hit: the product forms over a copy */
-        if (!bfull) redistribute(&X0, B, &oB, d, s);
-        if (X) { redistribute(&X0, &Xv, &oX, d, s); k_gather_mn<<<nblk(qs), 256, 0, s>>>(cx, oX.rb, oX.tend, rows, C, ec_mod_get(0), 0, 0); }
+        if (!bfull) redistribute(&X0, B, &oB, d, s, "B");
+        if (X) { redistribute(&X0, &Xv, &oX, d, s, "X"); k_gather_mn<<<nblk(qs), 256, 0, s>>>(cx, oX.rb, oX.tend, rows, C, ec_mod_get(0), 0, 0); }
         HIP_SYNC(s);
         if (oA.rb) { db_pool_free(dv, oA.rb); oA.rb = 0; } if (oX.rb) { db_pool_free(dv, oX.rb); oX.rb = 0; }
         double s1 = mem_now(); tr[d] = s1 - s0;
@@ -1468,9 +1498,16 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         if (p24) {                                          /* P24: the CRT into my out-run sequence (<= 4 qs / 3 + 2 C limbs: xb and the idle slabs of pool 1, 3 q + 16) */
             struct p24_run om = p24_run_make(R, C, a0, rows, 0);
             if (p24_run_total(&om) > 3 * q + 16) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 out-runs %zu limbs > pool 1's 3 q + 16 = %zu\n", p24_run_total(&om), 3 * q + 16); }
+            p24_crt_set_check(p24_check() > 0);
             p24_crt_launch(xa[0], xa[1], xa[2], xa[3], &gc, R, C, a0, rows, xb, v->spill, s);
             unsigned fl = p24_crt_err(s);
-            if (fl) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 CRT flag %u (a coefficient past 10^60: the piece's bound)\n", fl); }
+            if (fl) {
+                size_t px = p24_crt_err_pos();
+                ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 CRT flag %u (a coefficient past 10^60: the piece's bound); inputs %s; cache %s; product #%zu (%s), piece %d,%d of the %d x %d grid (%zu x %zu limbs per piece, this piece %zu x %zu); node %d, PE %d of %d, APU thread %d; plane 2^%d = R %zu x C %zu, first row %zu, %zu rows, shift %zu; first flagged point %zu (column %zu, row %zu, s %d)\n",
+                         fl, p24_check() ? "checked < 10^18 per limb, sent and received (so the transform, the cache or the exchange inside it is the suspect)" : "not checked (P24_CHECK=0)",
+                         ha >= 0 || hb >= 0 ? "hit used" : slA >= 0 || slB >= 0 ? "slots filled" : "not used", g_p24_seq, g_p24_what, g_p24_pi, g_p24_pj, g_p24_ka, g_p24_kb, g_p24_pa, g_p24_pb, na, nb,
+                         node, rho, nr, d, logn, R, C, a0, rows, shift, px, px / R, px % R, p24_s(px));
+            }
         } else
         k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, qs, gc, v->spill);
         HIP_SYNC(s);
@@ -1626,7 +1663,9 @@ static int mn_piece_form(void *ctx, int i, int j, int sa, int sb, int formed)
     size_t oa = (size_t)i * c->pa, ob = (size_t)j * c->pb;
     if (!a->len || !b->len) return -1;                                               /* nothing */
     if (grid_piece_skipped(oa, ob, a->len, b->len, c->lowcut, c->w)) return 0;       /* nothing of it below w, or all of it below the low cut */
+    g_p24_pi = i; g_p24_pj = j;
     mn_core(c->C, a, b, 0, c->G, oa + ob, oa + ob == 0 && !formed, c->tm, sa, sb, c->p24, 0);
+    g_p24_pi = g_p24_pj = -1;
     return 1;
 }
 /* P1 (DM_MN_WRAP): wskip -- pieces starting at or above it are skipped (the callers before P1: w); basis > 0 -- C in that basis
@@ -1651,6 +1690,8 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     const int p24 = mn_p24_of(na, nb, g);                     /* Phase 15 Batch 3 P24: the same on every node of the group */
     const int pc = pc_on(); int pck = 0;                      /* Phase 15 PC: the slots from the block pool per grid product (cache_pc_take, below) */
     int one = mn_grid_shape(na, nb, g, p24, &ka, &kb);
+    g_p24_seq++; g_p24_ka = ka; g_p24_kb = kb; g_p24_pa = (na + ka - 1) / ka; g_p24_pb = (nb + kb - 1) / kb; g_p24_pi = g_p24_pj = -1;
+    snprintf(g_p24_what, sizeof g_p24_what, "%zu x %zu limbs%s%s%s%s%s", na, nb, X ? ", + x" : "", lowcut ? ", low cut" : "", trunc ? ", low product" : "", wskip != (size_t)-1 ? ", wskip" : "", basis ? ", basis" : "");
     if (one && p24) { if (nc > lowcut) { mn_core(&Cn, A, B, 0, G, 0, 1, &tm, -1, -1, 1, 0); formed = 1; if (X) mdb_add_shifted(&Cn, X, 0, G); } else skipped = 1; }   /* P24: X added afterwards */
     else if (one) { if (nc > lowcut) { mn_core(&Cn, A, B, X, G, 0, 1, &tm, -1, -1, 0, 0); formed = 1; } else skipped = 1; }
     else {

@@ -24,7 +24,7 @@ OFI_CFLAGS = -I$(LIBFABRIC)/include
 OFI_LIBS   = -L$(LIBFABRIC)/lib64 -lfabric -Wl,-rpath,$(LIBFABRIC)/lib64
 endif
 
-TESTS = tests/t_arith tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_strategy tests/t_cap tests/t_residue tests/t_seed tests/t_patch tests/t_p24 tests/t_crtk tests/t_vpe
+TESTS = tests/t_arith tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_strategy tests/t_cap tests/t_residue tests/t_seed tests/t_patch tests/t_p24 tests/t_p24crt tests/t_crtk tests/t_vpe
 OBJS  = ntt.o ntt3.o mem.o crt.o comm_xgmi.o comm_copy.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o rns_local.o dbig.o newton_db.o newton.o binsplit.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o config_line.o vpe.o
 REF   = ref/gen_e
 HDRS  = $(wildcard *.h)                 # every object and test depends on every header (one rule instead of a dependency line per file)
@@ -50,7 +50,7 @@ $(OBJ_C): %.o: %.c $(HDRS)
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
 
 # tests linked with OBJS (and the engine), one rule; the rest below
-LINK_TESTS = tests/t_arith tests/t_p24 tests/t_crtk tests/t_dbig tests/t_out tests/t_patch tests/t_mn_grid tests/t_vpe tests/t_mul tests/t_newton tests/t_strategy tests/t_verify tests/t_seed tests/t_bs
+LINK_TESTS = tests/t_arith tests/t_p24 tests/t_p24crt tests/t_crtk tests/t_dbig tests/t_out tests/t_patch tests/t_mn_grid tests/t_vpe tests/t_mul tests/t_newton tests/t_strategy tests/t_verify tests/t_seed tests/t_bs
 $(LINK_TESTS): %: %.c $(OBJS) $(HDRS) tests/harness.h tests/tref.h tests/sha256.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) -lm $(XSHMEM_LIBS)
 

@@ -59,7 +59,7 @@ Durations on aac7 (measured 2026-10-13, results/CRASHES_HANGS.md §HANG): `--onl
 
 | step | what it checks |
 |---|---|
-| `unit` | 19 tests: `t_ntt 24`, `t_mul 20`, `t_bs`, `t_dbig 0`, `t_newton 20`, `t_verify`, `t_out`, `t_residue` (host only: the Shoup residue step vs the 128-bit %, ECALC_RESIDUE), `t_patch`, `t_arith` (`modarith`, `roots`, `primes gpu`), `t_crt`, `t_p24`, `t_crtk`, `t_strategy 20`, `t_seed`, `t_dist`, `t_mn_grid` at 2 processes |
+| `unit` | 20 tests: `t_ntt 24`, `t_mul 20`, `t_bs`, `t_dbig 0`, `t_newton 20`, `t_verify`, `t_out`, `t_residue` (host only: the Shoup residue step vs the 128-bit %, ECALC_RESIDUE), `t_patch`, `t_arith` (`modarith`, `roots`, `primes gpu`), `t_crt`, `t_p24`, `t_p24crt` (the P24 CRT kernel against GMP: digits, and the flag exactly at c >= 10^60), `t_crtk`, `t_strategy 20`, `t_seed`, `t_dist`, `t_mn_grid` at 2 processes |
 | `grid` | `t_mn_grid` at 2 processes over xshmem |
 | `e9` | 10⁹ digits at size 1 against the reference |
 | `mn` | 10⁸ at sizes 2, 3, 4 and 10⁹ at sizes 2 and 4 (several node-processes on one node; the part files concatenated and compared) |

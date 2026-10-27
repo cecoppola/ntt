@@ -45,9 +45,10 @@ __device__ static inline void p24_dgarner4(const struct gconst *g, const uint64_
       out[0] = s0; out[1] = s1; out[2] = s2; out[3] = h2 + c2; }
 }
 
+__device__ unsigned long long p24_err_x = ~0ULL;           /* per device: the smallest plane point index that raised a flag since the last read */
 __global__ __launch_bounds__(P24_T)
 void k_crt24(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const uint64_t *p3, struct gconst g, struct p24_run om,
-             uint64_t *out, uint64_t *spill, unsigned *err)
+             uint64_t *out, uint64_t *spill, unsigned *err, int chk)
 {
     const uint64_t BB = EC_1E18;
     __shared__ uint64_t E[3 + P24_T][4];                  /* E[3 + k]: this chunk's point k; E[0..2]: the previous chunk's last three */
@@ -67,7 +68,9 @@ void k_crt24(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const u
         if ((size_t)tid < n) {
             size_t k = base + k0 + tid; uint64_t r[4] = { p0[k], p1[k], p2[k], p3[k] }, c[4], d[4];
             p24_dgarner4(&g, r, c); ec_words_to_dec4(c, d);
-            if (p24_shift_digits(d, p24_s(xc + tid), e)) atomicOr(err, 1u);
+            unsigned fl = p24_shift_digits(d, p24_s(xc + tid), e) ? 1u : 0u;
+            if (chk && d[3] >= 1000000ULL) fl |= 4u;           /* P24_CHECK: c >= 10^60 (d[3] 10^54) at any s */
+            if (fl) { atomicOr(err, fl); atomicMin(&p24_err_x, (unsigned long long)(xc + tid)); }
         }
         E[3 + tid][0] = e[0]; E[3 + tid][1] = e[1]; E[3 + tid][2] = e[2]; E[3 + tid][3] = e[3];
         __syncthreads();
@@ -124,10 +127,14 @@ void k_crt24(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const u
             for (long long x = xa; x <= xb; x++) sm += E[x - xl][l - p24_L((size_t)x)];
             cy = sm / BB; spill[4 * j + u] = sm - cy * BB;
         }
-        if (cy) atomicOr(err, 2u);
+        if (cy) { atomicOr(err, 2u); atomicMin(&p24_err_x, (unsigned long long)x1); }
     }
 }
 
+static int g_chk;                                          /* p24_crt_set_check (the same value on every thread) */
+void p24_crt_set_check(int on) { g_chk = on; }
+static size_t g_errx[16];
+size_t p24_crt_err_pos(void) { int dv = 0; HIP_CHECK(hipGetDevice(&dv)); return g_errx[dv & 15]; }
 __device__ unsigned p24_err_flag;                          /* per device (no allocation: a module variable) */
 static unsigned *err_dev(void) { void *p = 0; HIP_CHECK(hipGetSymbolAddress(&p, HIP_SYMBOL(p24_err_flag))); return (unsigned *)p; }
 void p24_crt_launch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const uint64_t *p3, const struct gconst *gc,
@@ -135,13 +142,20 @@ void p24_crt_launch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, 
 {
     if (gc->np != 4) { ec_fatal(EC_RC_FATAL, "p24_crt: %d primes (P24 needs four)\n", gc->np); }
     struct p24_run om = p24_run_make(R, C, a, rows, 0);
-    k_crt24<<<(unsigned)C, P24_T, 0, s>>>(p0, p1, p2, p3, *gc, om, out, spill, err_dev());
+    k_crt24<<<(unsigned)C, P24_T, 0, s>>>(p0, p1, p2, p3, *gc, om, out, spill, err_dev(), g_chk);
 }
 unsigned p24_crt_err(hipStream_t s)
 {
     unsigned *e = err_dev(), v = 0;
     HIP_CHECK(hipMemcpyAsync(&v, e, sizeof v, hipMemcpyDeviceToHost, s)); HIP_CHECK(hipStreamSynchronize(s));
-    if (v) HIP_CHECK(hipMemsetAsync(e, 0, sizeof v, s));
+    if (v) {
+        int dv = 0; HIP_CHECK(hipGetDevice(&dv));
+        void *px = 0; HIP_CHECK(hipGetSymbolAddress(&px, HIP_SYMBOL(p24_err_x)));
+        unsigned long long x = ~0ULL, reset = ~0ULL; HIP_CHECK(hipMemcpyAsync(&x, px, sizeof x, hipMemcpyDeviceToHost, s)); HIP_CHECK(hipStreamSynchronize(s));
+        g_errx[dv & 15] = (size_t)x;
+        HIP_CHECK(hipMemcpyAsync(px, &reset, sizeof reset, hipMemcpyHostToDevice, s));
+        HIP_CHECK(hipMemsetAsync(e, 0, sizeof v, s));
+    }
     HIP_CHECK(hipStreamSynchronize(s));
     return v;
 }

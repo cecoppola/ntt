@@ -78,3 +78,4 @@ ECALC_OMP_TEAM	experiment	TARGET12 (S22)	2026-12-31	A1: default flip to mask onc
 ECALC_RESIDUE	experiment	TARGET12 (S22)	2026-12-31	B3a: default flip to shoup once the target gate passes
 MN_OUT_EARLY_ALWAYS	experiment	TARGET12 (S22)	2026-12-31	B3b: default flip once gated at 1 and 2 nodes without an output file
 XSHMEM_COLL	experiment	comm	2026-12-31	tree collectives vs flat at target scale; adopt or drop after the 64-node A/B
+P24_CHECK	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit

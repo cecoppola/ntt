@@ -160,6 +160,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `NEWTON_MN_RECIP_TS` | 0 | test-only | S30, print only (off): one line per node, `recip ts node N: ...`, with the stages of recip_mn's single-node part (shift, gather, chain, broadcast) and the wall clock (s mod 1000) | S30.md |
 | `NEWTON_MN_SPLIT` | derived | built-in default | at size > 1 the reciprocal starts single-node on the top limbs of Q up to this many limbs (65536) | A37CMP.md+A-div.md |
 | `NEWTON_RECIP_GUARD` | unset | built-in default | the reciprocal's cut (always on): limbs kept below the read band (the cut is at band − guard; ≥ 1 makes the band's error ≤ 1 unit for any number of pieces) (1) | R114.md |
+| `P24_CHECK` | 0 | diagnostic | results/PRIMES_STRATEGY.md §P24 audit | - |
 | `PE_GEO_SYSFS_ROOT` | - | test-only | PEs per GPU (default 1; the 2-PEs-per-GPU fallback of design 2.2) / a prefix for every `/sys` path (mock trees of `tests/t_pe_geo`) | - |
 | `POOL_LOG` | 31 | launch-line | the plane pools' 2ᵏ points per APU (31; 27–29 with several node-processes on one node) | A-mem.md+M13.md |
 | `RNS_BATCH_LOCAL_MIN` | unset | built-in default | below this many products the striped batch path is used (16) | P3.md+R.md |
@@ -225,7 +226,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | fallback | P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF) | 2026-11-11 | `DM_MN_WRAP` |
 | fallback | coordinator (TASKS S) | 2026-11-11 | `ECALC_OUT_PACKED` |
 | diagnostic | TARGET12 (S2) | 2027-04-12 | `ECALC_TEST_DIE_PE` |
-| diagnostic | diagnostics (TESTING.md) | 2027-04-12 | `BS_CKPT_BG_MBS`, `DIST_GEN`, `DIST_LOGN_TEST`, `DIST_STATS`, `ECALC_FATAL_TEST`, `ECALC_INIT_ONLY`, `ECALC_MEM_SAMPLE`, `ECALC_NP_AUTO_TERMS`, `ECALC_TEST_CORR`, `ECALC_WINDOWS`, `MEM_DPOOL_FILL`, `MN_OUT_DKM_HI_TEST_CARRY`, `MN_TREE_LOGN_TEST`, `NEWTON_DKM_TEST_HI`, `NEWTON_MN_RECIP_TS`, `RNS_POOL_GROW` |
+| diagnostic | diagnostics (TESTING.md) | 2027-04-12 | `BS_CKPT_BG_MBS`, `DIST_GEN`, `DIST_LOGN_TEST`, `DIST_STATS`, `ECALC_FATAL_TEST`, `ECALC_INIT_ONLY`, `ECALC_MEM_SAMPLE`, `ECALC_NP_AUTO_TERMS`, `ECALC_TEST_CORR`, `ECALC_WINDOWS`, `MEM_DPOOL_FILL`, `MN_OUT_DKM_HI_TEST_CARRY`, `MN_TREE_LOGN_TEST`, `NEWTON_DKM_TEST_HI`, `NEWTON_MN_RECIP_TS`, `P24_CHECK`, `RNS_POOL_GROW` |
 | test | ecalc/tests/t_alloc.c | 2027-04-12 | `T_ALLOC_NTT`, `T_ALLOC_PROBE`, `T_ALLOC_SEED` |
 | test | ecalc/tests/t_dist.c | 2027-04-12 | `DIST_BIG`, `DIST_BIG_K`, `DIST_BIG_PRIMES`, `DIST_H4`, `DIST_H4_MB`, `DIST_H4_REPS`, `DIST_LAYERED`, `DIST_LBENCH`, `DIST_LREPS`, `DIST_TBENCH`, `DIST_TINV`, `DIST_XGMI` |
 | test | ecalc/tests/t_patch.c | 2027-04-12 | `T_PATCH_DIR`, `T_PATCH_UNPACK` |
