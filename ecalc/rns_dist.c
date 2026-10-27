@@ -1005,7 +1005,7 @@ static int p24_inject(int mode)                                 /* 1 once, in th
     if (p24_check() < 1 || p24_test() != mode || done[mode] || g_p24_seq != p24_test_k()) return 0;
     done[mode] = 1; return 1;
 }
-static void p24_report(void)
+static void p24_report(void)                                   /* at exit and before every P24_CHECK fatal (ec_fatal is _exit: no atexit) */
 {
     if (p24_check() < 1 || !g_c_prod) return;
     fprintf(stdout, "P24_CHECK: %zu P24 products (%zu pieces), %zu operands checked (stored %zu, received %zu), %zu cache hits unchecked, %zu flags\n", g_c_prod, g_c_pieces, g_c_st + g_c_rc, g_c_st, g_c_rc, g_c_hit, g_c_flags);
@@ -1036,7 +1036,8 @@ static void p24_chk_in(const struct mn_ctx *X, const mdbv *op, const char *nm, i
     char msg[640];
     snprintf(msg, sizeof msg, "operand %s %s: %zu of %zu limbs >= 10^18 (the first at sequence index %zu); product #%zu (%s), piece %d,%d of the %d x %d grid (%zu x %zu limbs per piece); node %d, PE %d of %d, APU thread %d; view offset %zu, %zu limbs; plane R %zu x C %zu = %zu points",
              nm, where, bad, n, first, g_p24_seq, g_p24_what, g_p24_pi, g_p24_pj, g_p24_ka, g_p24_kb, g_p24_pa, g_p24_pb, X->node, X->g * d + X->G->me, X->nr, d, op->off, op->len, X->R, X->C, X->n);
-    if (!fatal) { g_p24_notes++; fprintf(stderr, "rns_mul_dist_mn: P24_CHECK note: non-normalised share (may be legal: the check assumes every stored limb < 10^18, which is not proven for every producer; P24 then needs the share normalised): %s\n", msg); return; }
+    if (!fatal) { __atomic_fetch_add(&g_p24_notes, 1, __ATOMIC_RELAXED); fprintf(stderr, "rns_mul_dist_mn: P24_CHECK note: non-normalised share (may be legal: the check assumes every stored limb < 10^18, which is not proven for every producer; P24 then needs the share normalised): %s\n", msg); return; }
+    p24_report();
     ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24_CHECK input: %s%s\n", msg, g_p24_notes ? "; stored-share notes were printed before: this is most likely the same non-normalised limbs travelling, not corruption in the exchange" : "");
 }
 /* P24: rank rho's in-run (ex 1) or out-run (ex 0) map, and the first index of its sequence at or above limb l */
@@ -1083,11 +1084,11 @@ static void redistribute(const struct mn_ctx *X, const mdbv *op, struct rdst *o,
         else k_pack_mn<<<nblk((size_t)g * S), 256, 0, s>>>(o->sb, a, lo, X->R, X->nr, g, d, S, o->ds);
     }
     HIP_SYNC(s);
-    if (X->p24 && p24_check()) g_c_st++;
+    if (X->p24 && p24_check()) __atomic_fetch_add(&g_c_st, 1, __ATOMIC_RELAXED);
     if (X->p24 && p24_check()) p24_chk_in(X, op, nm, d, o->sb, stot, "as packed here (the stored share)", 0, s);
     { int xk_ = comm_xtag_set(XK_REDIST); comm_alltoallv(X->G->all[d], o->sb, scnt, sdsp, o->rb, rcnt, rdsp, s); comm_xtag_set(xk_); } comm_wait(X->G->all[d]);
     if (X->p24 && p24_check() && rtot && p24_inject(1)) { uint64_t big = 1000000000000000000ULL; HIP_CHECK(hipMemcpyAsync(o->rb, &big, 8, hipMemcpyHostToDevice, s)); HIP_CHECK(hipStreamSynchronize(s)); }   /* P24_CHECK_TEST=1: one received limb = 10^18 */
-    if (X->p24 && p24_check()) g_c_rc++;
+    if (X->p24 && p24_check()) __atomic_fetch_add(&g_c_rc, 1, __ATOMIC_RELAXED);
     if (X->p24 && p24_check()) p24_chk_in(X, op, nm, d, o->rb, rtot, "as received (the exchange)", 1, s);
     db_pool_free(LD(d), o->sb); o->sb = 0;
 }
@@ -1523,13 +1524,13 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         if (p24) {                                          /* P24: the CRT into my out-run sequence (<= 4 qs / 3 + 2 C limbs: xb and the idle slabs of pool 1, 3 q + 16) */
             struct p24_run om = p24_run_make(R, C, a0, rows, 0);
             if (p24_run_total(&om) > 3 * q + 16) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 out-runs %zu limbs > pool 1's 3 q + 16 = %zu\n", p24_run_total(&om), 3 * q + 16); }
-            if (p24_check()) { g_c_pieces++; if (ha >= 0) g_c_hit++; if (hb >= 0) g_c_hit++; }
+            if (p24_check()) { __atomic_fetch_add(&g_c_pieces, 1, __ATOMIC_RELAXED); if (ha >= 0) __atomic_fetch_add(&g_c_hit, 1, __ATOMIC_RELAXED); if (hb >= 0) __atomic_fetch_add(&g_c_hit, 1, __ATOMIC_RELAXED); }
             if (p24_inject(2)) { uint64_t bad = 1234567890123ULL; HIP_CHECK(hipMemcpyAsync(xa[0], &bad, 8, hipMemcpyHostToDevice, s)); }   /* P24_CHECK_TEST=2: one plane residue replaced */
             p24_crt_set_check(p24_check() > 0);
             p24_crt_launch(xa[0], xa[1], xa[2], xa[3], &gc, R, C, a0, rows, xb, v->spill, s);
             unsigned fl = p24_crt_err(s);
             if (fl) {
-                g_c_flags++; size_t px = p24_crt_err_pos();
+                __atomic_fetch_add(&g_c_flags, 1, __ATOMIC_RELAXED); p24_report(); size_t px = p24_crt_err_pos();
                 ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 CRT flag %u (a coefficient past 10^60: the piece's bound); inputs %s; cache %s; product #%zu (%s), piece %d,%d of the %d x %d grid (%zu x %zu limbs per piece, this piece %zu x %zu); node %d, PE %d of %d, APU thread %d; plane 2^%d = R %zu x C %zu, first row %zu, %zu rows, shift %zu; first flagged point %zu (column %zu, row %zu, s %d)\n",
                          fl, p24_check() ? "checked < 10^18 per limb as packed and as received, except operands served from the transform cache (a hit skips the exchange and the check; P24_CHECK=2 disables the cache)" : "not checked (P24_CHECK=0)",
                          ha >= 0 || hb >= 0 ? "hit used" : slA >= 0 || slB >= 0 ? "slots filled" : "not used", g_p24_seq, g_p24_what, g_p24_pi, g_p24_pj, g_p24_ka, g_p24_kb, g_p24_pa, g_p24_pb, na, nb,
@@ -1717,7 +1718,7 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     const int p24 = mn_p24_of(na, nb, g);                     /* Phase 15 Batch 3 P24: the same on every node of the group */
     const int pc = pc_on(); int pck = 0;                      /* Phase 15 PC: the slots from the block pool per grid product (cache_pc_take, below) */
     int one = mn_grid_shape(na, nb, g, p24, &ka, &kb);
-    if (p24) g_c_prod++;
+    if (p24) __atomic_fetch_add(&g_c_prod, 1, __ATOMIC_RELAXED);
     if (p24_check()) { p24_arm(); g_p24_seq = g_c_prod; g_p24_ka = ka; g_p24_kb = kb; g_p24_pa = (na + ka - 1) / ka; g_p24_pb = (nb + kb - 1) / kb; g_p24_pi = g_p24_pj = -1;
     snprintf(g_p24_what, sizeof g_p24_what, "%zu x %zu limbs%s%s%s%s%s", na, nb, X ? ", + x" : "", lowcut ? ", low cut" : "", trunc ? ", low product" : "", wskip != (size_t)-1 ? ", wskip" : "", basis ? ", basis" : ""); }
     if (one && p24) { if (nc > lowcut) { mn_core(&Cn, A, B, 0, G, 0, 1, &tm, -1, -1, 1, 0); formed = 1; if (X) mdb_add_shifted(&Cn, X, 0, G); } else skipped = 1; }   /* P24: X added afterwards */
