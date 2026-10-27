@@ -35,7 +35,9 @@ One line each (what, why, size); nothing here is started without the user's word
 
 - `BS_MDEV_LOGL=29` for target runs (aac7 2026-10-27, m: APU 0 peak 109.9 -> 90.5 GB at 1e11 digits, 1 node, digits identical,
   ABBA no difference resolved; planner, mod: per-APU max at 2e13 / 576 nodes 89.7 -> 74.7 GB, no change at 3.82e13): a
-  run setting, no code; candidate default for target runs from 1e13 digits.
+  run setting, no code; candidate default for target runs from 1e13 digits. With the three new switches at 1e11 (m): planner
+  device 386.72 -> 367.40 GB, APU 0 driver peak 109.9 -> 90.5 GB (all four 90.5), ABBA -7.2 s (-5 %, not resolved); 1e11 then
+  fits one node at the target's 373.44 GB device limit (361.4 GB without the switches; the default plan is refused).
 
 
 - aac7 bimodal run times (3 n 1e11, both backends): about half the runs are 5-8 % slower (evidence: results/NODE_SLOWMODE.md §BM; needs the fabric); next: the 3 n ABBA with per-launch NIC counters once three nodes with working NICs exist (aac7 has two nodes with working NICs, 2026-10-25); until then pair every A/B run.
