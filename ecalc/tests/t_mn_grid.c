@@ -143,6 +143,7 @@ static void body(void *unused)
     }
     db_free(&A.sh); db_free(&B.sh); db_free(&X.sh); db_free(&C.sh);
     bi_free(&a); bi_free(&b); bi_free(&x); bi_free(&r); bi_free(&t); bi_free(&rl);
+    printf("t_mn_grid: pe %d: %zu P24 products formed\n", g_me, rns_dist_p24_products());
     mn_barrier(); mn_finalize();
 }
 int main(int argc, char **argv)

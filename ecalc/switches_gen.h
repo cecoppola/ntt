@@ -93,6 +93,8 @@ static const char *const cfg_names[] = {
     "NEWTON_MN_SPLIT",
     "NEWTON_RECIP_GUARD",
     "P24_CHECK",
+    "P24_CHECK_TEST",
+    "P24_CHECK_TEST_K",
     "PE_GEO_SYSFS_ROOT",
     "POOL_LOG",
     "RNS_BATCH_LOCAL_MIN",
@@ -129,4 +131,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_THP_DISABLE",
     "XSHMEM_THREAD_LEVEL",
 };
-#define CFG_NAMES_N 127
+#define CFG_NAMES_N 129

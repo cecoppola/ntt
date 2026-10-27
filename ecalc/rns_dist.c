@@ -995,6 +995,24 @@ static comm *lay_get(mn_group *G, int d)
  * (a flag that goes away then is a cache defect).  Off: no kernel, no copy, no allocation. */
 static int p24_check(void) { static int v = -1; if (v < 0) { const char *e = getenv("P24_CHECK"); v = e ? atoi(e) : 0; if (v < 0) v = 0; } return v; }
 static char g_p24_what[160]; static size_t g_p24_seq; static int g_p24_ka = 1, g_p24_kb = 1, g_p24_pi = -1, g_p24_pj = -1; static size_t g_p24_pa, g_p24_pb;   /* the running product (mn_grid / mn_piece_form, main thread) */
+/* P24_CHECK coverage line and fault injection (results/PRIMES_STRATEGY.md §P24 audit): counters per PE process; the summary prints at exit under P24_CHECK >= 1 */
+static size_t g_c_prod, g_c_pieces, g_c_st, g_c_rc, g_c_hit, g_c_flags;
+static int p24_test(void) { static int v = -1; if (v < 0) { const char *e = getenv("P24_CHECK_TEST"); v = e ? atoi(e) : 0; if (v < 0) v = 0; } return v; }
+static size_t p24_test_k(void) { static long v = -1; if (v < 0) { const char *e = getenv("P24_CHECK_TEST_K"); v = e ? atol(e) : 1; if (v < 1) v = 1; } return (size_t)v; }
+static int p24_inject(int mode)                                 /* 1 once, in the P24_CHECK_TEST_K-th P24 product, when P24_CHECK_TEST == mode (needs P24_CHECK >= 1) */
+{
+    static int done[3];
+    if (p24_check() < 1 || p24_test() != mode || done[mode] || g_p24_seq != p24_test_k()) return 0;
+    done[mode] = 1; return 1;
+}
+static void p24_report(void)
+{
+    if (p24_check() < 1 || !g_c_prod) return;
+    fprintf(stdout, "P24_CHECK: %zu P24 products (%zu pieces), %zu operands checked (stored %zu, received %zu), %zu cache hits unchecked, %zu flags\n", g_c_prod, g_c_pieces, g_c_st + g_c_rc, g_c_st, g_c_rc, g_c_hit, g_c_flags);
+    fflush(stdout);
+}
+static void p24_arm(void) { static int on; if (!on) { on = 1; atexit(p24_report); } }
+size_t rns_dist_p24_products(void) { return g_c_prod; }       /* P24 products formed in this process (counted always; tests print it) */
 __global__ void k_chk24(const uint64_t *b, size_t n, unsigned long long *res)
 {
     size_t t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
@@ -1065,8 +1083,11 @@ static void redistribute(const struct mn_ctx *X, const mdbv *op, struct rdst *o,
         else k_pack_mn<<<nblk((size_t)g * S), 256, 0, s>>>(o->sb, a, lo, X->R, X->nr, g, d, S, o->ds);
     }
     HIP_SYNC(s);
+    if (X->p24 && p24_check()) g_c_st++;
     if (X->p24 && p24_check()) p24_chk_in(X, op, nm, d, o->sb, stot, "as packed here (the stored share)", 0, s);
     { int xk_ = comm_xtag_set(XK_REDIST); comm_alltoallv(X->G->all[d], o->sb, scnt, sdsp, o->rb, rcnt, rdsp, s); comm_xtag_set(xk_); } comm_wait(X->G->all[d]);
+    if (X->p24 && p24_check() && rtot && p24_inject(1)) { uint64_t big = 1000000000000000000ULL; HIP_CHECK(hipMemcpyAsync(o->rb, &big, 8, hipMemcpyHostToDevice, s)); HIP_CHECK(hipStreamSynchronize(s)); }   /* P24_CHECK_TEST=1: one received limb = 10^18 */
+    if (X->p24 && p24_check()) g_c_rc++;
     if (X->p24 && p24_check()) p24_chk_in(X, op, nm, d, o->rb, rtot, "as received (the exchange)", 1, s);
     db_pool_free(LD(d), o->sb); o->sb = 0;
 }
@@ -1502,11 +1523,13 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         if (p24) {                                          /* P24: the CRT into my out-run sequence (<= 4 qs / 3 + 2 C limbs: xb and the idle slabs of pool 1, 3 q + 16) */
             struct p24_run om = p24_run_make(R, C, a0, rows, 0);
             if (p24_run_total(&om) > 3 * q + 16) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 out-runs %zu limbs > pool 1's 3 q + 16 = %zu\n", p24_run_total(&om), 3 * q + 16); }
+            if (p24_check()) { g_c_pieces++; if (ha >= 0) g_c_hit++; if (hb >= 0) g_c_hit++; }
+            if (p24_inject(2)) { uint64_t bad = 1234567890123ULL; HIP_CHECK(hipMemcpyAsync(xa[0], &bad, 8, hipMemcpyHostToDevice, s)); }   /* P24_CHECK_TEST=2: one plane residue replaced */
             p24_crt_set_check(p24_check() > 0);
             p24_crt_launch(xa[0], xa[1], xa[2], xa[3], &gc, R, C, a0, rows, xb, v->spill, s);
             unsigned fl = p24_crt_err(s);
             if (fl) {
-                size_t px = p24_crt_err_pos();
+                g_c_flags++; size_t px = p24_crt_err_pos();
                 ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 CRT flag %u (a coefficient past 10^60: the piece's bound); inputs %s; cache %s; product #%zu (%s), piece %d,%d of the %d x %d grid (%zu x %zu limbs per piece, this piece %zu x %zu); node %d, PE %d of %d, APU thread %d; plane 2^%d = R %zu x C %zu, first row %zu, %zu rows, shift %zu; first flagged point %zu (column %zu, row %zu, s %d)\n",
                          fl, p24_check() ? "checked < 10^18 per limb as packed and as received, except operands served from the transform cache (a hit skips the exchange and the check; P24_CHECK=2 disables the cache)" : "not checked (P24_CHECK=0)",
                          ha >= 0 || hb >= 0 ? "hit used" : slA >= 0 || slB >= 0 ? "slots filled" : "not used", g_p24_seq, g_p24_what, g_p24_pi, g_p24_pj, g_p24_ka, g_p24_kb, g_p24_pa, g_p24_pb, na, nb,
@@ -1694,7 +1717,8 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     const int p24 = mn_p24_of(na, nb, g);                     /* Phase 15 Batch 3 P24: the same on every node of the group */
     const int pc = pc_on(); int pck = 0;                      /* Phase 15 PC: the slots from the block pool per grid product (cache_pc_take, below) */
     int one = mn_grid_shape(na, nb, g, p24, &ka, &kb);
-    if (p24_check()) { g_p24_seq++; g_p24_ka = ka; g_p24_kb = kb; g_p24_pa = (na + ka - 1) / ka; g_p24_pb = (nb + kb - 1) / kb; g_p24_pi = g_p24_pj = -1;
+    if (p24) g_c_prod++;
+    if (p24_check()) { p24_arm(); g_p24_seq = g_c_prod; g_p24_ka = ka; g_p24_kb = kb; g_p24_pa = (na + ka - 1) / ka; g_p24_pb = (nb + kb - 1) / kb; g_p24_pi = g_p24_pj = -1;
     snprintf(g_p24_what, sizeof g_p24_what, "%zu x %zu limbs%s%s%s%s%s", na, nb, X ? ", + x" : "", lowcut ? ", low cut" : "", trunc ? ", low product" : "", wskip != (size_t)-1 ? ", wskip" : "", basis ? ", basis" : ""); }
     if (one && p24) { if (nc > lowcut) { mn_core(&Cn, A, B, 0, G, 0, 1, &tm, -1, -1, 1, 0); formed = 1; if (X) mdb_add_shifted(&Cn, X, 0, G); } else skipped = 1; }   /* P24: X added afterwards */
     else if (one) { if (nc > lowcut) { mn_core(&Cn, A, B, X, G, 0, 1, &tm, -1, -1, 0, 0); formed = 1; } else skipped = 1; }

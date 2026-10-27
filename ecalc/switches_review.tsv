@@ -83,3 +83,5 @@ XSHMEM_SPARSE	experiment	comm	2026-12-31	skip zero-byte peers in exchanges; adop
 XSHMEM_HANG_S	diagnostic	comm	2027-04-12	handshake HANG timeout for imbalance vs loss tests
 XSHMEM_HS_BATCH	experiment	comm	2026-12-31	paced / rotated flat handshake; adopt or drop after the target 2e13 test
 COMM_SEQ_CHECK	diagnostic	comm	2027-04-12	call-sequence divergence check
+P24_CHECK_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+P24_CHECK_TEST_K	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
