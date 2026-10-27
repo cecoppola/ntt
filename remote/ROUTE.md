@@ -97,8 +97,54 @@ Source of the numbers: `target/RESTART.md` section 8, `target/ladder/levels/L3.c
 Without cap 0 the planner refuses s3 (407 GB vs 373.44). A step that fails is not repeated blindly: ADJUST.md section 3
 rows 1-2, 7, then at most one re-run (another node group via `--exclude`, or a smaller `MN_T_CHUNK_MB`). If s3 will
 not fit or fails twice, take the largest planner-approved digit count (about 2.67e13 fits without cap 0) as the record.
-No `--write` at s2/s3 unless the file system has room for 17 TB (user decides). Spend leftover time on a verified repeat
+No `--write` at s2/s3 unless the file system has room for 17 TB (user decides; the stripe step, part files and time budget are in "Record-size output" below). Spend leftover time on a verified repeat
 of the best size with the best settings, not on new experiments.
+
+## Record-size output (the 3.82e13 run with `--write`; also 2e13 and 3e13)
+
+Sizes (packed v2 = 0.41667 B per digit + a 4096 B header per part; m from the format, totals mod): 2e13 = 8.3 TB, 3e13 = 12.5 TB, 3.82e13 = 15.9 TB.
+Path 1 (layout D, one process per node) writes 576 part files `<out>.part<k>` of 27.6 GB each (k = size-1-rank); path 2 / layout P writes 2304 parts of
+6.9 GB. Each part has one writer thread per process: O_DIRECT, 256 MB chunks (`MN_OUT_CHUNK_MB`) cut over `MN_OUT_THREADS` (8) `pwrite` threads. The part
+starts at the division's hook (`MN_OUT_EARLY=1`, default), so most of the write hides behind the low product; the exposed part is the `dc` wait and
+`s after the checks` in the `wrote <file>.partNNNN` line. The target has 1.7 PB free, no quota (FACTS Target site); 16 TB needs the user's go (S6).
+
+Striping (the `lfs setstripe` step; the target's default directory layout is PFL with 4 components, the first extent 0-1 GiB = ONE OST):
+- Every write measured so far (0.42 GB at 1 node, 1.04 GB parts at 2 nodes: 3.4-5.3 GB/s) fits inside the first 1 GiB extent, so they are single-OST rates;
+  how the later PFL components (component count and widths unknown) behave for a 27.6 GB file, and the aggregate of 576 files, are unmeasured.
+- Do not set a layout blind. First measure (io03 below). Candidates: `default` (PFL, no setstripe), `-c 4 -S 32M`, `-c 16`, `-c -1`. Reasoning for `-c 4 -S 32M`: a file of 27.6 GB on one OST
+  makes the slowest of the busiest OSTs set the end of the run (576 files hash onto the OSTs unevenly: the run waits for the most loaded one); 4 OSTs per file
+  average that out with only 2304 stripe objects, while `-c -1` makes every file touch every OST (576 x all objects, lock traffic); `-S 32M` equals one
+  `pwrite` thread's slice of a 256 MB chunk (256 MB / 8), so each call goes to one OST.
+- Rule for the record run: keep `default` unless io03 at 64 nodes shows an explicit arm at least 15 % faster in aggregate (then use that arm); the larger the better only up to the
+  point where the aggregate stops growing. Where to apply: the output directory BEFORE the run, `lfs setstripe -c <C> -S <S>M <dir>` then `lfs getstripe -d <dir>` (the run's
+  subdirectory and the part files inherit it); `--write <dir>` passes that directory. Alternative that needs no directory step: `--env "MN_OUT_STRIPE=<C>:<S>:<OSTs>"`
+  (each part created with that layout; `<OSTs>` = the OST count from `lfs df <dir> | grep -c OST` makes the first OST `(part x C) mod OSTs`, so the parts start on distinct OSTs);
+  it needs `lfs` on the compute nodes' PATH (`command -v lfs` in one srun; a failed call prints `mn_out: ... FAILED: the file takes its directory's layout`).
+- Keep the output directory on the one file system used by io01-io03 (home's file system; the other two are not user-writable or unused, FACTS Target site).
+
+Time budget for the write (modelled = bytes / aggregate rate; the 5 GB/s per part is measured at 1-2 nodes only):
+
+| aggregate write rate | 576 files, 15.9 TB | per node (27.6 GB) | basis |
+|---|---|---|---|
+| 2.9 TB/s (5 GB/s per node, nothing shared) | 5.5 s | 5.5 s | upper bound of the measured single-stream rate (mod) |
+| 1 TB/s | 16 s | 27.6 s per node at 1.7 GB/s (!) | the file system's claimed cumulative rate into one file (u) |
+| 0.58 TB/s (1 GB/s per node) | 27 s | 27.6 s | the earlier model's assumption (a) |
+| 0.25 TB/s | 64 s | 64 s | pessimistic (a) |
+| 0.1 TB/s | 159 s | 159 s | bad: another OST-limited layout (a) |
+
+Read it as: write time about 6-60 s (mod), exposed time smaller because of `MN_OUT_EARLY`; the s3 run's model without write is 187 s, so plan 190-250 s with the
+write and say so before the run. Warning limit: if io02 at 64 nodes gives less than 0.5 GB/s per node (a write over 55 s), report to the user before the 3.82e13 attempt
+(decision: write with a longer budget, or attempt without `--write`). Digit hash: `s5_run --write` hashes the parts through ONE node after the run; at 16 TB that would
+read for hours (read rate 0.8 GB/s on aac7's old file system, m), so the script skips the hash above `TGT_HASH_MAX_GB` (default 300) and the run's own VERIFY (T1/T2 windows, written by the writer) is the check;
+an optional read-back of one part per node (`ECALC_RECHECK`) costs about 35 s per node at 0.8 GB/s (mod; io04 gives the real rate).
+
+Which bench results change the record-run settings (benches in "Next target session" step 6a, all on the same file system):
+- io01 (1 node, `tools/wbench` direct 8 vs 32 threads, buffered 8): 32 threads at least 1.3 x of 8 -> `MN_OUT_THREADS=32` in the record run; else keep 8.
+- io02 (64 nodes, per-node files vs one shared name): per-node aggregate x 9 (576/64) = the modelled 576-node rate for the table above, if it keeps scaling (check the per-node
+  rate fell by less than 30 % from io01 to io02, else the file system saturates: take the io02 aggregate itself as the 576-node rate). The shared-file figure is information only
+  (ecalc writes per-node parts; a shared-file writer would be new code).
+- io03 (64 nodes, `IO03_ARMS="default 1 4 16 -1 4:32M"`, 16 GB per rank): the stripe rule above.
+- io04 (read-back, 1 node): the time of `ECALC_RECHECK` / `unpack_digits` over a part (27.6 GB per node) for the after-run check.
 
 ## S7 report
 
@@ -116,7 +162,7 @@ run dirs listed, then write the REPORT block (AGENT.md). Remind the user: the re
 
 Facts behind it: `FACTS.md` "Measured runs on the target". New switches are off by default unless stated: `ECALC_OMP_TEAM=mask` (team sizes from the
 affinity mask), `ECALC_RESIDUE=shoup` (digit residue), `XSHMEM_COLL=tree` (collectives), `ECALC_INIT_TL=1` (init timeline lines),
-`MN_WAIT_STATS=1`, `NEWTON_MN_RECIP_TS=1`, `COMM_HANG_DETAIL=1`, `MEM_REPORT_DEVS=1`; `BS_MDEV_LOGL=29` on runs from 1e13 digits (S6); `mnrun.sh` now gives every task `srun -c <CPUs per task>` by default
+`MN_WAIT_STATS=1`, `NEWTON_MN_RECIP_TS=1`, `COMM_HANG_DETAIL=1`, `MEM_REPORT_DEVS=1`; being built on branches `num` / `comm2` (2026-10-27; names may change, the coordinator reconciles them at the merge): `P24_CHECK`, `COMM_SEQ_CHECK`, `MDB_SHIFT_NEIGH`, `XSHMEM_SPARSE`; `BS_MDEV_LOGL=29` on runs from 1e13 digits (S6); `mnrun.sh` now gives every task `srun -c <CPUs per task>` by default
 (`MNRUN_CPUS_PER_TASK=` empty restores the old line). Settings a script cannot take as an option are written as `--a/--b/--env` words.
 The multi-node changes shipped off by default, so the FIRST step is the gate at 1 AND 2 nodes (user decision); stop if it fails.
 
@@ -136,9 +182,31 @@ The multi-node changes shipped off by default, so the FIRST step is the gate at 
 5. 576 nodes, 4.608e12, best settings of 2-4, TWO runs in one allocation (first = cold, second = warm; compare init: the 111 s anomaly):
    `bash remote/run/chain.sh "s5_run.sh --nodes 576 --digits 4608e9 --path 1 --env \"<best> ECALC_INIT_TL=1 COMM_HANG_DETAIL=1 MEM_REPORT_DEVS=1\"" "s5_run.sh --nodes 576 --digits 4608e9 --path 1 --env \"<best> ECALC_INIT_TL=1 COMM_HANG_DETAIL=1 MEM_REPORT_DEVS=1\""`
    Report both inits and the `tl` lines of the slowest node; the level lines `mn: node R level L ... in X s` (Fit A of the analysis predicts 2.1, 2.9, 3.3, 3.7, 4.1, 4.8 s for levels 1-6; compare).
-6. Benches (when time remains; a worker per allocation, `target/RESTART.md` §7): `net02` (put rate, latency, 1 vs 2 lanes), `net04` / `net05` (all-to-all scaling),
-   `mem01` (VMM edge per APU: is the 93.36 GB hipMalloc edge the real limit? aac7 ran 109.9 GB on APU 0), `io01` / `io02`.
-7. Failures, only after 1-5 (every run here with `BS_MDEV_LOGL=29`, as in S6): re-run 2e13 on 576 nodes with `COMM_HANG_DETAIL=1`, then 3e13 with `ECALC_FIT_PER_APU=1` (a planner refusal means the per-APU edge is the cause), then the 3.82e13 attempt with the best round size and `MN_NONPOW2_CAP=0`.
+4b. Shifts, 64 nodes (switches being built on branch `num` / `comm2` (2026-10-27); names may change, the coordinator reconciles them at the merge: `MDB_SHIFT_NEIGH=1` = the shifts exchange only with the
+   neighbouring nodes, `XSHMEM_SPARSE=1` = the exchange rounds skip peers with zero bytes): `bash remote/run/s4_ab.sh --nodes 64 --digits 512e9 --path 1 --a "" --b "MDB_SHIFT_NEIGH=1 XSHMEM_SPARSE=1" --rounds 2`,
+   then, if the first A/B gains, one more A/B that separates them (`--a "MDB_SHIFT_NEIGH=1" --b "XSHMEM_SPARSE=1"`). Digits identical in all arms (stop otherwise). Read in the logs (`MN_WAIT_STATS=1 NEWTON_MN_RECIP_TS=1` added to every arm): the
+   `recip` seconds and the shift line (the mod: 124 shifts x ~122 ms at 576 nodes; a shift should talk to at most 2 peers, not g - 1). Adopt only with an interval that excludes 0. Goes after step 4 (same 64-node allocation), before 576.
+5. 576 nodes, 4.608e12, best settings of 2-4b, TWO runs in one allocation (first = cold, second = warm; compare init: the 111 s anomaly):
+   `bash remote/run/chain.sh "s5_run.sh --nodes 576 --digits 4608e9 --path 1 --env \"<best> ECALC_INIT_TL=1 COMM_HANG_DETAIL=1 MEM_REPORT_DEVS=1\"" "s5_run.sh --nodes 576 --digits 4608e9 --path 1 --env \"<best> ECALC_INIT_TL=1 COMM_HANG_DETAIL=1 MEM_REPORT_DEVS=1\""`
+   Report both inits and the `tl` lines of the slowest node; the level lines `mn: node R level L ... in X s` (Fit A of the analysis predicts 2.1, 2.9, 3.3, 3.7, 4.1, 4.8 s for levels 1-6; compare).
+5b. 576-node init-only run, the full startup timeline (right after step 5, same allocation, about 3 min; the anomaly of step 5): `bash remote/run/s5_run.sh --nodes 576 --digits 4608e9 --path 1 --env "<best> ECALC_INIT_ONLY=1 ECALC_INIT_TL=1 COMM_HANG_DETAIL=1"`.
+   `ECALC_INIT_ONLY` ends the run after the pools and arena are mapped, so no VERIFY line is expected (the summary may say PARTIAL: read the log with `show.sh latest tail 80`). `ECALC_INIT_TL=1` is being extended on branch `comm2` (2026-10-27; names may change) to add
+   process start to `main` (from `/proc/self/stat`), the HIP runtime init, the first kernel, the PMI address exchange and AV-insert totals and the barrier before compute; the lines that cover the 111 s are the point (the engine's own lines covered only part of it). Compare the three inits
+   (cold run of step 5, warm run, init-only): a warm init far below the cold one points at the shared-image start (library loads by 2304 processes), equal inits at the engine's address exchange / communicator steps.
+6a. IO benches (before any run that writes; skip when the record run will not write; each at the sizes of "Record-size output"; needs the login-node builds as bench items first: `bash target/bench/run.sh --jobid none --only bld01,bld02`; `<J>` = the allocation's job id from `alloc.sh --status`):
+   `IO02_SZ=16 IO03_SZ=16 IO03_NODES=64 IO03_ARMS="default 1 4 16 -1 4:32M" ASSUME=cor01 bash target/bench/run.sh --jobid <J> --only io01,io02,io03,io04 --worker w1`
+   (about 30 min worst case; io01 1 node, io02 64 nodes, io03 64 nodes, io04 1 node; results in `target/results/bench/<id>/summary.txt`, the `q.TQ54` ... `q.TQ57` lines). The result table changes the record-run settings: see "Record-size output".
+6b. Fabric and memory benches (when time remains; one worker per allocation, `target/RESTART.md` §7; `ASSUME=cor01,scl01 bash target/bench/run.sh --jobid <J> --only mem01,net02,net04,net05 --worker w2`): `net02` (put rate, latency, 1 vs 2 lanes), `net04` / `net05` (all-to-all scaling),
+   `mem01` (VMM edge per APU: is the 93.36 GB hipMalloc edge the real limit? aac7 ran 109.9 GB on APU 0).
+7. Failures, only after 1-5b (every run here with `BS_MDEV_LOGL=29`, as in S6; the debug switches `P24_CHECK` (checks every input point < 10^24 before the transforms; at a flag prints the product kind, piece, node and the first bad coefficient, then stops) and `COMM_SEQ_CHECK`
+   (each member's collective sequence number rides in the handshake; a mismatch is fatal with both call sites) are being built on branches `num` / `comm2` (2026-10-27; names may change; the coordinator reconciles them at the merge). Use `--tmo 25` on every run of this step: a hang then costs 25 min, not the session):
+   a. 2e13 on 576 nodes, the tree handshake first (it can give digits), then the flat one (the diagnosis: expect the hang at the first-call allgather; `COMM_HANG_DETAIL=1` names the members that never arrived, `COMM_SEQ_CHECK=1` says whether the call sequences diverged):
+      `bash remote/run/chain.sh "s5_run.sh --nodes 576 --digits 20e12 --path 1 --tmo 25 --env \"<best> BS_MDEV_LOGL=29 P24_CHECK=1 COMM_HANG_DETAIL=1 COMM_SEQ_CHECK=1 XSHMEM_COLL=tree\"" "s5_run.sh --nodes 576 --digits 20e12 --path 1 --tmo 25 --env \"<best> BS_MDEV_LOGL=29 P24_CHECK=1 COMM_HANG_DETAIL=1 COMM_SEQ_CHECK=1\""`
+      (`chain.sh` stops at the first FAIL: when the tree run fails, run the flat one separately only if the failure was not the same hang.) Reading: tree passes + flat hangs = the burst of 2304 x 2303 signals, keep `XSHMEM_COLL=tree` for every larger run;
+      both hang = divergence or another cause: the `COMM_SEQ_CHECK` and `COMM_HANG_DETAIL` lines are the result; a `P24_CHECK` flag at either = the CRT-bound defect, take the printed product to the code lane.
+   b. 3e13 on 576 nodes (after 7a passes; with the handshake that passed): `bash remote/run/s5_run.sh --nodes 576 --digits 30e12 --path 1 --tmo 25 --env "<best> BS_MDEV_LOGL=29 P24_CHECK=1 ECALC_FIT_PER_APU=1 [XSHMEM_COLL=tree]"`; a planner refusal here means the per-APU edge is the cause (the planner's per-APU line says by how much);
+      3e13 is above 2.592e13, where `MN_NONPOW2_CAP` auto turns on, and above 4.95e12 (plane cap 2^31): two code paths no completed target run used, so a P24 flag here is the 3e13 CRT-flag case, with the product kind in the line.
+   c. then the 3.82e13 attempt (S6 s3) with the best round size and `MN_NONPOW2_CAP=0`, `--write` only after 6a and the user's go (see "Record-size output").
 
 Missing script features (follow-ups, not invented here): several 64-node arms RUNNING AT ONCE in one hold (the scripts run one step at a time; the arms above are sequential,
 about 3 min each), and a team-size / init-timeline summary line in `s5_run.sh` / `s4_ab.sh` (read the log with `show.sh latest tail 60` for now).

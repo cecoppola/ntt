@@ -1,5 +1,5 @@
 #!/bin/bash
-# net04 (TQ16) - all-to-all rate per PE vs node count: t_xshmem a2a (64 MiB max) on 2, 4, 8 nodes of the 8-node allocation, path 1 then path 2.
+# net04 (TQ16) - all-to-all rate per PE vs node count: t_xshmem a2a (64 MiB max) on 2, 4, 8 nodes of the 8-node allocation, path 1 then path 2 (NET04_NODES="1" for the aac7 dry run).
 . "$(dirname "${BASH_SOURCE[0]}")/_ecalc.sh"
 ecalc_refresh 900 && P2=1 || P2=0
 QS=; RES=
@@ -7,7 +7,7 @@ for pn in 1 2; do
     [ $pn = 2 ] && [ $P2 = 0 ] && continue
     ecalc_have $pn || continue
     base=
-    for n in 2 4 8; do tag=a2a_p${pn}_n$n
+    for n in ${NET04_NODES:-2 4 8}; do tag=a2a_p${pn}_n$n
         TMO=4 XT_MAXMB=64 XT_REPS=3 ecalc_xt $tag $pn $n "a2a"
         [ "$X_SKIP" = 1 ] && continue
         a=$(ecalc_xt_col $tag a2a 7 ' 67108864$' max); an=$(ecalc_xt_col $tag a2a 9 ' 67108864$' max)

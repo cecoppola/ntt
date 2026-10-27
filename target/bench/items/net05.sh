@@ -17,8 +17,9 @@ one() {   # PATH NODES
     grep -a -c 'REFUSED\|Abort\|abort\|PMI.*fail' raw/$tag.log* > /dev/null 2>&1 && tgt_kv e.${tag}_errors "$(zcat -f raw/$tag.log* | grep -a -m3 'REFUSED\|Abort\|abort\|PMI.*fail' | cut -c1-120 | tr '\n' '/')"
     QS="$QS; p$pn ${n}n ${a:-NA}"; QL="$QL; p$pn ${n}n ${l:-NA} us (launch ${X_WALL_S}s, $X_RESULT)"; RES="$RES $X_RESULT"
 }
-for n in 16 32 64; do one 1 $n; done
-[ $P2 = 1 ] && for n in 64 32 16; do one 2 $n; done
+N5=${NET05_NODES:-16 32 64}; N5R=$(echo $N5 | tr " " "\n" | tac | tr "\n" " ")   # NET05_NODES="1" for the aac7 dry run
+for n in $N5; do one 1 $n; done
+[ $P2 = 1 ] && for n in $N5R; do one 2 $n; done
 ecalc_q TQ17 "a2a 8 MiB per PE (GB/s):${QS#;}; 8 B ping-pong and launch:${QL#;}"
 case "$RES" in *PASS*) ;; *) ecalc_end FAIL;; esac
 case "$RES" in *FAIL*|*NONE*) ecalc_end PARTIAL;; esac

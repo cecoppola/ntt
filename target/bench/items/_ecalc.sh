@@ -142,8 +142,10 @@ ecalc_srun() {        # TAG PATHNO NODES CMD...
     [ -n "$cpt" ] && copt=(-c "$cpt")
     [ -f "$TGT_ROOT/../ecalc/gres.sh" ] && . "$TGT_ROOT/../ecalc/gres.sh"
     gopt=(--gpus-per-node="$gpus"); type mn_gres_on >/dev/null 2>&1 && { mn_gres_on "${h%%,*}" || gopt=(); }   # MNRUN_GRES: none where the nodes list no GRES
+    # TGT_SRUN_EXTRA="--mem=0" and TGT_SRUN_NO_W=1: the aac7 session-hold rules (steps need --mem=0, no -w); empty on the target
+    local xo=(${TGT_SRUN_EXTRA:-}) wo=(-w "$h"); [ "${TGT_SRUN_NO_W:-0}" = 1 ] && wo=()
     t0=$(date +%s)
-    timeout -k 20 $(( ${TMO:-${TGT_ITEM_MIN:-10}} * 60 )) srun --jobid="$JOBID" --export=ALL -N "$n" -w "$h" --ntasks=$((n * ppn)) --ntasks-per-node="$ppn" "${gopt[@]}" "${copt[@]}" --overlap \
+    timeout -k 20 $(( ${TMO:-${TGT_ITEM_MIN:-10}} * 60 )) srun --jobid="$JOBID" --export=ALL -N "$n" "${wo[@]}" --ntasks=$((n * ppn)) --ntasks-per-node="$ppn" "${gopt[@]}" "${copt[@]}" "${xo[@]}" --overlap \
         bash -lc "$(_ec_pre)"'exec "$@"' _ "$@" > "$lg" 2>&1 < /dev/null
     rc=$?; E_SRUN_WALL_S=$(( $(date +%s) - t0 )); return $rc
 }
@@ -244,11 +246,15 @@ ecalc_run() {         # TAG SHAPE NODES DIGITS [VAR=VALUE ...]
     # digit hash (on the first host, where the parts are readable)
     if [ -n "$of" ] && [ "$rc" = 0 ]; then
         local unp; unp=$(ecalc_tool "$pn" tools/unpack_digits)
-        if [ -x "$unp" ]; then
+        local pbytes; pbytes=$(du -cb "$of".part* "$of" 2>/dev/null | tail -1 | cut -f1)
+        if [ -n "$pbytes" ] && [ "$pbytes" -gt $(( ${TGT_HASH_MAX_GB:-300} * 1000000000 )) ]; then   # the hash reads every part through one node: hours at record sizes
+            echo "ecalc_run $tag: digit hash not taken: $pbytes B of parts exceed TGT_HASH_MAX_GB=${TGT_HASH_MAX_GB:-300} GB (one node would read them all serially)" >> "$lg"
+        elif [ -x "$unp" ]; then
             local hs
             hs='P=$(ls "$1".part* 2>/dev/null | sort); [ -n "$P" ] || P=$1; '"$unp"' -q $P | sha1sum | cut -c1-16; exit ${PIPESTATUS[0]}'
             if [ -n "${ECALC_REPLAY:-}" ] || ! command -v srun >/dev/null 2>&1 || [ "$JOBID" = none ]; then E_HASH=$(bash -c "$hs" _ "$of" 2>>"$lg"); E_UNPACK_RC=$?
-            else E_HASH=$(srun --jobid="$JOBID" --export=ALL -N1 -n1 -w "${h%%,*}" -c 48 --overlap bash -c "$hs" _ "$of" 2>>"$lg"); E_UNPACK_RC=$?; fi
+            else local xo2=(${TGT_SRUN_EXTRA:-}) wo2=(-w "${h%%,*}"); [ "${TGT_SRUN_NO_W:-0}" = 1 ] && wo2=()
+                E_HASH=$(srun --jobid="$JOBID" --export=ALL -N1 -n1 "${wo2[@]}" -c 48 "${xo2[@]}" --overlap bash -c "$hs" _ "$of" 2>>"$lg"); E_UNPACK_RC=$?; fi
             E_HASH=$(echo "$E_HASH" | tail -1)
         else echo "ecalc_run $tag: no $unp: digit hash not taken" >> "$lg"; fi
         E_HASH_REF=$(ecalc_ref_hash "$d")
@@ -317,6 +323,7 @@ ecalc_wait() { local p f=0; for p in "${EC_BG_PIDS[@]}"; do wait "$p" || f=$((f 
 # ---------------------------------------------------------------------------------------------------------------- misc
 ecalc_refresh() {
     local w=${1:-900} t0 sf=$TGT_RES/bench/bld02 p
+    [ -n "${ECALC2:-}" ] && [ -x "$ECALC2" ] && [ -n "${MNRUN_DIR2:-}" ] && return 0   # path 2 was handed in by the caller (no bld02 item: the aac7 dry run)
     t0=$(date +%s)
     while [ ! -f "$sf/DONE" ] && [ -d "$sf" ] && [ $(( $(date +%s) - t0 )) -lt "$w" ]; do sleep 20; done
     [ -f "$sf/DONE" ] || return 1

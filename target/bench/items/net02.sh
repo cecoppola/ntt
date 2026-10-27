@@ -1,6 +1,7 @@
 #!/bin/bash
 # net02 (TQ13 TQ14 TQ15) - t_xshmem lat, stream, a2a on 2 nodes x 4 PEs (off-node pairs), 64 MiB max message, per path and lane count:
 # p1 lanes 1 / 2 (libfabric), p2 lanes 1 / 2 (cray-shmem), run one after the other on the same 2 nodes.  Per-NIC counters (CTRSUM) are kept.
+# NET02_NODES (default 2): the aac7 dry run uses 1 (4 PEs on one node: the off-node rows are then empty and read NA).
 # Metrics per arm: lat 8 B and 4 KiB (us per hop, mean), stream peak GB/s per PE (and per node), a2a 64 MiB GB/s per PE (and per node).
 . "$(dirname "${BASH_SOURCE[0]}")/_ecalc.sh"
 ecalc_refresh 900 && P2=1 || P2=0
@@ -8,7 +9,7 @@ RES=; QA=; QL=; QS=
 arm() {   # TAG PATH LANES
     local tag=$1 pn=$2 ln=$3
     ecalc_have $pn || { tgt_kv e.$tag "skipped (no binary of path $pn)"; return; }
-    TMO=5 XT_MAXMB=64 XT_REPS=3 ecalc_xt "$tag" "$pn" 2 "lat stream a2a" XSHMEM_LANES=$ln
+    TMO=5 XT_MAXMB=64 XT_REPS=3 ecalc_xt "$tag" "$pn" "${NET02_NODES:-2}" "lat stream a2a" XSHMEM_LANES=$ln
     [ "$X_SKIP" = 1 ] && { tgt_kv e.$tag "skipped"; return; }
     tgt_kv e.${tag}_result "$X_RESULT"; tgt_kv m.${tag}_wall_s "$X_WALL_S s"
     local l8 l4k sp spn a2 a2n

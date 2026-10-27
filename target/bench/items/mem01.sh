@@ -10,7 +10,7 @@ STEP_D=${MEM01_STEP_DEV:-4}; CAP_D=${MEM01_CAP_DEV:-520}; STEP_H=${MEM01_STEP_HO
 { echo "== meminfo"; grep -E '^(MemTotal|MemFree|MemAvailable|Cached|HugePages_Total|Hugepagesize|Shmem|SwapTotal)' /proc/meminfo
   echo "== ulimit"; ulimit -a; echo "== THP"; cat /sys/kernel/mm/transparent_hugepage/enabled 2>&1; echo "== overcommit"; cat /proc/sys/vm/overcommit_memory /proc/sys/vm/overcommit_ratio 2>&1
   echo "== numa"; command -v numactl >/dev/null && numactl -H 2>&1 | head -20; } > raw/snapshot_login.txt 2>&1
-srun --jobid="$JOBID" -N1 -n1 -w "$(ecalc_hosts 0 1)" --overlap bash -c 'grep -E "^(MemTotal|MemFree|MemAvailable|HugePages_Total)" /proc/meminfo; ulimit -l; cat /sys/kernel/mm/transparent_hugepage/enabled' > raw/snapshot_node.txt 2>&1
+srun --jobid="$JOBID" -N1 -n1 $([ "${TGT_SRUN_NO_W:-0}" = 1 ] || echo "-w $(ecalc_hosts 0 1)") ${TGT_SRUN_EXTRA:-} --overlap bash -c 'grep -E "^(MemTotal|MemFree|MemAvailable|HugePages_Total)" /proc/meminfo; ulimit -l; cat /sys/kernel/mm/transparent_hugepage/enabled' > raw/snapshot_node.txt 2>&1
 edge() {   # FORM STEP CAP
     TMO=${MEM01_TMO:-6} ecalc_srun edge_$1 $PN 1 "$T" "$1" "$2" "$3"
     local lg=$OUT/raw/edge_$1.log v fl av
