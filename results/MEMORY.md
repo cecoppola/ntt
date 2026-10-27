@@ -75,3 +75,17 @@ Branch `p14-L1` from main @ ae1d872. Files: `binsplit.c` (dm_layout, device-tier
 | 3 n 1.9323e11 | TR8 | - | 149.6 (m) | - | 0 |
 
 **Verdict.** Merged as an opt-in (`BS_ARENA_TRIM_GB`, default 0): the memory saving is large at 2 n and time is neutral to slightly better; the measured row is in `RESULTS.md`. No adoption decision; no 4 n / 6 n data.
+
+## XSHMEM_ROUND_MB 128 / 1024 / 0 at the target sizes: staging fit (B5, 2026-10-27; modelled, planner not run)
+
+Input for the target A/B (`XSHMEM_ROUND_MB` 128 / 1024 / 0). Python only: `mn_model.memory` (-> `mem_model.mem_per_node`) with the target's launch design, `MN_T_CHUNK_MB=2048`, `MN_NONPOW2_CAP=0` at 576 nodes; the C planner (`tools/plan_values.py --fit`) needs a current build and was not available locally (the aac7 binary predates the code), so the C planner's own lines on the target are the check. Calibration: the model's device peak at 3.82e13 / 576 nodes is 349.9 GB against the C planner's 358.96 GB (m, planner, target analysis; the model is 9 GB low, 2.5 %); the round size does not enter the device figure.
+
+| nodes, digits | round MB | host GB | SHMEM pool GB | node GB (model) | device GB (model) |
+| --- | --- | --- | --- | --- | --- |
+| 64, 5.12e11 | 128 / 1024 / 0 | 22.8 / 30.3 / 36.0 | 1.6 / 9.1 / 14.8 | 201.2 / 208.7 / 214.4 | 178.4 |
+| 576, 4.608e12 | 128 / 1024 / 0 | 28.2 / 35.7 / 41.3 | 7.0 / 14.5 / 20.1 | 208.8 / 216.3 / 222.0 | 180.7 |
+| 576, 2e13 | 128 / 1024 / 0 | 44.3 / 51.8 / 66.3 | 10.2 / 17.7 / 32.2 | 348.5 / 356.0 / 370.5 | 304.2 |
+| 576, 3.82e13 | 128 / 1024 / 0 | 44.7 / 52.2 / 82.8 | 10.2 / 17.7 / 48.3 | 394.0 / 401.5 / 432.1 | 349.9 |
+
+Reading: against the 487 GB node budget every case fits, also with the model's 9 GB low bias (3.82e13: 1024 adds 7.5 GB, 0 adds 38 GB to the node; 432 + 9 = 441 GB at most) and against the 373.44 GB device budget the device figure is unchanged (350-359 GB at 3.82e13, the margin is the cap-0 layout's, not the round size's). If the C planner counts the staging pools as device memory (it counts COMM_OFI_POOL_MB so), `0` adds up to 39 GB there and could refuse 3.82e13: check `plan fit` per arm before the 576-node A/B; 1024 adds 7.5 GB at most. Prediction for the A/B (`results/TIME_MODEL.md` §target_fit): 1024 or 0 save 9 % at 4.6e12 and about a third at 3.82e13.
+
