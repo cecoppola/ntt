@@ -1,6 +1,6 @@
 """mn_model.py regression tests (stdlib unittest, no cluster): the existing profiles' estimate rows stay as they were (A3, 2026-10-27: only the
 round-size default changed, which moves the memory columns only), and the target_fit profile reproduces the target's measured weak-scaling
-phases (bs, dm at 2 / 64 / 576 nodes, 8e9 digits per node) within +-30 %.
+phases (bs, dm at 2 / 64 / 576 nodes, 8e9 digits per node) within +-20 %.
 
     python3 -m unittest tests.test_mn_model        # from the repository root; a few seconds
 """
@@ -74,18 +74,18 @@ class TargetFit(unittest.TestCase):
         assert r.returncode == 0, r.stderr[-2000:]
         cls.m = {int(k): v for k, v in json.loads(r.stdout.splitlines()[-1]).items()}
 
-    def test_six_points_within_30_percent(self):
+    def test_six_points_within_20_percent(self):
         for (g, k), meas in POINTS.items():
-            self.assertLess(abs(self.m[g][k] / meas - 1), 0.30, (g, k, meas, self.m[g][k]))
+            self.assertLess(abs(self.m[g][k] / meas - 1), 0.20, (g, k, meas, self.m[g][k]))
 
-    def test_totals_within_30_percent(self):
+    def test_totals_within_20_percent(self):
         for g, meas in TOTALS.items():
-            self.assertLess(abs(self.m[g]["total"] / meas - 1), 0.30, (g, meas, self.m[g]["total"]))
+            self.assertLess(abs(self.m[g]["total"] / meas - 1), 0.20, (g, meas, self.m[g]["total"]))
 
     def test_other_profiles_do_not_see_the_sync_term(self):
-        s = "import sys; sys.path.insert(0, %r); import mn_model as M; M.apply_profile('target_fit'); M.apply_profile('target_l4'); print(M.ROUND_SYNC, M.INIT_DOUBLING, M.DC_FMT_MN)" % ECALC
+        s = "import sys; sys.path.insert(0, %r); import mn_model as M; M.apply_profile('target_fit'); M.apply_profile('target_l4'); print(M.ROUND_SYNC, M.INIT_DOUBLING, M.DC_FMT_MN, M.NODE_SCALE, M.INIT_SCALE)" % ECALC
         r = subprocess.run([sys.executable, "-c", s], capture_output=True, text=True, timeout=120)
-        self.assertEqual(r.stdout.split(), ["0.0", "0.0", "0.061"], r.stderr[-500:])
+        self.assertEqual(r.stdout.split(), ["0.0", "0.0", "0.061", "1.0", "1.0"], r.stderr[-500:])
 
 
 if __name__ == "__main__":

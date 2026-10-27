@@ -9,7 +9,7 @@
 #          plus the run's wall (a fabric-wide slow state shows as a high total, it cannot be pinned on one node).
 # Rule (same as initchk): a node is flagged when a time metric is > THR x the median (default 3) AND >= MINEX s above it (default 2), or when any
 # step failed / timed out / printed no result.  With fewer than 3 nodes the reference is the smaller value instead of the median.
-# SLURM_LABELIO=1 labels the mn log (mnrun.sh drops MNRUN_LABEL when MNRUN_CPUS_PER_TASK is set: see the copt lines of mnrun.sh).
+# SLURM_LABELIO=1 labels the mn log (mnrun.sh turns MNRUN_LABEL=1 into srun --label; the label is independent of MNRUN_CPUS_PER_TASK).
 # Output ($OUT): screen_table.txt (per-node table), EXCLUDE (one host per line, the nodes to leave out), screen_summary.txt (wall per stage),
 # local/<host>.log, mn.log.  Exit 0 = no node flagged, 3 = flagged (EXCLUDE is non-empty), 2 = the screen itself could not run / parse.
 #

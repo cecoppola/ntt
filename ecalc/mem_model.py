@@ -14,7 +14,7 @@ archive:results_merged_2026-10-24/MEMORY.md §M, archive:results_merged_2026-10-
 
 mem_per_node's defaults (DEFAULTS) are the code's: DM_TIGHT, MN_TREE_EARLY_FREE, MN_T_CHUNK_MB and MDB_SHIFT_CHUNK_MB 1024, the SHMEM pool from the plan,
 DB_POOL_VMM's host and bs terms, ECALC_PLANE_CAP 2^31 (the C default is now `run`: 2^30 up to about 9.6e9 digits per node; the model does not pick it, pass cap explicitly -- every explicit cap is unaffected), BS_SEED_FILL=128, MN_OUT_EARLY, BS_ARENA_ROOM, NEWTON_DKM.  TARGET_LAUNCH is the target's launch line
-(XSHMEM_ROUND_MB=1024 = round_mb, the user's D2); the pre-Phase-14 forms (OLD13), the Phase 14 / 15 defaults B0 / B1 and the historical tables are in the archive
+(round_mb 0 = rounds off; the code's own default is XSHMEM_ROUND_MB=128, TARGET_LAUNCH); the pre-Phase-14 forms (OLD13), the Phase 14 / 15 defaults B0 / B1 and the historical tables are in the archive
 (archive:scripts_2026-10-25/mem_model_legacy.py).  --check-c is exact against BS_LAYOUT_ONLY at 4e10, 1e11 and the target's share.
 B7ACCT (2026-10-06): vslot_resident -- the general map's v-exchange slots (comm_layered.c, hipMalloc'd beside the arena) on dev_bs / dev_dm;
 --check-c compares the C `vslot:` line (per APU, the tree top, device / node with them); the budget as the C (always on).
@@ -652,14 +652,14 @@ def host_size1(D):
 # `plan pool` line (mnrun.sh: the pool = the need rounded up to 256 MiB, the device heap exactly the pool), BS_SEED_FILL=128, MN_OUT_EARLY=1,
 # BS_ARENA_ROOM=ARENA_ROOM (binsplit.c bs_arena_room: the arenas in whole VMM chunks + that fraction of the hole in the dm need), NEWTON_DKM=1 with
 # dm_layout following it (MN_P24=2 is the tree's scratch: opts p24; mn_model passes it) and the lean mn division.  exchange rounds (round_mb; the code's XSHMEM_ROUND_MB) are off in the
-# default; the target's launch line adds 1024 (TARGET_LAUNCH, the user's D2).  mem_per_node's base.
+# default; TARGET_LAUNCH is the code's default 128 (xshmem_round.h; every target run used it; 1024 was the user's D2 assumption until 2026-10-27).  mem_per_node's base.
 ARENA_ROOM = 0.14                                       # BS_ARENA_ROOM's code default (was 0.16 from 2026-09-28, be2eec3; 0.14: memfix, one chunk less per APU at 2 n and 4 n)
 DKM_CODE = True                                                    # NEWTON_DKM: built in (switch removed 2026-10-12)
 CHAIN_GUARD_CODE = 1                                                                                                                  # the chain guard (D25; the NEWTON_CHAIN_GUARD=0 fallback was removed 2026-10-23, Q87)
 LEAN_CODE = True                                                   # int15k: DM_MN_LEAN, built in since 2026-10-12 -- the lean mn division set at size > 1 (opts lean)
 DEFAULTS = dict(tight=True, early_free=True, t_chunk_mb=1024, shift_chunk_mb=1024, pool='plan', vmm=True, round_mb=0, cap=1 << 31, seed_fill=SEED_FILL, out_early=True,
                 arena_room=ARENA_ROOM, dkm=DKM_CODE, lean=LEAN_CODE)   # cap: ECALC_PLANE_CAP 2^31 (13c); the C default is `run` since 2026-10-25 (2^30 where the largest division product fits its plane, else 2^31): the model still assumes 2^31 when cap is not given, so it over-predicts the plane pools of a default run in that range; explicit caps are exact
-TARGET_LAUNCH = dict(round_mb=1024)                     # D2 (results/SHMEM.md): the target's launch line
+TARGET_LAUNCH = dict(round_mb=128)                      # the code's default XSHMEM_ROUND_MB (xshmem_round.h), what the target ran (was 1024, D2, results/SHMEM.md); used by the cache report
 TARGET_NP = 'auto'                                      # the user's decision 1 of 2026-09-28: ECALC_NP=auto on the target's launch line (four primes only for the
                                                         # products over the three-prime bound; pool 0 at four planes at 576, pool 1 at three); history: 4 (the decision
                                                         # of 2026-09-27: three primes cannot hold the target's mn pieces, MN_PLAN_ONLY refuses them, results/PRIMES_STRATEGY.md §P15;

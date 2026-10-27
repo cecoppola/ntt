@@ -237,6 +237,8 @@ def apply_profile(name):
     global HIDE_POW2, T_ROUND, MAP_RATE, NODE_SCALE, INIT_SCALE, ROUND_SYNC, ROUND_SYNC_EXP, INIT_DOUBLING, DC_FMT_MN
     ROUND_SYNC = float(os.environ.get('MN_MODEL_ROUND_SYNC', '0')); ROUND_SYNC_EXP = float(os.environ.get('MN_MODEL_ROUND_SYNC_EXP', '1'))   # target_fit's terms: off for every other profile
     INIT_DOUBLING = float(os.environ.get('MN_MODEL_INIT_DOUBLING', '0')); DC_FMT_MN = DC_FMT_MN_DEFAULT
+    _lf = os.environ.get('MN_MODEL_LOCAL_F')                                  # NODE_SCALE / INIT_SCALE back to the module defaults (target_fit sets them; the aac7 profiles set them after this)
+    NODE_SCALE = float(os.environ.get('MN_MODEL_NODE_SCALE', _lf or '1.0')); INIT_SCALE = float(os.environ.get('MN_MODEL_INIT_SCALE', _lf or '1.0'))
     name = (name or 'target').lower()
     name = PROFILE_ALIASES.get(name, name)                                # B01: aac7 = aac7_s48
     if name not in PROFILES: raise SystemExit('mn_model: unknown profile %s (target, target_fit, aac7 = aac7_s48, aac7_c16 (the previous aac7), target-m, aac7_s48, aac7_l4, aac7_l4a, target_l4)' % name)
