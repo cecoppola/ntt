@@ -10,10 +10,10 @@ Closed rows and older material are in `archive:TASKS_HISTORY_2026-10-19.md`, `ar
 Classes: 1 bugs, 2 shrink, 3 simplify, 4 performance, 5 docs (definitions in the project instructions). Within a class,
 rows are in the order to do them.
 
-Built in the 2026-10-27 work session on branch `cand` (frozen copy remote-v3; every new behaviour behind a switch, off by
+Built in the 2026-10-27 work session on branch `cand` (frozen copy remote-v4 after the user decisions; every new behaviour behind a switch, off by
 default except the launcher `-c` auto), 1-node gates passed on aac7 (m: builds and gates both paths, switches off = main planner
 lines in 4 cases, all on = identical digits, ABBA no slower). Still open, in order:
-- Class 1: 2-node gates (both paths) of `cand`, then merge to main (needs a second networked aac7 node, free from 10-31).
+- Class 1: 2-node gates (both paths) of `cand` (= remote-v4; item ready), then merge to main (needs a second networked aac7 node, free from 10-31).
 - Done 2026-10-27 (user decisions): `XSHMEM_ROUND_PIPE` removed from `cand` (it was +10.5 % slower on path 2 at 1 node, m);
   `BS_TOP_SPREAD` (B4) dropped, `BS_MDEV_LOGL=29` adopted for target runs from 1e13 digits (`remote/ROUTE.md` S6).
   1-node evidence for the remaining switches (`ECALC_OMP_TEAM=mask ECALC_RESIDUE=shoup XSHMEM_COLL=tree`):
