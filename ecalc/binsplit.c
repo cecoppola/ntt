@@ -1,3 +1,4 @@
+#define _GNU_SOURCE   /* sched_getaffinity, CPU_COUNT (BS_SEED_THREADS=auto); binsplit.c is compiled as C */
 /* binsplit.c - see binsplit.h */
 #include <stdio.h>
 #include "fatal.h"
@@ -7,6 +8,7 @@
 #include <math.h>
 #include <omp.h>
 #include <pthread.h>
+#include <sched.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -196,6 +198,24 @@ static int bs_rt(int *rk, int *home)
 /* the omp thread count of a whole-node team: all cores, or a PE's share of them (the cores of the process divided by its lanes) */
 /* (S2c: a PE process has the CPUs of its own mask to itself: no division by the lanes) */
 static int bs_nthreads(void) { return omp_get_max_threads(); }
+/* the seed pass's team (BS_SEED_THREADS): a number = that many; "auto" = 3/4 of the CPUs the calling thread may run on right now (its
+ * affinity mask; init's allocations widen the mask to the cpuset, mem_unpin, and a thread created later inherits it); unset = auto (2026-10-26;
+ * before: omp_get_max_threads(), BS_SEED_THREADS=omp restores it).
+ * omp_get_max_threads() is fixed when the OpenMP runtime starts, from the launch mask: under an srun that gives each task one core
+ * (SLURM_HINT=nomultithread, no -c) it stays 1-2 while the mask is widened afterwards -- the seeds then ran 1-2 threads (target 2026-10-26: init 150 s,
+ * explicit 48-192 threads 13-16 s).  An explicit num_threads() is not limited by it. */
+static int seed_nthreads(void)
+{
+    const char *e = getenv("BS_SEED_THREADS");
+    if (!e) e = "auto";
+    if (!strcmp(e, "omp")) return bs_nthreads();
+    if (!strcmp(e, "auto")) {
+        cpu_set_t m; int n = sched_getaffinity(0, sizeof m, &m) == 0 ? CPU_COUNT(&m) : 0;
+        if (n < 1) n = omp_get_num_procs();
+        n -= n / 4; return n < 1 ? 1 : n;
+    }
+    int n = atoi(e); return n < 1 ? bs_nthreads() : n;
+}
 /* copy limbs out of (or into) region r's pool with the threads of r's node (a lone memcpy from device memory runs at a few GB/s) */
 static void region_copy(uint64_t *dst, const uint64_t *src, size_t limbs, int r)
 {
@@ -779,17 +799,20 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
  * formulas with the lines, term by term.  Needs no other process: g comes from the list (MS: and is set as COMM_SIZE per point). */
 /* the arena binsplit_pregrow requests per node (bytes) for N terms of a run over g node-processes (rank 0's range
  * set by the caller), at the current rns_pool_log(); *bs2 = its bs-region part */
+static __thread size_t g_arena_max;                            /* ECALC_FIT_PER_APU: the largest region's arena of the last layout_arena (one APU's; not times bs_lanes) */
 static size_t layout_arena(unsigned long N, int g, size_t *bs2_)
 {
     size_t need[NRMAX]; region_need(N, need);
     struct dm_layout L; memset(&L, 0, sizeof L); dm_layout(N, g, &L);
-    size_t want = L.need_dev > L.tree_dev ? L.need_dev : L.tree_dev, arena = 0, bs2 = 0;
+    size_t want = L.need_dev > L.tree_dev ? L.need_dev : L.tree_dev, arena = 0, bs2 = 0, amax = 0;
     for (int r = 0; r < NR; r++) {
         size_t cap = need[r] + need[r] / 8 + 4096;
         cap = (cap * 8 + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20) / 8;
         size_t base = 2 * cap * 8, extra = want > base ? want - base : 0; extra = (extra + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
-        arena += as_arena(base + extra); bs2 += base;   /* whole chunks under BS_ARENA_ROOM */
+        size_t ar_r = as_arena(base + extra); arena += ar_r; bs2 += base;   /* whole chunks under BS_ARENA_ROOM */
+        if (ar_r > amax) amax = ar_r;
     }
+    g_arena_max = amax;
     arena *= (size_t)bs_lanes(); bs2 *= (size_t)bs_lanes();   /* PE layout: the node's L PEs are alike */
     if (bs2_) *bs2_ = bs2;
     return arena;
@@ -884,7 +907,7 @@ static void fit_arm(unsigned long N, int g, int wrap, struct bs_fit *F)
     int pl = rns_pool_log() > 0 ? rns_pool_log() : 31, np = ec_np_init(); if (np == 3 && ec_np_auto) np = ec_np_planes(pl, g);
     struct dm_layout L; memset(&L, 0, sizeof L); dm_layout(N, g, &L);
     F->planes = (size_t)bs_nrn() * rns_plane_pool_bytes(pl, np, 0, 0) + BS_TABLES_BYTES;
-    F->arena = layout_arena(N, g, &F->bs2);
+    F->arena = layout_arena(N, g, &F->bs2); size_t arena_max = g_arena_max;
     size_t ofi = 0; F->pool = as_shmem_pool(N, g, &ofi);
     F->ofi = ofi; F->ofi_all = ofi;
     F->host = as_host_bytes(N, g, F->pool, ofi, &F->seedbuf);
@@ -894,6 +917,10 @@ static void fit_arm(unsigned long N, int g, int wrap, struct bs_fit *F)
     F->dev_bs = F->planes + F->arena + F->ofi + F->grow + (size_t)bs_nrn() * F->vslot_top;
     F->device = F->dev_dm > F->dev_bs ? F->dev_dm : F->dev_bs;
     F->node = F->planes + F->arena + F->grow + F->host + (size_t)bs_nrn() * F->vslot;
+    /* ECALC_FIT_PER_APU (diag 2026-10-26): the busiest APU = a share of the planes + the largest region's arena (region 0 holds the top batch levels)
+     * + the device pools' share + the v-slots (dm phase) or the bs growth's share + the tree top's v-slots (bs phase), the larger phase */
+    { size_t n = (size_t)bs_nrn(), pa = F->planes / n + arena_max + F->ofi / n, dm = pa + F->vslot, bs = pa + F->grow / n + F->vslot_top;
+      F->dev_apu_max = dm > bs ? dm : bs; }
     F->need_dev = L.need_dev; F->tree_dev = L.tree_dev; F->v2 = L.v2; F->v3 = L.v3; F->div = L.div; F->room = L.room; F->wrapb = L.wrap; F->hole = L.hole;
     g_wrap_force = -1; g_fit_probe = 0;
 }
@@ -917,7 +944,8 @@ int binsplit_fit(unsigned long N, int g, struct bs_fit *F)
         F->dev_wrap1 = A.device; F->dev_wrap0 = B.device; F->wrapb1 = A.wrapb;
     }
     F->wrap_env = env; F->limit = limit; F->margin = margin; F->budget = budget;
-    F->fits_dev = (double)F->device <= limit; F->fits_node = (double)F->node <= budget; F->fits = F->fits_dev && F->fits_node;
+    F->fits_dev = (double)F->device <= limit;
+    if (getenv("ECALC_FIT_PER_APU") && atoi(getenv("ECALC_FIT_PER_APU"))) F->fits_dev = F->fits_dev && (double)F->dev_apu_max <= limit / (double)bs_nrn();   /* the busiest APU against its share of the edge (default off) */ F->fits_node = (double)F->node <= budget; F->fits = F->fits_dev && F->fits_node;
     bs_a0 = a0; bs_b1 = b1;
     g_room_cfit = -1;                                  /* the runtime decides its room again on its own range (as before FIT) */
     if (!env) g_wrap_run = F->wrap;
@@ -940,6 +968,9 @@ void binsplit_fit_print(const struct bs_fit *F, double D, int g, const char *pre
                  printf("%shost %.2f GB = runtime %s + staging 4.29 + transport %s + SHMEM pool %.2f + device pools %.2f + the larger of the seed buffers %.2f and the writer's 0.65 (+ 0.90 MN_OUT_EARLY) GB\n",
                       pre, F->host * G, rt, tr, F->pool * G, F->ofi_all * G, F->seedbuf * G); }
     else printf("%shost %.2f GB (the measured size-1 host high-water mark, mem_model host_size1_vmm%s)\n", pre, F->host * G, bs_ppn_proc() > 1 ? " + a runtime per further process" : "");
+    if (getenv("ECALC_FIT_PER_APU") && atoi(getenv("ECALC_FIT_PER_APU")))   /* printed only with the switch on: no parser sees a new line by default */
+        printf("%sper APU (max) %.2f GB vs limit %.2f GB (ECALC_FIT_PER_APU=1: the largest region's arena, not the node mean): margin %+.2f GB; the mean figure above is %.2f GB\n",
+               pre, F->dev_apu_max * G, F->limit * G / bs_nrn(), (F->limit / bs_nrn() - F->dev_apu_max) * G, F->device * G / bs_nrn());
     printf("%sthe consumers per APU (largest first): arena %.2f GB (the dm need %.2f: reciprocal set v2 %.2f, division %.2f%s, the bs top levels v3 %.2f, the hole %.2f, the room %.2f; the tree %.2f; "
            "the bs regions %.2f), plane pools %.2f, v-slots %.2f, device pool %.2f\n",
            pre, F->arena * G / bs_nrn(), F->need_dev * G, F->v2 * G, F->div * G, F->wrapb ? "" : "", F->v3 * G, F->hole * G, F->room * G, F->tree_dev * G, F->bs2 * G / bs_nrn(), F->planes * G / bs_nrn(), F->vslot * G, F->ofi * G / bs_nrn());
@@ -1392,7 +1423,7 @@ void bs_ckpt_tree_clear(int level) { if (bs_ckpt_dir) for (int l = level + 1; l 
  * every thread when unpinned) with the schoolbook, P and Q of each span side by side (per limbs each) */
 static void seeds_compute(struct level *cur, size_t per, unsigned long S, unsigned long N, const size_t *r0, uint64_t **stage)
 {
-    int nt = getenv("BS_SEED_THREADS") ? atoi(getenv("BS_SEED_THREADS")) : bs_nthreads();   /* I2: fewer than all leaves cores to init's allocations */
+    int nt = seed_nthreads();   /* I2: fewer than all leaves cores to init's allocations */
 #pragma omp parallel num_threads(nt)
     {
         bigint p, q; bi_init(&p); bi_init(&q);
@@ -1467,7 +1498,7 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
     for (int b = 0; b < 2; b++) { ss->buf[b] = (uint64_t *)mem_hstage_alloc(b % (nd > 1 ? 2 : 1), ss->bytes, 0, 0); ss->buf_dev[b] = -1; }
     ss->t_alloc = mem_now() - t0;
     db_tl("seed thread: buffers allocated (%.2f s)", ss->t_alloc);   /* ECALC_INIT_TL=1 */
-    int nt = getenv("BS_SEED_THREADS") ? atoi(getenv("BS_SEED_THREADS")) : bs_nthreads();   /* I2: fewer than all leaves cores to init's allocations */
+    int nt = seed_nthreads();   /* I2: fewer than all leaves cores to init's allocations */
     ss->nchunks = ss->nbuf = ss->npend = 0; ss->t_span = ss->t_wait_pool = ss->t_wait_dma = ss->t_issue = ss->t_free = 0;
     int direct = !db_pool_vmm_on();                              /* the host cannot store into a VMM range */
     int pull = !direct;                                          /* K8b (archive:results_merged_2026-10-24/MEMORY.md §K8b): the copies by the persistent pull kernels (no runtime call in the mapping window; fallback BS_SEED_PULL=0 removed 2026-10-23, Q87) */
@@ -1520,7 +1551,7 @@ static void *pre_seeds_run(void *a)
 {
     vpe_adopt();                                      /* a helper thread of this PE (a no-op with the switch off) */
     double t0 = mem_now(); struct level cur; memset(&cur, 0, sizeof cur); cur.n = g_pre.nspan; cur.nd = g_pre.nd;
-    db_tl("seed thread starts (%s threads)", getenv("BS_SEED_THREADS") ? getenv("BS_SEED_THREADS") : "all");
+    db_tl("seed thread starts (%d threads; BS_SEED_THREADS %s)", seed_nthreads(), getenv("BS_SEED_THREADS") ? getenv("BS_SEED_THREADS") : "unset");
     seeds_stream(&g_pre.ss, &cur, g_pre.per, bs_seed_terms, g_pre.N, g_pre.r0);
     g_pre.t = mem_now() - t0; db_tl("seed thread ends (%.2f s)", g_pre.t); return 0;
 }

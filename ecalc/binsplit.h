@@ -78,6 +78,7 @@ extern void (*bs_after_seeds_hook)(void *); extern void *bs_hook_arg;
 /* FIT (D26, results/LAUNCH_DEFAULTS.md §FIT): the pre-launch memory fit of (N, g) at rank 0's layout, and DM_MN_WRAP automatic (binsplit.c) */
 struct bs_fit {
     size_t planes, arena, bs2, ofi, ofi_all, pool, seedbuf, host, vslot, vslot_top, grow;   /* per node (vslot, vslot_top: per APU) */
+    size_t dev_apu_max;                                                                         /* ECALC_FIT_PER_APU: the busiest APU's device bytes (per APU) */
     size_t dev_dm, dev_bs, device, node, dev_wrap1, dev_wrap0;                                  /* per node; the device with / without the wrap (g > 1) */
     size_t need_dev, tree_dev, v2, v3, div, room, wrapb, wrapb1, hole;                          /* the layout's terms per APU (wrapb1: the wrap's, with it on) */
     double limit, margin, budget;                                                               /* ECALC_DEVICE_GB, ECALC_DEVICE_MARGIN_GB, ECALC_NODE_GB (bytes) */

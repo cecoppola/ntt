@@ -15,7 +15,13 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 **Notes on single settings.**
 - `mnrun.sh` (the multi-node launcher; usage in `../README.md`) sets `COMM_RANK`, `COMM_SIZE` and the transport from
   Slurm, exports `FI_UNIVERSE_SIZE`, `FI_LOG_LEVEL=warn` and `FI_MR_CACHE_MONITOR=userfaultfd` when unset (it refuses
-  `disabled`), and `MNRUN_EXCLUDE_HOSTS` drops flagged nodes. `MN_PLAN_ONLY=<digits>:<nodes>` prints the plan and the
+  `disabled`), and `MNRUN_EXCLUDE_HOSTS` drops flagged nodes. `MNRUN_GRES=auto|on|off` (default auto; `gres.sh`, shared by
+  `mnrun.sh`, `mnaccept.sh`, `tools/gate.sh`, the kit, ladder, bench items and `remote/`): the `--gpus*` and `--gpu-bind` options are passed
+  only if the nodes list a gpu GRES (`scontrol show node`, else `sinfo %G`; cached in `MNRUN_GRES_RESOLVED`), because a site with `Gres=(null)`
+  rejects them; aac7 lists gpu:4 and is unchanged; `off` / `on` force. A login `SLURM_HINT=nomultithread` is not passed to srun (it pins each
+  task to its first cores and OpenMP then runs 1-2 threads; `MNRUN_KEEP_HINT=1` keeps it). The Makefile finds the PMI library directory (`PMI_LIBDIR`, `CRAY_PMI_PREFIX`)
+  and the SHMEM / DSMML prefixes (`CRAY_SHMEM_PREFIX` or `CRAY_SHMEM_DIR` for cray-shmem 12.1; `CRAY_OPENSHMEMX_PREFIX`, `CRAY_DSMML_PREFIX`) from
+  the loaded modules, else the aac7 defaults (`../remote/FACTS.md` Known problems). `MN_PLAN_ONLY=<digits>:<nodes>` prints the plan and the
   memory check on the login node (`../ALGORITHM.md` §7, §11).
 - Part files, the packed format and `ECALC_OUT_PACKED`: `../ALGORITHM.md` §9. Verification and `ECALC_RECHECK`:
   `../ALGORITHM.md` §10.
@@ -74,7 +80,8 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `BS_SEED_CHUNK_MB` | derived | built-in default | the seed stream's buffered chunk per region (8192 with `DB_POOL_VMM`, the default; 2048 without) | H.md+R114.md |
 | `BS_SEED_FILL` | unset | built-in default | the seed span chosen per run as the largest S whose last span has at most this many limbs, so the batch tier's products fill their lengths: 128 fills 2ᵏ (S = 239 at 4 × 10¹⁰, 229 at 10¹¹), ... | T215.md+DOC15.md |
 | `BS_SEED_TERMS` | derived | built-in default | the seed span in terms (256; set in the environment it turns `BS_SEED_FILL`'s default off) | T215.md+WP7.md |
-| `BS_SEED_THREADS` | all | built-in default | threads of the seed pass; fewer than all leaves cores to init's allocations (all) | I.md+S22.md |
+| `BS_SEED_THREADS` | derived | built-in default | threads of the seed pass: a number, `auto` (default since 2026-10-26: 3/4 of the CPUs the thread may run on, from the affinity mask) or `omp` (the old default omp_get_max_threads(), which is 1-2 when srun gave the task one core, e.g. `SLURM_HINT=nomultithread` without `-c`: target 2 n init 150 s vs 13-16 s, aac7 1 n 8e9 156 s vs 15.4 s, m) | I.md+S22.md |
+| `COMM_HANG_DETAIL` | unset | built-in default | `1`: the xshmem allgather-handshake HANG message (after 900 s) also names the members that have not arrived (member index and global PE, at most 16, and their count) and this host; read only at the failure (`comm_xshmem.c hang_handshake_detail`); the default 0 prints the old message only. | - |
 | `COMM_LAYER_VSLOT_MB` | derived | built-in default | - | - |
 | `COMM_OFI_NICS` | unset | launch-line | the NIC list per device, `;` between devices (indexed by the node-local GPU), `,` between one device's NICs (`0;1;2;3`; the target's form `0,4;1,5;2,6;3,7`), read by `pe_geo.c`; lane k of `XSHMEM_LANES` uses NIC k of the PE's list (unset: the cxi devices on the GPU's NUMA node). | TUNE17.md+TGTBENCH2.md |
 | `COMM_OFI_POOL_MB` | 0 | launch-line | MiB of the transport's per-device pool (the name is from the removed comm_ofi): the planner sets it from the modelled need when unset, it is counted in the budget, and it sizes the xshmem DATA heap per PE when `XSHMEM_HEAP_MB` is 0 (the pool / 4 + 256 MiB rule of `comm_xshmem.c`) | STD17.md+S18KITFIX.md |
@@ -106,6 +113,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_FATAL_ABORT` | derived | built-in default | `1` = a fatal error ends in `abort()` (a core file, rc 134) instead of `_exit(code)` (0). | S18W.md+C314.md |
 | `ECALC_FATAL_TEST` | unset | test-only | `1` = the four bs worker threads fail together right after the seeds (the in-phase guards' pattern): one message, rc 3 (0) | C314.md |
 | `ECALC_FATAL_WAIT` | 60 | built-in default | seconds the first failing thread may spend on its report (the memory accounting) before a watchdog `_exit`s (60) | C314.md |
+| `ECALC_FIT_PER_APU` | unset | built-in default | `1`: the planner's device fit also compares the busiest APU (a quarter of the planes + the largest region's arena + the device pool's share + the v-slots; region 0 holds the top batch levels) against its quarter of ECALC_DEVICE_GB and refuses above it, and prints a `per APU (max)` line; the default 0 keeps the node-mean fit and the output unchanged (`binsplit.c binsplit_fit`; twin `mem_model.py` key `dev_apu_max`). | - |
 | `ECALC_INIT_ONLY` | unset | test-only | - | L114.md+P13b.md |
 | `ECALC_INIT_TL` | 0 | launch-line | 1 = init's timeline as `tl <s since rns_init began>` lines: rns_init's steps, each arena's mapping with the HIP calls split (create / map / access / zero), the background mappers (start, ... | MAP15.md |
 | `ECALC_MEM_GUARD_GB` | 0 | launch-line | the sampler stops the run (rc 9, `EC_RC_MEMGUARD`) through `ec_fatal` — one line naming rank, host, the last phase boundary and the figures — when MemAvailable falls below this many GB; ... | IO15.md+DOC15.md |

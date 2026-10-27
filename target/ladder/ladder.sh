@@ -265,6 +265,7 @@ for k in $(seq 1 "$REPL"); do
         cmd="nohup env SLURM_JOB_ID=$JOBID bash $HERE/ladder.sh --replica $SPEC > $DIR/driver.out 2>&1 &"
         if [ "$DRY" = 1 ]; then echo "  [dry-run] $cmd"; else eval "$cmd"; say "  started in allocation $JOBID (pid $!)"; fi
     else
+        . "$HERE/../../ecalc/gres.sh"; SBO=$(mn_gres_strip "$SBO" "${hosts%%,*}" "$PART")   # MNRUN_GRES: no GPU option where the nodes list no GRES
         sb=(sbatch --parsable -N "$NODES" -w "$hosts" -t "$TIME_MIN" -J "ladder-$LEVEL-$TAG-r$k" -o "$DIR/sbatch.out" ${PART:+-p "$PART"} $SBO --wrap "bash $HERE/ladder.sh --replica $SPEC")
         if [ "$DRY" = 1 ]; then printf '  [dry-run]'; printf ' %q' "${sb[@]}"; echo
         else jid=$("${sb[@]}" 2>&1) || { say "  sbatch failed: $jid"; continue; }; say "  jobid $jid"; fi

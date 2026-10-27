@@ -9,6 +9,8 @@
 
 RL_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 R=$(cd "$RL_DIR/../.." && pwd)
+. "$R/ecalc/gres.sh"     # MNRUN_GRES=auto|on|off: GPU options only where the nodes list a gpu GRES (FACTS.md Known problems)
+rl_gres_opts() { mn_gres_on "${2:-}" "${1:-}" && echo --gpus-per-node=4; return 0; }   # [PARTITION] [NODE] -> the sbatch GPU option, or nothing
 REMOTE_OUT=${REMOTE_OUT:-$HOME/remote_runs}
 REMOTE_SITE=${REMOTE_SITE:-target}
 SITE_ENV=$REMOTE_OUT/site.env

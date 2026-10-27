@@ -510,6 +510,19 @@ static size_t x_max(comm *c, size_t v)
     for (int r = 0; r < p->n; r++) if (all[r] > m) m = all[r];
     free(all); return (size_t)m;
 }
+/* COMM_HANG_DETAIL=1 (default off; only called at the failure, after the 900 s): which members of the communicator have not signalled their offset word
+ * (member index, global PE, at most 16 listed, and the count), and this host's name -- the peers' host names are not known to a PE (no remote pe_geo) */
+static void hang_handshake_detail(const xpriv *p)
+{
+    char hn[64] = "?"; gethostname(hn, sizeof hn); hn[sizeof hn - 1] = 0;
+    int miss = 0, shown = 0; char list[16 * 24 + 8]; size_t o = 0; list[0] = 0;
+    for (int r = 0; r < p->n; r++) if (r != p->me && !sigge(WORD(p, W_SOFF, r), 1)) {
+        miss++;
+        if (shown < 16) { o += (size_t)snprintf(list + o, sizeof list - o, "%s%d(pe %d)", shown ? " " : "", r, p->pe[r]); shown++; }
+    }
+    fprintf(stderr, "comm_xshmem: pe %d on %s: HANG detail: allgather handshake of comm %d (%d members): %d member(s) have not arrived: %s%s\n",
+            X.K * X.q + p->lpe, hn, p->id, p->n, miss, list, miss > shown ? " ..." : "");
+}
 /* allgather of host blocks (k u64 per node): blocks <= 4 KiB go through a scratch of the heap, [parity][member][4 KiB] per member, offsets
  * exchanged once at the first call (SOFF words); then put, quiet, VSEQ word -- the tiny exchange's sequence stream */
 static void x_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
@@ -527,7 +540,7 @@ static void x_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
         double t0 = now_s(); unsigned spins = 0;
         for (int r = 0; r < n; r++) if (r != me) {
             const uint64_t *w = WORD(p, W_SOFF, r);
-            while (!sigge(w, 1)) if (!(++spins & 4095) && now_s() - t0 > 900) die(p, "HANG (> 900 s) in the allgather handshake");
+            while (!sigge(w, 1)) if (!(++spins & 4095) && now_s() - t0 > 900) { if (getenv("COMM_HANG_DETAIL") && atoi(getenv("COMM_HANG_DETAIL"))) hang_handshake_detail(p); die(p, "HANG (> 900 s) in the allgather handshake"); }
             p->gpeer[r] = (size_t)rd64(w) - 1;
         }
         p->gready = 1;

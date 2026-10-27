@@ -12,7 +12,7 @@ GMP_HOME   ?=
 ifneq ($(GMP_HOME),)
 HIPFLAGS += -I$(GMP_HOME)/include
 CFLAGS   += -I$(GMP_HOME)/include
-GMP_LIBS  = -L$(GMP_HOME)/lib -lgmp -Wl,-rpath,$(GMP_HOME)/lib
+GMP_LIBS  = -L$(GMP_HOME)/lib -L$(GMP_HOME)/lib64 -lgmp -Wl,-rpath,$(GMP_HOME)/lib -Wl,-rpath,$(GMP_HOME)/lib64   # (lib64: the site gmp module layout)
 else
 GMP_LIBS  = -lgmp
 endif
@@ -88,7 +88,14 @@ clean:
 #   make XSHMEM=cray                                 (path 2): Cray SHMEM backend (xshmem_cray.h, static inline); aac7: `module load cray-dsmml cray-openshmemx`
 #   make XSHMEM=ofi tests/t_xshmem tests/t_pe_geo    the engine tests (build with -B when switching XSHMEM)
 # XSHMEM_CRAY_DEFS = -D selectors of xshmem_cray.h (XSHMEM_CRAY_HEAP, _SIGSET, _WAIT, _TEST, _PUTSIG_SPLIT).  XTEST_OBJS = extra objects for tests/t_xshmem.
-PMI_HOME ?= /opt/cray/pe/pmi/default
+# PMI (site discovery, each step only where the previous finds nothing, so aac7 keeps /opt/cray/pe/pmi/default and /opt/cray/pe/lib64):
+#   include dir PMI_HOME: pmi/default if it has pmi2.h, else the cray-pmi module's CRAY_PMI_PREFIX, else pmi/default.
+#   library dir PMI_LIBDIR (-L and rpath, both paths): /opt/cray/pe/lib64 if it has the unversioned libpmi2.so (aac7), else CRAY_PMI_PREFIX/lib,
+#   PMI_HOME/lib, pmi/default/lib, the newest /opt/cray/pe/pmi/*/lib, else /opt/cray/pe/lib64.  A site whose lib64 holds only libpmi2.so.0
+#   (no .so symlink: `-lpmi2` fails) gets the versioned directory of the cray-pmi module.  Override: make PMI_HOME=... PMI_LIBDIR=...
+PMI_DEF := /opt/cray/pe/pmi/default
+PMI_HOME ?= $(or $(and $(wildcard $(PMI_DEF)/include/pmi2.h),$(PMI_DEF)),$(and $(CRAY_PMI_PREFIX),$(wildcard $(CRAY_PMI_PREFIX)/include/pmi2.h),$(CRAY_PMI_PREFIX)),$(PMI_DEF))
+PMI_LIBDIR ?= $(or $(and $(wildcard /opt/cray/pe/lib64/libpmi2.so),/opt/cray/pe/lib64),$(and $(CRAY_PMI_PREFIX),$(wildcard $(CRAY_PMI_PREFIX)/lib/libpmi2.so),$(CRAY_PMI_PREFIX)/lib),$(and $(wildcard $(PMI_HOME)/lib/libpmi2.so),$(PMI_HOME)/lib),$(and $(wildcard $(PMI_DEF)/lib/libpmi2.so),$(PMI_DEF)/lib),$(patsubst %/libpmi2.so,%,$(lastword $(sort $(wildcard /opt/cray/pe/pmi/*/lib/libpmi2.so)))),/opt/cray/pe/lib64)
 XSHMEM ?= $(if $(and $(filter 1,$(OFI)),$(wildcard $(PMI_HOME)/include/pmi2.h)),ofi,0)
 XSHMEM_CRAY_DEFS ?=
 XTEST_OBJS ?=
@@ -98,13 +105,23 @@ ifneq ($(OFI),1)
 $(error XSHMEM=ofi needs libfabric headers: OFI=1 (LIBFABRIC=$(LIBFABRIC)))
 endif
 XSHMEM_CFLAGS = -DXSHMEM_OFI -DUSE_HIP $(OFI_CFLAGS) -I$(PMI_HOME)/include
-XSHMEM_LIBS   = $(OFI_LIBS) -L/opt/cray/pe/lib64 -lpmi2 -Wl,-rpath,/opt/cray/pe/lib64 -lpthread
+XSHMEM_LIBS   = $(OFI_LIBS) -L$(PMI_LIBDIR) -lpmi2 -Wl,-rpath,$(PMI_LIBDIR) -lpthread
 XOBJS         = xshmem_ofi.o xshmem_boot.o pe_geo.o
 else ifeq ($(XSHMEM),cray)
-CRAY_SMA   ?= $(if $(CRAY_OPENSHMEMX_PREFIX),$(CRAY_OPENSHMEMX_PREFIX),/opt/cray/pe/sma/11.8.0/ofi/sma)
-CRAY_DSMML ?= $(if $(CRAY_DSMML_PREFIX),$(CRAY_DSMML_PREFIX),/opt/cray/pe/dsmml/0.3.1/dsmml)
+# SHMEM prefix (include/ and lib64/ below it): the cray-openshmemx module's CRAY_OPENSHMEMX_PREFIX (aac7), else the cray-shmem module's
+# (12.1 style, /opt/cray/shmem/sma/<ver>/ofi: CRAY_SHMEM_PREFIX, CRAY_SHMEM_DIR, CRAY_SMA_PREFIX, SMA_HOME, each with include/shmem.h), else
+# `pkg-config --variable=prefix sma` unless it is the PE's stale /opt/cray/pe/ one, else the 11.8 default; only where that default is absent the
+# newest /opt/cray/shmem/sma/*/ofi.  DSMML: CRAY_DSMML_PREFIX, else the 0.3.1 default, else (absent) the newest of /opt/cray/shmem/dsmml/*,
+# /opt/cray/pe/dsmml/*/dsmml.  Override: make CRAY_SMA=... CRAY_DSMML=...
+CRAY_SMA_DEF := /opt/cray/pe/sma/11.8.0/ofi/sma
+CRAY_DSMML_DEF := /opt/cray/pe/dsmml/0.3.1/dsmml
+sma_ok = $(and $(1),$(wildcard $(1)/include/shmem.h),$(1))
+SMA_PKG := $(shell pkg-config --variable=prefix sma 2>/dev/null)
+SMA_PKG := $(if $(filter /opt/cray/pe/%,$(SMA_PKG)),,$(SMA_PKG))
+CRAY_SMA   ?= $(or $(CRAY_OPENSHMEMX_PREFIX),$(call sma_ok,$(CRAY_SHMEM_PREFIX)),$(call sma_ok,$(CRAY_SHMEM_DIR)),$(call sma_ok,$(CRAY_SMA_PREFIX)),$(call sma_ok,$(SMA_HOME)),$(call sma_ok,$(SMA_PKG)),$(and $(wildcard $(CRAY_SMA_DEF)/include/shmem.h),$(CRAY_SMA_DEF)),$(patsubst %/include/shmem.h,%,$(lastword $(sort $(wildcard /opt/cray/shmem/sma/*/ofi/include/shmem.h)))),$(CRAY_SMA_DEF))
+CRAY_DSMML ?= $(or $(CRAY_DSMML_PREFIX),$(and $(wildcard $(CRAY_DSMML_DEF)/include),$(CRAY_DSMML_DEF)),$(patsubst %/include,%,$(lastword $(sort $(wildcard /opt/cray/shmem/dsmml/*/include /opt/cray/pe/dsmml/*/dsmml/include)))),$(CRAY_DSMML_DEF))
 XSHMEM_CFLAGS = -DXSHMEM_CRAY -DUSE_HIP $(XSHMEM_CRAY_DEFS) -I$(CRAY_SMA)/include -I$(CRAY_DSMML)/include
-XSHMEM_LIBS   = -L$(CRAY_SMA)/lib64 -L$(CRAY_DSMML)/lib -L/opt/cray/pe/lib64 -lsma -lpmi -lpmi2 -ldsmml -Wl,-rpath,$(CRAY_SMA)/lib64 -Wl,-rpath,$(CRAY_DSMML)/lib -Wl,-rpath,/opt/cray/pe/lib64 -lpthread
+XSHMEM_LIBS   = -L$(CRAY_SMA)/lib64 -L$(CRAY_DSMML)/lib -L$(PMI_LIBDIR) -lsma -lpmi -lpmi2 -ldsmml -Wl,-rpath,$(CRAY_SMA)/lib64 -Wl,-rpath,$(CRAY_DSMML)/lib -Wl,-rpath,$(PMI_LIBDIR) -lpthread
 XOBJS         = pe_geo_nb.o
 else ifneq ($(XSHMEM),0)
 $(error XSHMEM must be 0, ofi or cray)

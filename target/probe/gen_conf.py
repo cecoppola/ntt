@@ -120,21 +120,37 @@ def main():
                 except (KeyError, ValueError):
                     pass
     cands.sort(reverse=True)
+    # a candidate must be writable by this user: the probe's fs.writable_mounts lists the mount points it could write to; a mount that is not
+    # in the list is used only through the user's own $SCRATCH below it.  Without that fact (older probe) nothing is filtered.
+    wr = F.get("fs.writable_mounts")
+    writable = set(wr.split()) if good(wr) or wr == "none" else None
+    if wr == "none":
+        writable = set()
+    sc = F.get("fs.dir.SCRATCH", "")
+    scd = sc.split()[0] if good(sc) else ""
+    if writable is not None:
+        cands = [c for c in cands if c[2] in writable or (scd and scd.startswith(c[2].rstrip("/") + "/"))]
     sysmnt = re.compile(r"/(apps|pe|opt|sw|usr|boot|var)(/|$)|^/home$")   # software / home mounts are no output candidates
     lustre = [c for c in cands if c[1] == "lustre"] or [c for c in cands if not sysmnt.search(c[2])] or cands
     if lustre:
         free, typ, mnt = lustre[0]
         base = mnt
-        sc = F.get("fs.dir.SCRATCH", "")
-        if good(sc) and sc.split()[0].startswith(mnt.rstrip("/") + "/"):
-            base = sc.split()[0]                  # the user's own scratch dir lies on that file system
+        if scd and scd.startswith(mnt.rstrip("/") + "/"):
+            base = scd                            # the user's own scratch dir lies on that file system
         val["ECALC_OUT_DIR"] = (base.rstrip("/") + "/ecalc_out", "fs.mount (%s, %s, %.1f TB free)%s" % (mnt, typ, free / 1e9, "; $SCRATCH" if base != mnt else "; CONFIRM a writable user dir"))
         val["MNACCEPT_TMP"] = (base.rstrip("/") + "/ecalc_tmp", "same file system as ECALC_OUT_DIR (not a RAM /tmp)")
         if len(lustre) > 1:
             adv.append("other shared file systems: " + "; ".join("%s %s %.1f TB free" % (c[2], c[1], c[0] / 1e9) for c in lustre[1:5]))
     else:
-        for k in ("ECALC_OUT_DIR", "MNACCEPT_TMP"):
-            why[k] = "no shared (lustre/gpfs/nfs) file system with >100 GB in the login facts (fs.mount.*)"
+        hm = F.get("fs.dir.HOME", "")
+        hd = hm.split()[0] if good(hm) else ""
+        if hd:        # no shared file system the user can write to: the home file system (the user's own directory)
+            val["ECALC_OUT_DIR"] = (hd.rstrip("/") + "/ecalc_out", "fs.dir.HOME: no writable shared file system in fs.mount.* / fs.writable_mounts; CONFIRM the quota")
+            val["MNACCEPT_TMP"] = (hd.rstrip("/") + "/ecalc_tmp", "same file system as ECALC_OUT_DIR (not a RAM /tmp)")
+            adv.append("ECALC_OUT_DIR is under the home directory: check its quota and free space (a full run writes ~0.417 B per digit)")
+        else:
+            for k in ("ECALC_OUT_DIR", "MNACCEPT_TMP"):
+                why[k] = "no writable shared (lustre/gpfs/nfs) file system and no $HOME in the login facts (fs.mount.*, fs.writable_mounts, fs.dir.HOME)"
 
     val["MNRUN_EXCLUDE_HOSTS"] = ('""', "none flagged yet (the kit's nodechk stage fills it)")
 

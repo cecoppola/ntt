@@ -44,6 +44,7 @@ print_env_exit() {   # T27: the variables mnrun.sh sets or computes for the laun
 __fmc=${FI_MR_CACHE_MONITOR-}; __fmc=${__fmc,,}
 if [ "$__fmc" = disabled ]; then echo "mnrun.sh: refusing FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR: it corrupts exchanges silently (S46 section 4.6). Unset it (memhooks, the default) or use userfaultfd." >&2; exit 1; fi
 export MNRUN_DIR=$(cd "$(dirname "$0")" && pwd)
+. "$MNRUN_DIR/gres.sh"   # MNRUN_GRES=auto|on|off: GPU options only where the nodes list a gpu GRES
 # Phase 16 V: the Cray default module picks up AAC7_ROCM (default rocm/7.2.4, results/AAC7_PORT.md) instead of the bare "rocm" alias;
 # rocm/7.0.3 (the login default) must be unloaded first (module conflict).
 case "${AAC7_ROCM:-}" in ""|*/*) ;; *) AAC7_ROCM=rocm/$AAC7_ROCM;; esac   # merge V+D: a bare version (D: 7.2.4) means rocm/<version>
@@ -86,6 +87,9 @@ case "${MNRUN_CPUS_PER_TASK:-}" in
     auto) ncpu=$(scontrol show node "$(echo "$use" | head -1)" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p'); [ -n "$ncpu" ] && [ "$ncpu" -ge "$per" ] && copt+=(-c $((ncpu / per)));;
     *) copt+=(-c "$MNRUN_CPUS_PER_TASK");;
 esac
+# a login environment with SLURM_HINT=nomultithread (seen on the target) pins each task to its first cores at start; OpenMP then
+# latches 1-2 threads (the default seed threads ran 10x slower, m aac7 1 node: 156 s vs 15.4 s at 8e9).  MNRUN_KEEP_HINT=1 keeps it.
+if [ "${SLURM_HINT:-}" = nomultithread ] && [ "${MNRUN_KEEP_HINT:-0}" = 0 ]; then echo "mnrun.sh: SLURM_HINT=nomultithread not passed to srun (MNRUN_KEEP_HINT=1 keeps it)" >&2; unset SLURM_HINT; fi
 list=$(echo "$use" | paste -sd,)
 # COMM_TRANSPORT given as a leading VAR=value word of the command (`mnrun.sh 2 env COMM_TRANSPORT=xshmem ... ./ecalc`, the launch line's form) counts as well;
 # the same for ECALC_LOG_CLOCKS, which the wrappers test before the command runs
@@ -246,6 +250,8 @@ fi
 # COMM_KILL_ON_BAD_EXIT=0 is the only override.
 kopt=(); { [ "$nn" -gt 1 ] || [ "$MNRUN_PPG" = 1 ]; } && [ "${COMM_KILL_ON_BAD_EXIT:-1}" != 0 ] && kopt=(--kill-on-bad-exit=1)   # (S2a: also on one node: a dead PE must end the step)
 # the one launch of every path: the tasks block-placed on the listed nodes; each task loads the modules, sets its rank and runs the command
+# a site whose nodes list no GRES rejects --gpus*/--gpu-bind (MNRUN_GRES=auto looks at the first node once; aac7 lists gpu:4: unchanged)
+mn_gres_on "$(echo "$use" | head -1)" || gopt=()
 launch=(srun --jobid="$SLURM_JOB_ID" "${kopt[@]}" -N "$nn" -w "$list" --ntasks="$((P * PPN))" --ntasks-per-node="$((per * PPN))" "${copt[@]}" --distribution=block "${gopt[@]}" --overlap --export=ALL \
      bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; k=${MNRUN_PPN:-1}; export COMM_RANK=$((SLURM_PROCID / k)) COMM_SIZE=$((SLURM_NTASKS / k)); [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec '"$pre"'"$@"' _ "$@")
 # MNRUN_NICGRP=1 (default off; results/NODE_SLOWMODE.md §A14): log which NIC launch group (A = oxe_mcu_meas 18-25, B = 28-33) carried this

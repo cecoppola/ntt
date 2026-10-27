@@ -13,6 +13,7 @@ static const char *const cfg_names[] = {
     "BS_SEED_FILL",
     "BS_SEED_TERMS",
     "BS_SEED_THREADS",
+    "COMM_HANG_DETAIL",
     "COMM_LAYER_VSLOT_MB",
     "COMM_OFI_NICS",
     "COMM_OFI_POOL_MB",
@@ -43,6 +44,7 @@ static const char *const cfg_names[] = {
     "ECALC_FATAL_ABORT",
     "ECALC_FATAL_TEST",
     "ECALC_FATAL_WAIT",
+    "ECALC_FIT_PER_APU",
     "ECALC_INIT_ONLY",
     "ECALC_INIT_TL",
     "ECALC_MEM_GUARD_GB",
@@ -118,4 +120,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_THP_DISABLE",
     "XSHMEM_THREAD_LEVEL",
 };
-#define CFG_NAMES_N 116
+#define CFG_NAMES_N 118
