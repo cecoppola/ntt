@@ -1,0 +1,86 @@
+#!/bin/bash
+# s5_run.sh - stage 5: one optimized ecalc run, with the checks around it.
+#   s5_run.sh --nodes N --digits D --path 1|2 [--env "K=V ..."] [--screen] [--write DIR] [--exclude LIST] [--tmo MIN] [--jobid J] [--dry-run]
+# D may be 64e9, 38.2e12 or a plain integer.  Path 2 adds ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 and uses the path 2 binary by itself; --env adds
+# settings words (also --env "").  Order: (1) planner fit check (tools/plan_values.py --fit): on refusal the largest digit count that fits is
+# printed (largest_fit_digits=) and the script stops with FAIL; (2) --screen: tools/nodescreen.sh over the allocation, the slow nodes are left
+# out of the run and printed as slow_hosts=<list> (usable with --exclude in later calls); (3) the run through ecalc/mnrun.sh; (4) model time
+# (ecalc/mn_model.py estimate) and measured/model; (5) VERIFY, the digit hash against the reference when the size has one (needs --write DIR,
+# else the last digits), rc.  --write DIR keeps the digit file there (it is large: 0.417 B per digit; not used for timing runs).
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); . "$HERE/lib.sh"; set -u
+NN= DIG= P= ENVW= SCREEN=0 WDIR= TMO= JOB= EXCLUDE=
+while [ $# -gt 0 ]; do case $1 in
+  --nodes) NN=${2:?}; shift;; --digits) DIG=${2:?}; shift;; --path) P=${2:?}; shift;; --env) ENVW=${2-}; shift;; --screen) SCREEN=1;;
+  --write) WDIR=${2:?}; shift;; --exclude) EXCLUDE=${2-}; shift;; --tmo) TMO=${2:?}; shift;; --jobid) JOB=${2:?}; shift;; --dry-run) DRY=1;;
+  -h|--help) rl_help "$0"; exit 0;; *) echo "s5_run.sh: unknown option $1 (--help)" >&2; exit 2;; esac; shift; done
+[ -n "$NN" ] && [ -n "$DIG" ] && [ -n "$P" ] || { echo "s5_run.sh: --nodes, --digits and --path are required (--help)" >&2; exit 2; }
+rl_isnum "$NN" && rl_isnum "$DIG" || { echo "s5_run.sh: numeric --nodes/--digits (64e9, 38.2e12 or an integer)" >&2; exit 2; }
+case $P in 1|2) ;; *) echo "s5_run.sh: --path 1|2" >&2; exit 2;; esac
+rl_init s5
+D=$(rl_digits_site "$DIG" "$NN")
+words=($ENVW)
+if [ "$DRY" = 1 ]; then
+    rl_would "fit: python3 tools/plan_values.py --fit --ecalc <p$P binary> --env \"$([ $P = 2 ] && echo 'ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 ')$ENVW\" $D $NN   (refused: bisect for the largest fitting digits)"
+    [ $SCREEN = 1 ] && rl_would "tools/nodescreen.sh --hold <job> --out $RUN/screen --ecalc-dir <build p$P>/ecalc   -> slow_hosts"
+    rl_would "$(rl_cmdline "$P" "$NN" "$D" ${words[@]+"${words[@]}"})${WDIR:+  # digit file in $WDIR}"
+    rl_would "model: python3 ecalc/mn_model.py estimate --g $NN --D $(awk -v d="$D" -v n="$NN" 'BEGIN { printf "%.6g", d / n }')"
+    rl_finish SKIP "$HERE/s5_run.sh --nodes $NN --digits $DIG --path $P"
+fi
+rl_prep "$P" "$NN"
+[ "$NHOSTS" -ge "$NN" ] || rl_die "only $NHOSTS usable nodes in the allocation, $NN asked"
+rl_kv path "$P"; rl_kv nodes "$NN"; rl_kv digits "$D"; rl_kv settings "${ENVW:-<defaults>}$([ "$P" = 2 ] && echo ' + ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 (path 2)')"
+[ "$D" != "$(rl_num "$DIG")" ] && rl_kv digits_requested "$DIG (capped for the rehearsal site)"
+# ---- (1) fit
+rl_say "planner fit check"
+rl_fit "$P" "$NN" "$D" ${words[@]+"${words[@]}"}; frc=$?
+if [ $frc = 1 ]; then
+    rl_errfiles "$RUN/raw/fit_${P}_${NN}_$D.log"
+    rl_say "does not fit; searching the largest digit count that fits"
+    mx=$(rl_maxfit "$P" "$NN" "$D" ${words[@]+"${words[@]}"})
+    rl_kv fit "REFUSED: $FIT_LINE"; rl_kv largest_fit_digits "$mx"
+    rl_finish FAIL "does not fit: the largest fitting digit count is $mx" "$HERE/s5_run.sh --nodes $NN --digits $mx --path $P${ENVW:+ --env \"$ENVW\"}"
+elif [ $frc = 2 ]; then rl_errfiles "$RUN/raw/fit_${P}_${NN}_$D.log"; rl_finish FAIL "the planner failed (see raw/fit_*.log)" "$HERE/show.sh $RUN errors"; fi
+rl_kv fit "FITS: $FIT_LINE"
+# ---- (2) screen
+if [ $SCREEN = 1 ]; then
+    rl_say "node screen (<= 20 min)"
+    tree=$(dirname "$(rl_bin "$P")"); [ -x "$tree/tests/t_nodechk" ] || tree=$(dirname "$(rl_bin 1)")
+    ex=$(rl_exclude_list)
+    nsm=$(rl_mods "$P"); [ -n "$nsm" ] || nsm=$(rl_mods 1)
+    NS_MODULES=$nsm NS_UNLOAD=$(rl_unload) rl_tmo 1500 bash "$R/tools/nodescreen.sh" --hold "$JOB" --out "$RUN/screen" --ecalc-dir "$tree" ${ex:+--exclude-hosts "$ex"} ${REMOTE_NICS:+--want-nics "$REMOTE_NICS"} > "$RUN/raw/nodescreen.log" 2>&1 < /dev/null; src=$?
+    rl_errfiles "$RUN/raw/nodescreen.log"
+    slow=$(grep -a . "$RUN/screen/EXCLUDE" 2>/dev/null | paste -sd,)
+    rl_kv screen_rc "$src (0 none flagged, 3 flagged, 2 screen could not run)"; rl_kv slow_hosts "${slow:-}"
+    [ -n "$slow" ] && EXCLUDE=${EXCLUDE:+$EXCLUDE,}$slow
+    if [ $src = 2 ]; then rl_kv screen_note "screen failed: nodes not screened"; fi
+    if [ -n "${slow:-}" ]; then
+        h=$(rl_pick_hosts "$JOB" "$NN") || rl_finish FAIL "after leaving out slow_hosts=$slow fewer than $NN nodes remain" "$HERE/alloc.sh --nodes <more>"
+        export HOSTS=$h
+    fi
+fi
+rl_kv hosts "$(echo "${HOSTS:-}" | cut -c1-200)"
+# ---- (3) model, run
+model=$(rl_model "$NN" "$D")
+if [ -z "$TMO" ]; then TMO=$(awk -v m="$model" 'BEGIN { if (m + 0 > 0) printf "%d", m * 3 / 60 + 15; else print 60 }'); fi
+export TMO
+[ -n "$WDIR" ] && { mkdir -p "$WDIR"; export WRITE=1 KEEP=1 TGT_SCRATCH=$WDIR; }
+rl_say "run: path $P, $NN node(s), $D digits (timeout $TMO min; model ${model} s)"
+rl_log "$(rl_cmdline "$P" "$NN" "$D" ${words[@]+"${words[@]}"})"
+rl_ecrun s5_run "$P" "$NN" "$D" ${words[@]+"${words[@]}"}; rc=$?
+tag=s5_run
+# ---- results
+rl_kv rc "$rc"; rl_kv verify "${E_VERIFY:-NONE}"
+rl_kv "total_s" "${E_TOTAL:-NA}"
+rl_line "phases_s: init=${E_INIT:-NA} bs=${E_BS:-NA} recip=${E_RECIP:-NA} dm=${E_DM:-NA} dc=${E_DC:-NA} T1=${E_T1:-NA} T2=${E_T2:-NA} other=${E_OTHER:-NA}"
+rl_kv wall_launch_s "${E_WALL_S:-NA}"
+rl_kv model_s "$model (modelled, no digit write)"
+rl_kv meas_over_model "$(awk -v t="${E_TOTAL:-0}" -v m="$model" 'BEGIN { if (t + 0 > 0 && m + 0 > 0) printf "%.3f", t / m; else print "NA" }')"
+[ -n "${E_DEVPEAK_GB:-}" ] && rl_kv device_peak_gb "$E_DEVPEAK_GB (apu max ${E_DEVPEAK_APU_GB:-?})"
+[ -n "${E_HOSTPEAK_GB:-}" ] && rl_kv host_peak_gb "$E_HOSTPEAK_GB"
+tail=$(rl_digits_tail "$RUN/raw/$tag.log"); rl_kv last_digits "${tail:-none printed}"
+if [ -n "${E_HASH:-}" ]; then rl_kv digit_hash "$E_HASH (reference ${E_HASH_REF:-none}: ${E_HASH_MATCH:--})"; else rl_kv digit_hash "not taken (no --write)"; fi
+[ -n "${E_CONFIG_HASH:-}" ] && rl_kv config_hash "$E_CONFIG_HASH"
+[ -n "$WDIR" ] && rl_kv digit_files "$WDIR"
+ok=1; { [ "$rc" = 0 ] && [ "${E_VERIFY:-NONE}" = OK ] && [ "${E_HASH_MATCH:--}" != no ]; } || ok=0
+if [ $ok = 0 ]; then rl_errfiles "$RUN/raw/$tag.log" "$RUN/raw/$tag.log.gz"; rl_finish FAIL "rc=$rc verify=${E_VERIFY:-NONE}${E_REFUSED:+ refused=$E_REFUSED}" "$HERE/show.sh $RUN errors"; fi
+rl_finish PASS "$HERE/s4_ab.sh --nodes $NN --digits $DIG --path $P --a \"${ENVW}\" --b \"<variant>\" --rounds 2"
