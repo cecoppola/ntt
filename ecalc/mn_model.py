@@ -7,6 +7,7 @@ table below; the distributed levels, the sharded reciprocal and the sharded divi
 chains and cuts the code forms) from the measured 2^31-point piece product and the fabric profile.
 
     ./mn_model.py estimate --target          the standing estimate at 576 nodes (profile target_l4)
+    ./mn_model.py estimate --fabric target_fit   the profile fitted to the target's measured 2/64/576-node phases (A3, 2026-10-27)
     ./mn_model.py estimate --g 576 --D 6e10 --groups 2,4,8,16,32,64,192,576 --verbose
     ./mn_model.py estimate --max             the largest D per node that fits at each g
     ./mn_model.py estimate --help            every option (fabric profile, design, cache, write bandwidth)
@@ -142,7 +143,7 @@ class Fabric:
             msgs = chunks * (g - 1)
         t_nic = nic / (self.rate(bytes_apu, g, v, other) * 1e9)
         t_glob = cross / (self.rate(bytes_apu, g, v, other) * 1e9 * self.taper) if cross else 0.0   # the group's aggregate to each peer group = G x 4 x bw x taper / (ng - 1), shared by its G nodes evenly
-        t = max(t_nic, t_glob) + msgs * self.lat + self.fixed * chunks + self.staging_cost(nic * 4)
+        t = max(t_nic, t_glob) + msgs * self.lat + self.fixed * chunks + self.staging_cost(nic * 4) + round_sync_cost(nic, chunks, msgs / max(chunks, 1))
         return t, nic * 4, cross * 4, msgs
 
     def allgather(self, bytes_apu, g):
@@ -156,6 +157,18 @@ class Fabric:
     def coll(self, g):
         """a small collective (all-gather of a few words, a max-reduction) over g nodes"""
         return 0.0 if g <= 1 else (g - 1) * self.lat + self.coll_fixed + 20e-6
+
+# ROUND_SYNC (A3, 2026-10-27; 0 = off in every profile but target_fit): the per-round all-peer synchronisation of the xshmem exchange (comm_xshmem.c: per round publish, wait, put,
+# quiet, signal every peer, wait for every peer): seconds per peer per round, rounds = ceil(a stream's outgoing bytes / XSHMEM_ROUND_MB) per chunk (0 MB = one round).  The t_nic
+# + msgs x lat model has no term that grows with the peers x the rounds; the target's weak scaling (bs 4.6 -> 56.5 s, dm 7.6 -> 73.3 s from 2 to 576 nodes) needs one.
+ROUND_SYNC = float(os.environ.get('MN_MODEL_ROUND_SYNC', '0'))
+ROUND_SYNC_EXP = float(os.environ.get('MN_MODEL_ROUND_SYNC_EXP', '1'))   # the peers' exponent (1 = linear in the peers)
+def round_sync_cost(nic_bytes_apu, chunks, peers):
+    """the per-round synchronisation of one exchange (see ROUND_SYNC): rounds x peers x ROUND_SYNC; 0 while ROUND_SYNC is 0"""
+    if not ROUND_SYNC: return 0.0
+    rm = 128.0 if DZ is None else DZ.round_mb
+    rounds = chunks * max(1, math.ceil(nic_bytes_apu / chunks / (rm * 1048576.0))) if rm else chunks
+    return rounds * peers ** ROUND_SYNC_EXP * ROUND_SYNC
 
 TARGET_WRITE_BW = 1.0                  # 2026-09-29: the user's Lustre test on the target: ~1 GB/s write per node (ASSUMED to hold with 576 nodes writing at once); before: 0.6 (the apumult catalog's 0.58-0.64 single-stream)
                                        # catalog); ASSUMED to hold with 576 writers at once (the aggregate, ~350 GB/s, is not measured); was 2.0 (node-local NVMe, assumed)
@@ -208,16 +221,33 @@ AAC7_S48 = Fabric("aac7 S48 refit (placeholder until aac7_fit.json (s48) is read
 AAC7_L4 = Fabric("aac7 L4 refit, NIC group B (placeholder until aac7_fit.json (l4) is read)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
 AAC7_L4A = Fabric("aac7 L4 refit, NIC group A (placeholder)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
 TARGET_L4 = Fabric("Slingshot-2 dragonfly (PLAN 25), L4 layv factor (placeholder)", bw_apu=TARGET_BW_APU, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
-PROFILES = {'target': TARGET, 'aac7_c16': AAC7, 'target-m': TARGET_M, 'aac7_s48': AAC7_S48, 'aac7_l4': AAC7_L4, 'aac7_l4a': AAC7_L4A, 'target_l4': TARGET_L4}
+# target_fit (A3, 2026-10-27): the target's own measurements.  FITTED (log-space least squares over the six bs / dm values of the 2 / 64 / 576-node weak-scaling runs at 8e9 digits per node,
+# BS_SEED_THREADS=144; results/TIME_MODEL.md §target_fit has the table) with the explicit per-round synchronisation term (ROUND_SYNC x peers^ROUND_SYNC_EXP per round, XSHMEM_ROUND_MB=128 =
+# the code's default, what every target run used); a flat bandwidth + latency fit (Fit A: 10.4 GB/s per APU, 97 us) misses dm at 64 nodes by 28 %.  The other constants are the analysis's:
+# DC_FMT_MN 1.79 s per 1e9 digits (the digit residue as the code stands: ECALC_RESIDUE / the early hook change it), init 1.2 x + 0.6 s per doubling of the nodes beyond 2, NODE_SCALE 1.15.
+# bw and lat are NOT the physical injection rate: with the sync term they trade off (a 10.4 GB/s / 97 us pair + any sync term fits worse).  Every other profile is unchanged.
+TARGET_FIT_CONSTS = dict(bw_apu=21.0, lat=30e-6, ROUND_SYNC=1.15e-3, ROUND_SYNC_EXP=0.5, NODE_SCALE=1.15, INIT_SCALE=1.2, INIT_DOUBLING=0.6, DC_FMT_MN=1.79)
+TARGET_FIT = Fabric("Slingshot-2 dragonfly, fitted to the target's 2/64/576-node runs (A3)", bw_apu=TARGET_FIT_CONSTS['bw_apu'], lat=TARGET_FIT_CONSTS['lat'], group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
+PROFILES = {'target_fit': TARGET_FIT, 'target': TARGET, 'aac7_c16': AAC7, 'target-m': TARGET_M, 'aac7_s48': AAC7_S48, 'aac7_l4': AAC7_L4, 'aac7_l4a': AAC7_L4A, 'target_l4': TARGET_L4}
 PROFILE_ALIASES = {'aac7': 'aac7_s48'}
 def apply_profile(name):
     """Phase 16 C: select the fabric profile and set the measured constants of that machine (an env override, MN_MODEL_*, still wins).
     Returns the Fabric.  TGTBENCH2: 'target-m' = the target fabric with TARGET_M_CONSTS (measured on the target).
 """
-    global HIDE_POW2, T_ROUND, MAP_RATE, NODE_SCALE, INIT_SCALE
+    global HIDE_POW2, T_ROUND, MAP_RATE, NODE_SCALE, INIT_SCALE, ROUND_SYNC, ROUND_SYNC_EXP, INIT_DOUBLING, DC_FMT_MN
+    ROUND_SYNC = float(os.environ.get('MN_MODEL_ROUND_SYNC', '0')); ROUND_SYNC_EXP = float(os.environ.get('MN_MODEL_ROUND_SYNC_EXP', '1'))   # target_fit's terms: off for every other profile
+    INIT_DOUBLING = float(os.environ.get('MN_MODEL_INIT_DOUBLING', '0')); DC_FMT_MN = DC_FMT_MN_DEFAULT
     name = (name or 'target').lower()
     name = PROFILE_ALIASES.get(name, name)                                # B01: aac7 = aac7_s48
-    if name not in PROFILES: raise SystemExit('mn_model: unknown profile %s (target, aac7 = aac7_s48, aac7_c16 (the previous aac7), target-m, aac7_s48, aac7_l4, aac7_l4a, target_l4)' % name)
+    if name not in PROFILES: raise SystemExit('mn_model: unknown profile %s (target, target_fit, aac7 = aac7_s48, aac7_c16 (the previous aac7), target-m, aac7_s48, aac7_l4, aac7_l4a, target_l4)' % name)
+    if name == 'target_fit':
+        c, e = TARGET_FIT_CONSTS, os.environ
+        if 'MN_MODEL_ROUND_SYNC' not in e: ROUND_SYNC = c['ROUND_SYNC']
+        if 'MN_MODEL_ROUND_SYNC_EXP' not in e: ROUND_SYNC_EXP = c['ROUND_SYNC_EXP']
+        if 'MN_MODEL_INIT_DOUBLING' not in e: INIT_DOUBLING = c['INIT_DOUBLING']
+        if 'MN_MODEL_NODE_SCALE' not in e: NODE_SCALE = c['NODE_SCALE']
+        if 'MN_MODEL_INIT_SCALE' not in e: INIT_SCALE = c['INIT_SCALE']
+        DC_FMT_MN = c['DC_FMT_MN']
     if name == 'target-m':
         if 'MN_MODEL_MAP_RATE' not in os.environ: MAP_RATE = TARGET_M_CONSTS['MAP_RATE']
     if name == 'aac7_s48':
@@ -824,6 +854,7 @@ GEN_HIDE_DEPTH = {1: float(os.environ.get('MN_MODEL_GEN_HIDE1', '0.011')), 2: fl
                                        # general map: MEASURED 1.1 % one deep (X13; 1.4 % on two real nodes, X13b); two deep MEASURED 74.3 %
                                        # on two real nodes (X13b, job 21068; 72.6-75.1 % on one node)
 F_MM1 = 58.0 / 58.4                    # MEASURED (archive:results_merged_2026-10-24/KERNELS.md §K13, one pair at 4e10): NTT_MODMUL=1 phases 58.4 -> 58.0 s
+INIT_DOUBLING = float(os.environ.get('MN_MODEL_INIT_DOUBLING', '0'))   # s of init per doubling of the nodes beyond 2 (0 = off; target_fit sets it)
 MAP_RATE = float(os.environ.get('MN_MODEL_MAP_RATE', '0.065'))   # MEASURED (archive:results_merged_2026-10-24/MEMORY.md §I t_alloc 0.057-0.072 s/GB; P3: 25.8 GB fewer planes = -1.5..-2.9 s of init)
 NODE_SCALE = float(os.environ.get('MN_MODEL_NODE_SCALE', '1.0'))   # Phase 16 C: the node's compute (bs, the leaf, the pieces, the size-1 dm) x this -- 1 = aac6's calibration
 INIT_SCALE = float(os.environ.get('MN_MODEL_INIT_SCALE', '1.0'))   # Phase 16 C: init x this (the mapping rate of another ROCm / node class on top of MAP_RATE's device term)
@@ -857,14 +888,14 @@ class Design:
     (MDB_SHIFT_CHUNK_MB) | 'both' (+ MN_T_CHUNK_MB), at chunk_mb; depth: the uneven (alltoallv) exchange's depth 1 | 2;
     modmul: NTT_MODMUL (1 = the default since step 0); legacy: the pre-13b constants (four primes, Phase 10/11 phases)"""
     def __init__(self, np=3, strategy='C', cap=None, chunk='off', depth=1, modmul=1, chunk_mb=CHUNK_MB, legacy=False, p15=False, tight=True, early_free=True,
-                 round_mb=1024, pool='plan', vmm=True, recip_cut=True, out_overlap=None, p15b=False, np_mn=None, packed=None, early=None, np_auto=False,
+                 round_mb=128, pool='plan', vmm=True, recip_cut=True, out_overlap=None, p15b=False, np_mn=None, packed=None, early=None, np_auto=False,
                  p15c=False, arena_room=None, cache_fit=None):
         self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb, self.legacy = np, strategy, cap, chunk, depth, modmul, chunk_mb, legacy
         self.gen_hide = None; self.force_gen = False                      # the aac6 loopback depth check (design_table --calibrate)
         self.shift_mb = chunk_mb if chunk in ('shift', 'both') else 0
         self.t_mb = chunk_mb if chunk == 'both' else 0
         # Phase 15 (agent MD): p15 = the code since Phase 14 (DEFAULT15()): the memory forms (DM_TIGHT, MN_TREE_EARLY_FREE, the SHMEM pool from the
-        # plan, DB_POOL_VMM's host and bs terms, XSHMEM_ROUND_MB = round_mb: 1024 on the target's launch line, the user's D2), NEWTON_RECIP_CUT
+        # plan, DB_POOL_VMM's host and bs terms, XSHMEM_ROUND_MB = round_mb: the code's default 128 (ecalc/xshmem_round.h; every target run used it) unless the launch line sets it -- 1024 was the model's assumption (the user's D2) until 2026-10-27, memory columns only), NEWTON_RECIP_CUT
         # in the fabric's reciprocal, CAL15 (the one-node compute refitted on the Phase 14 defaults, the seed wait as its own term) and the part
         # file as the code writes it (size > 1: after T1, not overlapped; out_overlap='half' = the model before: hidden under half the division).
         # p15 False: exactly the Phase 13/14 model (every memory form as before, no cut, no CAL15, the part file beyond half the division).
@@ -1494,7 +1525,7 @@ SLOW_F = 1.29                          # MEASURED (archive:results_merged_2026-1
 OVL1 = 0.577                           # FITTED by fit15(): size 1 -- the writer runs under this fraction of the division (it starts at the hook, before the low product)
 DC_FIX = 1.6                           # MEASURED (the corrected 1e11 runs): dc's residues + fetch beside the write (0.7 + 0.9 s)
 DC_FMT1 = 0.0545                       # MEASURED (archive:results_merged_2026-10-24/SINGLE_NODE.md §V314 e11_def / e11_def2 without a file: dc 5.55 / 5.43 s at 1e11, the digits redone after the corrections): s per 1e9 digits
-DC_FMT_MN = 0.061                      # s per 1e9 digits: size > 1, mn_out_run's formatting + digit residues + fetch, pipelined with the write -- MEASURED at size 1,
+DC_FMT_MN = DC_FMT_MN_DEFAULT = 0.061                      # s per 1e9 digits: size > 1, mn_out_run's formatting + digit residues + fetch, pipelined with the write -- MEASURED at size 1,
                                        # 1e11 without a file (format 1.86 + digit residue 2.7 + fetch 0.86 + residues 0.7 = 6.1 s, archive:results_merged_2026-10-24/SINGLE_NODE.md §V314), ASSUMED to carry to the target's
                                        # 7.4e10 per node; 2 nodes at 5e9 per node measured 0.104 (V114 b2: 0.23 + 0.22 + 0.07 s, the small size's fixed costs)
 # ---- Phase 15 (agent DOC): the user's decisions of 2026-09-27 (p15b designs), calibrated on RESULTS 86's paired 1e11 series (jobs 21550 with the digit
@@ -1641,6 +1672,7 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
     if NODE_SCALE != 1.0 or INIT_SCALE != 1.0:             # Phase 16 C: another machine's node (apply_profile / MN_MODEL_NODE_SCALE, MN_MODEL_INIT_SCALE); the pieces carry it in t31
         ph["init"] *= INIT_SCALE; ph["batch"] *= NODE_SCALE; ph["top"] *= NODE_SCALE; seed_wait *= NODE_SCALE
         if g == 1: rc.t *= NODE_SCALE; dc.t *= NODE_SCALE
+    if g > 1 and INIT_DOUBLING and init_override is None: ph["init"] += INIT_DOUBLING * math.log2(g / 2.0)   # target_fit: ~0.6 s per doubling of the nodes beyond 2 (m, 2/64 nodes: 12.9 -> 15.8 s); 0 elsewhere
     t_compute = ph["init"] + seed_wait + ph["batch"] + ph["top"] + t_levels + rc.t + dc.t + ph["other"]
     out_write = D * (PACKED_BPD if (p15 and design.packed) else 1.0) / 1e9 / fab.write_bw   # the node's part file at the write bandwidth (packed: 0.417 B/digit)
     t_lowprod = dc.t * 0.5
@@ -1964,14 +1996,14 @@ def estimate_main(argv=None):
     ap.add_argument("--staging", default="code", choices=("code", "sym", "resident", "per_exchange", "cached"), help="Phase 14 P2: code (the default: the measured law, mem_model.shmem_pool -- the staged exchanges' largest send + receive x 4 APU threads + the control blocks; archive:results_merged_2026-10-24/SHMEM_ITEMS.md §P214), sym (DIST_MN_SYM_SLABS=1: + 3 q per APU of resident slabs); the hypotheses before: the SHMEM transport's staging in its pool: resident (Phase 12 S: the callers' slabs in the pool, no staging), per_exchange (the staging freed after each wait), cached (the code at 7aded87: kept per live communicator -- 345 GB per node at 576)")
     ap.add_argument("--as-is", action="store_true", help="the code at main 7aded87: --tree flat --staging cached")
     ap.add_argument("--rule", default="model", choices=("model", "full"))
-    ap.add_argument("--fabric", default=os.environ.get("MN_MODEL_PROFILE", "target_l4"), choices=("target", "aac7", "aac7_c16", "target-m", "aac7_s48", "aac7_l4", "aac7_l4a", "target_l4"), help="Phase 16 C: the fabric profile -- target_l4 (the DEFAULT since 2026-10-11, user-adopted: the target fabric with the L4 refit layv factor, results/TIME_MODEL.md §L4); target (the previous default: the constants as before, layv 0.655) or aac7 (B01, 2026-10-11: the S48 refit, an alias of aac7_s48, aac7_fit.json (s48); the previous aac7, mn_model.AAC7, is aac7_c16: the measured Slingshot-11 / Cray OpenSHMEMX rates and AAC7_CONSTS; --bw / --lat / --write-bw given explicitly still win); TGTBENCH2: target-m = the target fabric (still ASSUMED) with the constants measured on the target (mn_model.TARGET_M_CONSTS: MAP_RATE 0.010) and a line comparing the modelled device with the measured 373.44 GB/node edge")
+    ap.add_argument("--fabric", default=os.environ.get("MN_MODEL_PROFILE", "target_l4"), choices=("target", "aac7", "aac7_c16", "target-m", "aac7_s48", "aac7_l4", "aac7_l4a", "target_l4", "target_fit"), help="Phase 16 C: the fabric profile -- target_l4 (the DEFAULT since 2026-10-11, user-adopted: the target fabric with the L4 refit layv factor, results/TIME_MODEL.md §L4); target (the previous default: the constants as before, layv 0.655) or aac7 (B01, 2026-10-11: the S48 refit, an alias of aac7_s48, aac7_fit.json (s48); the previous aac7, mn_model.AAC7, is aac7_c16: the measured Slingshot-11 / Cray OpenSHMEMX rates and AAC7_CONSTS; --bw / --lat / --write-bw given explicitly still win); TGTBENCH2: target-m = the target fabric (still ASSUMED) with the constants measured on the target (mn_model.TARGET_M_CONSTS: MAP_RATE 0.010) and a line comparing the modelled device with the measured 373.44 GB/node edge")
     ap.add_argument("--bw", type=float, default=None, help="GB/s per APU injection (default 100: assumed, PLAN 25's two 400 Gb/s NICs; the profile's value under --fabric aac7)")
     ap.add_argument("--lat", type=float, default=None, help="seconds per message (default 2e-6 assumed; the profile's under --fabric aac7)")
     ap.add_argument("--group", type=int, default=64, help="nodes per dragonfly group (MN_TOPO_GROUP)")
     ap.add_argument("--layers", type=int, default=2, choices=(2, 3))
     ap.add_argument("--taper", type=float, default=1.0)
     ap.add_argument("--write-bw", type=float, default=None, help="GB/s per node for the part file (Phase 15: 0.6 = the target's Lustre /ssd0 single-stream, measured there; 2.0 was assumed before)")
-    ap.add_argument("--round-mb", type=float, default=1024, help="exchange round size (the code's XSHMEM_ROUND_MB; D2: 1024; 0 = the code's default, off)")
+    ap.add_argument("--round-mb", type=float, default=128, help="exchange round size (the code's XSHMEM_ROUND_MB; default 128 = the code's default, since 2026-10-27 -- the model assumed 1024 (D2) before, which only moves the memory columns; 0 = rounds off: the whole exchange in one round)")
     ap.add_argument("--out-overlap", default="none", choices=("none", "half"), help="size > 1: the part file after T1 (none: the code) or under half the division (half: the model before Phase 15)")
     ap.add_argument("--corrections", type=int, default=0, help="size 1: the division's corrections (data-dependent; 2 at 1e11 on the defaults)")
     ap.add_argument("--max", action="store_true", help="the largest D per node that fits 502 and 480 GB at each g, with its wall")

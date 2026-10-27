@@ -15,6 +15,34 @@ Sections moved to `archive:results_merged_2026-10-24/TIME_MODEL.md` (2026-10-24 
 - Memory model: Q's `flat` / `grid` forms and SHMEM staging forms (`cached` / `per_exchange` / `resident`); current device / node budgets and the `DM_MN_WRAP` fit are in ecalc/README.md and results/LAUNCH_DEFAULTS.md §FIT, not here. S19B: the lean division (`DM_MN_LEAN`) is built in and `DIST_CHUNKS=8` is the default (README); `MN_T_CHUNK_MB=2048` and X2 are launch-line values.
 - Where this file disagrees with main: its switch statuses are as of each item's date; main's `ecalc/README.md` and `switches.tsv` win. Open: a paired ABBA `[2,6]` vs `[6]` (8+ runs per arm), probing the NIC group in every multi-node run, the target's own fabric and Lustre numbers (A3 / A4).
 
+## target_fit — a profile fitted to the target's 2 / 64 / 576-node runs, with a per-round synchronisation term (A3, 2026-10-27)
+
+Branch `model`; Python only (no run). Inputs: the target's weak-scaling phases at 8e9 digits per node, `BS_SEED_THREADS=144`, path 1, layout D (m, the target; remote/FACTS.md "Measured runs on the target"). Files: `ecalc/mn_model.py`, `tests/test_mn_model.py`.
+
+**Code changes.** (1) The model's `XSHMEM_ROUND_MB` follows the code: default 128 (`ecalc/xshmem_round.h`; every target run used it), not the 1024 it assumed (`--round-mb`, `Design.round_mb`); the time columns of every existing profile are unchanged (the old size only entered the memory plan: the SHMEM staging / pool columns drop, e.g. 4e10 digits at 64 nodes: host 44 -> 36 GB, pool 9 -> 2 GB; `--round-mb 1024` reproduces the previous lines exactly). (2) New profile `--fabric target_fit` (`TARGET_FIT_CONSTS`): fabric 21.0 GB/s per APU, 30 us per message, `ROUND_SYNC` 1.15 ms x peers^0.5 per exchange round (rounds = ceil(a stream's outgoing bytes / `XSHMEM_ROUND_MB`) per chunk, `round_sync_cost`; 0 = one round), `DC_FMT_MN` 1.79 s per 1e9 digits (the digit residue as the code stands), init 1.2 x plus 0.6 s per doubling of the nodes beyond 2 (`INIT_DOUBLING`), `NODE_SCALE` 1.15. The sync term, `INIT_DOUBLING` and the dc rate are reset for every other profile (`apply_profile`), `MN_MODEL_ROUND_SYNC`, `MN_MODEL_ROUND_SYNC_EXP`, `MN_MODEL_INIT_DOUBLING` override.
+
+**Fit** (log-space least squares over the six bs / dm values, Nelder-Mead / random search, `NODE_SCALE` 1.15 fixed; modelled vs measured, seconds):
+
+| nodes | bs measured | bs model | dm measured | dm model | init m / model | total m / model (no output file) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2 | 4.6 | 5.1 (+12 %) | 7.6 | 9.0 (+18 %) | 12.9 / 12.8 | 39.1 / 43.6 (+11 %) |
+| 64 | 23.7 | 21.5 (-9 %) | 30.8 | 26.8 (-13 %) | 15.8 / 15.8 | 84.6 / 81.0 (-4 %) |
+| 576 | 56.5 | 56.7 (0 %) | 73.3 | 77.6 (+6 %) | 111.0 (trend ~18) / 17.4 | 255.3 (~162 at trend init) / 171.8 (+6 % vs trend) |
+
+rms log error of the six points 10.9 %, worst dm at 64 nodes (-13 %). Fit A without a sync term (10.4 GB/s, 97 us, the analysis) has rms 17 % and misses dm at 64 nodes by -28 %; with 10.4 GB/s and 97 us kept, a sync term (exponent 0 to 1, grid) gets no better than rms 16 %. The fitted bandwidth and latency are therefore not the physical injection rate or message latency: with the sync term they trade off (the landscape is flat and the optimiser noisy: exponents 0.25 and 0.75 give rms 15 % with 14-15 GB/s and 86-91 us). The six points all have one to a few rounds per exchange, so they pin the peers dependence but NOT the round-size dependence; the round-size effect below is extrapolated.
+
+**Projection** (modelled, `target_fit`, no output file, dc at 1.79 s per 1e9 digits as the code stands; 3.82e13 / 576 nodes is 6.63e10 per node, 8.3 x the fitted per-node size):
+
+| digits (576 nodes) | XSHMEM_ROUND_MB 128 (code default) | 1024 | 0 (one round) |
+| --- | --- | --- | --- |
+| 4.608e12 | bs 58.3, dm 79.5, total 171.8 s | bs 55.3, dm 67.8, total 157.2 s | 157.1 s |
+| 2e13 | total 527.4 s | 366.0 s | 363.2 s |
+| 3.82e13 | bs 387.9, dm 530.0, total 1072.8 s (958 s with the residue at the old 0.061 s per 1e9) | bs 253.6, dm 296.1, total 704.6 s | 695.4 s |
+
+(64 nodes, 5.12e11: 81.0 / 79.0 / 79.0 s.) The model says a larger round size matters only at the large sizes (-9 % at 4.6e12, -34 % at 3.82e13); this is the prediction the target's A/B (`XSHMEM_ROUND_MB` 128 / 1024 / 0 at 64 nodes, then 576) checks. The 3.82e13 totals sit above the analysis's Fit A / B headline (733 / 976 s) at the default round size and close to Fit A's at 1024.
+
+Regression: `tests/test_mn_model.py` pins the `aac7`, `aac7_l4`, `target_l4` and `target` rows at 2 and 64 nodes (main 460bed6; `--round-mb 1024` identical, default 128 identical in every time column) and checks the six points and the three totals of `target_fit` within +-30 %.
+
 ## L4 — refit of the time model to all of 2026-10-11's multi-node aac7 runs; what it got wrong and why (wave L, agent L4)
 
 Date 2026-10-11 (Eastern); base main a1569d5, branch `l4`; CPU only (local analysis plus aac6 CPU nodes for the schedule search; no aac7 job). Files: `ecalc/mn_model.py`, `ecalc/estimate.py`, `archive:scripts_2026-10-23/refit_s48.py` (`--l4`), `ecalc/aac7_l4_fit.json`, `tools/groups_table.py` (`GT_PROFILE`, `GT_RELEASE_GB`, `GT_LAYV`), `archive:drivers/l4/l4_search.sh`; run table `archive:results-raw/L4_runs.tsv` (148 rows), refit output `archive:results-raw/L4_refit.out`, searches `archive:results-raw/L4_groups/`. Labels: measured = parsed from run logs; modelled = `mn_model.py` / `estimate.py`; assumed = the target fabric (100 GB/s per APU, 2 us) and the part-file rate.
