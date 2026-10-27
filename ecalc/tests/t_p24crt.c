@@ -32,6 +32,7 @@ static void rand_below(mpz_t o, const mpz_t bound)
     mpz_mod(o, o, bound);
 }
 /* run the kernel on coef[x] (indexed by the plane point x = R j + a + k; only this rank's points are used); returns the flag, checks the digits when digits != 0 */
+static size_t g_pos;                                  /* p24_crt_err_pos() of the last run that flagged, else -1 */
 static unsigned run(const struct cfg *f, mpz_t *coef, int chk, int digits, const char *what)
 {
     uint64_t *h[4], *d[4], *dout, *dsp, *hout = (uint64_t *)malloc((f->tot + 8) * 8), *hsp = (uint64_t *)malloc(f->C * 32);
@@ -45,7 +46,7 @@ static unsigned run(const struct cfg *f, mpz_t *coef, int chk, int digits, const
     p24_crt_set_check(chk);
     p24_crt_launch(d[0], d[1], d[2], d[3], &gc, f->R, f->C, f->a, f->rows, dout, dsp, 0);
     HC(hipDeviceSynchronize());
-    unsigned flag = p24_crt_err(0);
+    unsigned flag = p24_crt_err(0); g_pos = flag ? p24_crt_err_pos() : (size_t)-1;
     HC(hipMemcpy(hout, dout, (f->tot + 8) * 8, hipMemcpyDeviceToHost)); HC(hipMemcpy(hsp, dsp, f->C * 32, hipMemcpyDeviceToHost));
     if (digits) {                                   /* sum of the kernel's limbs (absolute positions) against sum c_x 10^(24 x) */
         mpz_t got, ref, t, B; mpz_inits(got, ref, t, B, NULL); mpz_ui_pow_ui(B, 10, 18);
@@ -79,7 +80,7 @@ static void test_cfg(size_t R, size_t C, int nr, int rho)
             else { mpz_set_ui(coef[x], rnd() & 1); if (rnd() % 7 == 0) mpz_sub_ui(coef[x], b60, 1); }
         }
         snprintf(w, sizeof w, "in bound kind %d R %zu C %zu nr %d rho %d", kind, R, C, nr, rho);
-        for (int chk = 0; chk < 2; chk++) { unsigned fl = run(&f, coef, chk, chk, w); VERIFY(fl == 0, "%s chk %d: flag %u (a coefficient below 10^60)", w, chk, fl); }
+        for (int chk = 0; chk < 2; chk++) { unsigned fl = run(&f, coef, chk, 1, w); VERIFY(fl == 0, "%s chk %d: flag %u (a coefficient below 10^60)", w, chk, fl); }
     }
     /* one coefficient at or past 10^60 among random in-bound ones, at each s class (three consecutive points) */
     for (size_t x = 0; x < f.N; x++) rand_below(coef[x], b60);
@@ -95,6 +96,7 @@ static void test_cfg(size_t R, size_t C, int nr, int rho)
             unsigned f0 = run(&f, coef, 0, 0, w), f1 = run(&f, coef, 1, 0, w);
             VERIFY(((f0 & 1) != 0) == (s == 12), "%s: always-on flag %u (bit 1 expected exactly at s = 12)", w, f0);
             VERIFY((f1 & 4) != 0, "%s: P24_CHECK flag %u (bit 4 expected for c >= 10^60 at any s)", w, f1);
+            VERIFY(g_pos == x, "%s: p24_crt_err_pos %zu, expected the planted point %zu", w, g_pos, x);
             mpz_set(coef[x], v);
         }
     }
