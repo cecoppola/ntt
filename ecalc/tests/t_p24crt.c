@@ -2,8 +2,8 @@
  * Residues are built from chosen coefficients c_x (x the plane point; the residue of c_x at the four primes), the kernel's out-runs and spills are summed
  * into one number and compared with sum c_x 10^(24 x) (GMP), and the flag is checked:
  *   in bound (c < 10^60: random, all 10^60 - 1, edge mixes)         flag 0, digits equal;
- *   one coefficient c >= 10^60 (10^60 .. the primes' product - 1)    P24_CHECK form (p24_crt_set_check(1)): bit 4 exactly (c >= 10^60 at any s: a flag raised exactly
- *                                                                    when c >= 10^60); always-on form: bit 1 only at an s = 12 point (c 10^12 >= 10^72), none at s = 0, 6.
+ *   one coefficient c >= 10^60 (10^60 .. the primes' product - 1)    default form (p24_crt_set_check(1), what rns_dist.c sets unless P24_CRT_ANY=0): bit 4 exactly (c >= 10^60 at any s: a flag
+ *                                                                    raised exactly when c >= 10^60); P24_CRT_ANY=0 form (p24_crt_set_check(0)): bit 1 only at an s = 12 point (c 10^12 >= 10^72), none at s = 0, 6.
  * Needs a GPU: the hipcc build (`make tests/t_p24crt`, on a node).  VERIFY OK / FAILED as the other tests. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -80,7 +80,7 @@ static void test_cfg(size_t R, size_t C, int nr, int rho)
             else { mpz_set_ui(coef[x], rnd() & 1); if (rnd() % 7 == 0) mpz_sub_ui(coef[x], b60, 1); }
         }
         snprintf(w, sizeof w, "in bound kind %d R %zu C %zu nr %d rho %d", kind, R, C, nr, rho);
-        for (int chk = 0; chk < 2; chk++) { unsigned fl = run(&f, coef, chk, 1, w); VERIFY(fl == 0, "%s chk %d: flag %u (a coefficient below 10^60)", w, chk, fl); }
+        for (int chk = 0; chk < 2; chk++) { unsigned fl = run(&f, coef, chk, 1, w); VERIFY(fl == 0, "%s chk %d (1 = default all-shift, 0 = P24_CRT_ANY=0): flag %u (a coefficient below 10^60)", w, chk, fl); }
     }
     /* one coefficient at or past 10^60 among random in-bound ones, at each s class (three consecutive points) */
     for (size_t x = 0; x < f.N; x++) rand_below(coef[x], b60);
@@ -94,8 +94,8 @@ static void test_cfg(size_t R, size_t C, int nr, int rho)
             int s = p24_s(x);
             snprintf(w, sizeof w, "bad %d at x %zu (s %d)", bi, x, s);
             unsigned f0 = run(&f, coef, 0, 0, w), f1 = run(&f, coef, 1, 0, w);
-            VERIFY(((f0 & 1) != 0) == (s == 12), "%s: always-on flag %u (bit 1 expected exactly at s = 12)", w, f0);
-            VERIFY((f1 & 4) != 0, "%s: P24_CHECK flag %u (bit 4 expected for c >= 10^60 at any s)", w, f1);
+            VERIFY(((f0 & 1) != 0) == (s == 12), "%s: P24_CRT_ANY=0 flag %u (bit 1 expected exactly at s = 12)", w, f0);
+            VERIFY((f1 & 4) != 0, "%s: default (all-shift) flag %u (bit 4 expected for c >= 10^60 at any s)", w, f1);
             VERIFY(g_pos == x, "%s: p24_crt_err_pos %zu, expected the planted point %zu", w, g_pos, x);
             mpz_set(coef[x], v);
         }

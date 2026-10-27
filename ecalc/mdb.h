@@ -66,6 +66,7 @@ void rns_mul_dist_mn_cut_v(mdb *C, const mdbv *A, const mdbv *B, mn_group *G, si
 /* the low w limbs of A B (the division's X Q): the grid with the pieces above w skipped, in basis w */
 void rns_mul_low_mn(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t w);
 void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb);   /* the grid the product forms (tests: the cut references) */
+int rns_dist_p24_crt_all(void);                                   /* 1 = the P24 CRT flag covers every shift class (P24_CRT_ANY, default 1, or P24_CHECK) */
 size_t rns_dist_p24_products(void);                              /* P24 products formed in this process (rns_dist.c; tests print it) */
 int  rns_mul_dist_mn_logcap(mn_group *G);                     /* log2 of the plane cap over G (one plane per node pool; tests) */
 /* P1 (DM_MN_WRAP, results/DIVISION.md §P1): the division's low product in two parts -- the pieces at or above wskip skipped, C in a given basis;

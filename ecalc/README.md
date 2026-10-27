@@ -164,6 +164,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `P24_CHECK` | 0 | diagnostic | results/PRIMES_STRATEGY.md §P24 audit | - |
 | `P24_CHECK_TEST` | 0 | diagnostic | results/PRIMES_STRATEGY.md §P24 audit | - |
 | `P24_CHECK_TEST_K` | 1 | diagnostic | results/PRIMES_STRATEGY.md §P24 audit | - |
+| `P24_CRT_ANY` | 1 | built-in default | results/PRIMES_STRATEGY.md §P24 audit | - |
 | `PE_GEO_SYSFS_ROOT` | - | test-only | PEs per GPU (default 1; the 2-PEs-per-GPU fallback of design 2.2) / a prefix for every `/sys` path (mock trees of `tests/t_pe_geo`) | - |
 | `POOL_LOG` | 31 | launch-line | the plane pools' 2ᵏ points per APU (31; 27–29 with several node-processes on one node) | A-mem.md+M13.md |
 | `RNS_BATCH_LOCAL_MIN` | unset | built-in default | below this many products the striped batch path is used (16) | P3.md+R.md |
@@ -230,6 +231,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | comm | 2026-12-31 | `XSHMEM_COLL`, `XSHMEM_HS_BATCH`, `XSHMEM_SPARSE` |
 | experiment | craylane | 2026-12-31 | `XSHMEM_CRAY_GPU_PRETOUCH`, `XSHMEM_CRAY_HEAP_THP`, `XSHMEM_CRAY_NOMEMSET`, `XSHMEM_CRAY_NUMA`, `XSHMEM_CRAY_PUTSIG_SPLIT`, `XSHMEM_CRAY_SIGSET`, `XSHMEM_CRAY_TEST`, `XSHMEM_LANE_CTX`, `XSHMEM_LANE_POLL`, `XSHMEM_LANE_TRACE`, `XSHMEM_SIG_LANES`, `XSHMEM_THP_DISABLE`, `XSHMEM_THREAD_LEVEL` |
 | fallback | P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF) | 2026-11-11 | `DM_MN_WRAP` |
+| fallback | coordinator (Q130) | 2026-11-11 | `P24_CRT_ANY` |
 | fallback | coordinator (TASKS S) | 2026-11-11 | `ECALC_OUT_PACKED` |
 | diagnostic | TARGET12 (S2) | 2027-04-12 | `ECALC_TEST_DIE_PE` |
 | diagnostic | comm | 2027-04-12 | `COMM_SEQ_CHECK`, `XSHMEM_HANG_S` |

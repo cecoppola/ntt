@@ -82,14 +82,14 @@ Always run the planner first (s5_run does: `--fit` is its first step; on refusal
 | step | digits | nodes | path | env | model (no write) |
 |---|---|---|---|---|---|
 | s1 | 4.608e12 | 576 | chosen (done in S5) | adopted | 32 s |
-| s2 | 1e13 | 576 | 1 (path 2 refused by memory) | adopted + `BS_MDEV_LOGL=29` | 52 s |
-| s3 | 3.82e13 | 576 | 1 | adopted + `BS_MDEV_LOGL=29 MN_NONPOW2_CAP=0` | 187 s |
+| s2 | 1e13 | 576 | 1 (path 2 refused by memory) | adopted + `BS_MDEV_LOGL=29 XSHMEM_HANG_S=3600` | 52 s |
+| s3 | 3.82e13 | 576 | 1 | adopted + `BS_MDEV_LOGL=29 XSHMEM_HANG_S=3600 MN_NONPOW2_CAP=0` | 187 s |
 
 ```
-bash remote/run/s5_run.sh --nodes 576 --digits 10e12 --path 1 --env "<adopted> BS_MDEV_LOGL=29"
-bash remote/run/s5_run.sh --nodes 576 --digits 38.2e12 --path 1 --env "<adopted> BS_MDEV_LOGL=29 MN_NONPOW2_CAP=0"
+bash remote/run/s5_run.sh --nodes 576 --digits 10e12 --path 1 --env "<adopted> BS_MDEV_LOGL=29 XSHMEM_HANG_S=3600"
+bash remote/run/s5_run.sh --nodes 576 --digits 38.2e12 --path 1 --env "<adopted> BS_MDEV_LOGL=29 XSHMEM_HANG_S=3600 MN_NONPOW2_CAP=0"
 ```
-`BS_MDEV_LOGL=29` on every run from 1e13 digits (user decision 2026-10-27): smaller device-0 arena levels, so the 4 APUs of a node
+`BS_MDEV_LOGL=29` and `XSHMEM_HANG_S=3600` (code default 900 stays; user decision 2026-10-27, Q130) on every run from 1e13 digits (BS_MDEV_LOGL: user decision 2026-10-27): smaller device-0 arena levels, so the 4 APUs of a node
 peak equally (aac7 1e11 on 1 node, m: APU 0 109.9 -> 90.5 GB, all four 90.5, digits identical, no slower; planner per APU at 2e13 on
 576 nodes 89.7 -> 74.7 GB, mod; no change at 3.82e13).
 (or both in one chain paste once s1 passed and time is short; chain stops at FAIL, so s3 is skipped when s2 fails).
@@ -200,8 +200,8 @@ The multi-node changes shipped off by default, so the FIRST step is the gate at 
       Outcomes: it completes (VERIFY OK; look for HANG-free waits well over 900 s in the level lines) = imbalance, the fixed 900 s was the defect: use `XSHMEM_HANG_S=3600` on every larger run and stop the hang hunt. A `COMM_SEQ_CHECK` fatal = divergence: the two call sites it names are the result, take them to the code lane.
       A HANG after 3600 s (`COMM_HANG_DETAIL` names the members that never arrived) = a real hang: run b. A `P24_CHECK` fatal = the CRT-bound defect (product number and kind, piece, node, PE, sizes, first bad position; "received" = bad exchange data, "CRT" = the bound); the note "non-normalised share" on stderr is only a note.
    b. Only after a real hang in a: the burst question, 2 runs, each `--tmo 40` with `XSHMEM_HANG_S=1800` and the same checks: `XSHMEM_COLL=tree` (12 signals per member), and the flat handshake paced with `XSHMEM_HS_BATCH=64`. Tree passes and paced passes = the burst (keep tree for larger runs); both hang like a = not the handshake: report the `COMM_HANG_DETAIL` lines.
-   c. 3e13 on 576 nodes (with the settings that passed in a / b): `bash remote/run/s5_run.sh --nodes 576 --digits 30e12 --path 1 --tmo 40 --env "<best> BS_MDEV_LOGL=29 P24_CHECK=1 XSHMEM_HANG_S=3600 ECALC_FIT_PER_APU=1"`; a planner refusal means the per-APU edge is the cause (the per-APU line says by how much).
-      3e13 is above 2.592e13, where `MN_NONPOW2_CAP` auto turns on, and above 4.95e12 (plane cap 2^31): two code paths no completed target run used, so a P24 flag here is the 3e13 CRT-flag case, with the product kind in the line. `P24_CHECK=1` checks only operands that miss the transform cache; after a flag-free run that still fails the digits, repeat with `P24_CHECK=2`.
+   c. 3e13 on 576 nodes (with the settings that passed in a / b): `bash remote/run/s5_run.sh --nodes 576 --digits 30e12 --path 1 --tmo 40 --env "<best> BS_MDEV_LOGL=29 MN_NONPOW2_CAP=0 P24_CHECK=1 XSHMEM_HANG_S=3600 ECALC_FIT_PER_APU=1"`; a planner refusal means the per-APU edge is the cause (the per-APU line says by how much).
+      3e13 is above 2.592e13, where `MN_NONPOW2_CAP` auto turns on (the planner refuses 3e13 with it: 385.93 GB > 373.44, so the failed run most likely used `MN_NONPOW2_CAP=0`, FACTS failure table, modelled) and above 4.95e12 (plane cap 2^31). The all-shift CRT flag is now the default (`P24_CRT_ANY=1`), so any flag names the product kind, piece and group in the line: compare the node with the mixed-piece groups (3e13 levels 1-6: 4 pieces from node 158/160 on, 2 below; level 7 groups [192,384) at 10 pieces; FACTS). A cheaper target check (modelled, to confirm with `MN_PLAN_ONLY=<d>:<nodes>` first): the crossing sits where the products first pass the per-piece cap in part of the node range, so a smaller run at 576 nodes may already show it (a guess between 2.6e13 and 3e13, no planner figure for it yet); run the planner for 2.6e13, 2.8e13 and 3e13 at 576 nodes, read the `plan tree level N` lines ("over the level's G groups a .. b": a < b = mixed), and take the smallest size with a < b at level 1 or 5-7, with `--tmo 40`. `P24_CHECK=1` checks only operands that miss the transform cache; after a flag-free run that still fails the digits, repeat with `P24_CHECK=2`.
    d. then the 3.82e13 attempt (S6 s3) with the best round size and `MN_NONPOW2_CAP=0`, `--write` only after 6a and the user's go (see "Record-size output").
 
 Missing script features (follow-ups, not invented here): several 64-node arms RUNNING AT ONCE in one hold (the scripts run one step at a time; the arms above are sequential,

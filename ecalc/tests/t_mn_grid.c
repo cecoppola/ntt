@@ -140,10 +140,34 @@ static void body(void *unused)
                 VERIFY(check(&C, &t, "subgroup add_shifted"), "group [%d, %d) add_shifted k %zu %s", g0, g0 + g1, ks[ki], gen_name[kind]);
             }
         }
+        /* Q130 (P24_CRT_ANY, 3e13 CRT-flag lead): DIFFERENT grid shapes at once in different groups of a level, then rotated over the rounds on the same
+         * group (one plane / 2 x 3 / 3 x 1 from the cap's fraction; group index + round picks the shape), so the products of one run mix single- and
+         * multi-piece grids in time and across groups (the transform cache, windows and piece adds see the changes).  Levels 1 and 2 (groups of 2 and 4; A on
+         * the first half, B and X on the second half); each product is checked against the reference as above. */
+        struct { double fa, fb; } ms[3] = { {0.30, 0.25}, {1.03, 1.03}, {1.50, 0.40} };
+        for (int lv = 1; lv <= 2 && (1 << lv) <= g_size; lv++) {
+            mn_group *GL = mn_group_at(lv); int l0 = GL->g0, lg = GL->g, lh = lg / 2, gi = l0 / lg;
+            if (lg < 2) continue;
+            size_t ul = (size_t)(((size_t)1 << rns_mul_dist_mn_logcap(GL)) * scale);
+            for (int rd = 0; rd < 3; rd++) for (int kind = 0; kind < (lv == 1 ? 2 : 1); kind++) {
+                int sh3 = (gi + rd) % 3;
+                size_t na = (size_t)(ul * ms[sh3].fa), nb = (size_t)(ul * ms[sh3].fb); if (na < 1000) na = 1000; if (nb < 1000) nb = 1000;
+                rnd_bi(&a, na, kind); rnd_bi(&b, nb, kind); rnd_bi(&x, nb - 3, kind);
+                make_mdb(&A, &a, na + 5, l0, lh); make_mdb(&B, &b, nb + 2, l0 + lh, lg - lh); make_mdb(&X, &x, nb, l0 + lh, lg - lh);
+                int ka, kb; rns_mul_dist_mn_shape(a.n, b.n, GL, &ka, &kb);
+                if (kind == 0 && g_me == l0) printf("t_mn_grid: node %d: mixed shapes level %d group [%d, %d) round %d: %zu x %zu limbs, %d x %d pieces\n", g_me, lv, l0, l0 + lg, rd, na, nb, ka, kb);
+                rns_mul_dist_mn(&C, &A, &B, 0, GL); tref_mul(&r, &a, &b);
+                VERIFY(check(&C, &r, "mixed product"), "mixed level %d group [%d, %d) round %d product %zu x %zu (%d x %d) %s", lv, l0, l0 + lg, rd, na, nb, ka, kb, gen_name[kind]);
+                rns_mul_dist_mn(&C, &A, &B, &X, GL); bi_add(&t, &r, &x);
+                VERIFY(check(&C, &t, "mixed product + x"), "mixed level %d group [%d, %d) round %d product + x %zu x %zu %s", lv, l0, l0 + lg, rd, na, nb, gen_name[kind]);
+                mdb_add_shifted(&C, &X, na / 2, GL); bi_shl_limbs(&rl, &x, na / 2); bi_add(&t, &t, &rl); mdb_norm(&C, GL, (size_t)-1);
+                VERIFY(check(&C, &t, "mixed add_shifted"), "mixed level %d group [%d, %d) round %d add_shifted %s", lv, l0, l0 + lg, rd, gen_name[kind]);
+            }
+        }
     }
     db_free(&A.sh); db_free(&B.sh); db_free(&X.sh); db_free(&C.sh);
     bi_free(&a); bi_free(&b); bi_free(&x); bi_free(&r); bi_free(&t); bi_free(&rl);
-    printf("t_mn_grid: pe %d: %zu P24 products formed\n", g_me, rns_dist_p24_products());
+    printf("t_mn_grid: pe %d: %zu P24 products formed, CRT flag all-shift %d\n", g_me, rns_dist_p24_products(), rns_dist_p24_crt_all());
     mn_barrier(); mn_finalize();
 }
 int main(int argc, char **argv)

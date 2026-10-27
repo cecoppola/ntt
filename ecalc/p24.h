@@ -131,7 +131,7 @@ struct gconst;
 void p24_crt_launch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const uint64_t *p3, const struct gconst *gc,
                     size_t R, size_t C, size_t a, size_t rows, uint64_t *out, uint64_t *spill, hipStream_t s);
 unsigned p24_crt_err(hipStream_t s);                  /* the device flag of the calls on this device since the last read (0: none), cleared */
-void p24_crt_set_check(int on);                       /* P24_CHECK: also flag c >= 10^60 at s = 0 and 6 (bit 4; default off: the flag covers s = 12 and the spill only) */
+void p24_crt_set_check(int on);                       /* on: also flag c >= 10^60 at s = 0 and 6 (bit 4: every shift class); rns_dist.c sets it by default (P24_CRT_ANY=1) and under P24_CHECK; off = the flag covers s = 12 and the spill only */
 size_t p24_crt_err_pos(void);                         /* the plane point index of the first flagged point read by the last p24_crt_err on this device (0 before any flag; only meaningful after a nonzero p24_crt_err), 2^64 - 1 if the flag was not set */
 #endif
 #endif

@@ -69,7 +69,7 @@ void k_crt24(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const u
             size_t k = base + k0 + tid; uint64_t r[4] = { p0[k], p1[k], p2[k], p3[k] }, c[4], d[4];
             p24_dgarner4(&g, r, c); ec_words_to_dec4(c, d);
             unsigned fl = p24_shift_digits(d, p24_s(xc + tid), e) ? 1u : 0u;
-            if (chk && d[3] >= 1000000ULL) fl |= 4u;           /* P24_CHECK: c >= 10^60 (d[3] 10^54) at any s */
+            if (chk && d[3] >= 1000000ULL) fl |= 4u;           /* all-shift flag (P24_CRT_ANY / P24_CHECK): c >= 10^60 (d[3] 10^54) at any s */
             if (fl) { atomicOr(err, fl); atomicMin(&p24_err_x, (unsigned long long)(xc + tid)); }
         }
         E[3 + tid][0] = e[0]; E[3 + tid][1] = e[1]; E[3 + tid][2] = e[2]; E[3 + tid][3] = e[3];

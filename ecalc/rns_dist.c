@@ -990,10 +990,12 @@ static comm *lay_get(mn_group *G, int d)
 }
 /* P24_CHECK (default 0; results/PRIMES_STRATEGY.md §P24 audit): 1 = every P24 operand's limbs are checked < 10^18 (so every input point < 10^24: the
  * premise of the CRT's bound) twice per product -- as packed by this node ("sent": the stored share is bad) and as received ("received": the
- * exchange or the sender's share is bad) -- and the CRT also flags c >= 10^60 at s = 0 and 6 (p24_crt_set_check; the always-on flag covers s = 12 only);
+ * exchange or the sender's share is bad) -- and the CRT flags c >= 10^60 at every s (p24_crt_set_check; P24_CRT_ANY, default 1, does that even with P24_CHECK=0; =0 gives the old s = 12 + spill flag unless P24_CHECK >= 1);
  * any hit is fatal with the product's kind, piece, node, PE, sizes and the first bad position.  2 = also no transform cache on P24 products
  * (a flag that goes away then is a cache defect).  Off: no kernel, no copy, no allocation. */
 static int p24_check(void) { static int v = -1; if (v < 0) { const char *e = getenv("P24_CHECK"); v = e ? atoi(e) : 0; if (v < 0) v = 0; } return v; }
+/* P24_CRT_ANY (default 1; Q130, 2026-10-27): the CRT flag (c >= 10^60) covers every shift class s = 0, 6, 12 and the spill, not only s = 12 and the spill.  0 = the old flag (fallback). */
+static int p24_crt_any(void) { static int v = -1; if (v < 0) { const char *e = getenv("P24_CRT_ANY"); v = e ? atoi(e) != 0 : 1; } return v; }
 static char g_p24_what[160]; static size_t g_p24_seq; static int g_p24_ka = 1, g_p24_kb = 1, g_p24_pi = -1, g_p24_pj = -1; static size_t g_p24_pa, g_p24_pb;   /* the running product (mn_grid / mn_piece_form, main thread) */
 /* P24_CHECK coverage line and fault injection (results/PRIMES_STRATEGY.md §P24 audit): counters per PE process; the summary prints at exit under P24_CHECK >= 1 */
 static size_t g_c_prod, g_c_pieces, g_c_st, g_c_rc, g_c_hit, g_c_flags;
@@ -1012,6 +1014,7 @@ static void p24_report(void)                                   /* at exit and be
     fflush(stdout);
 }
 static void p24_arm(void) { static int on; if (!on) { on = 1; atexit(p24_report); } }
+int rns_dist_p24_crt_all(void) { return p24_crt_any() || p24_check() > 0; }   /* 1 = the CRT flag covers every shift class (tests and gates print it) */
 size_t rns_dist_p24_products(void) { return g_c_prod; }       /* P24 products formed in this process (counted always; tests print it) */
 __global__ void k_chk24(const uint64_t *b, size_t n, unsigned long long *res)
 {
@@ -1526,7 +1529,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             if (p24_run_total(&om) > 3 * q + 16) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 out-runs %zu limbs > pool 1's 3 q + 16 = %zu\n", p24_run_total(&om), 3 * q + 16); }
             if (p24_check()) { __atomic_fetch_add(&g_c_pieces, 1, __ATOMIC_RELAXED); if (ha >= 0) __atomic_fetch_add(&g_c_hit, 1, __ATOMIC_RELAXED); if (hb >= 0) __atomic_fetch_add(&g_c_hit, 1, __ATOMIC_RELAXED); }
             if (p24_inject(2)) { uint64_t bad = 1234567890123ULL; HIP_CHECK(hipMemcpyAsync(xa[0], &bad, 8, hipMemcpyHostToDevice, s)); }   /* P24_CHECK_TEST=2: one plane residue replaced */
-            p24_crt_set_check(p24_check() > 0);
+            p24_crt_set_check(p24_crt_any() || p24_check() > 0);   /* all-shift flag by default (P24_CRT_ANY=0: the s = 12 + spill flag only, unless P24_CHECK) */
             p24_crt_launch(xa[0], xa[1], xa[2], xa[3], &gc, R, C, a0, rows, xb, v->spill, s);
             unsigned fl = p24_crt_err(s);
             if (fl) {
