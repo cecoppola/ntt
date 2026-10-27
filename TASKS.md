@@ -10,7 +10,15 @@ Closed rows and older material are in `archive:TASKS_HISTORY_2026-10-19.md`, `ar
 Classes: 1 bugs, 2 shrink, 3 simplify, 4 performance, 5 docs (definitions in the project instructions). Within a class,
 rows are in the order to do them.
 
-None open.
+Scheduled for the next work session (user 2026-10-26):
+- Class 1: every OpenMP team sized from the task's affinity mask, not `omp_get_max_threads()` (latched at launch). The target's
+  login env (`SLURM_HINT=nomultithread`, no `-c`) latches 1-2 threads; BS_SEED_THREADS=auto and the mnrun hint drop cover the
+  seeds and the standard launcher; still exposed: `bs_nthreads()` teams in binsplit.c and the multi-node digit residue in
+  mn_out.c (13.1-13.3 s at 64 nodes on the target vs 0.24-0.37 s per 8e9 node share on aac7 at 1 node, m; cause modelled).
+  Behind a switch, off by default; gate 1 node now, 2 nodes when a second networked aac7 node is free; update on new target data.
+- Class 4: balance the top bs levels across the 4 APUs of a node: APU 0 holds them (aac7 8e9: 34.5 vs 23.8 GB, m; target
+  2.7-6.5 GB above the planner's per-APU figure, m); it sets the per-node size edge and may explain the 3e13 P24 flag (mod).
+  Calibration of `ECALC_FIT_PER_APU` against measured per-APU peaks first (aac7 item e6e).
 
 ## Proposed (needs the user's priority)
 
@@ -38,3 +46,5 @@ Performance ideas, open or tried, are in `OPPORTUNITIES.md`.
 ## Target session
 
 Target work: `target/RESTART.md` and `target/bench/QUESTIONS.md`.
+- Self-test cost (user 2026-10-26: keep the start-up self-tests if they really take < 15 s): read the self-test seconds
+  (`ECALC_INIT_TL=1`) at 2 nodes and 576 nodes with the fixed seed default (576 n layered test 3.1-3.5 s; aac7 3 n 3.7-4.2 s, m).
