@@ -655,7 +655,7 @@ static void flow_run(void *a)
     { const char *tl = getenv("ECALC_INIT_TL"); int tv = tl ? atoi(tl) : 0;   /* ECALC_INIT_TL=1 (print only): the init figure as its parts, which sum to it; the engine's own steps are the `tl ... xshmem:` lines.  =2: every node prints */
       if (tv > 0 && (mn_rank() == 0 || (tv >= 2 && vpe_node_leader()))) {
           printf("tl          %s %d: process age at main %.2f s (/proc starttime against boot time, 10 ms; it precedes the init clock)\n", who(), mn_rank(), fc->t_age);
-          printf("tl          %s %d: init %.2f s = plan/fit/pool rule before the transport %.2f + mn_init %.2f + rns_init %.2f + mn_selftest %.2f + region pools %.2f + other %.2f (other: seeds, sampler, term ranges)\n",
+          printf("tl          %s %d: init = %.2f s: plan/fit/pool rule before the transport %.2f + mn_init %.2f + rns_init %.2f + mn_selftest %.2f + region pools %.2f + other %.2f (other: seeds, sampler, term ranges)\n",
                  who(), mn_rank(), t_init, fc->t_pre, fc->t_mn, t_ri, fc->t_st, t_pg, t_init - fc->t_pre - fc->t_mn - t_ri - fc->t_st - t_pg); }
       else if (tv > 0 && fc->t_age > 30.0) printf("tl          %s %d: LATE START: process age at main %.2f s\n", who(), mn_rank(), fc->t_age); }
     if (verbose >= 2 && vpe_node_leader()) printf("      init: rns_init %.2f s, region pools %.2f s, the rest %.2f s\n", t_ri, t_pg, t_init - t_ri - t_pg);   /* A-mem */

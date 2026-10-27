@@ -224,3 +224,5 @@ Written without a build (no local builds); every item below is **code reading or
 - Gate run with `ECALC_INIT_TL=1`: check the new lines; the `init =` line sums to `init`. Then 1 and 2 node gates with each new switch on (digits identical).
 
 `COMM_SEQ_CHECK` handshake rule (review fix): a member waiting in its first allgather handshake is fatal only if the awaited member's newest check word carries a call number >= this member's next call (it has passed this call's slot as another collective); a slower member that is still on earlier calls is not divergent. `t_vpe hs` covers it (`T_VPE_HS_SKEW`: barrier, allreduce_max, 0.3 s skew, first allgather on a pair).
+
+More than 4 PEs on one node for `t_vpe hs`: `mnrun.sh` reads `MNRUN_PPG_PPN` (environment only) and `XSHMEM_PES_PER_GPU` (environment or argument) and prints `ECALC_PE_PER_GPU=1: <N> processes per node (...)`; that line is the check (N must be 8). The limit is `VPE_MAX` = 8 PEs per node (`vpe.h`), 2 per GPU on 4 GPUs. The `ECALC_INIT_TL` budget line reads `init = <s>: plan/fit/pool rule ... + other ...`.
