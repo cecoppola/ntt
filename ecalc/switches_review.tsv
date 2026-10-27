@@ -78,3 +78,7 @@ ECALC_OMP_TEAM	experiment	TARGET12 (S22)	2026-12-31	A1: default flip to mask onc
 ECALC_RESIDUE	experiment	TARGET12 (S22)	2026-12-31	B3a: default flip to shoup once the target gate passes
 MN_OUT_EARLY_ALWAYS	experiment	TARGET12 (S22)	2026-12-31	B3b: default flip once gated at 1 and 2 nodes without an output file
 XSHMEM_COLL	experiment	comm	2026-12-31	tree collectives vs flat at target scale; adopt or drop after the 64-node A/B
+XSHMEM_SPARSE	experiment	comm	2026-12-31	skip zero-byte peers in exchanges; adopt or drop after the target shift test
+XSHMEM_HANG_S	diagnostic	comm	2027-04-12	handshake HANG timeout for imbalance vs loss tests
+XSHMEM_HS_BATCH	experiment	comm	2026-12-31	paced / rotated flat handshake; adopt or drop after the target 2e13 test
+COMM_SEQ_CHECK	diagnostic	comm	2027-04-12	call-sequence divergence check

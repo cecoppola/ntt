@@ -32,7 +32,8 @@
 #include "../mem.h"
 
 int mn_groups_parse(int size, int *out, int max);
-comm *comm_xshmem_create_flat(int pe_start, int n, int id) __attribute__((weak));   /* (comm.h declares it only under XSHMEM_ENGINE) */
+comm *comm_xshmem_create_flat(int pe_start, int n, int id) __attribute__((weak));
+int comm_xshmem_burst(int nsig, int batch, double *t_issue, double *t_quiet) __attribute__((weak));   /* comm_xshmem.c: a burst of signals to the other PEs (t_vpe hs) */   /* (comm.h declares it only under XSHMEM_ENGINE) */
 static int g_fail, g_checks, g_skip_comm, g_ppg;
 #define CHK(c, ...) do { __atomic_fetch_add(&g_checks, 1, __ATOMIC_RELAXED); if (!(c)) { __atomic_fetch_add(&g_fail, 1, __ATOMIC_RELAXED); \
     printf("  FAILED %s:%d  %s  pe %d: ", __FILE__, __LINE__, #c, vpe_pe()); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -128,7 +129,7 @@ static void exercise(comm *c, int g0, const char *tag)
     HIPC(hipFree(ds)); HIPC(hipFree(dr)); HIPC(hipFree(des)); HIPC(hipFree(der)); HIPC(hipStreamDestroy(st));
     free(sc); free(hs); free(hr); free(es); free(er);
 }
-static int g_mode_probe, g_mode_all, g_mode_coll;
+static int g_mode_probe, g_mode_all, g_mode_coll, g_mode_hs;
 static uint64_t g_rng;
 static uint64_t rnd(void) { g_rng ^= g_rng << 13; g_rng ^= g_rng >> 7; g_rng ^= g_rng << 17; return g_rng; }   /* xorshift64: the same stream on every member of a communicator */
 static uint64_t cv(int pe, int it) { uint64_t x = ((uint64_t)pe + 1) * 0x9E3779B97F4A7C15ull ^ ((uint64_t)it * 0xD1B54A32D192ED03ull + 7); x ^= x >> 29; return x >> 3; }
@@ -176,6 +177,74 @@ static void coll_body(void *unused)
     free(all);
     if (pe == 0) printf("T_VPE_COLL_TIME XSHMEM_COLL=%s n %d reps %d: barrier %.1f us, allreduce_max %.1f us, allgather_host 16 B %.1f us (per call, PE 0)\n", em, npe, reps, us[0], us[1], us[2]);
 }
+/* ---- hs (handshake stress): first calls on many new communicators, and per-PE signal bursts ----
+ * Part 1: for every communicator size g in 2..8 (aligned powers of two on XT_HS_SLOTS slots (default 12, at most 14), 3 5 6 7 on 4 slots: at most 52 communicators per PE, the limit is 64) the first
+ * allgather_host of a NEW communicator (all members enter together after a flat barrier; the first call = the handshake of comm_xshmem.c, flat or tree by XSHMEM_COLL), then XT_HS_REPS (20)
+ * steady calls; every result is checked.  PE 0 prints per size the number of communicators, the first-call time (mean and max) and the steady time.
+ * Part 2: a burst of N 8-byte signals from every PE to the other PEs in rotated order (comm_xshmem_burst), N in 64 256 1024 2303 4608 (up to XT_HS_BURST_MAX): one unpaced burst and one paced
+ * (XT_HS_BATCH signals per quiet, 64): max issue time and final quiet time over the PEs.  One process per PE, at most 8 PEs on one node (vpe.h VPE_MAX): MNRUN_PPG_PPN=8 XSHMEM_PES_PER_GPU=2. */
+static void hs_body(void *unused)
+{
+    (void)unused;
+    int npe = vpe_npe(), pe = vpe_pe(); const char *em = getenv("XSHMEM_COLL"); if (!em || !*em) em = "flat";
+    int reps = getenv("XT_HS_REPS") ? atoi(getenv("XT_HS_REPS")) : 20, slots = getenv("XT_HS_SLOTS") ? atoi(getenv("XT_HS_SLOTS")) : 12;
+    int bmax = getenv("XT_HS_BURST_MAX") ? atoi(getenv("XT_HS_BURST_MAX")) : 4608, hb = getenv("XT_HS_BATCH") ? atoi(getenv("XT_HS_BATCH")) : 64;
+    if (slots > 14) slots = 14;
+    if (slots < 1) slots = 1;
+    comm *flat = vpe_comm(); CHK(flat != 0, "no flat communicator"); if (!flat) return;
+    double first_sum[9] = { 0 }, first_max[9] = { 0 }, steady_sum[9] = { 0 }; int ncomm[9] = { 0 };
+    for (int pass = 0; pass < 2; pass++)                       /* pass 0: aligned powers of two, pass 1: the others */
+        for (int g = 2; g <= 8 && g <= npe; g++) {
+            int pow2 = (g & (g - 1)) == 0; if (pow2 != (pass == 0)) continue;
+            int ns = pow2 ? slots : 4;
+            for (int slot = 0; slot < ns; slot++) {
+                int g0 = pe / g * g, gg = g < npe - g0 ? g : npe - g0;
+                if (g0 == 0 && gg == npe && slot == 0) continue;   /* (that run is the flat communicator) */
+                comm_barrier(flat);
+                comm *c = vpe_sub_slot(g0, gg, slot);
+                CHK(c != 0, "no communicator [%d,%d) slot %d", g0, g0 + gg, slot); if (!c) continue;
+                int n = comm_size(c), me = comm_rank(c); uint64_t mine[2] = { (uint64_t)pe * 3 + 1, (uint64_t)slot }, all[16];
+                double t1 = tnow(); comm_allgather_host(c, mine, all, 16); double t2 = tnow();
+                for (int i = 0; i < n; i++) CHK(all[2 * i] == (uint64_t)(g0 + i) * 3 + 1 && all[2 * i + 1] == (uint64_t)slot, "hs first call: g %d slot %d member %d of %d (me %d)", g, slot, i, n, me);
+                for (int r = 0; r < reps; r++) {
+                    mine[1] = (uint64_t)r + 100; comm_allgather_host(c, mine, all, 16);
+                    for (int i = 0; i < n; i++) CHK(all[2 * i + 1] == (uint64_t)r + 100, "hs steady call %d: g %d slot %d member %d", r, g, slot, i);
+                }
+                double t3 = tnow(), fc = t2 - t1;
+                first_sum[g] += fc; if (fc > first_max[g]) first_max[g] = fc; steady_sum[g] += (t3 - t2) / (reps > 0 ? reps : 1); ncomm[g]++;
+            }
+        }
+    comm_barrier(flat);
+    for (int g = 2; g <= 8; g++) {
+        size_t cnt = comm_allreduce_max(flat, (size_t)ncomm[g]); if (!cnt) continue;
+        size_t mx = comm_allreduce_max(flat, (size_t)(first_max[g] * 1e6)), sm = comm_allreduce_max(flat, ncomm[g] ? (size_t)(first_sum[g] / ncomm[g] * 1e6) : 0), st = comm_allreduce_max(flat, ncomm[g] ? (size_t)(steady_sum[g] / ncomm[g] * 1e6) : 0);
+        if (pe == 0) printf("T_VPE_HS_FIRST XSHMEM_COLL=%s npe %d size %d: %d communicators, first call mean (worst PE) %zu us, max %zu us; steady call mean (worst PE) %zu us\n", em, npe, g, ncomm[g], sm, mx, st);
+    }
+    if (!comm_xshmem_burst) { if (pe == 0) printf("T_VPE_HS_BURST: skipped (no comm_xshmem_burst: not the xshmem engine)\n"); return; }
+    static const int ns_[] = { 64, 256, 1024, 2303, 4608 };
+    for (unsigned i = 0; i < sizeof ns_ / sizeof *ns_; i++) for (int paced = 0; paced < 2; paced++) {
+        int N = ns_[i]; if (N > bmax) continue;
+        comm_barrier(flat); double ti = 0, tq = 0; int rc = comm_xshmem_burst(N, paced ? hb : 0, &ti, &tq);
+        CHK(rc == 0, "burst of %d: rc %d", N, rc);
+        comm_barrier(flat);
+        size_t mi = comm_allreduce_max(flat, (size_t)(ti * 1e6)), mq = comm_allreduce_max(flat, (size_t)(tq * 1e6));
+        if (pe == 0) printf("T_VPE_HS_BURST XSHMEM_COLL=%s npe %d: %d signals per PE, %s: issue %.1f ms, final quiet %.1f ms (max over the PEs, %.2f us per signal issued)\n", em, npe, N, paced ? "paced (quiet per XT_HS_BATCH)" : "one burst", mi / 1e3, mq / 1e3, (double)mi / N);
+    }
+}
+/* seqdiv / seqdiv2 (COMM_SEQ_CHECK=1): PEs 0 and 1 call different collectives on their run [0, 2): seqdiv = barrier vs allreduce_max, seqdiv2 = allgather_host (first call) vs barrier.
+ * The step must end nonzero with "COMM_SEQ_CHECK" fatal text from the diverging PE(s); no "passed the diverging collective" line may appear. */
+static int g_seq2;
+static void seqdiv_body(void *unused)
+{
+    (void)unused;
+    comm *flat = vpe_comm(); comm_barrier(flat);
+    comm *c = vpe_sub(0, 2); if (!c) { usleep(3000000); return; }
+    uint64_t a[2] = { 1, 2 }, b[4];
+    if (vpe_pe() == 0) { if (g_seq2) comm_allgather_host(c, a, b, 16); else comm_barrier(c); }
+    else { if (g_seq2) comm_barrier(c); else (void)comm_allreduce_max(c, 5); }
+    printf("t_vpe seqdiv: pe %d passed the diverging collective (COMM_SEQ_CHECK=1 must prevent this)\n", vpe_pe());
+}
+
 /* the partition of the PEs into runs of g (the last one cut): this PE's run, exercised */
 static void partition(int g, const char *what)
 {
@@ -306,14 +375,14 @@ int main(int argc, char **argv)
 {
     const char *mode = argc > 1 && strncmp(argv[1], "--", 2) ? argv[1] : "all";
     g_ppg = 1;                                           /* process mode only (the thread mode was removed); --ppg is accepted */
-    g_mode_probe = !strcmp(mode, "probe"); g_mode_all = !strcmp(mode, "all"); g_mode_coll = !strcmp(mode, "coll");
+    g_mode_probe = !strcmp(mode, "probe"); g_mode_all = !strcmp(mode, "all"); g_mode_coll = !strcmp(mode, "coll"); g_mode_hs = !strcmp(mode, "hs"); g_seq2 = !strcmp(mode, "seqdiv2");
     if (g_ppg) {                                         /* S2a: this process is ONE PE (srun, SLURM_LOCALID); without srun (host on a login node): local 0 of 4 */
         cpu_set_t m; sched_getaffinity(0, sizeof m, &m); cpustr(&m, g_launch_mask, sizeof g_launch_mask);
         setenv("ECALC_PE_PER_GPU", "1", 1);
         if (!strcmp(mode, "badlayout") && getenv("SLURM_LOCALID") && atoi(getenv("SLURM_LOCALID")) == 1) setenv("SLURM_LOCALID", "2", 1);
         if (!getenv("SLURM_LOCALID")) { setenv("ECALC_VPE_LANES", "4", 0); vpe_set_ppg(0); } else vpe_ppg_init();
     }
-    if (!g_mode_all && !g_mode_probe && !g_mode_coll && strcmp(mode, "host") && strcmp(mode, "info") && strcmp(mode, "die") && strcmp(mode, "badlayout")) { printf("usage: t_vpe [all|probe|coll|host] [--ppg] | t_vpe info|die|badlayout\n"); return 2; }
+    if (!g_mode_all && !g_mode_probe && !g_mode_coll && !g_mode_hs && strcmp(mode, "seqdiv") && strcmp(mode, "seqdiv2") && strcmp(mode, "host") && strcmp(mode, "info") && strcmp(mode, "die") && strcmp(mode, "badlayout")) { printf("usage: t_vpe [all|probe|coll|hs|host] [--ppg] | t_vpe info|die|badlayout|seqdiv|seqdiv2\n"); return 2; }
     vpe_set_forced(1);
     host_part();
     if (!strcmp(mode, "host")) { printf("\nt_vpe host: %s (%d checks)\n", g_fail ? "FAILED" : "OK", g_checks); return g_fail != 0; }
@@ -330,6 +399,8 @@ int main(int argc, char **argv)
         else if (g_ppg && !strcmp(mode, "badlayout")) { vpe_run(die_body, 0); }   /* (mn_init fataled on the PE with the wrong id; the others wait here until the step is killed) */
         else {
             if (g_mode_coll) vpe_run(coll_body, 0);
+            else if (g_mode_hs) vpe_run(hs_body, 0);
+            else if (!strcmp(mode, "seqdiv") || g_seq2) vpe_run(seqdiv_body, 0);
             else {
             if (g_ppg) { vpe_run(ppg_ident, 0); vpe_run(ppg_node_group, 0); }
             vpe_run(comm_body, 0); }

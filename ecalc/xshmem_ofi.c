@@ -108,6 +108,10 @@ static void xfatal(const char *fmt, ...)
 #define CK(x) do { int r_ = (int)(x); if (r_) xfatal("%s = %d (%s) at line %d", #x, r_, fi_strerror(-r_), __LINE__); } while (0)
 #define YIELD() sched_yield()
 static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (double)t.tv_sec + 1e-9 * (double)t.tv_nsec; }
+/* ECALC_INIT_TL=1: the start-up steps of xshmem_init_thread, summed over the PEs this process hosts (print only; comm_xshmem.c prints them): geo = PMI init + topology (pe_geo_init), hip = the first HIP runtime
+ * call (hipSetDevice + hipFree(0)), kern = the first kernel (a 4 KiB hipMemset), open = pe_open (domains, endpoints; includes hip and kern), exch = the PMI address exchange (boot_allgather), av = fi_av_insert calls */
+static struct { int on; double geo, hip, kern, open, exch, av, tot; long n_av; } OT;
+void xshmem_ofi_init_times(double *v, long *n_av) { v[0] = OT.geo; v[1] = OT.hip; v[2] = OT.kern; v[3] = OT.open; v[4] = OT.exch; v[5] = OT.av; v[6] = OT.tot; v[7] = (double)W.P * (double)W.K; *n_av = OT.n_av; }
 
 /* ---- completion bookkeeping (under g->lock) ---- */
 static void err_fatal(lane_t *L)
@@ -321,12 +325,19 @@ static void pe_open(pe_t *g)
     g->nep = 1 + nl + SPARE;
     if (g->nep > MAXEP) xfatal("XSHMEM_LANES = %d: at most %d lanes", nl, MAXEP - 1 - SPARE);
     g->quiet_s = 130.0;                        /* deadline like libsma; the env override XSHMEM_QUIET_TIMEOUT waits for a registry row (B1) */
-    { int d = g->topo.gpu < 0 ? 0 : g->topo.gpu; if (hipSetDevice(d) != hipSuccess) xfatal("hipSetDevice(%d)", d); }
+    double t_po = OT.on ? now_s() : 0;
+    { int d = g->topo.gpu < 0 ? 0 : g->topo.gpu; double t_h = OT.on ? now_s() : 0; if (hipSetDevice(d) != hipSuccess) xfatal("hipSetDevice(%d)", d);
+      if (OT.on) {                              /* the first HIP runtime call and the first kernel, on this PE's own device (no other device is touched) */
+          (void)hipFree(0); OT.hip += now_s() - t_h;
+          double t_k = now_s(); void *b = 0;
+          if (hipMalloc(&b, 4096) == hipSuccess) { (void)hipMemset(b, 0, 4096); (void)hipDeviceSynchronize(); (void)hipFree(b); } else (void)hipGetLastError();
+          OT.kern += now_s() - t_k; } }
     for (int e = 0; e < g->nep; e++) open_ep(g, e);
     struct fi_info *i0 = g->dom[0].info;
     g->vaddr = (i0->domain_attr->mr_mode & FI_MR_VIRT_ADDR) != 0; g->pkey = (i0->domain_attr->mr_mode & FI_MR_PROV_KEY) != 0;
     g->inject = i0->tx_attr->inject_size; g->maxmsg = i0->ep_attr->max_msg_size ? i0->ep_attr->max_msg_size : ((size_t)1 << 31);
     if (g->maxmsg > ((size_t)1 << 31)) g->maxmsg = (size_t)1 << 31;
+    if (OT.on) OT.open += now_s() - t_po;
 }
 
 int xshmem_init_thread(int req, int *prov)
@@ -334,9 +345,11 @@ int xshmem_init_thread(int req, int *prov)
     (void)req;
     if (W.init) xfatal("xshmem_init_thread called twice");
     xshmem_cfg_t cfg; xshmem_cfg_load(&cfg); 
+    double t_it = now_s();
+    memset(&OT, 0, sizeof OT); { const char *e = getenv("ECALC_INIT_TL"); OT.on = e && atoi(e) > 0; }
     int K = cfg.loopback_pes;
     if (K < 1 || K > MAXLPE) { fprintf(stderr, "xshmem_ofi: XSHMEM_LOOPBACK_PES=%d: use 1..%d\n", K, MAXLPE); abort(); }
-    pe_topo t0; pe_geo_init(&t0);              /* process level: boot rank and size, node placement */
+    pe_topo t0; { double t_g = now_s(); pe_geo_init(&t0); OT.geo = now_s() - t_g; }   /* process level: boot rank and size, node placement */
     if (cfg.peer == 1 && K > 1) fprintf(stderr, "xshmem_ofi: XSHMEM_PEER needs one PE per process (XSHMEM_LOOPBACK_PES=1): off\n");
     int q = t0.pe, P = t0.npes;
     memset(&W, 0, sizeof W); W.K = K; W.q = q; W.P = P;
@@ -369,7 +382,8 @@ int xshmem_init_thread(int req, int *prov)
         for (int e = 0; e < g->nep; e++) { size_t al = MAXADDR; cur_l = l; CK(fi_getname(&g->lane[e].ep->fid, mine[l].ep[e].addr, &al)); mine[l].ep[e].alen = (uint32_t)al; }
     }
     ablob_t *all = (ablob_t *)malloc((size_t)npes * sizeof *all);
-    boot_allgather(mine, (size_t)K * sizeof *mine, all);
+    { double t_x = now_s(); boot_allgather(mine, (size_t)K * sizeof *mine, all); OT.exch = now_s() - t_x; }
+    double t_av = now_s();
     for (int l = 0; l < K; l++) {
         pe_t *g = &G[l]; cur_l = l;
         for (int p = 0; p < npes; p++) {
@@ -377,13 +391,15 @@ int xshmem_init_thread(int req, int *prov)
             for (int e = 0; e < g->nep; e++) {
                 int rc = fi_av_insert(g->dom[g->lane[e].slot].av, all[p].ep[e].addr, 1, &g->lane[e].fa[p], 0, NULL);
                 if (rc != 1) xfatal("fi_av_insert of pe %d endpoint %d: %d", p, e, rc);
+                OT.n_av++;
             }
         }
         g->lane[0].used = 1;
     }
+    OT.av = now_s() - t_av;
     cur_l = 0;
     free(all); free(mine);
-    W.init = 1;
+    W.init = 1; OT.tot = now_s() - t_it;
     if (prov) *prov = XSHMEM_THREAD_SERIALIZED;   /* issued counts, ctx_create and the counters are not locked per lane */
     pe_t *g = &G[0]; struct fi_info *i0 = g->dom[0].info; int nl = g->topo.nlanes < 1 ? 1 : g->topo.nlanes;
     if (g->mype == 0) {
