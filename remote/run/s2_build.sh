@@ -5,7 +5,7 @@
 # libfabric / libsma, builds the test binaries t_edge t_nodechk t_xshmem t_pe_geo and tools/unpack_digits).  Default builds on this (login)
 # node, both paths at once; --node builds on the first node of the allocation (--jobid / REMOTE_JOB) when the login node has no compiler.
 # GMP: GMP_HOME or a system gmp.h is used; otherwise a source tarball (gmp-*.tar.* next to the repo, in $REMOTE_OUT or $HOME) or a download
-# (REMOTE_GMP_URL=<link>) is built into $REMOTE_OUT/gmp (--no-gmp: do not try).  Writes REMOTE_ECALC1/2, REMOTE_MODULES_P1/P2, REMOTE_UNLOAD, GMP_HOME
+# (REMOTE_GMP_URL=<link>) is built into $REMOTE_OUT/gmp (--no-gmp: do not try); without GMP the build goes on (nothing it builds needs it).  Writes REMOTE_ECALC1/2, REMOTE_MODULES_P1/P2, REMOTE_UNLOAD, GMP_HOME
 # into site.env.  Verdict: PASS all requested built, PARTIAL path 2 failed but path 1 built (carry on with path 1), FAIL otherwise.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); . "$HERE/lib.sh"; set -u
 PATHS=both JOBS=32 NODE=0 JOB= NOGMP=0
@@ -50,7 +50,7 @@ if gmp_ok; then rl_kv gmp "${GMP_HOME:-system}"
 elif [ $NOGMP = 1 ]; then rl_kv gmp "none (--no-gmp)"
 else
     rl_say "no GMP found: building GMP into $REMOTE_OUT/gmp"
-    if gmp_build; then rl_kv gmp "built: $GMP_HOME"; else rl_finish FAIL "no GMP (gmp.h) and it could not be built" "copy gmp-6.3.0.tar.xz into $REMOTE_OUT, then $HERE/s2_build.sh --path $PATHS"; fi
+    if gmp_build; then rl_kv gmp "built: $GMP_HOME"; else unset GMP_HOME; rl_kv gmp "none (not needed: ecalc, tools, t_edge, t_nodechk, t_xshmem, t_pe_geo build without it; only the unit tests and ref/gen_e need GMP)"; fi
 fi
 [ -n "${GMP_HOME:-}" ] && export GMP_HOME
 # ---- builds
