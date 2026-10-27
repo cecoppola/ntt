@@ -82,13 +82,16 @@ Always run the planner first (s5_run does: `--fit` is its first step; on refusal
 | step | digits | nodes | path | env | model (no write) |
 |---|---|---|---|---|---|
 | s1 | 4.608e12 | 576 | chosen (done in S5) | adopted | 32 s |
-| s2 | 1e13 | 576 | 1 (path 2 refused by memory) | adopted | 52 s |
-| s3 | 3.82e13 | 576 | 1 | adopted + `MN_NONPOW2_CAP=0` | 187 s |
+| s2 | 1e13 | 576 | 1 (path 2 refused by memory) | adopted + `BS_MDEV_LOGL=29` | 52 s |
+| s3 | 3.82e13 | 576 | 1 | adopted + `BS_MDEV_LOGL=29 MN_NONPOW2_CAP=0` | 187 s |
 
 ```
-bash remote/run/s5_run.sh --nodes 576 --digits 10e12 --path 1 --env "<adopted>"
-bash remote/run/s5_run.sh --nodes 576 --digits 38.2e12 --path 1 --env "<adopted> MN_NONPOW2_CAP=0"
+bash remote/run/s5_run.sh --nodes 576 --digits 10e12 --path 1 --env "<adopted> BS_MDEV_LOGL=29"
+bash remote/run/s5_run.sh --nodes 576 --digits 38.2e12 --path 1 --env "<adopted> BS_MDEV_LOGL=29 MN_NONPOW2_CAP=0"
 ```
+`BS_MDEV_LOGL=29` on every run from 1e13 digits (user decision 2026-10-27): smaller device-0 arena levels, so the 4 APUs of a node
+peak equally (aac7 1e11 on 1 node, m: APU 0 109.9 -> 90.5 GB, all four 90.5, digits identical, no slower; planner per APU at 2e13 on
+576 nodes 89.7 -> 74.7 GB, mod; no change at 3.82e13).
 (or both in one chain paste once s1 passed and time is short; chain stops at FAIL, so s3 is skipped when s2 fails).
 Source of the numbers: `target/RESTART.md` section 8, `target/ladder/levels/L3.conf` (device 358.96 GB at s3 with cap 0, mod).
 Without cap 0 the planner refuses s3 (407 GB vs 373.44). A step that fails is not repeated blindly: ADJUST.md section 3
@@ -113,7 +116,7 @@ run dirs listed, then write the REPORT block (AGENT.md). Remind the user: the re
 
 Facts behind it: `FACTS.md` "Measured runs on the target". New switches are off by default unless stated: `ECALC_OMP_TEAM=mask` (team sizes from the
 affinity mask), `ECALC_RESIDUE=shoup` (digit residue), `XSHMEM_COLL=tree` (collectives), `ECALC_INIT_TL=1` (init timeline lines),
-`MN_WAIT_STATS=1`, `NEWTON_MN_RECIP_TS=1`, `COMM_HANG_DETAIL=1`, `MEM_REPORT_DEVS=1`; `mnrun.sh` now gives every task `srun -c <CPUs per task>` by default
+`MN_WAIT_STATS=1`, `NEWTON_MN_RECIP_TS=1`, `COMM_HANG_DETAIL=1`, `MEM_REPORT_DEVS=1`; `BS_MDEV_LOGL=29` on runs from 1e13 digits (S6); `mnrun.sh` now gives every task `srun -c <CPUs per task>` by default
 (`MNRUN_CPUS_PER_TASK=` empty restores the old line). Settings a script cannot take as an option are written as `--a/--b/--env` words.
 The multi-node changes shipped off by default, so the FIRST step is the gate at 1 AND 2 nodes (user decision); stop if it fails.
 
@@ -135,7 +138,7 @@ The multi-node changes shipped off by default, so the FIRST step is the gate at 
    Report both inits and the `tl` lines of the slowest node; the level lines `mn: node R level L ... in X s` (Fit A of the analysis predicts 2.1, 2.9, 3.3, 3.7, 4.1, 4.8 s for levels 1-6; compare).
 6. Benches (when time remains; a worker per allocation, `target/RESTART.md` §7): `net02` (put rate, latency, 1 vs 2 lanes), `net04` / `net05` (all-to-all scaling),
    `mem01` (VMM edge per APU: is the 93.36 GB hipMalloc edge the real limit? aac7 ran 109.9 GB on APU 0), `io01` / `io02`.
-7. Failures, only after 1-5: re-run 2e13 on 576 nodes with `COMM_HANG_DETAIL=1`, then 3e13 with `ECALC_FIT_PER_APU=1` (a planner refusal means the per-APU edge is the cause), then the 3.82e13 attempt with the best round size and `MN_NONPOW2_CAP=0`.
+7. Failures, only after 1-5 (every run here with `BS_MDEV_LOGL=29`, as in S6): re-run 2e13 on 576 nodes with `COMM_HANG_DETAIL=1`, then 3e13 with `ECALC_FIT_PER_APU=1` (a planner refusal means the per-APU edge is the cause), then the 3.82e13 attempt with the best round size and `MN_NONPOW2_CAP=0`.
 
 Missing script features (follow-ups, not invented here): several 64-node arms RUNNING AT ONCE in one hold (the scripts run one step at a time; the arms above are sequential,
 about 3 min each), and a team-size / init-timeline summary line in `s5_run.sh` / `s4_ab.sh` (read the log with `show.sh latest tail 60` for now).
