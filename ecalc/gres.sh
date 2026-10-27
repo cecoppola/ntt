@@ -11,7 +11,7 @@ mn_gres_on() {
     case "${MNRUN_GRES_RESOLVED:-}" in on) return 0;; off) return 1;; esac
     local out=
     if [ -n "${1:-}" ] && command -v scontrol >/dev/null 2>&1; then
-        out=$(timeout 30 scontrol show node "$1" -o 2>/dev/null | head -1)
+        out=$(timeout 30 scontrol show node "$1" -o 2>/dev/null | grep -m1 '^NodeName=')   # not a Slurm node (e.g. a login host): ask sinfo
         if [ -n "$out" ]; then case "$out" in *Gres=*gpu*) MNRUN_GRES_RESOLVED=on;; *) MNRUN_GRES_RESOLVED=off;; esac; fi
     fi
     if [ -z "${MNRUN_GRES_RESOLVED:-}" ] && command -v sinfo >/dev/null 2>&1; then
