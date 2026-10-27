@@ -510,6 +510,13 @@ static void chk_put(xpriv *p, int to, uint64_t seq, int par, int kind, size_t by
 {
     if (g_seqchk) xshmem_ctx_signal_set(XSHMEM_CTX_DEFAULT, WORD(p, W_CHK0 + par, p->me), chk_pack(seq, kind, bytes), p->pe[to]);
 }
+/* 1 when member m's newest check word carries a call number >= this member's NEXT call (tseq + 1): m has passed this call's slot without sending its handshake word (a legitimately slower
+ * member shows only numbers <= tseq: its earlier collectives) */
+static int chk_ahead(const xpriv *p, int m)
+{
+    uint64_t a = rd64(WORD(p, W_CHK0, m)) & 0xfffffffULL, b = rd64(WORD(p, W_CHK1, m)) & 0xfffffffULL, mx = a > b ? a : b;
+    return mx != 0 && mx >= ((p->tseq + 1) & 0xfffffffULL);
+}
 static void chk_verify(const xpriv *p, int from, uint64_t seq, int par, int kind, size_t bytes)
 {
     if (!g_seqchk) return;
@@ -632,7 +639,7 @@ static void x_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
             const uint64_t *w = WORD(p, W_SOFF, m);
             while (!sigge(w, 1)) if (!(++spins & 4095)) {
                 if (now_s() - t0 > g_hang_s) { if (getenv("COMM_HANG_DETAIL") && atoi(getenv("COMM_HANG_DETAIL"))) hang_handshake_detail(p); die_hang(p, "the allgather handshake", m); }
-                if (g_seqchk && !(spins & 0xffff) && (rd64(WORD(p, W_CHK0, m)) || rd64(WORD(p, W_CHK1, m)))) {
+                if (g_seqchk && !(spins & 0xffff) && chk_ahead(p, m)) {   /* m has already made call number tseq + 1 (this call) as another collective */
                     char b0[112], b1[112]; chk_text(rd64(WORD(p, W_CHK0, m)), b0, sizeof b0); chk_text(rd64(WORD(p, W_CHK1, m)), b1, sizeof b1);
                     ec_fatal(EC_RC_FATAL, "comm_xshmem: pe %d: COMM_SEQ_CHECK: call-sequence divergence on comm %d (%d members): this member is in its first allgather_host (the handshake), member %d (pe %d) has never sent its handshake word but is in another small collective (even-parity: %s | odd-parity: %s)\n",
                              X.K * X.q + p->lpe, p->id, n, m, p->pe[m], b0, b1); }

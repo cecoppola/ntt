@@ -33,7 +33,8 @@
 
 int mn_groups_parse(int size, int *out, int max);
 comm *comm_xshmem_create_flat(int pe_start, int n, int id) __attribute__((weak));
-int comm_xshmem_burst(int nsig, int batch, double *t_issue, double *t_quiet) __attribute__((weak));   /* comm_xshmem.c: a burst of signals to the other PEs (t_vpe hs) */   /* (comm.h declares it only under XSHMEM_ENGINE) */
+/* (comm.h declares these only under XSHMEM_ENGINE) */
+int comm_xshmem_burst(int nsig, int batch, double *t_issue, double *t_quiet) __attribute__((weak));   /* comm_xshmem.c: a burst of signals to the other PEs (t_vpe hs) */
 static int g_fail, g_checks, g_skip_comm, g_ppg;
 #define CHK(c, ...) do { __atomic_fetch_add(&g_checks, 1, __ATOMIC_RELAXED); if (!(c)) { __atomic_fetch_add(&g_fail, 1, __ATOMIC_RELAXED); \
     printf("  FAILED %s:%d  %s  pe %d: ", __FILE__, __LINE__, #c, vpe_pe()); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -219,6 +220,17 @@ static void hs_body(void *unused)
         size_t cnt = comm_allreduce_max(flat, (size_t)ncomm[g]); if (!cnt) continue;
         size_t mx = comm_allreduce_max(flat, (size_t)(first_max[g] * 1e6)), sm = comm_allreduce_max(flat, ncomm[g] ? (size_t)(first_sum[g] / ncomm[g] * 1e6) : 0), st = comm_allreduce_max(flat, ncomm[g] ? (size_t)(steady_sum[g] / ncomm[g] * 1e6) : 0);
         if (pe == 0) printf("T_VPE_HS_FIRST XSHMEM_COLL=%s npe %d size %d: %d communicators, first call mean (worst PE) %zu us, max %zu us; steady call mean (worst PE) %zu us\n", em, npe, g, ncomm[g], sm, mx, st);
+    }
+    if (npe >= 2) {   /* COMM_SEQ_CHECK: a legitimate barrier + allreduce_max, then a skewed FIRST allgather on a fresh communicator must pass (no false divergence) */
+        comm *c = vpe_sub_slot(pe / 2 * 2, npe - pe / 2 * 2 >= 2 ? 2 : 1, 13);
+        if (c && comm_size(c) == 2) {
+            comm_barrier(c); (void)comm_allreduce_max(c, 3);
+            if (comm_rank(c) == 1) usleep(300000);
+            uint64_t m2[2] = { (uint64_t)pe, 7 }, a2[4]; comm_allgather_host(c, m2, a2, 16);
+            CHK(a2[0] == (uint64_t)(pe / 2 * 2) && a2[2] == (uint64_t)(pe / 2 * 2 + 1), "skewed first allgather after a barrier");
+        }
+        comm_barrier(flat);
+        if (pe == 0) printf("T_VPE_HS_SKEW: barrier, allreduce_max, 0.3 s skew, first allgather on a pair: ok\n");
     }
     if (!comm_xshmem_burst) { if (pe == 0) printf("T_VPE_HS_BURST: skipped (no comm_xshmem_burst: not the xshmem engine)\n"); return; }
     static const int ns_[] = { 64, 256, 1024, 2303, 4608 };
