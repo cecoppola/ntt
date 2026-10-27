@@ -54,7 +54,6 @@ ECALC_NODE_GB	float	480	480		built-in default	aac7	P16.md+C314.md	Y	ecalc	binspl
 ECALC_NP	enum	auto	derived	auto|3|4	launch-line	-	P15.md	Y	ecalc	crt.c,ecalc.c	3	-	-	ecalc.c: unset becomes auto at size > 1 (D18), 3 at size 1; crt.c reads auto
 ECALC_NP_AUTO_TERMS	bool	derived	derived	0|1	test-only	-	NP15.md	Y	ecalc	crt.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_ODIRECT	int	1	1		built-in default	-	S114.md+KP15.md	Y	ecalc	spill.c	3	-	-	
-ECALC_OMP_TEAM	str	omp	unset	omp|mask	experiment	-	S22.md	Y	ecalc	omp_team.h	1	TARGET12 (S22)	2026-12-31	omp_team.h: size of the host OpenMP teams (bs_nthreads, packed_mods residue, verify.c, mem.c hstage): omp = omp_get_max_threads() (latched from the launch CPU mask: 1-2 under an srun without -c); mask = the CPUs the calling thread may run on now (affinity mask); with mask rank 0 prints one `omp team:` line (mask CPUs, OMP max, seed, bs, residue, bg threads)
 ECALC_OUT_MODE	bool	derived	derived	0|1	built-in default	-	IO15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_ODIRECT	int	derived	derived		built-in default	-	S114.md+KP15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_PACKED	int	2	2		built-in default	-	KP15.md+IO15.md	Y	ecalc	mn_out.c	1	coordinator (TASKS S)	2026-11-11	
@@ -80,7 +79,7 @@ MN_NONPOW2_MIN	num	4.5e10	unset	>0	built-in default	-	-	Y	ecalc	rns_mul.c	1	T2 (
 MN_OUT_CHUNK_MB	int	256	256		built-in default	-	IO15.md+A-out.md	Y	ecalc	mn_out.c	2	-	-	
 MN_OUT_DKM_HI_TEST_CARRY	bool	unset	unset	0|1	test-only	-	EW15.md	Y	ecalc	ecalc.c	1	diagnostics (TESTING.md)	2027-04-12	
 MN_OUT_EARLY	int	1	1		built-in default	-	IO15.md	Y	ecalc	binsplit.c,ecalc.c	6	-	-	
-MN_OUT_EARLY_ALWAYS	bool	0	unset	0/1	experiment	-	S22.md	Y	ecalc	ecalc.c	2	TARGET12 (S22)	2026-12-31	ecalc.c mn_hooks_set: 1 = the early output hook (MN_OUT_EARLY) also without an output file: the writer computes the digit residues only, overlapped with the division, and writes nothing
+MN_OUT_EARLY_ALWAYS	bool	0	unset	0/1	experiment	-	S22.md	Y	ecalc	ecalc.c	2	TARGET12 (S22)	2026-12-31	ecalc.c mn_hooks_set: 1 = the early output hook (MN_OUT_EARLY) also without an output file: the writer computes the digit residues only, overlapped with the division, and writes nothing; measured aac7 1 node layout P 8e9: dm 3.11 -> 3.92 s with it on (the writer competes with the division), so it stays off
 MN_OUT_STRIPE	bool	1	1	0|1	built-in default	-	IO15.md+SC15.md	Y	ecalc	mn_out.c	1	-	-	
 MN_OUT_THREADS	int	8	8		built-in default	-	IO15.md+TARGET_HW_REVIEW.md	Y	ecalc	mn_out.c	3	-	-	
 MN_PLAN_ONLY	str	unset	derived	D:g	launch-line	-	P15.md+T215.md	Y	ecalc	binsplit.c,ecalc.c,vpe.c	3	-	-	ecalc.c:451; prints the plan and exits

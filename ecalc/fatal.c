@@ -2,6 +2,7 @@
  * Built with hipcc (the APU of the calling thread from hipGetDevice); -DEC_FATAL_NO_HIP for the host-only transport test. */
 #include "fatal.h"
 #include "omp_team.h"
+int ec_team_share = 1;   /* omp_team.h: the PEs sharing the node's CPUs (PE-per-GPU flow, ECALC_OMP_TEAM=mask) */
 __thread int ec_team_override;   /* omp_team.h: a background thread's explicit team (0 = none) */
 #include <stdio.h>
 #include <stdlib.h>

@@ -602,7 +602,9 @@ int main(int argc, char **argv)
     if (getenv("ECALC_BG_THREADS")) g_bg_threads = atoi(getenv("ECALC_BG_THREADS"));
     if (vpe_on()) {                                  /* the process-wide settings of the PE flow, once, before the flow */
         if (mn_size_ < 2) ec_fatal(EC_RC_FATAL, "ecalc: ECALC_PE_PER_GPU=1 needs at least 2 PEs (%d): run on 2+ nodes or more tasks per node\n", mn_size_);
-        g_bg_threads = env_vpe_bg_threads(); mn_out_bg_threads(g_bg_threads);
+        g_bg_threads = env_vpe_bg_threads();
+        if (ec_team_on()) { ec_team_share = vpe_lanes(); if (ec_team() < g_bg_threads) g_bg_threads = ec_team(); }   /* A1: with =mask a PE's teams are its share of the node (or OMP_NUM_THREADS), bg included */
+        mn_out_bg_threads(g_bg_threads);
         if (vpe_ppg()) printf("ppg: %s: background team %d threads (this process's affinity mask of %d CPUs; OMP max %d), device %d\n", ec_log_prefix(), g_bg_threads, g_bg_threads, omp_get_max_threads(), vpe_device());   /* S2: one line per process (the mask is the PE's own) */
         if (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0)
             printf("vpe: %d PEs = %d per node x %d node%s; background team %d threads per PE (%d CPUs / %d PEs per node; OMP max %d); two part files per PE\n",
@@ -613,8 +615,8 @@ int main(int argc, char **argv)
         mn_hooks_set(0, outfile);
     }
     if (ec_team_on() && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0))   /* A1: ECALC_OMP_TEAM=mask (nothing printed with it off) */
-        printf("omp team: ECALC_OMP_TEAM=mask: affinity mask %d CPUs, omp_get_max_threads %d, seed threads %d, bs team %d, residue team %d, bg threads %d\n",
-               ec_team_mask_count(), omp_get_max_threads(), bs_seed_team_size(), bs_team_size(), ec_team(), g_bg_threads);
+        printf("omp team: ECALC_OMP_TEAM=mask (rule: %s): affinity mask %d CPUs, omp_get_max_threads %d, seed threads %d, bs team %d, residue team %d, bg threads %d\n",
+               ec_team_rule(), ec_team_mask_count(), omp_get_max_threads(), bs_seed_team_size(), bs_team_size(), ec_team(), g_bg_threads);
     struct flow_ctx fc; memset(&fc, 0, sizeof fc);
     fc.N = N; fc.d = d; fc.d_out = d_out; fc.outfile = outfile; fc.verbose = verbose; fc.pool_log = pool_log; fc.mn_size = mn_size_; fc.t00 = t00; fc.t_ri = t_ri;
     vpe_run(flow_run, &fc);                          /* off: once on this thread (the off path's flow, as before); process mode: this process's PE */

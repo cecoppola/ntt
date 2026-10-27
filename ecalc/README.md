@@ -122,7 +122,6 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_NP` | auto | launch-line | the number of NTT primes: 3 (Phase 13b step 0: −17 % wall, −25.8 GB of planes; `ecalc.c` sets it when unset; 4 was the binary-limb count, archived with archive:PLAN §28.5). | P15.md |
 | `ECALC_NP_AUTO_TERMS` | derived | test-only | under `ECALC_NP=auto`, the switch-over in terms (1 … 58 424 467 928, the three-prime bound): a lower value makes small runs form both counts (the forced tests of results/PRIMES_STRATEGY.md ... | NP15.md |
 | `ECALC_ODIRECT` | 1 | built-in default | 1 = the checkpoint files (the top-level set, in the background) and the output file are written with O_DIRECT through aligned buffers (`spill.c`'s `sp_file`; the last partial block padded, ... | S114.md+KP15.md |
-| `ECALC_OMP_TEAM` | omp | experiment | omp_team.h: size of the host OpenMP teams (bs_nthreads, packed_mods residue, verify.c, mem.c hstage): omp = omp_get_max_threads() (latched from the ... | S22.md |
 | `ECALC_OUT_MODE` | derived | built-in default | the part file's write mode: `direct` (O_DIRECT), `buffered` (page cache, no sync: the pre-Phase-14 form), `sync` (buffered, `fsync` + `posix_fadvise(DONTNEED)` at close), `drop` (buffered, ... | IO15.md |
 | `ECALC_OUT_ODIRECT` | derived | built-in default | with `ECALC_ODIRECT=1`, 0 keeps the output file buffered (1) | S114.md+KP15.md |
 | `ECALC_OUT_PACKED` | 2 | built-in default | (`packed_fmt.h` version 2): the same header and checks, the limbs (< 2^60) as a little-endian 60-bit stream, 15 bytes per 2 limbs (7.5 B per 18 digits = 0.4167 B/digit, -6.25 % bytes ... | KP15.md+IO15.md |
@@ -216,7 +215,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | TARGET1 (S2) | 2026-12-31 | `ECALC_VPE_LANES` |
 | experiment | TARGET1 (S3a) | 2026-12-31 | `XSHMEM_LOOPBACK_PES`, `XSHMEM_ROUND_MB` |
 | experiment | TARGET12 (S2) | 2026-12-31 | `ECALC_PE_PER_GPU`, `RNS_BATCH_SPLIT` |
-| experiment | TARGET12 (S22) | 2026-12-31 | `ECALC_OMP_TEAM`, `ECALC_RESIDUE`, `MN_OUT_EARLY_ALWAYS` |
+| experiment | TARGET12 (S22) | 2026-12-31 | `ECALC_RESIDUE`, `MN_OUT_EARLY_ALWAYS` |
 | experiment | TASK4 peer | 2026-12-31 | `XSHMEM_PEER` |
 | experiment | TGTSHAPE | 2026-12-31 | `XSHMEM_HEAP_SLACK_MB` |
 | experiment | craylane | 2026-12-31 | `XSHMEM_CRAY_GPU_PRETOUCH`, `XSHMEM_CRAY_HEAP_THP`, `XSHMEM_CRAY_NOMEMSET`, `XSHMEM_CRAY_NUMA`, `XSHMEM_CRAY_PUTSIG_SPLIT`, `XSHMEM_CRAY_SIGSET`, `XSHMEM_CRAY_TEST`, `XSHMEM_LANE_CTX`, `XSHMEM_LANE_POLL`, `XSHMEM_LANE_TRACE`, `XSHMEM_SIG_LANES`, `XSHMEM_THP_DISABLE`, `XSHMEM_THREAD_LEVEL` |
