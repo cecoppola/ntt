@@ -1,6 +1,8 @@
 /* fatal.c - one exit path for errors inside the run (fatal.h has the rules).
  * Built with hipcc (the APU of the calling thread from hipGetDevice); -DEC_FATAL_NO_HIP for the host-only transport test. */
 #include "fatal.h"
+#include "omp_team.h"
+__thread int ec_team_override;   /* omp_team.h: a background thread's explicit team (0 = none) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

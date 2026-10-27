@@ -57,7 +57,7 @@ static void meta_line(const char *bench)
  * joins where its result is first needed. ---- */
 static int g_bg_threads = 48;
 struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started, joined; double t; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
-static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); omp_set_num_threads(g_bg_threads);
+static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); ec_team_set(g_bg_threads);
     for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(b->a0, b->b1, t1_q[i], &b->p[i], &b->qq[i]); b->t = mem_now() - t0;
     return 0; }
 static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->started) return; pthread_create(&b->th, 0, pq_bg_run, b); b->started = 1; }   /* O2: after the seeds */
@@ -75,7 +75,7 @@ static void x_bg_writer(struct x_bg *b)                /* the chunked writer ove
 }
 static void *x_bg_run(void *a)
 {
-    struct x_bg *b = (struct x_bg *)a; omp_set_num_threads(g_bg_threads);
+    struct x_bg *b = (struct x_bg *)a; ec_team_set(g_bg_threads);
     double t0 = mem_now();
     { mn_out_src src = x_bg_src(b); mn_out_res_share(&src, b->Xres); }   /* the device kernel on the device X (B1), else the host Horner */
     b->t_res = mem_now() - t0; sem_post(&b->res_ready);
@@ -102,7 +102,7 @@ static void x_bg_gate(void *a, mn_out *o)             /* the writer at s: X_hi's
 }
 static void *x_bg_run_hi(void *a)
 {
-    struct x_bg *b = (struct x_bg *)a; omp_set_num_threads(g_bg_threads);
+    struct x_bg *b = (struct x_bg *)a; ec_team_set(g_bg_threads);
     double t0 = mem_now(); g_xhi.t_hi = t0;
     mn_out_res_share(&g_xhi.src_hi, g_xhi.res_hi);
     b->t_res = mem_now() - t0;
@@ -247,7 +247,7 @@ static int out_stage(struct out_ctx *c)
         }
     } else if (c->early) {                            /* the part file streamed during the low product */
         double tj = mem_now(); o = mn_out_early_join(c->early, &c->t_early);
-        node_pfx(c); printf("      the part file%s started in the division (MN_OUT_EARLY%s): its writer ran %.2f s, joined after %.2f s here%s\n", c->hi ? "s" : "", c->hi ? ", MN_OUT_DKM_HI: X_hi's after step 1, X_lo's at the release" : "", c->t_early, mem_now() - tj, c->ncorr && !c->defer ? "; X corrected after it started: redoing the part file" : "");
+        node_pfx(c); printf("      %s started in the division (MN_OUT_EARLY%s): its writer ran %.2f s, joined after %.2f s here%s\n", c->outfile ? (c->hi ? "the part files" : "the part file") : "the residues (no output file)", c->hi ? ", MN_OUT_DKM_HI: X_hi's after step 1, X_lo's at the release" : "", c->t_early, mem_now() - tj, c->ncorr && !c->defer ? "; X corrected after it started: redoing the part file" : "");
         oh = mn_out_early_hi(c->early);
         if (c->ncorr && !c->defer) {   /* (with ECALC_CORR_PATCH=2 the corrections are deferred to the tail patch below) */ mn_out_finish(o); mn_out_boundaries(o, &src, cm); mn_out_run(o, &src); }   /* (every rank: the corrections are the group's) */
     } else {

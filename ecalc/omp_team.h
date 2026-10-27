@@ -19,5 +19,9 @@ static inline int ec_team_mask_count(void)      /* the affinity mask of the call
     return n < 1 ? omp_get_num_procs() : n;
 }
 static inline int ec_team_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_OMP_TEAM"); v = (e && !strcmp(e, "mask")) ? 1 : 0; } return v; }
-static inline int ec_team(void) { int n = ec_team_on() ? ec_team_mask_count() : omp_get_max_threads(); return n < 1 ? 1 : n; }
+/* a background thread keeps its explicit team: ec_team_set(n) = omp_set_num_threads(n) plus a thread-local override that ec_team() returns with the switch on
+ * (the mask team would otherwise ignore ECALC_BG_THREADS and compete with the foreground).  The variable lives in fatal.c. */
+extern __thread int ec_team_override;
+static inline void ec_team_set(int n) { omp_set_num_threads(n); ec_team_override = n; }
+static inline int ec_team(void) { if (ec_team_on() && ec_team_override > 0) return ec_team_override; int n = ec_team_on() ? ec_team_mask_count() : omp_get_max_threads(); return n < 1 ? 1 : n; }
 #endif

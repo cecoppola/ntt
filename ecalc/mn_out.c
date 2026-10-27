@@ -497,7 +497,7 @@ static void *early_run(void *a)
 {
     struct mn_out_early *e = (struct mn_out_early *)a;
     vpe_adopt();                                       /* S1e: a helper thread of this PE (device, engine PE; a no-op with the switch off) */
-    omp_set_num_threads(g_bgt > 0 ? g_bgt : getenv("ECALC_BG_THREADS") ? atoi(getenv("ECALC_BG_THREADS")) : 48);   /* the background team, as the one-node writer's (vPE: the PE's CPUsADS per PE, ecalc.c) */
+    ec_team_set(g_bgt > 0 ? g_bgt : getenv("ECALC_BG_THREADS") ? atoi(getenv("ECALC_BG_THREADS")) : 48);   /* the background team, as the one-node writer's (vPE: the PE's CPUsADS per PE, ecalc.c) */
     double t0 = mem_now();
     if (e->two) {                                      /* the X_hi part now (finished here), then the X_lo part once released */
         mn_out_run(&e->o_hi, &e->src_hi); mn_out_finish(&e->o_hi); e->t_hi = mem_now() - t0;
