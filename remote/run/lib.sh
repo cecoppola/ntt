@@ -47,7 +47,7 @@ rl_errs() {     # FILES... -> up to 15 distinct error-looking lines (rank labels
     local f=("$@"); [ ${#f[@]} -gt 0 ] || f=("$RUN"/raw/*.log "$RUN"/*.log)
     rl_cat "${f[@]}" \
       | grep -a -i -E 'error|fail|abort|segv|refused|timeout|fatal|no hipcc|undefined reference|not found' \
-      | grep -a -v -i -E 'fail(ed)?=0|errors?[:=] *0|without error|VERIFY OK|no error|0 fail' \
+      | grep -a -v -i -E 'fail(ed)?=0|errors?[:=] *0|without error|VERIFY OK|no error|0 fail|^ *([0-9]+: )?config: |SEGV_TRACE' \
       | sed -E 's/^ *[0-9]+: //; s/^\[[a-z0-9_]+ [0-9:]+\] //; s/^[0-9]{4}-[0-9-]+ [0-9:]+ [A-Z]* //' | cut -c1-200 \
       | awk '{ k = $0; gsub(/[0-9]+/, "N", k); if (!(k in s)) { s[k] = 1; print } }' | head -n 15
 }
@@ -222,7 +222,7 @@ rl_ecrun() {        # TAG PATH NODES DIGITS [VAR=VALUE ...] -> E_* (see _ecalc.s
 rl_ecfield() { eval "echo \${$1:-}"; }
 rl_digits_tail() {  # LOG -> last digits printed by the process that holds the end of the result (empty if none)
     local f=$1; [ -f "$f" ] || f=$f.gz; [ -f "$f" ] || return 0
-    { case $f in *.gz) zcat "$f";; *) cat "$f";; esac; } | sed -E 's/^ *[0-9]+: //' | grep -a -E '^digits: [0-9]*\.\.\.[0-9]+' | sed -E 's/.*\.\.\.//' | sort -u | paste -sd,
+    { case $f in *.gz) zcat "$f";; *) cat "$f";; esac; } | sed -E 's/^ *[0-9]+: //' | grep -a -E '^(mn: (pe|node) [0-9]+: )?digits: [0-9]*\.\.\.[0-9]+' | sed -E 's/.*\.\.\.//; s/[^0-9].*//' | sort -u | paste -sd,
 }
 
 # ---- planner ------------------------------------------------------------------------------------------------------------

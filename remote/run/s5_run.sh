@@ -50,7 +50,7 @@ if [ $SCREEN = 1 ]; then
     NS_MODULES=$nsm NS_UNLOAD=$(rl_unload) rl_tmo 1500 bash "$R/tools/nodescreen.sh" --hold "$JOB" --out "$RUN/screen" --ecalc-dir "$tree" ${ex:+--exclude-hosts "$ex"} ${REMOTE_NICS:+--want-nics "$REMOTE_NICS"} > "$RUN/raw/nodescreen.log" 2>&1 < /dev/null; src=$?
     rl_errfiles "$RUN/raw/nodescreen.log"
     slow=$(grep -a . "$RUN/screen/EXCLUDE" 2>/dev/null | paste -sd,)
-    rl_kv screen_rc "$src (0 none flagged, 3 flagged, 2 screen could not run)"; rl_kv slow_hosts "${slow:-}"
+    case $src in 0) sw="clean";; 3) sw="slow hosts flagged";; 2) sw="screen could not run";; *) sw="unexpected";; esac; rl_kv screen "$sw (rc $src)"; rl_kv slow_hosts "${slow:-}"
     [ -n "$slow" ] && EXCLUDE=${EXCLUDE:+$EXCLUDE,}$slow
     if [ $src = 2 ]; then rl_kv screen_note "screen failed: nodes not screened"; fi
     if [ -n "${slow:-}" ]; then
@@ -83,4 +83,4 @@ if [ -n "${E_HASH:-}" ]; then rl_kv digit_hash "$E_HASH (reference ${E_HASH_REF:
 [ -n "$WDIR" ] && rl_kv digit_files "$WDIR"
 ok=1; { [ "$rc" = 0 ] && [ "${E_VERIFY:-NONE}" = OK ] && [ "${E_HASH_MATCH:--}" != no ]; } || ok=0
 if [ $ok = 0 ]; then rl_errfiles "$RUN/raw/$tag.log" "$RUN/raw/$tag.log.gz"; rl_finish FAIL "rc=$rc verify=${E_VERIFY:-NONE}${E_REFUSED:+ refused=$E_REFUSED}" "$HERE/show.sh $RUN errors"; fi
-rl_finish PASS "$HERE/s4_ab.sh --nodes $NN --digits $DIG --path $P --a \"${ENVW}\" --b \"<variant>\" --rounds 2"
+rl_finish PASS "$HERE/s4_ab.sh --nodes $NN --digits $D --path $P --a \"${ENVW}\" --b \"<variant>\" --rounds 2"

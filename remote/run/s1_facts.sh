@@ -14,6 +14,7 @@ while [ $# -gt 0 ]; do case $1 in
 rl_init s1
 PART=${PART:-${REMOTE_PARTITION:-}}
 PROBE=$R/target/probe/probe.sh; GEN=$R/target/probe/gen_conf.py
+PW=(); [ "$REMOTE_SITE" = aac7 ] && PW=(--want-sma 11.8)   # the rehearsal site has SMA 11.8, the target 12.1 (probe default)
 L=$RUN/login; N=$RUN/node
 OWN=; wl="$HERE/s1_facts.sh"
 if [ "$DRY" = 1 ]; then
@@ -27,7 +28,7 @@ fi
 cancel_own() { [ -n "$OWN" ] && { rl_tmo 60 scancel "$OWN" >> "$RUN/log.txt" 2>&1; rl_say "cancelled own job $OWN"; OWN=; }; }
 # ---- login part
 rl_say "login probe (<= 3 min)"
-rl_tmo 240 bash "$PROBE" --only login --out "$L" > "$RUN/raw/probe_login.log" 2>&1 < /dev/null; lrc=$?
+rl_tmo 240 bash "$PROBE" --only login ${PW[@]+"${PW[@]}"} --out "$L" > "$RUN/raw/probe_login.log" 2>&1 < /dev/null; lrc=$?
 rl_errfiles "$RUN/raw/probe_login.log"
 [ -f "$L/facts.tsv" ] || rl_finish FAIL "login probe produced no facts.tsv (rc $lrc)" "bash $PROBE --only login --out $RUN/login2"
 # ---- node part
@@ -47,7 +48,7 @@ if [ $NONODE = 0 ]; then
     fi
     if [ -n "$JOB" ]; then
         rl_say "node probe in job $JOB (<= 8 min)"
-        rl_tmo 600 bash "$PROBE" --only node --jobid "$JOB" --out "$N" > "$RUN/raw/probe_node.log" 2>&1 < /dev/null; nrc=$?
+        rl_tmo 600 bash "$PROBE" --only node ${PW[@]+"${PW[@]}"} --jobid "$JOB" --out "$N" > "$RUN/raw/probe_node.log" 2>&1 < /dev/null; nrc=$?
         rl_errfiles "$RUN/raw/probe_node.log"
         cancel_own
     fi

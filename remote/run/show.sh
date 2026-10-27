@@ -14,13 +14,13 @@ D=
 if [ -d "$T" ]; then D=$T
 elif [ -f "$T" ]; then F=$T
 elif [ "$T" = latest ]; then D=$(readlink -f "$REMOTE_OUT/latest" 2>/dev/null)
-else s=${T%/}; D=$(readlink -f "$REMOTE_OUT/${s}_latest" 2>/dev/null); [ -d "$D" ] || D=$(ls -dt "$REMOTE_OUT/${s}"_2* "$REMOTE_OUT/${s}"*_2* 2>/dev/null | head -1); fi
+else s=${T%/}; s=${s%.sh}; case $s in s[0-7]_*) s=${s%%_*};; esac; D=$(readlink -f "$REMOTE_OUT/${s}_latest" 2>/dev/null); [ -d "$D" ] || D=$(ls -dt "$REMOTE_OUT/${s}"_2* "$REMOTE_OUT/${s}"*_2* 2>/dev/null | head -1); fi
 if [ -n "${F:-}" ]; then
     case $MODE in
       summary|tail) n=${ARG:-60}; [ "$n" -gt 80 ] && n=80; rl_cat "$F" | tail -n "$n";;
       head) n=${ARG:-60}; [ "$n" -gt 80 ] && n=80; rl_cat "$F" | head -n "$n";;
       grep) rl_cat "$F" | grep -a -E -- "${ARG:?pattern}" | cut -c1-240 | cap;;
-      errors) rl_cat "$F" | grep -a -i -E 'error|fail|abort|segv|refused|timeout|fatal' | cut -c1-200 | head -n 40;;
+      errors) rl_cat "$F" | grep -a -i -E 'error|fail|abort|segv|refused|timeout|fatal' | grep -a -v -E '^ *([0-9]+: )?config: |SEGV_TRACE' | cut -c1-200 | head -n 40;;
       *) echo "show.sh: mode for a file: tail N | head N | grep PATTERN | errors" >&2; exit 2;;
     esac; exit 0
 fi
@@ -28,7 +28,7 @@ fi
 logs() { ls -t "$D"/raw/*.log "$D"/raw/*.log.gz "$D"/raw/*.out "$D"/raw/*.txt "$D"/*.log "$D"/*/raw/*.log "$D"/*/build.out 2>/dev/null; }
 case $MODE in
   summary) [ -f "$D/summary.txt" ] && cap < "$D/summary.txt" || { echo "(no summary yet) $D"; tail -n 20 "$D/log.txt" 2>/dev/null; };;
-  errors) { rl_cat $(logs) "$D/log.txt"; } | grep -a -i -E 'error|fail|abort|segv|refused|timeout|fatal' | grep -a -v -i -E 'fail(ed)?=0|errors?[:=] *0|without error|VERIFY OK|no error' \
+  errors) { rl_cat $(logs) "$D/log.txt"; } | grep -a -i -E 'error|fail|abort|segv|refused|timeout|fatal' | grep -a -v -i -E 'fail(ed)?=0|errors?[:=] *0|without error|VERIFY OK|no error|^ *([0-9]+: )?config: |SEGV_TRACE' \
         | sed -E 's/^ *[0-9]+: //' | cut -c1-200 | awk '{ k = $0; gsub(/[0-9]+/, "N", k); if (!(k in s)) { s[k] = 1; print } }' | head -n 40;;
   tail) n=${ARG:-40}; [ "$n" -gt 80 ] && n=80; f=$(logs | head -1); [ -n "$f" ] || f=$D/log.txt; echo "== $f"; rl_cat "$f" | tail -n "$n" | cut -c1-240;;
   grep) for f in $(logs) "$D/log.txt"; do rl_cat "$f" | grep -a -E -- "${ARG:?pattern}" | cut -c1-240 | sed "s|^|$(basename "$f"): |"; done | cap;;
