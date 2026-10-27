@@ -152,8 +152,10 @@ joined lines; per-node ranges differ between layouts, so compare hashes only bet
 Reference digit hashes (first 16 hex of sha1 of the unpacked ASCII digits, m aac7, `ecalc_ref_hash` in `target/bench/items/_ecalc.sh`):
 1e9 `bf9f4b08758b40d9`; 1e10 `3fc025473586ed22`; 1e11 `578f5efb0ff2b9af`; 8e9 `3e78c1b2a0276963`. Larger sizes have no stored reference on
 the development side: judge by VERIFY OK on all ranks and equal digits between paths and replicas. Measured reference: 1.6e10 digits
-(8e9 per node at 2 nodes) end in `...862935846376248170970671395813714711` (m, aac7 2026-10-25, path 1, identical with and without
-the 2^30 plane cap; the last node's `mn: node N: digits:` line).
+(8e9 per node at 2 nodes) end in `...29680671395813714711` (m, aac7 2026-10-25 path 1 at 2 nodes, identical with and without
+the 2^30 plane cap, and 2026-10-26 path 2 at 1 node; the tail after `...` of the `digits:` line that has one). Measured
+tails at 1 node: 8e9 `...33902373363486293584`, 6.4e10 `...97846921235350161654`, 1e11 `...37703810896884928977` (m, aac7,
+both paths where run).
 
 Return codes (ecalc exit codes from `ecalc/fatal.h`, `memsample.h`; `mnrun.sh` header):
 
