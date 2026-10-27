@@ -152,6 +152,7 @@ if [ "$ALLOC" = 1 ]; then
   PART=${AAC7_PART:-PPAC_MI300A_SPX}; TL=${GATE_ALLOC_MIN:-45}
   xo=; [ -n "${MNRUN_EXCLUDE_HOSTS:-}" ] && xo="-x $MNRUN_EXCLUDE_HOSTS"
   if [ $CRAY = 1 ]; then so="--exclusive -c 192 --gpus-per-node=4"; else so="--gpus=4"; fi
+  . "$E/gres.sh"; so=$(mn_gres_strip "$so" "" "$PART")   # MNRUN_GRES: no GPU options where the nodes list no GRES (aac7: unchanged)
   JOB=$(sbatch -p "$PART" -N "$NODES" $so $xo -t 0:$TL:00 -J gate --parsable --wrap "sleep $((TL * 60))" < /dev/null 2>"$OUT/sbatch.err") || fail "sbatch failed: $(head -c 200 "$OUT/sbatch.err")"
   JOB=${JOB%%;*}; say "own job $JOB ($NODES nodes, $PART, excluding ${MNRUN_EXCLUDE_HOSTS:-nothing}); waiting up to ${WAITS}s"
   w=$WAITS; while [ $w -gt 0 ]; do st=$(squeue -j "$JOB" -h -o %T 2>/dev/null); [ "$st" = RUNNING ] && break; [ -z "$st" ] && fail "job $JOB vanished"; sleep 5; w=$((w - 5)); done

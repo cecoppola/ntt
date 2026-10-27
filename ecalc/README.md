@@ -15,7 +15,12 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 **Notes on single settings.**
 - `mnrun.sh` (the multi-node launcher; usage in `../README.md`) sets `COMM_RANK`, `COMM_SIZE` and the transport from
   Slurm, exports `FI_UNIVERSE_SIZE`, `FI_LOG_LEVEL=warn` and `FI_MR_CACHE_MONITOR=userfaultfd` when unset (it refuses
-  `disabled`), and `MNRUN_EXCLUDE_HOSTS` drops flagged nodes. `MN_PLAN_ONLY=<digits>:<nodes>` prints the plan and the
+  `disabled`), and `MNRUN_EXCLUDE_HOSTS` drops flagged nodes. `MNRUN_GRES=auto|on|off` (default auto; `gres.sh`, shared by
+  `mnrun.sh`, `mnaccept.sh`, `tools/gate.sh`, the kit, ladder, bench items and `remote/`): the `--gpus*` and `--gpu-bind` options are passed
+  only if the nodes list a gpu GRES (`scontrol show node`, else `sinfo %G`; cached in `MNRUN_GRES_RESOLVED`), because a site with `Gres=(null)`
+  rejects them; aac7 lists gpu:4 and is unchanged; `off` / `on` force. The Makefile finds the PMI library directory (`PMI_LIBDIR`, `CRAY_PMI_PREFIX`)
+  and the SHMEM / DSMML prefixes (`CRAY_SHMEM_PREFIX` or `CRAY_SHMEM_DIR` for cray-shmem 12.1; `CRAY_OPENSHMEMX_PREFIX`, `CRAY_DSMML_PREFIX`) from
+  the loaded modules, else the aac7 defaults (`../remote/FACTS.md` Known problems). `MN_PLAN_ONLY=<digits>:<nodes>` prints the plan and the
   memory check on the login node (`../ALGORITHM.md` §7, §11).
 - Part files, the packed format and `ECALC_OUT_PACKED`: `../ALGORITHM.md` §9. Verification and `ECALC_RECHECK`:
   `../ALGORITHM.md` §10.

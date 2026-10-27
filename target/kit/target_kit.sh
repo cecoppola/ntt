@@ -122,6 +122,9 @@ set -u
 
 KIT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)      # target/kit
 REPO_DIR=$(cd "$KIT_DIR/../.." && pwd)                      # repository root
+. "$REPO_DIR/ecalc/gres.sh"                                 # MNRUN_GRES=auto|on|off
+GRES_OPT=()
+kit_gres() { GRES_OPT=(); mn_gres_on && GRES_OPT=(--gpus-per-node=4); return 0; }   # no GPU option where the nodes list no GRES
 SELF_DIR=$REPO_DIR/ecalc                                    # mnrun.sh, Makefile, ecalc, tests/ live here (moved kit: formerly the kit's own dir)
 
 # ---- defaults ---------------------------------------------------------------------------------------------
@@ -596,14 +599,14 @@ stage_edge() {
     if [ -z "$JOBID" ] && [ "$DRY_RUN" != 1 ]; then summary "status: FAIL (no --jobid / SLURM_JOB_ID)"; summary ""; return; fi
     if ! require_kit_modules edge "$lf"; then summary "status: FAIL ($KIT_MODULES_ENV missing -- run stage build first)"; summary ""; return; fi
 
-    local pre; pre=$(module_preamble)
+    local pre; pre=$(module_preamble); kit_gres
     local rc=0
     echo "== t_edge dev (hipMalloc), alone on the node, before anything else" >> "$lf"
-    exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" --export=ALL -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
+    exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" --export=ALL -N1 -n1 --ntasks-per-node=1 ${GRES_OPT[@]+"${GRES_OPT[@]}"} --overlap \
         bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         "$SELF_DIR/tests/t_edge" dev "$EDGE_STEP_GB" "$EDGE_CAP_GB" || rc=1
     echo "== t_edge vmm (hipMemCreate), alone on the node" >> "$lf"
-    exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" --export=ALL -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
+    exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" --export=ALL -N1 -n1 --ntasks-per-node=1 ${GRES_OPT[@]+"${GRES_OPT[@]}"} --overlap \
         bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         "$SELF_DIR/tests/t_edge" vmm "$EDGE_STEP_GB" "$EDGE_CAP_GB" || rc=1
 
@@ -612,13 +615,13 @@ stage_edge() {
     # this run used to print the "report both forms" text with no number behind it.  DB_POOL_VERBOSE=1 turns
     # on just that line (narrower than RNS_VERBOSE, which adds a lot of unrelated chatter).
     echo "== e $E9 (1e9), MEM_REPORT_DEVS=1 ECALC_VERBOSE=2 DB_POOL_VERBOSE=1 -- the init footprint and VMM arena map rate" >> "$lf"
-    exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" --export=ALL -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
+    exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" --export=ALL -N1 -n1 --ntasks-per-node=1 ${GRES_OPT[@]+"${GRES_OPT[@]}"} --overlap \
         bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         env ECALC_SEGV_TRACE=1 MEM_REPORT_DEVS=1 ECALC_VERBOSE=2 DB_POOL_VERBOSE=1 "$SELF_DIR/ecalc" "$E9" "$TMPDIR/e9.out" || rc=1
     [ "$DRY_RUN" != 1 ] && rm -f "$TMPDIR"/e9.out*
 
     echo "== e $E10 (1e10) -- the single-node wall" >> "$lf"
-    exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" --export=ALL -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
+    exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" --export=ALL -N1 -n1 --ntasks-per-node=1 ${GRES_OPT[@]+"${GRES_OPT[@]}"} --overlap \
         bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         env ECALC_SEGV_TRACE=1 "$SELF_DIR/ecalc" "$E10" "$TMPDIR/e10.out" || rc=1
     [ "$DRY_RUN" != 1 ] && rm -f "$TMPDIR"/e10.out*
@@ -881,9 +884,9 @@ stage_nodechk() {
     : > "$FLAGGED"   # this run decides the flagged list afresh
     local exin; exin=$(excl_in_alloc | paste -sd, -)
     if [ -n "$exin" ]; then xopt=(-x "$exin"); alloc=$((alloc - $(echo "$exin" | tr , '\n' | grep -c .))); summary "  excluded from the probe (--exclude-hosts): $exin"; fi
-    pre=$(module_preamble)
+    pre=$(module_preamble); kit_gres
     summary "  nodes probed: $alloc (every usable node of the allocation, one process each, run alone)"
-    exec_cmd "$lf" "$TO_NC" srun --jobid="$JOBID" --export=ALL -N"$alloc" --ntasks="$alloc" --ntasks-per-node=1 --gpus-per-node=4 --overlap ${xopt[@]+"${xopt[@]}"} \
+    exec_cmd "$lf" "$TO_NC" srun --jobid="$JOBID" --export=ALL -N"$alloc" --ntasks="$alloc" --ntasks-per-node=1 ${GRES_OPT[@]+"${GRES_OPT[@]}"} --overlap ${xopt[@]+"${xopt[@]}"} \
         bash -lc "$pre"'exec "$@"' _ "$SELF_DIR/tests/t_nodechk" "$NC_GB" 3 "$NC_COLD_GB"
     rc=$?
     if [ "$DRY_RUN" = 1 ]; then summary "status: DRY-RUN (not executed)"; summary ""; return; fi

@@ -179,7 +179,7 @@ L=target/results/probe/login-$(date +%Y%m%d-%H%M); N=target/results/probe/node-$
 target/probe/probe.sh --only login --out "$L"          # login node, ~5 s on aac7 (m)
 salloc -N1 --no-shell -p <partition> -t 30          # or sbatch a hold; note the job id J
 target/probe/probe.sh --only node --jobid J --out "$N"  # inside J; srun on the node
-#   (if the APUs are hidden from the step: PROBE_SRUN_EXTRA="--gpus-per-node=4" target/probe/probe.sh ...)
+#   (if the APUs are hidden from the step: PROBE_SRUN_EXTRA="--gpus-per-node=4" target/probe/probe.sh ...; dropped automatically where the nodes list no GRES)
 target/probe/gen_conf.py "$L" "$N" -o target/config/target.conf          # exactly two positional dirs: the login and the node probe
 python3 target/ladder/locality.py nodes --from "$L/raw/scontrol_nodes.txt" --save
 ```
@@ -219,7 +219,7 @@ run once each; arms of an A/B run at the same time on disjoint hosts of the item
 ```bash
 target/bench/run.sh --validate                    # manifest check (ids, deps, scripts)
 target/bench/run.sh --plan 8                      # how many workers of which sizes drain the list fastest
-# one worker = one allocation (the runner gives each item the FIRST hosts of its allocation: never two workers in one job)
+# one worker = one allocation (the runner gives each item the FIRST hosts of its allocation: never two workers in one job) (drop --gpus-per-node=4 below where the nodes list no GRES)
 mkdir -p target/results/bench/_slurm      # sbatch logs: kept and committed (Q112), never at the clone root
 sbatch -N <n> -p <partition> -t <min> --exclusive --gpus-per-node=4 -o target/results/bench/_slurm/%j.out --wrap "cd $PWD && target/bench/run.sh --jobid \$SLURM_JOB_ID --worker w<k>"
 target/bench/run.sh --status                      # who runs what, what is done
@@ -303,7 +303,7 @@ machine, so schedule it when the bench prio < 200 items are done or the session 
 | `fi_enable(-28)` with several PEs per node | launch Slurm-native (`srun --ntasks`), as `mnrun.sh` does (TGTBENCH2, m target) |
 | a task gets only 2 CPUs | `MNRUN_CPUS_PER_TASK=auto` (mnrun.sh: CPUs / tasks per node) (A16, m aac7) |
 | link or load errors after `module load rocm` | a versioned ROCm conflicts with the login default: `MNRUN_UNLOAD` in target.conf (the probe fills it) |
-| APUs invisible inside a job step | `--gpus-per-node=4` in the job (the ladder's default sbatch options) and `--gpu-bind=none` on the step (`mnrun.sh` adds it; probe: `PROBE_SRUN_EXTRA`) |
+| APUs invisible inside a job step | `--gpus-per-node=4` in the job (the ladder's default sbatch options) and `--gpu-bind=none` on the step (`mnrun.sh` adds it; probe: `PROBE_SRUN_EXTRA`); both only where `scontrol show node` lists a gpu GRES (`MNRUN_GRES=auto|on|off`; a site with `Gres=(null)` rejects them: leave them out, `../remote/FACTS.md` Known problems) |
 | `locality: no node with an xname` / ladder `no group` | `scontrol show node` carries no HPE xname: write a host → xname map (one `host xname` per line, e.g. from `/etc/cray/xname` on each node), `python3 target/ladder/locality.py nodes --map MAP --save`, then `ladder.sh ... --nodes-from target/results/probe/topology.tsv` (its node states are those of the save: re-save before each level) |
 | ladder `plan check of path N FAILED (rc 2, not a memory refusal)` | the planner could not run (module load, binary, `target.conf`); the plan file it names has the first error. A memory refusal is rc 1: that path is dropped and the level runs on the other |
 | one node slow (a replica 5-10 % behind) or a NIC missing | `tools/nodescreen.sh` / kit stage `nodechk`; add the host to `results/ladder/exclude.txt` (`MNRUN_EXCLUDE_HOSTS`, mode drop); no spares |

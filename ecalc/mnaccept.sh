@@ -40,6 +40,7 @@ FULL=0; STRESS=0; ONLY=""; NOGRID=${MNACCEPT_SKIP_GRID:-0}
 while [ $# -gt 0 ]; do case $1 in --full) FULL=1;; --stress) STRESS=1;; --only) ONLY=$2; shift;; --skip-grid) NOGRID=1;; *) echo "unknown option $1"; exit 2;; esac; shift; done
 cd "$(dirname "$0")" || exit 2
 ECALC_DIR=$PWD
+. ./gres.sh; GOPT=; mn_gres_on && GOPT=--gpus=4   # MNRUN_GRES: no --gpus on a site whose nodes list no GRES
 # Reference directory: ECALC_REF, else the first of this clone's ref/, $HOME/ref that holds all needed files, else $HOME/ref (aac7 since 2026-10-06),
 # else the old $HOME/ntt/ecalc/ref (aac6 keeps its references under ~/ntt/ecalc/results; set ECALC_REF there).
 if [ -n "${ECALC_REF:-}" ]; then REF=$ECALC_REF
@@ -88,7 +89,7 @@ pass() { NPASS=$((NPASS + 1)); echo "PASS $1: $2" | tee -a "$SUM"; }
 fail() { NFAIL=$((NFAIL + 1)); FAILED="$FAILED $1"; echo "FAIL $1: $2" | tee -a "$SUM"; }
 want() { [ -z "$ONLY" ] || [[ ",$ONLY," == *",$1,"* ]]; }
 # on the node: R <timeout> <cmd...> (single process, the four APUs); N <cmd...> (a shell on the node, no GPUs)
-R() { local to=$1; shift; timeout "$to" srun --jobid="$J" -N1 -n1 --mem=0 --gpus=4 $RC --overlap bash -lc "module load $MNRUN_MODULES; cd $ECALC_DIR; $*"; }
+R() { local to=$1; shift; timeout "$to" srun --jobid="$J" -N1 -n1 --mem=0 $GOPT $RC --overlap bash -lc "module load $MNRUN_MODULES; cd $ECALC_DIR; $*"; }
 N() { srun --jobid="$J" -N1 -n1 --mem=0 --overlap bash -c "$*"; }
 # M <timeout> <procs> <cmd...>: node-processes through mnrun.sh
 M() { local to=$1 p=$2; shift 2; SLURM_JOB_ID=$J timeout "$to" ./mnrun.sh "$p" env "$@"; }
