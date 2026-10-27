@@ -19,6 +19,18 @@ Scheduled for the next work session (user 2026-10-26):
 - Class 4: balance the top bs levels across the 4 APUs of a node: APU 0 holds them (aac7 8e9: 34.5 vs 23.8 GB, m; target
   2.7-6.5 GB above the planner's per-APU figure, m); it sets the per-node size edge and may explain the 3e13 P24 flag (mod).
   Calibration of `ECALC_FIT_PER_APU` against measured per-APU peaks first (aac7 item e6e).
+  `ECALC_FIT_PER_APU` calibrated (aac7 2026-10-27, m): planner per-APU max 106.88 vs 105.6 GB measured on APU 0 at 9e10,
+  111.18 vs 109.9 at 1e11 (APU 1-3 86-91 GB).
+- Class 1: `mnrun.sh` defaults `MNRUN_CPUS_PER_TASK` to auto (hand launches got 1-2 CPUs per task on the target); time model
+  (`ecalc/mn_model.py`): round size 128 MiB as in the code (it assumed 1024), a profile fitted to the target's 2/64/576-node
+  phase times (8.8x low at 576 nodes, m vs mod) with a per-round synchronisation term.
+- Class 1: start-up timeline lines for mesh creation and first-call handshakes (`ECALC_INIT_TL=1`): the target's 576-node init
+  was 111 s against about 16 s at 64 nodes (m), cause unknown.
+- Class 4: tree (dissemination) barrier, max and allgather in `comm_xshmem.c`, switch off by default: today every member
+  signals every other (O(n) per collective; 124 shifts cost 15.1 s at 576 nodes, m); per-peer pipelined exchange rounds (stretch).
+- Class 4: digit residue with a precomputed-quotient multiply (bit-identical) and run in the background for every run
+  (13.15 s per node at 8e9 digits on the target, m).
+- Then: frozen branch remote-v3 with the gated changes and the next target-session run plan (user 2026-10-27).
 
 ## Proposed (needs the user's priority)
 
