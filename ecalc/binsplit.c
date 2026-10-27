@@ -7,6 +7,7 @@
 #include <math.h>
 #include <omp.h>
 #include <pthread.h>
+#include <sched.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -196,6 +197,22 @@ static int bs_rt(int *rk, int *home)
 /* the omp thread count of a whole-node team: all cores, or a PE's share of them (the cores of the process divided by its lanes) */
 /* (S2c: a PE process has the CPUs of its own mask to itself: no division by the lanes) */
 static int bs_nthreads(void) { return omp_get_max_threads(); }
+/* the seed pass's team (BS_SEED_THREADS): a number = that many; "auto" = 3/4 of the CPUs the calling thread may run on right now (its
+ * affinity mask; init's allocations widen the mask to the cpuset, mem_unpin, and a thread created later inherits it); unset = omp_get_max_threads().
+ * omp_get_max_threads() is fixed when the OpenMP runtime starts, from the launch mask: under an srun that gives each task one core
+ * (SLURM_HINT=nomultithread, no -c) it stays 1-2 while the mask is widened afterwards -- the seeds then ran 1-2 threads (target 2026-10-26: init 150 s,
+ * explicit 48-192 threads 13-16 s).  An explicit num_threads() is not limited by it. */
+static int seed_nthreads(void)
+{
+    const char *e = getenv("BS_SEED_THREADS");
+    if (!e) return bs_nthreads();
+    if (!strcmp(e, "auto")) {
+        cpu_set_t m; int n = sched_getaffinity(0, sizeof m, &m) == 0 ? CPU_COUNT(&m) : 0;
+        if (n < 1) n = omp_get_num_procs();
+        n -= n / 4; return n < 1 ? 1 : n;
+    }
+    int n = atoi(e); return n < 1 ? bs_nthreads() : n;
+}
 /* copy limbs out of (or into) region r's pool with the threads of r's node (a lone memcpy from device memory runs at a few GB/s) */
 static void region_copy(uint64_t *dst, const uint64_t *src, size_t limbs, int r)
 {
@@ -1392,7 +1409,7 @@ void bs_ckpt_tree_clear(int level) { if (bs_ckpt_dir) for (int l = level + 1; l 
  * every thread when unpinned) with the schoolbook, P and Q of each span side by side (per limbs each) */
 static void seeds_compute(struct level *cur, size_t per, unsigned long S, unsigned long N, const size_t *r0, uint64_t **stage)
 {
-    int nt = getenv("BS_SEED_THREADS") ? atoi(getenv("BS_SEED_THREADS")) : bs_nthreads();   /* I2: fewer than all leaves cores to init's allocations */
+    int nt = seed_nthreads();   /* I2: fewer than all leaves cores to init's allocations */
 #pragma omp parallel num_threads(nt)
     {
         bigint p, q; bi_init(&p); bi_init(&q);
@@ -1467,7 +1484,7 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
     for (int b = 0; b < 2; b++) { ss->buf[b] = (uint64_t *)mem_hstage_alloc(b % (nd > 1 ? 2 : 1), ss->bytes, 0, 0); ss->buf_dev[b] = -1; }
     ss->t_alloc = mem_now() - t0;
     db_tl("seed thread: buffers allocated (%.2f s)", ss->t_alloc);   /* ECALC_INIT_TL=1 */
-    int nt = getenv("BS_SEED_THREADS") ? atoi(getenv("BS_SEED_THREADS")) : bs_nthreads();   /* I2: fewer than all leaves cores to init's allocations */
+    int nt = seed_nthreads();   /* I2: fewer than all leaves cores to init's allocations */
     ss->nchunks = ss->nbuf = ss->npend = 0; ss->t_span = ss->t_wait_pool = ss->t_wait_dma = ss->t_issue = ss->t_free = 0;
     int direct = !db_pool_vmm_on();                              /* the host cannot store into a VMM range */
     int pull = !direct;                                          /* K8b (archive:results_merged_2026-10-24/MEMORY.md §K8b): the copies by the persistent pull kernels (no runtime call in the mapping window; fallback BS_SEED_PULL=0 removed 2026-10-23, Q87) */
@@ -1520,7 +1537,7 @@ static void *pre_seeds_run(void *a)
 {
     vpe_adopt();                                      /* a helper thread of this PE (a no-op with the switch off) */
     double t0 = mem_now(); struct level cur; memset(&cur, 0, sizeof cur); cur.n = g_pre.nspan; cur.nd = g_pre.nd;
-    db_tl("seed thread starts (%s threads)", getenv("BS_SEED_THREADS") ? getenv("BS_SEED_THREADS") : "all");
+    db_tl("seed thread starts (%d threads; BS_SEED_THREADS %s)", seed_nthreads(), getenv("BS_SEED_THREADS") ? getenv("BS_SEED_THREADS") : "unset");
     seeds_stream(&g_pre.ss, &cur, g_pre.per, bs_seed_terms, g_pre.N, g_pre.r0);
     g_pre.t = mem_now() - t0; db_tl("seed thread ends (%.2f s)", g_pre.t); return 0;
 }
