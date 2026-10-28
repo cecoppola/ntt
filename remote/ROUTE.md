@@ -25,7 +25,7 @@ Holding all 576 nodes costs the same wait as 64 if the queue is idle; if alloc d
 says PENDING) re-run `alloc.sh` with `--nodes 64`, later with 8: a PENDING hold of another size is cancelled and replaced
 by the new one, a RUNNING hold of another size is refused (`alloc.sh --release`, then `alloc.sh --nodes N`); subsets are
 chosen inside the allocation, scale-up then uses what was granted). Add `--partition/--account` after the first error says which are needed (s0 lists partitions).
-Go on if: s0 PASS (manifest clean, python3, compiler, srun/salloc, ROCm/SMA/libfabric modules found) and s1 PASS (checked:
+Go on if: s0 PASS (manifest clean; python3, make, sbatch, srun, sinfo, squeue, scontrol present (any missing = FAIL); a compiler, `module` and ROCm/SMA/libfabric modules found, salloc optional (any missing = PARTIAL, read `tools_missing_optional` and the `module.*` lines)) and s1 PASS (checked:
 4 GPUs and 8 CXI NICs per node = `gpu_count`, `nics_cxi`; SHMEM test rc 0 in `shmem_test_rc`; `site.env` written). s1 PARTIAL
 with `advisory: NICs per node = N`: the NIC count is not 8, read FACTS known problems before going on. s0 PARTIAL with
 `exec_bits=missing`: run the `chmod +x ...` printed in `next=` (the copy lost the execute bits), then s0 again.
@@ -38,7 +38,7 @@ bash remote/run/chain.sh "s2_build.sh --path both --jobs 32" "s3_gate.sh --nodes
 ```
 Go on if: build PASS for both paths (`-DXSHMEM_OFI` and `-DXSHMEM_CRAY` in the flags seen) and every gate `VERIFY OK` with
 hash bf9f4b08758b40d9 at 1e9. A path that fails to build or gate is dropped (write it in PROBLEMS) - one working path is
-enough to continue. Both fail: failure handling (AGENT.md); no digits-producing patch without a gate re-run.
+enough to continue. When only one path builds, `s2_build.sh --path both` ends PARTIAL (not FAIL), `chain.sh` goes on, and `s3_gate.sh --path both` skips the missing path (`SKIP (no path N binary)`, PARTIAL) and gates the built one: no flag is needed in that paste; the summaries say `carry_on`, and every later command uses `--path <built path>`. The S6 route needs path 1; with path 1 missing, take the largest planner-approved size on path 2. Both fail: failure handling (AGENT.md); no digits-producing patch without a gate re-run.
 Optional second gate paste when time allows: `s3_gate.sh --nodes 2 --digits 1e10` (hash 3fc025473586ed22).
 
 ## S4 short tuning at 8 nodes (digits 6.4e10 = 8e9 per node; each paste = one A/B experiment, ABBA)
@@ -82,14 +82,28 @@ Always run the planner first (s5_run does: `--fit` is its first step; on refusal
 | step | digits | nodes | path | env | model (no write) |
 |---|---|---|---|---|---|
 | s1 | 4.608e12 | 576 | chosen (done in S5) | adopted | 32 s |
-| s2 | 1e13 | 576 | 1 (path 2 refused by memory) | adopted + `BS_MDEV_LOGL=29 XSHMEM_HANG_S=3600` | 52 s |
-| s3 | 3.82e13 | 576 | 1 | adopted + `BS_MDEV_LOGL=29 XSHMEM_HANG_S=3600 MN_NONPOW2_CAP=0` | 187 s |
+| s2 | 1e13 | 576 | 1 (path 2 refused by memory) | adopted + the S6 s2 env words | 52 s |
+| s3 | 3.82e13 | 576 | 1 | adopted + the S6 s3 env words | 187 s |
 
+The two env lines below are the ONLY place that gives these words; every other mention (table, commands, Minimal route, step 7d, FACTS.md) refers to them.
+Q132 (user decision pending: `BS_MDEV_LOGL=28 DIST_CHUNKS=16` instead of 29 at s3) is a one-line edit of the "S6 s3 env" line; FACTS.md "Per-APU record edge" has the numbers.
+
+S6 s2 env: `BS_MDEV_LOGL=29 XSHMEM_HANG_S=3600`
+S6 s3 env: `BS_MDEV_LOGL=29 XSHMEM_HANG_S=3600 MN_NONPOW2_CAP=0`
+
+Command forms (paste the words of the env line in place of `<S6 sN env>`):
 ```
-bash remote/run/s5_run.sh --nodes 576 --digits 10e12 --path 1 --env "<adopted> BS_MDEV_LOGL=29 XSHMEM_HANG_S=3600"
-bash remote/run/s5_run.sh --nodes 576 --digits 38.2e12 --path 1 --env "<adopted> BS_MDEV_LOGL=29 XSHMEM_HANG_S=3600 MN_NONPOW2_CAP=0"
+bash remote/run/s5_run.sh --nodes 576 --digits 10e12 --path 1 --env "<adopted> <S6 s2 env>"
+bash remote/run/s5_run.sh --nodes 576 --digits 38.2e12 --path 1 --env "<adopted> <S6 s3 env>"
 ```
-`BS_MDEV_LOGL=29` and `XSHMEM_HANG_S=3600` (code default 900 stays; user decision 2026-10-27, Q130) on every run from 1e13 digits (BS_MDEV_LOGL: user decision 2026-10-27): smaller device-0 arena levels, so the 4 APUs of a node
+Fallback when a slow or bad host appears at 576 nodes and the allocation has no spare nodes: `s5_run.sh` refuses to start with fewer than N usable nodes
+(`only M usable nodes in the allocation, N asked`; after `--screen` or `--exclude` it fails with `fewer than N nodes remain`). Choices, in this order: (a) re-run the same step
+with the largest node count the planner accepts on the usable nodes, digits scaled to it at the same per-node share (576 > 575 or 512: `--nodes 512 --digits <512/576 x D>`; the planner still prints the largest fitting
+digits on a refusal; the exclusion list is applied automatically, `alloc.sh --status` shows the usable count); the result is a smaller headline, say so in the REPORT; (b) drop the slow host and re-plan:
+`--exclude <host>` (comma list; a Slurm range like `nid[001-003]` is accepted) on the run plus `MN_GROUPS` for the new node count (FACTS.md, the `MN_GROUPS` row of the candidate table: the default schedule is tuned for 576 only), or
+release and request more nodes (`alloc.sh --release`, then `alloc.sh --nodes <more> --exclude <host>`). Prefer (a) when time is short.
+
+`BS_MDEV_LOGL` and `XSHMEM_HANG_S=3600` (code default 900 stays; user decision 2026-10-27, Q130) on every run from 1e13 digits (BS_MDEV_LOGL: user decision 2026-10-27; at 29): smaller device-0 arena levels, so the 4 APUs of a node
 peak equally (aac7 1e11 on 1 node, m: APU 0 109.9 -> 90.5 GB, all four 90.5, digits identical, no slower; planner per APU at 2e13 on
 576 nodes 89.7 -> 74.7 GB, mod; no change at 3.82e13).
 (or both in one chain paste once s1 passed and time is short; chain stops at FAIL, so s3 is skipped when s2 fails).
@@ -139,7 +153,7 @@ read for hours (read rate 0.8 GB/s on aac7's old file system, m), so the script 
 an optional read-back of one part per node (`ECALC_RECHECK`) costs about 35 s per node at 0.8 GB/s (mod; io04 gives the real rate).
 
 Which bench results change the record-run settings (benches in "Next target session" step 6a, all on the same file system):
-- io01 (1 node, `tools/wbench` direct 8 vs 32 threads, buffered 8): 32 threads at least 1.3 x of 8 -> `MN_OUT_THREADS=32` in the record run; else keep 8.
+- io01 (1 node, `tools/wbench` (built from `tools/wbench.c` by the io bench items on first use: `make wbench` in `tools/`) direct 8 vs 32 threads, buffered 8): 32 threads at least 1.3 x of 8 -> `MN_OUT_THREADS=32` in the record run; else keep 8.
 - io02 (64 nodes, per-node files vs one shared name): per-node aggregate x 9 (576/64) = the modelled 576-node rate for the table above, if it keeps scaling (check the per-node
   rate fell by less than 30 % from io01 to io02, else the file system saturates: take the io02 aggregate itself as the 576-node rate). The shared-file figure is information only
   (ecalc writes per-node parts; a shared-file writer would be new code).
@@ -155,10 +169,14 @@ run dirs listed, then write the REPORT block (AGENT.md). Remind the user: the re
 
 1. S0+S1 paste. 2. `chain.sh "s2_build.sh --path 1" "s3_gate.sh --nodes 1,2 --path 1 --digits 1e9"`.
 3. `s5_run.sh --nodes 576 --digits 4608e9 --path 1` (s1; planner decides), then, if the wall is within 1.5 x model,
-`s5_run.sh --nodes 576 --digits 38.2e12 --path 1 --env "MN_NONPOW2_CAP=0"` (or the largest the planner approves).
+`s5_run.sh --nodes 576 --digits 38.2e12 --path 1 --env "<S6 s3 env>"` (or the largest the planner approves; the 1e13 step is skipped here, so the s3 words are the only ones needed).
 4. REPORT. About 5-6 round trips, 60-90 min plus queue. Skipped: S4 tuning, the 64-node step, path 2.
 
 ## Next target session (after the 2026-10-26 runs; settings words are plain env words; arms run one after the other inside the hold)
+
+How this relates to S0-S7: these steps are the optional experiments between S3 and S6; they do not replace the stages. Order: S0 + S1, S2 + S3 (this section's step 1 is the S2 + S3 gate with the extra 1e10 case, so do it instead of the plain S3 paste), then
+the steps below in their order, but each only while the remaining session time still leaves the S6 budget (60 min) plus the next step's own time plus 20 %; S4 and S5 (30 + 40 min) are skipped or cut to what the steps here already measured. Steps 2-5b are the ones to take first (about 10-20 min each);
+6a only if the record run will write; 6b and 7 only if the user asks for them (7 = failure hunt, long runs). Before S6 starts, stop and say what remains. Time short: Minimal route.
 
 Facts behind it: `FACTS.md` "Measured runs on the target". New switches are off by default unless stated: `ECALC_OMP_TEAM=mask` (team sizes from the
 affinity mask), `ECALC_RESIDUE=shoup` (digit residue), `XSHMEM_COLL=tree` (collectives), `ECALC_INIT_TL=1` (init timeline lines),
@@ -207,6 +225,6 @@ The multi-node changes shipped off by default, so the FIRST step is the gate at 
       The two runs are 576-node runs: side by side they need an allocation of 1152 nodes, so they stay sequential; `arms.sh` is for arms of <= half the allocation (`--nodes 64` ... `--nodes 288` in a 576-node allocation: two 288-node arms).
    c. 3e13 on 576 nodes (with the settings that passed in a / b): `bash remote/run/s5_run.sh --nodes 576 --digits 30e12 --path 1 --tmo 40 --env "<best> BS_MDEV_LOGL=29 MN_NONPOW2_CAP=0 P24_CHECK=1 XSHMEM_HANG_S=3600 ECALC_FIT_PER_APU=1"`; a planner refusal means the per-APU edge is the cause (the per-APU line says by how much).
       3e13 is above 2.592e13, where `MN_NONPOW2_CAP` auto turns on (the planner refuses 3e13 with it: 385.93 GB > 373.44, so the failed run most likely used `MN_NONPOW2_CAP=0`, FACTS failure table, modelled) and above 4.95e12 (plane cap 2^31). The all-shift CRT flag is now the default (`P24_CRT_ANY=1`), so any flag names the product kind, piece and group in the line: compare the node with the mixed-piece groups (3e13 levels 1-6: 4 pieces from node 158/160 on, 2 below; level 7 groups [192,384) at 10 pieces; FACTS). A cheaper target check (planner, aac7 2026-10-27, target limits, m): the mixed shape (some level-1/2 groups at 4 pieces, others at 2) appears at a per-node share of 2.9e13/576 to 3.6e13/576 digits at every node count tried, and not at 2e13, 2.2e13-2.8e13 or 3.82e13 (576 n). On 64 nodes `--digits 3.333e12` (3e13's per-node share) gives 23 of 32 level-1 groups at 4 pieces (first [18, 20)), fits with `MN_NONPOW2_CAP` auto (device 352.36 GB, 88.09 GB per APU); 128 n `6.667e12` and 256 n `13.33e12` likewise. So run 64 nodes at 3.333e12 with `P24_CHECK=1` before c: a flag there reproduces the failure at one ninth of the nodes; a clean pass points at what only 576 nodes add (level 7-8 groups, non-power-of-two groups): `bash remote/run/s5_run.sh --nodes 64 --digits 3.333e12 --path 1 --tmo 20 --env "<best> BS_MDEV_LOGL=29 P24_CHECK=1 XSHMEM_HANG_S=3600"`. `P24_CHECK=1` checks only operands that miss the transform cache; after a flag-free run that still fails the digits, repeat with `P24_CHECK=2`.
-   d. then the 3.82e13 attempt (S6 s3) with the best round size and `MN_NONPOW2_CAP=0`, `--write` only after 6a and the user's go (see "Record-size output").
+   d. then the 3.82e13 attempt (S6 s3: `<adopted>` + the S6 s3 env words) with the best round size, `--write` only after 6a and the user's go (see "Record-size output").
 
 Script features (A6): `arms.sh --nodes N --digits D --path P --arm "NAME:K=V ..." --arm ...` runs K arms of N nodes at once in one allocation (each arm is an `s5_run.sh --hosts <its block>`; one table: arm, nodes, rc, total_s, init_s, verify, last digits, settings; `--cmd` = per-arm shell command for allocations without NICs; `--dry-run` prints the plan). Needs N x arms usable nodes; concurrent arms share the fabric, so their times are for screening (confirm with `s4_ab.sh`). `s5_run.sh` and `s4_ab.sh` print, per run, `layout`, `init_split`, `shifts`, `p24_check` and `device_peak_apu_gb` lines (NA when ecalc did not print them; `s4_ab.sh` per arm as means).

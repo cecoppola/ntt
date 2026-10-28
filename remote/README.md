@@ -1,7 +1,7 @@
 # remote/ - run ecalc on the target with a browser agent as the guide
 
 `remote/` lets a Claude web-app browser agent steer an ecalc session on the target machine through you. The agent cannot run
-anything: it reads a static GitHub copy of this repository (branch `remote-v1`) and what you paste. You are the link.
+anything: it reads a static GitHub copy of this repository (branch `remote-v11`) and what you paste. You are the link.
 Goal of the session (a few hours, one sitting): the most digits of e in the shortest time, with optimized runs.
 
 Files: `AGENT.md` (the agent reads it first), `ROUTE.md` (the stages), `FACTS.md` (machine, paths, settings, known
@@ -9,20 +9,22 @@ problems), `MANIFEST.sha256` (copy check), `run/*.sh` (the scripts the agent's c
 
 ## Prepare (once, before the session)
 
-1. Download the branch `remote-v1` from GitHub as one archive (`Code` > `Download ZIP` with the branch selected). Put the archive on the target and unpack it
+1. Download the branch `remote-v11` from GitHub as one archive (`Code` > `Download ZIP` with the branch selected). Put the archive on the target and unpack it
    anywhere on a file system visible to the compute nodes (no git needed). Do not edit the files.
 2. On the target: `cd <unpacked dir> && bash remote/run/s0_check.sh` - checks the copy against the manifest and the tools
    (the agent's first command is the same). Fix a missing or changed file by unpacking again.
-3. Claude web app: create a Project, connect the GitHub repository, pick branch `remote-v1`; add the folder `remote/` and the
-   extra files the agent should read when asked (`ecalc/README.md`, `PLAN.md`, `TESTING.md`, `target/README.md`,
-   `target/RESTART.md`, `target/ladder/`, `target/bench/QUESTIONS.md`). As the Project instructions paste the first
+3. Claude web app: create a Project, connect the GitHub repository, pick branch `remote-v11`; add the folder `remote/` and the
+   extra files the agent should read when asked (`ecalc/README.md`, `PLAN.md`, `TESTING.md`,
+   `target/RESTART.md` (only sections 3, 7, 8, 9, 11: the rest is for a Claude Code session on the target and does not apply), `target/ladder/`, `target/bench/QUESTIONS.md`). As the Project instructions paste the first
    block of `remote/AGENT.md` (between the two `----` lines), or just tell the agent to read `remote/AGENT.md` first.
 4. Check that the target allows a long allocation (the session holds one allocation of up to 576 nodes) and that a
    scratch directory with a few TB is free (the agent will ask where outputs go; default `$HOME/remote_runs`).
 
 ## First message to the agent
 
-> Read remote/AGENT.md, remote/ROUTE.md and remote/FACTS.md on branch remote-v1. The repository copy is unpacked at
+The branch name is written in this file (lines 4, 12, 16 and the message below), in `AGENT.md` (the first block and the REPORT header and `COPY=` line) and in the repository `README.md` (the `remote/` row): rename in those places only.
+
+> Read remote/AGENT.md, remote/ROUTE.md and remote/FACTS.md on branch remote-v11. The repository copy is unpacked at
 > `<path>` on the target. Session length: `<hours>`. Start with stage S0+S1 and give me the first command block.
 
 ## Each round trip

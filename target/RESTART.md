@@ -1,5 +1,9 @@
 # target/RESTART.md — start here on the target system
 
+> **Which workflow governs.** In a `remote/` browser-agent session (the planned workflow: the user unpacks a ZIP, no git on the target, the agent only reads GitHub and gives
+> command blocks) `remote/AGENT.md` governs. This file's workflow for a Claude Code session on the target (§0 `git clone`, §2 `bash target/governance/install.sh`, LOG.md) does not
+> apply: never run `target/governance/install.sh` in that session. Sections of this file that the remote session may use are named in `remote/README.md`.
+
 Scope: everything an agent needs to start work on the target system at once: the mission, the rules and how to install
 them, the project as we understand it, and steps 1-4 with exact commands. Written 2026-10-25 (Eastern time) by the
 coordinator on the development side, which has no access to the target. Conventions: `target/FORMATS.md`.
@@ -85,8 +89,7 @@ How the rules apply on the target (they were written for the development side):
   the 6-node packing limit, the NIC-loss workarounds, the password file) do not apply on the target; their intent does:
   pack work so no allocated node idles, use long allocations and run many items inside them, drivers with done-markers
   for long waits, never touch other users' jobs, kill only by single PID.
-- The private `docs/` files (STATUS, DECISIONS, AGENT_PROTOCOL, TARGET) do not exist in the clone (Q117); where the rules say
-  "read docs/AGENT_PROTOCOL.md first", read the repository's `README.md` (doc map) and this file instead. On the target the
+- Where the rules point at the private `docs/` folder, use the repository's `README.md` (doc map) and this file instead. On the target the
   coordinator keeps its live state in `target/results/LOG.md` and decisions in `target/results/DECISIONS.md` (create both).
 - The local leak-guard git hooks are not part of the clone; on the target nothing blocks a commit, so the coordinator
   itself makes sure no password, key or token is ever committed (Q116). Raw data (host names, paths, versions) is fine (Q112).

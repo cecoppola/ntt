@@ -1,5 +1,8 @@
 # target/ — remote testing and evaluation on the target system
 
+> **Which workflow governs.** In a `remote/` browser-agent session (the planned workflow: the user unpacks a ZIP, no git on the target, the agent only reads GitHub and gives
+> command blocks) `remote/AGENT.md` governs. The Claude Code workflow here (run order step 0, `RESTART.md` §0 and §2: `git clone`, `install.sh`, LOG.md) does not apply: never run `target/governance/install.sh` in that session.
+
 Scope: everything for the target session (576 nodes × 4 MI300A, 8 Slingshot NICs per node, Cray SHMEM 12.1.0): what we
 bring (scripts, the ecalc build, rules) and what we collect (raw results, committed as measured). An agent on the target
 starts with `RESTART.md`; conventions are in `FORMATS.md`.
