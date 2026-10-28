@@ -108,7 +108,7 @@ case $PATHS in
   2) [ $ok2 = 1 ] && v=PASS || v=FAIL;;
   both) if [ $ok1 = 1 ] && [ $ok2 = 1 ]; then v=PASS; elif [ $ok1 = 1 ] || [ $ok2 = 1 ]; then v=PARTIAL; else v=FAIL; fi;;
 esac
-[ $PATHS = both ] && [ $ok1 = 0 ] && [ $ok2 = 1 ] && rl_kv carry_on "path 1 did not build: continue with path 2 (--path 2 in the next stages; the S6 route needs path 1)"
+[ $PATHS = both ] && [ $ok1 = 0 ] && [ $ok2 = 1 ] && rl_kv carry_on "path 1 did not build: continue with path 2 (--path 2 in the next stages; the staircase pastes P2-P4 need path 1)"
 [ $PATHS = both ] && [ $ok1 = 1 ] && [ $ok2 = 0 ] && rl_kv carry_on "path 2 did not build: continue with path 1 (--path 1 in the next stages)"
 [ "$v" = FAIL ] && rl_finish FAIL "build failed" "$HERE/show.sh $RUN errors"
 rl_finish "$v" "$HERE/s3_gate.sh --nodes 1,2 --path $([ $ok1 = 1 ] && [ $ok2 = 1 ] && echo both || { [ $ok1 = 1 ] && echo 1 || echo 2; }) --digits 1e9"
