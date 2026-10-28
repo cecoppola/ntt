@@ -87,7 +87,7 @@ typedef struct xpe {                       /* one loopback PE of this process */
     char *data; size_t dlen; uint64_t *ctrl;
     pthread_mutex_t alock; struct xblk *blocks; size_t cur, peak, symcur, sympeak;
     hipStream_t pst[MAXPST]; unsigned pst_made, pst_used;   /* XSHMEM_PEER: one stream per same-node peer (pe mod MAXPST) for the device copies */
-    double rst[32], lastend;                                         /* XSHMEM_ROUND_STATS: 0 ROFF post, 1 staging copy, 2 ROFF wait, 3 copy issue, 4 copy quiet, 5 signal post, 6 signal wait, 7 signal quiet, 8 receive copy, 9 rounds; 2 and 6 are WALL times (phase 1 start to the quiet; phase 2 start to all signals seen) and include the worker's turns on other pending exchanges; 10 ROFF poll and 11 signal poll are EXCLUSIVE worker time (inside this exchange's step, without the copy issue); 12 sum and 13 max of the pending exchanges at a round start; the exchange timeline (per exchange, telescoping to 21): 14 post (t0 to enqueue), 15 worker wake (enqueue to the first round), 16 worker span (first round to the last), 17 late (the caller enters wait after the worker is done), 18 notice (worker done or wait entry to flushed seen), 19 end (flushed seen to wait return), 20 exchanges, 21 post to completion (the old counter), 22 caller blocked in wait, 23 caller work between post and wait; 24 post to the first ROFF write, 25 caller time between one exchange's end and the next post, 26 post: self copy and the caller stream sync, 27 post: default quiet */
+    double rst[32], lastend;                                         /* XSHMEM_ROUND_STATS: 0 ROFF post, 1 staging copy, 2 ROFF wait, 3 copy issue, 4 copy quiet, 5 signal post, 6 signal wait, 7 signal quiet, 8 receive copy, 9 rounds; 2 and 6 are WALL times (phase 1 start to the quiet; phase 2 start to all signals seen) and include the worker's turns on other pending exchanges; 10 ROFF poll and 11 signal poll are EXCLUSIVE worker time (inside this exchange's step, without the copy issue); 12 sum and 13 max of the pending exchanges at a round start; the exchange timeline (per exchange, telescoping to 21): 14 post (t0 to enqueue), 15 worker wake (enqueue to the first round), 16 worker span (first round to the last), 17 late (the caller enters wait after the worker is done), 18 notice (worker done or wait entry to flushed seen), 19 end (flushed seen to wait return), 20 exchanges, 21 post to completion (the old counter), 22 caller blocked in wait, 23 caller work between post and wait; 24 post to the first ROFF write, 25 caller time between one exchange's end and the next post, 26 post: self copy issue, 27 post: default quiet, 28 post: caller stream sync (all work queued on the caller's stream, the self copy included) */
     double lqt[MAXL]; double lqlast[MAXL];                  /* XSHMEM_LANE_TRACE: summed and last quiet time per lane */
     pthread_t th; int th_on, stop; volatile int busy; pthread_mutex_t qm; pthread_cond_t qcv; struct xpriv *queue[MAXPEND]; volatile int nq;
 } xpe;
@@ -245,16 +245,16 @@ static int xex_send(xpriv *p)
 }
 static void xex_hang(xpriv *p);
 static int xex_round(xpriv *p);
-static void xrst_print(int l);
-static void xrst_print(int l)   /* XSHMEM_ROUND_STATS: this PE's round-path phase times (s, summed) and per round (us); also every 5000 rounds (killed runs keep their counters) */
+static void xrst_print(int l, const char *tag);
+static void xrst_print(int l, const char *tag)   /* XSHMEM_ROUND_STATS: this PE's round-path phase times (s, summed) and per round (us); also every 5000 rounds, tagged `periodic, cumulative so far` (killed runs keep their counters; the print runs on the PE's worker and stalls its round for the fprintf), `final` at exit */
 {
     const double *r = X.pe[l].rst; double n = r[9] > 0 ? r[9] : 1;
-    fprintf(stderr, "comm_xshmem: XSHMEM_ROUND_STATS node-process %d pe %d: %.0f rounds; pending exchanges per round: mean %.2f max %.0f; EXCLUSIVE worker s: ROFF post %.3f, staging copy %.3f, copy issue %.3f, copy quiet %.3f, signal post %.3f, signal quiet %.3f, receive copy %.3f, ROFF poll %.3f, signal poll %.3f; WALL s (include other exchanges' turns): phase 1 start to quiet (ROFF wait + sends + glue) %.3f, signal wait %.3f; per round us (same order): %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f | %.1f %.1f\n",
-            X.q, X.K * X.q + l, r[9], r[12] / n, r[13], r[0], r[1], r[3], r[4], r[5], r[7], r[8], r[10], r[11], r[2], r[6],
+    fprintf(stderr, "comm_xshmem: XSHMEM_ROUND_STATS (%s) node-process %d pe %d: %.0f rounds; pending exchanges per round: mean %.2f max %.0f; EXCLUSIVE worker s: ROFF post %.3f, staging copy %.3f, copy issue %.3f, copy quiet %.3f, signal post %.3f, signal quiet %.3f, receive copy %.3f, ROFF poll %.3f, signal poll %.3f; WALL s (include other exchanges' turns): phase 1 start to quiet (ROFF wait + sends + glue) %.3f, signal wait %.3f; per round us (same order): %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f | %.1f %.1f\n",
+            tag, X.q, X.K * X.q + l, r[9], r[12] / n, r[13], r[0], r[1], r[3], r[4], r[5], r[7], r[8], r[10], r[11], r[2], r[6],
             1e6 * r[0] / n, 1e6 * r[1] / n, 1e6 * r[3] / n, 1e6 * r[4] / n, 1e6 * r[5] / n, 1e6 * r[7] / n, 1e6 * r[8] / n, 1e6 * r[10] / n, 1e6 * r[11] / n, 1e6 * r[2] / n, 1e6 * r[6] / n);
     double cnt = r[0] + r[1] + r[3] + r[4] + r[5] + r[7] + r[8] + r[10] + r[11], tl = r[14] + r[15] + r[16] + r[17] + r[18] + r[19], e = r[20] > 0 ? r[20] : 1;
-    fprintf(stderr, "comm_xshmem: XSHMEM_ROUND_STATS timeline node-process %d pe %d: %.0f exchanges; post to completion %.3f s = post %.3f (self copy + caller stream sync %.3f, default quiet %.3f) + worker wake %.3f + worker span %.3f (counted phases %.3f, unclassified loop gaps %.3f) + late %.3f (caller still working when the worker was done) + notice %.3f + end %.3f; sum of the parts %.3f; caller: blocked in wait %.3f, work between post and wait %.3f, between one exchange's end and the next post %.3f; post to first ROFF write %.3f s total (%.2f ms per exchange)\n",
-            X.q, X.K * X.q + l, r[20], r[21], r[14], r[26], r[27], r[15], r[16], cnt, r[16] - cnt, r[17], r[18], r[19], tl, r[22], r[23], r[25], r[24], 1e3 * r[24] / e);
+    fprintf(stderr, "comm_xshmem: XSHMEM_ROUND_STATS timeline (%s) node-process %d pe %d: %.0f exchanges; post to completion %.3f s = post %.3f (self copy %.3f, caller stream sync %.3f, default quiet %.3f) + worker wake %.3f + worker span %.3f (counted phases %.3f, unclassified loop gaps %.3f) + late %.3f (caller still working when the worker was done) + notice %.3f + end %.3f; sum of the parts %.3f; caller: blocked in wait %.3f, work between post and wait %.3f, between the end of one exchange and the next post (small collectives and compute included) %.3f; post to first ROFF write %.3f s total (%.2f ms per exchange)\n",
+            tag, X.q, X.K * X.q + l, r[20], r[21], r[14], r[26], r[28], r[27], r[15], r[16], cnt, r[16] - cnt, r[17], r[18], r[19], tl, r[22], r[23], r[25], r[24], 1e3 * r[24] / e);
 }
 static void *worker(void *a)
 {
@@ -316,7 +316,7 @@ static int xex_round(xpriv *p)    /* one step; 1 when every round is done (the p
                 for (int r = 0; r < n; r++) if (r != me && j < rcount(p->scnt[r], c) && p->scnt[r] > o) { COPY(lp->data + p->sst + p->spre[r], p->vsb + p->sdsp[r] + o, rlen(p->scnt[r], c, j), p->rs); any = 1; }
                 if (any) SYNC(p->rs);
             }
-            RTA(1, ta); if (g_rst) { lp->rst[9] += 1; p->rst_t = now_s(); p->rst_ci = 0; double pn = lp->busy; lp->rst[12] += pn; if (pn > lp->rst[13]) lp->rst[13] = pn; if (((long)lp->rst[9] % 5000) == 0) xrst_print(lp->lpe); }
+            RTA(1, ta); if (g_rst) { lp->rst[9] += 1; p->rst_t = now_s(); p->rst_ci = 0; double pn = lp->busy; lp->rst[12] += pn; if (pn > lp->rst[13]) lp->rst[13] = pn; if (((long)lp->rst[9] % 5000) == 0) xrst_print(lp->lpe, "periodic, cumulative so far"); }
             memset(p->posted, 0, (size_t)n); memset(p->rxdone, 0, (size_t)n); p->touched = 0; p->rdone = 0; p->rneed = 0;
             for (int r = 0; r < n; r++) if (r != me && j < rcount(p->scnt[r], c)) p->rneed++;
             p->rph = 1;
@@ -334,7 +334,7 @@ static int xex_round(xpriv *p)    /* one step; 1 when every round is done (the p
                 p->posted[i] = 1; p->rdone++;
             }
             if (p->rdone < p->rneed) { if (g_rst) lp->rst[10] += now_s() - tph - cis; return 0; }
-            double tq = RT0(); if (g_rst) { lp->rst[2] += tq - p->rst_t - p->rst_ci; }
+            double tq = RT0(); if (g_rst) { lp->rst[2] += tq - p->rst_t - p->rst_ci; lp->rst[10] += tq - tph - cis; }
             if (p->touched) lane_quiet(lp, (unsigned)p->touched);
             RTA(4, tq); tq = RT0();
             for (int q = 0; q < n; q++) { int i = ORD(p, q); if (i != me && j < rcount(p->scnt[i], c))
@@ -355,7 +355,7 @@ static int xex_round(xpriv *p)    /* one step; 1 when every round is done (the p
                 p->rxdone[i] = 1; p->rdone++;
             }
             if (p->rdone < p->rneed) { if (g_rst) lp->rst[11] += now_s() - tph; return 0; }
-            double tr = RT0(); if (g_rst) lp->rst[6] += tr - p->rst_t;
+            double tr = RT0(); if (g_rst) { lp->rst[6] += tr - p->rst_t; lp->rst[11] += tr - tph; }
             sig_quiet(lp);
             RTA(7, tr); tr = RT0();
             if (!p->rin) {
@@ -385,8 +385,9 @@ static void xex_post_rounds(xpriv *p, const void *sb, void *rb, hipStream_t s)
     p->rounds = 1; p->rch = c; p->rK = K; p->rj = 0; p->rph = 0; p->vsb = (const char *)sb; p->vrb = (char *)rb; p->rb = rb; p->st = s; p->pending = 1; p->flushed = 0;
     double tz = RT0();
     if (p->scnt[me] && (const char *)sb + p->sdsp[me] != (char *)rb + p->rdsp[me]) COPY((char *)rb + p->rdsp[me], (const char *)sb + p->sdsp[me], p->scnt[me], s);
-    SYNC(s);                                              /* the caller's stream is done with sb and rb: publish only after */
     RTA(26, tz); tz = RT0();
+    SYNC(s);                                              /* the caller's stream is done with sb and rb: publish only after (waits for everything queued on s: earlier compute and the copy above) */
+    RTA(28, tz); tz = RT0();
     xshmem_ctx_quiet(XSHMEM_CTX_DEFAULT);
     RTA(27, tz);
     pthread_mutex_lock(&X.lock); X.nrex++; X.nrounds += K; pthread_mutex_unlock(&X.lock);
@@ -483,7 +484,8 @@ static void xex_wait(xpriv *p)
     p->sst = p->rst = 0; p->pending = 0;
     double t = now_s() - p->t0, b = recv_bytes(p);
     if (g_rst && rdone && p->t_r1 > 0 && p->t_dn > 0) { double *r = p->lp->rst, te = p->t0 + t, tl = t0, td = p->t_dn, mx = tl > td ? tl : td;
-        r[14] += p->t_enq - p->t0; r[15] += p->t_r1 - p->t_enq; r[16] += td - p->t_r1; r[17] += mx - td; r[18] += tsn - mx; r[19] += te - tsn; r[20] += 1; r[21] += t; r[22] += tsn - tl; r[23] += tl - p->t_enq; p->lp->lastend = te; }
+        r[14] += p->t_enq - p->t0; r[15] += p->t_r1 - p->t_enq; r[16] += td - p->t_r1; r[17] += mx - td; r[18] += tsn - mx; r[19] += te - tsn; r[20] += 1; r[21] += t; r[22] += tsn - tl; r[23] += tl - p->t_enq; }
+    if (g_rst) p->lp->lastend = p->t0 + t;
     if (X.ltrace && t > X.lslow && X.nslow < 120) {            /* XSHMEM_LANE_TRACE=<s>: where a slow exchange spent its time (one line per exchange, at most 120 per process) */
         int mr = 0, mp = 0; for (int i = 0; i < n; i++) { if (i != me && !p->rxdone[i]) mr++; if (!p->posted[i]) mp++; }
         int l1 = -1, l2 = -1; double v1 = 0, v2 = 0; for (int i = 0; i < n; i++) if (i != me) { double a = p->tarr[i]; if (a > v1) { l2 = l1; v2 = v1; l1 = i; v1 = a; } else if (a > v2) { l2 = i; v2 = a; } }
@@ -762,7 +764,7 @@ int comm_xshmem_init(void)
     { const char *e = getenv("ECALC_INIT_TL"); XT.on = e && atoi(e) > 0; XT.t0 = now_s(); }
     double tl_a = XT.t0, tl_b = 0, tl_c = 0, tl_d = 0, tl_e = 0;
     { const char *e = getenv("XSHMEM_COLL"); if (e && *e && strcmp(e, "flat") && strcmp(e, "tree")) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_COLL=%s: flat or tree\n", e); g_ctree = e && !strcmp(e, "tree"); }
-    { const char *e = getenv("XSHMEM_PEER_STREAMS"); if (e && atoi(e) >= 1 && atoi(e) <= MAXPST) g_pst = atoi(e); }
+    { const char *e = getenv("XSHMEM_PEER_STREAMS"); if (e && *e) { char *end; long v = strtol(e, &end, 10); if (*end || v < 1 || v > MAXPST) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_PEER_STREAMS=%s: an integer 1..%d\n", e, MAXPST); g_pst = (int)v; } }
     { const char *e = getenv("XSHMEM_ROUND_STATS"); g_rst = e && atoi(e) > 0; }
     { const char *e = getenv("COMM_SEQ_CHECK"); g_seqchk = e && atoi(e) > 0; g_wn = g_seqchk ? W_N + 2 : W_N;   /* the same on every rank (the CTRL heaps must be one size) */
       e = getenv("XSHMEM_SPARSE"); g_sparse = e && atoi(e) > 0;
@@ -924,7 +926,7 @@ void comm_xshmem_finalize(void)
     for (int l = 0; l < X.K; l++) { XSHMEM_SELECT(l); lane_quiet(&X.pe[l], (1u << (X.nl > 1 ? X.nl : 1)) - 1); }
     XSHMEM_SELECT(0); xshmem_barrier_all();
     if (X.q != 0 && X.K == 1) fprintf(stderr, "comm_xshmem: pe %d: DATA heap peak %zu MiB of %zu\n", xshmem_my_pe(), X.pe[0].peak >> 20, X.dbytes >> 20);   /* every PE's own peak (the engine's summary below is PE 0's) */
-    if (g_rst) for (int l = 0; l < X.K; l++) xrst_print(l);
+    if (g_rst) for (int l = 0; l < X.K; l++) xrst_print(l, "final");
     if (X.q == 0) {
         size_t pk = 0; for (int l = 0; l < X.K; l++) if (X.pe[l].peak > pk) pk = X.pe[l].peak;
         xsplit_print();
