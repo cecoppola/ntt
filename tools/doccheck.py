@@ -38,7 +38,7 @@ def main():
     # tracked files
     files = None
     if os.path.exists(os.path.join(root, ".git")):
-        r = subprocess.run(["git", "-C", root, "ls-files"], capture_output=True, text=True)
+        r = subprocess.run(["git", "-C", root, "ls-files"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         if r.returncode == 0:
             files = [x for x in r.stdout.split("\n") if x]
     if files is None:
@@ -58,7 +58,7 @@ def main():
     # a. registry
     sr = os.path.join(root, "tools", "switch_registry.py")
     if os.path.exists(sr):
-        r = subprocess.run([sys.executable, sr, "--check"], capture_output=True, text=True, cwd=root)
+        r = subprocess.run([sys.executable, sr, "--check"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, cwd=root)
         if r.returncode != 0:
             out = (r.stdout + r.stderr).strip().split("\n")
             for l in [x for x in out if not x.startswith("WARN")][:15]:

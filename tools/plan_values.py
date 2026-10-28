@@ -49,10 +49,10 @@ def digits_int(s):
 
 
 def profile_env(prof, env):
-    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "profile_load.py"), prof], env=env, capture_output=True, text=True)
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "profile_load.py"), prof], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     if r.returncode:
         die("profile %s: %s" % (prof, (r.stderr or r.stdout).strip()[:300]))
-    r2 = subprocess.run(["bash", "-c", r.stdout + "\nenv -0"], env=env, capture_output=True, text=True)
+    r2 = subprocess.run(["bash", "-c", r.stdout + "\nenv -0"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     return dict(kv.split("=", 1) for kv in r2.stdout.split("\0") if "=" in kv)
 
 
@@ -107,7 +107,7 @@ def main(argv):
 
     # 1. the launcher values: mnrun.sh's own computation, printed instead of launched
     cmd = [os.path.join(ROOT, "ecalc", "mnrun.sh"), str(g), ecalc, str(d)]
-    r = subprocess.run(cmd, env=dict(env, MNRUN_PRINT_ENV="1"), capture_output=True, text=True)
+    r = subprocess.run(cmd, env=dict(env, MNRUN_PRINT_ENV="1"), stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     if r.returncode:
         die("mnrun.sh MNRUN_PRINT_ENV failed (rc %d): %s" % (r.returncode, r.stderr.strip()[-300:]))
     ex = parse_exports(r.stdout)
@@ -123,7 +123,7 @@ def main(argv):
     penv["MN_PLAN_ONLY"] = "%d:%d" % (d, g)
     if env.get("ECALC_PE_PER_GPU") == "1":                          # one process per GPU: the engine reads the PEs per node from srun, which a plan-only call has not (as mnrun.sh gives its own plan call)
         penv["SLURM_NTASKS_PER_NODE"] = env.get("MNRUN_PPG_PPN") if (env.get("MNRUN_PPG_PPN") or "").isdigit() else "4"
-    r = subprocess.run(["bash", "-lc", PRE, "_", "env", ecalc], env=penv, capture_output=True, text=True)
+    r = subprocess.run(["bash", "-lc", PRE, "_", "env", ecalc], env=penv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     out = r.stdout
     head = re.search(r"^== MN_PLAN_ONLY: .*?pool_log (\d+),.*?MN_GROUPS (.*?) ==$", out, re.M)
     chk = [l for l in out.splitlines() if l.startswith("plan check") or l.startswith("plan REFUSED")]

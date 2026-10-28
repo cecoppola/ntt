@@ -17,11 +17,17 @@ else
 GMP_LIBS  = -lgmp
 endif
 # libfabric (OFI=1 automatic where $(LIBFABRIC)/include/rdma/fabric.h exists: aac7's /opt/cray/libfabric/2.3.1) is the data plane of XSHMEM=ofi.
-LIBFABRIC ?= $(if $(CRAY_LIBFABRIC_PREFIX),$(CRAY_LIBFABRIC_PREFIX),/opt/cray/libfabric/2.3.1)
+# LIBFABRIC: CRAY_LIBFABRIC_PREFIX (the module), else the aac7 default where it has fabric.h, else (another PE version) `pkg-config --variable=prefix libfabric`
+# if it has fabric.h, else the newest /opt/cray/libfabric/* that has it, else the default (OFI=0: XSHMEM=ofi then stops with the explicit error below).
+LIBFABRIC_DEF := /opt/cray/libfabric/2.3.1
+LIBFABRIC_PKG := $(shell pkg-config --variable=prefix libfabric 2>/dev/null)
+LIBFABRIC_NEW := $(shell ls -d /opt/cray/libfabric/*/include/rdma/fabric.h 2>/dev/null | sort -V | tail -1 | sed 's,/include/rdma/fabric.h,,')
+LIBFABRIC ?= $(or $(CRAY_LIBFABRIC_PREFIX),$(and $(wildcard $(LIBFABRIC_DEF)/include/rdma/fabric.h),$(LIBFABRIC_DEF)),$(and $(LIBFABRIC_PKG),$(wildcard $(LIBFABRIC_PKG)/include/rdma/fabric.h),$(LIBFABRIC_PKG)),$(LIBFABRIC_NEW),$(LIBFABRIC_DEF))
+LIBFABRIC_LIB = $(if $(wildcard $(LIBFABRIC)/lib64),$(LIBFABRIC)/lib64,$(if $(wildcard $(LIBFABRIC)/lib),$(LIBFABRIC)/lib,$(LIBFABRIC)/lib64))
 OFI ?= $(if $(wildcard $(LIBFABRIC)/include/rdma/fabric.h),1,0)
 ifeq ($(OFI),1)
 OFI_CFLAGS = -I$(LIBFABRIC)/include
-OFI_LIBS   = -L$(LIBFABRIC)/lib64 -lfabric -Wl,-rpath,$(LIBFABRIC)/lib64
+OFI_LIBS   = -L$(LIBFABRIC_LIB) -lfabric -Wl,-rpath,$(LIBFABRIC_LIB)
 endif
 
 TESTS = tests/t_arith tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_strategy tests/t_cap tests/t_residue tests/t_seed tests/t_patch tests/t_p24 tests/t_p24crt tests/t_crtk tests/t_vpe
@@ -122,8 +128,9 @@ SMA_PKG := $(shell pkg-config --variable=prefix sma 2>/dev/null)
 SMA_PKG := $(if $(filter /opt/cray/pe/%,$(SMA_PKG)),,$(SMA_PKG))
 CRAY_SMA   ?= $(or $(CRAY_OPENSHMEMX_PREFIX),$(call sma_ok,$(CRAY_SHMEM_PREFIX)),$(call sma_ok,$(CRAY_SHMEM_DIR)),$(call sma_ok,$(CRAY_SMA_PREFIX)),$(call sma_ok,$(SMA_HOME)),$(call sma_ok,$(SMA_PKG)),$(and $(wildcard $(CRAY_SMA_DEF)/include/shmem.h),$(CRAY_SMA_DEF)),$(patsubst %/include/shmem.h,%,$(lastword $(sort $(wildcard /opt/cray/shmem/sma/*/ofi/include/shmem.h)))),$(CRAY_SMA_DEF))
 CRAY_DSMML ?= $(or $(CRAY_DSMML_PREFIX),$(and $(wildcard $(CRAY_DSMML_DEF)/include),$(CRAY_DSMML_DEF)),$(patsubst %/include,%,$(lastword $(sort $(wildcard /opt/cray/shmem/dsmml/*/include /opt/cray/pe/dsmml/*/dsmml/include)))),$(CRAY_DSMML_DEF))
+SMA_LIB       = $(if $(wildcard $(CRAY_SMA)/lib64),$(CRAY_SMA)/lib64,$(if $(wildcard $(CRAY_SMA)/lib),$(CRAY_SMA)/lib,$(CRAY_SMA)/lib64))   # lib64, else lib
 XSHMEM_CFLAGS = -DXSHMEM_CRAY -DUSE_HIP $(XSHMEM_CRAY_DEFS) -I$(CRAY_SMA)/include -I$(CRAY_DSMML)/include
-XSHMEM_LIBS   = -L$(CRAY_SMA)/lib64 -L$(CRAY_DSMML)/lib -L$(PMI_LIBDIR) -lsma -lpmi -lpmi2 -ldsmml -Wl,-rpath,$(CRAY_SMA)/lib64 -Wl,-rpath,$(CRAY_DSMML)/lib -Wl,-rpath,$(PMI_LIBDIR) -lpthread
+XSHMEM_LIBS   = -L$(SMA_LIB) -L$(CRAY_DSMML)/lib -L$(PMI_LIBDIR) -lsma -lpmi -lpmi2 -ldsmml -Wl,-rpath,$(SMA_LIB) -Wl,-rpath,$(CRAY_DSMML)/lib -Wl,-rpath,$(PMI_LIBDIR) -lpthread
 XOBJS         = pe_geo_nb.o
 else ifneq ($(XSHMEM),0)
 $(error XSHMEM must be 0, ofi or cray)

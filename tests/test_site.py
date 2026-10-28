@@ -11,7 +11,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def sh(script, env=None, cwd=ROOT):
     e = dict(os.environ); e.pop("MNRUN_GRES", None); e.pop("MNRUN_GRES_RESOLVED", None)
     e.update(env or {})
-    return subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=e, cwd=cwd, timeout=60)
+    return subprocess.run(["bash", "-c", script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, env=e, cwd=cwd, timeout=60)
 
 
 class Gres(unittest.TestCase):
@@ -90,7 +90,7 @@ class MakefileSite(unittest.TestCase):
         for k in ("CRAY_PMI_PREFIX", "PMI_HOME", "PMI_LIBDIR", "CRAY_OPENSHMEMX_PREFIX", "CRAY_SHMEM_PREFIX", "CRAY_SHMEM_DIR", "CRAY_SMA_PREFIX", "SMA_HOME", "CRAY_DSMML_PREFIX", "CRAY_SMA", "CRAY_DSMML"):
             e.pop(k, None)
         e.update(env)
-        r = subprocess.run(["make", "-n", "-B", *args, "tests/t_xshmem"], capture_output=True, text=True, env=e, cwd=os.path.join(ROOT, "ecalc"), timeout=60)
+        r = subprocess.run(["make", "-n", "-B", *args, "tests/t_xshmem"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, env=e, cwd=os.path.join(ROOT, "ecalc"), timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr[-400:])
         return r.stdout.replace(self.d, "F")
 
@@ -126,7 +126,7 @@ class GenConfOutDir(unittest.TestCase):
                 for k, v in facts.items():
                     f.write("%s\t%s\tt\n" % (k, v))
             out = os.path.join(d, "t.conf")
-            r = subprocess.run([sys.executable, os.path.join(ROOT, "target/probe/gen_conf.py"), d, "-o", out], capture_output=True, text=True, timeout=60)
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "target/probe/gen_conf.py"), d, "-o", out], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
             self.assertEqual(r.returncode, 0, r.stderr[-400:])
             with open(out) as fh:
                 return {k.strip(): v.split("#")[0].strip() for k, _, v in (l.partition("=") for l in fh) if k.strip() and not k.startswith("#")}

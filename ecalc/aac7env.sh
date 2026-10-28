@@ -36,7 +36,7 @@ aac7_log() {
         gpu_numa[$i]="$(basename "$d"):numa$(cat "$d"/numa_node 2>/dev/null)"; i=$((i + 1))
     done
     local j nic=""
-    for j in 0 1 2 3; do [ -e /sys/class/cxi/cxi$j/device/numa_node ] && nic="$nic cxi$j:numa$(cat /sys/class/cxi/cxi$j/device/numa_node)"; done
+    for j in $(ls /sys/class/cxi 2>/dev/null | sed -n "s/^cxi//p" | sort -n); do [ -e /sys/class/cxi/cxi$j/device/numa_node ] && nic="$nic cxi$j:numa$(cat /sys/class/cxi/cxi$j/device/numa_node)"; done
     echo "aac7env: node $h apus ${gpu_numa[*]} nics$nic"
     # the toolchain the run resolves (Phase 16 D): the HIP runtime ecalc loads, the rocm module in this shell
     [ -x "${MNRUN_DIR:-.}/ecalc" ] && echo "aac7env: node $h libamdhip64 $(ldd "${MNRUN_DIR:-.}/ecalc" 2>/dev/null | awk '/libamdhip64/ { print $3 }') modules $(module list 2>&1 | grep -oE 'rocm/[0-9.]+' | paste -sd,)"
