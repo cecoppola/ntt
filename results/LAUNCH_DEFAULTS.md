@@ -211,3 +211,21 @@ Reading: at the record's per-node share (6.632e10) `BS_MDEV_LOGL=28` costs nothi
 - Where the time goes (measured, c09, per-arm means): bs +2.5 s (56.5 to 59.1), division (dm) +3.3 s (35.7 to 39.0); init and dc unchanged. `DIST_CHUNKS=16` adds about +1.1 s on top of 28 alone.
 - aac7 slow mode (detection: a run whose dm sits 1.5 s or more above its arm's fastest run; arm A shows a bimodal dm, 35.0 to 35.3 s fast against 36.9 to 37.1 s slow). Slow runs in c09: A in rounds 2 and 3 (3 of 10 A runs). Without those two rounds the c09 plus c10 plus c08 pool is +5.37 [+4.39, +6.35] s (8 rounds); with them +5.50 [+4.75, +6.26] s. Slow mode does not explain the effect. c10 per-run slow flags were not checked.
 - Reading: at 1e11 the switch costs a stable +5 to +6 s (+4.5 %), about +3.3 s of it in division; at 9e10 the single control pair shows +0.5 s, so the onset sits between 9e10 and 1e11 (one pair, unresolved). The 576-node per-node share (6.632e10) was measured at -0.55 s (c06). Model: the record run at 3.82e13 should see about 0 to a few percent from this switch; not measured at scale.
+
+**The two numbers for ROUTE S6 (measured, 2026-10-28, items c11 and c13 on s5b0, c12 on s3b1, remote-v10 a448c46 builds, path 1, ABBA with a discarded warm-up, A = `BS_MDEV_LOGL=29`, B = `BS_MDEV_LOGL=28 DIST_CHUNKS=16`; digit tails equal the known ones in every run: 6.632e10 ...79932777543051118449, 9e10 ...32983517734368241080, 1e11 ...37703810896884928977).**
+
+| digits | rounds | A / B total | B - A (95 % interval) |
+|---|---|---|---|
+| **6.632e10 (record per-node share)**, c11 | 4 | 76.0 / 76.4 s | +0.36 [-1.81, +2.53] s, +0.5 % |
+| 6.632e10 pooled with c06 (same setup, A/B, warm-up kept; c06 rounds -0.45 -0.64) | 6 | - | **+0.06 [-1.16, +1.27] s** (t interval on the 6 round differences), +0.1 % |
+| 9e10, c12 | 3 | 106.9 / 107.0 s | +0.17 [-4.89, +5.23] s; rounds +0.43 -1.99 +2.06 |
+| 9e10 with the c09 control (+0.50) | 4 | - | +0.28 s (mean of 4 round differences) |
+| 9.5e10, c12 | 2 | 119.8 / 119.1 s | -0.64 [-2.36, +1.09] s; rounds -0.77 -0.50 |
+| 9.5e10 with the c07 pair (+2.28, remote-v8) | 3 | - | +0.34 s (mean of 3) |
+| 1e11, pooled c08, c09, c10 | 10 | - | +5.50 [+4.75, +6.26] s (above) |
+| 1e11, `DIST_CHUNKS=16` share: 28 alone (A) vs 28 + `DIST_CHUNKS=16` (B), c13 | 2 | 124.3 / 125.6 s | +1.29 [-1.74, +4.31] s |
+
+- Answer 1: at the record's per-node share the switch costs nothing resolved, 0.06 s with an interval of about +-1.2 s on 6 rounds (+-1.2 s is 1.6 % of the 76 s run).
+- Answer 2: the onset is a step between 9.5e10 and 1e11. Up to 9.5e10 the pairs scatter around zero (all intervals contain zero); at 1e11 all 10 pairs are positive (+5.5 s, +4.5 %). Rounds at 9e10 and 9.5e10 are scattered by +-2 s per round, so a cost under about 2 s there is not excluded.
+- `DIST_CHUNKS=16` accounts for about +1.3 s of the 1e11 cost (2 rounds, interval spans zero), consistent with the +1.1 s from c09; the rest, about +4 s, is the `BS_MDEV_LOGL=28` leaf level.
+- Slow mode (a run whose dm is 0.7 s or more above its arm minimum at 6.632e10, 1.5 s or more at 9e10 to 1e11): c11 flagged 5 of 16 runs (A r1a2, r2a2, r4a1; B r4b1, r4b2, all dm about 18.7 to 19.0 against 17.8 to 18.1), which leaves round 3 clean at +1.81 s; c12 flagged 9e10 A r1a2 and r3a1 (dm 30.8) and 9.5e10 A r1a1 and r2a2 (dm 38.1 to 38.3 against 36.4). Flagged A runs raise A, so the zero-centred results would move positive, not negative, if they were removed; the 1e11 conclusion does not depend on them (c09 check above). Per-round noise at these sizes is 1 to 2 s.
