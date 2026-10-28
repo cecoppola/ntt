@@ -52,8 +52,8 @@ run1() {    # TAG ARM(A|B) WORDS... ; sets LAST_OK; stores metrics under $TAG
     rl_ecrun "$tag" "$P" "$NN" "$D" $@; rc=$?
     TOT[$tag]=${E_TOTAL:-}; INIT[$tag]=${E_INIT:-}; BS[$tag]=${E_BS:-}; DM[$tag]=${E_DM:-}; DC[$tag]=${E_DC:-}
     rl_runfacts "$RUN/raw/${tag,,}.log" "$P"; set -- ${RF_I:-}
-    XS[$tag]="${2:-NA} ${3:-NA} ${4:-NA} ${5:-NA} ${6:-NA} ${7:-NA}"; RSH[$tag]="${RF_RN:-NA} ${RF_RS:-NA}"; DSH[$tag]="${RF_DN:-NA} ${RF_DS:-NA}"; DEVA[$tag]=${E_DEVPEAK_APU_GB:-NA}; PLANAPU=${PLANAPU:-${RF_PLANAPU:-}}
-    [ -n "$FACT_LAYOUT" ] || FACT_LAYOUT="pes=${RF_PES:-${RF_NOTE:+$NN}} per_node=${RF_PERNODE:-${RF_NOTE:+1}} bg_team=${RF_BG:-NA} bs_team=${RF_TEAMBS:-NA} residue_team=${RF_TEAMRES:-NA}${RF_NOTE:-}"
+    XS[$tag]="${2:-NA} ${3:-NA} ${4:-NA} ${5:-NA} ${6:-NA} ${7:-NA}"; RSH[$tag]="${RF_RN:-NA} ${RF_RS:-NA}"; DSH[$tag]="${RF_DN:-NA} ${RF_DS:-NA}"; DEVA[$tag]=${E_DEVPEAK_APU_GB:-NA}; [ -n "$PLANAPU" ] || PLANAPU=${RF_PLANAPU:-}
+    if [ -z "$FACT_LAYOUT" ] && { [ -n "$RF_PES" ] || [ -n "$RF_NOTE" ]; }; then FACT_LAYOUT="pes=${RF_PES:-$NN} per_node=${RF_PERNODE:-1} bg_team=${RF_BG:-NA} bs_team=${RF_TEAMBS:-NA} residue_team=${RF_TEAMRES:-NA}${RF_NOTE:-}"; fi
     [ -z "$RF_P24LINES" ] || FACT_P24="${FACT_P24:+$FACT_P24; }$tag: $RF_P24FL flags ($RF_P24LINES line(s), up to $RF_P24PROD products per PE)"
     local t; t=$(rl_digits_tail "$RUN/raw/${tag,,}.log"); tails="$tails
 $t"

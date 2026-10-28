@@ -260,7 +260,7 @@ rl_digits_tail() {  # LOG -> last digits printed by the process that holds the E
 }
 
 rl_runfacts() {     # LOG [PATH] -> RF_* from what ecalc printed (empty = not printed); one pass over the log; the summary lines are made by rl_factlines
-    local f=$1 pth=${2:-}; RF_PES= RF_PERNODE= RF_NODES= RF_BG= RF_TEAMBS= RF_TEAMRES= RF_I=; RF_RN= RF_RS= RF_DN= RF_DS= RF_P24LINES= RF_P24PROD= RF_P24FL= RF_PLANAPU=
+    local f=$1 pth=${2:-}; RF_PES= RF_PERNODE= RF_NODES= RF_BG= RF_TEAMBS= RF_TEAMRES= RF_I=; RF_RN= RF_RS= RF_DN= RF_DS= RF_P24LINES= RF_P24PROD= RF_P24FL= RF_PLANAPU= RF_NOTE=
     [ -f "$f" ] || f=$f.gz; [ -f "$f" ] || return 0
     local tmp; tmp=$(mktemp "${TMPDIR:-/tmp}/rlf.XXXXXX")
     { case $f in *.gz) zcat "$f";; *) cat "$f";; esac; } | sed -E 's/^ *[0-9]+: //' | grep -a -E '^(vpe: |omp team: |tl +[a-z]+ [0-9]+: init = |recip\(mn\) |divmod\(mn|P24_CHECK: [0-9]|memory fit: [0-9]|mn: (pe|node) [0-9]+ of [0-9]+)' > "$tmp"
@@ -272,11 +272,11 @@ rl_runfacts() {     # LOG [PATH] -> RF_* from what ecalc printed (empty = not pr
     l=$(grep -a -m1 '^omp team: ' "$tmp" | sed -n 's/.*bs team \([0-9]*\), residue team \([0-9]*\).*/\1 \2/p'); [ -n "$l" ] && read -r RF_TEAMBS RF_TEAMRES <<< "$l"
     RF_I=$(grep -a -m1 -E '^tl +[a-z]+ [0-9]+: init = ' "$tmp" | sed -n 's/.*init = \([0-9.]*\) s: plan\/fit\/pool rule before the transport \([0-9.]*\) + mn_init \([0-9.]*\) + rns_init \([0-9.]*\) + mn_selftest \([0-9.]*\) + region pools \([0-9.]*\) + other \([0-9.]*\).*/\1 \2 \3 \4 \5 \6 \7/p')
     l=$(grep -a -m1 '^recip(mn) ' "$tmp" | sed -n 's/.*shifts \([0-9]*\)\/\([0-9.]*\).*/\1 \2/p'); [ -n "$l" ] && read -r RF_RN RF_RS <<< "$l"
-    l=$(grep -a -m1 '^divmod(mn' "$tmp" | sed -n 's/.*shifts \([0-9]*\)\/\([0-9.]*\) s.*/\1 \2/p'); [ -n "$l" ] && read -r RF_DN RF_DS <<< "$l"
+    l=$(grep -a '^divmod(mn' "$tmp" | grep -a -m1 'shifts [0-9]' | sed -n 's/.*shifts \([0-9]*\)\/\([0-9.]*\) s.*/\1 \2/p'); [ -n "$l" ] && read -r RF_DN RF_DS <<< "$l"
     l=$(grep -a '^P24_CHECK: ' "$tmp" | awk '{ n++; if ($2 + 0 > m) m = $2 + 0; for (i = 1; i < NF; i++) if ($(i + 1) == "flags") fl += $i } END { if (n) print n, m, fl + 0 }'); [ -n "$l" ] && read -r RF_P24LINES RF_P24PROD RF_P24FL <<< "$l"
     RF_PLANAPU=$(grep -a -m1 '^memory fit: ' "$tmp" | sed -n 's/.*per node = \([0-9.]*\) GB per APU.*/\1/p')
     rm -f "$tmp"
-    if [ -z "$RF_PES" ] && [ "$pth" = 1 ]; then RF_NOTE=" (layout D: one process per node, from the launch line)"; else RF_NOTE=; fi
+    if [ -z "$RF_PES" ] && [ "$pth" = 1 ] && [ -n "$RF_I$RF_RN$RF_DN" ]; then RF_NOTE=" (layout D: one process per node, from the launch line)"; else RF_NOTE=; fi
 }
 rl_factlines() {    # NODES -> the KEY=VALUE summary lines of the last rl_runfacts (NA = not printed)
     local n=$1 p=${RF_PES:-}; [ -z "$p" ] && [ -n "${RF_NOTE:-}" ] && { p=$n; RF_PERNODE=1; RF_NODES=$n; }

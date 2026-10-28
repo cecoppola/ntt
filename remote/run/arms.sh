@@ -7,7 +7,9 @@
 # `s5_run.sh --nodes N --digits D --path P --env WORDS --hosts <block>` started at once (--stagger SEC: SEC seconds apart); the script waits
 # for all and prints ONE table: arm, nodes, settings, rc, total_s, init_s, verify, last_digits, run dir.  Verdict FAIL when an arm fails.
 # --cmd runs a shell command per arm instead of ecalc (test mode for allocations without NICs; the command sees ARM_NAME ARM_NODES ARM_HOSTS
-# ARM_WORDS, its output is the arm's row text, rc 0 = PASS).  Nothing else changes: s5_run.sh behaves as before when called alone.
+# ARM_WORDS, its output is the arm's row text, rc 0 = PASS).  Each arm runs in its own process group; INT/TERM/EXIT kill the arms still running
+# (their srun steps too) and the table marks them KILLED.  The arms start their run dirs within the same second: `s5_latest`/`latest` point at
+# whichever arm started last, so use the run dir printed in each table row (and raw/arm_<name>.out), never `latest`.  Nothing else changes: s5_run.sh behaves as before when called alone.
 #   example (two 4-node arms side by side in an 8-node allocation, path 2):
 #     arms.sh --nodes 4 --digits 1.6e11 --path 2 --arm "A:" --arm "B:XSHMEM_SPARSE=1"
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); . "$HERE/lib.sh"; set -u
@@ -37,14 +39,22 @@ rl_need_running "$JOB"
 ALL=$(rl_usable_hosts "$JOB"); HN=$(echo "$ALL" | grep -c .)
 [ "$HN" -ge $((NN * NA)) ] || rl_die "$NA arm(s) of $NN node(s) need $((NN * NA)) usable nodes, the allocation has $HN"
 rl_kv job "$JOB"; rl_kv arms "$NA"; rl_kv nodes_per_arm "$NN"; rl_kv digits "${DIG:-NA}"; rl_kv path "${P:-NA}"
-PIDS=(); i=0
+PIDS=(); i=0; KILLED=0
+arms_kill() {   # kill every arm still running (own process group: the arm's s5_run, mnrun and srun steps), mark it
+    local k n; for k in "${!PIDS[@]}"; do kill -0 "${PIDS[$k]}" 2>/dev/null || continue
+        n=${ARMS[$k]%%:*}; : > "$RUN/raw/arm_$n.killed"; kill -TERM -- "-${PIDS[$k]}" 2>/dev/null; done
+    [ -n "$(ls "$RUN"/raw/*.killed 2>/dev/null)" ] && { sleep 3; for k in "${!PIDS[@]}"; do kill -KILL -- "-${PIDS[$k]}" 2>/dev/null; done; }
+    return 0
+}
+trap 'KILLED=1; arms_kill' INT TERM
+trap 'arms_kill; rl_trap' EXIT
 for a in "${ARMS[@]}"; do
     name=${a%%:*}; words=${a#*:}; blk=$(echo "$ALL" | sed -n "$((i * NN + 1)),$(((i + 1) * NN))p" | paste -sd,)
     out=$RUN/raw/arm_$name.out
     if [ -n "$CMD" ]; then
-        ( ARM_NAME=$name ARM_NODES=$NN ARM_HOSTS=$blk ARM_WORDS=$words bash -c "$CMD" > "$out" 2>&1; echo "rc=$?" >> "$out" ) &
+        ARM_NAME=$name ARM_NODES=$NN ARM_HOSTS=$blk ARM_WORDS=$words setsid bash -c 'bash -c "$1" > "$2" 2>&1; echo "rc=$?" >> "$2"' _ "$CMD" "$out" &
     else
-        ( bash "$HERE/s5_run.sh" --nodes "$NN" --digits "$DIG" --path "$P" --env "$words" --hosts "$blk" --jobid "$JOB" ${TMO:+--tmo "$TMO"} ${EXCLUDE:+--exclude "$EXCLUDE"} > "$out" 2>&1 ) &
+        setsid bash "$HERE/s5_run.sh" --nodes "$NN" --digits "$DIG" --path "$P" --env "$words" --hosts "$blk" --jobid "$JOB" ${TMO:+--tmo "$TMO"} ${EXCLUDE:+--exclude "$EXCLUDE"} > "$out" 2>&1 < /dev/null &
     fi
     PIDS+=($!); rl_say "arm $name started on $blk"
     i=$((i + 1)); [ "$STAG" -gt 0 ] && [ $i -lt "$NA" ] && sleep "$STAG"
@@ -53,14 +63,15 @@ fails=0; i=0
 rl_line "arm       nodes rc  total_s  init_s   verify  last_digits            settings / run"
 for a in "${ARMS[@]}"; do
     name=${a%%:*}; words=${a#*:}; out=$RUN/raw/arm_$name.out
-    wait "${PIDS[$i]}"; rc=$?; i=$((i + 1))
+    wait "${PIDS[$i]}"; rc=$?; wait "${PIDS[$i]}" 2>/dev/null; i=$((i + 1)); kd=; [ -f "$RUN/raw/arm_$name.killed" ] && { rc=KILLED; kd=" (killed)"; }
     if [ -n "$CMD" ]; then
         crc=$(sed -n 's/^rc=//p' "$out" | tail -1); rc=${crc:-$rc}
         rl_line "$(printf '%-9s %-5s %-3s %s | %s' "$name" "$NN" "$rc" "$(grep -av '^rc=' "$out" | head -1 | cut -c1-100)" "${words:-<defaults>}")"
     else
-        kv() { grep -a -m1 "^$1=" "$out" | cut -d= -f2-; }
-        rd=$(grep -a -m1 -o 'run=[^ ]*' "$out" | cut -d= -f2); ph=$(grep -a -m1 '^phases_s:' "$out" | sed -n 's/.*init=\([^ ]*\).*/\1/p')
-        rl_line "$(printf '%-9s %-5s %-3s %-8s %-8s %-7s %-22s %s | %s' "$name" "$NN" "$rc" "$(kv total_s)" "${ph:-NA}" "$(kv verify)" "$(kv last_digits | tr -d ' ' | cut -c1-22)" "${words:-<defaults>}" "${rd##*/}")"
+        rd=$(sed -n 's/.* run dir //p' "$out" | head -1); sf=$rd/summary.txt; [ -f "$sf" ] || sf=$out   # the arm's own summary.txt (the stdout copy is truncated for long summaries)
+        kv() { grep -a -m1 "^$1=" "$sf" | cut -d= -f2-; }
+        ph=$(grep -a -m1 '^phases_s:' "$sf" | sed -n 's/.*init=\([^ ]*\).*/\1/p')
+        rl_line "$(printf '%-9s %-5s %-3s %-8s %-8s %-7s %-22s %s | %s' "$name" "$NN" "$rc" "$(kv total_s)" "${ph:-NA}" "$(kv verify)" "$(kv last_digits | tr -d ' ' | cut -c1-22)" "${words:-<defaults>}${kd}" "${rd##*/}")"
     fi
     [ "$rc" = 0 ] || fails=$((fails + 1))
 done

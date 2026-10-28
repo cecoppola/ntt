@@ -21,6 +21,9 @@ while [ $# -gt 0 ]; do case $1 in
 rl_posint "$NN" && rl_isnum "$DIG" || { echo "s5_run.sh: --nodes a positive integer, --digits numeric (64e9, 38.2e12 or an integer)" >&2; exit 2; }
 NN=$((10#$NN))
 case $P in 1|2) ;; *) echo "s5_run.sh: --path 1|2" >&2; exit 2;; esac
+HLIST=$(echo "$HLIST" | tr -d ' ')
+[ -z "$HLIST" ] || [ -z "$(echo "$HLIST" | tr ',' '\n' | sort | uniq -d)" ] || { echo "s5_run.sh: --hosts has duplicate hosts" >&2; exit 2; }
+[ -z "$HLIST" ] || ! echo ",$HLIST," | grep -q ',,' || { echo "s5_run.sh: --hosts has a blank host" >&2; exit 2; }
 [ -z "$HLIST" ] || [ "$SCREEN" = 0 ] || { echo "s5_run.sh: --hosts and --screen do not combine (the screen covers the whole allocation)" >&2; exit 2; }
 [ -z "$HLIST" ] || [ "$(echo "$HLIST" | tr ',' '\n' | grep -c .)" = "$NN" ] || { echo "s5_run.sh: --hosts needs exactly $NN host(s)" >&2; exit 2; }
 rl_init s5
