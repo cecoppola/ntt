@@ -112,7 +112,7 @@ default has an owner and a review date (`tools/switch_registry.py --check`).
 Open work in this repository is in `TASKS.md`.
 
 **Target session** (an agent team on the target runs it; the entry point is `target/RESTART.md`: probe, builds, bench, ladder 1/8/64/576 nodes; the older staged kit is `target/kit/target_kit.sh -h`):
-1. Install the rules (`target/governance/install.sh`), probe the system (`target/probe/probe.sh`, login then one node; about
+1. (Claude-Code-on-target workflow only; `target/governance/` is not in the remote-v* copies) Install the rules (`target/governance/install.sh`), probe the system (`target/probe/probe.sh`, login then one node; about
    30 s on aac7, m) and generate `target/config/target.conf` (`target/probe/gen_conf.py`).
 2. Build path 1 and path 2 (bench items `bld01`, `bld02`; about 25 s each on aac7, m).
 3. Bench (`target/bench/run.sh`, one worker per allocation, 59 items run once each in priority order; questions and the
