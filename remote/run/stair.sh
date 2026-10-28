@@ -85,11 +85,12 @@ for i in "${!SN[@]}"; do
         D1=$(rl_digits_site "$d" "$n"); rl_fit "$PATHN" "$n" "$D1" $e; frc=$?; pline=$(grep -a 'per APU (max)' "$RUN/raw/fit_${PATHN}_${n}_$D1.log" 2>/dev/null | tail -1)
         mg=$(echo "$pline" | sed -n 's/.*margin \([-+][0-9.]*\) GB.*/\1/p'); PMAX=$(echo "$pline" | sed -n 's/.*per APU (max) \([0-9.]*\) GB.*/\1/p')
         need=$(awk -v g="${GAP:-}" -v m="$MINM" 'BEGIN { if (g == "") print m; else { x = g + 2; if (x < 3) x = 3; print x } }')
+        why="assumed $MINM"; [ -n "${GAP:-}" ] && why="observed excess $GAP$GAPSRC + 2, at least 3"
         if [ $frc != 0 ]; then rl_line "$idx $n $d planner rc=$frc (refused or failed): the step runs into s5_run, which reports it"
         elif [ -z "$mg" ]; then rl_line "$idx $n $d memory rule not applied: the planner printed no per-APU margin (add ECALC_FIT_PER_APU=1 to the step's ENV)"
         elif awk -v a="$mg" -v b="$need" 'BEGIN { exit !(a + 0 < b + 0) }'; then
-            rl_line "$idx $n $d SKIPPED (memory: planner margin $mg GB per APU is below the need $need GB = ${GAP:+observed excess $GAP$GAPSRC + 2, at least 3}${GAP:-assumed 6.5})"; skipped=$((skipped + 1)); stop=skip; break
-        else rl_line "$idx $n $d memory rule ok: planner margin $mg GB per APU, need $need GB (${GAP:+observed excess $GAP$GAPSRC + 2, at least 3}${GAP:-assumed 6.5})"; fi
+            rl_line "$idx $n $d SKIPPED (memory: planner margin $mg GB per APU is below the need $need GB = $why)"; skipped=$((skipped + 1)); stop=skip; break
+        else rl_line "$idx $n $d memory rule ok: planner margin $mg GB per APU, need $need GB ($why)"; fi
     fi
     run_step "$idx" "$n" "$d" "$e" "$x" "$idx"
     if [ "$SV" = FAIL ]; then worst=FAIL; stop=fail; fail_idx=$idx; break; fi
