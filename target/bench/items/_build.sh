@@ -105,7 +105,7 @@ for c in "${CANDS[@]}"; do
 done
 tgt_kv m.candidates_tried "$tried"
 tgt_kv m.build_s "$(( $(date +%s) - T0 )) s"
-[ -n "$chosen" ] || fail "no module candidate built (tried $tried; see raw/build.log; error lines: $(grep -m3 -E 'error|Error' "$LOG" | tr '\n' ' ' | cut -c1-300))"
+[ -n "$chosen" ] || fail "no module candidate built (tried $tried; see raw/build.log; error lines: $(grep -m3 -E 'error|Error|\*\*\*' "$LOG" | tr '\n' ' ' | cut -c1-300))"
 tgt_kv m.make_s "$MAKE_S s"
 ul=${chosen%%|*}; ld=${chosen#*|}
 BIN=$B/ecalc/ecalc

@@ -52,7 +52,7 @@ rl_cat() { local x; for x in "$@"; do [ -f "$x" ] || continue; case $x in *.gz) 
 rl_errs() {     # FILES... -> up to 15 distinct error-looking lines (rank labels / times stripped, digits folded for the dedupe)
     local f=("$@"); [ ${#f[@]} -gt 0 ] || f=("$RUN"/raw/*.log "$RUN"/*.log)
     rl_cat "${f[@]}" \
-      | grep -a -i -E 'error|fail|abort|segv|refused|timeout|fatal|no hipcc|undefined reference|not found' \
+      | grep -a -i -E 'error|fail|abort|segv|refused|timeout|fatal|no hipcc|undefined reference|not found|\*\*\*' \
       | grep -a -v -i -E 'fail(ed)?=0|errors?[:=] *0|without error|VERIFY OK|no error|0 fail|^ *([0-9]+: )?config: |SEGV_TRACE' \
       | sed -E 's/^ *[0-9]+: //; s/^\[[a-z0-9_]+ [0-9:]+\] //; s/^[0-9]{4}-[0-9-]+ [0-9:]+ [A-Z]* //' | cut -c1-200 \
       | awk '{ k = $0; gsub(/[0-9]+/, "N", k); if (!(k in s)) { s[k] = 1; print } }' | head -n 15
