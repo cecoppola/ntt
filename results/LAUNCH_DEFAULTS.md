@@ -1,6 +1,6 @@
 # LAUNCH_DEFAULTS — launch-line decisions and defaults adopted
 
-Owner of items B01, L1, T08, ADOPT2, DEF, FIT, S47, AAC7OPT (old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`; originals: `archive:results_merged_2026-10-19/`. Labels: m measured, mod modelled, a assumed. Times Eastern.
+Owner of items B01, L1, T08, ADOPT2, DEF, FIT, S47, AAC7OPT, A2EDGE (old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`; originals: `archive:results_merged_2026-10-19/`. Labels: m measured, mod modelled, a assumed. Times Eastern.
 
 ## Topic summary
 
@@ -127,6 +127,41 @@ Question (TASKS "Path 2 at the target's scale"): at the same per-node share 1.73
 | `DIST_CHUNKS=8` | 273.06 (= the 64 n figure less 3) | 368.59 | 7.67 | 9.66 |
 | `DIST_CHUNKS=16` | 264.94 | 360.47 | 3.84 | 5.37 |
 
+**A3 re-run on the built cand3 planner (2026-10-28, `ECALC_PE_PER_GPU=1 SLURM_NTASKS_PER_NODE=4 XSHMEM_LANES=2 ECALC_FIT_PER_APU=1`, target limits device 373.44 / node 487, 576 n, planner output = mod; the device / node figures reproduce the table above to the 0.01 GB).** GB per node (per busiest APU against 93.36); "unset" is `DIST_CHUNKS` not set (= 1 under vPE):
+
+| digits | `DIST_CHUNKS` | device (per APU) | node | verdict, per-APU margin |
+|---|---|---|---|---|
+| 4.608e12 (8e9 per node) | unset = 1 / 2 / 4 / 8 | 328.69 (82.17) / 267.02 / 236.68 / 221.52 | 406.32 / 344.65 / 314.31 / 299.15 | fits, +11.19 / +26.61 / +34.19 / +37.98 |
+| 1e13 (1.74e10 per node) | unset = 1 | 371.64 (92.91) | 467.17 | fits by +0.45 per APU (+1.80 node-mean); the wrap (380.23) is off by the auto rule, so the older "refused" figure was against the old 414 GB node budget |
+| 1e13 | 2 / 4 / 8 | 318.56 (79.64) / 288.22 (72.06) / 273.06 (68.26) | 414.09 / 383.76 / 368.59 | fits, +13.72 / +21.30 / +25.10 (wrap on) |
+| 3e13 (5.2e10 per node) | unset / 1 / 2 / 4 / 8 | 611.02 (152.75) / 611.02 / 519.01 / 473.58 / 450.29 (112.57) | 741.94 / 741.94 / 649.93 / 604.50 / 581.21 | REFUSED at every `DIST_CHUNKS` up to 8 (-59.39 ... -19.21 per APU; node over 487 too) |
+| path 1 D reference: 4.608e12 / 1e13 | default | 135.54 (40.33 busiest) / 238.97 (74.24) | 160.54 / 268.12 | fits, +53.03 / +19.12 |
+
+Reading: the 8e9-per-node campaign shape fits path 2 with 11 GB per APU to spare even at `DIST_CHUNKS` unset; 1e13 fits only barely unset and comfortably at 2 or more; 3e13 does not fit path 2 at any slicing (the tree term, see the 6.632e10 note below). `DIST_CHUNKS` > 1 under vPE is still not run (see Digit safety). `DIST_CHUNKS=16` gives 264.94 GB (66.23 per APU, +27.13) at 1e13 and 439.22 (109.80, -16.44, REFUSED) at 3e13. `XSHMEM_LANES` 1 / 2 / 4 does not change any planner figure (checked at 1e13 and 3e13, `DIST_CHUNKS` 1 and 16).
+
 `MN_NONPOW2_CAP=0` changes nothing here (it is off by auto below 4.5e10 per node). `COMM_ALLTOALLV_DEPTH=1` changes nothing in the planner. `MN_GROUPS` cannot help: the top group must be all 576 nodes. A power-of-two node count (512) avoids it (276.13) but is not the target. Digit safety: `DIST_CHUNKS` only re-slices the rows of one exchange (digits were identical for 4 -> 8 on layout D, README), but under vPE K > 1 has not been run, the K = 1 default was chosen for message size (64 KiB at K = 8), and the effect on time is unmeasured: it needs the gate at 3 nodes (12 PEs, general map) with `ECALC_PE_PER_GPU=1` and an ABBA at 3 n before anything is adopted. Smallest change that fits: `DIST_CHUNKS=2` (node 414.09 against 480 GB real budget), or 4 (margin +85 GB device).
 
 **The 6.632e10 per node share (earlier note), same binary:** device with `DIST_CHUNKS` unset, `MN_NONPOW2_CAP` auto (on from 4.5e10): 362.03 (2 n), 430.75 (8 n), 456.52 (64 n), 671.15 GB (576 n; planes 162.22, v-slots 91.69); with `MN_NONPOW2_CAP=0` 576 n is 560.62 and with also `DIST_CHUNKS=8` 453.45 GB (v-slots 7.67). The growth from 2 to 64 n at that share is the tree term of path 2 (arena 232 / 301 / 326 GB at 2 / 8 / 64 n, tree 44.95 / 63.74 / 70.02 per APU) while layout D stays at 360.95 GB: path 2's plan runs the tree over the nodes (`plan pe` line: the groups below a node are not modelled until the PE-level products exist), so each deeper level adds a bigger product per PE; the dm need (55.96 GB per APU) is the same in both. No K or cap setting removes that: path 2 needs a PE-level tree model (and then a smaller real footprint) to fit 6.6e10 per node; values here differ by 8-9 GB from the earlier note's (447.93 / 473.70 / 517.67), a planner or settings difference not traced.
+
+## A2EDGE — record memory edge per APU at 3e13 and 3.82e13 on 576 nodes (2026-10-28, planner, mod)
+
+Question (overnight lane L3, A2): which setting has the largest margin under the per-APU edge 93.36 GB (assumed edge from the target: the `hipMalloc` limit per APU, `ECALC_DEVICE_GB` 373.44 / 4) and the node limits, given that the target measured 2.7-6.5 GB more than the planner per APU (so a margin under 6.5 GB is not safe). Method (all planner output, mod): cand3 build (path 1, layout D), `MN_PLAN_ONLY=<digits>:576`, `ECALC_FIT_PER_APU=1 ECALC_DEVICE_GB=373.44 ECALC_NODE_GB=487`, `COMM_TRANSPORT=xshmem`, one run per cell (about 3 s each, 112 + 48 runs). All five switches exist (`ecalc/README.md`); `DIST_CHUNKS` unset is 8 on path 1 (README), so the requested {1, 2} are both coarser than the default; 16 was added.
+
+**Result 1, the planner's per-APU peak is the busiest APU (region 0) unless `BS_MDEV_LOGL` balances it.** Per-APU max / margin to 93.36 (GB), `MN_NONPOW2_CAP=0`, `MN_T_CHUNK_MB` 512 or 1024 (no effect at `DIST_CHUNKS` 8 / 16), `DM_MN_WRAP` auto:
+
+| digits | `BS_MDEV_LOGL` | `DIST_CHUNKS` 8 (default) | `DIST_CHUNKS` 16 |
+|---|---|---|---|
+| 3e13 | unset | 89.74 / +3.62 (device 350.37, node 386.45; wrap on) | 88.13 / +5.23 |
+| 3e13 | 29 .. 24 (all equal) | 85.44 / +7.92 (device 341.78, node 377.86; wrap on) | 83.83 / +9.53 (wrap on); with `DM_MN_WRAP=0` set 75.24 / +18.12 (device 300.97) |
+| 3.82e13 | unset | 89.74 / +3.62 (device 354.66, node 390.75) | 88.13 / +5.23 |
+| 3.82e13 | 29 | 89.74 / +3.62 (not yet balanced: device 352.51) | 88.13 / +5.23 (device 346.07) |
+| 3.82e13 | 28 .. 24 (all equal) | 87.59 / +5.77 (device 350.37, node 386.45) | **85.98 / +7.38** (device 343.92, node 380.01) |
+
+- `BS_MDEV_LOGL` 28 or lower balances the four APUs at 3.82e13 (busiest = mean 87.59); 29, which balances at 1e11 on one node (`results/MEMORY.md` §B4) and at 3e13 here, leaves region 0 at 89.74 at 3.82e13. Lowering below 28 changes nothing in the planner (the time cost of more mdev levels is unmeasured).
+- `MN_NONPOW2_CAP` auto (on from 4.5e10 per node) is REFUSED at 3.82e13 in every cell (best 99.70 per APU, -6.34, with `BS_MDEV_LOGL=28`) and at 3e13 fits only with `BS_MDEV_LOGL` 28/29 and no coarsening (91.11 / +2.25): keep `MN_NONPOW2_CAP=0`.
+- `DIST_CHUNKS` 1 and 2 are worse than the default 8 in every cell and REFUSED at 3.82e13 (1: -21.04 .. -48.66; 2: -5.62 .. -25.67 per APU); 3e13 with `DIST_CHUNKS=2` fits only with `BS_MDEV_LOGL` 28/29 and cap 0 (90.39 / +2.97 with `MN_T_CHUNK_MB=1024`, 88.24 / +5.12 with 512).
+- `MN_T_CHUNK_MB` (512 / 256 vs 1024) only matters where `DIST_CHUNKS` is coarse (1, 2): -8.6 GB device at `DIST_CHUNKS=1`; none at 8 / 16.
+- 3e13 with `DM_MN_WRAP` automatic turns the wrap on (device within 368.44) and so costs 7.64 GB per APU against `DM_MN_WRAP=0`; the auto rule compares the node-mean device figure, not the busiest APU. At 3.82e13 the wrap is off in every cell.
+
+**Recommendation (mod).** For 3.82e13: `BS_MDEV_LOGL=28`, `MN_NONPOW2_CAP=0`, `DIST_CHUNKS=16` gives 85.98 GB per APU (+7.38 to the 93.36 edge; node-mean device 343.92 of 373.44; node 380.01 of 487), the only 3.82e13 setting above the 6.5 GB bar; today's S6 line (`BS_MDEV_LOGL=29`, default `DIST_CHUNKS`) has 89.74 (+3.62), below it. `BS_MDEV_LOGL=28` with the default `DIST_CHUNKS` has +5.77 (also below the bar). For 3e13: `BS_MDEV_LOGL=29` (or 28), cap 0, default `DIST_CHUNKS` is +7.92 (above the bar); `DM_MN_WRAP=0` with `DIST_CHUNKS=16` +18.12. Unproven: `DIST_CHUNKS=16` on path 1 layout D has not been timed or digit-checked (README: digits identical for 4 -> 8; the exchange messages halve against K=8's 64 KiB) and `BS_MDEV_LOGL=28` at scale has not run; both need the 1-node gate with `BS_LAYOUT_ONLY` / a 1e11 ABBA, and the 2-node gate, before they join ROUTE S6. Not adopted by this item (planner only).
+
