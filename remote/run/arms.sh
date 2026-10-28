@@ -23,6 +23,8 @@ case $STAG in ''|*[!0-9]*) echo "arms.sh: --stagger whole seconds" >&2; exit 2;;
 [ -n "$CMD" ] || { rl_isnum "$DIG" || { echo "arms.sh: --digits numeric" >&2; exit 2; }; case $P in 1|2) ;; *) echo "arms.sh: --path 1|2" >&2; exit 2;; esac; }
 for a in "${ARMS[@]}"; do case $a in *:*) ;; *) echo "arms.sh: --arm needs NAME:WORDS (got '$a')" >&2; exit 2;; esac; done
 NN=$((10#$NN)); NA=${#ARMS[@]}
+[ "$(for a in "${ARMS[@]}"; do echo "${a%%:*}"; done | sort -u | wc -l)" = "$NA" ] || { echo "arms.sh: arm names must be distinct" >&2; exit 2; }
+for a in "${ARMS[@]}"; do case ${a%%:*} in ''|*[!A-Za-z0-9_.-]*) echo "arms.sh: arm name '${a%%:*}': letters, digits, _ . - only" >&2; exit 2;; esac; done
 rl_init arms
 if [ "$DRY" = 1 ]; then
     i=0; for a in "${ARMS[@]}"; do i=$((i + 1))

@@ -178,9 +178,9 @@ rl_job_state() {    # JOB -> state (PENDING, RUNNING, ...) or empty = gone; an e
 rl_job_alive() { case $(rl_job_state "$1") in PENDING|RUNNING|CONFIGURING|COMPLETING|SUSPENDED|RESIZING) return 0;; *) return 1;; esac; }
 rl_job_mine() { [ "$(rl_tmo 30 squeue -h -j "$1" -o %u 2>/dev/null | head -1)" = "$(rl_user)" ]; }
 rl_hosts_all() { local n; n=$(rl_tmo 30 squeue -h -j "$1" -o %N 2>/dev/null | head -1); [ -n "$n" ] && rl_tmo 30 scontrol show hostnames "$n" 2>/dev/null; }
-rl_exclude_list() { # comma list: --exclude / REMOTE_EXCLUDE, target.conf's MNRUN_EXCLUDE_HOSTS, aac7's $HOME/aac7q/exclude* files
+rl_exclude_list() { # comma list: --exclude / REMOTE_EXCLUDE, target.conf's MNRUN_EXCLUDE_HOSTS, aac7's $HOME/aac7q/exclude* files (REMOTE_EXCLUDE_FILES=0: not those, for items on nodes the lists name)
     local l=${EXCLUDE:-}${REMOTE_EXCLUDE:+,$REMOTE_EXCLUDE}${MNRUN_EXCLUDE_HOSTS:+,$MNRUN_EXCLUDE_HOSTS}
-    if [ "$REMOTE_SITE" = aac7 ]; then local f; for f in "$HOME"/aac7q/exclude "$HOME"/aac7q/exclude_slow; do [ -f "$f" ] && l="$l,$(sed 's/#.*//' "$f" | awk '{ print $1 }' | paste -sd,)"; done; fi
+    if [ "$REMOTE_SITE" = aac7 ] && [ "${REMOTE_EXCLUDE_FILES:-1}" != 0 ]; then local f; for f in "$HOME"/aac7q/exclude "$HOME"/aac7q/exclude_slow; do [ -f "$f" ] && l="$l,$(sed 's/#.*//' "$f" | awk '{ print $1 }' | paste -sd,)"; done; fi
     # split at commas/blanks outside [...] so Slurm ranges like nid[001-003,007] stay whole
     echo "$l" | tr ' ' ',' | awk '{ d = 0; o = ""; for (i = 1; i <= length($0); i++) { c = substr($0, i, 1); if (c == "[") d++; else if (c == "]") d--
         if (c == "," && d <= 0) { print o; o = "" } else o = o c } print o }' | grep -E '^[][A-Za-z0-9._,-]+$' | sort -u | paste -sd,
