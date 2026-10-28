@@ -12,7 +12,7 @@ known problems: `FACTS.md`. Paste from the repository root. Times are wall clock
 | P4 | staircase steps 2-4 (2e13, 2.8e13, 3.82e13), stops at the first failure | 20-90 min | each step `VERIFY OK`; the memory rule lets the next step run |
 | P5 | `report.sh`: one table of every run, then release of the allocation | 1 min | the agent writes the REPORT (AGENT.md) |
 
-Total 5 pastes when nothing fails, 6-8 with fallbacks. Tell the user the allocation time for P1: (session hours) minus 15 min. A paste whose time exceeds what is left (plus 20 %): Minimal route.
+Total 5 pastes when nothing fails, 6-8 with fallbacks. Tell the user the allocation time for P1: (session hours) minus 15 min (`<H:MM:SS>` in P1; the hold must outlast every paste: step 4 needs its `--tmo` + 5 min = 95 min left when it starts, and `stair.sh` skips a step the hold cannot finish and prints the minutes left and the time needed, then `alloc.sh --release` and a new `alloc.sh --nodes 576 --time <H:MM:SS>` for the rest). The measured per-APU excess of a passed step is kept in `site.env`, so P4 starts from P3's excess (the `need` printed per step). A paste whose time exceeds what is left (plus 20 %): Minimal route.
 
 ## P1 check, build, gates (allocation requested first, so the queue wait overlaps the build)
 
