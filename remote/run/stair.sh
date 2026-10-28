@@ -43,8 +43,8 @@ left_s() {     # seconds left of the allocation (empty = unknown)
     if [ -n "${c:-}" ]; then h=$a; m=$b; s=$c; elif [ -n "${b:-}" ]; then m=$a; s=$b; else s=$a; fi
     echo $(( (10#$d * 24 + 10#$h) * 3600 + 10#$m * 60 + 10#$s ))
 }
-GAP=; t0=$SECONDS; best=0; stop=; worst=PASS; skipped=0
-rl_line "step nodes digits         verdict  total_s init/bs/dm/dc (s)       meas/model apu_peak/plan_GB verify last_digits(20)  hash"
+GAP=; PMAX=; t0=$SECONDS; best=0; stop=; worst=PASS; skipped=0
+rl_line "step nodes digits         verdict  total_s init/bs/dm/dc (s)       meas/model apu_peak/plan_max_GB verify last_digits(20)  hash"
 run_step() {   # IDX NODES DIGITS ENV EXTRA TAG -> sets SV (verdict) and prints the table row
     local idx=$1 n=$2 d=$3 e=$4 x=$5 tag=$6 out rd sf rc v
     out=$RUN/raw/step${tag}_$n.out
@@ -57,18 +57,21 @@ run_step() {   # IDX NODES DIGITS ENV EXTRA TAG -> sets SV (verdict) and prints 
     kv() { grep -a -m1 "^$1=" "$sf" | cut -d= -f2-; }
     v=$(grep -a -m1 -o 'verdict=[A-Z]*' "$sf" | cut -d= -f2); [ -n "$v" ] || { [ $rc = 0 ] && v=PASS || v=FAIL; }
     [ $rc != 0 ] && v=FAIL
-    local ph; ph=$(grep -a -m1 '^phases_s:' "$sf" | sed -E 's/.*init=([^ ]*) bs=([^ ]*) recip=[^ ]* dm=([^ ]*) dc=([^ ]*).*/\1\/\2\/\3\/\4/')
-    local pk pl; pk=$(kv device_peak_apu_gb | awk '{ print $1 }'); pl=$(kv device_plan_apu_gb | awk '{ print $1 }')
-    rl_line "$(printf '%-4s %-5s %-13s %-8s %-7s %-24s %-10s %-15s %-6s %-20s %s' "$tag" "$n" "$d" "$v" "$(kv total_s)" "${ph:-NA}" "$(kv meas_over_model)" "${pk:-NA}/${pl:-NA}" "$(kv verify)" "$(kv last_digits | tr -d ' ' | cut -c1-20)" "$(kv digit_hash | cut -d' ' -f1)")"
+    local ph; ph=$(grep -a -m1 '^phases_s:' "$sf" | sed -E 's/.*init=([^ ]*) bs=([^ ]*) recip=[^ ]* dm=([^ ]*) dc=([^ ]*).*/\1 \2 \3 \4/' | awk '{ if (NF == 4) printf "%.1f/%.1f/%.1f/%.1f", $1, $2, $3, $4; else printf "NA" }')
+    local pk pl; pk=$(kv device_peak_apu_gb | awk '{ print $1 }'); pl=${PMAX:-$(kv device_plan_apu_gb | awk '{ print $1 }')}
+    rl_line "$(printf '%-4s %-5s %-13s %-8s %-7s %-24s %-10s %-15s %-6s %-20s %s' "$tag" "$n" "$d" "$v" "$(kv total_s)" "${ph:-NA}" "$(kv meas_over_model)" "${pk:-NA}/${pl:-NA}" "$(kv verify)" "$(kv last_digits | tr -d ' ' | cut -c1-20)" "$(kv digit_hash | awk '$1 ~ /^[0-9a-f]+$/ { print $1; next } { print "-" }')")"
     rl_line "     env: ${e:-<none>}${x:+ | extra: $x} | run ${rd##*/}"
-    if [ "$v" = PASS ] && [ -n "$pk" ] && [ -n "$pl" ] && [ "$pk" != NA ] && [ "$pl" != NA ]; then
-        GAP=$(awk -v a="$pk" -v b="$pl" -v g="${GAP:-}" 'BEGIN { x = a - b; if (g == "" || x > g) g = x; printf "%.2f", g }'); rl_line "     measured peak - plan per APU: $(awk -v a="$pk" -v b="$pl" 'BEGIN { printf "%+.2f", a - b }') GB (largest so far $GAP)"
+    local sh sc; sh=$(kv slow_hosts); sc=$(kv screen)
+    [ -n "$sc" ] && rl_line "     screen: $sc${sh:+; slow_hosts=$sh (left out of the later steps)}"
+    [ -n "$sh" ] && EXCLUDE=${EXCLUDE:+$EXCLUDE,}$sh
+    if [ "$v" = PASS ] && [ -n "${PMAX:-}" ] && [ -n "$pk" ] && [ "$pk" != NA ]; then     # measured busiest APU against the planner's busiest APU
+        GAP=$(awk -v a="$pk" -v b="$PMAX" -v g="${GAP:-}" 'BEGIN { x = a - b; if (g == "" || x > g) g = x; printf "%.2f", g }'); rl_line "     measured peak - plan per APU: $(awk -v a="$pk" -v b="$PMAX" 'BEGIN { printf "%+.2f", a - b }') GB (largest so far $GAP)"
     fi
     SV=$v; SRD=$rd; SSF=$sf; LFD=$(kv largest_fit_digits); [ -n "$LFD" ] && rl_line "     planner refused: largest fitting digits $LFD"
     [ "$v" = PASS ] || [ "$v" = PARTIAL ] || { RL_ERRFILES+=("$sf"); }
 }
 for i in "${!SN[@]}"; do
-    idx=$((i + 1)); n=${SN[$i]}; d=${SD[$i]}; e=${SE[$i]}; x=${SX[$i]}
+    PMAX=; idx=$((i + 1)); n=${SN[$i]}; d=${SD[$i]}; e=${SE[$i]}; x=${SX[$i]}
     if [ -n "$BUDGET" ] && [ $(( (SECONDS - t0) / 60 + 30 )) -gt "$BUDGET" ]; then
         rl_line "$idx $n $d SKIPPED (budget $BUDGET min: $(( (SECONDS - t0) / 60 )) min used, a step needs up to 30)"; skipped=$((skipped + 1)); stop=skip; break; fi
     ls=$(left_s)
@@ -78,7 +81,8 @@ for i in "${!SN[@]}"; do
             rl_line "$idx $n $d SKIPPED (the allocation has $((ls / 60)) min left, the step needs $need)"; skipped=$((skipped + 1)); stop=skip; break; fi
     fi
     if [ "$MINM" != 0 ]; then       # memory rule: the planner's per-APU margin against what the measured runs showed
-        D1=$(rl_digits_site "$d" "$n"); rl_fit "$PATHN" "$n" "$D1" $e; frc=$?; mg=$(grep -a 'per APU (max)' "$RUN/raw/fit_${PATHN}_${n}_$D1.log" 2>/dev/null | sed -n 's/.*margin \([-+][0-9.]*\) GB.*/\1/p' | tail -1)
+        D1=$(rl_digits_site "$d" "$n"); rl_fit "$PATHN" "$n" "$D1" $e; frc=$?; pline=$(grep -a 'per APU (max)' "$RUN/raw/fit_${PATHN}_${n}_$D1.log" 2>/dev/null | tail -1)
+        mg=$(echo "$pline" | sed -n 's/.*margin \([-+][0-9.]*\) GB.*/\1/p'); PMAX=$(echo "$pline" | sed -n 's/.*per APU (max) \([0-9.]*\) GB.*/\1/p')
         need=$(awk -v g="${GAP:-}" -v m="$MINM" 'BEGIN { if (g == "") print m; else { x = g + 2; if (x < 3) x = 3; print x } }')
         if [ $frc != 0 ]; then rl_line "$idx $n $d planner rc=$frc (refused or failed): the step runs into s5_run, which reports it"
         elif [ -z "$mg" ]; then rl_line "$idx $n $d memory rule not applied: the planner printed no per-APU margin (add ECALC_FIT_PER_APU=1 to the step's ENV)"

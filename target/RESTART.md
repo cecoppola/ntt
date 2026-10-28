@@ -1,8 +1,8 @@
 # target/RESTART.md — start here on the target system
 
-> **Which workflow governs.** In a `remote/` browser-agent session (the planned workflow: the user unpacks a ZIP, no git on the target, the agent only reads GitHub and gives
-> command blocks) `remote/AGENT.md` governs. This file's workflow for a Claude Code session on the target (§0 `git clone`, §2 `bash target/governance/install.sh`, LOG.md) does not
-> apply: never run `target/governance/install.sh` in that session. Sections of this file that the remote session may use are named in `remote/README.md`.
+> **Which workflow governs.** The target session is copy-and-paste only (the user unpacks a ZIP, no git, no agent on the target; a browser agent reads GitHub and gives command
+> blocks): `remote/AGENT.md` and `remote/ROUTE.md` govern and need nothing from this file. This file is background (the mission, the project as understood, the bench and ladder
+> descriptions) for a development-side session; its Claude-Code-on-target workflow (§0 `git clone`, §2 the install of rules, LOG.md) is not used, and the files it names are not in the copy.
 
 Scope: everything an agent needs to start work on the target system at once: the mission, the rules and how to install
 them, the project as we understand it, and steps 1-4 with exact commands. Written 2026-10-25 (Eastern time) by the
@@ -325,11 +325,8 @@ machine, so schedule it when the bench prio < 200 items are done or the session 
 - `bench/aggregate.py`; check `results/bench/ANSWERS.md` and `METRICS.tsv` are committed.
 - Write `target/results/HANDOFF.md`: what ran, what is left (by priority), surprises, the next questions.
 
-## 11. Next session plan (2026-10-27; details and paste blocks: `remote/ROUTE.md` "Next target session")
+## 11. Next session plan (superseded 2026-10-28)
 
-Order: (1) the s3 gate at 1 and 2 nodes first (multi-node changes ship off by default; the target's 2-node gate decides); (2) 2 + 2 nodes at 8e9 per node, proven line against
-`ECALC_OMP_TEAM=mask ECALC_RESIDUE=shoup` with the team line and `ECALC_INIT_TL=1` (self-test seconds: keep the self-test while under 15 s; expect dc 14 s -> under 1 s);
-(3) 64 nodes, three arms `XSHMEM_ROUND_MB` 128 / 1024 / 0 with `MN_WAIT_STATS=1 NEWTON_MN_RECIP_TS=1`; (4) 64 nodes flat against `XSHMEM_COLL=tree`, layout D against P;
-(5) 576 nodes, 4.608e12, best settings, two runs in one allocation (warm against cold) with `ECALC_INIT_TL=1 COMM_HANG_DETAIL=1 MEM_REPORT_DEVS=1`; (6) benches `net02`, `net04`, `net05`,
-`mem01`, `io01`, `io02`; (7) the 2e13 and 3e13 reruns (`COMM_HANG_DETAIL=1`; `ECALC_FIT_PER_APU=1`). `mnrun.sh` now defaults `MNRUN_CPUS_PER_TASK` to auto. Model for the A/B:
-`results/TIME_MODEL.md` §target_fit; staging fit: `results/MEMORY.md`.
+The session route is now the paste plan of `remote/ROUTE.md` (P1 to P5: check, build and gates; screen and 576 nodes at 4.608e12; the first record run; the staircase; report). The experiments of the
+earlier plan (thread teams and residue, round size, collectives, layout, shift sparsity, init timeline, IO and fabric benches, the 2e13 / 3e13 failure hunt) are the optional appendix there,
+used only when the user asks.

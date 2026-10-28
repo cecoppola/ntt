@@ -40,16 +40,17 @@ for c in "${CALLS[@]}"; do
 done
 rl_line "calls (n script verdict rc time):"; for r in "${rows[@]}"; do rl_line "  $r"; done
 if [ $BRIEF = 1 ]; then      # the key lines of each call's summary (budget: about 62 lines for all calls)
-    per=$(( 62 / n )); [ $per -gt 16 ] && per=16; [ $per -lt 6 ] && per=6
+    per=$(( 54 / n )); [ $per -gt 13 ] && per=13; [ $per -lt 6 ] && per=6
     KEY='^(note|nodes|nodelist|job|state|time_left|waited_s|digits|path|rc|verify|total_s|phases_s|meas_over_model|device_peak_apu_gb|device_plan_apu_gb|fit|slow_hosts|screen|last_digits|digit_hash|gpu_count|nics_cxi|shmem_test_rc|manifest[a-z_]*|tools_missing[a-z_]*|carry_on|built[a-z_0-9]*|gate|userfaultfd[a-z_]*|partition|gres_gpu|advisory|PENDING|reason|errors|pass|fail)[=:]|^  [12] [0-9]+ |^  (1|2) +[0-9]+ '
     i=0; for c in "${CALLS[@]}"; do i=$((i + 1)); [ $i -le $n ] || break
         f=$(ls "$RUN"/raw/call${i}_*.out 2>/dev/null | head -1); [ -f "$f" ] || continue
         sf=$(sed -n 's/.* run dir //p' "$f" | head -1); sf=${sf/#\~/$HOME}/summary.txt; [ -f "$sf" ] || sf=$f
         rl_line "-- call $i: $(echo "$c" | cut -c1-110) -> ${VERD[$i]:-?}"
-        if [ "${VERD[$i]:-}" = PASS ]; then
-            kl=$(sed -n '/^=== REMOTE/,/^=== END/p' "$sf" | grep -a -E "$KEY" | grep -a -v '^errors' | cut -c1-170 | head -n "$per")
-        else
+        if [ "${VERD[$i]:-}" = FAIL ]; then
             kl=$(sed -n '/^=== REMOTE/,/^=== END/p' "$sf" | grep -a -v -E '^(=== |stage=)' | cut -c1-170 | head -n $((per + 14)))
+        else      # PASS / PARTIAL / SKIP: the key lines, then (not PASS) the lines that say what is off
+            kl=$(sed -n '/^=== REMOTE/,/^=== END/p' "$sf" | grep -a -E "$KEY" | grep -a -v '^errors' | cut -c1-170 | head -n "$per")
+            [ "${VERD[$i]:-}" = PASS ] || kl=$(printf '%s\n%s' "$kl" "$(sed -n '/^=== REMOTE/,/^=== END/p' "$sf" | grep -a -E 'note=|advisory|differs|_missing|=none|PENDING|reason=|exec_bits=|next=' | grep -a -v -E "$KEY" | cut -c1-170 | head -n 6)" | grep -a .)
         fi
         [ -n "$kl" ] && while IFS= read -r l; do rl_line "   $l"; done <<< "$kl"
     done
