@@ -47,4 +47,5 @@ rl_kv runs_good "$good"; rl_kv runs_bad "$bad"; rl_kv runs_skipped "$skipped"
 if [ $bad -gt 0 ]; then rl_finish FAIL "$bad run(s) wrong (hash, VERIFY or rc); logs $RUN/raw/g_*.log" "$HERE/show.sh $RUN errors"; fi
 if [ $good -eq 0 ]; then rl_finish FAIL "no gate run could be made" "$HERE/s2_build.sh; $HERE/alloc.sh --status"; fi
 v=PASS; [ $skipped -gt 0 ] && v=PARTIAL
-rl_finish "$v" "$HERE/s5_run.sh --nodes $maxn --digits <D> --path ${PATHS/both/2}"
+np=${PATHS/both/2}; [ "$PATHS" = both ] && [ ! -x "$(rl_bin 2)" ] && np=1
+rl_finish "$v" "$HERE/s5_run.sh --nodes $maxn --digits <D> --path $np"

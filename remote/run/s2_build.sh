@@ -6,7 +6,7 @@
 # node, both paths at once; --node builds on the first node of the allocation (--jobid / REMOTE_JOB) when the login node has no compiler.
 # GMP: GMP_HOME or a system gmp.h is used; otherwise a source tarball (gmp-*.tar.* next to the repo, in $REMOTE_OUT or $HOME) or a download
 # (REMOTE_GMP_URL=<link>) is built into $REMOTE_OUT/gmp (--no-gmp: do not try); without GMP the build goes on (nothing it builds needs it).  Writes REMOTE_ECALC1/2, REMOTE_MODULES_P1/P2, REMOTE_UNLOAD, GMP_HOME
-# into site.env.  Verdict: PASS all requested built, PARTIAL path 2 failed but path 1 built (carry on with path 1), FAIL otherwise.
+# into site.env.  Verdict: PASS all requested built, PARTIAL with --path both when exactly one path built (carry on with that path: chain.sh goes on, s3_gate.sh skips the missing path), FAIL otherwise.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); . "$HERE/lib.sh"; set -u
 PATHS=both JOBS=32 NODE=0 JOB= NOGMP=0
 while [ $# -gt 0 ]; do case $1 in
@@ -21,7 +21,7 @@ BUILD=$R/target/bench/items/_build.sh
 want=(); case $PATHS in 1) want=(1);; 2) want=(2);; both) want=(1 2);; esac
 if [ "$DRY" = 1 ]; then
     rl_would "gmp: ensure \$GMP_HOME/include/gmp.h or a system gmp.h; else build GMP 6.3.0 from a tarball into $REMOTE_OUT/gmp"
-    for p in "${want[@]}"; do rl_would "OUT=$RUN/bld_p$p BLD_JOBS=$JOBS MNRUN_MODULES=\"$(rl_mods "$p")\" MNRUN_UNLOAD=\"$(rl_unload)\" GMP_HOME=${GMP_HOME:-<unset>} bash -l $BUILD p$p   # make XSHMEM=$([ $p = 1 ] && echo ofi || echo cray)${NODE:+; on a node of the allocation: $([ $NODE = 1 ] && echo yes || echo no)}"; done
+    for p in "${want[@]}"; do rl_would "OUT=$RUN/bld_p$p BLD_JOBS=$JOBS MNRUN_MODULES=\"$(rl_mods "$p")\" MNRUN_UNLOAD=\"$(rl_unload)\" GMP_HOME=${GMP_HOME:-<unset>} bash -l $BUILD p$p   # make XSHMEM=$([ $p = 1 ] && echo ofi || echo cray)$([ $NODE = 1 ] && echo '; on a node of the allocation')"; done
     rl_would "site.env <- REMOTE_ECALC1/2 REMOTE_MODULES_P1/P2 REMOTE_UNLOAD GMP_HOME"
     rl_finish SKIP "$HERE/s2_build.sh --path $PATHS"
 fi
@@ -98,6 +98,7 @@ for p in "${want[@]}"; do
         if [ $p = 1 ]; then ok1=1; rl_site_set REMOTE_ECALC1 "$abs"; [ -n "$wm" ] && rl_site_set REMOTE_MODULES_P1 "$wm"; else ok2=1; rl_site_set REMOTE_ECALC2 "$abs"; [ -n "$wm" ] && rl_site_set REMOTE_MODULES_P2 "$wm"; fi
         u=$(sv "$p" e.MNRUN_UNLOAD); [ -n "$u" ] && rl_site_set REMOTE_UNLOAD "$u"
     else
+        rl_site_unset "REMOTE_ECALC$p"
         rl_kv "path$p.rc" "$rc"; rl_kv "path$p.result" "FAILED: $(sv "$p" note | cut -c1-200)"
         rl_kv "path$p.log" "$o/raw/build.log"
     fi
@@ -105,8 +106,9 @@ done
 case $PATHS in
   1) [ $ok1 = 1 ] && v=PASS || v=FAIL;;
   2) [ $ok2 = 1 ] && v=PASS || v=FAIL;;
-  both) if [ $ok1 = 1 ] && [ $ok2 = 1 ]; then v=PASS; elif [ $ok1 = 1 ]; then v=PARTIAL; else v=FAIL; fi;;
+  both) if [ $ok1 = 1 ] && [ $ok2 = 1 ]; then v=PASS; elif [ $ok1 = 1 ] || [ $ok2 = 1 ]; then v=PARTIAL; else v=FAIL; fi;;
 esac
-[ $ok2 = 1 ] || [ $PATHS = 1 ] || rl_kv carry_on "path 2 did not build: continue with path 1 (--path 1 in the next stages)"
+[ $PATHS = both ] && [ $ok1 = 0 ] && [ $ok2 = 1 ] && rl_kv carry_on "path 1 did not build: continue with path 2 (--path 2 in the next stages; the S6 route needs path 1)"
+[ $PATHS = both ] && [ $ok1 = 1 ] && [ $ok2 = 0 ] && rl_kv carry_on "path 2 did not build: continue with path 1 (--path 1 in the next stages)"
 [ "$v" = FAIL ] && rl_finish FAIL "build failed" "$HERE/show.sh $RUN errors"
 rl_finish "$v" "$HERE/s3_gate.sh --nodes 1,2 --path $([ $ok1 = 1 ] && [ $ok2 = 1 ] && echo both || { [ $ok1 = 1 ] && echo 1 || echo 2; }) --digits 1e9"
