@@ -195,8 +195,10 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `XSHMEM_LANE_TRACE` | 0 | experiment | diagnosis, default off (any layout): value = seconds; exchanges slower than that print one `SLOW` line (post split into staging, copies, stream sync, default quiet; per-lane quiet; last two ... | - |
 | `XSHMEM_LOOPBACK_PES` | 1 | experiment | PEs one process hosts in the libfabric backend (default 1 = one PE per process, the only value the flow runs: `ECALC_PE_PER_GPU=1` refuses another; `mnrun.sh` sets it under ... | - |
 | `XSHMEM_PEER` | -1 | experiment | (default: on with one PE per process, Q100 2026-10-25; `0` = off, the NIC path; the default layout D is unaffected): same-node PEs exchange payload by device copies (`hipMemcpyAsync` on one ... | - |
+| `XSHMEM_PEER_STREAMS` | 8 | experiment | XSHMEM_PEER=1 device-copy streams per PE (default 8 = one per peer; peer pe uses stream pe mod k; 1 = every copy of a round on one stream); measurement aid for the copy-engine A/B, digits identical; results/SINGLE_NODE.md §PEER | - |
 | `XSHMEM_PES_PER_GPU` | 1 | experiment | PEs per GPU (default 1; the 2-PEs-per-GPU fallback of design 2.2) / a prefix for every `/sys` path (mock trees of `tests/t_pe_geo`) | - |
 | `XSHMEM_ROUND_MB` | 128 | experiment | the xshmem engine (`COMM_TRANSPORT=xshmem`) carries an all-to-all whose pair exceeds this / (n − 1) MiB in rounds that stage at most this many MiB each way (the self slab is not staged; one ... | - |
+| `XSHMEM_ROUND_STATS` | 0 | diagnostic | diagnostic, default 0 (no clock reads when off): 1 = every PE prints at exit (and every 5000 rounds) the round path's phase times: exclusive worker seconds per phase (ROFF post, staging copy, copy issue, copy quiet, signal post, signal quiet, receive copy, ROFF poll, signal poll), wall seconds of the two waits (these include the worker's turns on other pending exchanges) the pending exchanges per round (mean, max), and a second line per PE with the exchange timeline (post, worker wake, worker span with its unclassified gaps, late, notice, end: they sum to the post-to-completion total; caller blocked and working times; post to the first ROFF write); digits identical; results/SINGLE_NODE.md §PEER | - |
 | `XSHMEM_SIG_LANES` | 0 | experiment | diagnosis, default off: signals on every lane instead of lane 0 only | - |
 | `XSHMEM_SPARSE` | 0 | experiment | experiment, default 0: 1 = a peer with zero bytes in one direction gets no offset word / signal / wait / round for that direction (no offset word, no signal, no wait, no round), so a shift moves messages only between the nodes that overlap; counts must agree on both sides (a mismatch then hangs instead of a count fatal); digits identical; results/XSHMEM.md | - |
 | `XSHMEM_THP_DISABLE` | 0 | experiment | diagnosis, default 0: 1 = prctl(PR_SET_THP_DISABLE) in the engine init, so this process takes no THP faults (and no direct-compaction stalls) | - |
@@ -227,7 +229,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | TARGET1 (S3a) | 2026-12-31 | `XSHMEM_LOOPBACK_PES`, `XSHMEM_ROUND_MB` |
 | experiment | TARGET12 (S2) | 2026-12-31 | `ECALC_PE_PER_GPU`, `RNS_BATCH_SPLIT` |
 | experiment | TARGET12 (S22) | 2026-12-31 | `ECALC_OMP_TEAM`, `ECALC_RESIDUE`, `MN_OUT_EARLY_ALWAYS` |
-| experiment | TASK4 peer | 2026-12-31 | `XSHMEM_PEER` |
+| experiment | TASK4 peer | 2026-12-31 | `XSHMEM_PEER`, `XSHMEM_PEER_STREAMS` |
 | experiment | TGTSHAPE | 2026-12-31 | `XSHMEM_HEAP_SLACK_MB` |
 | experiment | comm | 2026-12-31 | `XSHMEM_COLL`, `XSHMEM_HS_BATCH`, `XSHMEM_SPARSE` |
 | experiment | craylane | 2026-12-31 | `XSHMEM_CRAY_GPU_PRETOUCH`, `XSHMEM_CRAY_HEAP_THP`, `XSHMEM_CRAY_NOMEMSET`, `XSHMEM_CRAY_NUMA`, `XSHMEM_CRAY_PUTSIG_SPLIT`, `XSHMEM_CRAY_SIGSET`, `XSHMEM_CRAY_TEST`, `XSHMEM_LANE_CTX`, `XSHMEM_LANE_POLL`, `XSHMEM_LANE_TRACE`, `XSHMEM_SIG_LANES`, `XSHMEM_THP_DISABLE`, `XSHMEM_THREAD_LEVEL` |
