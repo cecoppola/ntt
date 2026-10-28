@@ -21,11 +21,11 @@ for st in s2 s3 alloc; do f=$(last $st)/summary.txt; [ -f "$f" ] && rl_line "$st
 rl_line "runs (s5_run, oldest first): nodes digits path verdict total_s init/bs/dm/dc meas/model apu_peak/plan verify last20 hash | settings"
 nr=0; ok=0; bestd=0; bests=
 for d in $(ls -d "$REMOTE_OUT"/s5_2* 2>/dev/null | sort); do
-    f=$d/summary.txt; [ -f "$f" ] || continue; grep -aq 'verdict=SKIP' "$f" && continue
+    f=$d/summary.txt; [ -f "$f" ] || continue; grep -aq 'verdict=SKIP' "$f" && continue; [ -n "$(kvf "$f" nodes)" ] || continue
     v=$(grep -a -m1 -o 'verdict=[A-Z]*' "$f" | cut -d= -f2); dg=$(kvf "$f" digits); nr=$((nr + 1))
     ph=$(grep -a -m1 '^phases_s:' "$f" | sed -E 's/.*init=([^ ]*) bs=([^ ]*) recip=[^ ]* dm=([^ ]*) dc=([^ ]*).*/\1\/\2\/\3\/\4/')
     pk=$(kvf "$f" device_peak_apu_gb | awk '{ print $1 }'); pl=$(kvf "$f" device_plan_apu_gb | awk '{ print $1 }')
-    rl_line "$(printf '%-3s %-5s %-14s p%-2s %-7s %-7s %-22s %-8s %-11s %-6s %-20s %s | %s' "$nr" "$(kvf "$f" nodes)" "$dg" "$(kvf "$f" path)" "$v" "$(kvf "$f" total_s)" "${ph:-NA}" "$(kvf "$f" meas_over_model)" "${pk:-NA}/${pl:-NA}" "$(kvf "$f" verify)" "$(kvf "$f" last_digits | tr -d ' ' | cut -c1-20)" "$(kvf "$f" digit_hash | cut -d' ' -f1)" "$(kvf "$f" settings | cut -c1-90)")"
+    rl_line "$(printf '%-3s %-5s %-14s p%-2s %-7s %-7s %-22s %-8s %-11s %-6s %-20s %s | %s' "$nr" "$(kvf "$f" nodes)" "$dg" "$(kvf "$f" path)" "$v" "$(kvf "$f" total_s)" "${ph:-NA}" "$(kvf "$f" meas_over_model)" "${pk:-NA}/${pl:-NA}" "$(kvf "$f" verify)" "$(kvf "$f" last_digits | tr -d ' ' | cut -c1-20)" "$(kvf "$f" digit_hash | awk '$1 ~ /^[0-9a-f]+$/ { print $1; next } { print "-" }')" "$(kvf "$f" settings | cut -c1-90)")"
     if [ "$v" = PASS ] && [ "$(kvf "$f" verify)" = OK ] && awk -v a="$dg" -v b="$bestd" 'BEGIN { exit !(a + 0 > b + 0) }'; then bestd=$dg; bests="$(kvf "$f" nodes) nodes, $(kvf "$f" total_s) s"; fi
     ok=$((ok + 1))
 done

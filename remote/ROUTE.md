@@ -46,16 +46,16 @@ a digit mismatch is never moved past (AGENT.md Failure handling). Optional extra
 ## The record staircase (P3 and P4)
 
 One env line per step, in this table and nowhere else (every command below says "env of step k" and the agent copies the words from here). Sizes and settings: `results/LAUNCH_DEFAULTS.md` §RECORD1 (the reasoning and the planner
-margins; per APU against the 93.36 GB edge, planner, modelled; the target measured 2.7-6.5 GB MORE than the planner per APU, so the bar is 6.5 GB). Model times are without a digit write and optimistic by 3-9 x on the target (FACTS).
+margins of every size and setting; per APU against the 93.36 GB edge, planner, modelled; the target measured 2.7-6.5 GB MORE than the planner per APU, so the bar is 6.5 GB). Model times are without a digit write and optimistic by 3-9 x on the target (FACTS).
 
 | step | digits | nodes | env words (path 1) | extra | plan margin per APU (mod) | model | fallback if it fails |
 |---|---|---|---|---|---|---|---|
-| 1 | 1e13 | 576 | `ECALC_VERBOSE=1 ECALC_FIT_PER_APU=1 MEM_REPORT_DEVS=1 XSHMEM_HANG_S=3600 MN_NONPOW2_CAP=0 BS_MDEV_LOGL=29` | `--tmo 60` | +19.1 | 51 s | 8e12, then stop and report 4.608e12 as the best |
-| 2 | 2e13 | 576 | same words as step 1 | `--tmo 60` | +18.7 | 90 s | 1.4e13 |
-| 3 | 2.8e13 | 576 | `ECALC_VERBOSE=1 ECALC_FIT_PER_APU=1 MEM_REPORT_DEVS=1 XSHMEM_HANG_S=3600 MN_NONPOW2_CAP=0 BS_MDEV_LOGL=28 DIST_CHUNKS=16` | `--tmo 75` | (see LAUNCH_DEFAULTS) | 120 s | the same size with `BS_MDEV_LOGL=29` and no `DIST_CHUNKS` |
-| 4 | 3.82e13 | 576 | same words as step 3 | `--tmo 90`, `--write <dir>` only if the user said yes | +7.4 | 180 s | 3.3e13 with the words of step 3, then the largest size the planner accepts above the bar |
+| 1 | 1e13 | 576 | `ECALC_VERBOSE=1 ECALC_FIT_PER_APU=1 MEM_REPORT_DEVS=1 XSHMEM_HANG_S=3600 MN_NONPOW2_CAP=0 BS_MDEV_LOGL=29` | `--tmo 60` | +29.9 | 51 s | 8e12 (same words), then stop and report 4.608e12 as the best |
+| 2 | 2e13 | 576 | same words as step 1 | `--tmo 60` | +18.7 | 90 s | 1.5e13 (same words, +29.4) |
+| 3 | 2.8e13 | 576 | `ECALC_VERBOSE=1 ECALC_FIT_PER_APU=1 MEM_REPORT_DEVS=1 XSHMEM_HANG_S=3600 MN_NONPOW2_CAP=0 BS_MDEV_LOGL=28 DIST_CHUNKS=16` | `--tmo 75` | +11.7 | 120 s | the same size with `BS_MDEV_LOGL=29` and no `DIST_CHUNKS` (+10.1), else 2.5e13 with the words of step 3 (+16.0) |
+| 4 | 3.82e13 | 576 | same words as step 3 | `--tmo 90`, `--write <dir>` only if the user said yes | +7.4 | 180 s | 3.7e13 with the words of step 3 (+9.5; 3.4e13 is only +5.2), then the largest size the planner accepts above the bar |
 
-Why these: step 1 is the size the target is 99 % likely to finish (2.2 x the verified size, three times the memory bar, the code path of the verified run, only timeouts and a balanced device arena changed); step 2 is the size that hung
+Why these: step 1 is the size the target is 99 % likely to finish (2.2 x the verified size, four and a half times the memory bar, the code path of the verified run, only timeouts and a balanced device arena changed); step 2 is the size that hung
 on 2026-10-26 (the handshake wait is now 3600 s, not 900 s); step 3 rehearses the final settings (`BS_MDEV_LOGL=28 DIST_CHUNKS=16`: the largest per-APU margin at 3.82e13, free in time at the record's per-node share) below the size where
 the margin is thinnest, and avoids 2.9e13-3.6e13, where the planner shows the mixed-piece shape of the 3e13 CRT-flag failure (FACTS); step 4 is the headline. Digits are written (`--write`) only on step 4 and only on the user's word,
 because a digit file proves nothing the run's own VERIFY does not (the digit hash is skipped above 300 GB) and costs 16 TB and time (see "Record-size output").

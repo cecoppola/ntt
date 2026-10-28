@@ -244,3 +244,35 @@ Reading: at the record's per-node share (6.632e10) `BS_MDEV_LOGL=28` costs nothi
 - Measured: the cost is not a single jump but a rise between 9.7e10 and 9.9e10 (about 0 at 9.7e10 and below, about +4 s at 9.8e10 and 9.9e10, +5.5 s at 1e11), carried by the division time (dm +1.2, +3.1, +4.2 s). Per-round noise is 1 to 2 s, so the exact onset is 9.7e10 to 9.8e10 only to within one step.
 - Modelled (planner, aac7 limits, 1 node, 28 vs 29): the plan change is the same everywhere in the range: level 22 leaf products move to the device tier, 10 pairs at 9.5e10, 11 pairs at 9.8e10 (the eleventh a smaller 3*2^27-point plane, 19.33 GB), 11 pairs at 1e11 (all 2^29-point planes). Leaf dist_db products 34 to 54 (9.5e10), 36 to 58 (9.8e10 and 1e11), checked products 90 to 110 or 112; tree, reciprocal and division piece counts and grids are identical. No level, tier or grid switch occurs at the step. What does move with size is the memory room: the division-side device need against the arena is 61.45 / 62.28 GB at 9.5e10, 63.22 / 64.42 at 9.8e10 and 64.41 / 64.42 at 1e11 (the arena is full at 1e11). So the step follows the division running with the arena nearly full while 28 keeps extra leaf planes in the device tier; this link is inferred from the numbers, not measured.
 - Slow mode: A runs with dm 1.5 s or more above the arm minimum were r2a1 and r3a1 at 9.8e10 (36.1 and 36.3 against 34.4 to 34.6); removing their rounds would raise B - A, not lower it.
+
+## RECORD1 — the first record size and the staircase of the copy-and-paste route (2026-10-28)
+
+Question (user, 2026-10-28): "The first record run should be a number of digits you are 99% sure will finish without crashing. We can close the memory gap with a small number of slightly larger runs." Decided on the evidence below; the route is `remote/ROUTE.md` (P3 = step 1, P4 = steps 2-4; the env words per step are in its table only).
+
+**Planner sweep** (modelled; cand3 path 1 build on aac7, `plan_values.py --fit`, target limits device 373.44 / node 487, `ECALC_FIT_PER_APU=1`, `MN_NONPOW2_CAP=0`, 576 nodes; one run per cell, item rvp_packs3). Busiest APU in GB (margin to the 93.36 edge), by `BS_MDEV_LOGL` / `DIST_CHUNKS`:
+
+| digits | unset | 29 | 28 | 28 + `DIST_CHUNKS=16` |
+|---|---|---|---|---|
+| 4.608e12 (verified on the target) | 40.33 (+53.03) | 40.33 | 36.03 (+57.33) | 36.03 |
+| 1e13 | 74.24 (+19.12) | 63.50 (+29.86) | 54.91 (+38.45) | 53.77 (+39.59) |
+| 1.2e13 | 80.68 (+12.68) | 63.50 (+29.86) | 57.06 (+36.30) | 55.92 (+37.44) |
+| 1.5e13 | 89.74 (+3.62) | 63.97 (+29.39) | 61.82 (+31.54) | 60.21 (+33.15) |
+| 2e13 | 89.74 (+3.62) | 74.71 (+18.65) | 74.71 (+18.65) | 73.10 (+20.26) |
+| 2.5e13 | 87.59 (+5.77) | 79.00 (+14.36) | 79.00 (+14.36) | 77.39 (+15.97) |
+| 2.8e13 | 89.74 (+3.62) | 83.30 (+10.06) | 83.30 (+10.06) | 81.69 (+11.67) |
+| 3e13 | 89.74 (+3.62) | 85.44 (+7.92) | 85.44 (+7.92) | 83.83 (+9.53) |
+| 3.4e13 | 89.74 (+3.62) | 89.74 (+3.62) | 89.74 (+3.62) | 88.13 (+5.23) |
+| 3.7e13 | 89.74 (+3.62) | 89.74 (+3.62) | 85.44 (+7.92) | 83.83 (+9.53) |
+| 3.82e13 | 89.74 (+3.62) | 89.74 (+3.62) | 87.59 (+5.77) | 85.98 (+7.38) |
+
+The margin is not monotone in the size (the plan's piece counts step); every cell is the planner's number, not a target measurement.
+
+**Why 1e13 is the first record run (99 % is a judgement, not a measurement).**
+- Memory (modelled): with `BS_MDEV_LOGL=29` the busiest APU is 63.50 GB, +29.86 under the edge. The target measured 2.7-6.5 GB MORE than the planner per APU (64 nodes, 8e9 per node), so even at +6.5 the run peaks at 70.0 GB, 23 GB under the edge (4.6 x the bar). Unset settings (+19.12) would also fit; 29 is the user decision of 2026-10-27 for runs from 1e13 and only balances the arena.
+- Size (measured): 4.608e12 on 576 nodes verified (255.3 s), so 1e13 is 2.17 x the verified size on the same code path, the same tree levels and the same node count; the planner shows a 4.6x smaller per-APU peak share than the edge allows. Not 1.5e13 or more: from 1.5e13 the unset margin is already +3.6 and the failed runs (2e13, 3e13) sit above.
+- Failure history (measured on the target, 2026-10-26): 2e13 hung in the allgather handshake at the fixed 900 s (both PEs in the last tree group); 3e13 failed on a P24 CRT flag (mixed-piece groups). Both are now covered by default-on checks (handshake wait `XSHMEM_HANG_S=3600`, the CRT flag at every shift) but neither fix has run at scale, so the first record size stays below both sizes; the CRT shape appears at 2.9e13-3.6e13 per the planner and not at 1e13.
+- Time (modelled, 576 n): 51 s without a write; the target ran 3-9 x the model, so 3-8 min with init (`--tmo 60` is the step's limit).
+- Residual risk, not removable by sizing: first use at scale of the 3600 s timeouts and of the checks, and fabric or node trouble at 576 nodes (no spare node exists). Unmeasured: the per-APU excess at 1e13 (the stair table prints it after the run).
+
+**The staircase (steps 2-4 close the memory gap).** Step 2 = 2e13 with the step-1 words (+18.65; the size that hung: tests the handshake wait). Step 3 = 2.8e13 with `BS_MDEV_LOGL=28 DIST_CHUNKS=16` (+11.67; rehearsal of the final settings below the thin margin, and outside the 2.9e13-3.6e13 mixed-piece zone). Step 4 = 3.82e13 with the same words (+7.38, the largest margin at that size; `BS_MDEV_LOGL=28` is free in time at 6.632e10 per node: +0.06 s [-1.16, +1.27], aac7 1 node, §above; the +5.5 s step only above 9.7e10 per node). `stair.sh` skips a step whose planner margin is below the need: 6.5 GB until a step has been measured, then that run's own excess of the measured peak over the plan + 2 GB (at least 3 GB), so +7.38 at step 4 needs an observed excess of at most 5.4 GB. Fallbacks: step 4 > 3.7e13 (+9.53); step 3 > the same size with 29 (+10.06) or 2.5e13 (+15.97); step 2 > 1.5e13 (+29.39); step 1 > 8e12.
+**Digit files:** `--write` only on step 4 and only on the user's word: the run's own VERIFY is the digit check either way (the digit hash is skipped above 300 GB), so a file adds no verification; it costs 15.9 TB and modelled 6-60 s (assumed rates), and the PFL stripe layout is unmeasured for 576 files. Caveat: `DIST_CHUNKS=16` at several nodes has not been run (the 2-node gate is queued on aac7); step 3 is its first multi-node use, with the fallback above.
