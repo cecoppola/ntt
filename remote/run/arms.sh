@@ -60,7 +60,7 @@ for a in "${ARMS[@]}"; do
     i=$((i + 1)); [ "$STAG" -gt 0 ] && [ $i -lt "$NA" ] && sleep "$STAG"
 done
 fails=0; i=0
-rl_line "arm       nodes rc  total_s  init_s   verify  last_digits            settings / run"
+rl_line "arm       nodes rc  total_s  init_s   verify  last_digits            bs/dm/dc_s        settings / run"
 for a in "${ARMS[@]}"; do
     name=${a%%:*}; words=${a#*:}; out=$RUN/raw/arm_$name.out
     wait "${PIDS[$i]}"; rc=$?; wait "${PIDS[$i]}" 2>/dev/null; i=$((i + 1)); kd=; [ -f "$RUN/raw/arm_$name.killed" ] && { rc=KILLED; kd=" (killed)"; }
@@ -71,7 +71,9 @@ for a in "${ARMS[@]}"; do
         rd=$(sed -n 's/.* run dir //p' "$out" | head -1); sf=$rd/summary.txt; [ -f "$sf" ] || sf=$out   # the arm's own summary.txt (the stdout copy is truncated for long summaries)
         kv() { grep -a -m1 "^$1=" "$sf" | cut -d= -f2-; }
         ph=$(grep -a -m1 '^phases_s:' "$sf" | sed -n 's/.*init=\([^ ]*\).*/\1/p')
-        rl_line "$(printf '%-9s %-5s %-3s %-8s %-8s %-7s %-22s %s | %s' "$name" "$NN" "$rc" "$(kv total_s)" "${ph:-NA}" "$(kv verify)" "$(kv last_digits | tr -d ' ' | cut -c1-22)" "${words:-<defaults>}${kd}" "${rd##*/}")"
+        pp=$(grep -a -m1 '^phases_s:' "$sf" | sed -E 's/.*bs=([^ ]*) recip=[^ ]* dm=([^ ]*) dc=([^ ]*).*/\1 \2 \3/' | awk '{ if (NF == 3) printf "%s/%s/%s", $1, $2, $3; else printf "NA" }')
+        rl_line "$(printf '%-9s %-5s %-3s %-8s %-8s %-7s %-22s %-17s %s | %s' "$name" "$NN" "$rc" "$(kv total_s)" "${ph:-NA}" "$(kv verify)" "$(kv last_digits | tr -d ' ' | cut -c1-22)" "${pp:-NA}" "${words:-<defaults>}${kd}" "${rd##*/}")"
+        rl_kv "arm_$name" "rc=$rc total=$(kv total_s) init=${ph:-NA} bsdmdc=${pp:-NA} verify=$(kv verify) last=$(kv last_digits | tr -d ' ' | cut -c1-22) run=${rd##*/}"
     fi
     [ "$rc" = 0 ] || fails=$((fails + 1))
 done
