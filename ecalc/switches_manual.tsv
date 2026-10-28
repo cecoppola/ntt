@@ -81,7 +81,7 @@ BS_ARENA_ROOM				built-in default		AS15.md+DL15.md	with DB_POOL_VMM: f > 0 lays 
 BS_BALANCE_N				built-in default			levels with at most this many nodes are balanced over the four regions; 0 = never (16)
 BS_CKPT_BG_CHUNK_MB				built-in default		N13.md	the top-level set's background writer: its DMA chunk (256; bounds the time to stop); *test*: emulate a disk of this many MB/s (unset)
 BS_CKPT_BG_MBS				test-only		N13.md	the top-level set's background writer: its DMA chunk (256; bounds the time to stop); *test*: emulate a disk of this many MB/s (unset)
-BS_MDEV_LOGL				built-in default		M3.md+A-ckpt.md	products above 2^this limbs go to the mdev tier; lower it to test at 10⁹ (30); 29 on target runs from 1e13 digits (balances the 4 APUs, `results/MEMORY.md` §B4; `remote/ROUTE.md` S6)
+BS_MDEV_LOGL				built-in default		M3.md+A-ckpt.md	products above 2^this limbs go to the mdev tier; lower it to test at 10⁹ (30); set on target runs from 1e13 digits by the `S6 s2 env` and `S6 s3 env` lines of `remote/ROUTE.md` (balances the 4 APUs, `results/MEMORY.md` §B4)
 BS_SEED_CHUNK_MB				built-in default		H.md+R114.md	the seed stream's buffered chunk per region (8192 with `DB_POOL_VMM`, the default; 2048 without)
 BS_SEED_FILL				built-in default		T215.md+DOC15.md	the seed span chosen per run as the largest S whose last span has at most this many limbs, so the batch tier's products fill their lengths: 128 fills 2ᵏ (S = 239 at 4 × 10¹⁰, 229 at 10¹¹), ...
 BS_SEED_TERMS				built-in default		T215.md+WP7.md	the seed span in terms (256; set in the environment it turns `BS_SEED_FILL`'s default off)
