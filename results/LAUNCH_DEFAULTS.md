@@ -178,3 +178,15 @@ Question (overnight lane L3, A2): which setting has the largest margin under the
 - Per-APU peaks match the model and show no difference between the arms at 1 node: planner and measured driver maxima: 1e11 planner 91.85 GB per APU for A, B, B1 and B2 (the mean equals the max; unset `BS_MDEV_LOGL` gives 111.18 busiest / 96.68 mean, REFUSED by -0.18 against the aac7 111.0 per-APU limit); measured driver used 90.6 / 90.6 / 90.5 / 90.5 GB on APUs 0-3 in A, B, B1 and B2 (model +1.25 GB over the measurement); 6.4e10 planner 72.52, `mem` line 71.0 per APU. At one node both 28 and 29 already balance the four APUs at 1e11; the 576-node difference (29 leaves region 0 at 89.74, 28 balances at 87.59 at 3.82e13) cannot show at one node.
 - Reading: the 576-node recommendation `BS_MDEV_LOGL=28` buys +2.15 GB per APU at 3.82e13 for about +14 s of division per 1e11 digits at one node (the share is 6.6e10 per node at 3.82e13, where the cost has not been measured; at 6.4e10 per node it was 0 here). `DIST_CHUNKS=16` (the larger part of the margin: +1.61 GB) has no one-node cost but its multi-node time and digits remain untested (2-node gate, 10-31). No ROUTE S6 change: adoption is the user's call.
 
+**Where `BS_MDEV_LOGL=28` starts to cost on one node (measured, aac7 1 node, 2026-10-28, item c06, remote-v7 d6167b2, same method as above: A = `BS_MDEV_LOGL=29`, B = `BS_MDEV_LOGL=28 DIST_CHUNKS=16`).** Means per arm, seconds; digits identical within every size (6.632e10 ...79932777543051118449; 8e10 ...52640279071809056008; 9e10 ...32983517734368241080):
+
+| digits | rounds | total A / B | division A / B | B - A (95 % interval) |
+|---|---|---|---|---|
+| 6.4e10 (above) | 2 | 78.10 / 77.24 | 19.30 / 19.32 | -0.86 [-4.05, +2.34] |
+| **6.632e10 (the 3.82e13 per-node share)** | 2 | 76.36 / 75.82 | 18.09 / 18.05 | -0.55 [-1.76, +0.66] (-0.7 %) |
+| 8e10 | 2 | 99.28 / 98.15 | 28.97 / 28.44 | -1.13 [-13.10, +10.84] (the wide interval is one round pair of 0.2 s and one of 2.1 s) |
+| 9e10 | 1 | 106.29 / 106.89 | 29.25 / 29.66 | +0.60 (1 round, no interval) |
+| 1e11 (above) | 2 | 136.47 / 149.84 | 42.90 / 57.39 | +13.37 [-0.46, +27.20] |
+
+Reading: at the record's per-node share (6.632e10) `BS_MDEV_LOGL=28` costs nothing resolved (-0.55 s, interval +-1.2 s) and the same holds to 9e10; the division jumps from about 30 s at 9e10 to 57 s at 1e11, so the cost starts between 9e10 and 1e11 per node (the cliff, not a slope; not narrowed further). So at 6.632e10 the +2.15 GB per APU of `BS_MDEV_LOGL=28` is free on one node; its behaviour in the 576-node tree (different levels) is still untested. Decision on ROUTE S6 stays with the user.
+
