@@ -5,7 +5,7 @@ anything: it reads a static GitHub copy of this repository (branch `remote-v1`) 
 Goal of the session (a few hours, one sitting): the most digits of e in the shortest time, with optimized runs.
 
 Files: `AGENT.md` (the agent reads it first), `ROUTE.md` (the stages), `FACTS.md` (machine, paths, settings, known
-problems), `MANIFEST.sha256` (copy check), `run/*.sh` (the scripts the agent's command blocks call).
+problems), `MANIFEST.sha256` (copy check), `run/*.sh` (the scripts the agent's command blocks call; `run/arms.sh` runs several arms side by side in one allocation, opt-in).
 
 ## Prepare (once, before the session)
 

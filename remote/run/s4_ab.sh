@@ -42,7 +42,8 @@ for w in A B; do
 done
 rl_kv fit "FITS ($FIT_LINE)"
 # ---- runs
-declare -A TOT INIT BS DM DC
+declare -A TOT INIT BS DM DC XS RSH DSH DEVA
+FACT_LAYOUT=; FACT_P24=; PLANAPU=
 tails=; nrun=0
 run1() {    # TAG ARM(A|B) WORDS... ; sets LAST_OK; stores metrics under $TAG
     local tag=$1 arm=$2 rc; shift 2
@@ -50,6 +51,10 @@ run1() {    # TAG ARM(A|B) WORDS... ; sets LAST_OK; stores metrics under $TAG
     # shellcheck disable=SC2068
     rl_ecrun "$tag" "$P" "$NN" "$D" $@; rc=$?
     TOT[$tag]=${E_TOTAL:-}; INIT[$tag]=${E_INIT:-}; BS[$tag]=${E_BS:-}; DM[$tag]=${E_DM:-}; DC[$tag]=${E_DC:-}
+    rl_runfacts "$RUN/raw/${tag,,}.log" "$P"; set -- ${RF_I:-}
+    XS[$tag]="${2:-NA} ${3:-NA} ${4:-NA} ${5:-NA} ${6:-NA} ${7:-NA}"; RSH[$tag]="${RF_RN:-NA} ${RF_RS:-NA}"; DSH[$tag]="${RF_DN:-NA} ${RF_DS:-NA}"; DEVA[$tag]=${E_DEVPEAK_APU_GB:-NA}; [ -n "$PLANAPU" ] || PLANAPU=${RF_PLANAPU:-}
+    if [ -z "$FACT_LAYOUT" ] && { [ -n "$RF_PES" ] || [ -n "$RF_NOTE" ]; }; then FACT_LAYOUT="pes=${RF_PES:-$NN} per_node=${RF_PERNODE:-1} bg_team=${RF_BG:-NA} bs_team=${RF_TEAMBS:-NA} residue_team=${RF_TEAMRES:-NA}${RF_NOTE:-}"; fi
+    [ -z "$RF_P24LINES" ] || FACT_P24="${FACT_P24:+$FACT_P24; }$tag: $RF_P24FL flags ($RF_P24LINES line(s), up to $RF_P24PROD products per PE)"
     local t; t=$(rl_digits_tail "$RUN/raw/${tag,,}.log"); tails="$tails
 $t"
     nrun=$((nrun + 1))
@@ -73,6 +78,25 @@ for arm in A B; do
     # shellcheck disable=SC2046
     rl_line "$(printf '%-5s %-4s %-8s %-8s %-8s %-8s %-8s' "$arm" "$((ROUNDS * 2))" "$(rl_mean $(arm_vals $arm TOT))" "$(rl_mean $(arm_vals $arm INIT))" "$(rl_mean $(arm_vals $arm BS))" "$(rl_mean $(arm_vals $arm DM))" "$(rl_mean $(arm_vals $arm DC))")"
 done
+pairmean() {   # ARRAY RUNTAGS... -> mean count/mean seconds of the stored "count seconds" pairs (NA when none)
+    local -n arr=$1; shift; local tg a b n=() m=()
+    for tg in "$@"; do read -r a b <<< "${arr[$tg]:-NA NA}"; [ "$a" = NA ] || { n+=("$a"); m+=("$b"); }; done
+    if [ ${#n[@]} -gt 0 ]; then echo "$(rl_mean "${n[@]}")/$(rl_mean "${m[@]}")"; else echo NA/NA; fi
+}
+armfacts() {   # ARM -> means over the arm's runs of the init split, the shift figures and the per-APU device peak (NA when no run printed them)
+    local arm=$1 r st tg col line
+    local ks=(); for r in $(seq 1 "$ROUNDS"); do for st in 1 2; do ks+=("s4_r${r}_$arm$st"); done; done
+    local cols=(plan_fit mn_init rns_init selftest region_pools other)
+    line=; for col in 0 1 2 3 4 5; do
+        v=(); for tg in "${ks[@]}"; do x=$(echo "${XS[$tg]}" | cut -d' ' -f$((col + 1))); [ "$x" = NA ] || v+=("$x"); done
+        line="$line ${cols[$col]}=$([ ${#v[@]} -gt 0 ] && rl_mean "${v[@]}" || echo NA)"; done
+    rl_kv "arm_${arm}_init_split_s" "${line# } (means of $ROUNDS x 2 runs)"
+    rl_kv "arm_${arm}_shifts" "recip=$(pairmean RSH "${ks[@]}") divmod=$(pairmean DSH "${ks[@]}") (count/seconds, means)"
+    d=(); for tg in "${ks[@]}"; do [ "${DEVA[$tg]}" = NA ] || d+=("${DEVA[$tg]}"); done
+    rl_kv "arm_${arm}_device_peak_apu_gb" "$([ ${#d[@]} -gt 0 ] && rl_mean "${d[@]}" || echo NA) (measured, mean of the runs' per-APU peaks; planner model ${PLANAPU:-NA} GB)"
+}
+armfacts A; armfacts B
+rl_kv layout "${FACT_LAYOUT:-NA}"; rl_kv p24_check "${FACT_P24:-NA (no P24_CHECK line printed: P24_CHECK=1 is off, or no P24 product formed, as on one node)}"
 read -r dm lo hi < <(rl_ci "${dtot[@]}")
 ma=$(rl_mean "${pa[@]}")
 pct=$(awk -v d="$dm" -v a="$ma" 'BEGIN { if (a > 0) printf "%+.2f", 100 * d / a; else print "NA" }')
