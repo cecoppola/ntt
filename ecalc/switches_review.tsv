@@ -86,3 +86,4 @@ COMM_SEQ_CHECK	diagnostic	comm	2027-04-12	call-sequence divergence check
 P24_CHECK_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 P24_CHECK_TEST_K	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 P24_CRT_ANY	fallback	coordinator (Q130)	2026-11-11	=0 kept: the old CRT flag (s = 12 + spill only); default 1 (all shifts) since 2026-10-27
+XSHMEM_PEER_STREAMS	experiment	TASK4 peer	2026-12-31	copy-stream count A/B aid; remove with the XSHMEM_PEER decision

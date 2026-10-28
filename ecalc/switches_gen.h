@@ -126,6 +126,7 @@ static const char *const cfg_names[] = {
     "XSHMEM_LANE_TRACE",
     "XSHMEM_LOOPBACK_PES",
     "XSHMEM_PEER",
+    "XSHMEM_PEER_STREAMS",
     "XSHMEM_PES_PER_GPU",
     "XSHMEM_ROUND_MB",
     "XSHMEM_ROUND_STATS",
@@ -134,4 +135,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_THP_DISABLE",
     "XSHMEM_THREAD_LEVEL",
 };
-#define CFG_NAMES_N 132
+#define CFG_NAMES_N 133
