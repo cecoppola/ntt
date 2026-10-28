@@ -21,7 +21,7 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
   rejects them; aac7 lists gpu:4 and is unchanged; `off` / `on` force. A login `SLURM_HINT=nomultithread` is not passed to srun (it pins each
   task to its first cores and OpenMP then runs 1-2 threads; `MNRUN_KEEP_HINT=1` keeps it). The Makefile finds the PMI library directory (`PMI_LIBDIR`, `CRAY_PMI_PREFIX`)
   and the SHMEM / DSMML prefixes (`CRAY_SHMEM_PREFIX` or `CRAY_SHMEM_DIR` for cray-shmem 12.1; `CRAY_OPENSHMEMX_PREFIX`, `CRAY_DSMML_PREFIX`) from
-  the loaded modules, else the aac7 defaults (`../remote/FACTS.md` Known problems). `MN_PLAN_ONLY=<digits>:<nodes>` prints the plan and the
+  the loaded modules, else the aac7 defaults (`../remote/FACTS.md` Known problems). libfabric: `CRAY_LIBFABRIC_PREFIX`, else the aac7 2.3.1 directory, else `pkg-config libfabric`, else the newest `/opt/cray/libfabric/*` (none found: `XSHMEM=ofi` stops with an explicit error); the SHMEM and libfabric library directory is `lib64` if present, else `lib`. `tools/Makefile` builds without `-march=native`. `MN_PLAN_ONLY=<digits>:<nodes>` prints the plan and the
   memory check on the login node (`../ALGORITHM.md` §7, §11).
 - Part files, the packed format and `ECALC_OUT_PACKED`: `../ALGORITHM.md` §9. Verification and `ECALC_RECHECK`:
   `../ALGORITHM.md` §10.

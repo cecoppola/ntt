@@ -77,7 +77,7 @@ def parse(path):
     if not errs or keys:
         script = '. "$1"; shift; for k in "$@"; do if [ -n "${!k+x}" ]; then printf "%s\\0%s\\0" "$k" "${!k}"; fi; done'
         r = subprocess.run(["env", "-i", "HOME=" + os.environ.get("HOME", ""), "PATH=" + os.environ.get("PATH", ""),
-                            "bash", "-c", script, "_", path] + sorted(set(keys)), capture_output=True)
+                            "bash", "-c", script, "_", path] + sorted(set(keys)), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if r.returncode != 0:
             errs.append("%s: cannot be sourced: %s" % (os.path.basename(path), r.stderr.decode(errors="replace").strip()[:120]))
         else:
@@ -143,7 +143,7 @@ def _lsort(lines):
 
 def _bash(script, *args, env_i=False):
     env = {"HOME": os.environ.get("HOME", ""), "PATH": os.environ.get("PATH", "")} if env_i else None
-    r = subprocess.run(["bash", "-c", script, "_"] + list(args), capture_output=True, env=env)
+    r = subprocess.run(["bash", "-c", script, "_"] + list(args), stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
     return r.returncode, r.stdout.decode(errors="replace"), r.stderr.decode(errors="replace")
 
 

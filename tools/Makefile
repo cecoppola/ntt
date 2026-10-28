@@ -3,7 +3,8 @@
 ifeq ($(origin CC),default)
 CC       = gcc
 endif
-CFLAGS  ?= -O3 -march=native -Wall -fopenmp -pthread
+# no -march=native: a login-node build must run on a compute node of another CPU; the tools are memory/IO bound (no intrinsics)
+CFLAGS  ?= -O3 -Wall -fopenmp -pthread
 all: unpack_digits wbench
 unpack_digits: unpack_digits.c ../ecalc/packed_fmt.h
 	$(CC) $(CFLAGS) -o $@ $<

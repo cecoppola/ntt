@@ -9,7 +9,7 @@ TOOLS = os.path.join(ROOT, "tools")
 
 
 def run(script, *args, cwd=ROOT):
-    return subprocess.run([sys.executable, os.path.join(TOOLS, script), *args], capture_output=True, text=True, cwd=cwd, timeout=60)
+    return subprocess.run([sys.executable, os.path.join(TOOLS, script), *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, cwd=cwd, timeout=60)
 
 
 def load(name):

@@ -42,7 +42,7 @@ print(json.dumps(out))
 
 def rows(profile, extra):
     r = subprocess.run([sys.executable, os.path.join(ECALC, "mn_model.py"), "estimate", "--fabric", profile, "--g", "2", "64", "--D", "8e9"] + extra,
-                       capture_output=True, text=True, timeout=600, cwd=ECALC)
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=600, cwd=ECALC)
     return [l.rstrip() for l in r.stdout.splitlines() if l.split()[:1] in (["2"], ["64"]) and "|" in l]
 
 
@@ -70,7 +70,7 @@ class ProfilesPinned(unittest.TestCase):
 class TargetFit(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        r = subprocess.run([sys.executable, "-c", FIT_SCRIPT], capture_output=True, text=True, timeout=600, cwd=ECALC)
+        r = subprocess.run([sys.executable, "-c", FIT_SCRIPT], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=600, cwd=ECALC)
         assert r.returncode == 0, r.stderr[-2000:]
         cls.m = {int(k): v for k, v in json.loads(r.stdout.splitlines()[-1]).items()}
 
@@ -84,7 +84,7 @@ class TargetFit(unittest.TestCase):
 
     def test_other_profiles_do_not_see_the_sync_term(self):
         s = "import sys; sys.path.insert(0, %r); import mn_model as M; M.apply_profile('target_fit'); M.apply_profile('target_l4'); print(M.ROUND_SYNC, M.INIT_DOUBLING, M.DC_FMT_MN, M.NODE_SCALE, M.INIT_SCALE)" % ECALC
-        r = subprocess.run([sys.executable, "-c", s], capture_output=True, text=True, timeout=120)
+        r = subprocess.run([sys.executable, "-c", s], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=120)
         self.assertEqual(r.stdout.split(), ["0.0", "0.0", "0.061", "1.0", "1.0"], r.stderr[-500:])
 
 
