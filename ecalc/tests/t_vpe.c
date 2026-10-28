@@ -1,6 +1,6 @@
 /* t_vpe.c - PE identity and the PE communicators in the one-process-per-GPU layout (ECALC_PE_PER_GPU=1; vpe.h, mn.c, comm_xshmem.c).  (The thread-mode parts were removed 2026-10-23, Q86.)
  *
- *   t_vpe [all|probe|coll|host] [--ppg] | t_vpe info|die|badlayout      (--ppg is accepted and implied: every run is process mode)
+ *   t_vpe [all|probe|coll|host] [--ppg] | t_vpe info|die|idcoll|badlayout      (--ppg is accepted and implied: every run is process mode)
  *     host    no GPU, no network: identity arithmetic (vpe_set_nodes / lanes), the log prefix; in forked children vpe_sub out of range (fatal, rc 3) and vpe_sub NULL for a PE outside the run
  *     probe   the sub-communicator probe (D1): on every PE, the aligned groups of 2 and 4 PEs of a node and the contiguous runs of 3, 6, 12 PEs: barrier,
  *             allreduce_max, allgather_host, alltoallv of random counts on each; prints T_VPE_PROBE PASS|FAIL per process
@@ -197,17 +197,22 @@ static void hs_body(void *unused)
     for (int pass = 0; pass < 2; pass++)                       /* pass 0: aligned powers of two, pass 1: the others */
         for (int g = 2; g <= 8 && g <= npe; g++) {
             int pow2 = (g & (g - 1)) == 0; if (pow2 != (pass == 0)) continue;
-            int ns = pow2 ? slots : 4;
+            int ns = pow2 ? slots : 3;   /* (non-powers of two: slots 0..2; slot 3 is for the cut last runs) */
             for (int slot = 0; slot < ns; slot++) {
                 int g0 = pe / g * g, gg = g < npe - g0 ? g : npe - g0;
                 if (g0 == 0 && gg == npe && slot == 0) continue;   /* (that run is the flat communicator) */
                 comm_barrier(flat);
-                if (gg < g) continue;   /* a short last run would share an id with the runs of its own size (after the barrier: every PE entered it) */
-                comm *c = vpe_sub_slot(g0, gg, slot);
-                CHK(c != 0, "no communicator [%d,%d) slot %d", g0, g0 + gg, slot); if (!c) continue;
-                int n = comm_size(c), me = comm_rank(c); uint64_t mine[2] = { (uint64_t)pe * 3 + 1, (uint64_t)slot }, all[16];
+                int sl = slot;
+                if (gg < g) {   /* a short last run shares its id with the full runs of its own size that overlap it (the id is a function of (g, slot), id 259 used twice at 8 PEs: [3,6) and [5,8)): an aligned power of two is the full run
+                                   of that size (cached, nothing new); any other size takes slot 3, which the full runs (slots 0..2) do not use (after the barrier: every PE entered it) */
+                    if (((gg & (gg - 1)) == 0 && g0 % gg == 0) || slot != 0) continue;
+                    sl = 3;
+                }
+                comm *c = vpe_sub_slot(g0, gg, sl);
+                CHK(c != 0, "no communicator [%d,%d) slot %d", g0, g0 + gg, sl); if (!c) continue;
+                int n = comm_size(c), me = comm_rank(c); uint64_t mine[2] = { (uint64_t)pe * 3 + 1, (uint64_t)sl }, all[16];
                 double t1 = tnow(); comm_allgather_host(c, mine, all, 16); double t2 = tnow();
-                for (int i = 0; i < n; i++) CHK(all[2 * i] == (uint64_t)(g0 + i) * 3 + 1 && all[2 * i + 1] == (uint64_t)slot, "hs first call: g %d slot %d member %d of %d (me %d)", g, slot, i, n, me);
+                for (int i = 0; i < n; i++) CHK(all[2 * i] == (uint64_t)(g0 + i) * 3 + 1 && all[2 * i + 1] == (uint64_t)sl, "hs first call: g %d slot %d member %d of %d (me %d)", g, sl, i, n, me);
                 for (int r = 0; r < reps; r++) {
                     mine[1] = (uint64_t)r + 100; comm_allgather_host(c, mine, all, 16);
                     for (int i = 0; i < n; i++) CHK(all[2 * i + 1] == (uint64_t)r + 100, "hs steady call %d: g %d slot %d member %d", r, g, slot, i);
@@ -384,6 +389,25 @@ static void die_body(void *unused)
     printf("t_vpe die: pe %d passed the barrier that must not complete\n", vpe_pe());
 }
 
+/* idcoll (A5, needs >= 8 PEs): the pair of runs that collided at 8 PEs, [3,6) and [5,8), both of size 3.  On distinct slots they are two communicators (an allgather on each);
+ * then PE 5 asks for [5,8) on the slot of [3,6): its id is taken, so the creation must be the fatal "share the communicator id" (rc != 0, PEs 6 and 7 wait until the step is killed, as die) */
+static void idcoll_body(void *unused)
+{
+    (void)unused;
+    int pe = vpe_pe(); comm *f = vpe_comm(); comm_barrier(f);
+    comm *a = vpe_sub_slot(3, 3, 0), *b = vpe_sub_slot(5, 3, 1);
+    CHK((pe >= 3 && pe < 6) == (a != 0) && (pe >= 5 && pe < 8) == (b != 0), "pe %d: a %p b %p", pe, (void *)a, (void *)b);
+    if (a) { uint64_t m = (uint64_t)pe + 1, all[4]; comm_allgather_host(a, &m, all, 8); for (int i = 0; i < 3; i++) CHK(all[i] == (uint64_t)(3 + i) + 1, "idcoll a member %d", i); }
+    if (b) { uint64_t m = (uint64_t)pe + 1, all[4]; comm_allgather_host(b, &m, all, 8); for (int i = 0; i < 3; i++) CHK(all[i] == (uint64_t)(5 + i) + 1, "idcoll b member %d", i); }
+    comm_barrier(f);
+    if (pe == 0) printf("t_vpe idcoll: [3,6) slot 0 and [5,8) slot 1 are two communicators (ok); now [5,8) on slot 0 must be fatal on PE 5\n");
+    fflush(stdout);
+    comm_barrier(f);
+    if (pe == 5) (void)vpe_sub_slot(5, 3, 0);
+    usleep(300000); comm_barrier(f);
+    printf("t_vpe idcoll: pe %d passed the barrier that must not complete\n", pe);
+}
+
 int main(int argc, char **argv)
 {
     const char *mode = argc > 1 && strncmp(argv[1], "--", 2) ? argv[1] : "all";
@@ -395,7 +419,7 @@ int main(int argc, char **argv)
         if (!strcmp(mode, "badlayout") && getenv("SLURM_LOCALID") && atoi(getenv("SLURM_LOCALID")) == 1) setenv("SLURM_LOCALID", "2", 1);
         if (!getenv("SLURM_LOCALID")) { setenv("ECALC_VPE_LANES", "4", 0); vpe_set_ppg(0); } else vpe_ppg_init();
     }
-    if (!g_mode_all && !g_mode_probe && !g_mode_coll && !g_mode_hs && strcmp(mode, "seqdiv") && strcmp(mode, "seqdiv2") && strcmp(mode, "host") && strcmp(mode, "info") && strcmp(mode, "die") && strcmp(mode, "badlayout")) { printf("usage: t_vpe [all|probe|coll|hs|host] [--ppg] | t_vpe info|die|badlayout|seqdiv|seqdiv2\n"); return 2; }
+    if (!g_mode_all && !g_mode_probe && !g_mode_coll && !g_mode_hs && strcmp(mode, "seqdiv") && strcmp(mode, "seqdiv2") && strcmp(mode, "host") && strcmp(mode, "info") && strcmp(mode, "die") && strcmp(mode, "idcoll") && strcmp(mode, "badlayout")) { printf("usage: t_vpe [all|probe|coll|hs|host] [--ppg] | t_vpe info|die|idcoll|badlayout|seqdiv|seqdiv2\n"); return 2; }
     vpe_set_forced(1);
     host_part();
     if (!strcmp(mode, "host")) { printf("\nt_vpe host: %s (%d checks)\n", g_fail ? "FAILED" : "OK", g_checks); return g_fail != 0; }
@@ -409,6 +433,7 @@ int main(int argc, char **argv)
         CHK(npe == vpe_npe() && mn_size() == npe, "npe %d vs %d", npe, vpe_npe());
         if (g_ppg && !strcmp(mode, "info")) vpe_run(ppg_info, 0);
         else if (g_ppg && !strcmp(mode, "die")) vpe_run(die_body, 0);
+        else if (g_ppg && !strcmp(mode, "idcoll")) { if (npe < 8) printf("t_vpe idcoll: needs >= 8 PEs\n"); else vpe_run(idcoll_body, 0); }
         else if (g_ppg && !strcmp(mode, "badlayout")) { vpe_run(die_body, 0); }   /* (mn_init fataled on the PE with the wrong id; the others wait here until the step is killed) */
         else {
             if (g_mode_coll) vpe_run(coll_body, 0);

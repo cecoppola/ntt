@@ -1001,10 +1001,11 @@ static char g_p24_what[160]; static size_t g_p24_seq; static int g_p24_ka = 1, g
 static size_t g_c_prod, g_c_pieces, g_c_st, g_c_rc, g_c_hit, g_c_flags;
 static int p24_test(void) { static int v = -1; if (v < 0) { const char *e = getenv("P24_CHECK_TEST"); v = e ? atoi(e) : 0; if (v < 0) v = 0; } return v; }
 static size_t p24_test_k(void) { static long v = -1; if (v < 0) { const char *e = getenv("P24_CHECK_TEST_K"); v = e ? atol(e) : 1; if (v < 1) v = 1; } return (size_t)v; }
-static int p24_inject(int mode)                                 /* 1 once, in the P24_CHECK_TEST_K-th P24 product, when P24_CHECK_TEST == mode (needs P24_CHECK >= 1) */
+static int p24_test_s(void) { static int v = -2; if (v == -2) { const char *e = getenv("P24_CHECK_TEST_S"); v = e ? atoi(e) : -1; if (v != 0 && v != 6 && v != 12) v = -1; } return v; }
+static int p24_inject(int mode)                                 /* 1 once, in the P24_CHECK_TEST_K-th P24 product, when P24_CHECK_TEST == mode (mode 1 needs P24_CHECK >= 1; mode 2 acts at any P24_CHECK, also 0 = the default path) */
 {
     static int done[3];
-    if (p24_check() < 1 || p24_test() != mode || done[mode] || g_p24_seq != p24_test_k()) return 0;
+    if ((mode == 1 && p24_check() < 1) || p24_test() != mode || done[mode] || g_p24_seq != p24_test_k()) return 0;
     done[mode] = 1; return 1;
 }
 static void p24_report(void)                                   /* at exit and before every P24_CHECK fatal (ec_fatal is _exit: no atexit) */
@@ -1528,7 +1529,10 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             struct p24_run om = p24_run_make(R, C, a0, rows, 0);
             if (p24_run_total(&om) > 3 * q + 16) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 out-runs %zu limbs > pool 1's 3 q + 16 = %zu\n", p24_run_total(&om), 3 * q + 16); }
             if (p24_check()) { __atomic_fetch_add(&g_c_pieces, 1, __ATOMIC_RELAXED); if (ha >= 0) __atomic_fetch_add(&g_c_hit, 1, __ATOMIC_RELAXED); if (hb >= 0) __atomic_fetch_add(&g_c_hit, 1, __ATOMIC_RELAXED); }
-            if (p24_inject(2)) { uint64_t bad = 1234567890123ULL; HIP_CHECK(hipMemcpyAsync(xa[0], &bad, 8, hipMemcpyHostToDevice, s)); }   /* P24_CHECK_TEST=2: one plane residue replaced */
+            if (p24_inject(2)) {                                /* P24_CHECK_TEST=2: one plane residue replaced (any P24_CHECK); P24_CHECK_TEST_S = 0|6|12: the first row of this PE whose shift class is s (deterministic for P24_CRT_ANY=0), else row 0 */
+                uint64_t bad = 1234567890123ULL; size_t ri = 0; const int ts = p24_test_s();
+                if (ts >= 0) { while (ri < 2 && ri + 1 < rows && p24_s(a0 + ri) != ts) ri++; }
+                HIP_CHECK(hipMemcpyAsync(xa[0] + ri, &bad, 8, hipMemcpyHostToDevice, s)); }
             p24_crt_set_check(p24_crt_any() || p24_check() > 0);   /* all-shift flag by default (P24_CRT_ANY=0: the s = 12 + spill flag only, unless P24_CHECK) */
             p24_crt_launch(xa[0], xa[1], xa[2], xa[3], &gc, R, C, a0, rows, xb, v->spill, s);
             unsigned fl = p24_crt_err(s);
@@ -1722,7 +1726,7 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     const int pc = pc_on(); int pck = 0;                      /* Phase 15 PC: the slots from the block pool per grid product (cache_pc_take, below) */
     int one = mn_grid_shape(na, nb, g, p24, &ka, &kb);
     if (p24) __atomic_fetch_add(&g_c_prod, 1, __ATOMIC_RELAXED);
-    if (p24_check()) { p24_arm(); g_p24_seq = g_c_prod; g_p24_ka = ka; g_p24_kb = kb; g_p24_pa = (na + ka - 1) / ka; g_p24_pb = (nb + kb - 1) / kb; g_p24_pi = g_p24_pj = -1;
+    if (p24_check() || p24_test()) { p24_arm(); g_p24_seq = g_c_prod; g_p24_ka = ka; g_p24_kb = kb; g_p24_pa = (na + ka - 1) / ka; g_p24_pb = (nb + kb - 1) / kb; g_p24_pi = g_p24_pj = -1;
     snprintf(g_p24_what, sizeof g_p24_what, "%zu x %zu limbs%s%s%s%s%s", na, nb, X ? ", + x" : "", lowcut ? ", low cut" : "", trunc ? ", low product" : "", wskip != (size_t)-1 ? ", wskip" : "", basis ? ", basis" : ""); }
     if (one && p24) { if (nc > lowcut) { mn_core(&Cn, A, B, 0, G, 0, 1, &tm, -1, -1, 1, 0); formed = 1; if (X) mdb_add_shifted(&Cn, X, 0, G); } else skipped = 1; }   /* P24: X added afterwards */
     else if (one) { if (nc > lowcut) { mn_core(&Cn, A, B, X, G, 0, 1, &tm, -1, -1, 0, 0); formed = 1; } else skipped = 1; }

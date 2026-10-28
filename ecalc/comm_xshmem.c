@@ -55,7 +55,7 @@ void xshmem_ofi_init_times(double *v, long *n_av);   /* xshmem_ofi.c: ECALC_INIT
 #define COPY(d, s, n, st) HIP_CHECK(comm_copy_async(d, s, n, st))
 #define SYNC(st) do { HIP_CHECK(hipStreamSynchronize(st)); } while (0)
 #define MAXID 1024                         /* communicator ids (control blocks) */
-#define MAXID_VPE 512                      /* ... with ECALC_PE_PER_GPU (flat PE communicators: the control block grows with the PE count) */
+#define MAXID_VPE 544                      /* ... with ECALC_PE_PER_GPU (flat PE communicators: the control block grows with the PE count; 512..543: the runs of >= 64 PEs that are not aligned powers of two, mn.c sub_id; +32 ids = 7 x nw x 8 B each, 129 KB per id at 2304 PEs) */
 #define MAXL 4                             /* lane contexts per PE (XSHMEM_LANES) */
 #define MAXPST 8                           /* XSHMEM_PEER copy streams per PE */
 #define PEERBIT (1u << 8)                  /* lane_put's mask: a same-node device copy is outstanding (lane_quiet syncs the copy streams) */

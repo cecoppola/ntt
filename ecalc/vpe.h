@@ -47,7 +47,8 @@ void vpe_node_barrier(void);                            /* barrier over the PEs 
  * vpe_sub(g0, g): the PEs [g0, g0 + g) (PE units), NULL for a PE outside; cached per process; the whole run returns vpe_comm().  Aligned power-of-two runs
  * (g0 % g == 0) and any contiguous run (3, 6, 12 ...) work.  The id of a run follows from (g0, g): one id per size per PE, so two different runs of
  * the same size that share a PE need vpe_sub_slot (slot 1..15 = another id), or the creation is a fatal "id used twice".  Runs that are not an aligned
- * power of two support g < 64 and slot < 4 (fatal otherwise; ids are collision-free over the domain).  Destruction (mn_finalize) is collective and goes by
+ * power of two support slot < 4 (g < 64) or slot < 32 (g >= 64: the engine passes the schedule level; fatal otherwise; ids are collision-free over the domain; two runs of one
+ * PE with the same id are a fatal that names both).  Destruction (mn_finalize) is collective and goes by
  * descending id.
  */
 comm *vpe_comm(void);
