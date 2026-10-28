@@ -164,6 +164,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `P24_CHECK` | 0 | diagnostic | results/PRIMES_STRATEGY.md §P24 audit | - |
 | `P24_CHECK_TEST` | 0 | diagnostic | results/PRIMES_STRATEGY.md §P24 audit | - |
 | `P24_CHECK_TEST_K` | 1 | diagnostic | results/PRIMES_STRATEGY.md §P24 audit | - |
+| `P24_CHECK_TEST_S` | -1 | diagnostic | results/PRIMES_STRATEGY.md §P24 audit | - |
 | `P24_CRT_ANY` | 1 | built-in default | results/PRIMES_STRATEGY.md §P24 audit | - |
 | `PE_GEO_SYSFS_ROOT` | - | test-only | PEs per GPU (default 1; the 2-PEs-per-GPU fallback of design 2.2) / a prefix for every `/sys` path (mock trees of `tests/t_pe_geo`) | - |
 | `POOL_LOG` | 31 | launch-line | the plane pools' 2ᵏ points per APU (31; 27–29 with several node-processes on one node) | A-mem.md+M13.md |

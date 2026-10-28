@@ -95,6 +95,7 @@ static const char *const cfg_names[] = {
     "P24_CHECK",
     "P24_CHECK_TEST",
     "P24_CHECK_TEST_K",
+    "P24_CHECK_TEST_S",
     "P24_CRT_ANY",
     "PE_GEO_SYSFS_ROOT",
     "POOL_LOG",
@@ -132,4 +133,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_THP_DISABLE",
     "XSHMEM_THREAD_LEVEL",
 };
-#define CFG_NAMES_N 130
+#define CFG_NAMES_N 131

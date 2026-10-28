@@ -88,6 +88,7 @@ int vpe_nnodes(void)
 }
 int vpe_pe(void) { return vpe_lanes() * vpe_node() + vpe_idx(); }
 int vpe_npe(void) { return vpe_lanes() * vpe_nnodes(); }
+int vpe_big_ids(void) { int n = vpe_npe(); const char *g = getenv("MN_GROUPS"); return n > 64 && ((n & (n - 1)) != 0 || (g && *g)); }
 int vpe_in_run(void) { return t_in_run; }
 void vpe_set_thread_hook(void (*fn)(int)) { g_hook = fn; }
 
