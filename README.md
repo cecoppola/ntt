@@ -32,7 +32,7 @@ History (the old plan, measurement logs, older reports, moved drivers) is kept o
 | `ecalc/tests/` | one GMP-checked test program per module (`t_ntt`, `t_mul`, `t_dbig`, `t_newton`, `t_mn_grid`, …) and the test harness headers |
 | `tools/` | `gate.sh`, `unpack_digits`, the profile loader and checks, node screen |
 | `profiles/` | machine profiles: `aac7.conf` |
-| `remote/` | the target session driven by a browser agent through the user's pastes: `remote/README.md` (user), `remote/AGENT.md` (agent), stage scripts `remote/run/*.sh`; frozen copy on branch `the frozen remote-v branch` |
+| `remote/` | the target session driven by a browser agent through the user's pastes: `remote/README.md` (user), `remote/AGENT.md` (agent), stage scripts `remote/run/*.sh`; frozen copy on the `remote-v*` branch; packs `run/chain.sh --brief`, `run/stair.sh`, `run/report.sh`; route `remote/ROUTE.md` (5 pastes) |
 | `target/` | the remote session on the target system: probe, config generator and template (`target/config/target.conf.template`), kit (`target/kit/target_kit.sh`), conventions in `target/FORMATS.md` |
 | `tests/` | Python unit tests of the tools (`test_tools.py`) |
 
