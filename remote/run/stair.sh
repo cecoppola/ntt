@@ -1,19 +1,22 @@
 #!/bin/bash
 # stair.sh - a staircase of runs in ONE paste: the steps in order, stop at the first failure, ONE table (<= 80 lines).
-#   stair.sh --path 1|2 --step "NODES|DIGITS|ENV|EXTRA" [--step ...] [--budget MIN] [--exclude LIST] [--jobid J] [--dry-run]
+#   stair.sh --path 1|2 --step "NODES|DIGITS|ENV|EXTRA" [--step ...] [--budget MIN] [--min-margin GB] [--exclude LIST] [--jobid J] [--dry-run]
 # Each step is one s5_run.sh call: NODES, DIGITS (64e9, 4.608e12 or an integer), ENV = settings words (K=V ..., may be empty), EXTRA = more s5_run.sh
 # options (--screen, --write DIR, --tmo MIN; may be empty).  Example (the first record run):
 #   stair.sh --path 1 --step "576|10e12|BS_MDEV_LOGL=29 XSHMEM_HANG_S=3600|"
 # A step runs only while the allocation has time for it (its tmo + 5 min, from squeue) and the --budget (minutes for the whole call; default none)
-# is not used up; a skipped step ends the staircase with verdict PARTIAL.  A planner refusal (the step does not fit) is not a run failure: the step is
-# run once at the largest fitting digit count when that is at least 3 % above the best passed step ("fitcap" row), then the staircase stops.
-# Any other failure (rc, VERIFY, digits mismatch, timeout) stops at once: no automatic retry (the agent reads the errors and decides).  Per step:
+# is not used up; a skipped step ends the staircase with verdict PARTIAL.  Any failure (planner refusal, rc, VERIFY, digits mismatch, timeout) stops at
+# once: no automatic retry and no automatic smaller size (the agent reads the errors and picks the fallback; a refusal prints largest_fit_digits).  Per step:
 # digits, verdict, total_s, init/bs/dm/dc, measured/model, per-APU device peak (measured) / plan, VERIFY, the last digits, the digit hash if taken.
-# Verdict PASS all steps passed; PARTIAL some step skipped (budget, allocation time, fitcap) and the rest passed; FAIL a step failed.
+# Memory rule (--min-margin GB, default 6.5, 0 = off): before a step the planner is asked (with the step's ENV, so ECALC_FIT_PER_APU=1 in it makes
+# it print the busiest APU's margin to the 93.36 GB edge); a step whose margin is below the need is SKIPPED, not run.  The need is 6.5 GB (the largest
+# excess of the measured per-APU peak over the plan seen on the target) until a step has been measured; after that it is that run's own excess
+# (device_peak_apu_gb - plan, the largest so far) + 2 GB, but at least 3 GB: each passed step closes the memory gap for the next one.
+# Verdict PASS all steps passed; PARTIAL some step skipped (budget, allocation time, memory rule) and the rest passed; FAIL a step failed.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); . "$HERE/lib.sh"; set -u
-PATHN= STEPS=() BUDGET= JOB= EXCLUDE=
+PATHN= STEPS=() BUDGET= JOB= EXCLUDE= MINM=6.5
 while [ $# -gt 0 ]; do case $1 in
-  --path) PATHN=${2:?}; shift;; --step) STEPS+=("${2:?}"); shift;; --budget) BUDGET=${2:?}; shift;; --jobid) JOB=${2:?}; shift;; --exclude) EXCLUDE=${2-}; shift;;
+  --path) PATHN=${2:?}; shift;; --step) STEPS+=("${2:?}"); shift;; --budget) BUDGET=${2:?}; shift;; --min-margin) MINM=${2:?}; shift;; --jobid) JOB=${2:?}; shift;; --exclude) EXCLUDE=${2-}; shift;;
   --dry-run) DRY=1;; -h|--help) rl_help "$0"; exit 0;; *) echo "stair.sh: unknown option $1 (--help)" >&2; exit 2;; esac; shift; done
 case $PATHN in 1|2) ;; *) echo "stair.sh: --path 1|2 required (--help)" >&2; exit 2;; esac
 [ ${#STEPS[@]} -gt 0 ] || { echo "stair.sh: give at least one --step \"NODES|DIGITS|ENV|EXTRA\" (--help)" >&2; exit 2; }
@@ -40,7 +43,7 @@ left_s() {     # seconds left of the allocation (empty = unknown)
     if [ -n "${c:-}" ]; then h=$a; m=$b; s=$c; elif [ -n "${b:-}" ]; then m=$a; s=$b; else s=$a; fi
     echo $(( (10#$d * 24 + 10#$h) * 3600 + 10#$m * 60 + 10#$s ))
 }
-t0=$SECONDS; best=0; stop=; worst=PASS; skipped=0; fitcap_done=0
+GAP=; t0=$SECONDS; best=0; stop=; worst=PASS; skipped=0
 rl_line "step nodes digits         verdict  total_s init/bs/dm/dc (s)       meas/model apu_peak/plan_GB verify last_digits(20)  hash"
 run_step() {   # IDX NODES DIGITS ENV EXTRA TAG -> sets SV (verdict) and prints the table row
     local idx=$1 n=$2 d=$3 e=$4 x=$5 tag=$6 out rd sf rc v
@@ -58,7 +61,10 @@ run_step() {   # IDX NODES DIGITS ENV EXTRA TAG -> sets SV (verdict) and prints 
     local pk pl; pk=$(kv device_peak_apu_gb | awk '{ print $1 }'); pl=$(kv device_plan_apu_gb | awk '{ print $1 }')
     rl_line "$(printf '%-4s %-5s %-13s %-8s %-7s %-24s %-10s %-15s %-6s %-20s %s' "$tag" "$n" "$d" "$v" "$(kv total_s)" "${ph:-NA}" "$(kv meas_over_model)" "${pk:-NA}/${pl:-NA}" "$(kv verify)" "$(kv last_digits | tr -d ' ' | cut -c1-20)" "$(kv digit_hash | cut -d' ' -f1)")"
     rl_line "     env: ${e:-<none>}${x:+ | extra: $x} | run ${rd##*/}"
-    SV=$v; SRD=$rd; SSF=$sf; LFD=$(kv largest_fit_digits); SREF=$(kv fit | grep -c REFUSED)
+    if [ "$v" = PASS ] && [ -n "$pk" ] && [ -n "$pl" ] && [ "$pk" != NA ] && [ "$pl" != NA ]; then
+        GAP=$(awk -v a="$pk" -v b="$pl" -v g="${GAP:-}" 'BEGIN { x = a - b; if (g == "" || x > g) g = x; printf "%.2f", g }'); rl_line "     measured peak - plan per APU: $(awk -v a="$pk" -v b="$pl" 'BEGIN { printf "%+.2f", a - b }') GB (largest so far $GAP)"
+    fi
+    SV=$v; SRD=$rd; SSF=$sf; LFD=$(kv largest_fit_digits); [ -n "$LFD" ] && rl_line "     planner refused: largest fitting digits $LFD"
     [ "$v" = PASS ] || [ "$v" = PARTIAL ] || { RL_ERRFILES+=("$sf"); }
 }
 for i in "${!SN[@]}"; do
@@ -71,21 +77,20 @@ for i in "${!SN[@]}"; do
         if [ "$ls" -lt $((need * 60)) ]; then
             rl_line "$idx $n $d SKIPPED (the allocation has $((ls / 60)) min left, the step needs $need)"; skipped=$((skipped + 1)); stop=skip; break; fi
     fi
-    run_step "$idx" "$n" "$d" "$e" "$x" "$idx"
-    if [ "$SV" = FAIL ] && [ "$SREF" -ge 1 ] && [ -n "$LFD" ] && [ "$fitcap_done" = 0 ]; then
-        # planner refusal: one run at the largest fitting digit count, if it is a real step up
-        up=$(awk -v f="$LFD" -v b="$best" 'BEGIN { print (f > b * 1.03) ? 1 : 0 }')
-        if [ "$up" = 1 ]; then
-            fitcap_done=1; rl_say "step $idx refused by the planner; running the largest fitting size $LFD"
-            run_step "$idx" "$n" "$LFD" "$e" "$x" "${idx}fc"
-            [ "$SV" = PASS ] && { best=$LFD; worst=PARTIAL; stop=fitcap; break; }
-        fi
+    if [ "$MINM" != 0 ]; then       # memory rule: the planner's per-APU margin against what the measured runs showed
+        D1=$(rl_digits_site "$d" "$n"); rl_fit "$PATHN" "$n" "$D1" $e; frc=$?; mg=$(grep -a 'per APU (max)' "$RUN/raw/fit_${PATHN}_${n}_$D1.log" 2>/dev/null | sed -n 's/.*margin \([-+][0-9.]*\) GB.*/\1/p' | tail -1)
+        need=$(awk -v g="${GAP:-}" -v m="$MINM" 'BEGIN { if (g == "") print m; else { x = g + 2; if (x < 3) x = 3; print x } }')
+        if [ $frc != 0 ]; then rl_line "$idx $n $d planner rc=$frc (refused or failed): the step runs into s5_run, which reports it"
+        elif [ -z "$mg" ]; then rl_line "$idx $n $d memory rule not applied: the planner printed no per-APU margin (add ECALC_FIT_PER_APU=1 to the step's ENV)"
+        elif awk -v a="$mg" -v b="$need" 'BEGIN { exit !(a + 0 < b + 0) }'; then
+            rl_line "$idx $n $d SKIPPED (memory: planner margin $mg GB per APU is below the need $need GB = ${GAP:+observed excess $GAP + 2, at least 3}${GAP:-assumed 6.5})"; skipped=$((skipped + 1)); stop=skip; break
+        else rl_line "$idx $n $d memory rule ok: planner margin $mg GB per APU, need $need GB"; fi
     fi
+    run_step "$idx" "$n" "$d" "$e" "$x" "$idx"
     if [ "$SV" = FAIL ]; then worst=FAIL; stop=fail; fail_idx=$idx; break; fi
     best=$(rl_num "$d")
 done
 [ "$stop" = skip ] && [ "$worst" = PASS ] && worst=PARTIAL
-[ "$stop" = fitcap ] && rl_kv note_fitcap "step refused by the planner; the fitting size ran instead (headline = that size)"
 rl_kv best_passed_digits "$best"; rl_kv elapsed_min "$(( (SECONDS - t0) / 60 ))"
 [ "$worst" = FAIL ] && rl_kv stopped "after step ${fail_idx:-?} (later steps not run); the errors are listed below"
 rl_finish "$worst" "$([ "$worst" = FAIL ] && echo "$HERE/show.sh ${SRD:-latest} errors" || echo "$HERE/report.sh   (after the last step; or the next stair.sh)")"
