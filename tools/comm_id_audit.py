@@ -7,10 +7,10 @@ domain (the fatal "supports g < 64 and slot < 4").  Usage: comm_id_audit.py [max
 """
 import sys
 
-MAXID_VPE = 544 if "--old" not in sys.argv else 512
+MAXID_VPE = 544
 INTERNAL = MAXID_VPE - 1                    # comm_xshmem_burst's block (tests/t_vpe hs)
 
-OLD = "--old" in sys.argv                    # the rule before 2026-10-28 (g >= 64 non-aligned: fatal, every engine run on slot 0)
+OLD = "--old" in sys.argv                    # the rule before 2026-10-27 (g >= 64 non-aligned: fatal, every engine run on slot 0)
 if OLD: sys.argv.remove("--old")
 
 def sub_id(g0, g, slot):
@@ -18,8 +18,9 @@ def sub_id(g0, g, slot):
     while (1 << lg) < g: lg += 1
     if (1 << lg) == g and g0 % g == 0: return 1 + lg + 16 * slot if slot < 16 else None
     if g >= 64:
-        return None if OLD or slot >= 32 else 512 + slot
+        return None if OLD or slot >= 31 else 512 + slot
     if slot >= 4: return None
+    if slot == 3 and g == 63: return None
     return 256 + 64 * slot + g
 
 def big_slot(g0, g, base, npe):             # mn.c big_slot
@@ -55,7 +56,7 @@ def runs_of(npe, ppn, gs):
             if ((1 << lv) == g and g0 & (g - 1) == 0) or (g0 == 0 and g == npe):
                 if g0 == 0 and g == npe: lv = 0
                 continue                    # the binary group = mn_group_at's: counted above
-            R.add(("sched%d" % l, g0, g, big_slot(g0, g, 16 + l, npe)))
+            R.add(("sched%d" % l, g0, g, big_slot(g0, g, 15 + l, npe)))
     if ppn >= 2 and npe % ppn == 0 and ppn < npe:   # vpe_node_barrier: the node group
         al = (ppn & (ppn - 1)) == 0
         for n in {0, npe // ppn - 1}: R.add(("node", n * ppn, ppn, 15 if al else 3))
@@ -79,6 +80,7 @@ def main():
                 if i is None:
                     dom.setdefault((w[:2] if w[:2] in ("at","no") else w[:5], g, slot), []).append(npe); continue
                 if i == INTERNAL: internal.append((npe, g0, g, slot))
+                if i >= 512 and not (npe > 64 and npe & (npe - 1)): internal.append(("needs vpe_big_ids but it is false", npe, g0, g, slot))
                 byid.setdefault(i, {})[(g0, g, slot)] = w
             for i, d in byid.items():
                 L = sorted(d)

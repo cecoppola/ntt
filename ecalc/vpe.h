@@ -30,6 +30,7 @@ void vpe_set_device(int dev);                           /* mn.c, after the engin
 void vpe_pe_affinity(const char *cpulist);              /* restrict this process to the cpus of its NUMA node (cpulist AND the launch mask; unchanged if empty; prints the mask once) */
 #define VPE_NODE_SLOT 15                                /* the id slot of the node group (the PEs of one node: vpe_sub_slot(ppn node, ppn, VPE_NODE_SLOT)); non-power-of-two ppn: slot 3 */
 int  vpe_pe(void);                                      /* L * node + idx (off: the node) */
+int  vpe_big_ids(void);                                 /* 1 = the PE communicators may need ids >= 512 (runs of >= 64 PEs that are not aligned powers of two): more than 64 PEs and a non-power-of-two PE count or a custom MN_GROUPS; comm_xshmem sizes its control block by it */
 int  vpe_npe(void);                                     /* L * nodes (off: the nodes) */
 int  vpe_node(void);                                    /* this process's node rank; vpe_nnodes: the node count */
 int  vpe_nnodes(void);

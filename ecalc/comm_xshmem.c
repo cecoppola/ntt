@@ -55,7 +55,8 @@ void xshmem_ofi_init_times(double *v, long *n_av);   /* xshmem_ofi.c: ECALC_INIT
 #define COPY(d, s, n, st) HIP_CHECK(comm_copy_async(d, s, n, st))
 #define SYNC(st) do { HIP_CHECK(hipStreamSynchronize(st)); } while (0)
 #define MAXID 1024                         /* communicator ids (control blocks) */
-#define MAXID_VPE 544                      /* ... with ECALC_PE_PER_GPU (flat PE communicators: the control block grows with the PE count; 512..543: the runs of >= 64 PEs that are not aligned powers of two, mn.c sub_id; +32 ids = 7 x nw x 8 B each, 129 KB per id at 2304 PEs) */
+#define MAXID_VPE 512                      /* (544 with vpe_big_ids(): MAXID_VPE_BIG) */
+#define MAXID_VPE_BIG 544                      /* ... with ECALC_PE_PER_GPU (flat PE communicators: the control block grows with the PE count; 512..543: the runs of >= 64 PEs that are not aligned powers of two, mn.c sub_id; +32 ids = 7 x nw x 8 B each, 129 KB per id at 2304 PEs) */
 #define MAXL 4                             /* lane contexts per PE (XSHMEM_LANES) */
 #define MAXPST 8                           /* XSHMEM_PEER copy streams per PE */
 #define PEERBIT (1u << 8)                  /* lane_put's mask: a same-node device copy is outstanding (lane_quiet syncs the copy streams) */
@@ -776,7 +777,7 @@ int comm_xshmem_init(void)
     size_t db = cfg.heap_mb > 0 ? (size_t)cfg.heap_mb << 20 : ((getenv("COMM_OFI_POOL_MB") ? (size_t)atol(getenv("COMM_OFI_POOL_MB")) : (getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : 8192) / 4 + 256) << 20);
     if (getenv("XSHMEM_HEAP_SLACK_MB")) db += (size_t)atol(getenv("XSHMEM_HEAP_SLACK_MB")) << 20;   /* (default off: the Cray backend takes the control and alignment out of the same heap: the plan's figure is exact, a few MiB more are needed there) */
     db = round_up(db); X.dbytes = db;
-    X.nw = vpe_on() ? K * X.nodes : X.nodes; X.maxid = vpe_on() ? MAXID_VPE : MAXID;
+    X.nw = vpe_on() ? K * X.nodes : X.nodes; X.maxid = vpe_on() ? (vpe_big_ids() ? MAXID_VPE_BIG : MAXID_VPE) : MAXID;   /* the 32 extra ids (129 KB each at 2304 PEs) only when a run can need them; the last id is the t_vpe hs burst block (mn.c sub_id never returns it) */
     size_t cb = (size_t)X.maxid * (size_t)g_wn * (size_t)X.nw * 8;
     for (int l = 0; l < K; l++) { XSHMEM_SELECT(l); X.pe[l].ctrl = (uint64_t *)xshmem_heap_alloc(cb, XSHMEM_SPACE_CTRL); }   /* one space at a time, PEs in order 0..K-1 (collective) */
     tl_d = now_s();

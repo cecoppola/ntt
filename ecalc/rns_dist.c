@@ -1531,7 +1531,8 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             if (p24_check()) { __atomic_fetch_add(&g_c_pieces, 1, __ATOMIC_RELAXED); if (ha >= 0) __atomic_fetch_add(&g_c_hit, 1, __ATOMIC_RELAXED); if (hb >= 0) __atomic_fetch_add(&g_c_hit, 1, __ATOMIC_RELAXED); }
             if (p24_inject(2)) {                                /* P24_CHECK_TEST=2: one plane residue replaced (any P24_CHECK); P24_CHECK_TEST_S = 0|6|12: the first row of this PE whose shift class is s (deterministic for P24_CRT_ANY=0), else row 0 */
                 uint64_t bad = 1234567890123ULL; size_t ri = 0; const int ts = p24_test_s();
-                if (ts >= 0) { while (ri < 2 && ri + 1 < rows && p24_s(a0 + ri) != ts) ri++; }
+                if (ts >= 0) { while (ri < 2 && ri + 1 < rows && p24_s(a0 + ri) != ts) ri++;
+                    if (p24_s(a0 + ri) != ts) fprintf(stderr, "P24_CHECK_TEST_S=%d: no row of that shift class among the first %zu rows of this PE (%zu rows); corrupting row %zu (class %d)\n", ts, ri + 1, rows, ri, p24_s(a0 + ri)); }
                 HIP_CHECK(hipMemcpyAsync(xa[0] + ri, &bad, 8, hipMemcpyHostToDevice, s)); }
             p24_crt_set_check(p24_crt_any() || p24_check() > 0);   /* all-shift flag by default (P24_CRT_ANY=0: the s = 12 + spill flag only, unless P24_CHECK) */
             p24_crt_launch(xa[0], xa[1], xa[2], xa[3], &gc, R, C, a0, rows, xb, v->spill, s);
