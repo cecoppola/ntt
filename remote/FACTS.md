@@ -145,13 +145,14 @@ VMM growth) against 373.44 GB, with a 5 GB margin rule for the automatic `DM_MN_
 | 8e9 | 1 / 8-64 | path 2 | 144 / 216, node 191 / 293 | fits |
 | 8e9 | 1 / 8-576 | layout D | 155 / 178-181 | fits |
 | 1.74e10 (1e13 on 576) | 576 | path 1 D | 238.97 (+134.47) | fits |
-| 1.74e10 | 576 | path 2 | 380.23 with wrap, 371.64 without (node 467 vs 414) | REFUSED by 6.8 GB; `DIST_CHUNKS=2` -> 318.56, `=4` -> 288.22, `=8` -> 273.06 (mod) |
+| 1.74e10 | 576 | path 2 | 371.64 (wrap off by the auto rule; 380.23 with it), node 467.17 vs 487 | fits by +1.80 (per APU +0.45; refused against the old 414 GB node budget); `DIST_CHUNKS=2` -> 318.56, `=4` -> 288.22, `=8` -> 273.06 (mod) |
 | 6.632e10 (3.82e13 on 576) | 576 | path 1 D, `MN_NONPOW2_CAP=0` | 358.96 (+14.48), node 395.04 | fits |
 | 6.632e10 | 576 | D, cap auto (on) | 407.41 | REFUSED (-33.97) |
 | 6.632e10 | 8-576 | P / path 2 | 430 (8 n) to 671 (576 n) | refused from 8 nodes on |
 
 - Largest sizes on 576 nodes (mod): about 4.19e13 digits with `MN_NONPOW2_CAP=0`, about 2.67e13 with it on; path 2 / P about 5.2e12-7.5e12 (1.3e10 per node with a 480-487 GB node budget, about 9.1e9 with the old 414 assumption).
 - Why path 2 jumps at 576 nodes: 576 nodes = 2304 PEs is not a power of two, so every product uses the general exchange map whose v-slots (about 61 GB per node at 1.74e10) are zero at power-of-two node counts. `DIST_CHUNKS=K` slices the exchange rows (code default: 1 under `ECALC_PE_PER_GPU=1`, i.e. path 2; 8 otherwise): v-slots 30.6 / 15.3 / 7.7 GB for K = 2 / 4 / 8 (mod). Digit safety of DIST_CHUNKS: identical for 4 vs 8 on layout D (m aac7); path 2 at non-power-of-two counts untested (TQ84).
+- Per-APU record edge (planner, mod, 2026-10-28; `results/LAUNCH_DEFAULTS.md` §A2EDGE): at 3.82e13 on 576 n the S6 line (`BS_MDEV_LOGL=29`, `MN_NONPOW2_CAP=0`) peaks at 89.74 GB per APU (+3.62 to 93.36, under the 6.5 GB bar); `BS_MDEV_LOGL=28` balances the APUs (87.59, +5.77) and with `DIST_CHUNKS=16` 85.98 (+7.38, untimed); at 3e13 `BS_MDEV_LOGL=29` gives 85.44 (+7.92). Path 2 fits 8e9 per node (+11.19 per APU) and 1e13 only barely (+0.45; `DIST_CHUNKS=2` +13.72), never 3e13.
 - `ECALC_PLANE_CAP=run` prints `ECALC_PLANE_CAP=run (default): plane cap 2^30 ...` (or 2^31). Cap 2^30 saves 2.64 s [-2.98, -2.30] at 8e9 on 1 node, about 2.8 s at 2 n, digits identical (hash 3e78c1b2a0276963 at 8e9, m aac7); above 2 nodes unmeasured.
 - Measured on aac7 (m): P fits 2 n to 5e10 (5.5e10 refused, 425.8 GB host vs 420); D fits 2 n to about 1.2e11; one node edge 1.44 / 1.30e11 at cap 2^30 / 2^31 (three primes). Init floor is 0.06-0.075 s per GB mapped (kernel page clearing, one lock): 0.070 s/GB on aac7 (target reportedly 0.010 s/GB with a generic harness, u, unconfirmed).
 - rc 8 / `plan REFUSED`: lower the digits (refusal prints the largest that fits), or `MN_T_CHUNK_MB=1024`, `ECALC_NP=3`, `MN_NONPOW2_CAP=0`, or `DIST_CHUNKS`. rc 9: lower `ECALC_NODE_GB` by the overshoot it prints.
