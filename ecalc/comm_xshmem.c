@@ -270,7 +270,7 @@ static void xrst_print(int l, const char *tag)   /* XSHMEM_ROUND_STATS: this PE'
             "comm_xshmem: XSHMEM_ROUND_STATS sync (%s) node-process %d pe %d [%s]: posts with the stream idle at the post %.0f (sync time %.3f s, %.2f ms each), busy %.0f (sync time %.3f s, %.2f ms each); event sync %.3f s, remaining stream sync %.3f s, device-wide sync after it %.3f s\n",
             tag, X.q, X.K * X.q + l, id, r[29], gn_, g[0], g[1], g[2], g[3], g[4], g[5], g[6], r[25], r[28] + r[32], r[10], r[36],
             tag, X.q, X.K * X.q + l, id, r[30], r[34], r[30] > 0 ? 1e3 * r[34] / r[30] : 0, r[31], r[35], r[31] > 0 ? 1e3 * r[35] / r[31] : 0, r[32], r[28], r[33]);
-    if (g_rser && X.pe[l].ser && !strcmp(tag, "final")) { Dl_info di; if (dladdr((void *)xrst_print, &di)) fprintf(stderr, "comm_xshmem: XSHMEM_SERIES pe %d base %p file %s\n", X.K * X.q + l, di.dli_fbase, di.dli_fname);
+    if (g_rser && X.pe[l].ser && !strcmp(tag, "final")) { Dl_info di; if (dladdr((void *)xrst_print, &di)) fprintf(stderr, "comm_xshmem: XSHMEM_SERIES pe %d base %p file %s\n", X.K * X.q + l, di.dli_fbase, di.dli_fname ? (strrchr(di.dli_fname, '/') ? strrchr(di.dli_fname, '/') + 1 : di.dli_fname) : "?");
         for (int i = 0; i < X.pe[l].nser; i++) { const rser *e = &X.pe[l].ser[i]; fprintf(stderr, "comm_xshmem: XSHMEM_SERIES pe %d k %d tag %d comm %d n %d kb %u gap_ms %.2f gpu_ms %.2f busy %d sync_ms %.2f roff_ms %.2f span_ms %.2f f %p %p %p %p\n", X.K * X.q + l, i, e->tag, e->id, e->n, e->kb, e->gap, e->gpu, e->busy, e->sync, e->roff, e->span, e->f[0], e->f[1], e->f[2], e->f[3]); } }
 }
 static void *worker(void *a)
@@ -796,7 +796,7 @@ int comm_xshmem_init(void)
     double tl_a = XT.t0, tl_b = 0, tl_c = 0, tl_d = 0, tl_e = 0;
     { const char *e = getenv("XSHMEM_COLL"); if (e && *e && strcmp(e, "flat") && strcmp(e, "tree")) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_COLL=%s: flat or tree\n", e); g_ctree = e && !strcmp(e, "tree"); }
     { const char *e = getenv("XSHMEM_PEER_STREAMS"); if (e && *e) { char *end; long v = strtol(e, &end, 10); if (*end || v < 1 || v > MAXPST) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_PEER_STREAMS=%s: an integer 1..%d\n", e, MAXPST); g_pst = (int)v; } }
-    { const char *e = getenv("XSHMEM_ROUND_STATS"); g_rst = e && atoi(e) > 0; g_rser = e && atoi(e) >= 2; }
+    { const char *e = getenv("XSHMEM_ROUND_STATS"); long v = 0; if (e && *e) { char *end; v = strtol(e, &end, 10); if (*end || v < 0 || v > 2) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_ROUND_STATS=%s: 0, 1 or 2\n", e); } g_rst = v > 0; g_rser = v >= 2; }
     { const char *e = getenv("COMM_SEQ_CHECK"); g_seqchk = e && atoi(e) > 0; g_wn = g_seqchk ? W_N + 2 : W_N;   /* the same on every rank (the CTRL heaps must be one size) */
       e = getenv("XSHMEM_SPARSE"); g_sparse = e && atoi(e) > 0;
       e = getenv("XSHMEM_HS_BATCH"); g_hsb = e && atoi(e) > 0 ? atoi(e) : 0;
