@@ -229,3 +229,18 @@ Reading: at the record's per-node share (6.632e10) `BS_MDEV_LOGL=28` costs nothi
 - Answer 2: the onset is a step between 9.5e10 and 1e11. Up to 9.5e10 the pairs scatter around zero (all intervals contain zero); at 1e11 all 10 pairs are positive (+5.5 s, +4.5 %). Rounds at 9e10 and 9.5e10 are scattered by +-2 s per round, so a cost under about 2 s there is not excluded.
 - `DIST_CHUNKS=16` accounts for about +1.3 s of the 1e11 cost (2 rounds, interval spans zero), consistent with the +1.1 s from c09; the rest, about +4 s, is the `BS_MDEV_LOGL=28` leaf level.
 - Slow mode (a run whose dm is 0.7 s or more above its arm minimum at 6.632e10, 1.5 s or more at 9e10 to 1e11): c11 flagged 5 of 16 runs (A r1a2, r2a2, r4a1; B r4b1, r4b2, all dm about 18.7 to 19.0 against 17.8 to 18.1), which leaves round 3 clean at +1.81 s; c12 flagged 9e10 A r1a2 and r3a1 (dm 30.8) and 9.5e10 A r1a1 and r2a2 (dm 38.1 to 38.3 against 36.4). Flagged A runs raise A, so the zero-centred results would move positive, not negative, if they were removed; the 1e11 conclusion does not depend on them (c09 check above). Per-round noise at these sizes is 1 to 2 s.
+
+**Pinning the step (measured and modelled, 2026-10-28, items c14 on s3b1 and c15 on s5b0, cand3 ebb8430 builds, path 1, ABBA without warm-up, A = `BS_MDEV_LOGL=29`, B = `BS_MDEV_LOGL=28 DIST_CHUNKS=16`; A and B digits identical and VERIFY OK in every run).**
+
+| digits | rounds | A / B total | B - A (95 % interval) | division (dm) B - A |
+|---|---|---|---|---|
+| 9e10 (c12) | 3 | 106.9 / 107.0 s | +0.17 [-4.89, +5.23] s | -0.3 s |
+| 9.5e10 (c12) | 2 | 119.8 / 119.1 s | -0.64 [-2.36, +1.09] s | -1.1 s |
+| 9.7e10 (c14) | 2 | 120.1 / 120.4 s | +0.33 s (rounds -1.71, +2.37; no usable interval) | +1.2 s |
+| 9.8e10 (c14) | 3 | 120.2 / 124.0 s | +3.80 [-0.50, +8.09] s, +3.2 %; rounds +4.57 +1.82 +5.01 | +3.1 s |
+| 9.9e10 (c15) | 3 | 122.6 / 126.9 s | +4.27 [+2.56, +5.98] s, +3.5 %; rounds +4.53 +4.79 +3.49 | +4.2 s |
+| 1e11 (pooled, above) | 10 | - | +5.50 [+4.75, +6.26] s | about +3.3 s |
+
+- Measured: the cost is not a single jump but a rise between 9.7e10 and 9.9e10 (about 0 at 9.7e10 and below, about +4 s at 9.8e10 and 9.9e10, +5.5 s at 1e11), carried by the division time (dm +1.2, +3.1, +4.2 s). Per-round noise is 1 to 2 s, so the exact onset is 9.7e10 to 9.8e10 only to within one step.
+- Modelled (planner, aac7 limits, 1 node, 28 vs 29): the plan change is the same everywhere in the range: level 22 leaf products move to the device tier, 10 pairs at 9.5e10, 11 pairs at 9.8e10 (the eleventh a smaller 3*2^27-point plane, 19.33 GB), 11 pairs at 1e11 (all 2^29-point planes). Leaf dist_db products 34 to 54 (9.5e10), 36 to 58 (9.8e10 and 1e11), checked products 90 to 110 or 112; tree, reciprocal and division piece counts and grids are identical. No level, tier or grid switch occurs at the step. What does move with size is the memory room: the division-side device need against the arena is 61.45 / 62.28 GB at 9.5e10, 63.22 / 64.42 at 9.8e10 and 64.41 / 64.42 at 1e11 (the arena is full at 1e11). So the step follows the division running with the arena nearly full while 28 keeps extra leaf planes in the device tier; this link is inferred from the numbers, not measured.
+- Slow mode: A runs with dm 1.5 s or more above the arm minimum were r2a1 and r3a1 at 9.8e10 (36.1 and 36.3 against 34.4 to 34.6); removing their rounds would raise B - A, not lower it.
