@@ -41,9 +41,9 @@ for s in "${STEPS[@]}"; do
     rl_posint "$n" && rl_isnum "$d" || { echo "stair.sh: step '$s': NODES a positive integer and DIGITS numeric (NODES|DIGITS|ENV|EXTRA)" >&2; exit 2; }
     SN+=("$((10#$n))"); SD+=("$d"); SE+=("$e"); SX+=("$x")
 done
-AB_N= AB_D= AB_W= AB_C=
+AB_N= AB_D= AB_W= AB_C= AB_S=
 if [ -n "$AB" ]; then
-    IFS='|' read -r AB_N AB_D AB_W AB_C _ <<< "$AB||"
+    IFS='|' read -r AB_N AB_D AB_W AB_C AB_S _ <<< "$AB|||"
     rl_posint "$AB_N" && rl_isnum "$AB_D" && [ -n "${AB_W// /}" ] || { echo "stair.sh: --ab \"NODES|DIGITS|B_WORDS[|C_WORDS]\"" >&2; exit 2; }
     AB_N=$((10#$AB_N))
 fi
@@ -136,11 +136,12 @@ attempt() {    # IDX NODES DIGITS ENV EXTRA TAG -> rc 0 = the step ran (SV, ST_*
 vstat() { local op=$1; shift; awk -v op="$op" 'BEGIN { n = 0; for (i = 1; i < ARGC; i++) { v = ARGV[i] + 0; if (!n || v < mn) mn = v; if (!n || v > mx) mx = v; s += v; n++ } if (!n) { print "NA"; exit } printf "%.3f", (op == "min" ? mn : op == "max" ? mx : s / n) }' "$@"; }
 run_ab() {     # BASE_ENV -> rounds of arms.sh with A (base), B (+AB_W), C (+AB_C), the order rotated; decisions; site.env REMOTE_RECORD_ENV / REMOTE_WRAP_ENV
     local base=$1 names="A B" r k s nm w out rd sf l rcs tm=25 ok=1 dig=1 first= na=2 args
-    declare -A WORD VT VB VD VC VP
+    declare -A WORD VT VB VD VC VP VI
     [ -n "${AB_C// /}" ] && { names="A B C"; na=3; }
-    WORD[A]=$base; WORD[B]="$base $AB_W"; WORD[C]="$base $AB_C"
-    for nm in $names; do VT[$nm]=; VB[$nm]=; VD[$nm]=; VC[$nm]=; VP[$nm]=; done
-    rl_line "     ab: $na arms of $AB_N nodes at once, $na rounds with the arm order rotated, $AB_D digits per arm (A: ${base:-<defaults>} | B: + $AB_W${AB_C:+ | C: + $AB_C}):"
+    [ -n "${AB_C// /}" ] && [ -n "${AB_S// /}" ] && { names="A B C D"; na=4; }
+    WORD[A]=$base; WORD[B]="$base $AB_W"; WORD[C]="$base $AB_C"; WORD[D]="$base $AB_S"
+    for nm in $names; do VT[$nm]=; VB[$nm]=; VD[$nm]=; VC[$nm]=; VP[$nm]=; VI[$nm]=; done
+    rl_line "     ab: $na arms of $AB_N nodes at once, $na rounds with the arm order rotated, $AB_D digits per arm (A: ${base:-<defaults>} | B: + $AB_W${AB_C:+ | C: + $AB_C}${AB_S:+ | D: + $AB_S}):"
     local -a nl=($names)
     for ((r = 0; r < na; r++)); do
         args=(); for ((s = 0; s < na; s++)); do nm=${nl[$(( (s + r) % na ))]}; args+=(--arm "$nm:${WORD[$nm]}"); done
@@ -151,14 +152,15 @@ run_ab() {     # BASE_ENV -> rounds of arms.sh with A (base), B (+AB_W), C (+AB_
         if ! grep -aq '^arm_A=' "$sf"; then rl_line "     ab: round $((r + 1)) not run (arms.sh rc $rcs): $(grep -a -m1 -E 'ERROR|need|usable|no allocation' "$out" | cut -c1-150)"; rl_kv ab_test "not run (rc $rcs)"; AB_SOFT=1; return 0; fi
         for ((s = 0; s < na; s++)); do
             nm=${nl[$(( (s + r) % na ))]}; l=$(grep -a -m1 "^arm_$nm=" "$sf" | cut -d= -f2-)
-            local arc atot adc adm abs apk av al
+            local arc atot adc adm abs apk av al ain
             arc=$(echo "$l" | sed -n 's/.*rc=\([^ ]*\).*/\1/p'); atot=$(echo "$l" | sed -n 's/.* total=\([^ ]*\).*/\1/p'); av=$(echo "$l" | sed -n 's/.* verify=\([^ ]*\).*/\1/p'); al=$(echo "$l" | sed -n 's/.* last=\([^ ]*\).*/\1/p')
+            ain=$(echo "$l" | sed -n 's/.* init=\([^ ]*\).*/\1/p')
             read -r abs adm adc <<< "$(echo "$l" | sed -n 's/.*bsdmdc=\([^/ ]*\)\/\([^/ ]*\)\/\([^ ]*\).*/\1 \2 \3/p')"; apk=$(echo "$l" | sed -n 's/.*peak_apu_gb=\([^ ]*\).*/\1/p')
-            rl_line "$(printf '       r%d slot %d arm %s rc=%-3s total_s %-7s bs/dm/dc %s/%s/%s  peak_apu_gb %s  verify %s' "$((r + 1))" "$((s + 1))" "$nm" "${arc:-?}" "${atot:-NA}" "${abs:-NA}" "${adm:-NA}" "${adc:-NA}" "${apk:-NA}" "${av:-?}")"
+            rl_line "$(printf '       r%d slot %d arm %s rc=%-3s total_s %-7s init/bs/dm/dc %s/%s/%s/%s  peak_apu_gb %s  verify %s' "$((r + 1))" "$((s + 1))" "$nm" "${arc:-?}" "${atot:-NA}" "${ain:-NA}" "${abs:-NA}" "${adm:-NA}" "${adc:-NA}" "${apk:-NA}" "${av:-?}")"
             [ "$arc" = 0 ] && [ "$av" = OK ] || ok=0
             [ -n "$al" ] && { [ -z "$first" ] && first=$al; [ "$al" = "$first" ] || dig=0; }
             case ${adc:-x} in [0-9]*) ;; *) ok=0; continue;; esac
-            VT[$nm]="${VT[$nm]} $atot"; VB[$nm]="${VB[$nm]} $abs"; VD[$nm]="${VD[$nm]} $adm"; VC[$nm]="${VC[$nm]} $adc"; case ${apk:-x} in [0-9]*) VP[$nm]="${VP[$nm]} $apk";; esac
+            VT[$nm]="${VT[$nm]} $atot"; VB[$nm]="${VB[$nm]} $abs"; VD[$nm]="${VD[$nm]} $adm"; VC[$nm]="${VC[$nm]} $adc"; VI[$nm]="${VI[$nm]} $(awk -v a="${ain:-0}" -v b="$abs" 'BEGIN { printf "%.3f", a + b }')"; case ${apk:-x} in [0-9]*) VP[$nm]="${VP[$nm]} $apk";; esac
         done
     done
     if [ "$dig" = 0 ]; then rl_line "     ab: the last digits DIFFER between runs: a correctness failure, nothing adopted (do not go on; AGENT.md Failure handling)"; rl_kv ab_test "DIGITS DIFFER"; SV=FAIL; AB_HARD=1; RL_ERRFILES+=("$sf"); return 0; fi
@@ -167,10 +169,19 @@ run_ab() {     # BASE_ENV -> rounds of arms.sh with A (base), B (+AB_W), C (+AB_
     aMin=$(vstat min ${VC[A]}); aMax=$(vstat max ${VC[A]}); bMax=$(vstat max ${VC[B]}); tA=$(vstat mean ${VT[A]}); tB=$(vstat mean ${VT[B]})
     rl_line "     ab residue: dc A $aMin..$aMax (A-A spread), B $(vstat min ${VC[B]})..$bMax; mean total A $tA B $tB; mean peak_apu_gb A $(vstat mean ${VP[A]}) B $(vstat mean ${VP[B]}); digits identical: yes"
     d=$(awk -v bmax="$bMax" -v amin="$aMin" -v ta="$tA" -v tb="$tB" 'BEGIN { print (bmax + 0 < amin + 0 && tb + 0 <= ta * 1.02) ? "adopt" : "keep" }')
+    local rec=; [ "$d" = adopt ] && rec=$AB_W
     if [ "$d" = adopt ]; then rl_site_set REMOTE_RECORD_ENV "$AB_W"; rl_line "     ab decision: ADOPT B (dc lower beyond the spread, total not worse): REMOTE_RECORD_ENV=$AB_W kept in site.env, added to every later step"; rl_kv ab_test "adopt B dc A $aMin..$aMax B $(vstat min ${VC[B]})..$bMax"
     else rl_site_unset REMOTE_RECORD_ENV; rl_line "     ab decision: KEEP the defaults (B's dc is not below A's beyond the spread, or its total is more than 2 % higher)"; rl_kv ab_test "keep A dc A $aMin..$aMax B $(vstat min ${VC[B]})..$bMax"; fi
+    if [ "$na" = 4 ]; then      # arm D (seed chunk): adopt unless init+bs is slower beyond the A-A spread
+        local sAmax sDmin sDmean sAmean
+        sAmax=$(vstat max ${VI[A]}); sAmean=$(vstat mean ${VI[A]}); sDmin=$(vstat min ${VI[D]}); sDmean=$(vstat mean ${VI[D]})
+        rl_line "     ab seed: init+bs A $(vstat min ${VI[A]})..$sAmax s (A-A spread, mean $sAmean), D ($AB_S) $sDmin..$(vstat max ${VI[D]}) s (mean $sDmean); peak_apu_gb A $(vstat mean ${VP[A]}) D $(vstat mean ${VP[D]})"
+        if awk -v dmin="$sDmin" -v amax="$sAmax" 'BEGIN { exit !(dmin + 0 > amax + 0) }'; then rl_line "     ab seed decision: KEEP the defaults (D's init+bs is slower beyond the A-A spread)"; rl_kv ab_seed "keep: D slower"
+        else rec="${rec:+$rec }$AB_S"; rl_line "     ab seed decision: ADOPT D (init+bs not slower beyond the spread): $AB_S added to REMOTE_RECORD_ENV (host term lower, ROUTE)"; rl_kv ab_seed "adopt D init+bs A $sAmean D $sDmean"; fi
+        if [ -n "$rec" ]; then rl_site_set REMOTE_RECORD_ENV "$rec"; fi
+    fi
     rl_kv record_env "${REMOTE_RECORD_ENV:-<none>}"
-    if [ "$na" = 3 ]; then
+    if [ "$na" -ge 3 ]; then
         local dmAmin dmAmax dmCmin dmCmax
         dmAmin=$(vstat min ${VD[A]}); dmAmax=$(vstat max ${VD[A]}); dmCmin=$(vstat min ${VD[C]}); dmCmax=$(vstat max ${VD[C]})
         rl_line "     ab wrap: dm A (wrap auto, on at this size) $dmAmin..$dmAmax s, C ($AB_C) $dmCmin..$dmCmax s; saving of the wrap = mean dm C - A = $(awk -v a="$(vstat mean ${VD[A]})" -v c="$(vstat mean ${VD[C]})" 'BEGIN { printf "%+.2f", c - a }') s; peak_apu_gb A $(vstat mean ${VP[A]}) C $(vstat mean ${VP[C]}) (cost of the wrap = A - C)"

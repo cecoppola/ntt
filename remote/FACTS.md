@@ -14,7 +14,7 @@ output, Known problems and fixes, Settings worth testing, Decisions in force, Wh
 | per node | 4 AMD MI300A APUs, each one GPU with 128 GB unified memory; 8 Slingshot-400 cxi NICs = 2 per APU | u |
 | fabric peak | 400 Gb/s per NIC, 100 GB/s injection per APU, 400 GB/s per node | u (measured value unknown: first thing to measure) |
 | software | ROCm 7.14.0, cray-shmem (OpenSHMEMX) 12.1.0, libfabric 2.3.1, CCE 21.0.0 | u |
-| device edge | `hipMalloc` edge 373.44 GB per node = 93.36 GB per APU (the planner's `ECALC_DEVICE_GB`) | target, m (5 runs) |
+| device edge | `hipMalloc` edge 373.44 GB per node = 93.36 GB per APU (the planner's default `ECALC_DEVICE_GB`; harness figure 10-06, superseded by P1's measurement `REMOTE_DEVICE_GB`, ROUTE) | target, m (5 runs) |
 | host budget | `ECALC_NODE_GB=487` from MemAvailable 515.7 GB on an idle node (code default 480; the old 414 was an assumption) | target, m 2026-10-26 |
 | file system | about 1 TB/s cumulative into ONE file with 32 writers per node; ecalc's own writer rate unmeasured | u |
 | physical size | 4 / 32 / 256 / 2304 APUs = 1 node / 1 chassis / 1 rack / all (ladder levels L0-L3 = 1 / 8 / 64 / 576 nodes) | u |
@@ -161,6 +161,7 @@ VMM growth) against 373.44 GB, with a 5 GB margin rule for the automatic `DM_MN_
 | 3.7e13 | 83.83 (+9.53), node 371.42 | 84.64 (+8.72), node 374.64 | 93.77 REFUSED (-0.41), node 411.15 |
 | 3.82e13 | 85.98 (+7.38), node 380.01 | 86.79 (+6.57), node 383.23 | 96.18 REFUSED (-2.82), node 420.81 |
 
+  512 (planner, mod, 2026-10-28, aac7 login run of the same planner): identical to 128 at 3.7e13 (+9.53, node 371.42) and 3.82e13 (+7.38, node 380.01): the pools are sized in 128 MB granules, so 512 is free in memory.
   So 1024 still fits both record sizes and costs 0.8 GB of per-APU margin (3.82e13 +6.57 against the staircase bar 6.5 before any measurement, and against measured excess + 2 GB afterwards: see ROUTE "The record staircase"); 0 is refused at both. Time model (`ecalc/mn_model.py estimate --g 576 --fabric target_fit --round-mb R`, mod): 4.608e12 171.8 s at 128 vs 157.2 s at 1024; 8e12 240.9 vs 200.2; 3.82e13 1072 vs 704 s (R=0 695 s at +31 GB host per node; 1024 about +8 GB host); at 64 nodes 81.0 vs 79.0 s. The fit attributes most exposed fabric time to per-round synchronisation; that mechanism is assumed (the fit cannot tell it from latency or bandwidth), hence the 128 / 1024 pair in P2 (ROUTE; last session measured 255.3 s at 128 for 4.608e12 on 576). Measured on aac7 at 1 node (m, no exchange): 14.9 s at 128 vs 15.5 s at 1024 (noise, digits identical).
 - `ECALC_PLANE_CAP=run` prints `ECALC_PLANE_CAP=run (default): plane cap 2^30 ...` (or 2^31). Cap 2^30 saves 2.64 s [-2.98, -2.30] at 8e9 on 1 node, about 2.8 s at 2 n, digits identical (hash 3e78c1b2a0276963 at 8e9, m aac7); above 2 nodes unmeasured.
 - Measured on aac7 (m): P fits 2 n to 5e10 (5.5e10 refused, 425.8 GB host vs 420); D fits 2 n to about 1.2e11; one node edge 1.44 / 1.30e11 at cap 2^30 / 2^31 (three primes). Init floor is 0.06-0.075 s per GB mapped (kernel page clearing, one lock): 0.070 s/GB on aac7 (target reportedly 0.010 s/GB with a generic harness, u, unconfirmed).
