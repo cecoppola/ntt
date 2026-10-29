@@ -28,7 +28,10 @@ problems), `MANIFEST.sha256` (copy check), `run/*.sh` (the scripts the agent's c
 The branch name is written in this file (lines 4, 12, 16 and the message below), in `AGENT.md` (the first block and the REPORT header and `COPY=` line) and in the repository `README.md` (the `remote/` row): rename in those places only.
 
 > Read remote/AGENT.md, remote/ROUTE.md and remote/FACTS.md on branch remote-v12. The repository copy is unpacked at
-> `<path>` on the target. Session length: `<hours>`. Digit files: `<no | only the last step, in <dir>>`. Give me paste P1.
+> `<path>` on the target. Session length: `<hours>`. Digit files: `<no | only the last step, in <dir>>`. I choose the record
+> sizes: 1.8e13, 3.6e13 and 5.4e13 as in ROUTE.md; I will give the fourth size myself after fitting the `point:` lines. If P1
+> prints `remote_device_gb unset`, use `export REMOTE_DEVICE_GB=452` for steps 3 and 4. After each successful record run, give
+> me the collect.sh print commands so I can paste the full logs. Give me paste P1.
 
 ## Each paste
 
