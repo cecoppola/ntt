@@ -8,8 +8,8 @@ known problems: `FACTS.md`. Paste from the repository root. Times are wall clock
 |---|---|---|---|
 | P1 | check, facts, allocation, build both paths, gates at 1 and 2 nodes, GPU and host memory edge on one node | 30-50 min (the edge step is the last call: 5-8 min) | s0 manifest clean, s1 PASS (4 GPUs, 8 NICs), s2 both paths built, every gate `VERIFY OK` with the 1e9 hash; `host_edge_gb` / `malloc_edge_gb` printed (information, never a stop) |
 | P2 | node screen, 64 nodes at 5.12e11, residue / thread-team and DM_MN_WRAP A/B (three 64-node arms at once, three rounds), then 576 nodes at 4.608e12 twice (round size 128, then 1024) | 40-70 min (screen up to 20, A/B about 8, each 576 run about 6-8) | `VERIFY OK` in every row, no slow hosts, 576 n total within 1.5 x the 2026-10-26 figure (255 s cold; the first 576 run carries two diagnostic switches); the two decision lines printed |
-| P3 | the first record run: 1e13 on 576 nodes (staircase step 1) | 5-15 min | `VERIFY OK`, per-APU peak below the edge with its excess over the plan noted |
-| P4 | staircase steps 2-4 (2e13, 2.8e13, 3.82e13), stops at the first failure | 20-90 min | each step `VERIFY OK`; the memory rule lets the next step run |
+| P3 | the first two record runs: 1.8e13 and 3.6e13 on 576 nodes (staircase steps 1-2) | 10-40 min | `VERIFY OK`, per-APU peak below the edge with its excess over the plan noted |
+| P4 | staircase step 3 (5.4e13, or the largest candidate the measured edge allows) and the printed proposal of the fitted maximum (`--final`, not run: the user's yes starts it with the printed command, `--write` only on the yes) | 15-60 min | `VERIFY OK`; the `final proposal:` line copied into the REPORT |
 | P5 | `report.sh`: one table of every run, then release of the allocation | 1 min | the agent writes the REPORT (AGENT.md) |
 
 Total 5 pastes when nothing fails, 6-8 with fallbacks. Tell the user the allocation time for P1: (session hours) minus 15 min (`<H:MM:SS>` in P1; the hold must outlast every paste: step 4 needs its `--tmo` + 5 min = 95 min left when it starts, and `stair.sh` skips a step the hold cannot finish and prints the minutes left and the time needed, then `alloc.sh --release` and a new `alloc.sh --nodes 576 --time <H:MM:SS>` for the rest). The measured per-APU excess of a passed step is kept in `site.env`, so P4 starts from P3's excess (the `need` printed per step). A paste whose time exceeds what is left (plus 20 %): Minimal route.
@@ -57,17 +57,15 @@ a digit mismatch is never moved past (AGENT.md Failure handling). Optional extra
 One env line per step, in this table and nowhere else (every command below says "env of step k" and the agent copies the words from here). Sizes and settings: `results/LAUNCH_DEFAULTS.md` §RECORD1 (the reasoning and the planner
 margins of every size and setting; per APU against the device edge, planner, modelled; the margins below are against the 93.36 GB harness figure of 10-06, superseded by P1's measurement (`REMOTE_DEVICE_GB`; with a larger measured edge the margins grow by the difference); the target measured 2.7-6.5 GB MORE than the planner per APU, so the bar is 6.5 GB). Model times are without a digit write and optimistic by 3-9 x on the target (FACTS).
 
-| step | digits | nodes | env words (path 1) | extra | plan margin per APU (mod) | model | fallback if it fails |
-|---|---|---|---|---|---|---|---|
-| 1 | 1e13 | 576 | `ECALC_VERBOSE=1 ECALC_FIT_PER_APU=1 MEM_REPORT_DEVS=1 XSHMEM_HANG_S=3600 MN_NONPOW2_CAP=0 BS_MDEV_LOGL=29` | `--tmo 60` | +29.9 | 51 s | 8e12 (same words), then stop and report 4.608e12 as the best |
-| 2 | 2e13 | 576 | same words as step 1 | `--tmo 60` | +18.7 | 90 s | 1.5e13 (same words, +29.4) |
-| 3 | 2.8e13 | 576 | `ECALC_VERBOSE=1 ECALC_FIT_PER_APU=1 MEM_REPORT_DEVS=1 XSHMEM_HANG_S=3600 MN_NONPOW2_CAP=0 BS_MDEV_LOGL=28 DIST_CHUNKS=16` | `--tmo 75` | +11.7 | 120 s | the same size with `BS_MDEV_LOGL=29` and no `DIST_CHUNKS` (+10.1), else 2.5e13 with the words of step 3 (+16.0) |
-| 4 | 3.82e13 (the floor) up to 5e13: `--top` picks | 576 | same words as step 3 | `--tmo 90`, `--write <dir>` only if the user said yes | +7.4 | 180 s | 3.7e13 with the words of step 3 (+9.5; 3.4e13 is only +5.2), then the largest size the planner accepts above the bar |
+| step | digits | nodes | env words (path 1) | extra | planner | fallback if it fails |
+|---|---|---|---|---|---|---|
+| 1 | 1.8e13 | 576 | `ECALC_VERBOSE=1 ECALC_FIT_PER_APU=1 MEM_REPORT_DEVS=1 XSHMEM_HANG_S=3600 MN_NONPOW2_CAP=0 BS_MDEV_LOGL=28 DIST_CHUNKS=16` | `--tmo 60` | the planner line is printed before the run | 1e13 (same words), then stop and report the best passed size |
+| 2 | 3.6e13 | 576 | same words as step 1 | `--tmo 90` | printed; 3.6e13 is inside the 2.9e13-3.6e13 range whose planner shape resembles the 3e13 CRT-flag failure (FACTS): a refusal or `P24 CRT flag` line is reported, not retried | 3.2e13 (same words) |
+| 3 | 5.4e13, else the largest passing candidate 5.2e13 ... 3.82e13 (`--top`) | 576 | same words as step 1 | `--tmo 120` | the rule below | the next smaller candidate is taken by `--top` itself |
+| 4 | the fitted maximum, 5e13 ... 6e13 (`--final`): PROPOSED, not run | 576 | same words | printed with the proposal | the rule below | the best passed size is the record |
 
-Why these: step 1 is the size the target is 99 % likely to finish (2.2 x the verified size, four and a half times the memory bar, the code path of the verified run, only timeouts and a balanced device arena changed); step 2 is the size that hung
-on 2026-10-26 (the handshake wait is now 3600 s, not 900 s); step 3 rehearses the final settings (`BS_MDEV_LOGL=28 DIST_CHUNKS=16`: the largest per-APU margin at 3.82e13, free in time at the record's per-node share) below the size where
-the margin is thinnest, and avoids 2.9e13-3.6e13, where the planner shows the mixed-piece shape of the 3e13 CRT-flag failure (FACTS); step 4 is the headline: `--top` probes the candidates 3.82e13, 4.2e13, 4.4e13, 4.6e13, 4.8e13, 5e13 with the planner (the measured edge of P1, the step's words, the adopted P2 settings) and runs the LARGEST whose per-APU margin is at least the need (the excess measured on steps 1-3 + 2 GB, at least 3 GB); it prints `top_candidates` (margin by size) and `top_choice`; when even 3.82e13 fails the rule it stays at the best passed size (PARTIAL). Digits are written (`--write`) only on step 4 and only on the user's word,
-because a digit file proves nothing the run's own VERIFY does not (the digit hash is skipped above 300 GB) and costs 16 TB and time (see "Record-size output").
+Why these (the user's staircase, adopted 2026-10-28): 1.8e13 then 3.6e13 then 5.4e13 double and 1.5x the size, each a step the previous result licenses; all with `BS_MDEV_LOGL=28 DIST_CHUNKS=16` plus the P2 winners (round size, residue / team, `DM_MN_WRAP`, `BS_SEED_CHUNK_MB`), added by `stair.sh` itself from site.env. After each passed step `stair.sh` prints `point: digits D excess_apu E total_s T` (excess_apu = measured per-APU peak minus the planner's per-APU peak; kept in site.env as `REMOTE_STAIR_PTS` across the pastes). Step 3 (`--top`) runs 5.4e13 only if the planner's per-APU margin to the measured edge (`REMOTE_DEVICE_GB` of P1: 4 x (min per-APU edge - 2 GB)) covers max(largest measured excess, the linear extrapolation of the excess over the points so far) + 2 GB, at least 3 GB (the edge already carries 2 GB, so the margin needed is 2 GB less, at least 1); otherwise the largest candidate that passes runs instead. Step 4 (`--final`) fits the excess linearly and the run time total_s as a power law of the digits (least squares over the passed points; two points give a first fit), evaluates the candidates 6e13, 5.8e13, 5.6e13, 5.4e13, 5.2e13, 5e13 with the same rule and PRINTS the largest that passes (`final proposal:` line: planner peak, predicted excess, predicted total_s, timeout = 1.8 x predicted + 11 min rounded up to 5) and the command to run it: the agent shows it to the user and runs it only on the user's yes (P5); digits are written (`--write`) only on the user's yes, because a digit file proves nothing the run's own VERIFY does not (the digit hash is skipped above 300 GB) and costs 16 TB and time (see "Record-size output").
+
 
 Words adopted in P2 are added by `stair.sh` itself: `REMOTE_RECORD_ENV` (residue / team), `REMOTE_WRAP_ENV` (`DM_MN_WRAP=0`, only for steps of 2.5e13 digits or more) and `XSHMEM_ROUND_MB=$REMOTE_ROUND_MB`, after the table's words, unless a step's words already set the key; the `env:` line of every row shows what ran. With `XSHMEM_ROUND_MB=1024` the planner margin at 3.82e13 is +6.57 GB per APU (+7.38 at 128), at 3.7e13 +8.72 (+9.53), so after a measured excess above 4.5 GB step 4 can be skipped by its own rule: then run it with `XSHMEM_ROUND_MB=128` added to its words (the margin returns to +7.38) or take 3.7e13.
 
@@ -76,15 +74,15 @@ Rules: a step runs only if the planner's busiest-APU margin is at least the need
 makes the planner count the busiest APU; `MEM_REPORT_DEVS=1` prints the measured per-APU use; neither changes digits. The settings are modelled, not measured, at 576 nodes (`BS_MDEV_LOGL=28` / `DIST_CHUNKS=16`: 1 node on aac7 only; the
 2-node gate on `DIST_CHUNKS=16` is in the project's queue); the run's own VERIFY checks the digits.
 
-P3 (step 1, the first record run):
+P3 (steps 1-2):
 ```
-cd <repo> && export REMOTE_FULLLOG=1 && bash remote/run/stair.sh --path 1 --budget 40 --step "576|10e12|<env of step 1>|--tmo 60"
+cd <repo> && export REMOTE_FULLLOG=1 && bash remote/run/stair.sh --path 1 --budget 90 --step "576|18e12|<env of step 1>|--tmo 60" --step "576|36e12|<env of step 2>|--tmo 90"
 ```
-P4 (steps 2-4; `df -h <dir> | tail -1` first only when step 4 writes):
+P4 (steps 3 and the proposal):
 ```
-cd <repo> && export REMOTE_FULLLOG=1 && bash remote/run/stair.sh --path 1 --budget 200 --step "576|20e12|<env of step 2>|--tmo 60" --step "576|28e12|<env of step 3>|--tmo 75" --top "576|38.2e12,42e12,44e12,46e12,48e12,50e12,54e12,56e12,58e12,60e12|<env of step 4>|--tmo 90 --write <dir>"
+cd <repo> && export REMOTE_FULLLOG=1 && bash remote/run/stair.sh --path 1 --budget 150 --top "576|54e12,52e12,50e12,48e12,46e12,44e12,42e12,40e12,38.2e12|<env of step 3>|--tmo 120" --final "576|60e12,58e12,56e12,54e12,52e12,50e12|<env of step 3>|--tmo 120"
 ```
-(drop `--write <dir>` unless the user said yes; the agent may also shorten P4 to two steps when the session is short.) Each step is one `s5_run.sh` (the planner fit check runs first), stops at the first failure, and
+The final run itself is not part of the five pastes: P4 prints `final proposal:` and the exact command (`--step "576|D|env|--tmo M"`); the agent shows it to the user and runs it only on the user's yes (add `--write <dir>` after `df -h <dir> | tail -1` only on the user's yes). The excess and time points of P3 and P4 reach the fit through site.env (`REMOTE_STAIR_PTS`), so P3 and P4 must run in the same checkout and session. The agent may also run P3 as one step when the session is short. Each step is one `s5_run.sh` (the planner fit check runs first), stops at the first failure, and
 prints one table row: total, init/bs/dm/dc, measured / model, per-APU peak against plan, VERIFY, the last digits and the hash when taken.
 `REMOTE_FULLLOG=1` makes every `s5_run` of the paste keep the full log set (`s5_run.sh --fulllog`: `MN_WAIT_STATS=1 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=1`, snapshots, monitor; digits unchanged). Afterwards, in the same shell, print the record log compactly: `bash remote/run/collect.sh --refresh --plan`, then `bash remote/run/collect.sh --print --only summaries,stats,nodes,env` (raw sections only on request, `--compact` for less); nothing can be copied off the target, so these screen blocks are the record.
 
@@ -117,7 +115,7 @@ allocation (`--keep` keeps it, e.g. for one more run). The agent turns the block
 ## Minimal route (time short, or the start went badly)
 
 1. P1 with `"s2_build.sh --path 1"` and `"s3_gate.sh --nodes 1,2 --path 1 --digits 1e9"` only (no `edge.sh`). 2. P2 without the 64-node step and the residue A/B (`--step "576|4608e9|<words>|--round-ab 1024"`, or without `--round-ab` when time is very short). 3. P3, then step 4 alone (`"576|38.2e12|<env of step 4>|--tmo 90"`) if
-the P3 per-APU excess leaves the margin rule satisfied, else the largest size above the bar. 4. P5. About 4-5 pastes, 60-90 min plus queue. Skipped: step 2-3 of the staircase, path 2.
+the P3 per-APU excess leaves the margin rule satisfied, else the largest size above the bar. 4. P5. About 4-5 pastes, 60-90 min plus queue. Skipped: steps 2-3 of the staircase (3.6e13, 5.4e13), path 2.
 
 ## Appendix: optional experiments (only when the user asks; none changes the record decision)
 
