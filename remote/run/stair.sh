@@ -17,11 +17,16 @@
 # bs+dm are lower AND both runs are VERIFY OK with the same last digits; the winner is kept in site.env as REMOTE_ROUND_MB (unset when 128 wins) and every
 # later step (also in later pastes) adds XSHMEM_ROUND_MB=$REMOTE_ROUND_MB unless its ENV has one.  A failed second run is not fatal (128 stays, PARTIAL);
 # wrong digits are (FAIL).  Keys: round_test (the numbers), round_mb (the setting in force after the test).
-# --ab "NODES|DIGITS|WORDS" (once): after step 1 passes, one arms.sh call of FOUR arms of NODES nodes at once (A B B A, one block each: ECALC_RESIDUE /
-# thread team A/B; A = step 1's ENV, B = that plus WORDS).  Rule printed: adopt B when every arm is VERIFY OK with the same last digits, the largest dc of
-# B is below the smallest dc of A (lower beyond the A-A / B-B spread) and B's mean total is no more than 2 % above A's; the WORDS are kept in site.env as
-# REMOTE_RECORD_ENV and added to every later step (also in later pastes) for keys its ENV lacks.  An arm failure is not fatal (nothing adopted, PARTIAL);
-# differing digits are (FAIL).  Needs 4 x NODES usable nodes.  Keys: ab_test, record_env.
+# --ab "NODES|DIGITS|B_WORDS[|C_WORDS]" (once): after step 1 passes, 3 (or 2 without C) rounds of ONE arms.sh call with 3 (2) arms of NODES nodes at
+# once; the arm order rotates between rounds so every arm runs on every host block.  A = step 1's ENV (defaults), B = A + B_WORDS (the residue / thread
+# team switches), C = A + C_WORDS (DM_MN_WRAP=0 against the auto rule, which turns the wrap ON at 8e9 per node).  Rules printed: digits must be identical
+# in every run (else FAIL).  Adopt B when its dc is below A's smallest dc in every round (beyond the A-A spread) and its mean total is within +2 % of A's:
+# B_WORDS go to site.env as REMOTE_RECORD_ENV and join every later step.  Wrap (C): the saving is the mean dm of C minus that of A; resolved only when
+# every C dm is above every A dm (beyond the A-A spread).  Not resolved: REMOTE_WRAP_ENV=<C_WORDS> goes to site.env and every step of 2.5e13 digits or
+# more adds it (the calibration step and the record share one layout); resolved: the auto rule stays.  Per arm and round: total, bs/dm/dc, device_peak_apu_gb.
+# A failed arm is not fatal (nothing adopted, PARTIAL); differing digits are (FAIL).  Needs NODES x arms usable nodes.  Keys: ab_test, ab_wrap, record_env, wrap_env.
+# --round-ab also prints, per run, ONE compact line of the XSHMEM_ROUND_STATS / MN_WAIT_STATS figures (aggregated over the PEs, not per rank) and a
+# round_stats_<MB> key for the browser agent's fit (ROUTE P2).
 # Verdict PASS all steps passed; PARTIAL some step skipped (budget, allocation time, memory rule) and the rest passed; FAIL a step failed.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); . "$HERE/lib.sh"; set -u
 PATHN= STEPS=() BUDGET= JOB= EXCLUDE= MINM=6.5 AB=
@@ -37,10 +42,10 @@ for s in "${STEPS[@]}"; do
     rl_posint "$n" && rl_isnum "$d" || { echo "stair.sh: step '$s': NODES a positive integer and DIGITS numeric (NODES|DIGITS|ENV|EXTRA)" >&2; exit 2; }
     SN+=("$((10#$n))"); SD+=("$d"); SE+=("$e"); SX+=("$x")
 done
-AB_N= AB_D= AB_W=
+AB_N= AB_D= AB_W= AB_C=
 if [ -n "$AB" ]; then
-    IFS='|' read -r AB_N AB_D AB_W _ <<< "$AB||"
-    rl_posint "$AB_N" && rl_isnum "$AB_D" && [ -n "${AB_W// /}" ] || { echo "stair.sh: --ab \"NODES|DIGITS|WORDS\" (words = the B arm's settings)" >&2; exit 2; }
+    IFS='|' read -r AB_N AB_D AB_W AB_C _ <<< "$AB||"
+    rl_posint "$AB_N" && rl_isnum "$AB_D" && [ -n "${AB_W// /}" ] || { echo "stair.sh: --ab \"NODES|DIGITS|B_WORDS[|C_WORDS]\"" >&2; exit 2; }
     AB_N=$((10#$AB_N))
 fi
 for x in "${SX[@]}"; do case " $x " in *" --round-ab "*) echo " $x " | grep -q -E ' --round-ab [0-9.]+ ' || { echo "stair.sh: --round-ab MB (a number, in the step's EXTRA)" >&2; exit 2; };; esac; done
@@ -50,7 +55,7 @@ rl_kv path "$PATHN"; rl_kv steps "$TOTAL"${BUDGET:+" budget_min=$BUDGET"}
 if [ "$DRY" = 1 ]; then
     for i in "${!SN[@]}"; do rl_would "step $((i + 1)): s5_run.sh --nodes ${SN[$i]} --digits ${SD[$i]} --path $PATHN --env \"${SE[$i]}\" ${SX[$i]} ${EXCLUDE:+--exclude $EXCLUDE }(stop at the first failure)"; done
     case " ${SX[*]} " in *" --round-ab "*) rl_would "round test: the --round-ab step runs twice on the same hosts (XSHMEM_ROUND_MB=128, then the value; MN_WAIT_STATS=1 XSHMEM_ROUND_STATS=1); adopt when total -3 % and bs+dm lower, digits identical -> site.env REMOTE_ROUND_MB";; esac
-    [ -n "$AB" ] && rl_would "after step 1: arms.sh --nodes $AB_N --digits $AB_D --path $PATHN, arms A1 A2 (step 1 ENV) and B1 B2 (+ $AB_W) at once; adopt B when dc lower beyond the spread, digits identical -> site.env REMOTE_RECORD_ENV"
+    [ -n "$AB" ] && rl_would "after step 1: 3 rounds of arms.sh --nodes $AB_N --digits $AB_D --path $PATHN with arms A (step 1 ENV), B (+ $AB_W)${AB_C:+, C (+ $AB_C)} at once, order rotated per round; adopt B when dc lower beyond the A-A spread -> REMOTE_RECORD_ENV; C: wrap saving not resolved -> REMOTE_WRAP_ENV for steps of 2.5e13+"
     rl_finish SKIP "$HERE/stair.sh --path $PATHN"
 fi
 [ -z "$JOB" ] && { rl_resolve_job && JOB=${JOB:-}; }
@@ -119,38 +124,64 @@ attempt() {    # IDX NODES DIGITS ENV EXTRA TAG -> rc 0 = the step ran (SV, ST_*
     run_step "$idx" "$n" "$d" "$e" "$x" "$tag"
     return 0
 }
-run_ab() {     # BASE_ENV -> one arms.sh call of four arms (A B B A) of AB_N nodes; decision, site.env REMOTE_RECORD_ENV
-    local base=$1 out rd sf rcs tm=25 nm ar arm_rc arm_tot arm_dc arm_v arm_l ok=1 amin amax bmin bmax at bt dig=1 first= d
-    out=$RUN/raw/ab.out
-    rl_say "ab: 4 arms of $AB_N nodes at once, $AB_D digits per arm (A: ${base:-<defaults>} | B: + $AB_W)"
-    rl_tmo $(( (tm + 5) * 60 )) bash "$HERE/arms.sh" --nodes "$AB_N" --digits "$AB_D" --path "$PATHN" --tmo "$tm" ${JOB:+--jobid "$JOB"} ${EXCLUDE:+--exclude "$EXCLUDE"} \
-        --arm "A1:$base" --arm "B1:$base $AB_W" --arm "B2:$base $AB_W" --arm "A2:$base" > "$out" 2>&1 < /dev/null; rcs=$?
-    rd=$(sed -n 's/.* run dir //p' "$out" | head -1); sf=$rd/summary.txt; [ -f "$sf" ] || sf=$out
-    if ! grep -aq '^arm_A1=' "$sf"; then
-        rl_line "ab: not run (arms.sh rc $rcs): $(grep -a -m1 -E 'ERROR|need|usable|no allocation' "$out" | cut -c1-150)"; rl_kv ab_test "not run (rc $rcs)"; AB_SOFT=1; return 0; fi
-    amin=; amax=; bmin=; bmax=; at=0; bt=0
-    rl_line "     ab (4 arms of $AB_N nodes at once, positions A1 B1 B2 A2; B = + $AB_W):"
-    for ar in A1 B1 B2 A2; do
-        l=$(grep -a -m1 "^arm_$ar=" "$sf" | cut -d= -f2-)
-        arm_rc=$(echo "$l" | sed -n 's/.*rc=\([^ ]*\).*/\1/p'); arm_tot=$(echo "$l" | sed -n 's/.* total=\([^ ]*\).*/\1/p'); arm_dc=$(echo "$l" | sed -n 's/.*bsdmdc=[^/ ]*\/[^/ ]*\/\([^ ]*\).*/\1/p')
-        arm_v=$(echo "$l" | sed -n 's/.* verify=\([^ ]*\).*/\1/p'); arm_l=$(echo "$l" | sed -n 's/.* last=\([^ ]*\).*/\1/p')
-        rl_line "$(printf '       %-3s rc=%-3s total_s %-7s bs/dm/dc %-18s verify %-5s last %s' "$ar" "$arm_rc" "$arm_tot" "$(echo "$l" | sed -n 's/.*bsdmdc=\([^ ]*\).*/\1/p')" "$arm_v" "$arm_l")"
-        [ "$arm_rc" = 0 ] && [ "$arm_v" = OK ] || ok=0
-        [ -n "$arm_l" ] && { [ -z "$first" ] && first=$arm_l; [ "$arm_l" = "$first" ] || dig=0; }
-        case ${arm_dc:-x} in [0-9]*) ;; *) ok=0; continue;; esac
-        case $ar in
-            A*) at=$(awk -v a="$at" -v b="${arm_tot:-0}" 'BEGIN { print a + b }'); [ -z "$amin" ] || awk -v a="$arm_dc" -v b="$amin" 'BEGIN { exit !(a < b) }' && amin=$arm_dc; [ -z "$amax" ] || awk -v a="$arm_dc" -v b="$amax" 'BEGIN { exit !(a > b) }' && amax=$arm_dc;;
-            B*) bt=$(awk -v a="$bt" -v b="${arm_tot:-0}" 'BEGIN { print a + b }'); [ -z "$bmin" ] || awk -v a="$arm_dc" -v b="$bmin" 'BEGIN { exit !(a < b) }' && bmin=$arm_dc; [ -z "$bmax" ] || awk -v a="$arm_dc" -v b="$bmax" 'BEGIN { exit !(a > b) }' && bmax=$arm_dc;;
-        esac
+vstat() { local op=$1; shift; awk -v op="$op" 'BEGIN { n = 0; for (i = 1; i < ARGC; i++) { v = ARGV[i] + 0; if (!n || v < mn) mn = v; if (!n || v > mx) mx = v; s += v; n++ } if (!n) { print "NA"; exit } printf "%.3f", (op == "min" ? mn : op == "max" ? mx : s / n) }' "$@"; }
+run_ab() {     # BASE_ENV -> rounds of arms.sh with A (base), B (+AB_W), C (+AB_C), the order rotated; decisions; site.env REMOTE_RECORD_ENV / REMOTE_WRAP_ENV
+    local base=$1 names="A B" r k s nm w out rd sf l rcs tm=25 ok=1 dig=1 first= na=2 args
+    declare -A WORD VT VB VD VC VP
+    [ -n "${AB_C// /}" ] && { names="A B C"; na=3; }
+    WORD[A]=$base; WORD[B]="$base $AB_W"; WORD[C]="$base $AB_C"
+    for nm in $names; do VT[$nm]=; VB[$nm]=; VD[$nm]=; VC[$nm]=; VP[$nm]=; done
+    rl_line "     ab: $na arms of $AB_N nodes at once, $na rounds with the arm order rotated, $AB_D digits per arm (A: ${base:-<defaults>} | B: + $AB_W${AB_C:+ | C: + $AB_C}):"
+    local -a nl=($names)
+    for ((r = 0; r < na; r++)); do
+        args=(); for ((s = 0; s < na; s++)); do nm=${nl[$(( (s + r) % na ))]}; args+=(--arm "$nm:${WORD[$nm]}"); done
+        out=$RUN/raw/ab_$r.out
+        rl_say "ab round $((r + 1))/$na: ${nl[$(( r % na ))]} first"
+        rl_tmo $(( (tm + 5) * 60 )) bash "$HERE/arms.sh" --nodes "$AB_N" --digits "$AB_D" --path "$PATHN" --tmo "$tm" ${JOB:+--jobid "$JOB"} ${EXCLUDE:+--exclude "$EXCLUDE"} "${args[@]}" > "$out" 2>&1 < /dev/null; rcs=$?
+        rd=$(sed -n 's/.* run dir //p' "$out" | head -1); sf=$rd/summary.txt; [ -f "$sf" ] || sf=$out
+        if ! grep -aq '^arm_A=' "$sf"; then rl_line "     ab: round $((r + 1)) not run (arms.sh rc $rcs): $(grep -a -m1 -E 'ERROR|need|usable|no allocation' "$out" | cut -c1-150)"; rl_kv ab_test "not run (rc $rcs)"; AB_SOFT=1; return 0; fi
+        for ((s = 0; s < na; s++)); do
+            nm=${nl[$(( (s + r) % na ))]}; l=$(grep -a -m1 "^arm_$nm=" "$sf" | cut -d= -f2-)
+            local arc atot adc adm abs apk av al
+            arc=$(echo "$l" | sed -n 's/.*rc=\([^ ]*\).*/\1/p'); atot=$(echo "$l" | sed -n 's/.* total=\([^ ]*\).*/\1/p'); av=$(echo "$l" | sed -n 's/.* verify=\([^ ]*\).*/\1/p'); al=$(echo "$l" | sed -n 's/.* last=\([^ ]*\).*/\1/p')
+            read -r abs adm adc <<< "$(echo "$l" | sed -n 's/.*bsdmdc=\([^/ ]*\)\/\([^/ ]*\)\/\([^ ]*\).*/\1 \2 \3/p')"; apk=$(echo "$l" | sed -n 's/.*peak_apu_gb=\([^ ]*\).*/\1/p')
+            rl_line "$(printf '       r%d slot %d arm %s rc=%-3s total_s %-7s bs/dm/dc %s/%s/%s  peak_apu_gb %s  verify %s' "$((r + 1))" "$((s + 1))" "$nm" "${arc:-?}" "${atot:-NA}" "${abs:-NA}" "${adm:-NA}" "${adc:-NA}" "${apk:-NA}" "${av:-?}")"
+            [ "$arc" = 0 ] && [ "$av" = OK ] || ok=0
+            [ -n "$al" ] && { [ -z "$first" ] && first=$al; [ "$al" = "$first" ] || dig=0; }
+            case ${adc:-x} in [0-9]*) ;; *) ok=0; continue;; esac
+            VT[$nm]="${VT[$nm]} $atot"; VB[$nm]="${VB[$nm]} $abs"; VD[$nm]="${VD[$nm]} $adm"; VC[$nm]="${VC[$nm]} $adc"; case ${apk:-x} in [0-9]*) VP[$nm]="${VP[$nm]} $apk";; esac
+        done
     done
-    if [ "$dig" = 0 ]; then rl_line "     ab: the last digits DIFFER between arms: not adopted; this is a correctness failure (do not go on; AGENT.md Failure handling)"; rl_kv ab_test "DIGITS DIFFER"; SV=FAIL; AB_HARD=1; RL_ERRFILES+=("$sf"); return 0; fi
-    if [ "$ok" = 0 ] || [ -z "$amin" ] || [ -z "$bmin" ]; then rl_line "     ab: an arm failed or printed no dc: inconclusive, nothing adopted (raw/ab.out, arms run $rd)"; rl_kv ab_test "inconclusive"; AB_SOFT=1; return 0; fi
-    d=$(awk -v at="$at" -v bt="$bt" -v bmax="$bmax" -v amin="$amin" 'BEGIN { ma = at / 2; mb = bt / 2; if (bmax + 0 < amin + 0 && mb <= ma * 1.02) print "adopt"; else print "keep" }')
-    rl_line "     ab dc_s: A $amin..$amax, B $bmin..$bmax; mean total A $(awk -v a="$at" 'BEGIN { printf "%.1f", a / 2 }') B $(awk -v a="$bt" 'BEGIN { printf "%.1f", a / 2 }'); digits identical: yes"
-    if [ "$d" = adopt ]; then
-        rl_site_set REMOTE_RECORD_ENV "$AB_W"; rl_line "     ab decision: ADOPT B (dc lower beyond the spread, total not worse): REMOTE_RECORD_ENV=$AB_W kept in site.env, added to every later step"; rl_kv ab_test "adopt B dc A $amin..$amax B $bmin..$bmax"
-    else rl_site_unset REMOTE_RECORD_ENV; rl_line "     ab decision: KEEP the defaults (B's dc is not below A's beyond the spread, or its total is more than 2 % higher)"; rl_kv ab_test "keep A dc A $amin..$amax B $bmin..$bmax"; fi
+    if [ "$dig" = 0 ]; then rl_line "     ab: the last digits DIFFER between runs: a correctness failure, nothing adopted (do not go on; AGENT.md Failure handling)"; rl_kv ab_test "DIGITS DIFFER"; SV=FAIL; AB_HARD=1; RL_ERRFILES+=("$sf"); return 0; fi
+    if [ "$ok" = 0 ]; then rl_line "     ab: a run failed or printed no phases: inconclusive, nothing adopted (raw/ab_*.out)"; rl_kv ab_test "inconclusive"; AB_SOFT=1; return 0; fi
+    local aMin aMax bMax tA tB d
+    aMin=$(vstat min ${VC[A]}); aMax=$(vstat max ${VC[A]}); bMax=$(vstat max ${VC[B]}); tA=$(vstat mean ${VT[A]}); tB=$(vstat mean ${VT[B]})
+    rl_line "     ab residue: dc A $aMin..$aMax (A-A spread), B $(vstat min ${VC[B]})..$bMax; mean total A $tA B $tB; mean peak_apu_gb A $(vstat mean ${VP[A]}) B $(vstat mean ${VP[B]}); digits identical: yes"
+    d=$(awk -v bmax="$bMax" -v amin="$aMin" -v ta="$tA" -v tb="$tB" 'BEGIN { print (bmax + 0 < amin + 0 && tb + 0 <= ta * 1.02) ? "adopt" : "keep" }')
+    if [ "$d" = adopt ]; then rl_site_set REMOTE_RECORD_ENV "$AB_W"; rl_line "     ab decision: ADOPT B (dc lower beyond the spread, total not worse): REMOTE_RECORD_ENV=$AB_W kept in site.env, added to every later step"; rl_kv ab_test "adopt B dc A $aMin..$aMax B $(vstat min ${VC[B]})..$bMax"
+    else rl_site_unset REMOTE_RECORD_ENV; rl_line "     ab decision: KEEP the defaults (B's dc is not below A's beyond the spread, or its total is more than 2 % higher)"; rl_kv ab_test "keep A dc A $aMin..$aMax B $(vstat min ${VC[B]})..$bMax"; fi
     rl_kv record_env "${REMOTE_RECORD_ENV:-<none>}"
+    if [ "$na" = 3 ]; then
+        local dmAmin dmAmax dmCmin dmCmax
+        dmAmin=$(vstat min ${VD[A]}); dmAmax=$(vstat max ${VD[A]}); dmCmin=$(vstat min ${VD[C]}); dmCmax=$(vstat max ${VD[C]})
+        rl_line "     ab wrap: dm A (wrap auto, on at this size) $dmAmin..$dmAmax s, C ($AB_C) $dmCmin..$dmCmax s; saving of the wrap = mean dm C - A = $(awk -v a="$(vstat mean ${VD[A]})" -v c="$(vstat mean ${VD[C]})" 'BEGIN { printf "%+.2f", c - a }') s; peak_apu_gb A $(vstat mean ${VP[A]}) C $(vstat mean ${VP[C]}) (cost of the wrap = A - C)"
+        if awk -v cmin="$dmCmin" -v amax="$dmAmax" 'BEGIN { exit !(cmin + 0 > amax + 0) }'; then
+            rl_site_unset REMOTE_WRAP_ENV; rl_line "     ab wrap decision: the wrap's dm saving is RESOLVED beyond the A-A spread: the auto rule stays (steps of 2.5e13+ keep it)"; rl_kv ab_wrap "resolved: auto rule stays"
+        else
+            rl_site_set REMOTE_WRAP_ENV "$AB_C"; rl_line "     ab wrap decision: the saving is NOT resolved beyond the A-A spread: REMOTE_WRAP_ENV=$AB_C kept in site.env, added to every step of 2.5e13 digits or more (one layout for calibration and record)"; rl_kv ab_wrap "not resolved: $AB_C for steps of 2.5e13+"
+        fi
+        rl_kv wrap_env "${REMOTE_WRAP_ENV:-<none>}"
+    fi
+}
+round_stats() {    # MB RUNDIR -> compact lines of the run's XSHMEM_ROUND_STATS (final) and MN_WAIT_STATS output, aggregated over PEs (never per rank)
+    local mb=$1 rd=$2 f lg agg wl
+    lg=$rd/raw/s5_run.log; [ -f "$lg" ] || lg=$lg.gz; [ -f "$lg" ] || { rl_line "     stats $mb: no run log"; return 0; }
+    agg=$(rl_cat "$lg" | sed -n 's/.*XSHMEM_ROUND_STATS (final).*: \([0-9.]*\) rounds;.*phase 1 start to quiet ([^)]*) \([0-9.]*\), signal wait \([0-9.]*\);.*/\1 \2 \3/p' \
+        | awk '{ n++; r += $1; if ($1 > rm) rm = $1; p += $2; if ($2 > pm) pm = $2; q += $3; if ($3 > qm) qm = $3 } END { if (n) printf "pes=%d rounds_mean=%.0f rounds_max=%.0f phase1_s_mean=%.2f max=%.2f (us/round %.0f) signal_wait_s_mean=%.2f max=%.2f (us/round %.0f)", n, r / n, rm, p / n, pm, (r ? p / r * 1e6 : 0), q / n, qm, (r ? q / r * 1e6 : 0) }')
+    wl=$(rl_cat "$lg" | grep -a -m1 'wait-stats max/min over' | sed 's/^.*nodes: *//' | awk -F' [|] ' '{ for (i = 1; i <= NF; i++) { split($i, a, " "); printf "%s%s:barrier %s wait %s", (i > 1 ? "; " : ""), a[1], a[3], a[6] } }')
+    [ -n "$agg" ] || rl_line "     stats $mb: no XSHMEM_ROUND_STATS (final) lines in the log"
+    [ -n "$wl" ] && rl_line "     stats $mb: wait-stats max/min over nodes (s): $wl"
+    rl_kv "round_stats_$mb" "${agg:-none}"
 }
 round_decide() {   # RB: runs 1 (R1_*) and 2 (R2_*) of the round test -> decision, site.env REMOTE_ROUND_MB
     local rb=$1 res
@@ -176,13 +207,16 @@ for i in "${!SN[@]}"; do
     case " $x " in *" --round-ab "*) rb=$(echo " $x " | sed -n 's/.* --round-ab \([0-9.]*\) .*/\1/p'); x=$(echo " $x " | sed -E 's/ --round-ab [0-9.]+ / /; s/^ +//; s/ +$//');; esac
     if [ -n "$rb" ]; then e=$(addw "$e0" "XSHMEM_ROUND_MB=128 MN_WAIT_STATS=1 XSHMEM_ROUND_STATS=1"); else e=$e0; fi
     e=$(addw "$e" "${REMOTE_RECORD_ENV:-}"); e=$(addw "$e" "${REMOTE_ROUND_MB:+XSHMEM_ROUND_MB=$REMOTE_ROUND_MB}")
+    if [ -n "${REMOTE_WRAP_ENV:-}" ] && awk -v d="$(rl_num "$d")" 'BEGIN { exit !(d + 0 >= 2.5e13) }'; then e=$(addw "$e" "$REMOTE_WRAP_ENV"); fi
     attempt "$idx" "$n" "$d" "$e" "$x" "$idx" || break
+    [ -n "$rb" ] && round_stats 128 "$SRD"
     if [ "$SV" = FAIL ]; then worst=FAIL; stop=fail; fail_idx=$idx; break; fi
     best=$(rl_num "$d")
     if [ -n "$rb" ]; then      # round test: the same step again on the same hosts at the other round size
         R1_TOTAL=$ST_TOTAL; R1_PH=$ST_PH; R1_VERIFY=$ST_VERIFY; R1_LAST=$ST_LAST
         e2=$(addw "$e0" "XSHMEM_ROUND_MB=$rb MN_WAIT_STATS=1 XSHMEM_ROUND_STATS=1"); e2=$(addw "$e2" "${REMOTE_RECORD_ENV:-}")
         attempt "$idx" "$n" "$d" "$e2" "$x" "${idx}b" || break
+        round_stats "$rb" "$SRD"
         if [ "$SV" = FAIL ]; then
             if [ "${ST_RC:-1}" = 0 ]; then worst=FAIL; stop=fail; fail_idx="${idx}b"; break; fi      # the run finished with wrong digits or a VERIFY failure: a correctness failure
             rl_line "     round test: the $rb run failed (rc ${ST_RC:-?}, verify ${ST_VERIFY:-NONE}); 128 stays; the staircase goes on (errors: show.sh ${SRD##*/} errors)"; rl_kv round_test "128 vs $rb: the $rb run failed (rc ${ST_RC:-?})"; rl_site_unset REMOTE_ROUND_MB; rl_kv round_mb 128; AB_SOFT=1

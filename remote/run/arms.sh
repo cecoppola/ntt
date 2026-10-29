@@ -73,7 +73,7 @@ for a in "${ARMS[@]}"; do
         ph=$(grep -a -m1 '^phases_s:' "$sf" | sed -n 's/.*init=\([^ ]*\).*/\1/p')
         pp=$(grep -a -m1 '^phases_s:' "$sf" | sed -E 's/.*bs=([^ ]*) recip=[^ ]* dm=([^ ]*) dc=([^ ]*).*/\1 \2 \3/' | awk '{ if (NF == 3) printf "%s/%s/%s", $1, $2, $3; else printf "NA" }')
         rl_line "$(printf '%-9s %-5s %-3s %-8s %-8s %-7s %-22s %-17s %s | %s' "$name" "$NN" "$rc" "$(kv total_s)" "${ph:-NA}" "$(kv verify)" "$(kv last_digits | tr -d ' ' | cut -c1-22)" "${pp:-NA}" "${words:-<defaults>}${kd}" "${rd##*/}")"
-        rl_kv "arm_$name" "rc=$rc total=$(kv total_s) init=${ph:-NA} bsdmdc=${pp:-NA} verify=$(kv verify) last=$(kv last_digits | tr -d ' ' | cut -c1-22) run=${rd##*/}"
+        rl_kv "arm_$name" "rc=$rc total=$(kv total_s) init=${ph:-NA} bsdmdc=${pp:-NA} verify=$(kv verify) last=$(kv last_digits | tr -d ' ' | cut -c1-22) peak_apu_gb=$(kv device_peak_apu_gb | awk '{ print ($1 == "" ? "NA" : $1) }') run=${rd##*/}"
     fi
     [ "$rc" = 0 ] || fails=$((fails + 1))
 done
