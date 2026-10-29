@@ -7,7 +7,7 @@
 #   dev    hipMalloc round-robin over the 4 APUs in 2 GB chunks, all held at once, touched (--dev-tmo, 120 s): dev_edge_gb (per node), device_edge_apu_gb (min over the 4 APUs)
 #   vmm    the same with hipMemCreate/Map (the form ecalc's pools use, --dev-tmo): vmm_edge_apu_gb
 #          REMOTE_DEVICE_GB = 4 x (min(device, vmm per-APU edge) - 2 GB margin) is then kept in site.env (planner ECALC_DEVICE_GB and the stair memory rule use it;
-#          unset = the 373.44 harness figure of 10-06, superseded by this measurement; a form that hit its time limit or the cap has no edge (lower bound only) and does not count; not written when no form ended by its own failure or under 60 GB per APU)
+#          unset = the 373.44 harness figure of 10-06, superseded by this measurement; a form that hit its time limit has no result and does not count; one that reached its 480 GB cap without failing counts as a lower bound (the value stays safe); not written when no form finished or under 60 GB per APU)
 #   pin    holds --pin GB (default 24) of pinned hipHostMalloc per APU (NUMA-local), then the same hipMalloc fill (100 s): pin_dev_edge_gb.
 #          pinned_counts_against_edge=yes when the hipMalloc edge dropped by at least half of what was pinned, no when it dropped by less than a fifth,
 #          unclear in between, unknown when the pinning did not reach half of the request.  Pinned allocation is slow on a used node (0.8-4.8 GiB/s).
@@ -54,12 +54,12 @@ pr() {   # FORM OUT-PATTERN-SED -> value
 apu() {   # FORM -> the per-APU edge (min over the APUs) from the t_edge line
     sed -n 's/.*per-APU edge (min over [0-9]* APUs, all held at once): \([0-9.]*\) GB.*/\1/p' "$RUN/raw/edge_$1.out" | tail -1
 }
-rl_say "t_edge dev on $HOST (<= $DTMO s)"; form_run dev "$DTMO" 2 440; DEV=$(pr dev 's/.*the edge in form dev: \([0-9.]*\) GB.*/\1/p'); rl_kv dev_edge_gb "${DEV:-NA} (hipMalloc, all 4 APUs, nothing pinned)"
-DAPU=$(apu dev); grep -aq " dev failed\|failed at\|touch failed" "$RUN/raw/edge_dev.out" || { [ -n "$DAPU" ] && rl_say "dev edge: no failure reached (time limit or cap): $DAPU GB per APU is a lower bound only"; DAPU_LB=$DAPU; DAPU=; }; rl_kv device_edge_apu_gb "${DAPU:-NA${DAPU_LB:+ (lower bound $DAPU_LB: time limit or cap)}} (min over the 4 APUs, hipMalloc)"
-rl_say "t_edge vmm on $HOST (<= $DTMO s)"; form_run vmm "$DTMO" 2 440; VAPU=$(apu vmm); grep -aq " vmm failed\|failed at\|touch failed" "$RUN/raw/edge_vmm.out" || { [ -n "$VAPU" ] && rl_say "vmm edge: no failure reached: $VAPU GB per APU is a lower bound only"; VAPU_LB=$VAPU; VAPU=; }; rl_kv vmm_edge_apu_gb "${VAPU:-NA${VAPU_LB:+ (lower bound $VAPU_LB: time limit or cap)}} (min over the 4 APUs, hipMemCreate)"
+rl_say "t_edge dev on $HOST (<= $DTMO s)"; form_run dev "$DTMO" 2 480; DEV=$(pr dev 's/.*the edge in form dev: \([0-9.]*\) GB.*/\1/p'); rl_kv dev_edge_gb "${DEV:-NA} (hipMalloc, all 4 APUs, nothing pinned)"
+DAPU=$(apu dev); grep -aq "the edge in form dev:" "$RUN/raw/edge_dev.out" || { [ -n "$DAPU" ] && rl_say "dev edge: time limit: $DAPU GB per APU is a lower bound only"; DAPU_LB=$DAPU; DAPU=; }; rl_kv device_edge_apu_gb "${DAPU:-NA${DAPU_LB:+ (time limit, only $DAPU_LB reached)}} (min over the 4 APUs, hipMalloc)"
+rl_say "t_edge vmm on $HOST (<= $DTMO s)"; form_run vmm "$DTMO" 2 480; VAPU=$(apu vmm); grep -aq "the edge in form vmm:" "$RUN/raw/edge_vmm.out" || { [ -n "$VAPU" ] && rl_say "vmm edge: time limit: $VAPU GB per APU is a lower bound only"; VAPU_LB=$VAPU; VAPU=; }; rl_kv vmm_edge_apu_gb "${VAPU:-NA${VAPU_LB:+ (time limit, only $VAPU_LB reached)}} (min over the 4 APUs, hipMemCreate)"
 RDG=$(awk -v a="${DAPU:-}" -v b="${VAPU:-}" 'BEGIN { m = ""; if (a != "") m = a + 0; if (b != "" && (m == "" || b + 0 < m)) m = b + 0; if (m == "" || m < 62) { print ""; exit } printf "%.2f", 4 * (m - 2) }')
 if [ -n "$RDG" ]; then rl_site_set REMOTE_DEVICE_GB "$RDG"; rl_kv remote_device_gb "$RDG (= 4 x (min per-APU edge - 2 GB); kept in site.env; ECALC_DEVICE_GB of the planner and the stair rule)"
-else rl_site_unset REMOTE_DEVICE_GB; rl_kv remote_device_gb "unset (no form ended by its own failure, or under 60 GB per APU: the 373.44 harness figure stays)"; v=PARTIAL; fi
+else rl_site_unset REMOTE_DEVICE_GB; rl_kv remote_device_gb "unset (no form finished, or under 60 GB per APU: the 373.44 harness figure stays)"; v=PARTIAL; fi
 rl_say "t_edge pin $PIN GB per APU, then hipMalloc (<= 100 s)"; form_run pin 100 "$PIN" 2 440
 PD=$(pr pin 's/.*pin result: pinned \([0-9.]*\) GB.*hipMalloc edge \([0-9.]*\) GB per node.*/\1 \2/p'); PT=${PD% *}; PE=${PD#* }
 rl_kv pin_requested_gb_per_apu "$PIN"; rl_kv pin_dev_edge_gb "${PE:-NA} (pinned ${PT:-NA} GB in total first)"
