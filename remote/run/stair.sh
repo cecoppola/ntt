@@ -12,8 +12,7 @@
 # it print the busiest APU's margin to the 93.36 GB edge); a step whose margin is below the need is SKIPPED, not run.  The need is 6.5 GB (the largest
 # excess of the measured per-APU peak over the plan seen on the target) until a step has been measured; after that it is that run's own excess
 # (device_peak_apu_gb - plan, the largest so far) + 2 GB, but at least 3 GB: each passed step closes the memory gap for the next one.
-# --round-ab MB in a step's EXTRA (once; at 576 nodes): after that step (run at XSHMEM_ROUND_MB=128 with MN_WAIT_STATS=1 XSHMEM_ROUND_STATS=1, both
-# diagnostics only) the same step runs again on the same hosts at XSHMEM_ROUND_MB=MB.  Rule printed: adopt MB when its total is lower by >= 3 % AND
+# --round-ab MB in a step's EXTRA (once; at 576 nodes): after that step (run at XSHMEM_ROUND_MB=128 with MN_WAIT_STATS=1, cost-free; XSHMEM_ROUND_STATS is NOT used: it adds a device sync probe to the post path) the same step runs again on the same hosts at XSHMEM_ROUND_MB=MB.  Rule printed: adopt MB when its total is lower by >= 3 % AND
 # bs+dm are lower AND both runs are VERIFY OK with the same last digits; the winner is kept in site.env as REMOTE_ROUND_MB (unset when 128 wins) and every
 # later step (also in later pastes) adds XSHMEM_ROUND_MB=$REMOTE_ROUND_MB unless its ENV has one.  A failed second run is not fatal (128 stays, PARTIAL);
 # wrong digits are (FAIL).  Keys: round_test (the numbers), round_mb (the setting in force after the test).
@@ -25,7 +24,7 @@
 # every C dm is above every A dm (beyond the A-A spread).  Not resolved: REMOTE_WRAP_ENV=<C_WORDS> goes to site.env and every step of 2.5e13 digits or
 # more adds it (the calibration step and the record share one layout); resolved: the auto rule stays.  Per arm and round: total, bs/dm/dc, device_peak_apu_gb.
 # A failed arm is not fatal (nothing adopted, PARTIAL); differing digits are (FAIL).  Needs NODES x arms usable nodes.  Keys: ab_test, ab_wrap, record_env, wrap_env.
-# --round-ab also prints, per run, ONE compact line of the XSHMEM_ROUND_STATS / MN_WAIT_STATS figures (aggregated over the PEs, not per rank) and a
+# --round-ab also prints, per run, ONE compact line of the MN_WAIT_STATS figures (rank 0, max/min over nodes per phase) and a
 # round_stats_<MB> key for the browser agent's fit (ROUTE P2).
 # Verdict PASS all steps passed; PARTIAL some step skipped (budget, allocation time, memory rule) and the rest passed; FAIL a step failed.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); . "$HERE/lib.sh"; set -u
@@ -173,15 +172,12 @@ run_ab() {     # BASE_ENV -> rounds of arms.sh with A (base), B (+AB_W), C (+AB_
         rl_kv wrap_env "${REMOTE_WRAP_ENV:-<none>}"
     fi
 }
-round_stats() {    # MB RUNDIR -> compact lines of the run's XSHMEM_ROUND_STATS (final) and MN_WAIT_STATS output, aggregated over PEs (never per rank)
-    local mb=$1 rd=$2 f lg agg wl
+round_stats() {    # MB RUNDIR -> compact MN_WAIT_STATS line of the run (rank 0's max/min over nodes per phase), key round_stats_<MB>
+    local mb=$1 rd=$2 lg wl
     lg=$rd/raw/s5_run.log; [ -f "$lg" ] || lg=$lg.gz; [ -f "$lg" ] || { rl_line "     stats $mb: no run log"; return 0; }
-    agg=$(rl_cat "$lg" | sed -n 's/.*XSHMEM_ROUND_STATS (final).*: \([0-9.]*\) rounds;.*phase 1 start to quiet ([^)]*) \([0-9.]*\), signal wait \([0-9.]*\);.*/\1 \2 \3/p' \
-        | awk '{ n++; r += $1; if ($1 > rm) rm = $1; p += $2; if ($2 > pm) pm = $2; q += $3; if ($3 > qm) qm = $3 } END { if (n) printf "pes=%d rounds_mean=%.0f rounds_max=%.0f phase1_s_mean=%.2f max=%.2f (us/round %.0f) signal_wait_s_mean=%.2f max=%.2f (us/round %.0f)", n, r / n, rm, p / n, pm, (r ? p / r * 1e6 : 0), q / n, qm, (r ? q / r * 1e6 : 0) }')
     wl=$(rl_cat "$lg" | grep -a -m1 'wait-stats max/min over' | sed 's/^.*nodes: *//' | awk -F' [|] ' '{ for (i = 1; i <= NF; i++) { split($i, a, " "); printf "%s%s:barrier %s wait %s", (i > 1 ? "; " : ""), a[1], a[3], a[6] } }')
-    [ -n "$agg" ] || rl_line "     stats $mb: no XSHMEM_ROUND_STATS (final) lines in the log"
-    [ -n "$wl" ] && rl_line "     stats $mb: wait-stats max/min over nodes (s): $wl"
-    rl_kv "round_stats_$mb" "${agg:-none}"
+    if [ -n "$wl" ]; then rl_line "     stats $mb: wait-stats max/min over nodes (s): $wl"; else rl_line "     stats $mb: no wait-stats line in the log"; fi
+    rl_kv "round_stats_$mb" "${wl:-none}"
 }
 round_decide() {   # RB: runs 1 (R1_*) and 2 (R2_*) of the round test -> decision, site.env REMOTE_ROUND_MB
     local rb=$1 res
@@ -205,7 +201,7 @@ AB_SOFT=0 AB_HARD=0 AB_DONE=0
 for i in "${!SN[@]}"; do
     idx=$((i + 1)); n=${SN[$i]}; d=${SD[$i]}; e0=${SE[$i]}; x=${SX[$i]}; rb=
     case " $x " in *" --round-ab "*) rb=$(echo " $x " | sed -n 's/.* --round-ab \([0-9.]*\) .*/\1/p'); x=$(echo " $x " | sed -E 's/ --round-ab [0-9.]+ / /; s/^ +//; s/ +$//');; esac
-    if [ -n "$rb" ]; then e=$(addw "$e0" "XSHMEM_ROUND_MB=128 MN_WAIT_STATS=1 XSHMEM_ROUND_STATS=1"); else e=$e0; fi
+    if [ -n "$rb" ]; then e=$(addw "$e0" "XSHMEM_ROUND_MB=128 MN_WAIT_STATS=1"); else e=$e0; fi
     e=$(addw "$e" "${REMOTE_RECORD_ENV:-}"); e=$(addw "$e" "${REMOTE_ROUND_MB:+XSHMEM_ROUND_MB=$REMOTE_ROUND_MB}")
     if [ -n "${REMOTE_WRAP_ENV:-}" ] && awk -v d="$(rl_num "$d")" 'BEGIN { exit !(d + 0 >= 2.5e13) }'; then e=$(addw "$e" "$REMOTE_WRAP_ENV"); fi
     attempt "$idx" "$n" "$d" "$e" "$x" "$idx" || break
@@ -214,7 +210,7 @@ for i in "${!SN[@]}"; do
     best=$(rl_num "$d")
     if [ -n "$rb" ]; then      # round test: the same step again on the same hosts at the other round size
         R1_TOTAL=$ST_TOTAL; R1_PH=$ST_PH; R1_VERIFY=$ST_VERIFY; R1_LAST=$ST_LAST
-        e2=$(addw "$e0" "XSHMEM_ROUND_MB=$rb MN_WAIT_STATS=1 XSHMEM_ROUND_STATS=1"); e2=$(addw "$e2" "${REMOTE_RECORD_ENV:-}")
+        e2=$(addw "$e0" "XSHMEM_ROUND_MB=$rb MN_WAIT_STATS=1"); e2=$(addw "$e2" "${REMOTE_RECORD_ENV:-}")
         attempt "$idx" "$n" "$d" "$e2" "$x" "${idx}b" || break
         round_stats "$rb" "$SRD"
         if [ "$SV" = FAIL ]; then

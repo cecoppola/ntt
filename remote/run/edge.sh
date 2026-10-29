@@ -48,8 +48,8 @@ v=PASS; E0=$SECONDS
 pr() {   # FORM OUT-PATTERN-SED -> value
     sed -n "$2" "$RUN/raw/edge_$1.out" | tail -1
 }
-rl_say "t_edge dev on $HOST (<= 40 s)"; form_run dev 40 dev 2 440; DEV=$(pr dev 's/.*the edge in form dev: \([0-9.]*\) GB.*/\1/p'); rl_kv dev_edge_gb "${DEV:-NA} (hipMalloc, all 4 APUs, nothing pinned)"
-rl_say "t_edge pin $PIN GB per APU, then hipMalloc (<= 80 s)"; form_run pin 80 pin "$PIN" 2 440
+rl_say "t_edge dev on $HOST (<= 40 s)"; form_run dev 40 2 440; DEV=$(pr dev 's/.*the edge in form dev: \([0-9.]*\) GB.*/\1/p'); rl_kv dev_edge_gb "${DEV:-NA} (hipMalloc, all 4 APUs, nothing pinned)"
+rl_say "t_edge pin $PIN GB per APU, then hipMalloc (<= 80 s)"; form_run pin 80 "$PIN" 2 440
 PD=$(pr pin 's/.*pin result: pinned \([0-9.]*\) GB.*hipMalloc edge \([0-9.]*\) GB per node.*/\1 \2/p'); PT=${PD% *}; PE=${PD#* }
 rl_kv pin_requested_gb_per_apu "$PIN"; rl_kv pin_dev_edge_gb "${PE:-NA} (pinned ${PT:-NA} GB in total first)"
 verd=unknown
@@ -57,7 +57,7 @@ if [ -n "$DEV" ] && [ -n "${PE:-}" ] && [ -n "${PT:-}" ]; then verd=$(awk -v b="
 rl_kv pinned_counts_against_edge "$verd"
 for f in host malloc; do
     rl_say "t_edge $f on $HOST"
-    t1=$SECONDS; to=$TMO; [ $f = malloc ] && to=30; form_run "$f" "$to" "$f" "$STEP" "$CAP"; rc=$?; r=$(res "$f" "$rc"); rl_kv "${f}_edge_gb" "$r (rc $rc, $((SECONDS - t1)) s)"
+    t1=$SECONDS; to=$TMO; [ $f = malloc ] && to=30; form_run "$f" "$to" "$STEP" "$CAP"; rc=$?; r=$(res "$f" "$rc"); rl_kv "${f}_edge_gb" "$r (rc $rc, $((SECONDS - t1)) s)"
     [ "$f" = host ] && rl_kv mem_available_start_gb "$(sed -n 's/.*MemAvailable \([0-9.]*\) GB at the start.*/\1/p' "$RUN/raw/edge_host.out" | head -1)"
     case $r in NA) v=PARTIAL;; esac
     rl_errfiles "$RUN/raw/edge_$f.out"
