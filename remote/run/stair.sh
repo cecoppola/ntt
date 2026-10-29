@@ -1,6 +1,6 @@
 #!/bin/bash
 # stair.sh - a staircase of runs in ONE paste: the steps in order, stop at the first failure, ONE table (<= 80 lines).
-#   stair.sh --path 1|2 --step "NODES|DIGITS|ENV|EXTRA" [--step ...] [--budget MIN] [--ab "NODES|DIGITS|WORDS"] [--min-margin GB] [--exclude LIST] [--jobid J] [--dry-run]
+#   stair.sh --path 1|2 --step "NODES|DIGITS|ENV|EXTRA" [--step ...] [--budget MIN] [--ab "NODES|DIGITS|WORDS"] [--top "NODES|D1,D2,...|ENV|EXTRA"] [--min-margin GB] [--exclude LIST] [--jobid J] [--dry-run]
 # Each step is one s5_run.sh call: NODES, DIGITS (64e9, 4.608e12 or an integer), ENV = settings words (K=V ..., may be empty), EXTRA = more s5_run.sh
 # options (--screen, --write DIR, --tmo MIN; may be empty).  Example (the first record run):
 #   stair.sh --path 1 --step "576|10e12|BS_MDEV_LOGL=29 XSHMEM_HANG_S=3600|"
@@ -9,7 +9,7 @@
 # once: no automatic retry and no automatic smaller size (the agent reads the errors and picks the fallback; a refusal prints largest_fit_digits).  Per step:
 # digits, verdict, total_s, init/bs/dm/dc, measured/model, per-APU device peak (measured) / plan, VERIFY, the last digits, the digit hash if taken.
 # Memory rule (--min-margin GB, default 6.5, 0 = off): before a step the planner is asked (with the step's ENV, so ECALC_FIT_PER_APU=1 in it makes
-# it print the busiest APU's margin to the 93.36 GB edge); a step whose margin is below the need is SKIPPED, not run.  The need is 6.5 GB (the largest
+# it print the busiest APU's margin to the device edge: REMOTE_DEVICE_GB from P1, else the 373.44 GB harness figure of 10-06); a step whose margin is below the need is SKIPPED, not run.  The need is 6.5 GB (the largest
 # excess of the measured per-APU peak over the plan seen on the target) until a step has been measured; after that it is that run's own excess
 # (device_peak_apu_gb - plan, the largest so far) + 2 GB, but at least 3 GB: each passed step closes the memory gap for the next one.
 # --round-ab MB in a step's EXTRA (once; at 576 nodes): after that step (run at XSHMEM_ROUND_MB=128 with MN_WAIT_STATS=1, cost-free; XSHMEM_ROUND_STATS is NOT used: it adds a device sync probe to the post path) the same step runs again on the same hosts at XSHMEM_ROUND_MB=MB.  Rule printed: adopt MB when its total is lower by >= 3 % AND
@@ -28,9 +28,9 @@
 # round_stats_<MB> key for the browser agent's fit (ROUTE P2).
 # Verdict PASS all steps passed; PARTIAL some step skipped (budget, allocation time, memory rule) and the rest passed; FAIL a step failed.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); . "$HERE/lib.sh"; set -u
-PATHN= STEPS=() BUDGET= JOB= EXCLUDE= MINM=6.5 AB=
+PATHN= STEPS=() BUDGET= JOB= EXCLUDE= MINM=6.5 AB= TOP=
 while [ $# -gt 0 ]; do case $1 in
-  --path) PATHN=${2:?}; shift;; --step) STEPS+=("${2:?}"); shift;; --budget) BUDGET=${2:?}; shift;; --min-margin) MINM=${2:?}; shift;; --ab) AB=${2:?}; shift;; --jobid) JOB=${2:?}; shift;; --exclude) EXCLUDE=${2-}; shift;;
+  --path) PATHN=${2:?}; shift;; --step) STEPS+=("${2:?}"); shift;; --budget) BUDGET=${2:?}; shift;; --min-margin) MINM=${2:?}; shift;; --ab) AB=${2:?}; shift;; --top) TOP=${2:?}; shift;; --jobid) JOB=${2:?}; shift;; --exclude) EXCLUDE=${2-}; shift;;
   --dry-run) DRY=1;; -h|--help) rl_help "$0"; exit 0;; *) echo "stair.sh: unknown option $1 (--help)" >&2; exit 2;; esac; shift; done
 case $PATHN in 1|2) ;; *) echo "stair.sh: --path 1|2 required (--help)" >&2; exit 2;; esac
 [ ${#STEPS[@]} -gt 0 ] || { echo "stair.sh: give at least one --step \"NODES|DIGITS|ENV|EXTRA\" (--help)" >&2; exit 2; }
@@ -47,13 +47,23 @@ if [ -n "$AB" ]; then
     rl_posint "$AB_N" && rl_isnum "$AB_D" && [ -n "${AB_W// /}" ] || { echo "stair.sh: --ab \"NODES|DIGITS|B_WORDS[|C_WORDS]\"" >&2; exit 2; }
     AB_N=$((10#$AB_N))
 fi
+TOP_N= TOP_DS= TOP_E= TOP_X=
+if [ -n "$TOP" ]; then
+    IFS='|' read -r TOP_N TOP_DS TOP_E TOP_X _ <<< "$TOP||||"
+    rl_posint "$TOP_N" && [ -n "$TOP_DS" ] || { echo "stair.sh: --top \"NODES|D1,D2,...|ENV|EXTRA\" (candidate digit counts, any order)" >&2; exit 2; }
+    for x in ${TOP_DS//,/ }; do rl_isnum "$x" || { echo "stair.sh: --top: '$x' is not a number" >&2; exit 2; }; done
+    TOP_N=$((10#$TOP_N))
+fi
 for x in "${SX[@]}"; do case " $x " in *" --round-ab "*) echo " $x " | grep -q -E ' --round-ab [0-9.]+ ' || { echo "stair.sh: --round-ab MB (a number, in the step's EXTRA)" >&2; exit 2; };; esac; done
 rl_init stair
+# the measured GPU edge (P1's edge.sh) replaces the 373.44 GB harness figure of 10-06: the planner's per-APU margin is taken against it
+if [ -n "${REMOTE_DEVICE_GB:-}" ] && rl_isnum "$REMOTE_DEVICE_GB"; then export ECALC_DEVICE_GB=${ECALC_DEVICE_GB:-$REMOTE_DEVICE_GB}; DEVSRC="measured edge $REMOTE_DEVICE_GB GB per node (P1 edge step)"; else DEVSRC="the 373.44 GB harness figure of 10-06 (no P1 edge measurement)"; fi
 TOTAL=${#STEPS[@]}
-rl_kv path "$PATHN"; rl_kv steps "$TOTAL"${BUDGET:+" budget_min=$BUDGET"}
+rl_kv device_gb_used "${ECALC_DEVICE_GB:-planner default} ($DEVSRC)"; rl_kv path "$PATHN"; rl_kv steps "$TOTAL"${BUDGET:+" budget_min=$BUDGET"}
 if [ "$DRY" = 1 ]; then
     for i in "${!SN[@]}"; do rl_would "step $((i + 1)): s5_run.sh --nodes ${SN[$i]} --digits ${SD[$i]} --path $PATHN --env \"${SE[$i]}\" ${SX[$i]} ${EXCLUDE:+--exclude $EXCLUDE }(stop at the first failure)"; done
     case " ${SX[*]} " in *" --round-ab "*) rl_would "round test: the --round-ab step runs twice on the same hosts (XSHMEM_ROUND_MB=128, then the value; MN_WAIT_STATS=1 XSHMEM_ROUND_STATS=1); adopt when total -3 % and bs+dm lower, digits identical -> site.env REMOTE_ROUND_MB";; esac
+    [ -n "$TOP" ] && rl_would "after the last step (all passed): the largest of {$TOP_DS} digits at $TOP_N nodes whose planner per-APU margin is at least the need (observed excess + 2, at least 3) is run: $TOP_E $TOP_X"
     [ -n "$AB" ] && rl_would "after step 1: 3 rounds of arms.sh --nodes $AB_N --digits $AB_D --path $PATHN with arms A (step 1 ENV), B (+ $AB_W)${AB_C:+, C (+ $AB_C)} at once, order rotated per round; adopt B when dc lower beyond the A-A spread -> REMOTE_RECORD_ENV; C: wrap saving not resolved -> REMOTE_WRAP_ENV for steps of 2.5e13+"
     rl_finish SKIP "$HERE/stair.sh --path $PATHN"
 fi
@@ -197,13 +207,34 @@ round_decide() {   # RB: runs 1 (R1_*) and 2 (R2_*) of the round test -> decisio
     case $res in *"identical: NO"*) [ "$R1_VERIFY" = OK ] && [ "$R2_VERIFY" = OK ] && { rl_line "     round test: both runs VERIFY OK but the last digits DIFFER: a correctness failure, stop"; return 1; };; esac
     return 0
 }
+site_words() {    # ENV DIGITS -> ENV plus the site.env words (record env, round size, the wrap choice for steps of 2.5e13+)
+    local e=$1 d=$2
+    e=$(addw "$e" "${REMOTE_RECORD_ENV:-}"); e=$(addw "$e" "${REMOTE_ROUND_MB:+XSHMEM_ROUND_MB=$REMOTE_ROUND_MB}")
+    if [ -n "${REMOTE_WRAP_ENV:-}" ] && awk -v d="$(rl_num "$d")" 'BEGIN { exit !(d + 0 >= 2.5e13) }'; then e=$(addw "$e" "$REMOTE_WRAP_ENV"); fi
+    echo "$e"
+}
+top_step() {      # after the last fixed step: the largest candidate whose planner per-APU margin covers the measured excess + 2 (at least 3)
+    local c cs d D1 e need mg pl chosen= tried=
+    need=$(awk -v g="${GAP:-}" -v m="$MINM" 'BEGIN { if (g == "") print m; else { x = g + 2; if (x < 3) x = 3; print x } }')
+    cs=$(for c in ${TOP_DS//,/ }; do echo "$c"; done | sort -g -r)
+    for c in $cs; do
+        d=$c; e=$(site_words "$TOP_E" "$d"); D1=$(rl_digits_site "$d" "$TOP_N"); rl_fit "$PATHN" "$TOP_N" "$D1" $e; frc=$?
+        pl=$(grep -a 'per APU (max)' "$RUN/raw/fit_${PATHN}_${TOP_N}_$D1.log" 2>/dev/null | tail -1); mg=$(echo "$pl" | sed -n 's/.*margin \([-+][0-9.]*\) GB.*/\1/p')
+        tried="$tried $c:${mg:-NA}"
+        if [ $frc = 0 ] && [ -n "$mg" ] && awk -v a="$mg" -v b="$need" 'BEGIN { exit !(a + 0 >= b + 0) }'; then chosen=$c; break; fi
+    done
+    rl_kv top_candidates "margin per APU (GB) by digits:$tried; need $need ($DEVSRC; excess ${GAP:-unknown})"
+    if [ -z "$chosen" ]; then rl_line "top step: no candidate fits (need margin $need GB per APU:$tried); the staircase stays at $best"; rl_kv top_choice none; stop=skip; return 1; fi
+    rl_kv top_choice "$chosen at $TOP_N nodes"; rl_line "top step: $chosen digits chosen (margin per APU by candidate:$tried; need $need)"
+    TOPD=$chosen; TOPE=$e
+    return 0
+}
 AB_SOFT=0 AB_HARD=0 AB_DONE=0
 for i in "${!SN[@]}"; do
     idx=$((i + 1)); n=${SN[$i]}; d=${SD[$i]}; e0=${SE[$i]}; x=${SX[$i]}; rb=
     case " $x " in *" --round-ab "*) rb=$(echo " $x " | sed -n 's/.* --round-ab \([0-9.]*\) .*/\1/p'); x=$(echo " $x " | sed -E 's/ --round-ab [0-9.]+ / /; s/^ +//; s/ +$//');; esac
     if [ -n "$rb" ]; then e=$(addw "$e0" "XSHMEM_ROUND_MB=128 MN_WAIT_STATS=1"); else e=$e0; fi
-    e=$(addw "$e" "${REMOTE_RECORD_ENV:-}"); e=$(addw "$e" "${REMOTE_ROUND_MB:+XSHMEM_ROUND_MB=$REMOTE_ROUND_MB}")
-    if [ -n "${REMOTE_WRAP_ENV:-}" ] && awk -v d="$(rl_num "$d")" 'BEGIN { exit !(d + 0 >= 2.5e13) }'; then e=$(addw "$e" "$REMOTE_WRAP_ENV"); fi
+    e=$(site_words "$e" "$d")
     attempt "$idx" "$n" "$d" "$e" "$x" "$idx" || break
     [ -n "$rb" ] && round_stats 128 "$SRD"
     if [ "$SV" = FAIL ]; then worst=FAIL; stop=fail; fail_idx=$idx; break; fi
@@ -223,6 +254,11 @@ for i in "${!SN[@]}"; do
         if [ $AB_HARD = 1 ]; then worst=FAIL; stop=fail; fail_idx=ab; break; fi
     fi
 done
+if [ -n "$TOP" ] && [ "$worst" = PASS ] && [ -z "$stop" ]; then
+    if top_step; then
+        idx=$((TOTAL + 1)); attempt "$idx" "$TOP_N" "$TOPD" "$TOPE" "$TOP_X" "$idx" && { if [ "$SV" = FAIL ]; then worst=FAIL; stop=fail; fail_idx=$idx; else best=$(rl_num "$TOPD"); fi; }
+    fi
+fi
 [ $AB_SOFT = 1 ] && [ "$worst" = PASS ] && worst=PARTIAL
 [ "$stop" = skip ] && [ "$worst" = PASS ] && worst=PARTIAL
 rl_kv best_passed_digits "$best"; rl_kv elapsed_min "$(( (SECONDS - t0) / 60 ))"

@@ -40,6 +40,7 @@ int main(int argc, char **argv)
         printf("t_edge: freed; MemAvailable %.1f GB\n", avail_gb());
         return 0;
     }
+    double dtot[8] = {0};   /* per-device GB committed (dev and vmm forms): the per-APU edge is the minimum over the devices at the first failure */
     void *p[512]; hipMemGenericAllocationHandle_t vh[512]; size_t vbytes[512]; int n = 0; double tot = 0;
     printf("t_edge: form %s, %.1f GB steps up to %.0f GB; %d devices; MemAvailable %.1f GB at the start\n", form, step, cap, ndev, avail_gb());
     while (tot + step <= cap + 1e-9 && n < 512) {
@@ -65,10 +66,11 @@ int main(int argc, char **argv)
         if (!strcmp(form, "dev")) { if ((e = hipMemset(q, 0x5A, bytes)) != hipSuccess || (e = hipDeviceSynchronize()) != hipSuccess) { printf("t_edge: step %d: touch failed (%s)\n", n + 1, hipGetErrorString(e)); break; } }
         else if (!strcmp(form, "vmm")) { (void)hipSetDevice(d); if ((e = hipMemset(q, 0x5A, bytes)) != hipSuccess || (e = hipDeviceSynchronize()) != hipSuccess) { printf("t_edge: step %d: touch failed (%s)\n", n + 1, hipGetErrorString(e)); break; } }
         else memset(q, 0x5A, bytes);
-        p[n++] = q; tot += step;
+        p[n++] = q; tot += step; dtot[d] += step;
         printf("t_edge: %6.1f GB committed in %d steps, MemAvailable %.1f GB\n", tot, n, avail_gb()); fflush(stdout);
     }
     printf("t_edge: the edge in form %s: %.1f GB committed and touched (the cap %.0f GB)\n", form, tot, cap);
+    if (!strcmp(form, "dev") || !strcmp(form, "vmm")) { double mn = dtot[0]; printf("t_edge: per-APU GB at the end:"); for (int i = 0; i < ndev; i++) { printf(" %.1f", dtot[i]); if (dtot[i] < mn) mn = dtot[i]; } printf("; per-APU edge (min over %d APUs, all held at once): %.1f GB\n", ndev, mn); }
     for (int i = 0; i < n; i++) {
         if (!strcmp(form, "host")) (void)hipHostFree(p[i]);
         else if (!strcmp(form, "dev")) (void)hipFree(p[i]);
