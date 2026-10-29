@@ -159,7 +159,7 @@ round_decide() {   # RB: runs 1 (R1_*) and 2 (R2_*) of the round test -> decisio
         g = (t1 > 0) ? (t1 - t2) / t1 * 100 : 0
         dig = (v1 == "OK" && v2 == "OK" && l1 != "" && l1 == l2) ? "yes" : "NO"
         r = (g >= 3 && x2 < x1 && dig == "yes") ? "ADOPT" : "KEEP"
-        printf "%s total %s -> %s s (%.1f %% lower), bs+dm %.1f -> %.1f s, digits identical: %s", r, t1, t2, g, x1, x2, dig }')
+        printf "%s total %s -> %s s (gain %.1f %%), bs+dm %.1f -> %.1f s, digits identical: %s", r, t1, t2, g, x1, x2, dig }')
     rl_line "     round test: XSHMEM_ROUND_MB 128 vs $rb at the same hosts: $res"
     rl_kv round_test "128 vs $rb: $res"
     case $res in

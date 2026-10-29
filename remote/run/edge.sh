@@ -3,10 +3,10 @@
 # record pools' form) and its `malloc` form (the kernel's overcommit edge) on ONE node of the allocation, alone (nothing else runs in a P1 chain at this
 # point).  Tells whether pinned host memory beyond the 93.36 GB per APU hipMalloc edge is available (the record uses about 380 GB of 515 GB).
 #   edge.sh [--jobid J] [--step GB] [--cap GB] [--tmo SEC] [--dry-run]
-# Defaults: 8 GB steps, cap 560 GB, 100 s per form (about 3 min in all).  Skips (verdict SKIP) when t_edge is not built.  Summary: host_edge_gb,
-# malloc_edge_gb (GB committed and touched before the first failure; `+` = the cap was reached without a failure), mem_available_start_gb, edge_note.
+# Defaults: 8 GB steps, cap 440 GB, 170 s per form (a touch runs at about 2.7 GB/s on aac7: 440 GB = 165 s; up to 6 min in all, less when a form fails early).  Skips (verdict SKIP) when t_edge is not built.  Summary: host_edge_gb,
+# malloc_edge_gb (GB committed and touched before the first failure; `+` = the cap was reached without a failure; `timeout` = still running at the time limit, so a lower bound), mem_available_start_gb, edge_note.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); . "$HERE/lib.sh"; set -u
-JOB= STEP=8 CAP=560 TMO=100
+JOB= STEP=8 CAP=440 TMO=170
 while [ $# -gt 0 ]; do case $1 in
   --jobid) JOB=${2:?}; shift;; --step) STEP=${2:?}; shift;; --cap) CAP=${2:?}; shift;; --tmo) TMO=${2:?}; shift;; --dry-run) DRY=1;;
   -h|--help) rl_help "$0"; exit 0;; *) echo "edge.sh: unknown option $1 (--help)" >&2; exit 2;; esac; shift; done
@@ -29,22 +29,24 @@ form_run() {   # FORM -> $RUN/raw/edge_FORM.out
         exec "$@"' _ "$TE" "$f" "$STEP" "$CAP" > "$RUN/raw/edge_$f.out" 2>&1 < /dev/null
     return $?
 }
-res() {   # FORM -> prints "GB[+]" or NA; sets EN (note)
-    local f=$1 o="$RUN/raw/edge_$1.out" g
+res() {   # FORM RC -> prints "GB[+]" or "GB (timeout, lower bound)" or NA
+    local f=$1 r=$2 o="$RUN/raw/edge_$1.out" g
+    g=$(sed -n 's/^t_edge: *\([0-9.]*\) GB committed in.*/\1/p' "$o" | tail -1)
     if grep -aq "the edge in form $f:" "$o"; then g=$(sed -n "s/.*the edge in form $f: \([0-9.]*\) GB committed.*/\1/p" "$o" | tail -1)
         if grep -aq " $f failed\|failed at\|touch failed" "$o"; then echo "$g"; else echo "${g}+"; fi
-    else g=$(sed -n 's/^t_edge: *\([0-9.]*\) GB committed in.*/\1/p' "$o" | tail -1); [ -n "$g" ] && echo "${g}(killed)" || echo NA; fi
+    elif [ -n "$g" ]; then case $r in 124|137) echo "$g (timeout, lower bound)";; *) echo "$g (killed rc $r)";; esac
+    else echo NA; fi
 }
 v=PASS
 for f in host malloc; do
     rl_say "t_edge $f on $HOST (<= $TMO s)"
-    form_run "$f"; rc=$?; r=$(res "$f"); rl_kv "${f}_edge_gb" "$r (rc $rc)"
+    t1=$SECONDS; form_run "$f"; rc=$?; r=$(res "$f" "$rc"); rl_kv "${f}_edge_gb" "$r (rc $rc, $((SECONDS - t1)) s)"
     case $r in NA|*killed*) v=PARTIAL;; esac
     [ "$f" = host ] && rl_kv mem_available_start_gb "$(sed -n 's/.*MemAvailable \([0-9.]*\) GB at the start.*/\1/p' "$RUN/raw/edge_host.out" | head -1)"
     rl_errfiles "$RUN/raw/edge_$f.out"
 done
 ha=$(sed -n 's/^host_edge_gb=\([0-9.]*\).*/\1/p' "$RUN/summary.body" | head -1)
-if [ -n "$ha" ]; then rl_kv edge_note "host_edge_gb $ha GB pinned host memory in the record pools' form; the hipMalloc edge is 93.36 GB per APU = 373.44 GB per node; the record's host use is about 380 GB (read host_peak_gb of the staircase rows)"; fi
+if [ -n "$ha" ]; then rl_kv edge_note "host_edge_gb = pinned host memory in the record pools' form (+ = cap reached, no failure; timeout = lower bound); the hipMalloc edge is 93.36 GB per APU = 373.44 GB per node; the record's host use is about 380 GB (read host_peak_gb of the staircase rows)"; fi
 tail -n 2 "$RUN/raw/edge_host.out" | cut -c1-150 | while IFS= read -r l; do rl_line "  host: $l"; done
 tail -n 2 "$RUN/raw/edge_malloc.out" | cut -c1-150 | while IFS= read -r l; do rl_line "  malloc: $l"; done
 rl_finish "$v" "$HERE/s5_run.sh --nodes 1 --digits 1.6e10 --path 1"
