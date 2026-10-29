@@ -7,7 +7,7 @@ known problems: `FACTS.md`. Paste from the repository root. Times are wall clock
 | paste | what it runs | expect | go / no-go |
 |---|---|---|---|
 | P1 | check, facts, allocation, build both paths, gates at 1 and 2 nodes, GPU and host memory edge on one node | 30-50 min (the edge step is the last call: 5-8 min) | s0 manifest clean, s1 PASS (4 GPUs, 8 NICs), s2 both paths built, every gate `VERIFY OK` with the 1e9 hash; `host_edge_gb` / `malloc_edge_gb` printed (information, never a stop) |
-| P2 | node screen, 64 nodes at 5.12e11, residue / thread-team and DM_MN_WRAP A/B (three 64-node arms at once, three rounds), then 576 nodes at 4.608e12 twice (round size 128, then 1024) | 40-70 min (screen up to 20, A/B about 8, each 576 run about 6-8) | `VERIFY OK` in every row, no slow hosts, 576 n total within 1.5 x the 2026-10-26 figure (255 s cold; the first 576 run carries two diagnostic switches); the two decision lines printed |
+| P2 | node screen, 64 nodes at 5.12e11, residue / thread-team and DM_MN_WRAP A/B (four 64-node arms A, B, C, D at once, four rounds), then 576 nodes at 4.608e12 twice (round size 128, then 1024) | 50-90 min (screen up to 20, A/B four rounds of about 8, each 576 run about 6-8) | `VERIFY OK` in every row, no slow hosts, 576 n total within 1.5 x the 2026-10-26 figure (255 s cold; the first 576 run carries two diagnostic switches); the two decision lines printed |
 | P3 | the first two record runs: 1.8e13 and 3.6e13 on 576 nodes (staircase steps 1-2) | 10-40 min | `VERIFY OK`, per-APU peak below the edge with its excess over the plan noted |
 | P4 | staircase step 3: 5.4e13 on 576 nodes (the user's size; no other size is substituted) | 15-60 min | `VERIFY OK`; the three `point:` lines copied into the REPORT (the user's fit of the fourth size uses them) |
 | P5 | `report.sh`: one table of every run, then release of the allocation | 1 min | the agent writes the REPORT (AGENT.md) |
@@ -47,7 +47,7 @@ Decisions printed by the script itself (the agent copies the lines, does not rec
 - Per-round statistics (nothing can be copied off the target: only screen lines come back). After each of the two 576 runs the script prints one `stats <MB>:` line and a `round_stats_<MB>=` key: the rank-0 `wait-stats max/min over nodes` of each phase (barrier and wait seconds, `MN_WAIT_STATS`). The per-round cost is derived, not measured per round: (wait of run 2 minus wait of run 2b) over (rounds of run 2 minus rounds of run 2b), with rounds from the planner's formula (`round_sync_cost` in `ecalc/mn_model.py`: rounds = chunks x ceil(bytes per stream / XSHMEM_ROUND_MB)). `no wait-stats line` means the build printed none: use the simple rule.
 - Refinement for 512 vs 1024 (the browser agent, only when both runs are VERIFY OK with identical digits; arithmetic on the printed numbers, no run): k = (total of run 2 minus total of run 2b, measured) divided by the modelled saving of the same pair (`python3 ecalc/mn_model.py estimate --g 576 --D 8e9 --fabric target_fit --round-mb 128` minus `--round-mb 1024`, the total is column 5 of the 576 row; modelled 14.6 s). The model's per-round synchronisation constant is `ROUND_SYNC` = 1.15e-3 s per round and peer^0.5 (`round_sync_cost` in `ecalc/mn_model.py`; exponent via `MN_MODEL_ROUND_SYNC_EXP`); scale it: `MN_MODEL_ROUND_SYNC=<1.15e-3 x k> python3 ecalc/mn_model.py estimate --g 576 --D 6.632e10 --fabric target_fit --round-mb R` for R = 128, 512, 1024 (3.82e13 = 6.632e10 per node). Choose 512 when its modelled total is within about 1 % of the 1024 total (smaller pool: FACTS gives the per-APU and node figures at 128 / 512 / 1024), else 1024 if it clears the simple rule, else 128; k near 0 or negative = round size does not matter here: keep 128. Cross-check k with the stats: the drop in `wait` (bs and dm phases) between the two runs divided by the drop in modelled rounds should be near the model's per-round cost (1.15e-3 s x peers^0.5 x k); far from it says the assumed mechanism is wrong, report it. A 512 choice is written by hand as `XSHMEM_ROUND_MB=512` in the words of the P3/P4 steps (the step's own words win over `REMOTE_ROUND_MB`).
 Go on if: every row `VERIFY OK`; `slow_hosts` empty; the 2 / 2b totals below 1.5 x 255 s (the unexplained init growth at 576 nodes is a known anomaly, FACTS; init alone does not stop the route). The model grows 14 % from 8 to 64 nodes and
-24 % from 64 to 576 (ADJUST.md section 1): a step far above that is fabric, launch or placement trouble.
+24 % from 64 to 576 (`target/ladder/ADJUST.md` section 1): a step far above that is fabric, launch or placement trouble.
 Fallbacks: `slow_hosts` listed: no spare node exists at 576 (the machine has 576), so step 2 stops with `only M usable nodes` or `fewer than N nodes remain`: take "Fewer than 576 usable nodes" below. 64-node step fails for
 placement reasons: re-paste only the 576 step once (the `--ab` option needs step 1 and is dropped with it; `--round-ab` works alone). `rc` 8/9 or `plan REFUSED`: the printed largest fitting digits, or `MN_T_CHUNK_MB=1024`; rc 124 (timeout): `show.sh latest tail 40` and the registration setting in FACTS;
 a digit mismatch is never moved past (AGENT.md Failure handling). Optional extras of the old tuning stage (path A/B, collectives) are in the appendix; use them only when the user asks.
@@ -59,7 +59,7 @@ margins of every size and setting; per APU against the device edge, planner, mod
 
 | step | digits | nodes | env words (path 1) | extra | planner | fallback if it fails |
 |---|---|---|---|---|---|---|
-| 1 | 1.8e13 | 576 | `ECALC_VERBOSE=1 ECALC_FIT_PER_APU=1 MEM_REPORT_DEVS=1 XSHMEM_HANG_S=3600 MN_NONPOW2_CAP=0 BS_MDEV_LOGL=28 DIST_CHUNKS=16 DM_MN_WRAP=0 MN_LEVEL_UNIFORM=1` | `--tmo 60` | the planner line is printed before the run | none: stop and report (below) |
+| 1 | 1.8e13 | 576 | `ECALC_VERBOSE=1 ECALC_FIT_PER_APU=1 MEM_REPORT_DEVS=1 COMM_HANG_DETAIL=1 XSHMEM_HANG_S=3600 MN_NONPOW2_CAP=0 BS_MDEV_LOGL=28 DIST_CHUNKS=16 DM_MN_WRAP=0 MN_LEVEL_UNIFORM=1` | `--tmo 60` | the planner line is printed before the run | none: stop and report (below) |
 | 2 | 3.6e13 | 576 | same words as step 1 | `--tmo 90` | printed | none: stop and report |
 | 3 | 5.4e13 | 576 | same words as step 1 | `--tmo 120` | printed | none: stop and report |
 | 4 | the user's size (fitted by the user from the `point:` lines of steps 1-3) | 576 | same words as step 1 | `--tmo` given with the size | printed | none: the best passed size is the record |
@@ -70,13 +70,13 @@ Why these: the sizes are the user's (1.8e13, 2 x 1.8e13, 3 x 1.8e13; user 2026-1
 Words adopted in P2 are added by `stair.sh` itself: `REMOTE_RECORD_ENV` (residue / team), `REMOTE_WRAP_ENV` (has no effect here: the table's words set `DM_MN_WRAP=0`; P2's arm C only measures the wrap's saving at 64 nodes) and `XSHMEM_ROUND_MB=$REMOTE_ROUND_MB`, after the table's words, unless a step's words already set the key; the `env:` line of every row shows what ran.
 
 Rules: a step runs only if the planner's busiest-APU margin is at least the need: 6.5 GB before any measured step, afterwards the largest excess seen (`measured peak - plan` per APU, printed under each row) + 2 GB, at least 3 GB
-(`stair.sh --min-margin`); a step below it is SKIPPED and the verdict is PARTIAL: report it with the printed margin and need (a planner refusal also prints `largest_fit_digits`, information only); the user decides the next size, nothing smaller runs on its own. If P1's `edge.sh` printed `remote_device_gb unset`, the margin is taken against the 93.36 GB per APU harness figure of 10-06 and step 3 (105.31 GB per APU planned) is SKIPPED: tell the user; on the user's yes put `export REMOTE_DEVICE_GB=452` in front of the stair command (4 x 113 GB, the per-APU level ecalc passed at on aac6, whose free memory matches the target's; the caller's environment wins over site.env). `ECALC_FIT_PER_APU=1` in the words
+(`stair.sh --min-margin`); a step below it is SKIPPED and the verdict is PARTIAL: report it with the printed margin and need (a planner refusal also prints `largest_fit_digits`, information only); the user decides the next size, nothing smaller runs on its own. If P1's `edge.sh` printed `remote_device_gb unset`, the margin is taken against the 93.36 GB per APU harness figure of 10-06 and step 3 (105.31 GB per APU planned) is SKIPPED: tell the user; on the user's yes put `export REMOTE_DEVICE_GB=452` in front of the stair command of step 3 and of step 4 (6e13 plans 111.75 GB per APU with these words; 4 x 113 GB, the per-APU level ecalc passed at on aac6, whose free memory matches the target's; the caller's environment wins over site.env). `ECALC_FIT_PER_APU=1` in the words
 makes the planner count the busiest APU; `MEM_REPORT_DEVS=1` prints the measured per-APU use; neither changes digits. The settings are modelled, not measured, at 576 nodes (`BS_MDEV_LOGL=28` / `DIST_CHUNKS=16`: 1 node on aac7 only; the
 2-node gate on `DIST_CHUNKS=16` is in the project's queue); the run's own VERIFY checks the digits.
 
 P3 (steps 1-2):
 ```
-cd <repo> && export REMOTE_FULLLOG=1 && bash remote/run/stair.sh --path 1 --budget 90 --step "576|18e12|<env of step 1>|--tmo 60" --step "576|36e12|<env of step 2>|--tmo 90"
+cd <repo> && export REMOTE_FULLLOG=1 && bash remote/run/stair.sh --path 1 --budget 150 --step "576|18e12|<env of step 1>|--tmo 60" --step "576|36e12|<env of step 2>|--tmo 90"
 ```
 P4 (step 3):
 ```
@@ -87,7 +87,7 @@ prints one table row: total, init/bs/dm/dc, measured / model, per-APU peak again
 `REMOTE_FULLLOG=1` makes every `s5_run` of the paste keep the full log set (`s5_run.sh --fulllog`: `MN_WAIT_STATS=1 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=1`, snapshots, monitor; digits unchanged). Afterwards, in the same shell, print the record log compactly: `bash remote/run/collect.sh --refresh --plan`, then `bash remote/run/collect.sh --print --only summaries,stats,nodes,env` (raw sections only on request, `--compact` for less); nothing can be copied off the target, so these screen blocks are the record.
 
 Go on after P3 if: `VERIFY OK`, the per-APU excess of the measured peak over the plan below 6.5 GB (the next step's rule sets the need from it), total within 3 x model + init. After a P4 stop: the summary names the step that
-failed (`stopped after step k`), the earlier rows stand. On any failure stop and print the diagnosis before anything else: `bash remote/run/show.sh latest errors`, then `bash remote/run/collect.sh --refresh --plan` and `bash remote/run/collect.sh --print --only summaries,stats,nodes,env`; the user pastes these back and decides (a re-run of the same step, `--exclude` a named bad host, `MN_T_CHUNK_MB=1024`: ADJUST.md section 3 rows 1-2 and 7). No other size is tried without the user. A hang that names members (`COMM_HANG_DETAIL=1` in the words) or `COMM_SEQ_CHECK` / `P24 CRT flag` lines are
+failed (`stopped after step k`), the earlier rows stand. On any failure stop and print the diagnosis before anything else: `bash remote/run/show.sh latest errors`, then `bash remote/run/collect.sh --refresh --plan` and `bash remote/run/collect.sh --print --only summaries,stats,nodes,env`; the user pastes these back and decides (a re-run of the same step, `--exclude` a named bad host, `MN_T_CHUNK_MB=1024`: `target/ladder/ADJUST.md` section 3 rows 1-2 and 7). No other size is tried without the user. A hang that names members (`COMM_HANG_DETAIL=1` in the words prints them; it acts only at a hang) or `COMM_SEQ_CHECK` / `P24 CRT flag` lines are
 results: stop the climb, keep the log lines (`show.sh <run dir> errors`), report them.
 
 Fewer than 576 usable nodes (a slow or bad host with no spare, or a smaller grant): re-run the step with the largest node count the planner accepts, digits scaled at the same per-node share (576 > 575 or 512: `"512|<512/576 x D>|..."`;
@@ -95,12 +95,26 @@ the planner prints the largest fitting digits on a refusal; the exclusion list i
 re-plan: `--exclude <host>` (a Slurm range like `nid[001-003]` is accepted) on the run plus `MN_GROUPS` for the new count (FACTS, `MN_GROUPS` row: the default schedule is tuned for 576 only), or release and request more
 (`alloc.sh --release`, then `alloc.sh --nodes <more> --exclude <host>`). Prefer the first when time is short.
 
+## Failure -> next command (the one table; AGENT.md and the pastes point here)
+
+| what you see | next command, then |
+|---|---|
+| handshake hang (no progress, `XSHMEM_HANG_S` report) | `bash remote/run/show.sh latest errors`; the members come from `COMM_HANG_DETAIL=1` (in the staircase words); the rows of `target/ladder/ADJUST.md` section 3 (1-2 and 7) list the settings; the user decides the next run |
+| `P24 CRT flag`, `VERIFY FAILED`, digits that differ | stop and never move past it: `bash remote/run/show.sh latest errors`, then `bash remote/run/collect.sh --refresh --plan` and `bash remote/run/collect.sh --print --only summaries,stats,nodes,env`; the user pastes the lines back |
+| GPU OOM, rc 8 / 9, `plan REFUSED` | the printed margin and `largest_fit_digits` are information; `MN_T_CHUNK_MB=1024` in the words is the one setting to try; the user decides the size (nothing smaller runs on its own) |
+| rc 124 (timeout) | `bash remote/run/show.sh latest tail 40`; the registration setting in FACTS; the user decides |
+| slow or bad node | re-run the step with `--exclude <host>` added to `stair.sh` (or `s5_run.sh`); `MN_GROUPS` for the new count (below) |
+| allocation lost or too short | `bash remote/run/alloc.sh --status`; then `bash remote/run/alloc.sh --release && bash remote/run/alloc.sh --nodes 576 --time <H:MM:SS>` and re-paste the step |
+| build failure | `bash remote/run/show.sh latest errors`; carry on with the path that built (`--path <built path>`) |
+
+Return codes: FACTS "Return codes".
+
 ## Record-size output (`--write` on step 4; also 2e13 and 2.8e13 if the user wants files)
 
-Sizes (packed v2 = 0.41667 B per digit + a 4096 B header per part): 2e13 = 8.3 TB, 2.8e13 = 11.7 TB, 3.82e13 = 15.9 TB. Path 1 (layout D) writes 576 part files `<out>.part<k>` of 27.6 GB each; one writer thread per part: O_DIRECT,
+Sizes (packed v2 = 0.41667 B per digit + a 4096 B header per part; one part per node at 576 nodes, D x 0.41667 / 576 per part): 1.8e13 = 7.5 TB (13.0 GB per part), 3.6e13 = 15.0 TB (26.0 GB), 5.4e13 = 22.5 TB (39.1 GB), 6e13 = 25.0 TB (43.4 GB). Path 1 (layout D) writes 576 part files `<out>.part<k>`; one writer thread per part: O_DIRECT,
 256 MB chunks over 8 `pwrite` threads, started at the division's hook (`MN_OUT_EARLY=1`), so most of the write hides behind the low product; the exposed part is in the `wrote <file>.partNNNN` line. The target has 1.7 PB free, no quota (FACTS Target site).
 The stripe layout stays `default` (the directory's PFL layout): a different layout needs a measurement of 576 files that no run has made (appendix, IO benches); a write measured at 1-2 nodes ran 3.4-5.3 GB/s per part (single OST).
-Modelled write time 6-60 s for 15.9 TB at 0.25-2.9 TB/s aggregate (assumed rates; exposed time smaller); plan the step at the model + 60 s. If the write fails after the compute finished, the run's VERIFY still counts as the result and the
+Modelled write time 9-90 s for 22.5 TB (5.4e13) at 0.25-2.9 TB/s aggregate (assumed rates; exposed time smaller); plan the step at the model + 60 s. If the write fails after the compute finished, the run's VERIFY still counts as the result and the
 digit file is the missing part: report it, do not re-run the step for the file unless time is left (then re-run at the best size with `--write`). The digit hash is skipped above 300 GB (`TGT_HASH_MAX_GB`); the run's own VERIFY (T1/T2 windows, written by the writer) is the check.
 
 ## P5 report
@@ -113,7 +127,7 @@ allocation (`--keep` keeps it, e.g. for one more run). The agent turns the block
 
 ## Minimal route (time short, or the start went badly)
 
-1. P1 with `"s2_build.sh --path 1"` and `"s3_gate.sh --nodes 1,2 --path 1 --digits 1e9"` only (no `edge.sh`). 2. P2 without the 64-node step and the residue A/B (`--step "576|4608e9|<words>|--round-ab 1024"`, or without `--round-ab` when time is very short). 3. P3, then step 4 alone (`"576|38.2e12|<env of step 4>|--tmo 90"`) if
+1. P1 with `"s2_build.sh --path 1"` and `"s3_gate.sh --nodes 1,2 --path 1 --digits 1e9"` only (no `edge.sh`). 2. P2 without the 64-node step and the residue A/B (`--step "576|4608e9|<words>|--round-ab 1024"`, or without `--round-ab` when time is very short). 3. P3, then step 4 alone (`"576|<the user's size from the staircase>|<env of step 4>|--tmo <M>"`) if
 the P3 per-APU excess leaves the margin rule satisfied, else the largest size above the bar. 4. P5. About 4-5 pastes, 60-90 min plus queue. Skipped: steps 2-3 of the staircase (3.6e13, 5.4e13), path 2.
 
 ## Appendix: optional experiments (only when the user asks; none changes the record decision)

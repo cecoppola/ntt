@@ -20,7 +20,7 @@ problems), `MANIFEST.sha256` (copy check), `run/*.sh` (the scripts the agent's c
    block of `remote/AGENT.md` (between the two `----` lines), or just tell the agent to read `remote/AGENT.md` first.
 4. Check that the target allows a long allocation (the session holds one allocation of up to 576 nodes) and that a
    scratch directory with a few TB is free (the agent will ask where outputs go; default `$HOME/remote_runs`). Digit files are written only on the last record step and only if
-   you say so: that is about 16 TB at 3.82e13 (the agent asks once, with the directory).
+   you say so: that is 0.41667 bytes per digit (22.5 TB at 5.4e13, 25.0 TB at 6e13; the agent asks once, with the directory).
 5. Start the terminal inside `tmux` or `screen` if the target has one (a dropped connection then does not kill a run in progress); otherwise stay connected during a paste.
 
 ## First message to the agent

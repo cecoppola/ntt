@@ -15,7 +15,7 @@ Read `remote/ROUTE.md` (the paste plan and the staircase) and `remote/FACTS.md` 
 1. Give the next paste of the plan in ROUTE.md (P1 to P5), with the exact command line (the staircase env words are copied from ROUTE.md, one env line per step, nowhere else), what you expect to
    see, how long it runs, and the go / no-go line you will apply. 2. The user pastes the one summary. 3. Read it against the go / no-go line; update the results table; decide: next paste,
    a fix or the fallback of the paste (ROUTE.md). Every paste is a round trip of minutes to an hour: make it count, never split what one command can do, never ask for polling.
-Ask the user once, before P1, for: the repository path, the session length, whether and where digit files are written (only the last record step; about 16 TB at 3.82e13), and `<node count>` if
+Ask the user once, before P1, for: the repository path, the session length, whether and where digit files are written (only the last record step; 0.41667 bytes per digit: 22.5 TB at 5.4e13, 25.0 TB at 6e13; ROUTE.md "Record-size output"), and `<node count>` if
 it is not 576. Allocation time = session hours minus 15 min (ROUTE.md P1). Check the remaining time against the next paste's time (ROUTE.md) before giving it.
 
 ## Rules for command blocks
@@ -71,7 +71,7 @@ is never "fixed by moving on": stop climbing, keep the logs, try the other path 
 Before ruling out a path or a setting, check the evidence: it came from a node of the session allocation (s1 prints
 `node_job` and `node_probe_host`; a probe in its own one-node job may land on a bad node), and the failing step's
 errors were read (`show.sh <run dir> errors`). A failure seen once on one node is a node suspect, not a path verdict.
-Time rule: if the remaining time is below the next paste's time plus 20 %, jump to the minimal route (ROUTE.md). Every staircase step has a fallback (ROUTE.md); a failed step is read (`show.sh <run dir> errors`), never repeated blindly, and never "fixed" by moving to a bigger size.
+Time rule: if the remaining time is below the next paste's time plus 20 %, jump to the minimal route (ROUTE.md). Staircase steps have no size fallback: stop, print the diagnosis, the user decides (ROUTE.md "Failure -> next command"); a failed step is read (`show.sh <run dir> errors`), never repeated blindly, and never "fixed" by moving to a bigger size.
 
 ## Running results table (keep it in every reply that changes it)
 
