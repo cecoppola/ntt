@@ -346,6 +346,7 @@ rl_ci() {           # d1 d2 ... (paired differences) -> "mean lo hi" 95 % t inte
 # (the reciprocal's stage clocks, one line per node).  Left out on purpose: XSHMEM_ROUND_STATS (device-wide sync probe in the post path, lines per PE),
 # DIST_STATS (drains the compute stream around every part), DB_POOL_VERBOSE (lines per pool growth per PE), ECALC_MEM_SAMPLE (one line per PE per period;
 # the node sampler covers MemAvailable).  REMOTE_FULLLOG_WORDS replaces the list.
+# Everything logged must be PRINTED and pasted by the user (nothing leaves the target): per-node / per-PE summary lines only, no per-round per-rank lines.
 RL_FULLLOG_WORDS=${REMOTE_FULLLOG_WORDS-"MN_WAIT_STATS=1 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=1"}
 MON_PID=
 rl_fl_words() {     # ENVWORDS -> the full-log words whose variable the caller did not set (the caller's words win)

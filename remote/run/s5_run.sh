@@ -17,7 +17,7 @@
 # scontrol job, hosts, binary sha256, mnrun's computed launch values), takes a node snapshot before and after the run ($RUN/snap/before|after/<host>.txt: meminfo,
 # numastat, amd-smi, all nonzero Slingshot NIC counters; $RUN/snap/nic_summary.csv = the after-minus-before NIC traffic, bytes estimated from the packet size
 # buckets) and samples every node every 30 s into $RUN/monitor/<host>.csv.  --monitor SEC sets or (0) switches off the sampler (REMOTE_MONITOR=SEC).  Summary
-# keys: fulllog, nic_gb_per_node, nic_error_like.  Nothing here can fail the run; a failed snapshot or sampler is skipped.  collect.sh bundles it all.
+# keys: fulllog, nic_gb_per_node, nic_error_like.  Nothing here can fail the run; a failed snapshot or sampler is skipped.  collect.sh freezes and prints it all.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); . "$HERE/lib.sh"; set -u
 RL_INVOKE="$0 $*"
 NN= DIG= P= ENVW= SCREEN=0 WDIR= TMO= JOB= EXCLUDE= HLIST= FL=${REMOTE_FULLLOG:-0} MON=${REMOTE_MONITOR:-}
