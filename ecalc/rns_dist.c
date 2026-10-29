@@ -340,6 +340,9 @@ static int cache_pc_take(mn_group *G, size_t na, size_t nb, const mdbv *A, const
         size_t a = (double)fr > (double)need + mg ? (size_t)(((double)fr - (double)need - mg) / (double)plane) : 0; if (fc < a) a = fc; if (a < P) P = a;
     }
     if (P > PM) P = PM;
+    { const char *tp = getenv("RNS_PC_TEST_P");               /* test only (off by default): cap the planes before the group's minimum; "p" or "p0,p1,..." (node % list length) */
+      if (tp && *tp) { int n_ = 1; for (const char *c = tp; *c; c++) n_ += *c == ','; int idx = node % n_; const char *c = tp; while (idx--) { c = strchr(c, ',') + 1; }
+        size_t cap = (size_t)atol(c); if (cap < P) P = cap; } }
     if (held) P = 0;
     P = PM - grp_max(G, PM - P);                              /* the group's minimum (a collective: every node of the group is here) */
     if (held) return 0;
