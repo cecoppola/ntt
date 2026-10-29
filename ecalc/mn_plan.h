@@ -29,6 +29,11 @@ struct rns_grid_plan {
 void rns_dist_db_plan(size_t na, size_t nb, size_t lowcut, size_t w, struct rns_grid_plan *p);
 /* the mn tier over g nodes (rns_mul_dist_mn / rns_mul_dist_mn_cut): mn_grid's decision; has_x: the tree's added operand */
 void rns_dist_mn_plan(size_t na, size_t nb, int g, int has_x, size_t lowcut, size_t w, struct rns_grid_plan *p);
+/* MN_LEVEL_UNIFORM (rns_dist.c, mn_plan.c): a floor under the mn tier's grid (0 = none); the level's largest grid per product from the plan's sizes
+ * (tab as mn_plan.c's mn_level_grids documents; returns the combines) */
+void rns_dist_mn_force(int ka, int kb);
+int mn_level_uniform(void);
+int mn_level_grids(unsigned long N, int size, int Gl, int Gp, int *tab, int maxc);
 /* the plane pools' bytes per APU that b_fits / b_place read (0, 0: the real pools again) */
 void rns_dist_plan_pools(size_t pool0_bytes, size_t pool1_bytes);
 /* MN_TREE_LOGN_TEST's cap for the plan (rns_dist_cap_test without releasing the transform cache, which needs a device) */

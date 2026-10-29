@@ -144,6 +144,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `MEM_REPORT_DEVS` | 0 | launch-line | `mem_report` adds per-APU rows (driver used/total) to the per-phase memory table; *B7ACCT*: at size > 1 each row also prints the terms outside `in use` -- the layout's v-slots ... | B7ACCT.md+TC15.md |
 | `MN_COMM_MARK` | 0 | launch-line | 1 prints, on node 0, a `comm-mark` line at the meshes' creation, the end of each tree level, the reciprocal and the division: this PE's all-to-all exchanges, GB received, post-to-completion ... | D16.md |
 | `MN_GROUPS` | unset | launch-line | the tree's level → group-size schedule, e.g. | T114.md+SC15.md |
+| `MN_LEVEL_UNIFORM` | 0 | launch-line | mn_plan.c mn_level_uniform; 1 = every group of a tree level forms the level's largest piece grid (ka x kb, per product, from the plan's predicted ... | - |
 | `MN_NONPOW2_CAP` | auto | built-in default | *T2 (D57), default auto since Q58 (user 2026-10-20): on from `MN_NONPOW2_MIN` digits per node-process, off below (the larger pools cost a fixed +7 s of init at 3 n 6e10; crossover about ... | - |
 | `MN_NONPOW2_MIN` | 4.5e10 | built-in default | digits per node-process (total digits / `COMM_SIZE`) from which `MN_NONPOW2_CAP` auto is on; default 4.5e10 (results/DIVISION.md §NPCAP crossover, mod); `MN_PLAN_ONLY` and the memory fit ... | - |
 | `MN_OUT_CHUNK_MB` | 256 | built-in default | the streamed writer's digit chunk per node (256) | IO15.md+A-out.md |
