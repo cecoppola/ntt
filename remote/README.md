@@ -53,7 +53,7 @@ Nothing can be copied off the target: only what is printed to the screen leaves 
 `summaries`, `stats` = the diagnostic and phase / memory lines of the rank logs, `nodes` = per-node NIC roll-up and the cross-node timeline, `env` = capture files, versions, Slurm accounting (`sacct -j <job> --format=ALL -P`), `nodes_full`, `raw` = the
 rest of the rank logs; digit files are not in it, only their path, size and hash). `collect.sh --plan` prints the inventory and the number of parts (pastes) a full print takes; `collect.sh --print [--part K] [--only CATEGORY] [--lines N] [--compact]` prints
 the parts, each framed `=== ECALC LOG PART K/N <category> ... sha256=... ===` ... `=== END PART K/N ===` (same text every time, so a lost paste is reprinted with `--part K`; `--compact` prints gzip+base64 of the same content, about 5-7 times smaller; the decode recipe is in part 1);
-`--paste` prints a 60-line digest. Print the categories in order and stop when enough is home: the first four are small. `report.sh` runs the freeze and prints the plan before it releases the allocation (`--no-collect` skips).
+`--only raw --ranks first,last,busiest,slowest [--grep REGEX]` prints a filtered raw set (the plan shows its part count; lines that name no rank are kept); `--paste` prints a 60-line digest. Print the categories in order and stop when enough is home: the first four are small. `report.sh` runs the freeze and prints the plan before it releases the allocation (`--no-collect` skips).
 
 ## Bring the results home
 

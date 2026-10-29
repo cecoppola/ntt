@@ -6,6 +6,10 @@
 #                                              print parts; plain text: `=== ECALC LOG PART K/N <category> lines=L sha256=<of the body> ===` body `=== END PART K/N ===`
 #                                              (part K is the same text every time: the data are frozen, the order is fixed; K/N count over ALL categories also with --only);
 #                                              --compact: the same content gzip+base64 (76-column lines), sha256 of the DECODED bytes of the part, decode recipe in the frame
+#   collect.sh --print --only raw --ranks LIST [--grep REGEX]   a FILTERED raw category (own part numbers): the lines of the listed ranks, plus every line that names no rank, and
+#                                              (--grep) only lines matching REGEX.  LIST: comma list of rank numbers, ranges a-b and the words first, last, busiest (largest device peak
+#                                              of the "device X GB in use" lines), slowest (the rank whose last log line comes last).  --plan shows the part count of the default set
+#                                              (ranks first,last,busiest,slowest).  A rank is read from an "N: " line prefix or "pe N" / "node N" in the line.
 #   collect.sh --paste                         digest of at most 60 lines (one line per s5 run) for the browser agent
 #   collect.sh [--refresh] [--out DIR] [--dry-run]    --refresh makes a new freeze (default: the latest one is reused; a note says when runs are newer than it)
 # Categories, in print order (most valuable first): summaries (run summaries, launch lines, digit file paths and hashes), stats (the diagnostic and phase / memory table lines
@@ -15,10 +19,10 @@
 # The digit files stay where they are (only path, size and printed hash are in summaries).  Works after the allocation is released; every missing tool is skipped.
 # Reassemble plain parts: concatenate the bodies of one category in part order.  Compact: concatenate the body lines of one category in part order, then base64 -d | gunzip.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); . "$HERE/lib.sh"; set -u
-OUTD= PASTE=0 PLAN=0 PRINT=0 PART= NL=1500 ONLY= COMPACT=0 REFRESH=0; DRY=0
+OUTD= PASTE=0 PLAN=0 PRINT=0 PART= NL=1500 ONLY= COMPACT=0 REFRESH=0 RANKS= GREP=; DRY=0
 while [ $# -gt 0 ]; do case $1 in
   --out) OUTD=${2:?}; shift;; --paste) PASTE=1;; --plan) PLAN=1;; --print) PRINT=1;; --part) PART=${2:?}; shift;; --lines) NL=${2:?}; shift;; --only) ONLY=${2:?}; shift;;
-  --compact) COMPACT=1;; --refresh) REFRESH=1;; --dry-run) DRY=1;; -h|--help) rl_help "$0"; exit 0;; *) echo "collect.sh: unknown option $1 (--help)" >&2; exit 2;; esac; shift; done
+  --compact) COMPACT=1;; --ranks) RANKS=${2:?}; shift;; --grep) GREP=${2:?}; shift;; --refresh) REFRESH=1;; --dry-run) DRY=1;; -h|--help) rl_help "$0"; exit 0;; *) echo "collect.sh: unknown option $1 (--help)" >&2; exit 2;; esac; shift; done
 rl_posint "$NL" || { echo "collect.sh: --lines a positive integer" >&2; exit 2; }
 [ -z "$PART" ] || rl_posint "$PART" || { echo "collect.sh: --part a positive integer" >&2; exit 2; }
 [ "$PLAN$PRINT$PASTE$DRY$REFRESH" != 00000 ] || { PLAN=1; PASTE=1; }
@@ -132,9 +136,31 @@ FZ=$(newest_freeze)
 if [ "$REFRESH" = 1 ] || [ -z "$FZ" ] || [ ! -e "$FZ/.done" ]; then FZ=$(build_freeze); NEW=1; else NEW=0; fi
 NEWER=$(cd "$REMOTE_OUT" && for r in $RUNS; do find "$r" -type f -newer "$FZ/.done" 2>/dev/null; done | head -1)
 
+RAWF_DEFAULT=first,last,busiest,slowest
+make_rawf() {    # RANKS GREP -> RAWC (category name of the filtered raw stream, built once per spec)
+    local h; h=$(printf '%s|%s' "$1" "$2" | sha256sum | cut -c1-8); RAWC=rawf_$h
+    [ -s "$FZ/$RAWC.txt" ] || {
+        RK="$1" GR="$2" awk 'function rk(l,  m) { if (match(l, /^ *[0-9]+: /)) { m = substr(l, RSTART, RLENGTH); gsub(/[^0-9]/, "", m); return m + 0 }
+                if (match(l, /(^|[ (])pe [0-9]+[ :(]/)) { m = substr(l, RSTART, RLENGTH); gsub(/[^0-9]/, "", m); return m + 0 }
+                if (match(l, /(^|[ (])node [0-9]+[ :(]/)) { m = substr(l, RSTART, RLENGTH); gsub(/[^0-9]/, "", m); return m + 0 } return -1 }
+            FNR == 1 { fi++ }
+            fi < 3 { r = rk($0); if (r >= 0) { if (!(r in seen)) { seen[r] = 1; if (mn == "" || r < mn) mn = r; if (r > mx) mx = r }
+                if (fi == 2) lastl[r] = FNR; if (match($0, /device [0-9.]+ GB in use/)) { v = substr($0, RSTART + 7, RLENGTH - 17) + 0; if (v > pk[r]) pk[r] = v } } next }
+            fi == 3 && FNR == 1 { n = split(ENVIRON["RK"], T, ","); for (i = 1; i <= n; i++) { t = T[i]
+                    if (t == "first") sel[mn] = 1; else if (t == "last") sel[mx] = 1
+                    else if (t == "busiest") { b = -1; for (r in pk) if (b < 0 || pk[r] > pk[b]) b = r; if (b >= 0) sel[b] = 1 }
+                    else if (t == "slowest") { b = -1; for (r in lastl) if (b < 0 || lastl[r] > lastl[b]) b = r; if (b >= 0) sel[b] = 1 }
+                    else if (t ~ /^[0-9]+-[0-9]+$/) { split(t, A, "-"); for (r = A[1]; r <= A[2]; r++) sel[r] = 1 } else if (t ~ /^[0-9]+$/) sel[t + 0] = 1 }
+                    printf "##### FILTER ranks=%s grep=%s -> ranks kept:", ENVIRON["RK"], ENVIRON["GR"]; for (r in sel) printf " %s", r; printf " (ranks seen %s-%s; lines that name no rank are kept) #####\n", mn, mx }
+            fi == 3 { if ($0 ~ /^##### /) { print; next } r = rk($0)
+                ok = (ENVIRON["RK"] == "" || r < 0 || (r in sel)); if (ok && ENVIRON["GR"] != "" && $0 !~ ENVIRON["GR"]) ok = 0; if (ok) print }' "$FZ/stats.txt" "$FZ/raw.txt" "$FZ/raw.txt" > "$FZ/$RAWC.txt"
+        gzip -9 -n < "$FZ/$RAWC.txt" | base64 -w 76 > "$FZ/$RAWC.gz.b64"; }
+}
+RAWC=raw; CATU=$CATS
+if [ -n "$RANKS$GREP" ]; then make_rawf "$RANKS" "$GREP"; CATU=${CATS/raw/$RAWC}; fi
 # ---- part table: global numbering over the non-empty categories, in order
 declare -A CL CP; TOTP=0; PT=()      # lines (plain: text lines; compact: base64 lines), parts per category
-for c in $CATS; do
+for c in $CATU; do
     if [ "$COMPACT" = 1 ]; then n=$(wc -l < "$FZ/$c.gz.b64"); else n=$(wc -l < "$FZ/$c.txt"); fi
     [ "$n" -gt 0 ] && [ "$(wc -c < "$FZ/$c.txt")" -gt 1 ] || continue
     CL[$c]=$n; CP[$c]=$(( (n + NL - 1) / NL ))
@@ -151,7 +177,8 @@ plan() {
         printf '%-10s %6s %9s %11s  %6s       | %11s  %6s\n' "$c" "$nf" "$fl" "$by" "$pl" "$gb" "$pc"; tp=$((tp + pl)); tc=$((tc + pc)); tb=$((tb + by)); tg=$((tg + gb))
     done
     printf '%-10s %6s %9s %11s  %6s       | %11s  %6s   (ratio plain/compact %s)\n' total "" "" "$tb" "$tp" "$tg" "$tc" "$(awk -v a="$tb" -v b="$tg" 'BEGIN { printf "%.2f", (b > 0) ? a / b : 0 }')"
-    echo "print: collect.sh --print [--part K] [--only CAT] [--lines N] [--compact]; one part = one paste; --lines must stay the same between calls (part K is then identical every time)"
+    local keep=$RAWC; make_rawf "$RAWF_DEFAULT" ""; fl=$(wc -l < "$FZ/$RAWC.txt"); printf '%-10s %6s %9s %11s  %6s       | %11s  %6s   (raw filtered to ranks %s: --only raw --ranks %s)\n' raw-filt "" "$fl" "$(wc -c < "$FZ/$RAWC.txt")" "$(( (fl + NL - 1) / NL ))" "$(wc -c < "$FZ/$RAWC.gz.b64")" "$(( ($(wc -l < "$FZ/$RAWC.gz.b64") + NL - 1) / NL ))" "$RAWF_DEFAULT" "$RAWF_DEFAULT"; RAWC=$keep
+    echo "print: collect.sh --print [--part K] [--only CAT] [--lines N] [--compact] [--ranks LIST] [--grep RE]; one part = one paste; --lines must stay the same between calls (part K is then identical every time)"
     [ -z "$NEWER" ] || echo "note: files newer than this freeze exist (a later run?): collect.sh --refresh makes a new freeze (part numbers then change)"
 }
 body_of() {      # CAT J -> the body lines of part J (plain or compact)
@@ -162,6 +189,7 @@ print_part() {   # K
     local k=$1 e c j body sha n tag=; e=${PT[$((k - 1))]}; c=${e%%:*}; j=${e##*:}
     body=$(mktemp "${TMPDIR:-/tmp}/cpart.XXXXXX"); body_of "$c" "$j" > "$body"; n=$(wc -l < "$body")
     if [ "$COMPACT" = 1 ]; then sha=$(base64 -d < "$body" | sha256sum | cut -c1-64); tag=" compact"; else sha=$(sha256sum < "$body" | cut -c1-64); fi
+    case $c in rawf_*) c="raw[ranks=${RANKS:-all}${GREP:+ grep=$GREP}]";; esac
     echo "=== ECALC LOG PART $k/$TOTP $c$tag lines=$n sha256=$sha ==="
     if [ "$k" = 1 ]; then
         if [ "$COMPACT" = 1 ]; then echo "# decode: per category, join the body lines of its parts in order, then:  base64 -d | gunzip > <category>.txt   (part sha256 = of the decoded bytes of that part; $NL lines per part)"
@@ -189,7 +217,7 @@ if [ "$PASTE" = 1 ]; then
 fi
 if [ "$PRINT" = 1 ]; then
     [ "$TOTP" -gt 0 ] || { echo "collect.sh: nothing to print (no run dir under $REMOTE_OUT)" >&2; exit 1; }
-    sel=(); for ((k = 1; k <= TOTP; k++)); do e=${PT[$((k - 1))]}; c=${e%%:*}
+    sel=(); for ((k = 1; k <= TOTP; k++)); do e=${PT[$((k - 1))]}; c=${e%%:*}; case $c in rawf_*) c=raw;; esac
         [ -z "$ONLY" ] || case ",$ONLY," in *",$c,"*) ;; *) continue;; esac
         [ -z "$PART" ] || [ "$PART" = "$k" ] || continue; sel+=("$k"); done
     [ ${#sel[@]} -gt 0 ] || { echo "collect.sh: no such part (parts 1..$TOTP; categories: $CATS)" >&2; exit 2; }
