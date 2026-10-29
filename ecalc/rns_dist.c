@@ -1524,6 +1524,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             k_transpose<<<grid, blk, 0, s>>>(xa[p], xt, rows, C);
             HIP_CHECK(hipMemcpyAsync(xa[p], xt, qs * 8, hipMemcpyDeviceToDevice, s));
         }
+        if (qs > 0xffffffffULL) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: rank plane %zu limbs exceeds the 32-bit bdesc length\n", qs); }   /* (a guard: the CRT descriptor holds 32-bit lengths) */
         struct bdesc hd = { 0, 0, cx, xb, (uint32_t)qs, 0, (uint32_t)(cx ? qs : 0) };
         struct bdesc *dd = (struct bdesc *)dpool_get(&v->desc, dv, sizeof hd);
         HIP_CHECK(hipMemcpyAsync(dd, &hd, sizeof hd, hipMemcpyHostToDevice, s));
