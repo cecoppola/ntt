@@ -4,19 +4,19 @@
 # point).  Measures the real GPU edge (REMOTE_DEVICE_GB) and tells whether pinned host memory beyond the hipMalloc edge is available (the record uses about 380 GB of 515 GB).
 #   edge.sh [--jobid J] [--pin GB] [--cap GB] [--tmo SEC] [--dry-run]
 # Four t_edge forms in a row (total about 5 min, elapsed printed; skips cleanly, verdict SKIP, when t_edge is not built):
-#   dev    hipMalloc round-robin over the 4 APUs in 2 GB chunks, all held at once, touched (--dev-tmo, 120 s): dev_edge_gb (per node), device_edge_apu_gb (min over the 4 APUs)
+#   dev    hipMalloc round-robin over the 4 APUs in 2 GB chunks, all held at once, touched (--dev-tmo, 300 s): dev_edge_gb (per node), device_edge_apu_gb (min over the 4 APUs)
 #   vmm    the same with hipMemCreate/Map (the form ecalc's pools use, --dev-tmo): vmm_edge_apu_gb
 #          REMOTE_DEVICE_GB = 4 x (min(device, vmm per-APU edge) - 2 GB margin) is then kept in site.env (planner ECALC_DEVICE_GB and the stair memory rule use it;
 #          unset = the 373.44 harness figure of 10-06, superseded by this measurement; a form that hit its time limit has no result and does not count; one that reached its 480 GB cap without failing counts as a lower bound (the value stays safe); not written when no form finished or under 60 GB per APU)
-#   pin    holds --pin GB (default 24) of pinned hipHostMalloc per APU (NUMA-local), then the same hipMalloc fill (100 s): pin_dev_edge_gb.
+#   pin    holds --pin GB (default 24) of pinned hipHostMalloc per APU (NUMA-local), then the same hipMalloc fill (300 s): pin_dev_edge_gb.
 #          pinned_counts_against_edge=yes when the hipMalloc edge dropped by at least half of what was pinned, no when it dropped by less than a fifth,
 #          unclear in between, unknown when the pinning did not reach half of the request.  Pinned allocation is slow on a used node (0.8-4.8 GiB/s).
-#   host   pinned host memory per node (hipHostMalloc, NumaUser, 8 GB steps, cap --cap 440 GB, --tmo 100 s): host_edge_gb (`+` cap reached, `timeout` = lower bound)
+#   host   pinned host memory per node (hipHostMalloc, NumaUser, 8 GB steps, cap --cap 440 GB, --tmo 300 s): host_edge_gb (`+` cap reached, `timeout` = lower bound)
 #   malloc plain malloc + touch (20 s): malloc_edge_gb (information only)
 # The record uses about 380 GB of the 515.7 GB MemAvailable.  Keys: dev_edge_gb pin_requested_gb_per_apu pin_dev_edge_gb pinned_counts_against_edge host_edge_gb
 # device_edge_apu_gb vmm_edge_apu_gb remote_device_gb malloc_edge_gb mem_available_start_gb edge_elapsed_s edge_note.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); . "$HERE/lib.sh"; set -u
-JOB= STEP=8 CAP=440 TMO=100 PIN=24 DTMO=120
+JOB= STEP=8 CAP=440 TMO=300 PIN=24 DTMO=300   # the touch runs at about 2.5 GB/s (aac7, m): 450 GB take about 190 s
 while [ $# -gt 0 ]; do case $1 in
   --jobid) JOB=${2:?}; shift;; --step) STEP=${2:?}; shift;; --pin) PIN=${2:?}; shift;; --cap) CAP=${2:?}; shift;; --tmo) TMO=${2:?}; shift;; --dev-tmo) DTMO=${2:?}; shift;; --dry-run) DRY=1;;
   -h|--help) rl_help "$0"; exit 0;; *) echo "edge.sh: unknown option $1 (--help)" >&2; exit 2;; esac; shift; done
@@ -60,7 +60,7 @@ rl_say "t_edge vmm on $HOST (<= $DTMO s)"; form_run vmm "$DTMO" 2 480; VAPU=$(ap
 RDG=$(awk -v a="${DAPU:-}" -v b="${VAPU:-}" 'BEGIN { m = ""; if (a != "") m = a + 0; if (b != "" && (m == "" || b + 0 < m)) m = b + 0; if (m == "" || m < 62) { print ""; exit } printf "%.2f", 4 * (m - 2) }')
 if [ -n "$RDG" ]; then rl_site_set REMOTE_DEVICE_GB "$RDG"; rl_kv remote_device_gb "$RDG (= 4 x (min per-APU edge - 2 GB); kept in site.env; ECALC_DEVICE_GB of the planner and the stair rule)"
 else rl_site_unset REMOTE_DEVICE_GB; rl_kv remote_device_gb "unset (no form finished, or under 60 GB per APU: the 373.44 harness figure stays)"; v=PARTIAL; fi
-rl_say "t_edge pin $PIN GB per APU, then hipMalloc (<= 100 s)"; form_run pin 100 "$PIN" 2 440
+rl_say "t_edge pin $PIN GB per APU, then hipMalloc (<= 300 s)"; form_run pin 300 "$PIN" 2 440
 PD=$(pr pin 's/.*pin result: pinned \([0-9.]*\) GB.*hipMalloc edge \([0-9.]*\) GB per node.*/\1 \2/p'); PT=${PD% *}; PE=${PD#* }
 rl_kv pin_requested_gb_per_apu "$PIN"; rl_kv pin_dev_edge_gb "${PE:-NA} (pinned ${PT:-NA} GB in total first)"
 verd=unknown

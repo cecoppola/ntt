@@ -16,7 +16,8 @@
 # bs+dm are lower AND both runs are VERIFY OK with the same last digits; the winner is kept in site.env as REMOTE_ROUND_MB (unset when 128 wins) and every
 # later step (also in later pastes) adds XSHMEM_ROUND_MB=$REMOTE_ROUND_MB unless its ENV has one.  A failed second run is not fatal (128 stays, PARTIAL);
 # wrong digits are (FAIL).  Keys: round_test (the numbers), round_mb (the setting in force after the test).
-# --ab "NODES|DIGITS|B_WORDS[|C_WORDS]" (once): after step 1 passes, 3 (or 2 without C) rounds of ONE arms.sh call with 3 (2) arms of NODES nodes at
+# --ab "NODES|DIGITS|B_WORDS[|C_WORDS[|D_WORDS]]" (once): after step 1 passes, one round per arm (2-4; a round is stopped, nothing adopted, when the --budget
+# would leave under 30 min) of ONE arms.sh call with 2-4 arms (D = BS_SEED_CHUNK_MB=2048 in ROUTE) of NODES nodes at
 # once; the arm order rotates between rounds so every arm runs on every host block.  A = step 1's ENV (defaults), B = A + B_WORDS (the residue / thread
 # team switches), C = A + C_WORDS (DM_MN_WRAP=0 against the auto rule, which turns the wrap ON at 8e9 per node).  Rules printed: digits must be identical
 # in every run (else FAIL).  Adopt B when its dc is below A's smallest dc in every round (beyond the A-A spread) and its mean total is within +2 % of A's:
@@ -33,7 +34,7 @@ while [ $# -gt 0 ]; do case $1 in
   --path) PATHN=${2:?}; shift;; --step) STEPS+=("${2:?}"); shift;; --budget) BUDGET=${2:?}; shift;; --min-margin) MINM=${2:?}; shift;; --ab) AB=${2:?}; shift;; --top) TOP=${2:?}; shift;; --final) FINAL=${2:?}; shift;; --jobid) JOB=${2:?}; shift;; --exclude) EXCLUDE=${2-}; shift;;
   --dry-run) DRY=1;; -h|--help) rl_help "$0"; exit 0;; *) echo "stair.sh: unknown option $1 (--help)" >&2; exit 2;; esac; shift; done
 case $PATHN in 1|2) ;; *) echo "stair.sh: --path 1|2 required (--help)" >&2; exit 2;; esac
-[ ${#STEPS[@]} -gt 0 ] || { echo "stair.sh: give at least one --step \"NODES|DIGITS|ENV|EXTRA\" (--help)" >&2; exit 2; }
+[ ${#STEPS[@]} -gt 0 ] || [ -n "$TOP$FINAL" ] || { echo "stair.sh: give at least one --step \"NODES|DIGITS|ENV|EXTRA\" (or --top / --final) (--help)" >&2; exit 2; }
 [ -z "$BUDGET" ] || rl_posint "$BUDGET" || { echo "stair.sh: --budget MIN (a positive integer)" >&2; exit 2; }
 SN=() SD=() SE=() SX=()
 for s in "${STEPS[@]}"; do
@@ -86,9 +87,9 @@ left_s() {     # seconds left of the allocation (empty = unknown)
 PTS=${REMOTE_STAIR_PTS:-}; DEVM=0; [ -n "${REMOTE_DEVICE_GB:-}" ] && DEVM=2
 GAP=${REMOTE_STAIR_GAP:-}; GAPSRC=${REMOTE_STAIR_GAP:+" (from an earlier paste)"}; PMAX=; t0=$SECONDS; best=0; stop=; worst=PASS; skipped=0
 rl_line "step nodes digits         verdict  total_s init/bs/dm/dc (s)       meas/model apu_peak/plan_max_GB verify last_digits(20)  hash"
-predict() {      # "d:ex:tot ..." X -> "EXCESS_PRED TIME_PRED NPOINTS": linear least squares of the excess on digits, power law of total_s (log-log); NA when under 2 points
-    awk -v pts="$1" -v x="$2" 'BEGIN { n = split(pts, a, " "); m = 0; k = 0
-        for (i = 1; i <= n; i++) { split(a[i], f, ":"); d = f[1] + 0; if (d <= 0) continue
+predict() {      # "d:ex:tot:nodes ..." X NODES -> "EXCESS_PRED TIME_PRED NPOINTS": linear least squares of the excess on digits, power law of total_s (log-log), over the points at NODES nodes only (P2's 64-node points have another per-node load); NA when under 2 points
+    awk -v pts="$1" -v x="$2" -v nn="${3:-0}" 'BEGIN { n = split(pts, a, " "); m = 0; k = 0
+        for (i = 1; i <= n; i++) { split(a[i], f, ":"); d = f[1] + 0; if (d <= 0) continue; if (nn + 0 > 0 && f[4] != "" && f[4] + 0 != nn + 0) continue
             if (f[2] != "NA" && f[2] != "") { m++; sx += d; sy += f[2]; sxx += d * d; sxy += d * f[2] }
             if (f[3] != "NA" && f[3] + 0 > 0) { k++; lx += log(d); ly += log(f[3]); lxx += log(d) * log(d); lxy += log(d) * log(f[3]) } }
         if (m >= 2 && m * sxx - sx * sx > 0) { b = (m * sxy - sx * sy) / (m * sxx - sx * sx); e = (sy - b * sx) / m + b * x; r1 = sprintf("%.2f", e) } else r1 = "NA"
@@ -124,7 +125,7 @@ run_step() {   # IDX NODES DIGITS ENV EXTRA TAG -> sets SV (verdict) and prints 
     ST_TOTAL=$(kv total_s | awk '{ print $1 }'); ST_PH=$(grep -a -m1 '^phases_s:' "$sf" | sed -E 's/.*init=([^ ]*) bs=([^ ]*) recip=[^ ]* dm=([^ ]*) dc=([^ ]*).*/\1 \2 \3 \4/'); ST_VERIFY=$(kv verify); ST_LAST=$(kv last_digits | tr -d ' ' | cut -c1-20); ST_RC=$(kv rc)
     if [ "$v" = PASS ] && [ -n "${ST_TOTAL:-}" ]; then
         local exv=NA dn; dn=$(rl_num "$d"); [ -n "${PMAX:-}" ] && [ -n "$pk" ] && [ "$pk" != NA ] && exv=$(awk -v a="$pk" -v b="$PMAX" 'BEGIN { printf "%.2f", a - b }')
-        PTS=$(echo "$PTS" | tr ' ' '\n' | awk -F: -v d="$dn" 'NF && $1 + 0 != d + 0' | tr '\n' ' '); PTS="$PTS$dn:$exv:$ST_TOTAL"; rl_site_set REMOTE_STAIR_PTS "$PTS"
+        PTS=$(echo "$PTS" | tr ' ' '\n' | awk -F: -v d="$dn" -v n="$n" 'NF && !($1 + 0 == d + 0 && ($4 == "" || $4 + 0 == n + 0))' | tr '\n' ' '); PTS="$PTS$dn:$exv:$ST_TOTAL:$n"; rl_site_set REMOTE_STAIR_PTS "$PTS"
         rl_line "     point: digits $dn excess_apu $exv GB total_s $ST_TOTAL (all points: $PTS)"
     fi
     SV=$v; SRD=$rd; SSF=$sf; LFD=$(kv largest_fit_digits); [ -n "$LFD" ] && rl_line "     planner refused: largest fitting digits $LFD"
@@ -140,7 +141,7 @@ attempt() {    # IDX NODES DIGITS ENV EXTRA TAG -> rc 0 = the step ran (SV, ST_*
         rl_line "$tag $n $d SKIPPED (budget $BUDGET min: $(( (SECONDS - t0) / 60 )) min used, a step needs up to 30)"; skipped=$((skipped + 1)); stop=skip; return 1; fi
     ls=$(left_s)
     if [ -n "${JOB:-}" ] && [ -n "$ls" ]; then
-        tmx=$(echo " $x " | sed -n 's/.* --tmo \([0-9]*\) .*/\1/p'); need=$(( ${tmx:-25} + 5 ))
+        tmx=$(echo " $x " | sed -n 's/.* --tmo \([0-9]*\) .*/\1/p'); need=$(( ${tmx:-25} + 5 )); [ "${REMOTE_FULLLOG:-0}" = 1 ] && need=$((need + 10))   # --fulllog: capture + snapshots before/after the timed run
         if [ "$ls" -lt $((need * 60)) ]; then
             rl_line "$tag $n $d SKIPPED (the allocation has $((ls / 60)) min left, the step needs $need = its --tmo ${tmx:-25} + 5; re-request a longer hold: alloc.sh --release, then alloc.sh --nodes <N> --time <H:MM:SS>)"; skipped=$((skipped + 1)); stop=skip; return 1; fi
     fi
@@ -170,6 +171,8 @@ run_ab() {     # BASE_ENV -> rounds of arms.sh with A (base), B (+AB_W), C (+AB_
     local -a nl=($names)
     for ((r = 0; r < na; r++)); do
         args=(); for ((s = 0; s < na; s++)); do nm=${nl[$(( (s + r) % na ))]}; args+=(--arm "$nm:${WORD[$nm]}"); done
+        if [ -n "$BUDGET" ] && [ "$r" -gt 0 ] && [ $(( (SECONDS - t0) / 60 + tm + 5 + 30 )) -gt "$BUDGET" ]; then    # keep 30 min of the budget for the 576-node steps
+            rl_line "     ab: round $((r + 1)) not run (budget $BUDGET min: $(( (SECONDS - t0) / 60 )) used); nothing adopted"; rl_kv ab_test "stopped after $r round(s) (budget)"; AB_SOFT=1; return 0; fi
         out=$RUN/raw/ab_$r.out
         rl_say "ab round $((r + 1))/$na: ${nl[$(( r % na ))]} first"
         rl_tmo $(( (tm + 5) * 60 )) bash "$HERE/arms.sh" --nodes "$AB_N" --digits "$AB_D" --path "$PATHN" --tmo "$tm" ${JOB:+--jobid "$JOB"} ${EXCLUDE:+--exclude "$EXCLUDE"} "${args[@]}" > "$out" 2>&1 < /dev/null; rcs=$?
@@ -254,7 +257,7 @@ eval_cand() {     # NODES DIGITS ENV -> CM (planner margin per APU), CPK (planne
     D1=$(rl_digits_site "$d" "$n"); rl_fit "$PATHN" "$n" "$D1" $e; CRC=$?
     pl=$(grep -a 'per APU (max)' "$RUN/raw/fit_${PATHN}_${n}_$D1.log" 2>/dev/null | tail -1)
     CM=$(echo "$pl" | sed -n 's/.*margin \([-+][0-9.]*\) GB.*/\1/p'); CPK=$(echo "$pl" | sed -n 's/.*per APU (max) \([0-9.]*\) GB.*/\1/p')
-    pr=$(predict "$PTS" "$(rl_num "$d")"); CTP=$(echo "$pr" | awk '{ print $2 }')
+    pr=$(predict "$PTS" "$(rl_num "$d")" "$n"); CTP=$(echo "$pr" | awk '{ print $2 }')
     CEX=$(awk -v g="${GAP:-}" -v p="$(echo "$pr" | awk '{ print $1 }')" 'BEGIN { if (g == "" && p == "NA") { print "NA"; exit } if (p == "NA") { print g; exit } if (g == "" || p + 0 > g + 0) print p; else print g }')
     CNEED=$(needgb "$CEX")
 }
@@ -318,7 +321,7 @@ if [ -n "$TOP" ] && [ "$worst" = PASS ] && [ -z "$stop" ]; then
         idx=$((TOTAL + 1)); attempt "$idx" "$TOP_N" "$TOPD" "$TOPE" "$TOP_X" "$idx" && { if [ "$SV" = FAIL ]; then worst=FAIL; stop=fail; fail_idx=$idx; else best=$(rl_num "$TOPD"); fi; }
     fi
 fi
-if [ -n "$FINAL" ] && [ "$worst" = PASS ]; then final_step; fi
+if [ -n "$FINAL" ] && [ "$worst" != FAIL ]; then final_step; fi      # also after a skipped step: the proposal uses the points that passed
 [ $AB_SOFT = 1 ] && [ "$worst" = PASS ] && worst=PARTIAL
 [ "$stop" = skip ] && [ "$worst" = PASS ] && worst=PARTIAL
 rl_kv best_passed_digits "$best"; rl_kv elapsed_min "$(( (SECONDS - t0) / 60 ))"
