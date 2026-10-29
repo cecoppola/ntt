@@ -80,7 +80,7 @@ rl_finish() {   # VERDICT [NOTE] NEXT: print the summary block, exit by verdict
     echo "$v" > "$RUN/DONE"
     case $v in FAIL) exit 1;; *) exit 0;; esac
 }
-rl_trap() { local rc=$?; if [ "$RL_FINISHED" != 1 ] && [ -n "$RUN" ]; then rl_finish FAIL "script ended unexpectedly (rc $rc)" "show.sh $RUN tail 40"; fi; }
+rl_trap() { local rc=$?; rl_mon_stop 2>/dev/null; if [ "$RL_FINISHED" != 1 ] && [ -n "$RUN" ]; then rl_finish FAIL "script ended unexpectedly (rc $rc)" "show.sh $RUN tail 40"; fi; }
 
 # ---- timeouts and helpers --------------------------------------------------------------------------------------------
 rl_tmo() { local s=$1; shift; timeout -k 10 "$s" "$@"; }       # SECONDS CMD...
@@ -338,4 +338,83 @@ rl_ci() {           # d1 d2 ... (paired differences) -> "mean lo hi" 95 % t inte
         if (n < 2) { printf "%.3f NA NA", m; exit }
         for (i = 1; i < ARGC; i++) q += (ARGV[i] - m) ^ 2; sd = sqrt(q / (n - 1)); tt = (n - 1 <= 10) ? t[n - 1] : 1.96; h = tt * sd / sqrt(n)
         printf "%.3f %.3f %.3f", m, m - h, m + h }' "$@"
+}
+
+# ---- full log: capture files, node snapshots, sampler (s5_run.sh --fulllog / --monitor; README "Logs for offline analysis") ----------------------------------------
+# Diagnostic switches of --fulllog: digit-neutral, one summary line per node (576 lines each at 576 nodes), no barrier or synchronisation on the hot path.
+# MN_WAIT_STATS=1 (barrier / wait seconds per phase, one extra allreduce at the end of bs), ECALC_INIT_TL=1 (init timeline, rank 0), NEWTON_MN_RECIP_TS=1
+# (the reciprocal's stage clocks, one line per node).  Left out on purpose: XSHMEM_ROUND_STATS (device-wide sync probe in the post path, lines per PE),
+# DIST_STATS (drains the compute stream around every part), DB_POOL_VERBOSE (lines per pool growth per PE), ECALC_MEM_SAMPLE (one line per PE per period;
+# the node sampler covers MemAvailable).  REMOTE_FULLLOG_WORDS replaces the list.
+# Everything logged must be PRINTED and pasted by the user (nothing leaves the target): per-node / per-PE summary lines only, no per-round per-rank lines.
+RL_FULLLOG_WORDS=${REMOTE_FULLLOG_WORDS-"MN_WAIT_STATS=1 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=1"}
+MON_PID=
+rl_fl_words() {     # ENVWORDS -> the full-log words whose variable the caller did not set (the caller's words win)
+    local w k; for w in $RL_FULLLOG_WORDS; do k=${w%%=*}; case " $* " in *" $k="*) ;; *) printf '%s ' "$w";; esac; done
+}
+rl_nhosts() { echo "${1:-}" | tr ',' '\n' | grep -c .; }
+rl_capture() {      # PATH NODES DIGITS [words] -> $RUN/capture/: the launch line, environment (secrets dropped), modules, scontrol job, hosts, binary hashes
+    local c=$RUN/capture p=$1 n=$2 d=$3 b dir; shift 3; mkdir -p "$c"
+    { echo "# $(date '+%F %T %Z') site=$REMOTE_SITE job=${JOB:-none}"; echo "# invoked: ${RL_INVOKE:-$0}"; rl_cmdline "$p" "$n" "$d" "$@"; } > "$c/cmdline.txt" 2>&1
+    env | sort | grep -a -v -i -E '^[^=]*(KEY|TOKEN|PASS|SECRET|CRED|AUTH|COOKIE)[^=]*=' > "$c/env.txt" 2>&1
+    { rl_module_init; set +u; module list; } > "$c/modules.txt" 2>&1; echo "module line p$p: $(rl_mods "$p")  unload: $(rl_unload)" >> "$c/modules.txt"
+    [ -n "${JOB:-}" ] && rl_tmo 30 scontrol show job -dd "$JOB" > "$c/scontrol_job.txt" 2>&1
+    echo "${HOSTS:-}" | tr ',' '\n' > "$c/hosts.txt"
+    b=$(rl_bin "$p"); dir=$(dirname "$b")
+    { [ -f "$b" ] && sha256sum "$b"; [ -f "$dir/mnrun.sh" ] && sha256sum "$dir/mnrun.sh"; } > "$c/binary.sha256" 2>&1
+    [ -f "$b" ] && { rl_tmo 30 ldd "$b" > "$c/ldd.txt" 2>&1; ls -l "$b" >> "$c/binary.sha256"; }
+    local shapew=; [ "$p" = 2 ] && shapew="ECALC_PE_PER_GPU=1 XSHMEM_LANES=2"
+    [ -x "$dir/mnrun.sh" ] && [ -n "${JOB:-}" ] && MNRUN_PRINT_ENV=1 SLURM_JOB_ID=$JOB MNRUN_NODELIST=${HOSTS:-} MNRUN_UNLOAD=$(rl_unload) MNRUN_MODULES=$(rl_mods "$p") \
+        rl_tmo 150 "$dir/mnrun.sh" "$n" env $shapew "$@" "$b" "$d" < /dev/null 2>&1 | head -80 > "$c/mnrun_print_env.txt"   # the computed launch values (approximate: the run adds the kit's reporting words)
+    return 0
+}
+rl_snap() {         # TAG [static] -> $RUN/snap/<tag>/<host>.txt, one task per node of $HOSTS (srun --overlap); silent on failure
+    local tag=$1 st=${2:-} d=$RUN/snap/$1 n; n=$(rl_nhosts "${HOSTS:-}")
+    [ -n "${JOB:-}" ] && [ "$n" -gt 0 ] || return 0
+    mkdir -p "$d"
+    rl_tmo 180 srun --jobid="$JOB" --overlap --mem=0 --nodes="$n" --ntasks="$n" --ntasks-per-node=1 -w "$HOSTS" --time=3 --export=ALL \
+        -o "$d/%N.txt" -e "$d/%N.err" bash "$RL_DIR/nodesnap.sh" $st > /dev/null 2>&1 < /dev/null
+    rl_log "snapshot $tag: $(ls "$d"/*.txt 2>/dev/null | wc -l) of $n node file(s)"; find "$d" -name '*.err' -size 0 -delete 2>/dev/null
+    return 0
+}
+rl_mon_start() {    # SEC MAXMIN -> background srun, one monitor.sh per node; $RUN/monitor/<host>.csv; MON_PID
+    local n; n=$(rl_nhosts "${HOSTS:-}"); MON_PID=
+    [ -n "${JOB:-}" ] && [ "$n" -gt 0 ] && [ "${1:-0}" -gt 0 ] || return 0
+    mkdir -p "$RUN/monitor"; rm -f "$RUN/monitor/STOP"
+    srun --jobid="$JOB" --overlap --mem=0 --nodes="$n" --ntasks="$n" --ntasks-per-node=1 -w "$HOSTS" --time=$(($2 + 3)) --kill-on-bad-exit=0 --export=ALL \
+        -o "$RUN/monitor/%N.csv" -e "$RUN/monitor/%N.err" bash "$RL_DIR/monitor.sh" "$1" $(($2 * 60 + 60)) "$RUN/monitor/STOP" < /dev/null > /dev/null 2>&1 &
+    MON_PID=$!
+}
+rl_mon_stop() {     # stop file (shared file system: seen within a few seconds) then the srun client; waits at most ~12 s, never touches anything else
+    [ -n "${MON_PID:-}" ] || return 0
+    local i pid=$MON_PID t0=$SECONDS; MON_PID=
+    : > "$RUN/monitor/STOP" 2>/dev/null
+    for i in 1 2 3 4; do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+    kill -0 "$pid" 2>/dev/null && { kill -TERM "$pid" 2>/dev/null; for i in 1 2 3 4 5 6 7 8; do kill -0 "$pid" 2>/dev/null || break; sleep 1; done; }
+    kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null; find "$RUN/monitor" -name '*.err' -size 0 -delete 2>/dev/null; rl_log "sampler stopped after $((SECONDS - t0)) s"
+    return 0
+}
+rl_nicdiff() {      # -> $RUN/snap/nic_summary.csv from snap/before and snap/after; sets NIC_NODES NIC_TX_GB NIC_RX_GB NIC_ERR NIC_PAUSE (means per node; bytes are estimates)
+    NIC_NODES=0; NIC_TX_GB=NA; NIC_RX_GB=NA; NIC_ERR=NA; NIC_PAUSE=NA
+    local b=$RUN/snap/before a=$RUN/snap/after o=$RUN/snap/nic_summary.csv
+    ls "$b"/*.txt > /dev/null 2>&1 && ls "$a"/*.txt > /dev/null 2>&1 || return 0
+    grep -a -l '^nic ' "$b"/*.txt "$a"/*.txt > /dev/null 2>&1 || return 0
+    awk -v out="$o" 'BEGIN { print "host,nic,tx_pkts,rx_pkts,tx_bytes_est,rx_bytes_est,tx_paused,rx_paused,tx_stall_llr,error_like_sum" > out }
+        function mid(k,  m, lo, hi) { m = k; sub(/^hni_(tx|rx)_ok_/, "", m); lo = m + 0; hi = (m ~ /to_max/) ? 9000 : m; sub(/^[0-9]+_to_/, "", hi); hi += 0; return (m ~ /_to_/) ? (lo + hi) / 2 : lo }
+        FNR == 1 { f = FILENAME; isb = (f ~ /\/snap\/before\//); h = f; sub(/.*\//, "", h); sub(/\.txt$/, "", h) }
+        $1 == "nic" { key = h SUBSEP $2 SUBSEP $3; if (isb) bv[key] = $4 + 0; else { av[key] = $4 + 0; seen[h SUBSEP $2] = 1 } ; names[key] = 1 }
+        END { for (key in names) { split(key, K, SUBSEP); h = K[1]; n = K[2]; k = K[3]; d = av[key] - bv[key]; if (d < 0) d = 0
+                if (k ~ /^hni_pkts_sent_by_tc_/) tp[h, n] += d; else if (k ~ /^hni_pkts_recv_by_tc_/) rp[h, n] += d
+                else if (k ~ /^hni_(tx|rx)_ok_[0-9]/) { if (k ~ /^hni_tx/) tb[h, n] += d * mid(k); else rb[h, n] += d * mid(k) }
+                else if (k ~ /^hni_tx_paused_/) tz[h, n] += d; else if (k ~ /^hni_rx_paused_/) rz[h, n] += d; else if (k == "hni_tx_stall_llr") sl[h, n] += d
+                if (k ~ /(err|drop|nack|retr|timeout|discard|fail|ovf|poison|bad|jabber)/ && k !~ /_ok_/) er[h, n] += d }
+            for (hn in seen) { split(hn, K, SUBSEP); h = K[1]; n = K[2]
+                printf "%s,%s,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f\n", h, n, tp[h, n], rp[h, n], tb[h, n], rb[h, n], tz[h, n], rz[h, n], sl[h, n], er[h, n] >> out
+                H[h] = 1; TB[h] += tb[h, n]; RB[h] += rb[h, n]; ER[h] += er[h, n]; PZ[h] += tz[h, n] + rz[h, n] }
+            for (h in H) { nn++; t += TB[h]; r += RB[h]; e += ER[h]; z += PZ[h] }
+            if (nn) printf "%d %.3f %.3f %.0f %.0f\n", nn, t / nn / 1e9, r / nn / 1e9, e / nn, z / nn }' "$b"/*.txt "$a"/*.txt > "$RUN/snap/.nic_mean" 2>/dev/null
+    { sort -t, -k1,2 -o "$o.sorted" <(tail -n +2 "$o") && { head -1 "$o"; cat "$o.sorted"; } > "$o.new" && mv "$o.new" "$o"; rm -f "$o.sorted"; } 2>/dev/null
+    read -r NIC_NODES NIC_TX_GB NIC_RX_GB NIC_ERR NIC_PAUSE < "$RUN/snap/.nic_mean" 2>/dev/null || true; rm -f "$RUN/snap/.nic_mean"
+    NIC_NODES=${NIC_NODES:-0}; NIC_TX_GB=${NIC_TX_GB:-NA}; NIC_RX_GB=${NIC_RX_GB:-NA}; NIC_ERR=${NIC_ERR:-NA}; NIC_PAUSE=${NIC_PAUSE:-NA}; return 0
 }

@@ -1,6 +1,7 @@
 #!/bin/bash
 # s5_run.sh - stage 5: one optimized ecalc run, with the checks around it.
-#   s5_run.sh --nodes N --digits D --path 1|2 [--env "K=V ..."] [--screen] [--write DIR] [--exclude LIST] [--hosts LIST] [--tmo MIN] [--jobid J] [--dry-run]
+#   s5_run.sh --nodes N --digits D --path 1|2 [--env "K=V ..."] [--screen] [--write DIR] [--exclude LIST] [--hosts LIST] [--tmo MIN] [--jobid J]
+#             [--fulllog] [--monitor SEC] [--dry-run]
 # D may be 64e9, 38.2e12 or a plain integer.  Path 2 adds ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 and uses the path 2 binary by itself; --env adds
 # settings words (also --env "").  Order: (1) planner fit check (tools/plan_values.py --fit): on refusal the largest digit count that fits is
 # printed (largest_fit_digits=) and the script stops with FAIL; (2) --screen: tools/nodescreen.sh over the allocation, the slow nodes are left
@@ -11,11 +12,18 @@
 # --screen) runs on those hosts instead of the first N.  Summary extras (KEY=VALUE, NA = not printed): layout (PEs, per node, background
 # team), init_split (the ECALC_INIT_TL=1 line), shifts (the recip(mn) shifts n/s figure, ECALC_VERBOSE>=1 lines), p24_check (the P24_CHECK
 # line), device_peak_apu_gb (largest per-APU in-use figure of the memory table).
+# --fulllog (or REMOTE_FULLLOG=1, e.g. exported before stair.sh; off by default) = the exhaustive log for offline analysis: adds the digit-neutral diagnostic words
+# (MN_WAIT_STATS=1 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=1; words already in --env win), writes $RUN/capture/ (launch line, environment without secrets, modules,
+# scontrol job, hosts, binary sha256, mnrun's computed launch values), takes a node snapshot before and after the run ($RUN/snap/before|after/<host>.txt: meminfo,
+# numastat, amd-smi, all nonzero Slingshot NIC counters; $RUN/snap/nic_summary.csv = the after-minus-before NIC traffic, bytes estimated from the packet size
+# buckets) and samples every node every 30 s into $RUN/monitor/<host>.csv.  --monitor SEC sets or (0) switches off the sampler (REMOTE_MONITOR=SEC).  Summary
+# keys: fulllog, nic_gb_per_node, nic_error_like.  Nothing here can fail the run; a failed snapshot or sampler is skipped.  collect.sh freezes and prints it all.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); . "$HERE/lib.sh"; set -u
-NN= DIG= P= ENVW= SCREEN=0 WDIR= TMO= JOB= EXCLUDE= HLIST=
+RL_INVOKE="$0 $*"
+NN= DIG= P= ENVW= SCREEN=0 WDIR= TMO= JOB= EXCLUDE= HLIST= FL=${REMOTE_FULLLOG:-0} MON=${REMOTE_MONITOR:-}
 while [ $# -gt 0 ]; do case $1 in
   --nodes) NN=${2:?}; shift;; --digits) DIG=${2:?}; shift;; --path) P=${2:?}; shift;; --env) ENVW=${2-}; shift;; --screen) SCREEN=1;;
-  --write) WDIR=${2:?}; shift;; --exclude) EXCLUDE=${2-}; shift;; --hosts) HLIST=${2:?}; shift;; --tmo) TMO=${2:?}; shift;; --jobid) JOB=${2:?}; shift;; --dry-run) DRY=1;;
+  --write) WDIR=${2:?}; shift;; --exclude) EXCLUDE=${2-}; shift;; --hosts) HLIST=${2:?}; shift;; --tmo) TMO=${2:?}; shift;; --jobid) JOB=${2:?}; shift;; --fulllog) FL=1;; --monitor) MON=${2:?}; shift;; --dry-run) DRY=1;;
   -h|--help) rl_help "$0"; exit 0;; *) echo "s5_run.sh: unknown option $1 (--help)" >&2; exit 2;; esac; shift; done
 [ -n "$NN" ] && [ -n "$DIG" ] && [ -n "$P" ] || { echo "s5_run.sh: --nodes, --digits and --path are required (--help)" >&2; exit 2; }
 rl_posint "$NN" && rl_isnum "$DIG" || { echo "s5_run.sh: --nodes a positive integer, --digits numeric (64e9, 38.2e12 or an integer)" >&2; exit 2; }
@@ -26,14 +34,20 @@ HLIST=$(echo "$HLIST" | tr -d ' ')
 [ -z "$HLIST" ] || ! echo ",$HLIST," | grep -q ',,' || { echo "s5_run.sh: --hosts has a blank host" >&2; exit 2; }
 [ -z "$HLIST" ] || [ "$SCREEN" = 0 ] || { echo "s5_run.sh: --hosts and --screen do not combine (the screen covers the whole allocation)" >&2; exit 2; }
 [ -z "$HLIST" ] || [ "$(echo "$HLIST" | tr ',' '\n' | grep -c .)" = "$NN" ] || { echo "s5_run.sh: --hosts needs exactly $NN host(s)" >&2; exit 2; }
+[ -z "$MON" ] || case $MON in *[!0-9]*) echo "s5_run.sh: --monitor SEC: a number of seconds (0 = off)" >&2; exit 2;; esac
+[ "$FL" = 1 ] || FL=0
+[ -n "$MON" ] || { [ $FL = 1 ] && MON=30 || MON=0; }; MON=$((10#$MON))
 rl_init s5
 D=$(rl_digits_site "$DIG" "$NN")
-words=($ENVW)
+FLW=; [ $FL = 1 ] && FLW=$(rl_fl_words "$ENVW")
+words=($ENVW $FLW)
 if [ "$DRY" = 1 ]; then
     rl_would "fit: python3 tools/plan_values.py --fit --ecalc <p$P binary> --env \"$([ $P = 2 ] && echo 'ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 ')$ENVW\" $D $NN   (refused: bisect for the largest fitting digits)"
     [ -n "$HLIST" ] && rl_would "hosts: $HLIST (this arm's subset of the allocation)"
     [ $SCREEN = 1 ] && rl_would "tools/nodescreen.sh --hold <job> --out $RUN/screen --ecalc-dir <build p$P>/ecalc   -> slow_hosts"
     rl_would "$(rl_cmdline "$P" "$NN" "$D" ${words[@]+"${words[@]}"})${WDIR:+  # digit file in $WDIR}"
+    [ $FL = 1 ] && rl_would "fulllog: words ${FLW:-<none new>}; capture/ files; node snapshots before+after (srun --overlap, 1 task per node; nodesnap.sh); sampler every ${MON}s (monitor.sh); snap/nic_summary.csv"
+    [ $FL = 0 ] && [ "$MON" -gt 0 ] && rl_would "sampler every ${MON}s (monitor.sh)"
     rl_would "model: python3 ecalc/mn_model.py estimate --g $NN --D $(awk -v d="$D" -v n="$NN" 'BEGIN { printf "%.6g", d / n }')"
     rl_finish SKIP "$HERE/s5_run.sh --nodes $NN --digits $DIG --path $P"
 fi
@@ -44,6 +58,7 @@ if [ -n "$HLIST" ]; then    # --hosts: the arm's own node subset (every host mus
 else rl_prep "$P" "$NN"; fi
 [ "$NHOSTS" -ge "$NN" ] || rl_die "only $NHOSTS usable nodes in the allocation, $NN asked"
 rl_kv path "$P"; rl_kv nodes "$NN"; rl_kv digits "$D"; rl_kv settings "${ENVW:-<defaults>}$([ "$P" = 2 ] && echo ' + ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 (path 2)')"
+[ $FL = 1 ] && rl_kv fulllog_words "${FLW:-<none new>}"
 [ "$D" != "$(rl_num "$DIG")" ] && rl_kv digits_requested "$DIG (capped for the rehearsal site)"
 # ---- (1) fit
 rl_say "planner fit check"
@@ -81,8 +96,13 @@ export TMO
 [ -n "$WDIR" ] && { mkdir -p "$WDIR"; export WRITE=1 KEEP=1 TGT_SCRATCH=$WDIR; }
 rl_say "run: path $P, $NN node(s), $D digits (timeout $TMO min; model ${model} s)"
 rl_log "$(rl_cmdline "$P" "$NN" "$D" ${words[@]+"${words[@]}"})"
+if [ $FL = 1 ]; then rl_capture "$P" "$NN" "$D" ${words[@]+"${words[@]}"}; rl_snap before static; fi
+[ "$MON" -gt 0 ] && rl_mon_start "$MON" "$TMO"
 rl_ecrun s5_run "$P" "$NN" "$D" ${words[@]+"${words[@]}"}; rc=$?
 tag=s5_run
+rl_mon_stop
+if [ $FL = 1 ]; then rl_snap after; rl_nicdiff; rl_kv nic_gb_per_node "tx ${NIC_TX_GB} rx ${NIC_RX_GB} over ${NIC_NODES} node(s) (estimated from the NIC packet size buckets, mean per node)"; rl_kv nic_error_like "${NIC_ERR} counts, ${NIC_PAUSE} paused counts (mean per node)"; fi
+[ $FL = 1 ] && rl_kv fulllog "on: capture/ snap/ ${MON:+monitor/ (every ${MON} s) }in $RUN"
 # ---- results
 rl_kv rc "$rc"; rl_kv verify "${E_VERIFY:-NONE}"
 rl_kv "total_s" "${E_TOTAL:-NA}"

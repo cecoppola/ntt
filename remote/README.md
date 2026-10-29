@@ -7,7 +7,7 @@ Goal of the session (a few hours, one sitting): the most digits of e in the shor
 single command block that runs for minutes to an hour and ends in ONE summary of at most 80 lines that you paste back.
 
 Files: `AGENT.md` (the agent reads it first), `ROUTE.md` (the stages), `FACTS.md` (machine, paths, settings, known
-problems), `MANIFEST.sha256` (copy check), `run/*.sh` (the scripts the agent's command blocks call: `chain.sh --brief` runs several stages in one paste, `stair.sh` runs the staircase of record sizes and stops at the first failure, `report.sh` is the wrap-up; `run/arms.sh` runs several arms side by side in one allocation, opt-in).
+problems), `MANIFEST.sha256` (copy check), `run/*.sh` (the scripts the agent's command blocks call: `chain.sh --brief` runs several stages in one paste, `stair.sh` runs the staircase of record sizes and stops at the first failure, `report.sh` is the wrap-up (it also runs `collect.sh`, the bundle of all logs); `run/arms.sh` runs several arms side by side in one allocation, opt-in).
 
 ## Prepare (once, before the session)
 
@@ -40,6 +40,20 @@ The branch name is written in this file (lines 4, 12, 16 and the message below),
 
 Five pastes for the whole route when nothing fails (P1 check, build, gates; P2 screen and 576 nodes at 4.608e12; P3 first record run; P4 staircase; P5 report); expect 6-8 with fallbacks. About 3 h
 without queue waits (ROUTE.md has the times). Time short: ROUTE.md "Minimal route".
+
+## Logs for offline analysis
+
+Record runs are launched with the exhaustive log on, because logs cannot be added afterwards: `export REMOTE_FULLLOG=1` before `stair.sh` (or `--fulllog` on `run/s5_run.sh`; off by default). It adds the
+digit-neutral diagnostic words `MN_WAIT_STATS=1 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=1` (one line per node each), per run the `capture/` files (launch line, environment without secrets, modules, `scontrol show job`, host list,
+binary sha256), a node snapshot before and after (`snap/`: meminfo, numastat, amd-smi, every nonzero Slingshot NIC counter; `snap/nic_summary.csv` = traffic after minus before per node and NIC, bytes estimated from the NIC's packet size
+buckets) and a sampler every 30 s per node (`monitor/<host>.csv`: MemAvailable, GPU power / temperature / memory, NIC traffic). Left out because they synchronise the hot path or print per PE and period:
+`XSHMEM_ROUND_STATS`, `DIST_STATS`, `DB_POOL_VERBOSE`, `ECALC_MEM_SAMPLE`.
+
+Nothing can be copied off the target: only what is printed to the screen leaves it. `bash remote/run/collect.sh` freezes every run directory into one directory on the target (`$REMOTE_OUT/collect_<time>/`, categories:
+`summaries`, `stats` = the diagnostic and phase / memory lines of the rank logs, `nodes` = per-node NIC roll-up and the cross-node timeline, `env` = capture files, versions, Slurm accounting (`sacct -j <job> --format=ALL -P`), `nodes_full`, `raw` = the
+rest of the rank logs; digit files are not in it, only their path, size and hash). `collect.sh --plan` prints the inventory and the number of parts (pastes) a full print takes; `collect.sh --print [--part K] [--only CATEGORY] [--lines N] [--compact]` prints
+the parts, each framed `=== ECALC LOG PART K/N <category> ... sha256=... ===` ... `=== END PART K/N ===` (same text every time, so a lost paste is reprinted with `--part K`; `--compact` prints gzip+base64 of the same content, about 5-7 times smaller; the decode recipe is in part 1);
+`--only raw --ranks first,last,busiest,slowest [--grep REGEX]` prints a filtered raw set (the plan shows its part count; lines that name no rank are kept); `--paste` prints a 60-line digest. Print the categories in order and stop when enough is home: the first four are small. `report.sh` runs the freeze and prints the plan before it releases the allocation (`--no-collect` skips).
 
 ## Bring the results home
 
