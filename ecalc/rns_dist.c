@@ -1683,10 +1683,21 @@ static int mn_p24_of(size_t na, size_t nb, int g)
 static size_t p24_cap(int g) { int c = mn_logn_cap(g); return (size_t)1 << (c < P24_CAP_LOG ? c : P24_CAP_LOG); }
 /* the mn tier's grid (mn_grid, the scratch and staging estimates, the plan printer): the group's cap and smallest plane; P24 on the
  * points p24_pts(pa) + p24_pts(pb) at its cap */
+/* MN_LEVEL_UNIFORM: the grid every group of a tree level takes (the level's largest, mn_plan.c mn_level_grids) -- the group takes it when it has more pieces than
+ * its own, its piece fits the cap and is no larger than its own (the cut last group, or a size the prediction missed, keeps its own); 0 = none (g_mn_force_*) */
+static int g_mn_force_ka, g_mn_force_kb;
+void rns_dist_mn_force(int ka, int kb) { g_mn_force_ka = ka; g_mn_force_kb = kb; }
 static int mn_grid_shape(size_t na, size_t nb, int g, int p24, int *ka, int *kb)
 {
     struct grid_form f = { p24 ? p24_cap(g) : (size_t)1 << mn_logn_cap(g), (size_t)1 << mn_logmin(g), p24 ? GP_P24 : GP_LIMBS, 0 };
-    return grid_shape(na, nb, &f, ka, kb);
+    int one = grid_shape(na, nb, &f, ka, kb);
+    size_t fp;
+    if (g_mn_force_ka > 0 && g_mn_force_ka * g_mn_force_kb > *ka * *kb                  /* the level's grid has more pieces than this group's own: take it, when its piece fits the cap */
+        && (fp = form_pts(&f, (na + g_mn_force_ka - 1) / g_mn_force_ka, (nb + g_mn_force_kb - 1) / g_mn_force_kb)) <= f.cap
+        && fp <= form_pts(&f, (na + *ka - 1) / *ka, (nb + *kb - 1) / *kb)) {      /* and is no larger than its own (the scratch / vslot sizing assumes the own grid's piece) */
+        *ka = g_mn_force_ka; *kb = g_mn_force_kb; one = 0;
+    }
+    return one;
 }
 /* mn_grid's piece: the cuts, then mn_core on the views (the first piece at shift 0 straight into the zero-filled C); the per-piece
  * cache trace line (Phase 15 CX, instrumentation) */

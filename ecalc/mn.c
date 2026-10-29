@@ -471,8 +471,11 @@ int mn_selftest_layered(int logR, int logC, int verbose)
  * products.  In: this node's leaf P_r, Q_r (device numbers, taken over); out: shares of P, Q over all nodes. */
 #include "binsplit.h"
 #include "newton.h"                                   /* newton_mn_pq_hook */
+#include "mn_plan.h"                                  /* MN_LEVEL_UNIFORM */
 #include <unistd.h>
 static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half);
+static int g_lv_tab[4 * 64], g_lv_on;                  /* MN_LEVEL_UNIFORM: this level's largest grid per product (mn_plan.c mn_level_grids), the same on every PE */
+static void lv_force(int pi) { if (g_lv_on) rns_dist_mn_force(g_lv_tab[2 * pi], g_lv_tab[2 * pi + 1]); }
 static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch);
 /* the top tree set in the background (mn_ckpt_bg_mode, set by ecalc.c: 0 = none, 1 = complete, the division
  * waits for P's part before S = P + Q if it must; 2 = budgeted, dropped when the measured disk rate cannot finish a part within
@@ -515,9 +518,11 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
     for (int l = 1; l <= L; l++) {
         int Gl = gs[l - 1], Gp = l > 1 ? gs[l - 2] : 1;       /* this level's group size and the children's (the previous level's) */
         int k = mn_rank() / Gl, g0 = k * Gl, g = Gl < mn_size() - g0 ? Gl : mn_size() - g0, nch = (g + Gp - 1) / Gp;
+        g_lv_on = mn_level_uniform() && nch >= 2 && mn_level_grids(bs_N, mn_size(), Gl, Gp, g_lv_tab, 64) > 0;   /* every group of the level at the level's largest grid (a floor: no communication) */
         if (nch == 2) tree_level(P, Q, l, g0, g, Gp);        /* two children: the pair of products as before (the default schedule: bit for bit, the same groups) */
         else if (nch > 2) tree_level_k(P, Q, l, g0, g, Gp, nch);   /* a k-way level (nch children of Gp nodes): k - 1 combines over the level's group */
         /* (one child: no sibling group, carried up unchanged) */
+        if (g_lv_on) { g_lv_on = 0; rns_dist_mn_force(0, 0); }
         if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d", mn_rank(), l); mem_live_line(w); }   /* the pool's live bytes per level */
         if (ck && l == L) {                                  /* this node's shares after the top level, in the background */
             double tc = mem_now(); uint64_t d[10] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, P->sh.n, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g, Q->sh.n };
@@ -543,10 +548,10 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
     if (inA) { PA.sh = P->sh; QA.sh = Q->sh; } else { PB.sh = P->sh; QB.sh = Q->sh; }
     free(all);
     mdb Pn, Qn; memset(&Pn, 0, sizeof Pn); memset(&Qn, 0, sizeof Qn);
-    rns_mul_dist_mn(&Pn, &PA, &QB, &PB, G);
+    lv_force(0); rns_mul_dist_mn(&Pn, &PA, &QB, &PB, G);
     db_free(&P->sh);                                       /* my child's P (PA or PB) is dead once P_n is formed */
     if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d mul1", mn_rank(), l); mem_live_line(w); }   /* the first product's window; the level's line then covers the second */
-    rns_mul_dist_mn(&Qn, &QA, &QB, 0, G);
+    lv_force(1); rns_mul_dist_mn(&Qn, &QA, &QB, 0, G);
     db_free(&P->sh); db_free(&Q->sh); *P = Pn; *Q = Qn;
     size_t lo, hi; mdb_share(P, mn_rank(), &lo, &hi);
     printf("%smn: %s %d level %d [%d, %d): P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", ec_log_prefix(), mn_who(), mn_rank(), l, g0, g0 + g, P->n, Q->n, lo, hi, mem_now() - t0);
@@ -577,14 +582,14 @@ static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch)
         PA.n = da[0]; PA.N = da[1]; PA.g0 = (int)da[2]; PA.g = (int)da[3]; QA.n = da[4]; QA.N = da[5]; QA.g0 = (int)da[6]; QA.g = (int)da[7];
         if (ci == i) { PA.sh = P->sh; QA.sh = Q->sh; }
         mdb Pn, Qn; memset(&Pn, 0, sizeof Pn); memset(&Qn, 0, sizeof Qn);
-        rns_mul_dist_mn(&Pn, &PA, &Qr, &Pr, G);
+        lv_force(2 * (nch - 2 - i)); rns_mul_dist_mn(&Pn, &PA, &Qr, &Pr, G);
         {                                                    /* P_i and P_run are dead once P_n = P_i Q_run + P_run is formed */
             if (ci == i || (!own && ci == nch - 1)) db_free(&P->sh);   /* my child's P_i, or the top child's P (= P_run, not owned) */
             if (own) db_free(&Pr.sh); else memset(&Pr.sh, 0, sizeof Pr.sh);
             memset(&PA.sh, 0, sizeof PA.sh);
         }
         if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul1", mn_rank(), l, nch - 1 - i); mem_live_line(w); }   /* the first product's window */
-        rns_mul_dist_mn(&Qn, &QA, &Qr, 0, G);
+        lv_force(2 * (nch - 2 - i) + 1); rns_mul_dist_mn(&Qn, &QA, &Qr, 0, G);
         if (mem_live_on() && i > 0) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul2", mn_rank(), l, nch - 1 - i); mem_live_line(w); }   /* (the last combine's: the level's line) */
         if (ci == i || (!own && ci == nch - 1)) { db_free(&P->sh); db_free(&Q->sh); memset(&P->sh, 0, sizeof P->sh); memset(&Q->sh, 0, sizeof Q->sh); db_init(&P->sh); db_init(&Q->sh); }   /* my child's shares are used up */
         if (own) { db_free(&Pr.sh); db_free(&Qr.sh); }

@@ -182,7 +182,8 @@ static void plan_leaf(unsigned long a0, unsigned long b1)
 
 /* ---- the distributed tree (mn.c mn_tree / tree_level / tree_level_k) --------------------------------------------------------- */
 struct lvl_sum { long pieces0, pmin, pmax; int gmax0; };
-static long plan_group(int l, unsigned long N, int size, int g0, int g, int gp, int print)
+static void level_force(const int *tab, int i) { if (tab) rns_dist_mn_force(tab[2 * i], tab[2 * i + 1]); }
+static long plan_group(int l, unsigned long N, int size, int g0, int g, int gp, int print, const int *tab)
 {
     int nch = (g + gp - 1) / gp; long before = g_pieces[PH_TREE];
     int ph = print ? PH_TREE : -1;                                /* the other groups: counted here, not in the summary */
@@ -192,14 +193,40 @@ static long plan_group(int l, unsigned long N, int size, int g0, int g, int gp, 
     for (int i = nch - 2; i >= 0; i--) {                          /* Horner from the top child (tree_level: nch = 2, the same pair) */
         struct pq c = CH(i); char w[96];
         snprintf(w, sizeof w, "level %d [%d, %d) combine %d of %d P", l, g0, g0 + g, nch - 1 - i, nch - 1);
-        show_mn(ph, w, c.pn, run.qn, g, 1, 0, (size_t)-1, print, &p); cnt += p.formed;
+        level_force(tab, 2 * (nch - 2 - i)); show_mn(ph, w, c.pn, run.qn, g, 1, 0, (size_t)-1, print, &p); cnt += p.formed;
         snprintf(w, sizeof w, "level %d [%d, %d) combine %d of %d Q", l, g0, g0 + g, nch - 1 - i, nch - 1);
-        show_mn(ph, w, c.qn, run.qn, g, 0, 0, (size_t)-1, print, &p); cnt += p.formed;
+        level_force(tab, 2 * (nch - 2 - i) + 1); show_mn(ph, w, c.qn, run.qn, g, 0, 0, (size_t)-1, print, &p); cnt += p.formed; if (tab) rns_dist_mn_force(0, 0);
         run = pq_of(c.a, run.b);
     }
     #undef CH
     (void)before;
     return cnt;
+}
+/* MN_LEVEL_UNIFORM: the level's largest grid per product -- for the level's combine c (c = 0 .. nch - 2, from the top child down), tab[4c], tab[4c+1] =
+ * ka, kb of its P product and tab[4c+2], tab[4c+3] those of its Q product -- taken over every group of the level from the plan's own
+ * predicted sizes (plan_group's operands), so every PE computes the same table without communication.  Returns the combines (0: no level). */
+int mn_level_uniform(void) { const char *e = getenv("MN_LEVEL_UNIFORM"); return e && *e && *e != '0'; }
+int mn_level_grids(unsigned long N, int size, int Gl, int Gp, int *tab, int maxc)
+{
+    int nc = 0; rns_dist_mn_force(0, 0);
+    for (int g0 = 0; g0 < size; g0 += Gl) {
+        int g = Gl < size - g0 ? Gl : size - g0, nch = (g + Gp - 1) / Gp;
+        if (nch < 2) continue;
+        struct pq run = pq_of(term0(N, g0 + (nch - 1) * Gp, size), term0(N, g0 + g, size));
+        for (int i = nch - 2; i >= 0; i--) {
+            int c = nch - 2 - i; if (c >= maxc) break;
+            struct pq ch = pq_of(term0(N, g0 + i * Gp, size), term0(N, g0 + (i + 1) * Gp, size));
+            for (int w = 0; w < 2; w++) {
+                struct rns_grid_plan p; rns_dist_mn_plan(w ? ch.qn : ch.pn, run.qn, g, !w, 0, (size_t)-1, &p);
+                int *t = tab + 4 * c + 2 * w;
+                if (c >= nc) { t[0] = t[1] = 1; }
+                if (p.ka * p.kb > t[0] * t[1] || (p.ka * p.kb == t[0] * t[1] && p.ka > t[0])) { t[0] = p.ka; t[1] = p.kb; }
+            }
+            if (c + 1 > nc) nc = c + 1;
+            run = pq_of(ch.a, run.b);
+        }
+    }
+    return nc;
 }
 static void plan_tree(unsigned long N, int size, long *level_max_total)
 {
@@ -210,10 +237,11 @@ static void plan_tree(unsigned long N, int size, long *level_max_total)
     for (int l = 1; l <= L; l++) {
         int Gl = gs[l - 1], Gp = l > 1 ? gs[l - 2] : 1;
         long p0 = -1, pmin = -1, pmax = -1, cs[4096]; int gmax = 0, ngroups = 0, nat = 0;
+        int tab[4 * 64], *tp = 0; if (mn_level_uniform() && mn_level_grids(N, size, Gl, Gp, tab, 64) > 0) tp = tab;
         for (int g0 = 0; g0 < size; g0 += Gl) {
             int g = Gl < size - g0 ? Gl : size - g0, nch = (g + Gp - 1) / Gp;
             if (nch < 2) continue;                                /* one child: carried up unchanged */
-            long c = plan_group(l, N, size, g0, g, Gp, g0 == 0);
+            long c = plan_group(l, N, size, g0, g, Gp, g0 == 0, tp);
             if (g0 == 0) p0 = c;
             if (pmin < 0 || c < pmin) pmin = c;
             if (c > pmax) { pmax = c; gmax = g0; }

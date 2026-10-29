@@ -75,6 +75,7 @@ static const char *const cfg_names[] = {
     "MEM_REPORT_DEVS",
     "MN_COMM_MARK",
     "MN_GROUPS",
+    "MN_LEVEL_UNIFORM",
     "MN_NONPOW2_CAP",
     "MN_NONPOW2_MIN",
     "MN_OUT_CHUNK_MB",
@@ -135,4 +136,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_THP_DISABLE",
     "XSHMEM_THREAD_LEVEL",
 };
-#define CFG_NAMES_N 133
+#define CFG_NAMES_N 134

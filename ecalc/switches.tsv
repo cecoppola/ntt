@@ -76,6 +76,7 @@ MEM_DPOOL_FILL	int	0	0		test-only	-	V.md+R.md	Y	ecalc	mem.c	2	diagnostics (TESTI
 MEM_REPORT_DEVS	bool	0	unset	0|1	launch-line	aac7	B7ACCT.md+TC15.md	Y	ecalc	ecalc.c,mem.c	2	-	-	ecalc.c:372/537 (presence test)
 MN_COMM_MARK	bool	0	unset	0|1	launch-line	-	D16.md	Y	ecalc	mn.c	1	-	-	mn.c:28 (atoi > 0)
 MN_GROUPS	str	unset	derived	group list	launch-line	-	T114.md+SC15.md	Y	ecalc	rns_dist.c,vpe.c	2	-	-	rns_dist.c:2315; unset = the automatic schedule
+MN_LEVEL_UNIFORM	bool	0	unset	0|1	launch-line	-	-	Y	ecalc	mn_plan.c	1	-	-	mn_plan.c mn_level_uniform; 1 = every group of a tree level forms the level's largest piece grid (ka x kb, per product, from the plan's predicted sizes, the same on every PE; a group with fewer pieces takes it when its piece fits the cap and is no larger than its own), so no level is mixed; digits unchanged; the plan (MN_PLAN_ONLY, the fit) honours it; 0 = each group picks its grid from its own sizes (mixed levels at 2e13, 3e13+ on 576 nodes)
 MN_NONPOW2_CAP	str	auto	derived	auto|0|1	built-in default	-	-	Y	ecalc	ecalc.c,rns_mul.c	2	T2 (D57)	2026-11-19	rns_mul.c rns_np2cap: auto (unset, Q58) = non-pow2 groups take the next pow2 plane from MN_NONPOW2_MIN digits per node; 1 = always; 0 = the pow2 plane (T2, D57)
 MN_NONPOW2_MIN	num	4.5e10	unset	>0	built-in default	-	-	Y	ecalc	rns_mul.c	1	T2 (D57)	2026-11-19	rns_mul.c rns_np2_min: digits per node-process from which MN_NONPOW2_CAP auto is on (results/DIVISION.md NPCAP crossover)
 MN_OUT_CHUNK_MB	int	256	256		built-in default	-	IO15.md+A-out.md	Y	ecalc	mn_out.c	2	-	-	
