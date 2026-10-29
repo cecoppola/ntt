@@ -1,5 +1,5 @@
 #!/bin/bash
-# collect.sh - ONE bundle of everything the session logged, for the offline analysis (the paper).
+# collect.sh - ONE bundle of everything the session logged, for the offline analysis.
 #   collect.sh [--out DIR] [--paste] [--dry-run]
 # Writes $REMOTE_OUT/collect_<timestamp>.tar.gz (--out DIR: there) and collect_<timestamp>.tar.gz.sha256.  Inside (one top directory collect_<timestamp>/):
 #   MANIFEST.txt (size and sha256 of every file), README.txt (what each part is), runs/<run dir>/ for EVERY run dir under $REMOTE_OUT in full (summaries, raw logs,

@@ -7,7 +7,7 @@ Goal of the session (a few hours, one sitting): the most digits of e in the shor
 single command block that runs for minutes to an hour and ends in ONE summary of at most 80 lines that you paste back.
 
 Files: `AGENT.md` (the agent reads it first), `ROUTE.md` (the stages), `FACTS.md` (machine, paths, settings, known
-problems), `MANIFEST.sha256` (copy check), `run/*.sh` (the scripts the agent's command blocks call: `chain.sh --brief` runs several stages in one paste, `stair.sh` runs the staircase of record sizes and stops at the first failure, `report.sh` is the wrap-up; `run/arms.sh` runs several arms side by side in one allocation, opt-in).
+problems), `MANIFEST.sha256` (copy check), `run/*.sh` (the scripts the agent's command blocks call: `chain.sh --brief` runs several stages in one paste, `stair.sh` runs the staircase of record sizes and stops at the first failure, `report.sh` is the wrap-up (it also runs `collect.sh`, the bundle of all logs); `run/arms.sh` runs several arms side by side in one allocation, opt-in).
 
 ## Prepare (once, before the session)
 
@@ -40,6 +40,18 @@ The branch name is written in this file (lines 4, 12, 16 and the message below),
 
 Five pastes for the whole route when nothing fails (P1 check, build, gates; P2 screen and 576 nodes at 4.608e12; P3 first record run; P4 staircase; P5 report); expect 6-8 with fallbacks. About 3 h
 without queue waits (ROUTE.md has the times). Time short: ROUTE.md "Minimal route".
+
+## Logs for offline analysis
+
+Record runs are launched with the exhaustive log on, because logs cannot be added afterwards: `export REMOTE_FULLLOG=1` before `stair.sh` (or `--fulllog` on `run/s5_run.sh`; off by default). It adds the
+digit-neutral diagnostic words `MN_WAIT_STATS=1 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=1` (one line per node each), per run the `capture/` files (launch line, environment without secrets, modules, `scontrol show job`, host list,
+binary sha256), a node snapshot before and after (`snap/`: meminfo, numastat, amd-smi, every nonzero Slingshot NIC counter; `snap/nic_summary.csv` = traffic after minus before per node and NIC, bytes estimated from the NIC's packet size
+buckets) and a sampler every 30 s per node (`monitor/<host>.csv`: MemAvailable, GPU power / temperature / memory, NIC traffic). Left out because they synchronise the hot path or print per PE and period:
+`XSHMEM_ROUND_STATS`, `DIST_STATS`, `DB_POOL_VERBOSE`, `ECALC_MEM_SAMPLE`.
+
+`bash remote/run/collect.sh [--out DIR] [--paste] [--dry-run]` bundles everything into `$REMOTE_OUT/collect_<timestamp>.tar.gz` plus `.sha256`: every run directory in full, `site.env`, the kit identity, build logs and binary hashes, module and
+version lists, Slurm accounting (`sacct -j <job> --format=ALL -P`) of every job found, topology and node data, and `MANIFEST.txt` (size and sha256 of every file) and `README.txt` inside. Digit files are not in it (TBs): their path, size and printed
+hash are in `meta/digit_files.txt`. `report.sh` runs it before it releases the allocation (`--no-collect` skips); `--paste` prints a 60-line digest for the agent. The bundle holds host names and paths: it is private, you transfer it yourself, it never goes to GitHub.
 
 ## Bring the results home
 

@@ -340,7 +340,7 @@ rl_ci() {           # d1 d2 ... (paired differences) -> "mean lo hi" 95 % t inte
         printf "%.3f %.3f %.3f", m, m - h, m + h }' "$@"
 }
 
-# ---- full log: capture files, node snapshots, sampler (s5_run.sh --fulllog / --monitor; README "Logs for the paper") ----------------------------------------
+# ---- full log: capture files, node snapshots, sampler (s5_run.sh --fulllog / --monitor; README "Logs for offline analysis") ----------------------------------------
 # Diagnostic switches of --fulllog: digit-neutral, one summary line per node (576 lines each at 576 nodes), no barrier or synchronisation on the hot path.
 # MN_WAIT_STATS=1 (barrier / wait seconds per phase, one extra allreduce at the end of bs), ECALC_INIT_TL=1 (init timeline, rank 0), NEWTON_MN_RECIP_TS=1
 # (the reciprocal's stage clocks, one line per node).  Left out on purpose: XSHMEM_ROUND_STATS (device-wide sync probe in the post path, lines per PE),
@@ -384,13 +384,14 @@ rl_mon_start() {    # SEC MAXMIN -> background srun, one monitor.sh per node; $R
         -o "$RUN/monitor/%N.csv" -e "$RUN/monitor/%N.err" bash "$RL_DIR/monitor.sh" "$1" $(($2 * 60 + 60)) "$RUN/monitor/STOP" < /dev/null > /dev/null 2>&1 &
     MON_PID=$!
 }
-rl_mon_stop() {     # stop file first (the monitors end within a second), then the srun client; never waits more than ~30 s, never touches anything else
+rl_mon_stop() {     # stop file (shared file system: seen within a few seconds) then the srun client; waits at most ~12 s, never touches anything else
     [ -n "${MON_PID:-}" ] || return 0
-    local i pid=$MON_PID; MON_PID=
+    local i pid=$MON_PID t0=$SECONDS; MON_PID=
     : > "$RUN/monitor/STOP" 2>/dev/null
-    for i in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
-    kill -0 "$pid" 2>/dev/null && { kill -TERM "$pid" 2>/dev/null; sleep 3; kill -KILL "$pid" 2>/dev/null; }
-    wait "$pid" 2>/dev/null; find "$RUN/monitor" -name '*.err' -size 0 -delete 2>/dev/null
+    for i in 1 2 3 4; do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+    kill -0 "$pid" 2>/dev/null && { kill -TERM "$pid" 2>/dev/null; for i in 1 2 3 4 5 6 7 8; do kill -0 "$pid" 2>/dev/null || break; sleep 1; done; }
+    kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null; find "$RUN/monitor" -name '*.err' -size 0 -delete 2>/dev/null; rl_log "sampler stopped after $((SECONDS - t0)) s"
     return 0
 }
 rl_nicdiff() {      # -> $RUN/snap/nic_summary.csv from snap/before and snap/after; sets NIC_NODES NIC_TX_GB NIC_RX_GB NIC_ERR NIC_PAUSE (means per node; bytes are estimates)

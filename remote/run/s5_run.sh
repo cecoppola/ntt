@@ -19,6 +19,7 @@
 # buckets) and samples every node every 30 s into $RUN/monitor/<host>.csv.  --monitor SEC sets or (0) switches off the sampler (REMOTE_MONITOR=SEC).  Summary
 # keys: fulllog, nic_gb_per_node, nic_error_like.  Nothing here can fail the run; a failed snapshot or sampler is skipped.  collect.sh bundles it all.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); . "$HERE/lib.sh"; set -u
+RL_INVOKE="$0 $*"
 NN= DIG= P= ENVW= SCREEN=0 WDIR= TMO= JOB= EXCLUDE= HLIST= FL=${REMOTE_FULLLOG:-0} MON=${REMOTE_MONITOR:-}
 while [ $# -gt 0 ]; do case $1 in
   --nodes) NN=${2:?}; shift;; --digits) DIG=${2:?}; shift;; --path) P=${2:?}; shift;; --env) ENVW=${2-}; shift;; --screen) SCREEN=1;;
@@ -36,7 +37,6 @@ HLIST=$(echo "$HLIST" | tr -d ' ')
 [ -z "$MON" ] || case $MON in *[!0-9]*) echo "s5_run.sh: --monitor SEC: a number of seconds (0 = off)" >&2; exit 2;; esac
 [ "$FL" = 1 ] || FL=0
 [ -n "$MON" ] || { [ $FL = 1 ] && MON=30 || MON=0; }; MON=$((10#$MON))
-RL_INVOKE="$0 $*"
 rl_init s5
 D=$(rl_digits_site "$DIG" "$NN")
 FLW=; [ $FL = 1 ] && FLW=$(rl_fl_words "$ENVW")

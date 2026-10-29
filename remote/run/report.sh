@@ -34,7 +34,7 @@ done
 rl_kv best_verified_digits "${bestd:-0} ($bests)"
 rl_kv runs "$nr"
 if [ "$COLLECT" = 1 ]; then
-    cb=$(REMOTE_JOB=${REMOTE_JOB:-} bash "$HERE/collect.sh" 2>&1 | grep -a -E '^(bundle=|collect.sh:|left out)' | tr '\n' ' ' | cut -c1-420); rl_kv bundle "${cb:-collect.sh gave no output} (private: holds host names; the user transfers it, never GitHub)"
+    cb=$(REMOTE_JOB=${REMOTE_JOB:-} bash "$HERE/collect.sh" 2>&1 | grep -a -E '^(bundle=|collect.sh:|left out)' | tr '\n' ' ' | cut -c1-420); cb=${cb#bundle=}; rl_kv bundle "${cb:-collect.sh gave no output} (private: holds host names; the user transfers it, never GitHub)"
 else rl_kv bundle "not made (--no-collect)"; fi
 if [ "$KEEP" = 1 ]; then rl_kv allocation "kept (--keep)"
 else
