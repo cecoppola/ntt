@@ -1,6 +1,6 @@
 #!/bin/bash
 # stair.sh - a staircase of runs in ONE paste: the steps in order, stop at the first failure, ONE table (<= 80 lines).
-#   stair.sh --path 1|2 --step "NODES|DIGITS|ENV|EXTRA" [--step ...] [--budget MIN] [--ab "NODES|DIGITS|WORDS"] [--top "NODES|D1,D2,...|ENV|EXTRA"] [--min-margin GB] [--exclude LIST] [--jobid J] [--dry-run]
+#   stair.sh --path 1|2 --step "NODES|DIGITS|ENV|EXTRA" [--step ...] [--budget MIN] [--ab "NODES|DIGITS|WORDS"] [--top "NODES|D1,D2,...|ENV|EXTRA"] [--final "NODES|D1,D2,...|ENV|EXTRA"] [--min-margin GB] [--exclude LIST] [--jobid J] [--dry-run]
 # Each step is one s5_run.sh call: NODES, DIGITS (64e9, 4.608e12 or an integer), ENV = settings words (K=V ..., may be empty), EXTRA = more s5_run.sh
 # options (--screen, --write DIR, --tmo MIN; may be empty).  Example (the first record run):
 #   stair.sh --path 1 --step "576|10e12|BS_MDEV_LOGL=29 XSHMEM_HANG_S=3600|"
@@ -28,9 +28,9 @@
 # round_stats_<MB> key for the browser agent's fit (ROUTE P2).
 # Verdict PASS all steps passed; PARTIAL some step skipped (budget, allocation time, memory rule) and the rest passed; FAIL a step failed.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); . "$HERE/lib.sh"; set -u
-PATHN= STEPS=() BUDGET= JOB= EXCLUDE= MINM=6.5 AB= TOP=
+PATHN= STEPS=() BUDGET= JOB= EXCLUDE= MINM=6.5 AB= TOP= FINAL=
 while [ $# -gt 0 ]; do case $1 in
-  --path) PATHN=${2:?}; shift;; --step) STEPS+=("${2:?}"); shift;; --budget) BUDGET=${2:?}; shift;; --min-margin) MINM=${2:?}; shift;; --ab) AB=${2:?}; shift;; --top) TOP=${2:?}; shift;; --jobid) JOB=${2:?}; shift;; --exclude) EXCLUDE=${2-}; shift;;
+  --path) PATHN=${2:?}; shift;; --step) STEPS+=("${2:?}"); shift;; --budget) BUDGET=${2:?}; shift;; --min-margin) MINM=${2:?}; shift;; --ab) AB=${2:?}; shift;; --top) TOP=${2:?}; shift;; --final) FINAL=${2:?}; shift;; --jobid) JOB=${2:?}; shift;; --exclude) EXCLUDE=${2-}; shift;;
   --dry-run) DRY=1;; -h|--help) rl_help "$0"; exit 0;; *) echo "stair.sh: unknown option $1 (--help)" >&2; exit 2;; esac; shift; done
 case $PATHN in 1|2) ;; *) echo "stair.sh: --path 1|2 required (--help)" >&2; exit 2;; esac
 [ ${#STEPS[@]} -gt 0 ] || { echo "stair.sh: give at least one --step \"NODES|DIGITS|ENV|EXTRA\" (--help)" >&2; exit 2; }
@@ -46,6 +46,12 @@ if [ -n "$AB" ]; then
     IFS='|' read -r AB_N AB_D AB_W AB_C AB_S _ <<< "$AB|||"
     rl_posint "$AB_N" && rl_isnum "$AB_D" && [ -n "${AB_W// /}" ] || { echo "stair.sh: --ab \"NODES|DIGITS|B_WORDS[|C_WORDS]\"" >&2; exit 2; }
     AB_N=$((10#$AB_N))
+fi
+FIN_N= FIN_DS= FIN_E= FIN_X=
+if [ -n "$FINAL" ]; then
+    IFS='|' read -r FIN_N FIN_DS FIN_E FIN_X _ <<< "$FINAL||||"
+    rl_posint "$FIN_N" && [ -n "$FIN_DS" ] || { echo "stair.sh: --final \"NODES|D1,D2,...|ENV|EXTRA\"" >&2; exit 2; }
+    FIN_N=$((10#$FIN_N))
 fi
 TOP_N= TOP_DS= TOP_E= TOP_X=
 if [ -n "$TOP" ]; then
@@ -63,6 +69,7 @@ rl_kv device_gb_used "${ECALC_DEVICE_GB:-planner default} ($DEVSRC)"; rl_kv path
 if [ "$DRY" = 1 ]; then
     for i in "${!SN[@]}"; do rl_would "step $((i + 1)): s5_run.sh --nodes ${SN[$i]} --digits ${SD[$i]} --path $PATHN --env \"${SE[$i]}\" ${SX[$i]} ${EXCLUDE:+--exclude $EXCLUDE }(stop at the first failure)"; done
     case " ${SX[*]} " in *" --round-ab "*) rl_would "round test: the --round-ab step runs twice on the same hosts (XSHMEM_ROUND_MB=128, then the value; MN_WAIT_STATS=1 XSHMEM_ROUND_STATS=1); adopt when total -3 % and bs+dm lower, digits identical -> site.env REMOTE_ROUND_MB";; esac
+    [ -n "$FINAL" ] && rl_would "after the last step: the largest of {$FIN_DS} digits whose planner margin covers the fitted excess + 2 GB is PROPOSED with its predicted total_s and timeout (not run)"
     [ -n "$TOP" ] && rl_would "after the last step (all passed): the largest of {$TOP_DS} digits at $TOP_N nodes whose planner per-APU margin is at least the need (observed excess + 2, at least 3) is run: $TOP_E $TOP_X"
     [ -n "$AB" ] && rl_would "after step 1: 3 rounds of arms.sh --nodes $AB_N --digits $AB_D --path $PATHN with arms A (step 1 ENV), B (+ $AB_W)${AB_C:+, C (+ $AB_C)} at once, order rotated per round; adopt B when dc lower beyond the A-A spread -> REMOTE_RECORD_ENV; C: wrap saving not resolved -> REMOTE_WRAP_ENV for steps of 2.5e13+"
     rl_finish SKIP "$HERE/stair.sh --path $PATHN"
@@ -76,8 +83,21 @@ left_s() {     # seconds left of the allocation (empty = unknown)
     if [ -n "${c:-}" ]; then h=$a; m=$b; s=$c; elif [ -n "${b:-}" ]; then m=$a; s=$b; else s=$a; fi
     echo $(( (10#$d * 24 + 10#$h) * 3600 + 10#$m * 60 + 10#$s ))
 }
+PTS=${REMOTE_STAIR_PTS:-}; DEVM=0; [ -n "${REMOTE_DEVICE_GB:-}" ] && DEVM=2
 GAP=${REMOTE_STAIR_GAP:-}; GAPSRC=${REMOTE_STAIR_GAP:+" (from an earlier paste)"}; PMAX=; t0=$SECONDS; best=0; stop=; worst=PASS; skipped=0
 rl_line "step nodes digits         verdict  total_s init/bs/dm/dc (s)       meas/model apu_peak/plan_max_GB verify last_digits(20)  hash"
+predict() {      # "d:ex:tot ..." X -> "EXCESS_PRED TIME_PRED NPOINTS": linear least squares of the excess on digits, power law of total_s (log-log); NA when under 2 points
+    awk -v pts="$1" -v x="$2" 'BEGIN { n = split(pts, a, " "); m = 0; k = 0
+        for (i = 1; i <= n; i++) { split(a[i], f, ":"); d = f[1] + 0; if (d <= 0) continue
+            if (f[2] != "NA" && f[2] != "") { m++; sx += d; sy += f[2]; sxx += d * d; sxy += d * f[2] }
+            if (f[3] != "NA" && f[3] + 0 > 0) { k++; lx += log(d); ly += log(f[3]); lxx += log(d) * log(d); lxy += log(d) * log(f[3]) } }
+        if (m >= 2 && m * sxx - sx * sx > 0) { b = (m * sxy - sx * sy) / (m * sxx - sx * sx); e = (sy - b * sx) / m + b * x; r1 = sprintf("%.2f", e) } else r1 = "NA"
+        if (k >= 2 && k * lxx - lx * lx > 0) { c = (k * lxy - lx * ly) / (k * lxx - lx * lx); t = exp((ly - c * lx) / k + c * log(x)); r2 = sprintf("%.0f", t) } else r2 = "NA"
+        print r1, r2, (m > k ? m : k) }'
+}
+needgb() {       # EXCESS -> the planner margin a step needs: excess + 2 GB, at least 3; the measured edge already carries 2 GB (REMOTE_DEVICE_GB = 4 x (edge - 2)), at least 1
+    awk -v g="$1" -v m="$MINM" -v dm="$DEVM" 'BEGIN { if (g == "" || g == "NA") x = m; else { x = g + 2; if (x < 3) x = 3 } x -= dm; if (x < 1) x = 1; printf "%.2f", x }'
+}
 run_step() {   # IDX NODES DIGITS ENV EXTRA TAG -> sets SV (verdict) and prints the table row
     local idx=$1 n=$2 d=$3 e=$4 x=$5 tag=$6 out rd sf rc v
     out=$RUN/raw/step${tag}_$n.out
@@ -102,6 +122,11 @@ run_step() {   # IDX NODES DIGITS ENV EXTRA TAG -> sets SV (verdict) and prints 
         GAP=$(awk -v a="$pk" -v b="$PMAX" -v g="${GAP:-}" 'BEGIN { x = a - b; if (g == "" || x > g) g = x; printf "%.2f", g }'); rl_line "     measured peak - plan per APU: $(awk -v a="$pk" -v b="$PMAX" 'BEGIN { printf "%+.2f", a - b }') GB (largest so far $GAP; kept in site.env for the next paste)"; GAPSRC=; rl_site_set REMOTE_STAIR_GAP "$GAP"
     fi
     ST_TOTAL=$(kv total_s | awk '{ print $1 }'); ST_PH=$(grep -a -m1 '^phases_s:' "$sf" | sed -E 's/.*init=([^ ]*) bs=([^ ]*) recip=[^ ]* dm=([^ ]*) dc=([^ ]*).*/\1 \2 \3 \4/'); ST_VERIFY=$(kv verify); ST_LAST=$(kv last_digits | tr -d ' ' | cut -c1-20); ST_RC=$(kv rc)
+    if [ "$v" = PASS ] && [ -n "${ST_TOTAL:-}" ]; then
+        local exv=NA dn; dn=$(rl_num "$d"); [ -n "${PMAX:-}" ] && [ -n "$pk" ] && [ "$pk" != NA ] && exv=$(awk -v a="$pk" -v b="$PMAX" 'BEGIN { printf "%.2f", a - b }')
+        PTS=$(echo "$PTS" | tr ' ' '\n' | awk -F: -v d="$dn" 'NF && $1 + 0 != d + 0' | tr '\n' ' '); PTS="$PTS$dn:$exv:$ST_TOTAL"; rl_site_set REMOTE_STAIR_PTS "$PTS"
+        rl_line "     point: digits $dn excess_apu $exv GB total_s $ST_TOTAL (all points: $PTS)"
+    fi
     SV=$v; SRD=$rd; SSF=$sf; LFD=$(kv largest_fit_digits); [ -n "$LFD" ] && rl_line "     planner refused: largest fitting digits $LFD"
     [ "$v" = PASS ] || [ "$v" = PARTIAL ] || { RL_ERRFILES+=("$sf"); }
 }
@@ -122,7 +147,7 @@ attempt() {    # IDX NODES DIGITS ENV EXTRA TAG -> rc 0 = the step ran (SV, ST_*
     if [ "$MINM" != 0 ]; then       # memory rule: the planner's per-APU margin against what the measured runs showed
         D1=$(rl_digits_site "$d" "$n"); rl_fit "$PATHN" "$n" "$D1" $e; frc=$?; pline=$(grep -a 'per APU (max)' "$RUN/raw/fit_${PATHN}_${n}_$D1.log" 2>/dev/null | tail -1)
         mg=$(echo "$pline" | sed -n 's/.*margin \([-+][0-9.]*\) GB.*/\1/p'); PMAX=$(echo "$pline" | sed -n 's/.*per APU (max) \([0-9.]*\) GB.*/\1/p')
-        need=$(awk -v g="${GAP:-}" -v m="$MINM" 'BEGIN { if (g == "") print m; else { x = g + 2; if (x < 3) x = 3; print x } }')
+        need=$(needgb "${GAP:-}")
         why="assumed $MINM"; [ -n "${GAP:-}" ] && why="observed excess $GAP$GAPSRC + 2, at least 3"
         if [ $frc != 0 ]; then rl_line "$tag $n $d planner rc=$frc (refused or failed): the step runs into s5_run, which reports it"
         elif [ -z "$mg" ]; then rl_line "$tag $n $d memory rule not applied: the planner printed no per-APU margin (add ECALC_FIT_PER_APU=1 to the step's ENV)"
@@ -224,21 +249,44 @@ site_words() {    # ENV DIGITS -> ENV plus the site.env words (record env, round
     if [ -n "${REMOTE_WRAP_ENV:-}" ] && awk -v d="$(rl_num "$d")" 'BEGIN { exit !(d + 0 >= 2.5e13) }'; then e=$(addw "$e" "$REMOTE_WRAP_ENV"); fi
     echo "$e"
 }
-top_step() {      # after the last fixed step: the largest candidate whose planner per-APU margin covers the measured excess + 2 (at least 3)
-    local c cs d D1 e need mg pl chosen= tried=
-    need=$(awk -v g="${GAP:-}" -v m="$MINM" 'BEGIN { if (g == "") print m; else { x = g + 2; if (x < 3) x = 3; print x } }')
+eval_cand() {     # NODES DIGITS ENV -> CM (planner margin per APU), CPK (planner busiest-APU peak), CEX (excess used: the larger of the largest measured and the linear prediction), CNEED, CTP (predicted total_s), CRC
+    local n=$1 d=$2 e=$3 D1 pl pr
+    D1=$(rl_digits_site "$d" "$n"); rl_fit "$PATHN" "$n" "$D1" $e; CRC=$?
+    pl=$(grep -a 'per APU (max)' "$RUN/raw/fit_${PATHN}_${n}_$D1.log" 2>/dev/null | tail -1)
+    CM=$(echo "$pl" | sed -n 's/.*margin \([-+][0-9.]*\) GB.*/\1/p'); CPK=$(echo "$pl" | sed -n 's/.*per APU (max) \([0-9.]*\) GB.*/\1/p')
+    pr=$(predict "$PTS" "$(rl_num "$d")"); CTP=$(echo "$pr" | awk '{ print $2 }')
+    CEX=$(awk -v g="${GAP:-}" -v p="$(echo "$pr" | awk '{ print $1 }')" 'BEGIN { if (g == "" && p == "NA") { print "NA"; exit } if (p == "NA") { print g; exit } if (g == "" || p + 0 > g + 0) print p; else print g }')
+    CNEED=$(needgb "$CEX")
+}
+top_step() {      # after the fixed steps: the largest candidate whose planner per-APU margin covers max(measured excess, linear extrapolation of it) + 2 GB (at least 3)
+    local c cs e chosen= tried=
     cs=$(for c in ${TOP_DS//,/ }; do echo "$c"; done | sort -g -r)
     for c in $cs; do
-        d=$c; e=$(site_words "$TOP_E" "$d"); D1=$(rl_digits_site "$d" "$TOP_N"); rl_fit "$PATHN" "$TOP_N" "$D1" $e; frc=$?
-        pl=$(grep -a 'per APU (max)' "$RUN/raw/fit_${PATHN}_${TOP_N}_$D1.log" 2>/dev/null | tail -1); mg=$(echo "$pl" | sed -n 's/.*margin \([-+][0-9.]*\) GB.*/\1/p')
-        tried="$tried $c:${mg:-NA}"
-        if [ $frc = 0 ] && [ -n "$mg" ] && awk -v a="$mg" -v b="$need" 'BEGIN { exit !(a + 0 >= b + 0) }'; then chosen=$c; break; fi
+        e=$(site_words "$TOP_E" "$c"); eval_cand "$TOP_N" "$c" "$e"
+        tried="$tried $c:${CM:-NA}(peak ${CPK:-NA}, excess ${CEX:-NA}, need $CNEED)"
+        if [ $CRC = 0 ] && [ -n "$CM" ] && awk -v a="$CM" -v b="$CNEED" 'BEGIN { exit !(a + 0 >= b + 0) }'; then chosen=$c; break; fi
     done
-    rl_kv top_candidates "margin per APU (GB) by digits:$tried; need $need ($DEVSRC; excess ${GAP:-unknown})"
-    if [ -z "$chosen" ]; then rl_line "top step: no candidate fits (need margin $need GB per APU:$tried); the staircase stays at $best"; rl_kv top_choice none; stop=skip; return 1; fi
-    rl_kv top_choice "$chosen at $TOP_N nodes"; rl_line "top step: $chosen digits chosen (margin per APU by candidate:$tried; need $need)"
+    rl_kv top_candidates "$tried; points: ${PTS:-none}; $DEVSRC"
+    if [ -z "$chosen" ]; then rl_line "top step: no candidate fits:$tried; the staircase stays at $best"; rl_kv top_choice none; stop=skip; return 1; fi
+    rl_kv top_choice "$chosen at $TOP_N nodes"; rl_line "top step: $chosen digits chosen (candidates, largest first:$tried)"
     TOPD=$chosen; TOPE=$e
     return 0
+}
+final_step() {    # prints the proposed final run (not run: the user confirms): the largest candidate under the measured edge with the excess and the run time fitted over all passed points
+    local c cs e chosen= tried= tmo tp
+    cs=$(for c in ${FIN_DS//,/ }; do echo "$c"; done | sort -g -r)
+    for c in $cs; do
+        e=$(site_words "$FIN_E" "$c"); eval_cand "$FIN_N" "$c" "$e"
+        tried="$tried $c:${CM:-NA}(peak ${CPK:-NA}, excess ${CEX:-NA}, need $CNEED)"
+        if [ $CRC = 0 ] && [ -n "$CM" ] && awk -v a="$CM" -v b="$CNEED" 'BEGIN { exit !(a + 0 >= b + 0) }'; then chosen=$c; tp=$CTP; break; fi
+    done
+    rl_kv final_points "${PTS:-none} (digits:excess_apu_gb:total_s; excess linear in digits, total_s a power law, least squares over the passed steps)"
+    rl_kv final_candidates "margin per APU (GB) and need, largest first:$tried; $DEVSRC"
+    if [ -z "$chosen" ]; then rl_line "final: no candidate fits:$tried; the best passed size ($best digits) is the record"; rl_kv final_digits none; return 0; fi
+    if [ "$tp" = NA ] || [ -z "$tp" ]; then tmo=120; tp="NA (under 2 timed points)"; else tmo=$(awk -v t="$tp" 'BEGIN { m = int(t * 1.8 / 60) + 11; m = int((m + 4) / 5) * 5; print m }'); fi
+    rl_kv final_digits "$chosen at $FIN_N nodes"; rl_kv final_pred_total_s "$tp"; rl_kv final_tmo_min "$tmo"
+    rl_line "final proposal: $chosen digits (planner peak ${CPK:-NA} GB per APU, predicted excess ${CEX:-NA} GB, predicted total_s $tp, timeout $tmo min = 1.8 x predicted + 11 min, rounded up to 5)"
+    rl_line "final command (run it only on the user's yes; add --write <dir> only on the user's yes): cd <repo> && export REMOTE_FULLLOG=1 && bash remote/run/stair.sh --path $PATHN --budget $((tmo + 40)) --step \"$FIN_N|$chosen|$e|--tmo $tmo\""
 }
 AB_SOFT=0 AB_HARD=0 AB_DONE=0
 for i in "${!SN[@]}"; do
@@ -270,6 +318,7 @@ if [ -n "$TOP" ] && [ "$worst" = PASS ] && [ -z "$stop" ]; then
         idx=$((TOTAL + 1)); attempt "$idx" "$TOP_N" "$TOPD" "$TOPE" "$TOP_X" "$idx" && { if [ "$SV" = FAIL ]; then worst=FAIL; stop=fail; fail_idx=$idx; else best=$(rl_num "$TOPD"); fi; }
     fi
 fi
+if [ -n "$FINAL" ] && [ "$worst" = PASS ]; then final_step; fi
 [ $AB_SOFT = 1 ] && [ "$worst" = PASS ] && worst=PARTIAL
 [ "$stop" = skip ] && [ "$worst" = PASS ] && worst=PARTIAL
 rl_kv best_passed_digits "$best"; rl_kv elapsed_min "$(( (SECONDS - t0) / 60 ))"
