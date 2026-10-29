@@ -57,7 +57,7 @@ fi
 for x in "${SX[@]}"; do case " $x " in *" --round-ab "*) echo " $x " | grep -q -E ' --round-ab [0-9.]+ ' || { echo "stair.sh: --round-ab MB (a number, in the step's EXTRA)" >&2; exit 2; };; esac; done
 rl_init stair
 # the measured GPU edge (P1's edge.sh) replaces the 373.44 GB harness figure of 10-06: the planner's per-APU margin is taken against it
-if [ -n "${REMOTE_DEVICE_GB:-}" ] && rl_isnum "$REMOTE_DEVICE_GB"; then export ECALC_DEVICE_GB=${ECALC_DEVICE_GB:-$REMOTE_DEVICE_GB}; DEVSRC="measured edge $REMOTE_DEVICE_GB GB per node (P1 edge step)"; else DEVSRC="the 373.44 GB harness figure of 10-06 (no P1 edge measurement)"; fi
+if [ -n "${REMOTE_DEVICE_GB:-}" ] && rl_isnum "$REMOTE_DEVICE_GB"; then export ECALC_DEVICE_GB=${ECALC_DEVICE_GB:-$REMOTE_DEVICE_GB}; DEVSRC="measured edge $REMOTE_DEVICE_GB GB per node (P1 edge step)"; elif [ -n "${ECALC_DEVICE_GB:-}" ]; then DEVSRC="ECALC_DEVICE_GB from the environment / site defaults (no P1 edge measurement)"; else DEVSRC="the 373.44 GB harness figure of 10-06 (no P1 edge measurement)"; fi
 TOTAL=${#STEPS[@]}
 rl_kv device_gb_used "${ECALC_DEVICE_GB:-planner default} ($DEVSRC)"; rl_kv path "$PATHN"; rl_kv steps "$TOTAL"${BUDGET:+" budget_min=$BUDGET"}
 if [ "$DRY" = 1 ]; then
