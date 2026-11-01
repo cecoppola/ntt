@@ -291,7 +291,7 @@ int db_pool_vmm_on(void)
     return g_vmm_on;
 }
 static struct vmm { char *base; size_t reserved, chunk; int nslot, nd, reg; hipMemGenericAllocationHandle_t *h;   /* h[slot]: the chunk mapped there, 0 = empty */
-                    size_t n_remap, remap_chunks, n_grow, grow_chunks; double t_remap;
+                    size_t n_remap, n_force, remap_chunks, n_grow, grow_chunks; double t_remap;
                     int m0, mapped, bg_on; pthread_t bg; size_t bytes; double t_bg;
                     double t_cr, t_mp, t_ac, t_ms; int mark_m; } g_vmm[DB_NQ];   /* seconds in hipMemCreate / hipMemMap / hipMemSetAccess / the zeroing, summed (ECALC_INIT_TL); mark_m: the chunk count of the parity-1 half's end */   /* m0: the arena's chunks; mapped: how many of them are (the first `mapped` slots), the rest by the background thread */
 static pthread_cond_t g_vmm_cv = PTHREAD_COND_INITIALIZER;
@@ -404,7 +404,7 @@ void db_vmm_arena_release(int dev)                     /* after the pool is done
     db_vmm_arena_wait(dev, (size_t)-1);
     for (int k = 0; k < v->nslot; k++) if (v->h[k]) { (void)hipMemUnmap(v->base + (size_t)k * v->chunk, v->chunk); (void)hipMemRelease(v->h[k]); v->h[k] = 0; }
     (void)hipMemAddressFree(v->base, v->reserved); free(v->h);
-    if (vmm_vb()) printf("dbig pool: APU%d VMM arena released (%zu remaps of %zu chunks in %.2f s, %zu growths of %zu chunks)\n", dev, v->n_remap, v->remap_chunks, v->t_remap, v->n_grow, v->grow_chunks);
+    if (vmm_vb()) printf("dbig pool: APU%d VMM arena released (%zu remaps of %zu chunks in %.2f s, %zu of them forced by DB_POOL_FORCE_REMAP, %zu growths of %zu chunks)\n", dev, v->n_remap, v->remap_chunks, v->t_remap, v->n_force, v->n_grow, v->grow_chunks);
     memset(v, 0, sizeof *v);
 }
 static int vmm_region_has(int dev, const char *p, size_t bytes, int *reg)   /* is [p, p + bytes) inside device dev's VMM range? */
@@ -441,18 +441,25 @@ static void free_sync(int d)
     HIP_CHECK(hipSetDevice(cur));
     __atomic_fetch_add(&g_fsync_n, 1, __ATOMIC_RELAXED); pthread_mutex_lock(&g_fsync_mx); g_fsync_t += mem_now() - t0; pthread_mutex_unlock(&g_fsync_mx);   /* (the time is a sum over threads, approximate) */
 }
-static int vmm_make_room(int d, size_t need)           /* (the pool lock held) a contiguous free extent of >= need bytes by remapping; 0 = not possible (the VA is exhausted) */
+/* DB_POOL_FORCE_REMAP=<n> (default 0 = off; results/STRESS.md): a stress knob.  Every n-th q_alloc on a device first runs vmm_make_room(force=1): it unmaps up to
+ * ceil(need/chunk) of the HIGHEST wholly free chunks (never creates chunks) and maps them again, in reverse order, into the lowest run of empty slots, although the request
+ * would have been met from the free list.  Only free memory moves, so the digits do not change; it makes the remap path (hipMemUnmap / hipMemMap / hipMemSetAccess under
+ * traffic) run many times at small sizes.  Small DB_POOL_VMM_CHUNK_GB (e.g. 0.0625) gives many chunks to move. */
+static long g_force_n = -1;
+static long force_remap_n(void) { long n = __atomic_load_n(&g_force_n, __ATOMIC_ACQUIRE); if (n < 0) { const char *e = getenv("DB_POOL_FORCE_REMAP"); n = e ? atol(e) : 0; if (n < 0) n = 0; __atomic_store_n(&g_force_n, n, __ATOMIC_RELEASE); } return n; }
+static int vmm_make_room(int d, size_t need, int force) /* (the pool lock held) a contiguous free extent of >= need bytes by remapping; 0 = not possible (the VA is exhausted); force: see DB_POOL_FORCE_REMAP */
 {
     struct vmm *v = &g_vmm[d]; if (!v->base) return 0;
     if (v->mapped < v->m0 && !g_vmm_go) { g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); }
     while (v->mapped < v->m0) pthread_cond_wait(&g_vmm_cv, &g_pool_mx);   /* (the lock is held) the background mapping first: the slot table must be complete */
     double t0 = mem_now(); size_t C = v->chunk; int m = (int)((need + C - 1) / C);
     int *fr = (int *)malloc(v->nslot * sizeof *fr), nf = 0;      /* the wholly free mapped slots */
-    for (int k = 0; k < v->nslot && nf < m; k++) if (v->h[k]) {
+    for (int j = 0; j < v->nslot && nf < m; j++) { int k = force ? v->nslot - 1 - j : j; if (v->h[k]) {
         char *p = v->base + (size_t)k * C; int inside = 0;
         for (int i = 0; i < g_ext[d].n; i++) if (p >= g_ext[d].e[i].p && p + C <= g_ext[d].e[i].p + g_ext[d].e[i].bytes) { inside = 1; break; }
         if (inside) fr[nf++] = k;
-    }
+    } }
+    if (force) { if (!nf) { free(fr); return 0; } m = nf; for (int i = 0; i < nf / 2; i++) { int t = fr[i]; fr[i] = fr[nf - 1 - i]; fr[nf - 1 - i] = t; } }   /* (force: only the free chunks found, no growth; the order reversed so that the handles land in other slots) */
     hipMemGenericAllocationHandle_t *hs = (hipMemGenericAllocationHandle_t *)calloc(m, sizeof *hs);
     /* (DB_FREE_SYNC: q_alloc synced the device before taking the lock, so nothing enqueued earlier touches the chunks about to be unmapped; a sync under g_pool_mx could hang) */
     for (int i = 0; i < nf; i++) { int k = fr[i]; ext_remove(d, v->base + (size_t)k * C, C); if (hipMemUnmap(v->base + (size_t)k * C, C) != hipSuccess) { ec_fatal(EC_RC_FATAL, "dbig: hipMemUnmap failed\n"); } hs[i] = v->h[k]; v->h[k] = 0; }
@@ -464,8 +471,8 @@ static int vmm_make_room(int d, size_t need)           /* (the pool lock held) a
     }
     if (!vmm_map_run(d, slot0, m, hs)) { pthread_mutex_unlock(&g_pool_mx); mem_oom("dbig block pool (VMM chunks)", d, (size_t)(m - nf) * C); }
     ext_insert(d, v->base + (size_t)slot0 * C, (size_t)m * C, v->reg);
-    v->n_remap++; v->remap_chunks += (size_t)nf; v->t_remap += mem_now() - t0;
-    if (vmm_vb()) { size_t fb = 0; for (int i = 0; i < g_ext[d].n; i++) fb += g_ext[d].e[i].bytes;
+    v->n_remap++; v->remap_chunks += (size_t)nf; v->t_remap += mem_now() - t0; if (force) v->n_force++;
+    if (vmm_vb() > (force ? 1 : 0)) { size_t fb = 0; for (int i = 0; i < g_ext[d].n; i++) fb += g_ext[d].e[i].bytes;
                     printf("dbig pool: APU%d VMM remap for a %.2f GB request: %d free chunks moved%s to slot %d (%.2f GB contiguous) in %.3f s; free %.2f GB in %d extents, live %.2f GB\n",
                            d, need / 1e9, nf, m > nf ? " + new chunks mapped" : "", slot0, (double)m * C / 1e9, mem_now() - t0, fb / 1e9, g_ext[d].n, g_live_bytes[d] / 1e9);
                     if (m > nf) printf("dbig pool: APU%d VMM growth by %d chunks (%.2f GB) inside the phase\n", d, m - nf, (double)(m - nf) * C / 1e9); }
@@ -476,8 +483,9 @@ static uint64_t *q_alloc(int d, size_t need) { free_sync(d); pthread_mutex_lock(
 static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: bytes, a multiple of DB_ALIGN limbs */
 {
     int reg;
+    { long fn = force_remap_n(); static size_t cnt[DB_NQ]; if (fn && d >= 0 && d < DB_NQ && ++cnt[d] % (size_t)fn == 0) (void)vmm_make_room(d, need, 1); }   /* DB_POOL_FORCE_REMAP */
     char *p = ext_take(d, need, &reg);
-    if (!p && vmm_make_room(d, need)) p = ext_take(d, need, &reg);   /* the VMM arena re-stitches its free chunks */
+    if (!p && vmm_make_room(d, need, 0)) p = ext_take(d, need, &reg);   /* the VMM arena re-stitches its free chunks */
     if (!p) {
         static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0);
         if (vb) { size_t fr = 0, lg = 0; for (int i = 0; i < g_ext[d].n; i++) { fr += g_ext[d].e[i].bytes; if (g_ext[d].e[i].bytes > lg) lg = g_ext[d].e[i].bytes; }

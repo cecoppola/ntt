@@ -91,6 +91,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `COMM_SIZE` | 1 | launch-line | this process's rank and the number of node-processes (set by `mnrun.sh`; unset or 1 = the single-node program) | MS15.md+S16.md |
 | `COMM_TRANSPORT` | unset | launch-line | `xshmem`, the only multi-node transport (since Q103, 2026-10-25; `shmem` was removed): the default build includes the engine where libfabric and the PMI2 header are found (`make XSHMEM=ofi`, path 1; `XSHMEM=cray`, path 2), and `mnrun.sh` sets it for more than one process or under `ECALC_PE_PER_GPU=1`; unset = one process, no transport. | S.md+OFI17.md |
 | `DB_FREE_SYNC` | 0 | experiment | test of a free/remap-while-in-use race in the dbig block pool: syncs the device before a block returns to the free list and before a VMM remap (1 = the freeing device, 2 = all pool devices); digits unchanged, off by default | POOLRACE.md |
+| `DB_POOL_FORCE_REMAP` | 0 | experiment | stress knob for the remap path (vmm_make_room): moves only free chunks, digits unchanged, off by default; with a small DB_POOL_VMM_CHUNK_GB it runs the remap many times at small sizes | STRESS.md |
 | `DB_POOL_VERBOSE` | 0 | launch-line | the dbig block pool's growth and how the reserved tails were used (follows `RNS_VERBOSE`) | T215.md+S18KITFIX.md |
 | `DB_POOL_VMM` | derived | built-in default | the bs/dm arena of every APU as a HIP virtual-memory range (`hipMemAddressReserve` at `DB_POOL_VMM_RESERVE` (3) × the arena; 2 GiB chunks `hipMemCreate`d and mapped with access for the four ... | R114.md |
 | `DB_POOL_VMM_CHUNK_GB` | 2 | built-in default | with `DB_POOL_VMM`: the chunk size in GiB (2) and the VA reserved as a multiple of the arena (3) | S46.md+R114.md |
@@ -229,6 +230,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | coordinator (TASKS S) | 2026-11-11 | `BS_ARENA_TRIM_GB`, `ECALC_PLANE_CAP` |
 | experiment | T2 (D57) | 2026-11-19 | `MN_NONPOW2_CAP`, `MN_NONPOW2_MIN` |
 | experiment | coordinator (C1POOL) | 2026-11-30 | `DB_FREE_SYNC` |
+| experiment | coordinator (C2 STRESS) | 2026-11-30 | `DB_POOL_FORCE_REMAP` |
 | experiment | TARGET1 (B1) | 2026-12-31 | `XSHMEM_CTRL`, `XSHMEM_HEAP_MB`, `XSHMEM_LANES`, `XSHMEM_PES_PER_GPU` |
 | experiment | TARGET1 (S2) | 2026-12-31 | `ECALC_VPE_LANES` |
 | experiment | TARGET1 (S3a) | 2026-12-31 | `XSHMEM_LOOPBACK_PES`, `XSHMEM_ROUND_MB` |

@@ -89,3 +89,4 @@ P24_CRT_ANY	fallback	coordinator (Q130)	2026-11-11	=0 kept: the old CRT flag (s 
 XSHMEM_PEER_STREAMS	experiment	TASK4 peer	2026-12-31	copy-stream count A/B aid; remove with the XSHMEM_PEER decision
 DB_FREE_SYNC	experiment	coordinator (C1POOL)	2026-11-30	off by default; adopt, or remove after the large-size runs
 ECALC_MEMSAMPLE_SYSFS_ROOT	test-only	HEALTH (C5)	2027-04-12	mock sysfs root of the per-APU memory guard test
+DB_POOL_FORCE_REMAP	experiment	coordinator (C2 STRESS)	2026-11-30	off by default; keep as the stress harness knob, or remove after the pool race question closes
