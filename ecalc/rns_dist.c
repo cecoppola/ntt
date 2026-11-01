@@ -1103,6 +1103,10 @@ static void redistribute(const struct mn_ctx *X, const mdbv *op, struct rdst *o,
  * point-to-point: write to all, then read from all), and the scan: carry into node r = c_{r-1} | (p_{r-1} & carry into r-1);
  * returns the carry into this node, and aborts on a carry out of the last node (the fixed-length sum overflowed) */
 static int g_top_ok;
+/* C3 step 3 (ECALC_DR >= 2, rns_mul_dist_mn_chk below): while a checked product runs, the delivery fatals (a carry out of the top share, two carries out of a chunk, two carries out of a share)
+ * set a bit of g_chk_fail instead of stopping; the product's residue check gathers the bits, so every node of the group takes the same branch (repeat or stop). */
+static int g_chk_on, g_chk_att; static unsigned g_chk_fail; static size_t g_chk_seq;
+static void chk_flag(unsigned bit) { __atomic_fetch_or(&g_chk_fail, bit, __ATOMIC_RELAXED); }
 /* S1b: the truncated product's flag, set by mn_grid */
 /* Phase 10 A5: a truncated product (basis w): the carry out of the top node is dropped (mod B^w) */
 static int node_carry_in(mn_group *G, int c, int p)
@@ -1120,7 +1124,7 @@ static int node_carry_in(mn_group *G, int c, int p)
     for (int r = 0; r < me; r++) cin = (all[r] & 1) | (((all[r] >> 1) & 1) & cin);
     int top = cin; for (int r = me; r < g; r++) top = (all[r] & 1) | (((all[r] >> 1) & 1) & top);
     free(all);
-    if (top && !g_top_ok) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: carry out of the top share (node %d)\n", G->g0 + me); }
+    if (top && !g_top_ok) { if (g_chk_on) chk_flag(1); else ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: carry out of the top share (node %d)\n", G->g0 + me); }
     return cin;
 }
 /* the carries across the nodes after a fixed-length add on the shares (n limbs; co, pr its flags -- a node that had nothing
@@ -1371,7 +1375,7 @@ static void mn_round_add(struct mn_rounds *rd, mdb *Cn, dbig *T, size_t wlo, siz
         if (p24) db_share_add_spills_x24(T, wn, wlo, sp, sptab, R, C, g, &co, &pr);   /* P24: the blocks at L(R j + a') */
         else db_share_add_spills_x(T, wn, wlo, sp, sptab, R, R / nr, C, g, &co, &pr);
         if (rd->cy) { int co1 = 0, pr1 = 0; db_share_add_val(T, wn, 0, 1, 0, &co1, &pr1); co += co1; }
-        if (co > 1) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: two carries out of a chunk (the bound is 1)\n"); }
+        if (co > 1) { if (g_chk_on) chk_flag(2); else ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: two carries out of a chunk (the bound is 1)\n"); }
         db_share_add_shifted(&Cn->sh, cn, T, wlo + shift - clo, &c2, &p2); rd->kc += c2; rd->pr = p2;
         rd->cy = co;
         if (last) {
@@ -1679,7 +1683,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     { size_t b = (T.cap ? T.cap * 8 : 0); for (int d = 0; d < NL(); d++) b += rbo_max[d]; if (b > rns_dist_tscratch_max) rns_dist_tscratch_max = b; }   /* Phase 13a M: measured T + rbO */
     double t4 = mem_now(); int co = 0, pr = 1;                /* an empty window propagates (the windows tile the piece) */
     if (chunked) {                                            /* Phase 13a M: the rounds added the chunks into C; the two carry scans */
-        if (rd.kc > 1) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: %d carries out of a share in one piece (the bound is 1)\n", rd.kc); }
+        if (rd.kc > 1) { if (g_chk_on) chk_flag(4); else ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: %d carries out of a share in one piece (the bound is 1)\n", rd.kc); }
         share_carry_fix(G, &Cn->sh, cn, rd.kc, rd.pr);        /* C's own carries, with the propagate flag of its last add */
         share_carry_fix(G, &Cn->sh, cn, rd.cot, 0);           /* the piece's carries out of the windows that end at their share's top */
         db_free(&T);
@@ -1733,6 +1737,46 @@ void mdb_norm(mdb *C, mn_group *G, size_t below)
  * low product X Q comes out in the corrections' basis without a re-sharding shift; pieces whose limbs end at or below
  * lowcut (oa + ob + len_a + len_b <= lowcut: the A_h mu product's pieces below k + 1, B3) are skipped as on one node.  A
  * skipped (0,0) piece just leaves the first formed piece on the accumulating path (C's shares start zero-filled). */
+/* ---- C3 step 3, B (ECALC_DR >= 2; results/DR.md): checked tree products ----------------------------------------------------------------------------------
+ * A tracked residue is R(x) = x mod DR_Q (the 62-bit t1_q[0]) of a whole number, held by the caller as an explicit variable (mdb_trk: never inside the mdb, whose in-place operations
+ * would leave it stale) together with this node's share residue split by APU (the parts, recorded when the share was produced).  C = A B + X is exact, so R(C) = R(A) R(B) + R(X);
+ * rns_mul_dist_mn_chk compares the residue of the delivered shares with it (one host all-gather on mesh 0, summed alike on every node), repeats the product once on a mismatch (after
+ * recomputing the operand shares' parts: a changed part is corruption at rest, fatal naming node and APU) and stops on a second failure. */
+static void trk_share(const mdb *X, int node, uint64_t part[DB_NQ], uint64_t *res)    /* this node's share: the parts (residue of each APU's limbs at their place in the share) and the share's residue at its place in X */
+{
+    size_t lo, hi; mdb_share(X, node, &lo, &hi); if (hi > X->n) hi = X->n;
+    for (int d = 0; d < DB_NQ; d++) part[d] = 0;
+    *res = 0;
+    if (hi > lo) {
+        dbig s = X->sh; s.n = hi - lo; uint64_t r, p[DB_NQ], q = DR_Q;
+        db_mod_qs_parts(&s, &q, 1, &r, p);
+        for (int d = 0; d < DB_NQ; d++) part[d] = p[d];
+        *res = dr_mulmod(r, dr_powB(lo));
+    }
+}
+void mdb_trk_make(const mdb *X, mn_group *G, mdb_trk *t)
+{
+    int node = G ? g_node_of(G) : X->g0; uint64_t res;
+    memset(t, 0, sizeof *t); trk_share(X, node, t->part, &res); t->held = node >= X->g0 && node < X->g0 + X->g;
+    if (!G || G->g <= 1) { t->r = res; return; }
+    uint64_t *all = (uint64_t *)malloc((size_t)G->g * 8);
+    comm_allgather_host(G->all[0], &res, all, 8);
+    for (int r = 0; r < G->g; r++) t->r = dr_addmod(t->r, all[r]);
+    free(all);
+}
+static void dr_flip_limb(dbig *sh, size_t i) { uint64_t v = db_limb(sh, i); db_set_limb(sh, i, v ? v - 1 : 1); }   /* a fault of one limb, in range: v - 1 (1 if v = 0) */
+static void chk_deliver_inject(mdb *Cn, int node)
+{
+    size_t lo, hi; mdb_share(Cn, node, &lo, &hi);
+    if (hi > lo && dr_inject(DR_DELIVER, g_chk_seq, node, 0, g_chk_att)) dr_flip_limb(&Cn->sh, (hi - lo) / 2);
+}
+int mdb_dr_store_inject(mdb *X, int node)    /* ECALC_DR_TEST=store: one limb of this node's share of X wrong at rest (the call sites count the occurrences: every node calls) */
+{
+    static size_t occ; occ++;
+    size_t lo, hi; mdb_share(X, node, &lo, &hi); if (hi > X->n) hi = X->n;
+    if (hi > lo && dr_inject(DR_STORE, occ, node, 0, 0)) { dr_flip_limb(&X->sh, (hi - lo) / 2); return 1; }
+    return 0;
+}
 static size_t mn_logmin(int g) { int nr = NL() * g, lg = 0; while ((1 << lg) < nr) lg++; int logmin = 2 * (5 + lg); return logmin < 20 ? 20 : logmin; }
 /* ---- Phase 15 Batch 3 P24 (results/PRIMES_STRATEGY.md §P2415): four primes at 24 digits per transform point in the mn tier ------------------------
  * Every mn product runs P24 when pool 0 holds four planes (ECALC_NP=4, or auto where the run's largest group can form a four-prime
@@ -1827,6 +1871,7 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     cache_drop();
     if (verbose || (getenv("ECALC_VERBOSE") && (ka * kb > 1 || skipped))) printf("dist_mn node %d: %zu x %zu limbs over %d x 4 ranks (cap 2^%d%s): %d x %d pieces, %d formed, %d skipped%s%s (cache %d slots%s: %zu hits, %zu misses)\n", node, na, nb, g, p24 ? (int)log2((double)p24_cap(g)) : mn_logn_cap(g), p24 ? " points, P24" : "", ka, kb, formed, skipped, trunc ? " (low product)" : "", lowcut ? " (low cut)" : "", NS,
                                                                             pc ? (pck == 1 ? " of 1 prime, partial" : pck == 2 ? " of 2 primes, partial" : pck == 3 ? " of 3 primes, partial" : NS ? " of 4 primes, partial" : ", partial") : "", g_cache.hits, g_cache.misses);
+    if (g_chk_on) chk_deliver_inject(&Cn, node);               /* ECALC_DR_TEST=deliver: one limb of C's share wrong before the norm (the checked products only) */
     mdb_norm(&Cn, G, N);
     if (Cm->sh.cap) db_free(&Cm->sh);
     *Cm = Cn;
@@ -1838,6 +1883,66 @@ void rns_mul_dist_mn(mdb *Cm, const mdb *A, const mdb *B, const mdb *X, mn_group
 {
     mdbv a = { A, 0, A->n }, b = { B, 0, B->n };
     mn_grid(Cm, &a, &b, X, G, 0, (size_t)-1, (size_t)-1, 0);
+}
+/* the operands' shares at rest: recompute the parts of the shares this node holds against the ones recorded at production; the group's mask words are gathered (a collective), a changed part is fatal */
+static void chk_at_rest(mn_group *G, const mdb *op[3], const mdb_trk *tk[3], size_t seq)
+{
+    int g = G->g, node = g_node_of(G); uint64_t mask = 0, part[DB_NQ], res;
+    for (int i = 0; i < 3; i++) if (op[i] && tk[i] && tk[i]->held) {
+        trk_share(op[i], node, part, &res);
+        for (int d = 0; d < DB_NQ; d++) if (part[d] != tk[i]->part[d]) mask |= (uint64_t)1 << (4 * i + d);
+    }
+    uint64_t *all = (uint64_t *)malloc((size_t)g * 8); all[0] = mask;
+    if (g > 1) comm_allgather_host(G->all[0], &mask, all, 8);
+    char who[512]; int k = 0, bad = 0; who[0] = 0;
+    for (int r = 0; r < g; r++) for (int b = 0; b < 12; b++) if ((all[r] >> b) & 1) {
+        bad++; if (k < (int)sizeof who - 80) k += snprintf(who + k, sizeof who - k, "%snode %d APU %d (operand %c)", k ? ", " : "", G->g0 + r, b % 4, "ABX"[b / 4]);
+    }
+    free(all);
+    if (!bad) return;
+    char where[160]; dr_where(where, sizeof where);
+    dr_count(DR_C_FATAL, 1); dr_summary();
+    ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: DR: checked product #%zu (%s), group [%d, %d)%s%s: the residue check failed and an operand's stored share changed since it was produced (corruption at rest, not repairable by repeating the product): %s\n",
+             seq, g_p24_what, G->g0, G->g0 + g, where[0] ? "; " : "", where, who);
+}
+/* C = A B + X, checked: ta, tb, tx the operands' tracked residues (tx 0 without X; the parts only where this node holds the share), tc out: R(C) (= the verified value) and this node's parts of C */
+void rns_mul_dist_mn_chk(mdb *Cm, const mdb *A, const mdb *B, const mdb *X, mn_group *G, const mdb_trk *ta, const mdb_trk *tb, const mdb_trk *tx, mdb_trk *tc)
+{
+    mdbv a = { A, 0, A->n }, b = { B, 0, B->n };
+    const uint64_t want = dr_addmod(dr_mulmod(ta->r, tb->r), tx ? tx->r : 0);
+    const int g = G->g, node = g_node_of(G);
+    const mdb *op[3] = { A, B, X }; const mdb_trk *tk[3] = { ta, tb, tx };
+    size_t seq = ++g_chk_seq; (void)seq;
+    for (int att = 0;; att++) {
+        if (att) { db_free(&Cm->sh); db_init(&Cm->sh); Cm->n = 0; }    /* the repeat forms C anew in the same bytes (the bad result is freed first: no extra memory) */
+        g_chk_on = 1; g_chk_att = att; g_chk_fail = 0;
+        mn_grid(Cm, &a, &b, X, G, 0, (size_t)-1, (size_t)-1, 0);
+        g_chk_on = 0;
+        uint64_t part[DB_NQ], res; trk_share(Cm, node, part, &res);
+        uint64_t mine[7] = { res, part[0], part[1], part[2], part[3], g_chk_fail, g_dr_events }, *all = (uint64_t *)malloc((size_t)g * sizeof mine);
+        if (g > 1) comm_allgather_host(G->all[0], mine, all, sizeof mine); else memcpy(all, mine, sizeof mine);
+        uint64_t sum = 0, ev = 0; unsigned fl = 0, nbad = 0; char who[320]; int k = 0; who[0] = 0;
+        for (int r = 0; r < g; r++) { sum = dr_addmod(sum, all[7 * r]); fl |= (unsigned)all[7 * r + 5]; if (all[7 * r + 6] > ev) ev = all[7 * r + 6];
+                                      if (all[7 * r + 5]) { nbad++; if (k < (int)sizeof who - 40) k += snprintf(who + k, sizeof who - k, "%snode %d (delivery bits %u)", k ? ", " : "", G->g0 + r, (unsigned)all[7 * r + 5]); } }
+        free(all);
+        dr_count(DR_C_PROD, 1);
+        if (!fl && sum == want) {
+            if (att) dr_count(DR_C_REC_PRODUCT, 1);
+            if (tc) { memset(tc, 0, sizeof *tc); tc->r = want; tc->held = 1; for (int d = 0; d < DB_NQ; d++) tc->part[d] = part[d]; }
+            return;
+        }
+        dr_count(DR_C_FAIL, 1);
+        g_dr_events = (size_t)ev + 1;                                  /* the group's count (every node adopts the same one: the cap is decided alike) */
+        chk_at_rest(G, op, tk, g_chk_seq);                              /* corruption at rest: fatal naming the node and APU */
+        char where[160]; dr_where(where, sizeof where);
+        int fatal = att >= 1 || g_dr_events > (size_t)dr_total_cap();
+        snprintf(g_dr_msg, sizeof g_dr_msg, "checked product #%zu (%s), group [%d, %d)%s%s: attempt %d: R(C) = %llu, expected R(A) R(B)%s = %llu%s%s%s",
+                 g_chk_seq, g_p24_what, G->g0, G->g0 + g, where[0] ? "; " : "", where, att + 1, (unsigned long long)sum, tx ? " + R(X)" : "", (unsigned long long)want,
+                 nbad ? "; delivery failure at " : "", nbad ? who : "",
+                 fatal ? (att >= 1 ? "; failed again after the repeat (persistent), stopping" : "; the run's limit ECALC_DR_TOTAL of failures is reached, stopping") : "; the operands are unchanged at rest, repeating the product");
+        if (fatal) { dr_count(DR_C_FATAL, 1); dr_summary(); ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: DR: %s\n", g_dr_msg); }
+        if (G->me == 0) { fprintf(stderr, "DR: %s\n", g_dr_msg); fflush(stderr); }
+    }
 }
 void rns_mul_dist_mn_v(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t w) { mn_grid(Cm, A, B, X, G, 0, w, w, 0); }
 void rns_mul_dist_mn_cut(mdb *Cm, const mdb *A, const mdb *B, mn_group *G, size_t lowcut, size_t highcut)
