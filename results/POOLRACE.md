@@ -2,9 +2,9 @@
 
 **Question.** At 3.7e13 digits and above six of six target runs failed (CRT flag = wrong transform-domain values; T1/VERIFY failures = wrong in-range limbs), the failure rate rising with size. One software hypothesis: `q_free` (`ecalc/dbig.c`) returns a block to the free extent list at once, with no stream synchronisation, and `vmm_make_room` unmaps "wholly free" VMM chunks and maps their handles again at the lowest run of empty slots (possibly the slots it just emptied) with no device synchronisation; a caller that frees while a kernel or transfer still uses the block, or a late write into a remapped chunk, would corrupt data silently. This report audits every free path by code reading and adds `DB_FREE_SYNC` to test the hypothesis on a machine.
 
-**Change / branch.** Branch `c1pool`; switch `DB_FREE_SYNC` (default 0 = unchanged; `ecalc/README.md` row, registry, review date 2026-11-30). 1: `hipDeviceSynchronize` on the block's device before `q_free` puts the block on the free list and before `vmm_make_room` unmaps any chunk; 2: the same on every device the process uses for the pool (peer readers of a quarter). A device on which the persistent seed-pull kernel (`k_pull`) is running gets `hipStreamSynchronize(0)` instead, since a device sync would wait for that kernel. No caller was found UNSAFE, so no caller was changed.
+**Change / branch.** Branch `c1pool`; switch `DB_FREE_SYNC` (default 0 = unchanged; `ecalc/README.md` row, registry, review date 2026-11-30). 1: `hipDeviceSynchronize` on the block's device before `q_free` puts the block on the free list and (in `q_alloc`, before the pool lock is taken, so before `vmm_make_room` can unmap any chunk) at every allocation; 2: the same on every device the process uses for the pool (peer readers of a quarter). A device on which the persistent seed-pull kernel (`k_pull`) is running gets `hipStreamSynchronize(0)` instead, since a device sync would wait for that kernel. No caller was found UNSAFE, so no caller was changed.
 
-## 1. Audit (code reading, main 260d2c18; every line number is of `ecalc/` at that commit)
+## 1. Audit (code reading, main 260d2c18; every line number is of `ecalc/` at that commit, not of the branch, where the switch code shifted them)
 
 Facts the verdicts rest on (all read in the code):
 
@@ -42,13 +42,13 @@ Two non-ordering observations (not claimed to cause the failures):
 1. `vmm_make_room` creates new chunks (`hipMemCreate`, growth) without zeroing them, while the background mapper zeroes each chunk and the hipMalloc fallback does `hipMemset`. A caller that relies on a fresh pool block being zero would see garbage after a growth; no such caller was looked for.
 2. The pull kernels (`k_pull`) stay resident on a device until `db_pull_stop_all`; any code that calls `hipDeviceSynchronize` while they run would hang. `DB_FREE_SYNC` avoids that with the null-stream fallback (`g_pull_run`).
 
-**Audit result: 21 rows, 0 UNSAFE, 1 UNCLEAR (row 19, safe if the others hold), the rest SAFE; rows 15, 16 are "SAFE by pattern, not every line read".** The code gives no support for the early-free hypothesis. It does not exclude a free by a path that is only reached at sizes the aac7 gates never run (>= 1e13 digits, 6+ node splits, `ECALC_PE_PER_GPU` layout) or a hardware / driver level race on `hipMemMap` / `hipMemUnmap` / `hipMemSetAccess` that no code reading can see. `DB_FREE_SYNC=1/2` tests exactly that second class on the target.
+**Audit result: 21 rows, 0 UNSAFE, 1 UNCLEAR (row 19, safe if the others hold), the rest SAFE; rows 15, 16 are "SAFE by pattern, not every line read".** The code gives no support for the early-free hypothesis. It does not exclude a free by a path that is only reached at sizes the aac7 gates never run (>= 1e13 digits, 6+ node splits, `ECALC_PE_PER_GPU` layout) or a hardware / driver level race on `hipMemMap` / `hipMemUnmap` / `hipMemSetAccess` that no code reading can see. `DB_FREE_SYNC=1/2` adds a device sync before every free and allocation; if a driver-level race depends on timing, it may hide or move it, but it cannot prove its absence.
 
 ## 2. Method, results, verdict
 
 **Question.** Does the dbig block pool free or remap memory while GPU work still uses it (`q_free`, `vmm_make_room`)?
 
-**Change.** Switch `DB_FREE_SYNC` (default 0): 1 = device sync before each `q_free` and before the unmap in `vmm_make_room`; 2 = same, across all devices. Branch c1pool.
+**Change.** Switch `DB_FREE_SYNC` (default 0): 1 = device sync before each `q_free` and at the start of each `q_alloc` (outside the pool lock, which covers `vmm_make_room`); 2 = same, across all devices. Branch c1pool.
 
 **Method.** Audit of all pool callers (table above); gates on aac7, 1e9 digits, 1 and 2 nodes; `mnaccept.sh --only unit,e9`; a search for a forced-pressure setting (VMM remaps visible with `DB_POOL_VERBOSE=1`).
 
@@ -59,6 +59,12 @@ Two non-ordering observations (not claimed to cause the failures):
 - `gate.sh --build` fails at "python unit tests" (`tests/test_site.py`), also on main: environmental, pre-existing. The build, registry check and doccheck were run by hand: rc 0.
 - Pressure: 0 VMM remaps in 24 runs (4e9 and 1.6e10 digits; `ECALC_DEVICE_GB` 250/170, `DM_TIGHT=0`, `BS_ARENA_ROOM=0`, `BS_ARENA_TRIM_GB` 2..12; the trim is clamped to about 0.5 GB). All VERIFY OK. No pressure pair exists.
 - ABBA cost of `DB_FREE_SYNC=1` (2 nodes, 1.6e10): NOT MEASURED. The driver failed on a missing `tools/rundriver.sh`. A replacement item (45_c1pool_abba2) was queued and may finish later.
+
+**Review fixes (after the first gates).** `g_pull_run` is now cleared in `db_pull_stop_all` once the kernels exited; the sync moved out of the pool lock; the init and time sum are thread-safe. The gate results above are of the code BEFORE these fixes; re-gate results (1 node, switch 0/1/2) are in the next line; the 2-node gates with the switch wait for a second NIC node and are queued as a separate item.
+
+Re-gate: PENDING.
+
+**Remap path untested.** No remap occurred in any pressure run (0 in 24), so the `vmm_make_room` remap path was never exercised on hardware by this work.
 
 **Verdict.** Inconclusive. No caller proven UNSAFE and no race reproduced; the switch is harmless in the gates (no slowdown seen at 1e9, one run each). The hypothesis is neither confirmed nor excluded at sizes where remaps occur. Recommendation: keep the switch (default 0), do not enable it.
 
