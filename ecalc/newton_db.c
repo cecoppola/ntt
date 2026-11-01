@@ -1066,6 +1066,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     if (dr_level() >= 2) mn_dr_division_check(qs, pres, qres);   /* C3: the leaf check if still open; the tree's tracked residues against these */
     memset(&g_dd, 0, sizeof g_dd);
     if (dr_level() >= 3 && nres >= 1 && qs[0] == DR_Q) { g_dd.on = 1; g_dd.rQ = qres[0] % DR_Q; g_dd.rS = dr_addmod(pres[0] % DR_Q, g_dd.rQ); }   /* C3 D: R(S) = R(P) + R(Q) */
+    else if (dr_level() >= 3) { dr_count(DR_C_DIV_OFF, 1); if (me == 0) { printf("mn: DR: division check D is NOT active: the division's residue set has no DR_Q (nres %d)\n", nres); fflush(stdout); } }
     size_t na_est = P->n + 1 + dl, k_mu = na_est - nq + 1, h_mu = newton_dkm_h(k_mu);
     mdb mu; memset(&mu, 0, sizeof mu);
     recip_mn(&mu, Q, h_mu, G);                                         /* the chain to h: one doubling fewer */
@@ -1086,6 +1087,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     mdb Xh, Aw, Qw, xql, R1, Xl, Xs, Xl2, Xn, Rd;
     memset(&Xh, 0, sizeof Xh); memset(&Aw, 0, sizeof Aw); memset(&Qw, 0, sizeof Qw); memset(&xql, 0, sizeof xql); memset(&R1, 0, sizeof R1);
     memset(&Xl, 0, sizeof Xl); memset(&Xs, 0, sizeof Xs); memset(&Xl2, 0, sizeof Xl2); memset(&Xn, 0, sizeof Xn); memset(&Rd, 0, sizeof Rd);
+    dd_step(1, dl - s, G);                                             /* C3 D: step 1's context, so A mu is labelled like X_hi Q */
     mn_dkm_est_lean(&Xh, &S, dl - s, nq, k1, &mu, k1 + 1, G);          /* int15k (lean): views instead of copies, Qw in place of Q */
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 1 A mu");   /* int15k: the division's moments (ECALC_VERBOSE >= 2) */
     { long th = dkm_test_hi(); if (th) mn_dkm_add(&Xh, -th, G); }     /* NEWTON_DKM_TEST_HI (a borrow out of X_hi is fatal in mdb_add_val) */
@@ -1097,7 +1099,6 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     if (newton_mn_pq_hook) newton_mn_pq_hook(1, Q);
     mfree(Q); mdb *Qd = &Qw;                                           /* the low products' Q: Qw (the same limbs in basis w; Q freed now) */
     long dx1;
-    dd_step(1, dl - s, G);
     if (Pw) {
         size_t hw = w - Pw;
         mn_fold(&Qpp, &Qw, (hw % Pw) ? (long)(hw % Pw) - (long)Pw : 0, Pw, Pw + 4, G);   /* Q B^-h folded, for both steps */
@@ -1111,13 +1112,18 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     }
     mn_dkm_add(&Xh, dx1, G);                                           /* X_hi exact (no one has seen it) */
     NST(newton_st.dkm_corr += (size_t)(dx1 < 0 ? -dx1 : dx1));
+    if (g_dd.on) {   /* C3 D, independent of the corrections and the negative branch: R(R1) = R(S) B^(dl-s) - R(X_hi final) R(Q) (exact, mod DR_Q) */
+        g_dd.rR1 = dd_res(&R1, G);
+        const uint64_t want = dr_submod(g_dd.rA, dr_mulmod(dd_res(&Xh, G), g_dd.rQ)); dr_count(DR_C_DIV, 1);
+        if (g_dd.rR1 != want) { dr_count(DR_C_FATAL, 1); dr_summary(); ec_fatal(EC_RC_FATAL, "newton_mn_divmod: DR: step 1 remainder R1 fails R(R1) = R(S) B^e - R(X_hi) R(Q) (%llu, expected %llu): a fault in the corrections or the negative branch (D = M - Rc); the run stops\n", (unsigned long long)g_dd.rR1, (unsigned long long)want); }
+    }
     /* Phase 15 EW (MN_OUT_DKM_HI, archive:results_merged_2026-10-24/DIVISION.md §EW15 1.3) -- the X_hi hook (every rank, the same point: the hook runs a collective): X_hi is
      * final here; the hook takes it and starts the part files of X_hi's shares.  No X0 below: the division returns X_lo */
     int xhi = newton_mn_xhi_hook && newton_mn_xlo_hook && newton_x_defer;
     if (xhi) xhi = newton_mn_xhi_hook(&Xh, s, newton_mn_x_arg);
     double tc = mem_now();
     /* step 2: X_lo, R of A2 = R1 B^s */
-    if (g_dd.on) { g_dd.rR1 = dd_res(&R1, G); dd_step(2, s, G); }       /* C3 D: R(R1) before R1 is consumed */
+    if (g_dd.on) dd_step(2, s, G);                                     /* C3 D: R(R1) was taken and checked after step 1's corrections */
     size_t na2 = R1.n + s, k2 = na2 >= nq ? na2 - nq + 1 : 0;
     if (na2 >= nq) { mn_dkm_est_lean(&Xl, &R1, s, nq, k2, &mu, k2 + 1, G); mfree(&mu); }
     else { mfree(&mu); mdb_shift(&Xl, &R1, (long)R1.n + 1, 2, G); }      /* A2 < Q: X_lo = 0 */
@@ -1148,7 +1154,8 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
         if (X->sh.cap) db_free(&X->sh);
         *X = Xl;
         NST(newton_st.t_div += mem_now() - ta);
-        mn_comm_mark("division (after the reciprocal)");   /* Phase 16 D */
+        if (g_dd.on) { dr_ctx_clear(); g_dd.on = 0; }   /* C3 D: the division is over; later products carry their own location */
+    mn_comm_mark("division (after the reciprocal)");   /* Phase 16 D */
         if (me == 0) printf("divmod(mn, DKM, X_hi writer) %.2f s: k %zu = %zu + %zu (s), h %zu; reciprocal %.2f (products %.2f), S = P + Q %.2f, step 1 (A mu, X_hi Q, corrections %ld) %.2f, step 2 A mu %.2f, X_lo Q %.2f, corrections %.2f (%ld, %s), R residues %.2f; X_lo0 %s B^s; division products %.2f s; shifts %zu/%.2f s, addsub %zu/%.2f s\n",
                             mem_now() - t0, k, k1, s, h, ta - t0, p_rec, tb - ta, dx1, tc - tb, td - tc, te - td, tf - te, dx, rel ? "deferred" : "in place", mem_now() - tf, carry ? ">=" : "<", mn_st.t_prod - p_rec, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub);
         return;
@@ -1183,6 +1190,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     if (X->sh.cap) db_free(&X->sh);
     *X = Xn;
     NST(newton_st.t_div += mem_now() - ta);
+    if (g_dd.on) { dr_ctx_clear(); g_dd.on = 0; }   /* C3 D: the division is over; later products carry their own location */
     mn_comm_mark("division (after the reciprocal)");   /* Phase 16 D */
     if (me == 0) printf("divmod(mn, DKM) %.2f s: k %zu = %zu + %zu (s), h %zu; reciprocal %.2f (products %.2f), S = P + Q %.2f, step 1 (A mu, X_hi Q, corrections %ld) %.2f, step 2 A mu + assembly %.2f, X_lo Q %.2f, corrections %.2f (%ld), R residues %.2f; division products %.2f s; shifts %zu/%.2f s, addsub %zu/%.2f s\n",
                         mem_now() - t0, k, k1, s, h, ta - t0, p_rec, tb - ta, dx1, tc - tb, td - tc, te - td, tf - te, dx, mem_now() - tf, mn_st.t_prod - p_rec, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub);

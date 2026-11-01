@@ -66,7 +66,7 @@ size_t dr_counter(int c) { return c >= 0 && c < DR_C_N ? __atomic_load_n(&cnt[c]
 void dr_summary(void)
 {
     if (!dr_on()) return;
-    char divs[64] = ""; if (dr_level() >= 3) snprintf(divs, sizeof divs, ", division checks %zu", dr_counter(DR_C_DIV));
+    char divs[96] = ""; if (dr_level() >= 3) snprintf(divs, sizeof divs, ", division checks %zu%s", dr_counter(DR_C_DIV), dr_counter(DR_C_DIV_OFF) ? " (D NOT ACTIVE: no DR_Q residue)" : "");
     fprintf(stdout, "DR: %zu checks (pieces %zu, products %zu, ends %zu), %zu injected, %zu failures, %zu recovered (pieces %zu, products %zu, division %zu), %zu fatal, leaf checks deferred %zu, skipped %zu%s\n",
             dr_counter(DR_C_CHECK) + dr_counter(DR_C_PROD) + dr_counter(DR_C_LEAF), dr_counter(DR_C_CHECK), dr_counter(DR_C_PROD), dr_counter(DR_C_LEAF), dr_counter(DR_C_INJECTED), dr_counter(DR_C_FAIL),
             dr_counter(DR_C_REC_PIECE) + dr_counter(DR_C_REC_PRODUCT) + dr_counter(DR_C_REC_DIV),
