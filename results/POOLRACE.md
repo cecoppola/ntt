@@ -62,7 +62,7 @@ Two non-ordering observations (not claimed to cause the failures):
 
 **Review fixes (after the first gates).** `g_pull_run` is now cleared in `db_pull_stop_all` once the kernels exited; the sync moved out of the pool lock; the init and time sum are thread-safe. The gate results above are of the code BEFORE these fixes; re-gate results (1 node, switch 0/1/2) are in the next line; the 2-node gates with the switch wait for a second NIC node and are queued as a separate item.
 
-Re-gate after the fixes (measured, aac7, commit 7a4ab8fe, 1 node, 1e9 digits, single runs, not a timing result): `DB_FREE_SYNC=0` PASS (ecalc 9.18 s), `=1` PASS (7.86 s), `=2` PASS (7.96 s); VERIFY OK, digits identical, segv 0; registry and doccheck rc 0. The 2-node gates with the switch are queued as a separate item (47_c1pool_regate2) and wait for a second node with a working NIC: NOT YET RUN.
+Re-gate after the fixes (measured, aac7, commit 7a4ab8fe, 1 node, 1e9 digits, single runs, not a timing result): `DB_FREE_SYNC=0` PASS (ecalc 9.18 s), `=1` PASS (7.86 s), `=2` PASS (7.96 s); VERIFY OK, digits identical, segv 0; registry and doccheck rc 0; checked: the item rebuilt (`make -B`) the binary from 7a4ab8fe just before the gates, and the three run logs show `DB_FREE_SYNC=0`, `1`, `2` in their config lines. The 2-node gates with the switch are queued as a separate item (47_c1pool_regate2) and wait for a second node with a working NIC: NOT YET RUN.
 
 **Remap path untested.** No remap occurred in any pressure run (0 in 24), so the `vmm_make_room` remap path was never exercised on hardware by this work.
 
