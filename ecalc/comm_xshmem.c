@@ -980,12 +980,12 @@ static void xtag_report(void)
         for (int k = 0; k < XK_NK; k++) for (int j = 0; j < XTC_N; j++) if (r[k * XTC_N + j] > mx[k][j]) mx[k][j] = r[k * XTC_N + j]; }
     for (int l = 0; l < X.K; l++) for (int k = 0; k < XK_NK; k++) for (int j = 0; j < XTC_N; j++) { if (j == 5) { if (X.pe[l].tc[k][j] > sm[k][j]) sm[k][j] = X.pe[l].tc[k][j]; } else sm[k][j] += X.pe[l].tc[k][j]; }
     double te = 0, tr = 0, tn = 0, tb = 0;
-    fprintf(stderr, "comm_xshmem: XSHMEM_ROUND_STATS per tag (node-process 0, summed over its %d PEs; round size XSHMEM_ROUND_MB): tag exchanges in-rounds rounds recv_MB sent_MB max_pair_MB MB_per_round\\n", X.K);
+    fprintf(stderr, "comm_xshmem: XSHMEM_ROUND_STATS per tag (node-process 0, summed over its %d PEs; round size XSHMEM_ROUND_MB): tag exchanges in-rounds rounds recv_MB sent_MB max_pair_MB MB_per_round\n", X.K);
     for (int k = 0; k < XK_NK; k++) { const double *r = sm[k]; te += r[0]; tr += r[1]; tn += r[2]; tb += r[3];
         fprintf(stderr, "comm_xshmem: XSHMEM_TAG node-process 0 %-6s %10.0f %10.0f %10.0f %12.1f %12.1f %10.2f %10.2f\n", tag_name[k], r[0], r[1], r[2], r[3] / 1e6, r[4] / 1e6, r[5] / 1e6, r[2] > 0 ? r[3] / 1e6 / r[2] : 0.0); }
-    fprintf(stderr, "comm_xshmem: XSHMEM_TAG node-process 0 TOTAL  %10.0f %10.0f %10.0f %12.1f   (totals line: %ld exchanges, %ld in rounds, %ld rounds, %.1f MB received) sums %s\\n", te, tr, tn, tb / 1e6, X.nev, X.nrex, X.nrounds, X.bv / 1e6,
+    fprintf(stderr, "comm_xshmem: XSHMEM_TAG node-process 0 TOTAL  %10.0f %10.0f %10.0f %12.1f   (totals line: %ld exchanges, %ld in rounds, %ld rounds, %.1f MB received) sums %s\n", te, tr, tn, tb / 1e6, X.nev, X.nrex, X.nrounds, X.bv / 1e6,
             (te == (double)X.nev && tr == (double)X.nrex && tn == (double)X.nrounds && fabs(tb - X.bv) < 1.0) ? "EQUAL" : "DIFFER");
-    fprintf(stderr, "comm_xshmem: XSHMEM_ROUND_STATS per tag, maximum over all %d PEs of each column%s: tag exchanges in-rounds rounds recv_MB sent_MB max_pair_MB MB_per_round(max recv / max rounds)\\n", npr, ok ? "" : " (allocation not symmetric: only node-process 0's PEs valid)");
+    fprintf(stderr, "comm_xshmem: XSHMEM_ROUND_STATS per tag, maximum over all %d PEs of each column%s: tag exchanges in-rounds rounds recv_MB sent_MB max_pair_MB MB_per_round(max recv / max rounds)\n", npr, ok ? "" : " (allocation not symmetric: only node-process 0's PEs valid)");
     for (int k = 0; k < XK_NK; k++) { const double *r = mx[k];
         fprintf(stderr, "comm_xshmem: XSHMEM_TAGMAX %-6s %10.0f %10.0f %10.0f %12.1f %12.1f %10.2f %10.2f\n", tag_name[k], r[0], r[1], r[2], r[3] / 1e6, r[4] / 1e6, r[5] / 1e6, r[2] > 0 ? r[3] / 1e6 / r[2] : 0.0); }
 }
