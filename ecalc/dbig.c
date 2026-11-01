@@ -441,7 +441,7 @@ static void free_sync(int d)
     HIP_CHECK(hipSetDevice(cur));
     __atomic_fetch_add(&g_fsync_n, 1, __ATOMIC_RELAXED); pthread_mutex_lock(&g_fsync_mx); g_fsync_t += mem_now() - t0; pthread_mutex_unlock(&g_fsync_mx);   /* (the time is a sum over threads, approximate) */
 }
-/* DB_POOL_FORCE_REMAP=<n> (default 0 = off; results/STRESS.md): a stress knob.  Every n-th q_alloc on a device first runs vmm_make_room(force=1): it unmaps up to
+/* DB_POOL_FORCE_REMAP=<n> (default 0 = off; results/STRESS.md): a stress knob.  Every n-th q_alloc or q_free on a device runs vmm_make_room(force=1) (before the allocation, after the free): it unmaps up to
  * ceil(need/chunk) of the HIGHEST wholly free chunks (never creates chunks) and maps them again, in reverse order, into the lowest run of empty slots, although the request
  * would have been met from the free list.  Only free memory moves, so the digits do not change; it makes the remap path (hipMemUnmap / hipMemMap / hipMemSetAccess under
  * traffic) run many times at small sizes.  Small DB_POOL_VMM_CHUNK_GB (e.g. 0.0625) gives many chunks to move. */
@@ -478,12 +478,17 @@ static int vmm_make_room(int d, size_t need, int force) /* (the pool lock held) 
                     if (m > nf) printf("dbig pool: APU%d VMM growth by %d chunks (%.2f GB) inside the phase\n", d, m - nf, (double)(m - nf) * C / 1e9); }
     free(fr); free(hs); return 1;
 }
+static void force_tick(int d, size_t need)   /* (the pool lock held) DB_POOL_FORCE_REMAP: every n-th q_alloc or q_free on a device runs a forced remap (after a free: the freed block's chunks are among those that move) */
+{
+    long fn = force_remap_n(); static size_t cnt[DB_NQ];
+    if (fn && d >= 0 && d < DB_NQ && ++cnt[d] % (size_t)fn == 0) (void)vmm_make_room(d, need, 1);
+}
 static uint64_t *q_alloc_locked(int d, size_t need);
 static uint64_t *q_alloc(int d, size_t need) { free_sync(d); pthread_mutex_lock(&g_pool_mx); uint64_t *p = q_alloc_locked(d, need); pthread_mutex_unlock(&g_pool_mx); return p; }
 static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: bytes, a multiple of DB_ALIGN limbs */
 {
     int reg;
-    { long fn = force_remap_n(); static size_t cnt[DB_NQ]; if (fn && d >= 0 && d < DB_NQ && ++cnt[d] % (size_t)fn == 0) (void)vmm_make_room(d, need, 1); }   /* DB_POOL_FORCE_REMAP */
+    force_tick(d, need);
     char *p = ext_take(d, need, &reg);
     if (!p && vmm_make_room(d, need, 0)) p = ext_take(d, need, &reg);   /* the VMM arena re-stitches its free chunks */
     if (!p) {
@@ -507,6 +512,7 @@ static void q_free(int d, uint64_t *p)
     pthread_mutex_lock(&g_pool_mx);
     int reg; size_t bytes = live_take(p, &reg); if (!bytes) { ec_fatal(EC_RC_FATAL, "dbig: freeing an unknown block\n"); }
     ext_insert(d, (char *)p, bytes, reg);
+    force_tick(d, bytes);                                          /* DB_POOL_FORCE_REMAP: remap right after the free */
     pthread_mutex_unlock(&g_pool_mx);
 }
 void db_donate(int dev, void *p, size_t bytes) { db_donate_ext(dev, p, bytes, 1); }
