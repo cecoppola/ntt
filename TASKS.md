@@ -19,7 +19,7 @@ Class 1
 4. Detect and retry: per-prime check of every distributed product (coefficient sums), retry instead of a fatal on a mismatch or CRT flag, location logged; fault-injection test.
 5. Node health gate: EDAC ue/ce counts and boot time per node in the node screen; per-run NIC error counter deltas.
 6. Per-APU memory guard and true per-APU high-water (per-NUMA MemFree), stair rule moved to it.
-7. Diagnostics: per-tag round and byte counters, round series to a per-node file (teardown), gpu_ms event pairing, mapping count in ECALC_INIT_TL (branch diag); host timeline between exchanges.
+7. Diagnostics: host timeline between exchanges (I3). Done 2026-11-01 (branch diag, `results/DIAG.md`): per-tag round and byte counters, round series and per-PE statistics to per-PE files, gpu_ms event pairing, pool peak-live table, mapping count in ECALC_INIT_TL; gates 1 n and 2 n on both paths PASS.
 
 Class 4
 8. Exchange rounds sized by active pairs (zero peers skipped).
