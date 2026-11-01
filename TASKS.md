@@ -10,7 +10,30 @@ Closed rows and older material are in `archive:TASKS_HISTORY_2026-10-19.md`, `ar
 Classes: 1 bugs, 2 shrink, 3 simplify, 4 performance, 5 docs (definitions in the project instructions). Within a class,
 rows are in the order to do them.
 
-No open rows in classes 1-5. The 2026-10-27/29 work sessions (branch `cand3` = `cand` + the failures session + Q130 + the
+Plan from the 10-29 target reports (user approval 2026-10-31; no further target run, so every item is proven on aac7 / aac6):
+
+Class 1
+1. Launch-kit fixes: alloc.sh without SLURM_HINT, one REMOTE_DEVICE_GB -> ECALC_DEVICE_GB rule in lib.sh, NIC form 0,1;2,3;4,5;6,7, PLAN hugetlb row (branch kitfix).
+2. Block-pool audit: frees and VMM remaps against GPU work still in flight (q_free / vmm_make_room have no stream sync); a sync switch to test it (branch c1pool).
+3. aac7 overnight stress test for the size-dependent corruption (3.7e13+ failed 6 of 6 on the target): pool pressure, tiny rounds, P24_CHECK=2, diagnostic words, the row-2 switch on/off. After it the user decides the scope of row 4.
+4. Detect and retry: per-prime check of every distributed product (coefficient sums), retry instead of a fatal on a mismatch or CRT flag, location logged; fault-injection test.
+5. Node health gate: EDAC ue/ce counts and boot time per node in the node screen; per-run NIC error counter deltas.
+6. Per-APU memory guard and true per-APU high-water (per-NUMA MemFree), stair rule moved to it.
+7. Diagnostics: per-tag round and byte counters, round series to a per-node file (teardown), gpu_ms event pairing, mapping count in ECALC_INIT_TL (branch diag); host timeline between exchanges.
+
+Class 4
+8. Exchange rounds sized by active pairs (zero peers skipped).
+9. Shifts point-to-point instead of a group all-to-all; lazy shift (design).
+10. Larger rounds for large all-to-alls, re-evaluated with the recalibrated model.
+11. Two exchanges in flight per communicator (design, after rows 8-10).
+12. Start-up: per-device allocator processes, seed-thread pool wait, self-test time visible, pool fragmentation.
+13. Checkpoints after the tree and after the reciprocal.
+Items whose gain only the target could show (two NICs per APU on path 1, switch-group check, hierarchical exchange) wait for the user's decision.
+
+Class 5
+14. Piece-boundary table and memory ceilings in results/LAUNCH_DEFAULTS.md; time model recalibrated on the 2e13 decomposition; write-time model; target facts corrected where they live; PLAN.md target section replaced.
+
+The 2026-10-27/29 work sessions (branch `cand3` = `cand` + the failures session + Q130 + the
 overnight session Q131 + the target-copy readiness work; every new behaviour behind a switch, off by default except the
 launcher `-c` auto and the all-shift CRT flag `P24_CRT_ANY=1`) were merged into main on 2026-10-31. The frozen target copy is
 branch remote-v12 (= cand3 0c2da14; the target session follows `remote/ROUTE.md`). The Done lines below record what the merge brought.
@@ -66,6 +89,8 @@ Only decisions that no central doc states: the others are in `README.md` (two pa
 Performance ideas, open or tried, are in `OPPORTUNITIES.md`.
 
 ## Target session
+
+No further target run (user 2026-10-31); the lines below are history.
 
 Target work: `target/RESTART.md` and `target/bench/QUESTIONS.md`.
 - Self-test cost (user 2026-10-26: keep the start-up self-tests if they really take < 15 s): read the self-test seconds
