@@ -442,7 +442,7 @@ static void free_sync(int d)
     __atomic_fetch_add(&g_fsync_n, 1, __ATOMIC_RELAXED); pthread_mutex_lock(&g_fsync_mx); g_fsync_t += mem_now() - t0; pthread_mutex_unlock(&g_fsync_mx);   /* (the time is a sum over threads, approximate) */
 }
 /* DB_POOL_FORCE_REMAP=<n> (default 0 = off; results/STRESS.md): a stress knob.  Every n-th q_alloc or q_free on a device runs vmm_make_room(force=1) (before the allocation, after the free): it unmaps up to
- * ceil(need/chunk) of the HIGHEST wholly free chunks (never creates chunks) and maps them again, in reverse order, into the lowest run of empty slots, although the request
+ * max(64, ceil(need/chunk)) of the HIGHEST wholly free chunks (never creates chunks) and maps them again, in reverse order, into the lowest run of empty slots, although the request
  * would have been met from the free list.  Only free memory moves, so the digits do not change; it makes the remap path (hipMemUnmap / hipMemMap / hipMemSetAccess under
  * traffic) run many times at small sizes.  Small DB_POOL_VMM_CHUNK_GB (e.g. 0.0625) gives many chunks to move. */
 static long g_force_n = -1;
@@ -452,7 +452,7 @@ static int vmm_make_room(int d, size_t need, int force) /* (the pool lock held) 
     struct vmm *v = &g_vmm[d]; if (!v->base) return 0;
     if (v->mapped < v->m0 && !g_vmm_go) { g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); }
     while (v->mapped < v->m0) pthread_cond_wait(&g_vmm_cv, &g_pool_mx);   /* (the lock is held) the background mapping first: the slot table must be complete */
-    double t0 = mem_now(); size_t C = v->chunk; int m = (int)((need + C - 1) / C);
+    double t0 = mem_now(); size_t C = v->chunk; int m = (int)((need + C - 1) / C); if (force && m < 64) m = 64;   /* (force: up to 64 free chunks move, at least the request's) */
     int *fr = (int *)malloc(v->nslot * sizeof *fr), nf = 0;      /* the wholly free mapped slots */
     for (int j = 0; j < v->nslot && nf < m; j++) { int k = force ? v->nslot - 1 - j : j; if (v->h[k]) {
         char *p = v->base + (size_t)k * C; int inside = 0;
