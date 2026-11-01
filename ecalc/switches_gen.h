@@ -21,6 +21,7 @@ static const char *const cfg_names[] = {
     "COMM_SHMEM_POOL_MB",
     "COMM_SIZE",
     "COMM_TRANSPORT",
+    "DB_FREE_SYNC",
     "DB_POOL_VERBOSE",
     "DB_POOL_VMM",
     "DB_POOL_VMM_CHUNK_GB",
@@ -136,4 +137,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_THP_DISABLE",
     "XSHMEM_THREAD_LEVEL",
 };
-#define CFG_NAMES_N 134
+#define CFG_NAMES_N 135

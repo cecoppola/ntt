@@ -94,7 +94,7 @@ __global__ void k_pull(struct db_pullctl *c)
         if (threadIdx.x == 0) __hip_atomic_fetch_add(&c->done, 1ull, __ATOMIC_RELEASE, __HIP_MEMORY_SCOPE_SYSTEM);
     }
 }
-static hipStream_t g_pull_s[DB_NQ]; static struct db_pullctl *g_pull[DB_NQ]; static int g_pull_on[DB_NQ]; static unsigned long long g_pull_seq[DB_NQ];
+static hipStream_t g_pull_s[DB_NQ]; static struct db_pullctl *g_pull[DB_NQ]; static int g_pull_on[DB_NQ]; static int g_pull_run[DB_NQ]; static unsigned long long g_pull_seq[DB_NQ];   /* g_pull_run: the persistent k_pull kernel is on the device now (DB_FREE_SYNC must not wait for the whole device then) */
 static pthread_mutex_t g_pull_mx = PTHREAD_MUTEX_INITIALIZER;
 static struct { const void *h, *d; } g_pull_src[4]; static int g_pull_nsrc;   /* db_pull_resolve: the seed buffers' device pointers */
 void db_pull_resolve(const void *src)
@@ -114,7 +114,7 @@ void db_pull_start_all(void)                             /* idempotent; the laun
         HIP_CHECK(hipStreamCreateWithFlags(&g_pull_s[d], hipStreamNonBlocking));
         HIP_CHECK(hipHostMalloc((void **)&g_pull[d], sizeof *g_pull[d], hipHostMallocCoherent)); memset(g_pull[d], 0, sizeof *g_pull[d]);
         k_pull<<<DB_PULL_BLOCKS, 256, 0, g_pull_s[d]>>>(g_pull[d]); HIP_CHECK(hipGetLastError());
-        g_pull_on[d] = 1; g_pull_seq[d] = 0; n++;
+        g_pull_on[d] = 1; g_pull_run[d] = 1; g_pull_seq[d] = 0; n++;
     }
     HIP_CHECK(hipSetDevice(cur));
     if (n) db_tl("seed pull kernels launched on %d APUs (%.3f s; pull)", n, mem_now() - t0);
@@ -146,6 +146,7 @@ void db_pull_stop_all(void)                              /* the kernels leave; n
     int nd = mem_device_count(), left = 0; double t0 = mem_now();
     for (int d = 0; d < nd && d < DB_NQ; d++) if (g_pull_on[d]) { db_pull_wait(d); __atomic_store_n(&g_pull[d]->quit, 1ull, __ATOMIC_RELEASE); }
     for (int d = 0; d < nd && d < DB_NQ; d++) if (g_pull_on[d]) { while (__atomic_load_n(&g_pull[d]->exited, __ATOMIC_ACQUIRE) < DB_PULL_BLOCKS && mem_now() - t0 < 60) usleep(50); if (__atomic_load_n(&g_pull[d]->exited, __ATOMIC_ACQUIRE) < DB_PULL_BLOCKS) left++; g_pull_on[d] = 0; }
+    for (int d = 0; d < nd && d < DB_NQ; d++) if (g_pull_on[d]) __atomic_store_n(&g_pull_run[d], 0, __ATOMIC_RELEASE);   /* (left: the stream sync below waits for the stragglers) */
     if (left) { for (int d = 0; d < nd && d < DB_NQ; d++) HIP_CHECK(hipStreamSynchronize(g_pull_s[d])); }   /* not expected: the fallback is the runtime */
     db_tl("seed pull kernels stopped (%.3f s%s)", mem_now() - t0, left ? ", by stream sync" : "");
     pthread_mutex_unlock(&g_pull_mx);
@@ -422,6 +423,24 @@ static void ext_remove(int d, char *p, size_t bytes)   /* [p, p + bytes) out of 
     }
     ec_fatal(EC_RC_FATAL, "dbig: ext_remove: range not free\n");
 }
+/* DB_FREE_SYNC (default 0 = unchanged; results/POOLRACE.md): a test of the hypothesis that a block, or a VMM chunk, goes back to the free list (or is unmapped and mapped
+ * again elsewhere) while GPU work that was enqueued earlier still reads or writes it.  1: hipDeviceSynchronize on the block's device before q_free puts it on the free
+ * list and before vmm_make_room unmaps a chunk; 2: the same on every device this process uses for the pool (the peers that read a quarter).  A device on which the
+ * persistent seed-pull kernel runs gets the null stream's sync instead (a device sync would wait for that kernel).  Nothing else changes: same blocks, same digits. */
+static int g_fsync = -1; static size_t g_fsync_n; static double g_fsync_t;
+static int free_sync_mode(void) { if (g_fsync < 0) { const char *e = getenv("DB_FREE_SYNC"); g_fsync = e ? atoi(e) : 0; if (g_fsync < 0 || g_fsync > 2) g_fsync = 0; } return g_fsync; }
+static void free_sync(int d)
+{
+    int mode = free_sync_mode(); if (!mode) return;
+    double t0 = mem_now(); int cur; HIP_CHECK(hipGetDevice(&cur));
+    int lo = d, hi = d; if (mode >= 2) { lo = dv_(0); hi = dv_(nq_() - 1); if (d < lo) lo = d; if (d > hi) hi = d; }
+    for (int t = lo; t <= hi; t++) {
+        HIP_CHECK(hipSetDevice(t));
+        if (t < DB_NQ && __atomic_load_n(&g_pull_run[t], __ATOMIC_ACQUIRE)) HIP_CHECK(hipStreamSynchronize(0)); else HIP_CHECK(hipDeviceSynchronize());
+    }
+    HIP_CHECK(hipSetDevice(cur));
+    __atomic_fetch_add(&g_fsync_n, 1, __ATOMIC_RELAXED); g_fsync_t += mem_now() - t0;   /* (the time is a sum over threads, approximate) */
+}
 static int vmm_make_room(int d, size_t need)           /* (the pool lock held) a contiguous free extent of >= need bytes by remapping; 0 = not possible (the VA is exhausted) */
 {
     struct vmm *v = &g_vmm[d]; if (!v->base) return 0;
@@ -435,6 +454,7 @@ static int vmm_make_room(int d, size_t need)           /* (the pool lock held) a
         if (inside) fr[nf++] = k;
     }
     hipMemGenericAllocationHandle_t *hs = (hipMemGenericAllocationHandle_t *)calloc(m, sizeof *hs);
+    if (nf) free_sync(d);                                         /* DB_FREE_SYNC: nothing enqueued earlier may still touch the chunks about to be unmapped */
     for (int i = 0; i < nf; i++) { int k = fr[i]; ext_remove(d, v->base + (size_t)k * C, C); if (hipMemUnmap(v->base + (size_t)k * C, C) != hipSuccess) { ec_fatal(EC_RC_FATAL, "dbig: hipMemUnmap failed\n"); } hs[i] = v->h[k]; v->h[k] = 0; }
     int slot0 = -1;                                               /* the lowest run of m empty slots */
     for (int k = 0, run = 0; k < v->nslot; k++) { run = v->h[k] ? 0 : run + 1; if (run == m) { slot0 = k - m + 1; break; } }
@@ -475,6 +495,7 @@ static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: byt
 static void q_release(int d, uint64_t *p) { int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipFree(p)); HIP_CHECK(hipSetDevice(cur)); }
 static void q_free(int d, uint64_t *p)
 {
+    free_sync(d);                                                 /* DB_FREE_SYNC (before the block is visible to q_alloc) */
     pthread_mutex_lock(&g_pool_mx);
     int reg; size_t bytes = live_take(p, &reg); if (!bytes) { ec_fatal(EC_RC_FATAL, "dbig: freeing an unknown block\n"); }
     ext_insert(d, (char *)p, bytes, reg);
@@ -546,6 +567,7 @@ void db_release_pools(void)
 {
     { static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0);   /* how the reserved tails were used */
       if (vb) for (int d = 0; d < DB_NQ; d++) if (g_tail[d].bytes) printf("dbig pool: APU%d tail %.2f GB: %zu large blocks from its back, %zu small blocks spilled into it\n", d, g_tail[d].bytes / 1e9, g_tail[d].n_tail, g_tail[d].n_spill); }
+    if (g_fsync > 0 && vmm_vb()) printf("dbig pool: DB_FREE_SYNC=%d: %zu device syncs, %.3f s (summed over threads)\n", g_fsync, g_fsync_n, g_fsync_t);
     for (int d = 0; d < DB_NQ; d++) g_ext[d].n = 0;              /* every extent is a piece of a whole region */
     for (int i = 0; i < g_ndonated; i++) if (g_donated[i].own) q_release(g_donated[i].dev, (uint64_t *)g_donated[i].p);
     g_ndonated = 0; g_nlive = 0; g_pool_bytes = 0;
