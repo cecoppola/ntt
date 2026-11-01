@@ -82,6 +82,9 @@ tests/t_edge: tests/t_edge.c     # the memory-edge probe
 tests/t_nodechk: tests/t_nodechk.c     # target/kit/target_kit.sh stage nodechk: per-node meminfo + 1 GB host->device upload per APU
 	$(HIPC) $< -o $@
 
+tests/t_nodemem: tests/t_nodemem.c nodemem.h     # host only: the per-NUMA-node MemFree reader of the memory sampler (C5)
+	gcc $(CFLAGS) -I. $< -o $@
+
 ref/gen_e: ref/gen_e.c tests/sha256.h
 	gcc $(CFLAGS) -o $@ $< $(GMP_LIBS) -lm
 

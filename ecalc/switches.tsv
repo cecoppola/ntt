@@ -50,6 +50,8 @@ ECALC_FATAL_WAIT	int	60	60		built-in default	-	C314.md	Y	ecalc	fatal.c	1	-	-
 ECALC_FIT_PER_APU	int	unset	unset		built-in default	-	-	Y	ecalc	binsplit.c	4	-	-	
 ECALC_INIT_ONLY	int	unset	unset		test-only	-	L114.md+P13b.md	Y	ecalc	ecalc.c	2	diagnostics (TESTING.md)	2027-04-12	
 ECALC_INIT_TL	bool	0	0	0|1	launch-line	-	MAP15.md	Y	ecalc	comm_xshmem.c,dbig.c,ecalc.c,mn.c,xshmem_ofi.c	7	-	-	dbig.c
+ECALC_MEMSAMPLE_SYSFS_ROOT	str			path prefix	test-only	-	HEALTH.md	Y	ecalc	memsample.c	1	HEALTH (C5)	2027-04-12	memsample.c; prefix of the /sys path of the per-APU NUMA-node MemFree reader (a mock tree proves the per-APU guard); unset = the real /sys
+ECALC_MEM_GUARD_APU_GB	float	0	0	>=0 GB	launch-line	-	HEALTH.md	Y	ecalc	memsample.c	1	-	-	memsample.c; 0 = per-APU guard off
 ECALC_MEM_GUARD_GB	float	0	derived	>=0 GB	launch-line	aac7	IO15.md+DOC15.md	Y	ecalc	memsample.c	1	-	-	memsample.c:113; 0 = guard off
 ECALC_MEM_SAMPLE	bool	derived	derived	0|1	test-only	-	IO15.md+S114.md	Y	ecalc	memsample.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_NODE_GB	float	480	480		built-in default	aac7	P16.md+C314.md	Y	ecalc	binsplit.c,ecalc.c	10	-	-	

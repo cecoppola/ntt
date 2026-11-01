@@ -26,7 +26,8 @@
 #                                  critical path); empty when not printed
 #       E_WALL_S                   the launch's own wall time (srun start to end, includes the module load and the planner call)
 #       E_DEVPEAK_GB               node device peak, GB (max per-process 'device' column of the memory table x processes per node)
-#       E_DEVPEAK_APU_GB           the largest per-APU in-use figure of the table
+#       E_DEVPEAK_APU_GB           the largest per-APU in-use figure of the table (the pool's RESERVED footprint at phase boundaries, not demand)
+#       E_DEVHWM_APU_GB / _ID      the largest per-APU high-water over the ranks and its APU: the sampler's device_hwm_apu_gb (largest drop of the APU's NUMA-node MemFree; empty when the sampler was off)
 #       E_HOSTPEAK_GB              node host peak estimate, GB (max per-process VmHWM x processes per node);  E_HOSTHWM_PROC_GB per process
 #       E_HASH                     digit hash (WRITE=1 only, else empty);  E_HASH_REF the known hash of that digit count (1e9, 1e10, 1e11)
 #                                  or empty;  E_HASH_MATCH = yes|no|-;  E_UNPACK_RC the residue check's rc
@@ -174,6 +175,8 @@ _ec_parse() {         # LOGFILE SHAPE -> E_* (the run's own output)
     [ -z "$E_HOSTHWM_PROC_GB" ] && [ "${hw:-0}" != 0 ] && E_HOSTHWM_PROC_GB=$hw
     E_DEVPEAK_GB=; [ -n "$E_DEVPEAK_PROC" ] && [ "$E_DEVPEAK_PROC" != 0 ] && E_DEVPEAK_GB=$(awk -v d="$E_DEVPEAK_PROC" -v p="$ppn" 'BEGIN { printf "%.4g", d * p }')
     [ "$E_DEVPEAK_APU_GB" = 0 ] && E_DEVPEAK_APU_GB=
+    # C5: the sampler's per-APU high-water ("memsample rK device_hwm_apu_gb=X apu=A ..."): the largest over the ranks, and its APU
+    read -r E_DEVHWM_APU_GB E_DEVHWM_APU_ID < <(awk '/device_hwm_apu_gb=/ { v = $0; sub(/.*device_hwm_apu_gb=/, "", v); sub(/ .*/, "", v); a = $0; sub(/.* apu=/, "", a); sub(/ .*/, "", a); if (!n++ || v + 0 > m) { m = v + 0; id = a } } END { if (n) printf "%.4g %s\n", m, id }' "$tmp")
     E_HOSTPEAK_GB=; [ -n "$E_HOSTHWM_PROC_GB" ] && E_HOSTPEAK_GB=$(awk -v d="$E_HOSTHWM_PROC_GB" -v p="$ppn" 'BEGIN { printf "%.4g", d * p }')
     # VERIFY
     local nok nfail nall
@@ -191,10 +194,10 @@ _ec_parse() {         # LOGFILE SHAPE -> E_* (the run's own output)
 
 _ec_reset() {
     E_RC= E_SKIP=0 E_VERIFY=NONE E_REFUSED=0 E_TOTAL= E_INIT= E_BS= E_DM= E_RECIP= E_10DP= E_DC= E_T1= E_T2= E_OTHER= E_PHASES= E_WALL_S=
-    E_DEVPEAK_GB= E_DEVPEAK_APU_GB= E_HOSTPEAK_GB= E_HOSTHWM_PROC_GB= E_HASH= E_HASH_REF= E_HASH_MATCH=- E_UNPACK_RC= E_CONFIG_HASH= E_NPES=
+    E_DEVPEAK_GB= E_DEVPEAK_APU_GB= E_DEVHWM_APU_GB= E_DEVHWM_APU_ID= E_HOSTPEAK_GB= E_HOSTHWM_PROC_GB= E_HASH= E_HASH_REF= E_HASH_MATCH=- E_UNPACK_RC= E_CONFIG_HASH= E_NPES=
     E_NODES= E_SHAPE= E_DIGITS= E_HOSTS= E_FIT= E_LOG=
 }
-_EC_VARS="E_RC E_SKIP E_VERIFY E_REFUSED E_TOTAL E_INIT E_BS E_DM E_RECIP E_10DP E_DC E_T1 E_T2 E_OTHER E_PHASES E_WALL_S E_DEVPEAK_GB E_DEVPEAK_APU_GB E_HOSTPEAK_GB E_HOSTHWM_PROC_GB E_HASH E_HASH_REF E_HASH_MATCH E_UNPACK_RC E_CONFIG_HASH E_NPES E_NODES E_SHAPE E_DIGITS E_HOSTS E_FIT E_LOG"
+_EC_VARS="E_RC E_SKIP E_VERIFY E_REFUSED E_TOTAL E_INIT E_BS E_DM E_RECIP E_10DP E_DC E_T1 E_T2 E_OTHER E_PHASES E_WALL_S E_DEVPEAK_GB E_DEVPEAK_APU_GB E_DEVHWM_APU_GB E_DEVHWM_APU_ID E_HOSTPEAK_GB E_HOSTHWM_PROC_GB E_HASH E_HASH_REF E_HASH_MATCH E_UNPACK_RC E_CONFIG_HASH E_NPES E_NODES E_SHAPE E_DIGITS E_HOSTS E_FIT E_LOG"
 _ec_save() { local v; : > "$OUT/raw/$1.res"; for v in $_EC_VARS; do printf '%s=%q\n' "$v" "${!v}" >> "$OUT/raw/$1.res"; done; }
 ecalc_load() { local t=${1,,}; t=${t//[^a-z0-9_]/_}; [ -f "$OUT/raw/$t.res" ] || return 1; . "$OUT/raw/$t.res"; }
 

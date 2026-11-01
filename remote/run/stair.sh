@@ -10,8 +10,8 @@
 # digits, verdict, total_s, init/bs/dm/dc, measured/model, per-APU device peak (measured) / plan, VERIFY, the last digits, the digit hash if taken.
 # Memory rule (--min-margin GB, default 6.5, 0 = off): before a step the planner is asked (with the step's ENV, so ECALC_FIT_PER_APU=1 in it makes
 # it print the busiest APU's margin to the device edge: REMOTE_DEVICE_GB from P1, else the 373.44 GB harness figure of 10-06); a step whose margin is below the need is SKIPPED, not run.  The need is 6.5 GB (the largest
-# excess of the measured per-APU peak over the plan seen on the target) until a step has been measured; after that it is that run's own excess
-# (device_peak_apu_gb - plan, the largest so far) + 2 GB, but at least 3 GB: each passed step closes the memory gap for the next one.
+# excess of the measured per-APU peak over the plan seen on the target; the figure is the sampler's device_hwm_apu_gb when the run printed it (the true per-APU demand: the largest drop of the APU's NUMA-node MemFree), else the old device_peak_apu_gb, the pool's reserved footprint at phase boundaries; each step's line names the one used) until a step has been measured; after that it is that run's own excess
+# (the per-APU figure - plan, the largest so far) + 2 GB, but at least 3 GB: each passed step closes the memory gap for the next one.
 # --round-ab MB in a step's EXTRA (once; at 576 nodes): after that step (run at XSHMEM_ROUND_MB=128 with MN_WAIT_STATS=1, cost-free; XSHMEM_ROUND_STATS is NOT used: it adds a device sync probe to the post path) the same step runs again on the same hosts at XSHMEM_ROUND_MB=MB.  Rule printed: adopt MB when its total is lower by >= 3 % AND
 # bs+dm are lower AND both runs are VERIFY OK with the same last digits; the winner is kept in site.env as REMOTE_ROUND_MB (unset when 128 wins) and every
 # later step (also in later pastes) adds XSHMEM_ROUND_MB=$REMOTE_ROUND_MB unless its ENV has one.  A failed second run is not fatal (128 stays, PARTIAL);
@@ -98,14 +98,16 @@ run_step() {   # IDX NODES DIGITS ENV EXTRA TAG -> sets SV (verdict) and prints 
     [ $rc != 0 ] && v=FAIL
     if [ "$v" = FAIL ] && ! grep -aq '^=== REMOTE' "$sf"; then head -n 10 "$out" | cut -c1-170 | while IFS= read -r l; do rl_line "     raw: $l"; done; fi    # died before its summary
     local ph; ph=$(grep -a -m1 '^phases_s:' "$sf" | sed -E 's/.*init=([^ ]*) bs=([^ ]*) recip=[^ ]* dm=([^ ]*) dc=([^ ]*).*/\1 \2 \3 \4/' | awk '{ if (NF == 4) printf "%.1f/%.1f/%.1f/%.1f", $1, $2, $3, $4; else printf "NA" }')
-    local pk pl; pk=$(kv device_peak_apu_gb | awk '{ print $1 }'); pl=${PMAX:-$(kv device_plan_apu_gb | awk '{ print $1 }')}
+    local pk pl pksrc=device_peak_apu_gb; pk=$(kv device_hwm_apu_gb | awk '{ print $1 }')     # C5: the sampler's per-APU high-water when the run has it, else the reserved footprint (old logs)
+    if [ -n "$pk" ] && [ "$pk" != NA ]; then pksrc=device_hwm_apu_gb; else pk=$(kv device_peak_apu_gb | awk '{ print $1 }'); fi
+    pl=${PMAX:-$(kv device_plan_apu_gb | awk '{ print $1 }')}
     rl_line "$(printf '%-4s %-5s %-13s %-8s %-7s %-24s %-10s %-15s %-6s %-20s %s' "$tag" "$n" "$d" "$v" "$(kv total_s)" "${ph:-NA}" "$(kv meas_over_model)" "${pk:-NA}/${pl:-NA}" "$(kv verify)" "$(kv last_digits | tr -d ' ' | cut -c1-20)" "$(kv digit_hash | awk '$1 ~ /^[0-9a-f]+$/ { print $1; next } { print "-" }')")"
     rl_line "     env: ${e:-<none>}${x:+ | extra: $x} | run ${rd##*/}"
     local sh sc; sh=$(kv slow_hosts); sc=$(kv screen)
     [ -n "$sc" ] && rl_line "     screen: $sc${sh:+; slow_hosts=$sh (left out of the later steps)}"
     [ -n "$sh" ] && EXCLUDE=${EXCLUDE:+$EXCLUDE,}$sh
     if [ "$v" = PASS ] && [ -n "${PMAX:-}" ] && [ -n "$pk" ] && [ "$pk" != NA ]; then     # measured busiest APU against the planner's busiest APU
-        GAP=$(awk -v a="$pk" -v b="$PMAX" -v g="${GAP:-}" 'BEGIN { x = a - b; if (g == "" || x > g) g = x; printf "%.2f", g }'); rl_line "     measured peak - plan per APU: $(awk -v a="$pk" -v b="$PMAX" 'BEGIN { printf "%+.2f", a - b }') GB (largest so far $GAP; kept in site.env for the next paste)"; GAPSRC=; rl_site_set REMOTE_STAIR_GAP "$GAP"
+        GAP=$(awk -v a="$pk" -v b="$PMAX" -v g="${GAP:-}" 'BEGIN { x = a - b; if (g == "" || x > g) g = x; printf "%.2f", g }'); rl_line "     measured peak ($pksrc) - plan per APU: $(awk -v a="$pk" -v b="$PMAX" 'BEGIN { printf "%+.2f", a - b }') GB (largest so far $GAP; kept in site.env for the next paste)"; GAPSRC=; rl_site_set REMOTE_STAIR_GAP "$GAP"
     fi
     ST_TOTAL=$(kv total_s | awk '{ print $1 }'); ST_PH=$(grep -a -m1 '^phases_s:' "$sf" | sed -E 's/.*init=([^ ]*) bs=([^ ]*) recip=[^ ]* dm=([^ ]*) dc=([^ ]*).*/\1 \2 \3 \4/'); ST_VERIFY=$(kv verify); ST_LAST=$(kv last_digits | tr -d ' ' | cut -c1-20); ST_RC=$(kv rc)
     if [ "$v" = PASS ] && [ -n "${ST_TOTAL:-}" ]; then
