@@ -406,4 +406,7 @@ void mem_report_summary(void)
                c[MEM_DEV_POOL_BORROWED] / 1e9, c[MEM_DEV_POOL_HIPMALLOC] / 1e9, c[MEM_DEV_POOL_LIVE] / 1e9, c[MEM_DEV_POOL_PEAK_LIVE] / 1e9, c[MEM_DEV_TABLES] / 1e9,
                h[MEM_HOST_RSS] / 1e9, h[MEM_HOST_STAGING] / 1e9, h[MEM_HOST_REGISTERED] / 1e9, h[MEM_HOST_X] / 1e9, h[MEM_HOST_DIGITS] / 1e9, h[MEM_HOST_OTHER] / 1e9, h[MEM_HOST_HWM] / 1e9);
     }
+    printf("%spool peak-live per phase, GB (the high-water of the live pool bytes, not the reserved footprint above; largest APU / all APUs)\n", pf);
+    printf("%s%-14s %12s %12s\n", pf, "phase", "pool:pk/APU", "pool:pk/all");
+    for (int i = 0; i < g_nph; i++) printf("%s%-14s %12.1f %12.1f\n", pf, g_ph[i].name, g_ph[i].devmax[MEM_DEV_POOL_PEAK_LIVE] / 1e9, g_ph[i].dev[MEM_DEV_POOL_PEAK_LIVE] / 1e9);
 }
