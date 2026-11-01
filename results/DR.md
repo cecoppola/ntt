@@ -34,7 +34,7 @@ Cost model (modelled, 3.8e13 digits, 576 nodes): A 0.05-0.2 s, B about 60 ms, C 
 | 1 | `dr.c/h`, `t_dr`, registry, this file | done | 4af77c91 | t_dr VERIFY OK (9351 checks, measured); 1-node and 2-node gates with `ECALC_DR` unset PASS, digits identical (measured) |
 | 2 | A in `mn_core` (flag retry, fatal-to-flag conversions, injection `flag`) | done | 14926757 | see Measured, step 2 |
 | 3 | B + C (tree residue identity, leaf check, division-start compare): `rns_mul_dist_mn_chk`, tracked residues in `mn.c`, injection `deliver`, `store`, `leaf` | done | 489e38ee, 583b6479, 1d266195 | see Measured, step 3 |
-| 4 | D + D' (division, cyclic) | not started | | |
+| 4 | D + D' (division `mn_dkm_low` steps 1-2, the wrap, the cyclic product; injection `xql`, `cyc`, test modifier `leafslow`) | done | df4caf7e, e7274f10, (this commit) | see Measured, step 4 |
 | 5 | full regression with `ECALC_DR=3` | not started | | |
 | 6 | timing (ABBA), docs (ALGORITHM §10, TESTING §4, TASKS) | not started | | |
 
@@ -73,7 +73,7 @@ Items 61_dra_x2 failed in 3 s per run (NIC-free node, libfabric rc -61; ALLOW_SL
 
 ## RESUME
 
-Branch `c3check`; steps 1 and 2 done and gated (above). Step 3 done and gated (Measured, step 3). Next: step 4 (D + D': `mn_dkm_low`, the wrap and the cyclic product), design section 6.
+Branch `c3check`; steps 1 and 2 done and gated (above). Step 3 done and gated (Measured, step 3). Step 4 done and gated (Measured, step 4). Next: step 5 (full regression with `ECALC_DR=3`), then step 6 (ABBA timing, ALGORITHM section 10, TESTING section 4, TASKS).
 
 ## Review fixes and the cap test (aac7, 2026-11-01, commit e22efde; item 70_drfix; all counts measured)
 
@@ -138,3 +138,34 @@ Review fixes (2026-11-01, commit f750eaa; aac7 item 84_drb_fix, hold 14595, 2 no
 Trace (read only): in `mn_grid`'s `kc > 1` path a corrupted delivery cannot index out of bounds before the residue check: `share_carry_fix` and `db_share_add_one` are bounded by the share length `cn`, and the carry flags only select a +1 on the node's own share; the kc value enters `node_carry_in` as a flag byte only (the byte is then wrong, which can only change values, and the fail bit `chk_flag(4)` is already set). The gather tables (`spill_cols`, `piece_window`) are computed from the geometry, not from delivered data. No guard added.
 
 Checks not done: the division-start compare (`mn_dr_division_check`) had no injection of its own (a `store` corrupts an operand earlier and is found in the next product); the local-only fatals were checked with the srun launcher only.
+
+## Measured, step 4 (aac7, 2026-11-01, 16:00-17:30 ET; items 90_drc_x1 (commit df4caf7), 91_drc_n1 (df4caf7), 92_drc_x2 (e7274f10); all counts measured, single runs)
+
+Code (`ECALC_DR >= 3`): D around `mn_dkm_low` (`newton_db.c` `mn_dkm_low_d`, division steps 1 and 2): E = (R(S) B^e - R(X) R(Q)) - (R(Aw) - R(xql)) must be 0 or +-B^w; a mismatch frees xql, drops the transform cache and recomputes it once; a second failure, or the `ECALC_DR_TOTAL` cap, is fatal with the location. D in the wrap (`mn_dd_wrap`): exact E = 0, fatal on a mismatch (no stored input to recompute from; U faults are caught earlier by D'). D' in `rns_mul_dist_mn_cyc_v`: U == A B modulo B+1 and B-1 (the plane has an even size, so B^2 - 1 divides B^P - 1), one 6-word host all-gather, retry once. Each residue is an all-gather (`mdb_trk_make`) summed alike on every node: the verdict is collective. Cost: 3 gathers per low product, 2 per wrap step plus one for R(R1), 1 per cyclic product. Test injections: `xql` (K = the process's low product number: 1 step 1, 2 step 2), `cyc` (K = cyclic product number); `leafslow` is a modifier in the `ECALC_DR_TEST` comma list (`leaf,leafslow`): the recurrence waits for the division's start (at most 120 s), so the deferred leaf compare runs.
+
+2 nodes, 1e9 (digits against the reference sha, VERIFY OK where rc 0), `ECALC_DR=3`:
+
+| case | result |
+|---|---|
+| clean | digits identical, 12.1 s; division checks 2 per node (28 checks: 24 pieces, 2 products, 2 ends) |
+| `xql` K=1 PE=0; K=2 PE=0, PE=1 | digits identical, 1 injected = 1 failure = 1 recovered (division checks 3) |
+| `xql` `_N=2` K=1, K=2 | rc 3, FATAL names the step ("low product X Q mod B^w (...), division X Q mod B^w, group [0, 2), step 1" / "step 2"); the job ended 0.5 s after the FATAL line (12.7 s after launch) |
+| `DM_MN_WRAP=24` (one cyclic plane of 2^24), clean | division checks 4 (2 D' + 2 D), digits identical |
+| `cyc` K=1 PE=0, K=2 PE=1 (wrap 24) | digits identical, 1 injected = failure = recovered |
+| `cyc` `_N=2` K=1, K=2 | rc 3, FATAL "cyclic product #1 ... division X Q mod B^w, group [0, 2), step 1" (and "#2 ... step 2"); ended within 0.5 s of the FATAL line |
+| `ECALC_TEST_CORR=7`, `NEWTON_DKM_TEST_HI=-9`, each without and with wrap 24 | no false failures, digits identical |
+| `leafslow` alone | rc 0, "leaf checks deferred 1"; `leaf,leafslow` PE=0: FATAL "leaf check failed on node 0" |
+| 1.6e10 (`MN_TREE_LOGN_TEST=26`) | clean `ECALC_DR=3`: digits identical, VERIFY OK, total 54.4 s, 84 checks per node, division checks 2; `xql` K=2 PE=0: digits identical, VERIFY OK, 52.3 s, 1 injected = failure = recovered (division checks 3); `ECALC_DR` unset: digits identical, 52.8 s (single runs, not a timing comparison) |
+
+1 node, 4 PEs (`ECALC_PE_PER_GPU=1 COMM_TRANSPORT=xshmem XSHMEM_LOOPBACK_PES=1 ECALC_NP=4`), 1e9, `ECALC_DR=3`: clean; `xql` K=1, K=2 recovered; `xql` `_N=2` fatal; wrap 24 clean; `cyc` recovered; `cyc` `_N=2` fatal (in the df4caf7 build the first cyclic product's message lacked the division text; fixed in e7274f10); `leafslow` rc 0; `leaf,leafslow` PE=2 FATAL "leaf check failed on pe 2", ended 0.5 s after the FATAL line. Digits identical, VERIFY OK where rc 0.
+
+Acceptance: `t_dbig 0` VERIFY OK (705), `t_dr` VERIFY OK (9357 checks); `t_mn_grid 1 28` `ECALC_DR=3` at 2 and 3 processes clean, `flag` and `deliver` at 2 processes recovered (df4caf7); `mnaccept.sh --only mn,corr` `ECALC_DR=3`: 8 PASS (5 mn + 3 corr), identical, all nodes VERIFY OK; `--only mn` with `ECALC_TEST_CORR=7` and with `NEWTON_DKM_TEST_HI=-9`: all PASS; every run showed 0 failures and "division checks 2". Gates with `ECALC_DR` unset on e7274f10 (full rebuild, registry and python checks included): 2 nodes PASS (digits identical, ecalc 12.60 s, P24 pool of 4 primes), 1 node PASS (digits identical, ecalc 7.15 s).
+
+Guards (read; `ECALC_DR` < 3 adds no collective, allocation or pass): `newton_db.c` `mn_dkm_low_d` calls plain `mn_dkm_low` when `!g_dd.on`; `g_dd.on` is set only under `dr_level() >= 3` (`mn_divmod_dkm`); `dd_step`, `dd_res` and `mn_dd_wrap` run only under `g_dd.on`. `rns_dist.c` `rns_mul_dist_mn_cyc_v`: `chk = dr_level() >= 3`; with `chk` 0 the loop runs once with the old body (no `cyc_part`, no `malloc`, no gather), then `*Cm = Cn; return`. `rns_dr_event` and `mdb_dr_inject` are called only from checked paths. `dr.c`: the "division checks" text only at level 3; `leafslow` is read in `pq_bg_run` only under `dr_level() >= 2` and does nothing unless set. `mn.c` `mn_dr_division_seen` is one atomic store at the division start (no collective).
+
+Deviations and notes (step 4):
+- The wrap check is exact (E = 0 with the branch actually taken), not +-B^w; it is fatal, not a retry (Ah and T1 are consumed in place).
+- D' modulus B-1 is weak for operands divisible by 10^18-1 (Q is, since its small prime factors occur in the product: expected residue 0): it still changes by a nonzero amount for every single-limb error, and the B+1 modulus is not degenerate.
+- The D' injection flips a limb after `mdb_norm`, so it does not test the pre-norm path. The persistent case prints the exit summary twice per process (as in steps 2-3).
+- `leafslow` is test-only; on a run whose division never starts it would wait up to 120 s.
+- Not done in this step: the full regression (step 5), ABBA timing, ALGORITHM/TESTING text (step 6). The step-1/2 regression subset (flag, deliver at 2 processes) ran on df4caf7, not e7274f10 (the later commit changes only the failure location text).
