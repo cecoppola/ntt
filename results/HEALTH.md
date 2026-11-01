@@ -1,8 +1,21 @@
 # HEALTH — node health gate (C4) and per-APU memory guard / high-water (C5)
-**Question.** (C4) Can the kit tell a node with uncorrectable memory errors, a reboot, or NIC errors during our run from a healthy one? (C5) What does one APU really need (not the pool's reserved footprint), and can a guard watch each APU's own memory?
-**Change / branch.** Branch `health`. Switches: `ECALC_MEM_GUARD_APU_GB` (default 0 = off), `ECALC_MEMSAMPLE_SYSFS_ROOT` (test hook). The per-APU high-water rides the memory sampler (`ECALC_MEM_SAMPLE` or a guard turns it on; no new switch).
-**Method.** (filled in below)
-**Results.** (filled in below)
-**Verdict.** (filled in below)
-**Open issues.** (filled in below)
-**RESUME.** branch `health`, C4 committed; C5 code written, live tests pending.
+**Question.** (C4) Can the kit tell a node with uncorrectable memory errors (EDAC ue), a reboot, or NIC errors during our run from a healthy one? (C5) What does one APU really need (not the pool's reserved footprint at phase boundaries), and can a guard watch each APU's own memory?
+**Change / branch.** Branch `health`. C4: `tools/nodehealth.sh` (EDAC ue/ce totals per node and per controller, boot time), used by `tools/nodescreen.sh` (columns ue, ce, boot; WARN on ue > 0; `--refuse-ue` puts the node on EXCLUDE; kit: `REMOTE_REFUSE_UE=1`) and by `remote/run/nodesnap.sh` (`## health`); `remote/run/lib.sh` `rl_nicdiff` adds FEC / pause / stall / drop deltas and the top-5 nodes, `rl_healthdiff` the EDAC and reboot delta; `s5_run.sh` writes `node_health`, `nic_delta_top5`; `report.sh` prints them. Test hook `NODEHEALTH_SYSFS_ROOT`. C5: `ecalc/nodemem.h`, `memsample.c`: the sampler reads each NUMA node's MemFree (APU k = node k) and prints `device_hwm_apu_gb=` at exit (rides the sampler: on with `ECALC_MEM_SAMPLE` or a guard, no new switch); `ECALC_MEM_GUARD_APU_GB` (default 0 = off) stops the run (rc 9) naming the APU; `ECALC_MEMSAMPLE_SYSFS_ROOT` test hook; `stair.sh` reads `device_hwm_apu_gb` when present (its step line names the source), else `device_peak_apu_gb`.
+**Method.** aac7, 1 node, queue item 52 (measured 2026-11-01): `tools/gate.sh --build --nodes 1 --hold J --env ECALC_MEM_SAMPLE=5`; `tests/t_nodemem`; 1e10 digits with `ECALC_MEM_SAMPLE=2 ECALC_VERBOSE=2` on the aac7 launch line; guard tests with a mock tree and the real tree; `nodescreen.sh --no-mn`, and with `NODEHEALTH_SYSFS_ROOT` (mock ue=1) without and with `--refuse-ue`; `nodesnap.sh` before / after a 1e9 run and `rl_nicdiff` / `rl_healthdiff` on the pair. Discovery: every node has EDAC mc0-mc3 (`ue_count`, `ce_count`) and per NIC 1890 telemetry counters (`hni_pcs_*` FEC, `hni_pause_*`, `hni_*_paused_*`, `hni_*stall*`, `hni_llr_*`), so no counter is missing.
+**Results (all measured).**
+| check | result |
+|---|---|
+| gate 1 node, sampler on | PASS, 1e9 digits identical, VERIFY OK, ecalc total 7.55 s; `device_hwm_apu_gb=22.14` (apu 0; per APU 22.14, 18.57, 18.61, 21.22) |
+| `t_nodemem` | 5 checks, 0 failed |
+| unit tests (`NodeHealth`), registry, doccheck | OK, 0 problems |
+| 1e10, 1 node: `device_hwm_apu_gb` | 41.48 (apu 3); per APU 41.09, 40.96, 38.19, 41.48; VERIFY OK, total 24.1 s |
+| same run, planner | 41.38 GB per APU (modelled, `memory fit:`); block-pool peak-live 3.89-5.0 GB per APU (measured; the block pool is only a small part of the APU's demand, so the 61.4 GB of DIAG is not comparable with it) |
+| guard mock tree, MemFree 5.12 GB, guard 10 | rc 9, "APU 0 (NUMA node 0) MemFree 5.12 GB is below it" |
+| guard mock tree, guard 1 | rc 0, VERIFY OK |
+| guard real tree, guard 1000 | rc 9, names APU 0 |
+| node screen, 1 node | prints ue 0, ce 0, boot 2026-11-01T07:47:54Z |
+| mock ue=1 | no option: rc 0, `WARN EDAC ue=1` and a `health:` line; `--refuse-ue`: rc 3, node in EXCLUDE |
+| nodesnap pair around 1e9 (1 node) | `NIC_TOP=... fec=78 pause=0 stall=0 drop=8` (cxi0 fec 32, cxi1 20, cxi2 12, ...), `HEALTH=1 node(s): ue>0 on 0, rebooted during the run: 0` |
+**Verdict.** Adopt for the kit (all off or read-only; digits unchanged). Caveat on `device_hwm_apu_gb`: MemFree counts reclaimable page cache as used, and APU 0 starts about 65 GB lower (41.8 GB free against 107-111); in the 1e10 run APU 0 fell to 0.66 GB free, i.e. the kernel was reclaiming cache there, so its 41.09 GB is a floor-limited figure, not exact demand. APUs 1-3 (40.96, 38.19, 41.48 against the plan 41.38) are the usable numbers. A `MemFree + file cache` variant would fix this; not done (needs the user's choice).
+**Open issues.** The per-APU guard sits in the sampler only; the start-up `budget_check` in `ecalc.c` (sum of ranks' planned peaks against MemAvailable) was not given a per-APU form (it would need a per-APU demand model). NIC deltas were taken on 1 node (little traffic); a 2-node pair was not run. The kit's stair excess rule was changed by reading, not run end to end on a stair (bash -n only). Sampler HWM is per process: with one process per GPU each PE prints the same physical node figures.
+**RESUME.** Branch `health` (C4 bf2441e0, C5 d814a827, then this report and the manifest); aac7 worktree `~/ntt-wt/health`; nothing running. Next: review, merge.
