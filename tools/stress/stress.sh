@@ -13,6 +13,8 @@
 #   none: no digit file is written (VERIFY and flags only); FILE: a file holding the expected sha256.
 #   --nic: around the first run, node snapshots before and after (remote/run/nodesnap.sh) and the kit's NIC delta (rl_nicdiff of remote/run/lib.sh) -> OUT/nic.txt.
 #   Writes OUT/summary.md (tools/stress/summarize.py) and the marker OUT/DONE (always, last); removes the digit files.  STOP file in OUT = stop after the current run.
+#   Environment overrides: STRESS_CACHE = folder of the cached reference hashes (default: the folder `stress` in the home directory); ECALC_REF = the reference digits
+#   file, ASCII "2." + digits, at least D + 3 bytes (default: the file `ref/e_1e11.out` in the home directory).
 # Never put credentials or host names in this file.
 set -u
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); ROOT=$(cd "$HERE/../.." && pwd); E=$ROOT/ecalc
@@ -45,12 +47,13 @@ LINE=$(python3 "$ROOT/tools/profile_load.py" aac7 --line 2>/dev/null)
 # the planner's fit, before node time is used (as the gate does)
 python3 "$ROOT/tools/plan_values.py" --fit --env "$LINE ECALC_SEGV_TRACE=1" --ecalc "$E/ecalc" "$DIG" "$NODES" > "$OUT/fit.txt" 2>&1 || { say "memory does not fit: $(grep -m1 -E 'REFUSED|plan_values:' "$OUT/fit.txt" | cut -c1-200)"; finish; exit 2; }
 say "nodes $NODES digits $DIG reps $REPS hold $HOLD arms: $(echo $ARMS | wc -w); nodes $(squeue -j "$HOLD" -h -o %N)"
+REFDIG=${ECALC_REF:-$HOME/ref/e_1e11.out}
 REFSHA=
 case $REF in
   none) ;;
   auto) if [ "$DIG" -le 100000000000 ]; then   # sha256 of the reference's first D digits ("2." + digits + newline), cached: reading the 1e11 reference costs minutes
-          RC=$HOME/stress/refsha_$DIG; mkdir -p "$HOME/stress"
-          [ -s "$RC" ] || { ( head -c $((DIG + 2)) "$HOME/ref/e_1e11.out"; echo ) | sha256sum | cut -d' ' -f1 > "$RC.tmp" && mv "$RC.tmp" "$RC"; }
+          CACHE=${STRESS_CACHE:-$HOME/stress}; RC=$CACHE/refsha_$DIG; mkdir -p "$CACHE"
+          [ -s "$RC" ] || { ( head -c $((DIG + 2)) "$REFDIG"; echo ) | sha256sum | cut -d' ' -f1 > "$RC.tmp" && mv "$RC.tmp" "$RC"; }
           REFSHA=$(cat "$RC"); say "reference sha256 of the first $DIG digits: ${REFSHA:0:16}..."
         fi;;
   *) REFSHA=$(cat "$REF");;   # a file holding the sha256 of the expected ASCII output
