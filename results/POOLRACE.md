@@ -46,4 +46,22 @@ Two non-ordering observations (not claimed to cause the failures):
 
 ## 2. Method, results, verdict
 
-(filled in below after the cluster runs)
+**Question.** Does the dbig block pool free or remap memory while GPU work still uses it (`q_free`, `vmm_make_room`)?
+
+**Change.** Switch `DB_FREE_SYNC` (default 0): 1 = device sync before each `q_free` and before the unmap in `vmm_make_room`; 2 = same, across all devices. Branch c1pool.
+
+**Method.** Audit of all pool callers (table above); gates on aac7, 1e9 digits, 1 and 2 nodes; `mnaccept.sh --only unit,e9`; a search for a forced-pressure setting (VMM remaps visible with `DB_POOL_VERBOSE=1`).
+
+**Results (measured, aac7, single 1e9 runs, not a timing result).**
+- Audit: 21 rows, 0 UNSAFE, 1 UNCLEAR (the `vmm_make_room` unmap), the rest SAFE.
+- 2 nodes: `DB_FREE_SYNC=0` PASS 14.62 s; 1 PASS 12.56 s; 2 PASS 12.48 s. 1 node: 0 PASS 8.00 s; 1 PASS 7.66 s. VERIFY OK, digits identical, no segv.
+- `mnaccept.sh --only unit,e9` with `DB_FREE_SYNC=1`: rc 0; t_seed, t_dist, t_mn_grid VERIFY OK; e9 identical.
+- `gate.sh --build` fails at "python unit tests" (`tests/test_site.py`), also on main: environmental, pre-existing. The build, registry check and doccheck were run by hand: rc 0.
+- Pressure: 0 VMM remaps in 24 runs (4e9 and 1.6e10 digits; `ECALC_DEVICE_GB` 250/170, `DM_TIGHT=0`, `BS_ARENA_ROOM=0`, `BS_ARENA_TRIM_GB` 2..12; the trim is clamped to about 0.5 GB). All VERIFY OK. No pressure pair exists.
+- ABBA cost of `DB_FREE_SYNC=1` (2 nodes, 1.6e10): NOT MEASURED. The driver failed on a missing `tools/rundriver.sh`. A replacement item (45_c1pool_abba2) was queued and may finish later.
+
+**Verdict.** Inconclusive. No caller proven UNSAFE and no race reproduced; the switch is harmless in the gates (no slowdown seen at 1e9, one run each). The hypothesis is neither confirmed nor excluded at sizes where remaps occur. Recommendation: keep the switch (default 0), do not enable it.
+
+**Open issues.** (1) Remaps were never exercised on aac7; a test that shrinks the arena directly is needed. (2) ABBA cost unmeasured. (3) UNCLEAR unmap row relies on the driver ordering of `hipMemUnmap`.
+
+**RESUME.** Read the summary of queue item 45 (if done); fill the ABBA line and pressure pair here; otherwise design a forced-remap test.
