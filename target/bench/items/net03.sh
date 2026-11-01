@@ -26,7 +26,7 @@ map() {   # TAG PATH [VAR=VALUE...]
     tgt_kv m.${tag}_map_lines "$npe lines"; tgt_kv e.${tag}_xt_result "$X_RESULT"
     MAPQ="$MAPQ; $tag: $(sed -E 's/^MAP pe ([0-9]+).* gpu ([0-9]+) nics ([0-9]+) \[([^]]*)\] numa ([-0-9]*).*/pe\1 gpu\2 nics\3[\4] numa\5/' raw/$tag.map | head -4 | tr '\n' ' ')"
 }
-ecalc_have 1 && { map map_default 1; map map_explicit 1 COMM_OFI_NICS="0,4;1,5;2,6;3,7"; }
+ecalc_have 1 && { map map_default 1; map map_explicit 1 COMM_OFI_NICS="0,1;2,3;4,5;6,7"; }
 ecalc_refresh 600 && map map_path2 2
 SUMQ=$(grep -a '^/sys/class/cxi/' raw/probe.log | head -8 | sed -n 's/.*numa=\([-0-9]*\).*/\1/p' | paste -sd, -)
 ecalc_q TQ10 "$NSYS cxi sysfs devices, $NDOM fi_info cxi domains, device numa nodes [${SUMQ:-NA}]; PE map (default NIC choice)${MAPQ:- not taken}"
