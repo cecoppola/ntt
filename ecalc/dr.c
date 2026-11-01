@@ -56,10 +56,10 @@ size_t dr_counter(int c) { return c >= 0 && c < DR_C_N ? __atomic_load_n(&cnt[c]
 void dr_summary(void)
 {
     if (!dr_on()) return;
-    fprintf(stdout, "DR: %zu checks (pieces %zu, products %zu, ends %zu), %zu injected, %zu failures, %zu recovered (pieces %zu, products %zu, division %zu), %zu fatal\n",
+    fprintf(stdout, "DR: %zu checks (pieces %zu, products %zu, ends %zu), %zu injected, %zu failures, %zu recovered (pieces %zu, products %zu, division %zu), %zu fatal, leaf checks deferred %zu, skipped %zu\n",
             dr_counter(DR_C_CHECK) + dr_counter(DR_C_PROD) + dr_counter(DR_C_LEAF), dr_counter(DR_C_CHECK), dr_counter(DR_C_PROD), dr_counter(DR_C_LEAF), dr_counter(DR_C_INJECTED), dr_counter(DR_C_FAIL),
             dr_counter(DR_C_REC_PIECE) + dr_counter(DR_C_REC_PRODUCT) + dr_counter(DR_C_REC_DIV),
-            dr_counter(DR_C_REC_PIECE), dr_counter(DR_C_REC_PRODUCT), dr_counter(DR_C_REC_DIV), dr_counter(DR_C_FATAL));
+            dr_counter(DR_C_REC_PIECE), dr_counter(DR_C_REC_PRODUCT), dr_counter(DR_C_REC_DIV), dr_counter(DR_C_FATAL), dr_counter(DR_C_LEAF_DEFER), dr_counter(DR_C_LEAF_SKIP));
     fflush(stdout);
 }
 void dr_arm(void) { static int on; if (!on) { on = 1; atexit(dr_summary); } }

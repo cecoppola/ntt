@@ -145,8 +145,9 @@ ecalc_srun() {        # TAG PATHNO NODES CMD...
     gopt=(--gpus-per-node="$gpus"); type mn_gres_on >/dev/null 2>&1 && { mn_gres_on "${h%%,*}" || gopt=(); }   # MNRUN_GRES: none where the nodes list no GRES
     # TGT_SRUN_EXTRA="--mem=0" and TGT_SRUN_NO_W=1: the aac7 session-hold rules (steps need --mem=0, no -w); empty on the target
     local xo=(${TGT_SRUN_EXTRA:-}) wo=(-w "$h"); [ "${TGT_SRUN_NO_W:-0}" = 1 ] && wo=()
+    local ko=(--kill-on-bad-exit=1); [ "${ECALC_SRUN_KILL:-1}" = 0 ] && ko=()   # a one-node ec_fatal ends the step in seconds, not at TMO (as mnrun.sh, D34); ECALC_SRUN_KILL=0 for independent per-node probes
     t0=$(date +%s)
-    timeout -k 20 $(( ${TMO:-${TGT_ITEM_MIN:-10}} * 60 )) srun --jobid="$JOBID" --export=ALL -N "$n" "${wo[@]}" --ntasks=$((n * ppn)) --ntasks-per-node="$ppn" "${gopt[@]}" "${copt[@]}" "${xo[@]}" --overlap \
+    timeout -k 20 $(( ${TMO:-${TGT_ITEM_MIN:-10}} * 60 )) srun --jobid="$JOBID" --export=ALL -N "$n" "${wo[@]}" --ntasks=$((n * ppn)) --ntasks-per-node="$ppn" "${gopt[@]}" "${copt[@]}" "${xo[@]}" --overlap ${ko[@]+"${ko[@]}"} \
         bash -lc "$(_ec_pre)"'exec "$@"' _ "$@" > "$lg" 2>&1 < /dev/null
     rc=$?; E_SRUN_WALL_S=$(( $(date +%s) - t0 )); return $rc
 }

@@ -65,7 +65,7 @@ static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0
     return 0; }
 static int pq_bg_poll(void *a, uint64_t *p, uint64_t *q)   /* C3 (ECALC_DR >= 2): the leaf check reads the recurrence's residues modulo t1_q[0] once it is done (mn.c) */
 { struct pq_bg *b = (struct pq_bg *)a; if (__atomic_load_n(&b->done, __ATOMIC_ACQUIRE)) { *p = b->p[0]; *q = b->qq[0]; return 1; } return __atomic_load_n(&b->started, __ATOMIC_ACQUIRE) ? 0 : -1; }
-static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->started) return; pthread_create(&b->th, 0, pq_bg_run, b); b->started = 1; }   /* O2: after the seeds */
+static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->started) return; pthread_create(&b->th, 0, pq_bg_run, b); __atomic_store_n(&b->started, 1, __ATOMIC_RELEASE); }   /* O2: after the seeds */
 
 /* X's residues and the digits -- formatted in chunks and written as they are formatted
  * (mn_out.c), no whole digit string on the host -- in the background during the low product, from the hook that
@@ -193,6 +193,7 @@ static int out_stage(struct out_ctx *c)
     uint64_t pr[T1_NQ], qr[T1_NQ], Pg[T1_NQ], Qg[T1_NQ];
     if (c->pqb->started) { if (!c->pqb->joined) pthread_join(c->pqb->th, 0); c->pqb->joined = 1; memcpy(pr, c->pqb->p, sizeof pr); memcpy(qr, c->pqb->qq, sizeof qr); }
     else for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(c->pqb->a0, c->pqb->b1, t1_q[i], &pr[i], &qr[i]);
+    if (dr_level() >= 2 && multi) mn_dr_leaf_final();   /* C3: the leaf check deferred from the division's start (the recurrence is joined above) */
     mn_out_pq_combine(cm, pr, qr, Pg, Qg);
     /* the share of X this node holds: the device X (size 1, B1) or this node's share of the sharded X (size > 1: the distributed
      * division's mdb, read in place) */

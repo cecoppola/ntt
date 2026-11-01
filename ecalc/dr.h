@@ -41,7 +41,7 @@ int dr_test_m(void);
 int dr_inject(int kind, size_t occ, int pe, int slot, int attempt);
 
 /* ---- counters and the exit summary ---- */
-enum { DR_C_CHECK, DR_C_INJECTED, DR_C_FAIL, DR_C_REC_PIECE, DR_C_REC_PRODUCT, DR_C_REC_DIV, DR_C_FATAL, DR_C_PROD, DR_C_LEAF, DR_C_N };   /* CHECK = the piece decisions of step 2, PROD = the residue checks of the products (B), LEAF = the leaf check (C) */
+enum { DR_C_CHECK, DR_C_INJECTED, DR_C_FAIL, DR_C_REC_PIECE, DR_C_REC_PRODUCT, DR_C_REC_DIV, DR_C_FATAL, DR_C_PROD, DR_C_LEAF, DR_C_LEAF_DEFER, DR_C_LEAF_SKIP, DR_C_N };   /* CHECK = the piece decisions of step 2, PROD = the residue checks of the products (B), LEAF = the leaf check (C) */
 void dr_count(int c, size_t v);                /* atomic add */
 size_t dr_counter(int c);
 void dr_summary(void);                         /* "DR: <checks> checks, ..." once per call; registered at exit by dr_arm; call it before ec_fatal (which is _exit) */

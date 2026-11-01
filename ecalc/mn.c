@@ -480,16 +480,15 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half, mdb_trk *
  * tp / tq: R(P), R(Q) (mod DR_Q = t1_q[0]) of the node's current P, Q (the common value of its child group, held in an explicit variable here, never in the mdb) and this node's share parts.
  * Seeded from the leaf at the start of the tree (db_mod_qs: the only extra pass), carried through the levels by the descriptor all-gather (11 words) and the checked products.
  * C: the seeds against the node's recurrence (pq_bg_run, ecalc.c; the T1 values of this node's term range): polled after every level, finally at the division. */
-static struct { int on, checked; uint64_t seed_p, seed_q; int top_valid; uint64_t top_p, top_q; } g_dr;
+static struct { int on, checked, deferred; uint64_t seed_p, seed_q; int top_valid; uint64_t top_p, top_q; } g_dr;
 static int (*g_leaf_poll)(void *arg, uint64_t *p, uint64_t *q); static void *g_leaf_arg;
 void mn_dr_leaf_ref(int (*poll)(void *arg, uint64_t *p, uint64_t *q), void *arg) { g_leaf_poll = poll; g_leaf_arg = arg; }
-static void dr_leaf_check(int final)   /* poll == 1: finished (p, q valid), 0: running, -1: never started */
+static void dr_leaf_check(int mode)   /* mode 0: after a level (non-blocking); 1: the division's start (non-blocking: a recurrence still running defers the check, so it keeps overlapping the division); 2: the join point (ecalc.c out_stage, the recurrence is joined) */
 {
     if (!g_dr.on || g_dr.checked || !g_leaf_poll) return;
-    uint64_t p = 0, q = 0; int st;
-    for (;;) { st = g_leaf_poll(g_leaf_arg, &p, &q); if (st != 0 || !final) break; usleep(2000); }   /* (final: the recurrence is joined before T1 anyway) */
-    if (st < 0) { if (final) g_dr.checked = 1; return; }
-    if (st == 0) return;
+    uint64_t p = 0, q = 0; int st = g_leaf_poll(g_leaf_arg, &p, &q);   /* poll == 1: finished (p, q valid), 0: running, -1: never started */
+    if (st < 0) { if (mode == 2) { g_dr.checked = 1; dr_count(DR_C_LEAF_SKIP, 1); printf("mn: %s %d: DR: leaf check skipped: the recurrence never started (the T1 values are computed directly)\n", mn_who(), mn_rank()); fflush(stdout); } return; }
+    if (st == 0) { if (mode == 1 && !g_dr.deferred) { g_dr.deferred = 1; dr_count(DR_C_LEAF_DEFER, 1); } return; }
     g_dr.checked = 1; dr_count(DR_C_LEAF, 1);
     if (p != g_dr.seed_p || q != g_dr.seed_q) {
         dr_count(DR_C_FATAL, 1); dr_summary();
@@ -497,11 +496,12 @@ static void dr_leaf_check(int final)   /* poll == 1: finished (p, q valid), 0: r
                  mn_who(), mn_rank(), (unsigned long long)g_dr.seed_p, (unsigned long long)g_dr.seed_q, (unsigned long long)p, (unsigned long long)q);
     }
 }
+void mn_dr_leaf_final(void) { dr_leaf_check(2); }
 /* newton_db.c mn_divmod_dkm, with the residues of the sharded P, Q it computes for T1: the leaf check if not yet done, then the tree's tracked values (a mismatch = corruption at rest between the tree and here) */
 void mn_dr_division_check(const uint64_t *qs, const uint64_t *pres, const uint64_t *qres)
 {
     if (!g_dr.on) return;
-    dr_leaf_check(1);
+    dr_leaf_check(1);                                 /* only if the recurrence is done; else deferred to mn_dr_leaf_final */
     if (!g_dr.top_valid) return;
     g_dr.top_valid = 0;
     if (qs[0] != DR_Q) return;
@@ -653,7 +653,7 @@ static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, 
             memset(&PA.sh, 0, sizeof PA.sh);
         }
         if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul1", mn_rank(), l, nch - 1 - i); mem_live_line(w); }   /* the first product's window */
-        if (use && (own || ci == nch - 1)) mdb_dr_store_inject(&Qr, mn_rank());   /* ECALC_DR_TEST=store: the running Q wrong at rest after the first product of the combine */
+        if (use) mdb_dr_store_inject(&Qr, mn_rank());   /* every node calls (the occurrence count must agree; a node outside Qr's holders has an empty share) -- ECALC_DR_TEST=store: the running Q wrong at rest after the first product of the combine */
         lv_force(2 * (nch - 2 - i) + 1);
         if (use) rns_mul_dist_mn_chk(&Qn, &QA, &Qr, 0, G, &tQA, &tQr, 0, &tQn); else rns_mul_dist_mn(&Qn, &QA, &Qr, 0, G);
         if (mem_live_on() && i > 0) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul2", mn_rank(), l, nch - 1 - i); mem_live_line(w); }   /* (the last combine's: the level's line) */

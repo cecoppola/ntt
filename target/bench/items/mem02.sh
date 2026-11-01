@@ -8,8 +8,8 @@ T=$(ecalc_tool $PN tests/t_nodechk)
 [ -x "$T" ] || { tgt_kv note "no t_nodechk in the build tree"; ecalc_end SKIP; }
 NH=$(echo "$HOSTS" | tr ',' '\n' | grep -c .); [ "$NH" -ge 1 ] || NH=1
 COLD=${MEM02_COLD_GB:-8}; [ "${TGT_SITE:-}" = aac7 ] && COLD=2
-TMO=3 ecalc_srun nodechk $PN "$NH" "$T" 1 3
-TMO=4 ecalc_srun nodechk_cold $PN "$NH" "$T" 1 1 "$COLD"
+ECALC_SRUN_KILL=0 TMO=3 ecalc_srun nodechk $PN "$NH" "$T" 1 3
+ECALC_SRUN_KILL=0 TMO=4 ecalc_srun nodechk_cold $PN "$NH" "$T" 1 1 "$COLD"
 grep -a '^NODECHK ' raw/nodechk.log | sed 's/^NODECHK //' > nodechk.tsv
 grep -a '^NODECHK_COLD ' raw/nodechk_cold.log | sed 's/^NODECHK_COLD //' > nodechk_cold.tsv
 [ -s nodechk.tsv ] || { tgt_kv note "no NODECHK line"; ecalc_end FAIL; }
