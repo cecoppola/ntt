@@ -115,6 +115,9 @@ rl_site_load() {    # KEY=VALUE lines of site.env; the caller's environment wins
         done < "$SITE_ENV"
     fi
     rl_site_defaults
+    # the measured GPU edge (edge.sh: REMOTE_DEVICE_GB, per node) is the planner's ECALC_DEVICE_GB unless the caller set one
+    # (after the aac7 defaults, so the rehearsal keeps its 444.0 as before)
+    if [ -n "${REMOTE_DEVICE_GB:-}" ] && [ -z "${ECALC_DEVICE_GB:-}" ] && rl_isnum "$REMOTE_DEVICE_GB"; then export ECALC_DEVICE_GB=$REMOTE_DEVICE_GB; fi
 }
 rl_site_set() {     # KEY VALUE: write/replace in site.env (atomic), and export
     local k=$1 v=$2 t
