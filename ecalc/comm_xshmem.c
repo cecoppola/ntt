@@ -965,16 +965,17 @@ static const char *const tag_name[XK_NK] = { "other", "redist", "result", "spill
 static void xtag_report(void)
 {
     int npes = xshmem_n_pes(); size_t rec = sizeof(double) * (size_t)(XK_NK * XTC_N), slot = rec + 8, tot = slot * (size_t)npes, off0 = 0; int ok = 1;
-    size_t offs[MAXLPE];
-    for (int l = 0; l < X.K; l++) { XSHMEM_SELECT(l); xpe *lp = &X.pe[l]; size_t off = xalloc(lp, tot, 1); offs[l] = off; if (l == 0) off0 = off;
-        char *buf = lp->data + off; memset(buf, 0, tot); int pe = X.K * X.q + l; char *mine = buf + slot * (size_t)pe;
-        *(double *)mine = (double)off; memcpy(mine + 8, lp->tc, rec);                  /* slot pe: my block offset (a symmetric allocation gives the same on every PE), then my counters */
+    size_t offs[MAXLPE]; char *bufs[MAXLPE];
+    for (int l = 0; l < X.K; l++) { XSHMEM_SELECT(l); xpe *lp = &X.pe[l]; char *buf = (char *)xshmem_heap_alloc(tot, XSHMEM_SPACE_CTRL); bufs[l] = buf;   /* the library's own symmetric allocation (collective, PEs in order) */
+        size_t off = (size_t)xshmem_off(buf); offs[l] = off; if (l == 0) off0 = off;
+        memset(buf, 0, tot); int pe = X.K * X.q + l; char *mine = buf + slot * (size_t)pe;
+        *(double *)mine = (double)off; memcpy(mine + 8, lp->tc, rec);                  /* slot pe: my block offset (equal on every PE), then my counters */
         if (pe != 0) xshmem_ctx_putmem_nbi(lp->lane, mine, mine, slot, 0); }
     for (int l = 0; l < X.K; l++) { XSHMEM_SELECT(l); xshmem_ctx_quiet(X.pe[l].lane); }
     XSHMEM_SELECT(0); xshmem_barrier_all();
-    if (X.q != 0) return;
+    if (X.q == 0) {
     for (int l = 0; l < X.K; l++) if (offs[l] != off0) ok = 0;
-    const char *b0 = X.pe[0].data + off0; double mx[XK_NK][XTC_N] = {{0}}, sm[XK_NK][XTC_N] = {{0}}; int npr = 0;
+    const char *b0 = bufs[0]; double mx[XK_NK][XTC_N] = {{0}}, sm[XK_NK][XTC_N] = {{0}}; int npr = 0;
     for (int pe = 0; pe < npes; pe++) { const char *sl = b0 + slot * (size_t)pe; if (pe >= X.K && *(const double *)sl != (double)off0) { ok = 0; continue; }
         const double *r = (const double *)(sl + 8); npr++;
         for (int k = 0; k < XK_NK; k++) for (int j = 0; j < XTC_N; j++) if (r[k * XTC_N + j] > mx[k][j]) mx[k][j] = r[k * XTC_N + j]; }
@@ -988,6 +989,9 @@ static void xtag_report(void)
     fprintf(stderr, "comm_xshmem: XSHMEM_ROUND_STATS per tag, maximum over all %d PEs of each column%s: tag exchanges in-rounds rounds recv_MB sent_MB max_pair_MB MB_per_round(max recv / max rounds)\n", npr, ok ? "" : " (allocation not symmetric: only node-process 0's PEs valid)");
     for (int k = 0; k < XK_NK; k++) { const double *r = mx[k];
         fprintf(stderr, "comm_xshmem: XSHMEM_TAGMAX %-6s %10.0f %10.0f %10.0f %12.1f %12.1f %10.2f %10.2f\n", tag_name[k], r[0], r[1], r[2], r[3] / 1e6, r[4] / 1e6, r[5] / 1e6, r[2] > 0 ? r[3] / 1e6 / r[2] : 0.0); }
+    }
+    XSHMEM_SELECT(0); xshmem_barrier_all();                       /* PE 0 has read the block */
+    for (int l = 0; l < X.K; l++) { XSHMEM_SELECT(l); xshmem_heap_free(bufs[l]); }
 }
 void comm_xshmem_finalize(void)
 {
