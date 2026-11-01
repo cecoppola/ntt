@@ -27,6 +27,7 @@
 #include "verify.h"
 #include "mem.h"
 #include "dbig.h"
+static long ec_map_count(long *limit);   /* ECALC_INIT_TL=1: lines of /proc/self/maps (defined below) */
 #include "mn.h"
 #include "mn_out.h"
 #include "mn_plan.h"                                 /* MN_PLAN_ONLY */
@@ -232,6 +233,7 @@ static int out_stage(struct out_ctx *c)
                total, c->t_bs, c->t_10dp, c->t_dm, t_t1, 0.0, 0.0, phases, c->t_init, total - phases - c->t_init, mem_vmhwm() / 1e9);
         RESULT("total", "s", total); RESULT("phases", "s", phases); RESULT("other", "s", total - phases - c->t_init);
         RESULT("vmhwm", "GB", mem_vmhwm() / 1e9);
+        if (db_tl_on()) { long lim; long n = ec_map_count(&lim); printf("tl          memory mappings at the end of the run: %ld lines in /proc/self/maps (vm.max_map_count %ld)\n", n, lim); }
         printf("ref A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
     }
     /* the digits: the node's share of X in chunks -> its part file; residue and windows per chunk */
@@ -283,6 +285,7 @@ static int out_stage(struct out_ctx *c)
                total, c->t_bs, c->t_10dp, c->t_dm, t_t1, t_dc, 0.0, phases, c->t_init, total - phases - c->t_init, mem_vmhwm() / 1e9);
         RESULT("total", "s", total); RESULT("phases", "s", phases); RESULT("other", "s", total - phases - c->t_init);
         RESULT("vmhwm", "GB", mem_vmhwm() / 1e9);
+        if (db_tl_on()) { long lim; long n = ec_map_count(&lim); printf("tl          memory mappings at the end of the run: %ld lines in /proc/self/maps (vm.max_map_count %ld)\n", n, lim); }
         printf("ref A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
     }
     t = mem_now(); mn_out_finish(o);                  /* the last chunk's write */
@@ -491,6 +494,13 @@ static void recheck_run(void *a)                       /* ECALC_RECHECK in proce
     int f = mn_out_recheck(fc->N, fc->d, fc->d_out, fc->outfile, mn_comm(0), mn_rank(), fc->mn_size, bs_a0, bs_b1 ? bs_b1 : fc->N + 1, fc->verbose);
     g_flow_rc = f; mn_barrier(); mn_finalize();
 }
+/* ECALC_INIT_TL=1: the process's memory mappings (lines of /proc/self/maps) against the system limit vm.max_map_count (-1 when unreadable) */
+static long ec_map_count(long *limit)
+{
+    long n = 0; FILE *f = fopen("/proc/self/maps", "r"); if (!f) return -1; int ch; while ((ch = fgetc(f)) != EOF) if (ch == '\n') n++; fclose(f);
+    *limit = -1; f = fopen("/proc/sys/vm/max_map_count", "r"); if (f) { if (fscanf(f, "%ld", limit) != 1) *limit = -1; fclose(f); }
+    return n;
+}
 /* ECALC_INIT_TL=1: seconds since this process started: /proc/self/stat field 22 (start time in clock ticks since boot) against CLOCK_BOOTTIME (10 ms resolution); -1 when unreadable */
 static double ec_proc_age_s(void)
 {
@@ -656,7 +666,8 @@ static void flow_run(void *a)
           printf("tl          %s %d: process age at main %.2f s (/proc starttime against boot time, 10 ms; it precedes the init clock)\n", who(), mn_rank(), fc->t_age);
           printf("tl          %s %d: init = %.2f s: plan/fit/pool rule before the transport %.2f + mn_init %.2f + rns_init %.2f + mn_selftest %.2f + region pools %.2f + other %.2f (other: seeds, sampler, term ranges)\n",
                  who(), mn_rank(), t_init, fc->t_pre, fc->t_mn, t_ri, fc->t_st, t_pg, t_init - fc->t_pre - fc->t_mn - t_ri - fc->t_st - t_pg); }
-      else if (tv > 0 && fc->t_age > 30.0) printf("tl          %s %d: LATE START: process age at main %.2f s\n", who(), mn_rank(), fc->t_age); }
+      else if (tv > 0 && fc->t_age > 30.0) printf("tl          %s %d: LATE START: process age at main %.2f s\n", who(), mn_rank(), fc->t_age);
+      if (tv > 0 && (mn_rank() == 0 || (tv >= 2 && vpe_node_leader()))) { long lim; long n = ec_map_count(&lim); printf("tl          %s %d: memory mappings at the end of init: %ld lines in /proc/self/maps (vm.max_map_count %ld)\n", who(), mn_rank(), n, lim); } }
     if (getenv("ECALC_INIT_ONLY") && atoi(getenv("ECALC_INIT_ONLY"))) { vpe_node_barrier(); MEMREP("init"); if (vpe_node_leader()) printf("ECALC_INIT_ONLY: the pools and the arena of %lu digits are mapped (%.1f s); stopping\n", d, mem_now() - t00); fflush(stdout); _exit(0); }   /* the ceiling probe (the allocation edge in seconds) */
     if (verbose >= 2 && vpe_node_leader()) printf("      init: rns_init %.2f s, region pools %.2f s, the rest %.2f s\n", t_ri, t_pg, t_init - t_ri - t_pg);   /* A-mem */
     if (vpe_node_leader()) RESULT("init", "s", t_init);   /* one per node (a global figure) */
