@@ -9,7 +9,8 @@
 #   Every run: DB_POOL_VERBOSE=1 (prints the remap counts at the end), the aac7 launch line, ECALC_SEGV_TRACE=1.  Runs go round by round (rep 1 of every arm, then rep 2 ...),
 #   so that a cut-off run still covers all arms.  Per run one line in OUT/runs.tsv: arm rep rc verify crtflag p24flags remaps forced digits wall total.
 #   Any anomaly (rc != 0, no VERIFY OK, a P24 flag or CRT flag, digits DIFFERS): the full log is kept in OUT/keep/ and the arm's further repetitions are skipped.
-#   --ref auto: the first D digits of the 1e11 reference (up to 1e11 digits); none: no digit file is written (VERIFY and flags only).
+#   --ref auto: the sha256 of the first D digits of the 1e11 reference (up to 1e11 digits; computed once, cached in the stress folder) against the sha256 of each run's unpacked digits;
+#   none: no digit file is written (VERIFY and flags only); FILE: a file holding the expected sha256.
 #   --nic: around the first run, node snapshots before and after (remote/run/nodesnap.sh) and the kit's NIC delta (rl_nicdiff of remote/run/lib.sh) -> OUT/nic.txt.
 #   Writes OUT/summary.md (tools/stress/summarize.py) and the marker OUT/DONE (always, last); removes the digit files.  STOP file in OUT = stop after the current run.
 # Never put credentials or host names in this file.
@@ -30,7 +31,7 @@ mkdir -p "$OUT/keep" || exit 2; OUT=$(cd "$OUT" && pwd); rm -f "$OUT/DONE"; T0=$
 [ -n "$ARMS" ] || ARMS=$(for k in 0 1; do for s in 0 1; do for d in 0 1; do for r in 0 1; do echo "k${k}s${s}d${d}r${r}"; done; done; done; done)
 say() { echo "$(date +%T) stress: $*" | tee -a "$OUT/log.txt"; }
 finish() {
-  rm -f "$OUT"/e.out "$OUT"/e.out.* "$OUT/ref.txt" 2>/dev/null
+  rm -f "$OUT"/e.out "$OUT"/e.out.* 2>/dev/null
   python3 -I "$HERE/summarize.py" "$OUT" > "$OUT/summary.md" 2>&1; cat "$OUT/summary.md" | tee -a "$OUT/log.txt" | head -60
   squeue -s -j "$HOLD" 2>/dev/null | tail -n +2 > "$OUT/steps_left.txt"
   echo "done $(date +%T) elapsed $(( $(date +%s) - T0 )) s" > "$OUT/DONE"
@@ -44,11 +45,15 @@ LINE=$(python3 "$ROOT/tools/profile_load.py" aac7 --line 2>/dev/null)
 # the planner's fit, before node time is used (as the gate does)
 python3 "$ROOT/tools/plan_values.py" --fit --env "$LINE ECALC_SEGV_TRACE=1" --ecalc "$E/ecalc" "$DIG" "$NODES" > "$OUT/fit.txt" 2>&1 || { say "memory does not fit: $(grep -m1 -E 'REFUSED|plan_values:' "$OUT/fit.txt" | cut -c1-200)"; finish; exit 2; }
 say "nodes $NODES digits $DIG reps $REPS hold $HOLD arms: $(echo $ARMS | wc -w); nodes $(squeue -j "$HOLD" -h -o %N)"
-REFF=
+REFSHA=
 case $REF in
   none) ;;
-  auto) if [ "$DIG" -le 100000000000 ]; then REFF=$OUT/ref.txt; ( head -c $((DIG + 2)) "$HOME/ref/e_1e11.out"; echo ) > "$REFF"; fi;;
-  *) REFF=$REF;;
+  auto) if [ "$DIG" -le 100000000000 ]; then   # sha256 of the reference's first D digits ("2." + digits + newline), cached: reading the 1e11 reference costs minutes
+          RC=$HOME/stress/refsha_$DIG; mkdir -p "$HOME/stress"
+          [ -s "$RC" ] || { ( head -c $((DIG + 2)) "$HOME/ref/e_1e11.out"; echo ) | sha256sum | cut -d' ' -f1 > "$RC.tmp" && mv "$RC.tmp" "$RC"; }
+          REFSHA=$(cat "$RC"); say "reference sha256 of the first $DIG digits: ${REFSHA:0:16}..."
+        fi;;
+  *) REFSHA=$(cat "$REF");;   # a file holding the sha256 of the expected ASCII output
 esac
 unset SLURM_CPUS_PER_TASK SLURM_NTASKS SLURM_NPROCS SLURM_NTASKS_PER_NODE SLURM_TASKS_PER_NODE SLURM_NNODES SLURM_JOB_NUM_NODES SLURM_NODELIST \
       SLURM_JOB_NODELIST SLURM_GPUS_PER_NODE SLURM_TRES_PER_TASK SLURM_MEM_PER_NODE SLURM_MEM_PER_CPU SLURM_JOB_CPUS_PER_NODE SLURM_DISTRIBUTION SLURM_CPU_BIND SLURM_GPUS
@@ -82,7 +87,7 @@ for rep in $(seq 1 "$REPS"); do
     [ $(( ($(date +%s) - T0) / 60 )) -ge "$MAXMIN" ] && { say "time budget $MAXMIN min reached: ending"; break 2; }
     [ -n "${STOPPED[$arm]:-}" ] && continue
     W=$(armwords "$arm"); OF=$OUT/e.out; RL=$OUT/run_$arm.$rep.log; rm -f "$OF" "$OF".part*
-    OFARG="$OF"; [ -n "$REFF" ] || OFARG=
+    OFARG="$OF"; [ -n "$REFSHA" ] || OFARG=
     dosnap=0; [ "$NIC" = 1 ] && [ $nic_done = 0 ] && [ "$NODES" -gt 1 ] && dosnap=1
     [ $dosnap = 1 ] && snap before static
     t1=$(date +%s)
@@ -97,7 +102,11 @@ for rep in $(seq 1 "$REPS"); do
     frc=$(grep -a 'VMM arena released' "$PL" | sed -E 's/.* ([0-9]+) of them forced.*/\1/' | awk '{ s += $1 } END { print s + 0 }')
     tot=$(grep -a -m1 '^total' "$PL" | awk '{print ($2 ~ /^[0-9.]+$/) ? $2 : "NA"}'); tot=${tot:-NA}
     dg=skipped
-    if [ $rc = 0 ] && [ -n "$REFF" ]; then dg=$("$E/digcmp.sh" "$OF" "$REFF" 2>&1 | tail -1); elif [ $rc = 0 ]; then dg=nofile; fi
+    if [ $rc = 0 ] && [ -n "$REFSHA" ]; then   # the run's digits unpacked and hashed against the reference's hash (no read of the reference)
+      P=$(ls "$OF".part* 2>/dev/null | sort); [ -n "$P" ] || P=$OF
+      if [ "$(head -c 8 "$(echo "$P" | head -1)" 2>/dev/null)" = ECPACK18 ]; then h=$("$ROOT/tools/unpack_digits" -q $P 2>/dev/null | sha256sum | cut -d' ' -f1); else h=$(cat $P | sha256sum | cut -d' ' -f1); fi
+      [ "$h" = "$REFSHA" ] && dg=identical || dg=DIFFERS
+    elif [ $rc = 0 ]; then dg=nofile; fi
     rm -f "$OF" "$OF".part*
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$arm" "$rep" "$rc" "$ver" "$crt" "$p24" "$rem" "$frc" "$dg" "$wall" "$tot" >> "$OUT/runs.tsv"
     say "$arm rep $rep: rc $rc verify $ver crtflag $crt p24flags $p24 remaps $rem (forced $frc) digits $dg wall ${wall}s total $tot"
