@@ -323,14 +323,16 @@ static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned lon
  * below); ECALC_BUDGET_CHECK=0 turns it off. */
 static uint64_t host_hash(void) { char h[256] = ""; gethostname(h, sizeof h - 1); uint64_t x = 1469598103934665603ull; for (const char *p = h; *p; p++) x = (x ^ (unsigned char)*p) * 1099511628211ull; return x; }
 /* ECALC_FIT_APU_CHECK=1 (default off; MEMFIT): at start, before any GPU work, each APU this process drives must have free memory (MemFree + the reclaimable file cache of its NUMA node,
- * memsample.c) of at least the planner's busiest-APU peak (fit->dev_apu_max, rank 0's layout) plus the margin: ECALC_MEM_GUARD_APU_GB when set, else ECALC_DEVICE_MARGIN_GB (5).
+ * memsample.c) of at least the planner's busiest-APU peak (fit->dev_apu_max, rank 0's layout) plus the margin: the larger of ECALC_MEM_GUARD_APU_GB and ECALC_DEVICE_MARGIN_GB (5).
  * Layout P (ECALC_PE_PER_GPU): only the own APU.  Refuses with rc EC_RC_BUDGET like the budget check; the other ranks of a multi-node launch are ended by the launcher. */
 static void fit_apu_check(const struct bs_fit *fit)
 {
     if (!(getenv("ECALC_FIT_APU_CHECK") && atoi(getenv("ECALC_FIT_APU_CHECK")))) return;
     const char *ga = getenv("ECALC_MEM_GUARD_APU_GB"), *dm = getenv("ECALC_DEVICE_MARGIN_GB");
-    double margin = (ga && atof(ga) > 0 ? atof(ga) : dm ? atof(dm) : 5.0) * 1e9, need = (double)fit->dev_apu_max + margin;
+    double margin = ((ga ? atof(ga) : 0) > (dm ? atof(dm) : 5.0) ? atof(ga) : dm ? atof(dm) : 5.0) * 1e9, need = (double)fit->dev_apu_max + margin;
     int ids[8]; size_t fr[8], mf[8]; int n = mem_apu_free_now(ids, fr, mf);
+    if (n < 1 && getenv("ECALC_PE_PER_GPU") && atoi(getenv("ECALC_PE_PER_GPU")) && mem_own_device() < 0)   /* layout P with the own device unknown (no SLURM_LOCALID): say so, on stderr */
+        fprintf(stderr, "ecalc: WARNING: ECALC_FIT_APU_CHECK=1 is NOT checked: layout P but this process's device is not known yet (SLURM_LOCALID unset?)\n");
     if (n < 1) { printf("fit apu check: ECALC_FIT_APU_CHECK=1: no readable per-APU free memory here (not 4 NUMA nodes, or no node file for the own device): not checked\n"); fflush(stdout); return; }
     int bad = -1; for (int i = 0; i < n; i++) if ((double)fr[i] < need) { bad = i; break; }
     if (bad >= 0) {
