@@ -277,7 +277,7 @@ static void xrst_print(int l, const char *tag)   /* XSHMEM_ROUND_STATS: this PE'
             tag, X.q, X.K * X.q + l, id, r[30], r[34], r[30] > 0 ? 1e3 * r[34] / r[30] : 0, r[31], r[35], r[31] > 0 ? 1e3 * r[35] / r[31] : 0, r[32], r[28], r[33]);
     if (g_rser && X.pe[l].ser && !strcmp(tag, "final")) {   /* the series goes to a file (one per PE, named with the rank, in the working directory) and is freed: stderr keeps one line */
         char fn[64]; snprintf(fn, sizeof fn, "xshmem_series_pe%d.txt", X.K * X.q + l); FILE *fp = fopen(fn, "w");
-        if (!fp) fprintf(stderr, "comm_xshmem: XSHMEM_SERIES pe %d: cannot write %s (the series is dropped)\n", X.K * X.q + l, fn);
+        if (!fp) { if (X.q == 0) fprintf(stderr, "comm_xshmem: XSHMEM_SERIES pe %d: cannot write %s (the series is dropped)\n", X.K * X.q + l, fn); }
         else { Dl_info di; if (dladdr((void *)xrst_print, &di)) fprintf(fp, "comm_xshmem: XSHMEM_SERIES pe %d base %p file %s\n", X.K * X.q + l, di.dli_fbase, di.dli_fname ? (strrchr(di.dli_fname, '/') ? strrchr(di.dli_fname, '/') + 1 : di.dli_fname) : "?");
             for (int i = 0; i < X.pe[l].nser; i++) { const rser *e = &X.pe[l].ser[i]; fprintf(fp, "comm_xshmem: XSHMEM_SERIES pe %d k %d tag %d comm %d n %d kb %u gap_ms %.2f gpu_ms %.2f busy %d sync_ms %.2f roff_ms %.2f span_ms %.2f f %p %p %p %p\n", X.K * X.q + l, i, e->tag, e->id, e->n, e->kb, e->gap, e->gpu, e->busy, e->sync, e->roff, e->span, e->f[0], e->f[1], e->f[2], e->f[3]); }
             fclose(fp); if (X.q == 0 && l == 0) fprintf(stderr, "comm_xshmem: XSHMEM_SERIES: %d exchanges of PE %d written to %s (one file xshmem_series_pe<rank>.txt per PE in the working directory)\n", X.pe[l].nser, X.K * X.q + l, fn); }
@@ -794,6 +794,8 @@ static void x_destroy(comm *c)
     enter(p); xshmem_ctx_quiet(XSHMEM_CTX_DEFAULT); leave(p);
     if (p->gready) { xfree(p->lp, p->gscr); free(p->gpeer); }
     if (p->rs_made) { HIP_CHECK(hipStreamDestroy(p->rs)); }
+    if (p->ev_made) { pthread_mutex_lock(&p->lp->evm); if (p->lp->lev == p->ev_end) p->lp->lev_set = 0; pthread_mutex_unlock(&p->lp->evm);   /* the next post must not use a destroyed event */
+        HIP_CHECK(hipEventDestroy(p->ev_end)); HIP_CHECK(hipEventDestroy(p->ev_post)); p->ev_made = 0; }
     free(p->pe); free(p->oseq); free(p->scnt); free(p->posted); free(p); free(c);
 }
 static const struct comm_ops xsh_ops = { x_rank, x_size, x_alltoall, x_wait, x_barrier, 0, x_max, x_destroy, 0, 0, 0, x_allgather_host, x_alltoallv, 0, x_sym_alloc, x_sym_free };
@@ -980,7 +982,7 @@ static void xtag_report(void)
     if (X.q == 0) {
     for (int l = 0; l < X.K; l++) if (offs[l] != off0) ok = 0;
     const char *b0 = bufs[0]; double mx[XK_NK][XTC_N] = {{0}}, sm[XK_NK][XTC_N] = {{0}}; int npr = 0;
-    for (int pe = 0; pe < npes; pe++) { const char *sl = b0 + slot * (size_t)pe; if (pe >= X.K && *(const double *)sl != 1.0) { ok = 0; continue; }
+    for (int pe = 0; pe < npes; pe++) { const char *sl = b0 + slot * (size_t)pe; if (pe != 0 && *(const double *)sl != 1.0) { ok = 0; continue; }
         const double *r = (const double *)(sl + 8); npr++;
         for (int k = 0; k < XK_NK; k++) for (int j = 0; j < XTC_N; j++) if (r[k * XTC_N + j] > mx[k][j]) mx[k][j] = r[k * XTC_N + j]; }
     for (int l = 0; l < X.K; l++) for (int k = 0; k < XK_NK; k++) for (int j = 0; j < XTC_N; j++) { if (j == 5) { if (X.pe[l].tc[k][j] > sm[k][j]) sm[k][j] = X.pe[l].tc[k][j]; } else sm[k][j] += X.pe[l].tc[k][j]; }
