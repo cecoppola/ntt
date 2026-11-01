@@ -10,10 +10,15 @@ Closed rows and older material are in `archive:TASKS_HISTORY_2026-10-19.md`, `ar
 Classes: 1 bugs, 2 shrink, 3 simplify, 4 performance, 5 docs (definitions in the project instructions). Within a class,
 rows are in the order to do them.
 
-Built in the 2026-10-27 work sessions on branch `cand3` (= `cand` + the failures session + Q130 + the overnight session Q131; frozen copy remote-v11 = the one-time target copy (cand3 524d508 without `target/governance/`, user Q133); every new behaviour behind a switch, off by
-default except the launcher `-c` auto), 1-node gates passed on aac7 (m: builds and gates both paths, switches off = remote-v4 planner
-lines in 4 cases, all on = identical digits, ABBA no slower). Still open, in order:
-- Class 1: 2-node gates (both paths) of `cand3` (= remote-v12 0c2da14; item e8b ready, queued automatically from 10-31 01:20 ET, also the overnight cases: the CRT-flag injection with `P24_CHECK=0` and `t_vpe idcoll` across nodes, 1e11 A/B of `BS_MDEV_LOGL=28 DIST_CHUNKS=16`, a layout D run at 1.3264e11 with the per-exchange series `XSHMEM_ROUND_STATS=2`; also the full-run P24 cases at 2 nodes, 1e11 with natural 1 x 2 pieces and 1.6e10 with `MN_TREE_LOGN_TEST=26`, under `P24_CHECK` 1 / 2), then merge to main (needs a second networked aac7 node, free from 10-31).
+No open rows in classes 1-5. The 2026-10-27/29 work sessions (branch `cand3` = `cand` + the failures session + Q130 + the
+overnight session Q131 + the target-copy readiness work; every new behaviour behind a switch, off by default except the
+launcher `-c` auto and the all-shift CRT flag `P24_CRT_ANY=1`) were merged into main on 2026-10-31. The frozen target copy is
+branch remote-v12 (= cand3 0c2da14; the target session follows `remote/ROUTE.md`). The Done lines below record what the merge brought.
+- Done 2026-10-31: 2-node gate of `cand3` = remote-v12 (item e8b inside e31n, aac7 2 n, m; `results/XSHMEM.md` §G2N): build and gates
+  at 1 and 2 nodes on both paths PASS; every full run VERIFY OK, the 1.6e10 and 1e11 runs with the expected last digits (1.6e10 on path 1 D / P and path 2,
+  the new switches off and on; 1e11 and 1.6e10 under `P24_CHECK` 0 / 1 / 2; 1.3264e11 layout D with `XSHMEM_ROUND_STATS=2`); 0 P24 flags
+  in every run; the five fault injections (`P24_CHECK_TEST` 1 / 2 and 2 at `P24_CHECK=0`, `t_vpe seqdiv`, `t_vpe idcoll`) end in their
+  designed fatal; `t_vpe` all / hs PASS 8/8; ABBA 2 n D off vs on -0.59 s [-2.58, +1.41] (not resolved); cand3 merged into main.
 - Done 2026-10-27 (failures session, `remote/ROUTE.md` steps 4b, 5b, 7): `P24_CHECK` (3e13 CRT flag: input limbs checked as stored and as
   received, CRT flag at any shift; =2 no transform cache; `P24_CHECK_TEST` fault injection), `COMM_SEQ_CHECK`, `XSHMEM_HANG_S`,
   `XSHMEM_HS_BATCH` (2e13 handshake hang), `XSHMEM_SPARSE` (zero-byte peers skipped: the shift cost), `ECALC_INIT_TL` process age and
@@ -45,7 +50,7 @@ One line each (what, why, size); nothing here is started without the user's word
 - aac7 bimodal run times (3 n 1e11, both backends): about half the runs are 5-8 % slower (evidence: results/NODE_SLOWMODE.md §BM; needs the fabric); next: the 3 n ABBA with per-launch NIC counters once three nodes with working NICs exist (aac7 has two nodes with working NICs, 2026-10-25); until then pair every A/B run.
 - Cray SHMEM path remaining gap (final +7.5 %, CI +3.4 to +11.5 %, 11 interleaved pairs, results/XSHMEM.md craylane): init +8 s (libsma heap NIC registration 6.2 s, hipHostRegister 1.5 s, barrier 1.4 s; aac7 4 KiB shared heap, needs THP shmem or hugetlb, admin) and a ~4.5 s first-exchange post (stream sync on every PE; not GPU page-table first touch); re-measure both on the target (Cray SHMEM 12.1) before any work here. Cray default layout D is 2.4x slower than P (four APU threads share one libsma heap at thread level 3); the target layout is P.
 - Same-node peer path follow-ups (`XSHMEM_PEER`, default on under P since Q100, results/SINGLE_NODE.md §PEER): a 3 n run for the gain and the per-PE heap peak (needs a third NIC node); signals and control words by direct writes and copies spread over several SDMA engines (dm still +3.5 s behind D at 1 n 3.3e10, m); the Cray path through `shmem_ptr` at the target session.
-- GPU work before the exchanges on layout P (found 2026-10-28, m, `results/SINGLE_NODE.md` §PEER): kernel-launch fusion of operand gather, NTT passes and pack (bound 1.9-2.8 s of 34 s at 3.3e10 on P, 1.2-1.5 % on layout D at 1 node; upper bounds); `k_gather_mn` 2.3 s per PE before the forward transforms as its own item; whether the record's multi-node layout D has busy posts is measured by the e8b series arm on 10-31.
+- GPU work before the exchanges on layout P (found 2026-10-28, m, `results/SINGLE_NODE.md` §PEER): kernel-launch fusion of operand gather, NTT passes and pack (bound 1.9-2.8 s of 34 s at 3.3e10 on P, 1.2-1.5 % on layout D at 1 node; upper bounds); `k_gather_mn` 2.3 s per PE before the forward transforms as its own item; whether the record's multi-node layout D has busy posts: the e8b series arm ran on 2026-10-31 (2 n 1.3264e11 layout D, `XSHMEM_ROUND_STATS=2`, VERIFY OK, 128.2 s, m); its per-exchange series lines are kept on aac7 and not yet analysed.
 - Transient fabric error watch (2026-10-28, m): `t_vpe hs` with `XSHMEM_COLL=tree` at 4 PEs on s5b0 once ended with a cxi `PCIE_UNSUCCESS_CMPL` completion error (gate e10m), 6 of 6 reruns pass, NICs healthy before and after; note any repeat.
 - 6 n paired ABBA of grid [2,6] against [6], at least 8 runs per arm (earlier data +23 +/- 12 s, unexplained, m); aac7, one item.
 

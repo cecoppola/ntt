@@ -17,7 +17,8 @@ Labels: **m** measured, **mod** modelled, **a** assumed.
 - First target campaign (user decision Q120, 2026-10-25): "reduce the number of digits until all the code paths work, and then
   plan to run those. We can always increase the number of digits later if the smaller runs succeed." It runs 8 × 10⁹ digits
   per node (4.608 × 10¹² on 576 nodes), where layout D, P and path 2 all fit at 1, 8, 64 and 576 nodes (mod, planner); the
-  3.82 × 10¹³ run follows once the small runs succeed.
+  3.82 × 10¹³ run follows once the small runs succeed. The campaign's 576-node run succeeded on 2026-10-26 (section 2); the next
+  target session runs the user's staircase 1.8 × 10¹³, 3.6 × 10¹³, 5.4 × 10¹³ digits on 576 nodes (user 2026-10-29; section 4).
 - Constraints per node: device memory ≤ **373.44 GB** (the measured `hipMalloc` edge on the target, 93.36 GB per APU, m),
   host total ≤ **480 GB** (the budget check's default). Each node has 8 NICs (two per APU) on the target and one per APU on aac7.
 - What is known about the target (user-supplied 2026-10-12, a; re-assessed in `results/TARGET.md §TGT`):
@@ -37,11 +38,11 @@ Labels: **m** measured, **mod** modelled, **a** assumed.
 - The digits must be right without a reference: every run checks itself (`ALGORITHM.md` §10).
 - Where the project stands against this goal, with the standing estimate and the memory margin: section 2.
 
-## 2. Current status (2026-10-25)
+## 2. Current status (2026-10-31)
 
 **What works.** ecalc computes ⌊10^d·e⌋ with decimal limbs end to end (binary splitting, Newton reciprocal, two-half
 division, packed output) and verifies itself on every run (T1 residues, T2 windows; `ALGORITHM.md` §10). It runs at 1-6
-nodes on aac7 (the only test cluster; aac6 is set aside), digits identical to GMP reference digits up to 10¹¹ and
+nodes on aac7 (the multi-node test cluster; aac6, back in use since 2026-10-27, has no cxi NICs and runs single-node work only), digits identical to GMP reference digits up to 10¹¹ and
 identical between the two supported multi-node paths (sha 578f5efb0ff2b9af at 2 n 1e11 on main after Q96, m).
 
 **Two supported multi-node paths (Q85).** Build and run lines are in section 3. Path 1: libfabric
@@ -66,10 +67,16 @@ Timings (all m, current engine, after the 2026-10-21 default change Q73).
 
 Older figures (comm_ofi era, 1 n 1e11 129.3 s before the 2026-10-12 defaults, the 1 / 2 / 4 / 6 n scaling at 6.441e10 per node 67.6 / 119.4 / 172.2 / 204.6 s, 6 n 3.8646e11 190.7 to 202.1 s) are in `results/TIME_MODEL.md §M2a`, `§SCALE35` and `archive:results_merged_2026-10-23/NIGHT_RUNS.md`; the 4-6 node figures have not been re-measured on the current engine.
 
-**Not yet done.** ecalc has not run on the target machine. The 576-node layout is refused by the planner with the defaults (margin -33.97 GB; with `MN_NONPOW2_CAP=0` +14.48 GB; m, planner, 2026-10-25, `results/LAUNCH_DEFAULTS.md §FIT`); the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
+**On the target (2026-10-26, m; `remote/FACTS.md` "Measured runs on the target").** Path 1, layout D, ran 2 to 576 nodes at
+8 × 10⁹ digits per node, every run VERIFY OK; the best 576-node run, 4.608 × 10¹² digits, took 255.3 s, of which 111.0 s was
+init. Two larger runs failed: 2 × 10¹³ in a communicator handshake hang and 3 × 10¹³ with the P24 CRT flag on nodes 283-376; both
+had a mixed piece layout at tree level 7. The frozen copy for the next session, branch remote-v12 (= cand3 0c2da14, in main
+since the 2026-10-31 merge; 2-node gate `results/XSHMEM.md` §G2N), sets `MN_LEVEL_UNIFORM=1` on every record step; the root cause is open (`TASKS.md`
+Proposed).
+
+**Not yet done.** No run above 4.608 × 10¹² digits has completed on the target. The 576-node layout is refused by the planner with the defaults (margin -33.97 GB; with `MN_NONPOW2_CAP=0` +14.48 GB; m, planner, 2026-10-25, `results/LAUNCH_DEFAULTS.md §FIT`); the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
 `results/TARGET.md §TGT`; at the user-supplied 100 GB/s injection peak per APU, a for the achieved rate); the write adds
-12.8 s at ecalc's assumed 1.0 GB/s per node and 1.0 s at the file system's 1 TB/s (mod); the target has run only the
-memory and exchange benchmarks (`results/TARGET.md §TGTBENCH2`).
+12.8 s at ecalc's assumed 1.0 GB/s per node and 1.0 s at the file system's 1 TB/s (mod).
 
 ## 3. Defaults and launch lines
 
@@ -111,7 +118,13 @@ default has an owner and a review date (`tools/switch_registry.py --check`).
 
 Open work in this repository is in `TASKS.md`.
 
-**Target session** (an agent team on the target runs it; the entry point is `target/RESTART.md`: probe, builds, bench, ladder 1/8/64/576 nodes; the older staged kit is `target/kit/target_kit.sh -h`):
+**Next target session** (copy and paste only, no agent on the target, user Q133): a browser agent reads branch remote-v12 and
+writes command blocks; the user pastes them on the target and pastes each summary back. Entry `remote/README.md`; `remote/ROUTE.md`
+owns the steps, sizes and go / no-go rules: P1 check, build and gates; P2 node screen, 64-node A/B arms and 4.608 × 10¹² on 576 nodes;
+P3 and P4 the record staircase 1.8 × 10¹³, 3.6 × 10¹³, 5.4 × 10¹³ on 576 nodes, stopping at the first failure; P5 the report.
+
+**The 2026-10-26 target session** (an agent team on the target; entry `target/RESTART.md`; kept as reference, the older staged kit is
+`target/kit/target_kit.sh -h`):
 1. Install the rules (`target/governance/install.sh`), probe the system (`target/probe/probe.sh`, login then one node; about
    30 s on aac7, m) and generate `target/config/target.conf` (`target/probe/gen_conf.py`).
 2. Build path 1 and path 2 (bench items `bld01`, `bld02`; about 25 s each on aac7, m).
@@ -120,7 +133,7 @@ Open work in this repository is in `TASKS.md`.
    all-to-all at 2/8/64 nodes), paths, launch shape, init, write, `MN_NONPOW2_CAP` cost (`prm08`), calibration.
 4. Ladder (`target/ladder/ladder.sh`): 1, 8, 64, 576 nodes on physically adjacent nodes at 8e9 digits per node (Q120), both paths,
    replicas in parallel at the lower levels, adjustments between runs by `target/ladder/ADJUST.md`; every run VERIFY OK.
-5. Larger sizes at 576 nodes as a staircase (user decision Q121): 1e13 then 3.82e13 on path 1 (layout D; path 2 fits to about 1.3e10 per node at 576, mod); the 576-node run with the write, RECHECK and `unpack_digits` off the clock, and a prefix compare against a reference;
+5. Larger sizes at 576 nodes as a staircase (user decision Q121; superseded by the staircase of the next session above): 1e13 then 3.82e13 on path 1 (layout D; path 2 fits to about 1.3e10 per node at 576, mod); the 576-node run with the write, RECHECK and `unpack_digits` off the clock, and a prefix compare against a reference;
    raw results committed in `target/results/` for the offline work afterwards.
 
 **Risks.**

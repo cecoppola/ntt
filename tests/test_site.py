@@ -3,7 +3,7 @@
 
     python3 -m unittest discover -s tests          # from the repository root
 """
-import os, subprocess, sys, tempfile, shutil, stat, unittest, importlib.util
+import os, re, subprocess, sys, tempfile, shutil, stat, unittest, importlib.util
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -92,7 +92,7 @@ class MakefileSite(unittest.TestCase):
         e.update(env)
         r = subprocess.run(["make", "-n", "-B", *args, "tests/t_xshmem"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, env=e, cwd=os.path.join(ROOT, "ecalc"), timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr[-400:])
-        return r.stdout.replace(self.d, "F")
+        return re.sub(" +", " ", r.stdout.replace(self.d, "F"))   # the lib64-or-lib link variables leave runs of spaces
 
     def test_cray_site_12_1(self):
         s = self.line("XSHMEM=cray", CRAY_PMI_PREFIX=self.d + "/pmi/6.1.17", CRAY_SHMEM_DIR=self.d + "/sma/12.1.0/ofi", CRAY_DSMML_PREFIX=self.d + "/ds")

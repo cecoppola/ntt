@@ -77,6 +77,8 @@ names identify the change only.
 | `MN_NONPOW2_CAP` auto from 4.5e10 digits per node-process (Q58) | 2026-10-20 | 6 n 3.70e11 -18.3 s (libfabric), +41.3 GB plane memory per node; 3 n 6e10 +8.9 s with it on | m | results/DIVISION.md §NPCAP |
 | `BS_ARENA_ROOM` 0.14 (was 0.16; Q99) | 2026-10-25 | -8.6 GB device memory per node at the 2 n bs-phase peak, 0 remaps, time neutral (4 ABBA pairs); `BS_ARENA_ROOM=0.16` restores | m | results/MEMORY.md §AS15 |
 | `ECALC_BUDGET_CHECK=1`, `ECALC_MEM_GUARD_GB` | Phase 14 | named stop (rc 8 / rc 9) instead of the OOM killer | m | results/MEMORY.md §L114 |
+| P24 CRT flag on every shift class (`P24_CRT_ANY=1`; `=0` is the old s = 12 flag) (Q130) | 2026-10-31 (merge of cand3) | closes the silent wrong-coefficient hole at s = 0 / 6; digits identical; fault injection at `P24_CHECK=0` fatal at 1 and 2 nodes | m | results/PRIMES_STRATEGY.md §P24 audit, results/XSHMEM.md §G2N |
+| `mnrun.sh` passes `srun -c <CPUs / tasks per node>` (`MNRUN_CPUS_PER_TASK` unset = auto; empty = no `-c`) | 2026-10-31 (merge of cand3) | without it srun confines a task to 1-2 CPUs; `-c 192` for one task per node, `-c 48` for four | m | results/CRASHES_HANGS.md, remote/FACTS.md |
 | T1 moduli: the first eight primes above 2⁶² | Phase 11 | earlier moduli were composite | m | results/CHECKPOINT.md §V |
 | two-deep v-exchange (built in) | Phase 13 | xGMI stage hidden under the fabric (1.4 -> 74 %) | m | results/EXCHANGE.md §X13 |
 
