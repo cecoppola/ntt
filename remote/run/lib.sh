@@ -437,7 +437,7 @@ rl_healthdiff() {   # -> HEALTH_NOTE: per node the EDAC ue/ce deltas and a reboo
     ls "$b"/*.txt > /dev/null 2>&1 && ls "$a"/*.txt > /dev/null 2>&1 || return 0
     HEALTH_NOTE=$(awk 'function g(l, k,  m) { if (match(l, " " k "=[^ ]*")) { m = substr(l, RSTART + length(k) + 2, RLENGTH - length(k) - 2); return m } return "NA" }
         /^NS health / { f = FILENAME; h = f; sub(/.*\//, "", h); sub(/\.txt$/, "", h); if (f ~ /\/snap\/before\//) { bu[h] = g($0, "ue"); bc[h] = g($0, "ce"); bb[h] = g($0, "boot") } else { au[h] = g($0, "ue"); ac[h] = g($0, "ce"); ab[h] = g($0, "boot"); seen[h] = 1 } }
-        END { for (h in seen) { n++; if (au[h] ~ /^[0-9]+$/) { if (au[h] > 0) uep++; if (au[h] - bu[h] > 0) uenew++; if (ac[h] - bc[h] > 0) cenew++ }
+        END { for (h in seen) { n++; if (au[h] ~ /^[0-9]+$/) { if (au[h] > 0) uep++; if (bu[h] ~ /^[0-9]+$/ && au[h] - bu[h] > 0) uenew++; if (ac[h] ~ /^[0-9]+$/ && bc[h] ~ /^[0-9]+$/ && ac[h] - bc[h] > 0) cenew++ }
                 if (ab[h] ~ /^[0-9]+$/ && bb[h] ~ /^[0-9]+$/ && ab[h] - bb[h] > 5) { rb++; rl = rl " " h } }
               if (n) printf "%d node(s): ue>0 on %d (new during the run on %d), new ce on %d, rebooted during the run: %d%s", n, uep, uenew, cenew, rb, (rb ? " (" substr(rl, 2) ")" : "") }' "$b"/*.txt "$a"/*.txt 2>/dev/null)
     return 0

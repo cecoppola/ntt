@@ -56,20 +56,52 @@ void mem_live_line(const char *what)
 static struct {
     pthread_t th; int on, stop, quiet; double period, t0, guard; FILE *out;   /* quiet = the guard alone (no lines); guard = ECALC_MEM_GUARD_GB in bytes */
     size_t min_avail, max_cached, max_dirty, max_rss, max_live[DB_NQ]; long n;
-    int napu; int apu_ok; size_t apu_start[DB_NQ], apu_min[DB_NQ]; double guard_apu;   /* C5: each APU's NUMA node MemFree: at the first sample, the minimum since; guard_apu = ECALC_MEM_GUARD_APU_GB in bytes */
+    int napu, apu_ok, hwm_done, apu_id[DB_NQ], apu_node[DB_NQ]; size_t apu_start[DB_NQ], apu_min[DB_NQ]; double guard_apu;   /* C5: each APU's NUMA node MemFree: at the first sample, the minimum since; guard_apu = ECALC_MEM_GUARD_APU_GB in bytes */
     pthread_mutex_t mx; pthread_cond_t cv;
 } S = { .mx = PTHREAD_MUTEX_INITIALIZER, .cv = PTHREAD_COND_INITIALIZER };
 static const char *apu_root(void) { const char *r = getenv("ECALC_MEMSAMPLE_SYSFS_ROOT"); return r ? r : ""; }
-static void apu_sample(size_t *cur)    /* C5: MemFree of APU d's NUMA node, d = 0 .. the device count - 1; cur[d] = 0 when unreadable */
+static int apu_setup(void)    /* C5: which APUs this process watches, once known: layout D (one process drives the node) = the 4 NUMA nodes 0..3; layout P (ECALC_PE_PER_GPU, one process per GPU) = its own device's NUMA node.
+                               * Any other node count (not 4 in layout D, no node file for the own device) disables the per-APU figure and guard with a message. */
 {
-    if (!S.napu) { size_t f; int n = 0; while (n < DB_NQ && nodemem_free(apu_root(), n, &f)) n++; S.napu = n ? n : -1; }   /* the NUMA nodes 0.. present (no HIP call: the sampler starts before the device set-up) */
+    if (S.napu) return S.napu > 0;
+    const char *g = getenv("ECALC_PE_PER_GPU"); size_t f;
+    if (g && atoi(g) != 0) {
+        int o = mem_own_device(); if (o < 0) return 0;                 /* the own device is not known yet: try again at the next sample */
+        int nd = mem_numa_node_of_device(o);
+        if (nodemem_free(apu_root(), nd, &f)) { S.napu = 1; S.apu_id[0] = o; S.apu_node[0] = nd; return 1; }
+        printf("memsample r%d: per-APU memory figure and guard DISABLED: no readable MemFree for the NUMA node %d of device %d\n", rank_now(), nd, o);
+    } else {
+        int n = 0; while (n < 64 && nodemem_free(apu_root(), n, &f)) n++;
+        if (n == DB_NQ) { S.napu = n; for (int d = 0; d < n; d++) S.apu_id[d] = S.apu_node[d] = d; return 1; }
+        printf("memsample r%d: per-APU memory figure and guard DISABLED: %d NUMA nodes with a MemFree, the layout wants %d APUs\n", rank_now(), n, DB_NQ);
+    }
+    fflush(stdout); S.napu = -1; S.guard_apu = 0; return 0;
+}
+static void apu_sample(size_t *cur)    /* MemFree of each watched APU's NUMA node; cur[i] = 0 when unreadable or not watched */
+{
+    for (int i = 0; i < DB_NQ; i++) cur[i] = 0;
+    if (!apu_setup()) return;
     for (int d = 0; d < S.napu; d++) {
-        size_t f = 0; cur[d] = 0;
-        if (!nodemem_free(apu_root(), d, &f)) continue;
+        size_t f = 0;
+        if (!nodemem_free(apu_root(), S.apu_node[d], &f)) continue;
         cur[d] = f; if (!S.apu_ok) S.apu_start[d] = S.apu_min[d] = f;
         else if (f < S.apu_min[d]) S.apu_min[d] = f;
     }
-    S.apu_ok = S.napu > 0;
+    S.apu_ok = 1;
+}
+static void apu_hwm_line(void)    /* once: the largest drop of each watched APU's NUMA-node MemFree from its value at the first sample (what the run and the page cache took from that APU's HBM) */
+{
+    if (!S.apu_ok || S.hwm_done) return;
+    S.hwm_done = 1;
+    char drop[160], st[160], mn[160]; int od = 0, os = 0, om = 0, w = 0; double wv = -1;
+    for (int d = 0; d < S.napu; d++) {
+        double dv = S.apu_start[d] > S.apu_min[d] ? (double)(S.apu_start[d] - S.apu_min[d]) * 1e-9 : 0;
+        if (dv > wv) { wv = dv; w = S.apu_id[d]; }
+        od += snprintf(drop + od, sizeof drop - od, "%s%.2f", d ? "," : "", dv); os += snprintf(st + os, sizeof st - os, "%s%.2f", d ? "," : "", S.apu_start[d] * 1e-9);
+        om += snprintf(mn + om, sizeof mn - om, "%s%.2f", d ? "," : "", S.apu_min[d] * 1e-9);
+    }
+    printf("memsample r%d device_hwm_apu_gb=%.2f apu=%d per_apu_gb=%s start_free_gb=%s min_free_gb=%s (largest drop of each watched APU's NUMA-node MemFree since the sampler start; includes page cache)\n", rank_now(), wv, w, drop, st, mn);
+    fflush(stdout);
 }
 static void sample_once(void)
 {
@@ -82,11 +114,13 @@ static void sample_once(void)
     if (rss > S.max_rss) S.max_rss = rss;
     S.n++;
     size_t af[DB_NQ]; apu_sample(af);
-    if (S.guard_apu > 0) for (int d = 0; d < S.napu; d++) if (af[d] && (double)af[d] < S.guard_apu)
+    if (S.guard_apu > 0) for (int d = 0; d < S.napu; d++) if (af[d] && (double)af[d] < S.guard_apu) {
+        apu_hwm_line();                                  /* the high-water figure is printed before the run stops */
         ec_fatal(EC_RC_MEMGUARD, "per-APU memory guard (ECALC_MEM_GUARD_APU_GB=%.1f): APU %d (NUMA node %d) MemFree %.2f GB is below it on rank %d at %.1f s (its MemFree at the start %.2f GB, node MemAvailable %.2f GB, RSS %.2f GB); the run stops, rc %d",
-                 S.guard_apu * 1e-9, d, d, af[d] * 1e-9, rank_now(), mem_now() - S.t0, S.apu_start[d] * 1e-9, m.avail * 1e-9, rss * 1e-9, EC_RC_MEMGUARD);
+                 S.guard_apu * 1e-9, S.apu_id[d], S.apu_node[d], af[d] * 1e-9, rank_now(), mem_now() - S.t0, S.apu_start[d] * 1e-9, m.avail * 1e-9, rss * 1e-9, EC_RC_MEMGUARD); }
     if (S.guard > 0 && m.avail && (double)m.avail < S.guard) {   /* a clean stop, rank and phase named by ec_fatal's header */
         if (!S.quiet) fflush(S.out);
+        apu_hwm_line();
         ec_fatal(EC_RC_MEMGUARD, "memory guard (ECALC_MEM_GUARD_GB=%.1f): MemAvailable %.2f GB is below it on rank %d at %.1f s (MemFree %.2f, Cached %.2f, Dirty %.2f GB; RSS %.2f GB; pool live %.2f %.2f %.2f %.2f GB); the run stops, rc %d",
                  S.guard * 1e-9, m.avail * 1e-9, rank_now(), mem_now() - S.t0, m.free * 1e-9, m.cached * 1e-9, m.dirty * 1e-9, rss * 1e-9, live[0] * 1e-9, live[1] * 1e-9, live[2] * 1e-9, live[3] * 1e-9, EC_RC_MEMGUARD);
     }
@@ -117,18 +151,7 @@ void mem_sampler_stop(void)
     if (!S.on) return;
     pthread_mutex_lock(&S.mx); S.stop = 1; pthread_cond_signal(&S.cv); pthread_mutex_unlock(&S.mx);
     pthread_join(S.th, 0); S.on = 0;
-    if (S.apu_ok) {    /* C5: the largest drop of each APU's NUMA-node MemFree from its value at the first sample = what the run (and the page cache) took from that APU's HBM */
-        size_t af[DB_NQ]; apu_sample(af);
-        char drop[160], st[160], mn[160]; int od = 0, os = 0, om = 0, w = 0; double wv = -1;
-        for (int d = 0; d < S.napu; d++) {
-            double dv = S.apu_start[d] > S.apu_min[d] ? (double)(S.apu_start[d] - S.apu_min[d]) * 1e-9 : 0;
-            if (dv > wv) { wv = dv; w = d; }
-            od += snprintf(drop + od, sizeof drop - od, "%s%.2f", d ? "," : "", dv); os += snprintf(st + os, sizeof st - os, "%s%.2f", d ? "," : "", S.apu_start[d] * 1e-9);
-            om += snprintf(mn + om, sizeof mn - om, "%s%.2f", d ? "," : "", S.apu_min[d] * 1e-9);
-        }
-        printf("memsample r%d device_hwm_apu_gb=%.2f apu=%d per_apu_gb=%s start_free_gb=%s min_free_gb=%s (largest drop of each APU's NUMA-node MemFree since the sampler start; includes page cache)\n", rank_now(), wv, w, drop, st, mn);
-        fflush(stdout);
-    }
+    if (S.apu_ok) { size_t af[DB_NQ]; apu_sample(af); apu_hwm_line(); }
     if (S.quiet) return;
     sample_once();
     fprintf(S.out, "memsample r%d summary: %ld samples over %.1f s: MemAvailable min %.2f GB, Cached max %.2f, Dirty max %.2f, RSS max %.2f, pool live max %.2f %.2f %.2f %.2f GB\n",
@@ -142,7 +165,7 @@ void mem_sampler_start(void)
     double guard = g ? atof(g) * 1e9 : 0;                /* the guard runs the sampler without its lines when ECALC_MEM_SAMPLE is unset */
     const char *ga = getenv("ECALC_MEM_GUARD_APU_GB"); double guard_apu = ga ? atof(ga) * 1e9 : 0;   /* C5: per-APU guard, default off */
     if (S.on || ((!e || atof(e) <= 0) && guard <= 0 && guard_apu <= 0)) return;
-    S.quiet = !e || atof(e) <= 0; S.guard = guard; S.guard_apu = guard_apu; S.napu = 0; S.apu_ok = 0;
+    S.quiet = !e || atof(e) <= 0; S.guard = guard; S.guard_apu = guard_apu; S.napu = 0; S.apu_ok = 0; S.hwm_done = 0;
     S.period = S.quiet ? 1.0 : atof(e); if (S.period <= 0) S.period = 1.0;
     S.t0 = mem_now(); S.stop = 0; S.n = 0; S.out = stderr;
     if (guard > 0 && rank_now() == 0) printf("memsample: ECALC_MEM_GUARD_GB=%.1f: the run stops (rc %d) when MemAvailable falls below it (sampled every %.2f s)\n", guard * 1e-9, EC_RC_MEMGUARD, S.period);

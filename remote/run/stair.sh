@@ -70,7 +70,7 @@ left_s() {     # seconds left of the allocation (empty = unknown)
     echo $(( (10#$d * 24 + 10#$h) * 3600 + 10#$m * 60 + 10#$s ))
 }
 PTS=${REMOTE_STAIR_PTS:-}; DEVM=0; [ -n "${REMOTE_DEVICE_GB:-}" ] && DEVM=2
-GAP=${REMOTE_STAIR_GAP:-}; GAPSRC=${REMOTE_STAIR_GAP:+" (from an earlier paste)"}; PMAX=; t0=$SECONDS; best=0; stop=; worst=PASS; skipped=0
+GAP=${REMOTE_STAIR_GAP:-}; GAPSRCN=${REMOTE_STAIR_GAP_SRC:-device_peak_apu_gb}; GAPSRC=${REMOTE_STAIR_GAP:+" (from an earlier paste)"}; PMAX=; t0=$SECONDS; best=0; stop=; worst=PASS; skipped=0
 rl_line "step nodes digits         verdict  total_s init/bs/dm/dc (s)       meas/model apu_peak/plan_max_GB verify last_digits(20)  hash"
 predict() {      # "d:ex:tot:nodes ..." X NODES -> "EXCESS_PRED TIME_PRED NPOINTS": linear least squares of the excess on digits, power law of total_s (log-log), over the points at NODES nodes only (P2's 64-node points have another per-node load); NA when under 2 points
     awk -v pts="$1" -v x="$2" -v nn="${3:-0}" 'BEGIN { n = split(pts, a, " "); m = 0; k = 0
@@ -107,7 +107,8 @@ run_step() {   # IDX NODES DIGITS ENV EXTRA TAG -> sets SV (verdict) and prints 
     [ -n "$sc" ] && rl_line "     screen: $sc${sh:+; slow_hosts=$sh (left out of the later steps)}"
     [ -n "$sh" ] && EXCLUDE=${EXCLUDE:+$EXCLUDE,}$sh
     if [ "$v" = PASS ] && [ -n "${PMAX:-}" ] && [ -n "$pk" ] && [ "$pk" != NA ]; then     # measured busiest APU against the planner's busiest APU
-        GAP=$(awk -v a="$pk" -v b="$PMAX" -v g="${GAP:-}" 'BEGIN { x = a - b; if (g == "" || x > g) g = x; printf "%.2f", g }'); rl_line "     measured peak ($pksrc) - plan per APU: $(awk -v a="$pk" -v b="$PMAX" 'BEGIN { printf "%+.2f", a - b }') GB (largest so far $GAP; kept in site.env for the next paste)"; GAPSRC=; rl_site_set REMOTE_STAIR_GAP "$GAP"
+        if [ "$pksrc" != "$GAPSRCN" ]; then GAP=; GAPSRCN=$pksrc; rl_line "     (the per-APU figure is now $pksrc: the largest excess kept from earlier steps / pastes came from another figure and is dropped; the old points keep their excess column as stored)"; fi     # C5: the two figures are not comparable
+        GAP=$(awk -v a="$pk" -v b="$PMAX" -v g="${GAP:-}" 'BEGIN { x = a - b; if (g == "" || x > g) g = x; printf "%.2f", g }'); rl_line "     measured peak ($pksrc) - plan per APU: $(awk -v a="$pk" -v b="$PMAX" 'BEGIN { printf "%+.2f", a - b }') GB (largest so far $GAP; kept in site.env for the next paste)"; GAPSRC=; rl_site_set REMOTE_STAIR_GAP "$GAP"; rl_site_set REMOTE_STAIR_GAP_SRC "$GAPSRCN"
     fi
     ST_TOTAL=$(kv total_s | awk '{ print $1 }'); ST_PH=$(grep -a -m1 '^phases_s:' "$sf" | sed -E 's/.*init=([^ ]*) bs=([^ ]*) recip=[^ ]* dm=([^ ]*) dc=([^ ]*).*/\1 \2 \3 \4/'); ST_VERIFY=$(kv verify); ST_LAST=$(kv last_digits | tr -d ' ' | cut -c1-20); ST_RC=$(kv rc)
     if [ "$v" = PASS ] && [ -n "${ST_TOTAL:-}" ]; then
