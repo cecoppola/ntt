@@ -2,7 +2,7 @@
 
 **Question.** Target runs failed with CRT flags (a wrong transform-domain value, kind 1) and T1/VERIFY failures (wrong in-range limbs, kind 2), more often the larger the run. User decision Q142: full detect-and-retry. Can the product tiers detect a transient fault inside the product, before it reaches C, and repeat only the faulty piece, with no extra memory and no change of digits?
 
-**Change / branch.** Branch `c3check` (from main c86e5fcc). Switch `ECALC_DR` (0 = off, default, the unchanged code paths; 1 = A; 2 = A + B + C; 3 = A + B + C + D + D'), `ECALC_DR_TOTAL` (default 8), fault injection `ECALC_DR_TEST` (+ `_K`, `_PE`, `_N`). Registry rows with review dates; `ecalc/README.md` generated table. Files: `ecalc/dr.c/h` (switches, injection parser, counters, context, residue helpers), `ecalc/tests/t_dr.c`, `ecalc/rns_dist.c` (`mn_core`).
+**Change / branch.** Branch `c3check` (from main c86e5fcc). Switch `ECALC_DR` (0 = off, default, the unchanged code paths; 1 = A; 2 = A + B + C; 3 = A + B + C + D + D'), `ECALC_DR_TOTAL` (default 8), fault injection `ECALC_DR_TEST` (+ `_K`, `_PE`, `_N`, `_M`). Registry rows with review dates; `ecalc/README.md` generated table. Files: `ecalc/dr.c/h` (switches, injection parser, counters, context, residue helpers), `ecalc/tests/t_dr.c`, `ecalc/rns_dist.c` (`mn_core`).
 
 ## Design summary (planning agent, 2026-11-01; code read at main c86e5fcc)
 
@@ -47,7 +47,7 @@ Cost model (modelled, 3.8e13 digits, 576 nodes): A 0.05-0.2 s, B about 60 ms, C 
 ## Open issues
 
 - Step 2 covers only the flag (kind 1) of the P24 piece; kind 2 and delivery faults are steps 3-4.
-- Not measured: `ECALC_DR_TOTAL` cap (only one product is injected per run, so the cap of 1 failure is never exceeded).
+- Not exercised: PEs of one group with different failure counts (the cap decision is collective, so it cannot diverge, but no test builds such a history; the counts here are equal on all PEs).
 
 ## Measured, steps 1-2 (aac7, 2026-11-01; items 60_dra_x1, 63_dra_x2b, 62_dra_x3 of the DR-A series; all counts measured)
 
@@ -71,3 +71,17 @@ Items 61_dra_x2 failed in 3 s per run (NIC-free node, libfabric rc -61; ALLOW_SL
 ## RESUME
 
 Branch `c3check`; steps 1 and 2 done and gated (above). Next: step 3 (B + C: `rns_mul_dist_mn_chk`, tracked residues in `mn.c`), design section 6.
+
+## Review fixes and the cap test (aac7, 2026-11-01, commit e22efde; item 70_drfix; all counts measured)
+
+Fixes in `dr_piece_decide`: (1) the `who[640]` text is clamped after every append (a long PE list used to push `sizeof who - k` below zero); (2) the `ECALC_DR_TOTAL` decision is collective: the first `grp_max` now carries the verdict (bit 32) and the process's count of failed pieces (low 32 bits), so every PE of the group adopts the group's maximum count and takes the same branch; no collective is added, and with `ECALC_DR` unset nothing changes. New injection setting `ECALC_DR_TEST_M` (default 1): corrupt M consecutive P24 products from the K-th (each product has its own latch), so two distinct products fail in one run.
+
+| case (`t_mn_grid 1 28`, `ECALC_DR=1`, `flag`) | result |
+|---|---|
+| gate, 1 node, `ECALC_DR` unset | PASS, digits identical (1e9) |
+| `t_dr` | VERIFY OK, 9353 checks |
+| K in {1,3}, PE in {0,-1}, 2 processes (regression) | injected = failures = recovered = 1 (PE 0) / 8 (PE -1); VERIFY OK in both processes |
+| cap: `ECALC_DR_TOTAL=1`, K=1, M=2, PE=0 / PE=-1, 2 processes; PE=-1, 3 processes; PE=-1, 4 PEs on 1 node | no hang (9 s, 9 s, 10 s, 4 s); rc 3 (the fatal return code) in all four; product #2 stops with "the run's limit ECALC_DR_TOTAL of failed pieces is reached" and the location, printed by every process (2 / 2 / 3 / 4 lines) |
+| under the cap: `ECALC_DR_TOTAL=2`, same injections, PE=0 (2 processes), PE=-1 (3 processes, 4 PEs) | both products recovered (failures = recovered = 2 PE / 24 / 8), VERIFY OK in every process, rc 0 |
+| persistent, `_N=2`, 2 processes | rc 3, location printed, as before |
+
