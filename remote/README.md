@@ -49,7 +49,7 @@ without queue waits (ROUTE.md has the times). Time short: ROUTE.md "Minimal rout
 Record runs are launched with the exhaustive log on, because logs cannot be added afterwards: `export REMOTE_FULLLOG=1` before `stair.sh` (or `--fulllog` on `run/s5_run.sh`; off by default). It adds the
 digit-neutral diagnostic words `MN_WAIT_STATS=1 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=1` (one line per node each), per run the `capture/` files (launch line, environment without secrets, modules, `scontrol show job`, host list,
 binary sha256), a node snapshot before and after (`snap/`: meminfo, numastat, amd-smi, every nonzero Slingshot NIC counter; `snap/nic_summary.csv` = traffic after minus before per node and NIC, bytes estimated from the NIC's packet size
-buckets) and a sampler every 30 s per node (`monitor/<host>.csv`: MemAvailable, GPU power / temperature / memory, NIC traffic). Left out because they synchronise the hot path or print per PE and period:
+buckets, plus FEC, pause, stall and drop deltas), the node's EDAC memory-error totals and boot time (so a run reports `node_health`: ue / ce seen and reboots between the snapshots; `nic_delta_top5` = the five nodes with the largest NIC FEC + drop deltas of the run; `report.sh` prints both under the run's row) and a sampler every 30 s per node (`monitor/<host>.csv`: MemAvailable, GPU power / temperature / memory, NIC traffic). Left out because they synchronise the hot path or print per PE and period:
 `XSHMEM_ROUND_STATS`, `DIST_STATS`, `DB_POOL_VERBOSE`, `ECALC_MEM_SAMPLE`.
 
 Nothing can be copied off the target: only what is printed to the screen leaves it. `bash remote/run/collect.sh` freezes every run directory into one directory on the target (`$REMOTE_OUT/collect_<time>/`, categories:

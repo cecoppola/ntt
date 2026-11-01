@@ -24,6 +24,8 @@ def parse_local(path):
         l = l.rstrip('\n')
         if l.startswith('NS host '):
             r['host'] = l.split()[2]
+        elif l.startswith('NS health '):
+            d = kv(l); r['ue'] = d.get('ue', 'NA'); r['ce'] = d.get('ce', 'NA'); r['boot'] = d.get('boot_at', '-'); r['mc'] = d.get('mc', '-')
         elif l.startswith('NS nics '):
             d = kv(l); r['nics'] = int(d['have'])
             if int(d['have']) < int(d['want']): r['fail'].append('NICs %s < %s wanted (SHMEM_OFI_NUM_NICS would abort)' % (d['have'], d['want']))
@@ -70,7 +72,7 @@ def main():
     ap.add_argument('--out', required=True); ap.add_argument('--nodes', required=True)
     ap.add_argument('--thr', type=float, default=3.0); ap.add_argument('--min-excess', type=float, default=2.0)
     ap.add_argument('--min-avail-gb', type=float, default=0.0); ap.add_argument('--stage', default='all')
-    ap.add_argument('--quiet', action='store_true'); ap.add_argument('--initchk'); ap.add_argument('--flagged-file')
+    ap.add_argument('--refuse-ue', action='store_true'); ap.add_argument('--quiet', action='store_true'); ap.add_argument('--initchk'); ap.add_argument('--flagged-file')
     a = ap.parse_args()
     nodes = [l.strip() for l in open(a.nodes) if l.strip()]
     short = lambda h: h.split('.')[0]
@@ -109,23 +111,31 @@ def main():
             if x is not None and len(vals) >= 2 and x > a.thr * refs[m] and x - refs[m] >= a.min_excess:
                 flags[h].append('%s %.2f s = %.1fx ref %.2f' % (m, x, x / max(refs[m], 1e-9), refs[m]))
     avs = [r['avail'] for r in rows.values() if r['avail']]
+    warns = {h: [] for h in rows}
     for h, r in rows.items():
         for f in r['fail']: flags[h].append('FAILED: ' + f)
+        ue = r.get('ue', 'NA')
+        if ue.isdigit() and int(ue) > 0:   # uncorrectable memory errors since boot (C4): flagged always, refused (EXCLUDE) with --refuse-ue
+            msg = 'EDAC ue=%s (uncorrectable memory errors since boot; mc %s)' % (ue, r.get('mc', '-'))
+            (flags if a.refuse_ue else warns)[h].append(msg if a.refuse_ue else 'WARN ' + msg)
         if a.min_avail_gb > 0 and r['avail'] is not None and r['avail'] < a.min_avail_gb:
             flags[h].append('MemAvailable %.0f GB < %.0f' % (r['avail'], a.min_avail_gb))
     if a.stage == 'local' and a.quiet:
         print('KEEP ' + ','.join(h for h in rows if not flags[h])); return 0
     f = lambda x: '-' if x is None else '%.2f' % x
-    out = ['%-16s %7s %6s %6s %7s %8s %8s %8s %7s %7s %8s  %s' % ('node', 'avail', 'nc_up', 'cold', 'touch', 'loc_init', 'loc_post', 'loc_wall', 'mn_init', 'mn_up', 'step_s', 'verdict')]
+    out = ['%-16s %7s %6s %6s %7s %8s %8s %8s %7s %7s %8s %4s %6s %-20s  %s' % ('node', 'avail', 'nc_up', 'cold', 'touch', 'loc_init', 'loc_post', 'loc_wall', 'mn_init', 'mn_up', 'step_s', 'ue', 'ce', 'boot (UTC)', 'verdict')]
     for h, r in rows.items():
         st = r.get('steps', {})
-        out.append('%-16s %7s %6s %6s %7s %8s %8s %8s %7s %7s %8s  %s' % (h, ('%.0f' % r['avail']) if r['avail'] else '-', f(r['v'].get('nc_up')), f(r['v'].get('cold')), f(r['v'].get('touch')),
+        out.append('%-16s %7s %6s %6s %7s %8s %8s %8s %7s %7s %8s %4s %6s %-20s  %s' % (h, ('%.0f' % r['avail']) if r['avail'] else '-', f(r['v'].get('nc_up')), f(r['v'].get('cold')), f(r['v'].get('touch')),
                    f(r['v'].get('loc_init')), f(r['v'].get('loc_post')), f(r['v'].get('loc_wall')), f(r['v'].get('mn_init')), f(r['v'].get('mn_up')),
-                   ('%.1f' % st['nodechk'][1] if 'nodechk' in st else '-'), ('EXCLUDE: ' + '; '.join(flags[h])) if flags[h] else 'ok'))
+                   ('%.1f' % st['nodechk'][1] if 'nodechk' in st else '-'), r.get('ue', '-'), r.get('ce', '-'), r.get('boot', '-'),
+                   ('EXCLUDE: ' + '; '.join(flags[h] + warns[h])) if flags[h] else ('ok; ' + '; '.join(warns[h])) if warns[h] else 'ok'))
     out.append('%-16s %7s %6s %6s %7s %8s %8s %8s %7s %7s' % ('reference', ('%.0f' % ref(avs)) if avs else '-', f(refs.get('nc_up')), f(refs.get('cold')), f(refs.get('touch')), f(refs.get('loc_init')), f(refs.get('loc_post')),
                f(refs.get('loc_wall')), f(refs.get('mn_init')), f(refs.get('mn_up'))))
-    out.append('rule: > %.1fx reference and >= %.1f s above it, or a failed step; reference = median (>= 3 values) else the smaller; times in s; avail = MemAvailable GB' % (a.thr, a.min_excess))
+    out.append('rule: > %.1fx reference and >= %.1f s above it, or a failed step (EDAC ue > 0 is a WARN, an EXCLUDE with --refuse-ue); reference = median (>= 3 values) else the smaller; times in s; avail = MemAvailable GB' % (a.thr, a.min_excess))
     if mn_note: out.append(mn_note)
+    wn = [h for h in rows if warns[h]]
+    if wn: out.append('health: %d node(s) with uncorrectable memory errors (EDAC ue > 0): %s' % (len(wn), ','.join(wn)))
     exc = [h for h in rows if flags[h]]
     open(os.path.join(a.out, 'screen_table.txt'), 'w').write('\n'.join(out) + '\n')
     open(os.path.join(a.out, 'EXCLUDE'), 'w').write(''.join(h + '\n' for h in exc))

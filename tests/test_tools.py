@@ -55,6 +55,38 @@ class DocCheck(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+class NodeHealth(unittest.TestCase):
+    """C4: tools/nodehealth.sh reads EDAC from a fake sysfs root; nodescreen_tab.py warns on ue > 0 and refuses (EXCLUDE) with --refuse-ue"""
+    def fake(self, ue0, ce0, ue1, ce1):
+        tmp = tempfile.mkdtemp(); self.addCleanup(shutil.rmtree, tmp, True)
+        for i, (u, c) in enumerate(((ue0, ce0), (ue1, ce1))):
+            d = os.path.join(tmp, "sys/devices/system/edac/mc/mc%d" % i); os.makedirs(d)
+            open(os.path.join(d, "ue_count"), "w").write("%d\n" % u); open(os.path.join(d, "ce_count"), "w").write("%d\n" % c)
+        return tmp
+
+    def health(self, root):
+        env = dict(os.environ, NODEHEALTH_SYSFS_ROOT=root)
+        return subprocess.run(["bash", os.path.join(ROOT, "tools/nodehealth.sh")], capture_output=True, text=True, env=env).stdout
+
+    def test_sums(self):
+        l = self.health(self.fake(3, 5, 0, 2)); self.assertIn("ue=3 ce=7", l); self.assertIn("mc=mc0:3/5,mc1:0/2", l); self.assertIn("boot=", l)
+        self.assertIn("ue=NA ce=NA", self.health(tempfile.mkdtemp()))
+
+    def screen(self, line, refuse):
+        out = tempfile.mkdtemp(); self.addCleanup(shutil.rmtree, out, True); os.makedirs(os.path.join(out, "local"))
+        open(os.path.join(out, "nodes.txt"), "w").write("n1\n")
+        open(os.path.join(out, "local/n1.log"), "w").write("NS host n1\n" + line + "\nNS step nodechk rc=0 wall=1.0\nNS done n1\n")
+        a = [sys.executable, os.path.join(ROOT, "tools/nodescreen_tab.py"), "--out", out, "--nodes", os.path.join(out, "nodes.txt")] + (["--refuse-ue"] if refuse else [])
+        r = subprocess.run(a, capture_output=True, text=True)
+        return r.returncode, r.stdout, open(os.path.join(out, "EXCLUDE")).read()
+
+    def test_refusal(self):
+        h = self.health(self.fake(1, 0, 0, 0)).strip()
+        rc, out, exc = self.screen(h, False); self.assertEqual((rc, exc), (0, "")); self.assertIn("WARN EDAC ue=1", out)
+        rc, out, exc = self.screen(h, True); self.assertEqual((rc, exc), (3, "n1\n")); self.assertIn("EXCLUDE: EDAC ue=1", out)
+        rc, out, exc = self.screen(self.health(self.fake(0, 9, 0, 0)).strip(), True); self.assertEqual((rc, exc), (0, "")); self.assertNotIn("WARN EDAC", out)
+
+
 class ArenaTrim(unittest.TestCase):
     """mem_model.arena_trim (BS_ARENA_TRIM_GB's twin): off = identity, a trim subtracts, the clamp stops at max(v2, v3)"""
     def test_trim(self):

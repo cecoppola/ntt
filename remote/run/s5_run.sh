@@ -77,7 +77,7 @@ if [ $SCREEN = 1 ]; then
     tree=$(dirname "$(rl_bin "$P")"); [ -x "$tree/tests/t_nodechk" ] || tree=$(dirname "$(rl_bin 1)")
     ex=$(rl_exclude_list)
     nsm=$(rl_mods "$P"); [ -n "$nsm" ] || nsm=$(rl_mods 1)
-    NS_MODULES=$nsm NS_UNLOAD=$(rl_unload) rl_tmo 1500 bash "$R/tools/nodescreen.sh" --hold "$JOB" --out "$RUN/screen" --ecalc-dir "$tree" ${ex:+--exclude-hosts "$ex"} ${REMOTE_NICS:+--want-nics "$REMOTE_NICS"} > "$RUN/raw/nodescreen.log" 2>&1 < /dev/null; src=$?
+    NS_MODULES=$nsm NS_UNLOAD=$(rl_unload) rl_tmo 1500 bash "$R/tools/nodescreen.sh" --hold "$JOB" --out "$RUN/screen" --ecalc-dir "$tree" ${ex:+--exclude-hosts "$ex"} ${REMOTE_NICS:+--want-nics "$REMOTE_NICS"} ${REMOTE_REFUSE_UE:+--refuse-ue} > "$RUN/raw/nodescreen.log" 2>&1 < /dev/null; src=$?
     rl_errfiles "$RUN/raw/nodescreen.log"
     slow=$(grep -a . "$RUN/screen/EXCLUDE" 2>/dev/null | paste -sd,)
     case $src in 0) sw="clean";; 3) sw="slow hosts flagged";; 2) sw="screen could not run";; *) sw="unexpected";; esac; rl_kv screen "$sw (rc $src)"; rl_kv slow_hosts "${slow:-}"
@@ -101,7 +101,7 @@ if [ $FL = 1 ]; then rl_capture "$P" "$NN" "$D" ${words[@]+"${words[@]}"}; rl_sn
 rl_ecrun s5_run "$P" "$NN" "$D" ${words[@]+"${words[@]}"}; rc=$?
 tag=s5_run
 rl_mon_stop
-if [ $FL = 1 ]; then rl_snap after; rl_nicdiff; rl_kv nic_gb_per_node "tx ${NIC_TX_GB} rx ${NIC_RX_GB} over ${NIC_NODES} node(s) (estimated from the NIC packet size buckets, mean per node)"; rl_kv nic_error_like "${NIC_ERR} counts, ${NIC_PAUSE} paused counts (mean per node)"; fi
+if [ $FL = 1 ]; then rl_snap after; rl_nicdiff; rl_healthdiff; [ -n "$HEALTH_NOTE" ] && rl_kv node_health "$HEALTH_NOTE (EDAC counts since boot; boot time from /proc/uptime)"; [ -n "$NIC_TOP" ] && rl_kv nic_delta_top5 "$NIC_TOP (per-run deltas, summed over the node's NICs, top 5 nodes by fec+drop; measured)"; rl_kv nic_gb_per_node "tx ${NIC_TX_GB} rx ${NIC_RX_GB} over ${NIC_NODES} node(s) (estimated from the NIC packet size buckets, mean per node)"; rl_kv nic_error_like "${NIC_ERR} counts, ${NIC_PAUSE} paused counts (mean per node)"; fi
 [ $FL = 1 ] && rl_kv fulllog "on: capture/ snap/ ${MON:+monitor/ (every ${MON} s) }in $RUN"
 # ---- results
 rl_kv rc "$rc"; rl_kv verify "${E_VERIFY:-NONE}"

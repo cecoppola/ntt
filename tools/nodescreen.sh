@@ -15,23 +15,25 @@
 #
 #   tools/nodescreen.sh --hold JOBID [--out DIR] [--cold-gb 4] [--local-digits 1e8] [--mn-digits-per-node 1e8] [--no-mn] [--no-local]
 #                       [--timeout-local 120] [--timeout-mn 240] [--thr 3] [--min-excess 2] [--min-avail-gb 0] [--exclude-hosts LIST]
-#                       [--flagged-file FILE] [--ecalc-dir DIR] [--want-nics N]
+#                       [--flagged-file FILE] [--ecalc-dir DIR] [--want-nics N] [--refuse-ue]
 #   --flagged-file FILE  append the EXCLUDE hosts to FILE (target/kit/target_kit.sh's $OUT/flagged_hosts.txt: later kit stages then drop them)
 #   --exclude-hosts LIST hosts of the allocation never used by the screen (srun -x), reported as such
 #   --want-nics N        flag a node whose runtime sees fewer than N cxi NICs (fi_info -p cxi domains; a node with 1 NIC aborts a SHMEM launch with
 #                        SHMEM_OFI_NUM_NICS=4, results/NODE_SLOWMODE.md §NIC); default $SHMEM_OFI_NUM_NICS, 0 = report only
+#   --refuse-ue          a node with EDAC uncorrectable memory errors (ue > 0 since boot) is put on EXCLUDE; without it only a WARN in the table and a
+#                        "health:" line (the table always shows ue, ce and the boot time of every node; NODEHEALTH_SYSFS_ROOT=<dir> is the test hook, tools/nodehealth.sh)
 #   --min-avail-gb G     also flag MemAvailable < G GB (default 0 = off: a low MemAvailable alone was not a stall, archive:results_merged_2026-10-24/NODE_SLOWMODE.md §S49)
 # Runs inside an existing hold (srun --overlap, no -w, --mem=0 -c1 as the session rules say); kills only its own srun PIDs; never cancels a job.
 # No credentials or target values in this file.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); ROOT=$(cd "$HERE/.." && pwd); E=${NS_ECALC_DIR:-$ROOT/ecalc}
 . "$ROOT/ecalc/gres.sh"   # MNRUN_GRES: GPU options only where the nodes list a gpu GRES
-HOLD=${SLURM_JOB_ID:-} OUT= COLD=4 LDIG=1e8 MDIG=1e8 DO_MN=1 DO_LOCAL=1 TMO_L=120 TMO_M=240 THR=3 MINEX=2 MINAV=0 EXCL= FLAGF= WANT=${SHMEM_OFI_NUM_NICS:-0}
+HOLD=${SLURM_JOB_ID:-} OUT= COLD=4 LDIG=1e8 MDIG=1e8 DO_MN=1 DO_LOCAL=1 TMO_L=120 TMO_M=240 THR=3 MINEX=2 MINAV=0 EXCL= FLAGF= REFUSE= WANT=${SHMEM_OFI_NUM_NICS:-0}
 while [ $# -gt 0 ]; do
   case $1 in
     --hold) HOLD=$2; shift;; --out) OUT=$2; shift;; --cold-gb) COLD=$2; shift;; --local-digits) LDIG=$2; shift;;
     --mn-digits-per-node) MDIG=$2; shift;; --no-mn) DO_MN=0;; --no-local) DO_LOCAL=0;;
     --timeout-local) TMO_L=$2; shift;; --timeout-mn) TMO_M=$2; shift;; --thr) THR=$2; shift;; --min-excess) MINEX=$2; shift;;
-    --min-avail-gb) MINAV=$2; shift;; --exclude-hosts) EXCL=$2; shift;; --flagged-file) FLAGF=$2; shift;; --ecalc-dir) E=$2; shift;; --want-nics) WANT=$2; shift;;
+    --min-avail-gb) MINAV=$2; shift;; --exclude-hosts) EXCL=$2; shift;; --flagged-file) FLAGF=$2; shift;; --ecalc-dir) E=$2; shift;; --want-nics) WANT=$2; shift;; --refuse-ue) REFUSE=--refuse-ue;;
     -h|--help) sed -n '2,/^# No credentials/p' "$0" | cut -c3-; exit 0;;
     *) echo "nodescreen.sh: unknown option $1" >&2; exit 2;;
   esac; shift
@@ -66,6 +68,7 @@ ED=$1; COLD=$2; DIG=$3; TMO=$4; H=$(hostname -s)
 [ -n "${NS_UNLOAD:-}" ] && module unload $NS_UNLOAD >/dev/null 2>&1; module load $NS_MODULES >/dev/null 2>&1
 now() { date +%s.%N; }
 echo "NS host $H"
+bash "$NS_HERE/nodehealth.sh" 2>&1 | grep -a '^NS health'   # EDAC ue/ce totals and boot time (C4)
 echo "NS nics have=$(fi_info -p cxi 2>/dev/null | awk '$1=="domain:"{print $2}' | sort -u | grep -c .) want=${NS_WANT_NICS:-0}"
 a=$(now); timeout "$TMO" "$ED/tests/t_nodechk" 1 3 "$COLD" 2>&1 | grep -a '^NODECHK'; rc=${PIPESTATUS[0]}; b=$(now)
 echo "NS step nodechk rc=$rc wall=$(awk -v a=$a -v b=$b 'BEGIN{printf "%.2f", b-a}')"
@@ -82,7 +85,7 @@ chmod +x "$OUT/node_local.sh"
 if [ "$DO_LOCAL" = 1 ]; then
   rm -f "$OUT"/local/*.log
   S=$(date +%s.%N)
-  timeout -s TERM "$((TMO_L * 2 + 30))" srun --jobid="$HOLD" --export=ALL,NS_MODULES="$MODS",NS_UNLOAD="$UNL",NS_WANT_NICS="$WANT" -N"$N" --ntasks="$N" --ntasks-per-node=1 $(mn_gres_strip "--gpus-per-node=4" "$(scontrol show hostnames "$(squeue -h -j "$HOLD" -o %N 2>/dev/null)" 2>/dev/null | head -1)") --mem=0 -c1 --overlap \
+  timeout -s TERM "$((TMO_L * 2 + 30))" srun --jobid="$HOLD" --export=ALL,NS_MODULES="$MODS",NS_UNLOAD="$UNL",NS_WANT_NICS="$WANT",NS_HERE="$HERE" -N"$N" --ntasks="$N" --ntasks-per-node=1 $(mn_gres_strip "--gpus-per-node=4" "$(scontrol show hostnames "$(squeue -h -j "$HOLD" -o %N 2>/dev/null)" 2>/dev/null | head -1)") --mem=0 -c1 --overlap \
       --nodelist="$NODELIST" --output="$OUT/local/%N.log" --error="$OUT/local/%N.err" bash -l "$OUT/node_local.sh" "$E" "$COLD" "$DIGL" "$TMO_L" < /dev/null &
   SPID=$!; wait "$SPID"; RC_L=$?; SPID=
   W_L=$(awk -v a="$S" -v b="$(date +%s.%N)" 'BEGIN{printf "%.1f", b-a}')
@@ -92,7 +95,7 @@ echo "$NODES" > "$OUT/nodes.txt"
 
 # ---- the tabulation / rule (also decides which nodes the mn stage keeps) ----
 TAB="python3 -I $HERE/nodescreen_tab.py"
-KEEP=$($TAB --out "$OUT" --nodes "$OUT/nodes.txt" --thr "$THR" --min-excess "$MINEX" --min-avail-gb "$MINAV" --stage local --quiet 2>/dev/null | sed -n 's/^KEEP //p')
+KEEP=$($TAB --out "$OUT" --nodes "$OUT/nodes.txt" --thr "$THR" --min-excess "$MINEX" --min-avail-gb "$MINAV" $REFUSE --stage local --quiet 2>/dev/null | sed -n 's/^KEEP //p')
 [ "$DO_LOCAL" = 0 ] && KEEP=$NODELIST
 NK=$(echo "$KEEP" | tr , '\n' | grep -c .)
 
@@ -107,7 +110,7 @@ if [ "$DO_MN" = 1 ] && [ "$NK" -ge 2 ]; then
   say "mn stage: $NK node(s), $DM digits, wall ${W_M} s, rc ${RC_M}"
 elif [ "$DO_MN" = 1 ]; then say "mn stage skipped (fewer than 2 nodes kept by the local stage)"; fi
 
-$TAB --out "$OUT" --nodes "$OUT/nodes.txt" --thr "$THR" --min-excess "$MINEX" --min-avail-gb "$MINAV" --initchk "$HERE/initchk.py" ${FLAGF:+--flagged-file "$FLAGF"}
+$TAB --out "$OUT" --nodes "$OUT/nodes.txt" --thr "$THR" --min-excess "$MINEX" --min-avail-gb "$MINAV" $REFUSE --initchk "$HERE/initchk.py" ${FLAGF:+--flagged-file "$FLAGF"}
 RC=$?
 say "total wall $(awk -v a="$T0" -v b="$(date +%s.%N)" 'BEGIN{printf "%.1f", b-a}') s; table $OUT/screen_table.txt; EXCLUDE $OUT/EXCLUDE ($(grep -c . "$OUT/EXCLUDE" 2>/dev/null) host(s))"
 exit $RC

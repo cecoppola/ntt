@@ -2,7 +2,8 @@
 # report.sh - the wrap-up paste: ONE table of every run of the session, the site facts, then (unless --keep) release the allocation.
 #   report.sh [--keep] [--no-collect] [--dry-run]
 # Reads the summaries under $REMOTE_OUT: every s5_run (one row each: nodes, digits, path, verdict, total_s, init/bs/dm/dc, measured/model, per-APU peak,
-# VERIFY, last digits, the digit hash if taken, the settings), the newest s1 facts, s3 gate and s2 build verdicts.  Without --keep it then runs
+# VERIFY, last digits, the digit hash if taken, the settings; under it, for a --fulllog run, node_health = EDAC ue / ce and reboots seen between its snapshots and
+# nic_delta_top5 = the five nodes with the largest NIC FEC + drop deltas of that run), the newest s1 facts, s3 gate and s2 build verdicts.  Without --keep it then runs
 # alloc.sh --release (cancels only the session job this toolkit created).  Before the release it freezes the logs (collect.sh --refresh --plan: the
 # inventory and the number of pastes of a full print, which the user then asks for with collect.sh --print; --no-collect skips it).  Output <= 80 lines: the block the agent turns into the REPORT.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); . "$HERE/lib.sh"; set -u
@@ -27,6 +28,7 @@ for d in $(ls -d "$REMOTE_OUT"/s5_2* 2>/dev/null | sort); do
     ph=$(grep -a -m1 '^phases_s:' "$f" | sed -E 's/.*init=([^ ]*) bs=([^ ]*) recip=[^ ]* dm=([^ ]*) dc=([^ ]*).*/\1\/\2\/\3\/\4/')
     pk=$(kvf "$f" device_peak_apu_gb | awk '{ print $1 }'); pl=$(kvf "$f" device_plan_apu_gb | awk '{ print $1 }')
     rl_line "$(printf '%-3s %-5s %-14s p%-2s %-7s %-7s %-22s %-8s %-11s %-6s %-20s %s | %s' "$nr" "$(kvf "$f" nodes)" "$dg" "$(kvf "$f" path)" "$v" "$(kvf "$f" total_s)" "${ph:-NA}" "$(kvf "$f" meas_over_model)" "${pk:-NA}/${pl:-NA}" "$(kvf "$f" verify)" "$(kvf "$f" last_digits | tr -d ' ' | cut -c1-20)" "$(kvf "$f" digit_hash | awk '$1 ~ /^[0-9a-f]+$/ { print $1; next } { print "-" }')" "$(kvf "$f" settings | cut -c1-90)")"
+    for k in node_health nic_delta_top5; do x=$(kvf "$f" $k); [ -n "$x" ] && rl_line "      $k: $(echo "$x" | cut -c1-230)"; done   # C4: EDAC / reboot and per-run NIC error deltas (fulllog runs only)
     if [ "$v" = PASS ] && [ "$(kvf "$f" verify)" = OK ] && awk -v a="$dg" -v b="$bestd" 'BEGIN { exit !(a + 0 > b + 0) }'; then bestd=$dg; bests="$(kvf "$f" nodes) nodes, $(kvf "$f" total_s) s"; fi
     ok=$((ok + 1))
 done
