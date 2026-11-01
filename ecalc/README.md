@@ -47,7 +47,7 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 | `mn_out.c/h`, `packed_fmt.h`, `verify.c/h` | output per node (packed part files, the correction patch), T1 residues and T2 windows |
 | `mem.c/h`, `memsample.c/h`, `nodemem.h`, `spill.c/h` | memory pools, VMM arenas, accounting and sampling; O_DIRECT file writes |
 | `fatal.c/h`, `segv_trace.c/h`, `config_line.c/h` | named exits, the crash-trace handler, the `config: hash=` line |
-| `dr.c/h` | C3 detect and retry (`ECALC_DR`, `results/DR.md`): switches, fault-injection parser, counters, context, the residue helpers (the checked tree products are in `rns_dist.c`, the tracked residues and leaf check in `mn.c`); `tests/t_dr.c` (host only) |
+| `dr.c/h` | C3 detect and retry (`ECALC_DR`, `results/DR.md`): switches, fault-injection parser, counters, context, the residue helpers (the checked tree products are in `rns_dist.c`, the tracked residues and leaf check in `mn.c`, the division checks D in `newton_db.c` and D' in `rns_mul_dist_mn_cyc_v`); `tests/t_dr.c` (host only) |
 | `switches.tsv`, `switches_manual.tsv`, `switches_gen.h` | the switch registry (`tools/switch_registry.py`; never hand-merge the generated files) |
 | `mnrun.sh`, `aac7env.sh` | the multi-process launcher (both xshmem paths); the aac7 environment (the aac7 launch line is in `profiles/aac7.conf`) |
 | `mnaccept.sh`, `digcmp.sh` | the standing regression; digit compare |
