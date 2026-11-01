@@ -14,7 +14,7 @@ Plan from the 10-29 target reports (user approval 2026-10-31). No target session
 
 Class 1
 1. Launch-kit fixes: alloc.sh without SLURM_HINT, one REMOTE_DEVICE_GB -> ECALC_DEVICE_GB rule in lib.sh, NIC form 0,1;2,3;4,5;6,7, PLAN hugetlb row (branch kitfix).
-2. Block-pool audit: frees and VMM remaps against GPU work still in flight (q_free / vmm_make_room have no stream sync); a sync switch to test it (branch c1pool).
+2. Block-pool audit: done 2026-11-01 (branch c1pool, `results/POOLRACE.md`): 21 free paths, 0 unsafe, 1 unclear (the VMM remap unmap); switch `DB_FREE_SYNC` (default 0; 1 / 2 device syncs before frees and allocations) gated 1 n and 2 n; no setting forced a VMM remap (0 in 24 pressure runs), so the remap path is still untested: a forced-remap setting belongs to row 3.
 3. aac7 overnight stress test for the size-dependent corruption (3.7e13+ failed 6 of 6 on the target): pool pressure, tiny rounds, P24_CHECK=2, diagnostic words, the row-2 switch on/off. After it the user decides the scope of row 4.
 4. Detect and retry: per-prime check of every distributed product (coefficient sums), retry instead of a fatal on a mismatch or CRT flag, location logged; fault-injection test.
 5. Node health gate: EDAC ue/ce counts and boot time per node in the node screen; per-run NIC error counter deltas.
