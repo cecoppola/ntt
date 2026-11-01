@@ -36,7 +36,7 @@
 #   --nodes-a4 LIST         node counts for stage a4, comma list (default: 2,8,64; 2,8 with --site aac7).
 #                           A count bigger than the allocation is skipped, not failed.
 #   --nics1 LIST            COMM_OFI_NICS form for "1 NIC per APU" (default: "0;1;2;3"; read by stage a3 only, which is disabled)
-#   --nics2 LIST            COMM_OFI_NICS form for "2 NICs per APU, the target's form" (default "0,4;1,5;2,6;3,7"; stage a3 only, disabled)
+#   --nics2 LIST            COMM_OFI_NICS form for "2 NICs per APU, the target's form" (default "0,1;2,3;4,5;6,7"; stage a3 only, disabled)
 #   --nodes-s2chk LIST      node counts for the opt-in stage s2chk (default: 2,8 = the smallest multi-node count a4 uses
 #                           plus its larger one).  A count bigger than the allocation is skipped, not failed.
 #   --s2chk-per-node N      digits per node for s2chk (default 64410000000 = 6.441e10, the largest node share of the
@@ -136,7 +136,7 @@ ONLY=""
 SKIP=""
 NODES_A4=""
 NICS1="0;1;2;3"
-NICS2="0,4;1,5;2,6;3,7"
+NICS2="0,1;2,3;4,5;6,7"
 TO_ENV=90
 TO_BUILD=900
 TO_EDGE=600

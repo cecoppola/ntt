@@ -38,7 +38,7 @@ bench progress: 0/59 done | 0-99 ladder: 0/20 | 100-199 optimization: 0/29 | 200
 | TQ36 | What does path 2 init cost against path 1 at 2 nodes (aac7 +8 s: libsma heap NIC registration 6.2 s, hipHostRegister 1.5 s, barrier 1.4 s) with the target's hugetlb pages? | 112 | open |  | `INIT_SCALE`, init terms of the model |
 | TQ37 | Does the libsma symmetric heap on hugetlb / THP (XSHMEM_CRAY_HEAP_THP=1, SHMEM_SYMMETRIC_SIZE) remove the NIC-registration time, and is the heap sized right by the plan? | 113 | open |  | `XSHMEM_CRAY_HEAP_THP`, `XSHMEM_HEAP_MB`, plan heap |
 | TQ38 | Does XSHMEM_LANES=2 beat 1 inside ecalc on the target (aac7 +0.45 s, one NIC per PE, so no gain expected)? | 120 | open |  | `XSHMEM_LANES`, launch keys of `config/target.conf` |
-| TQ39 | For path 1, does the unset COMM_OFI_NICS (NUMA-local NICs) beat explicit maps ("0,4;1,5;2,6;3,7" two NICs, "0;1;2;3" one NIC per APU)? | 121 | open |  | `COMM_OFI_NICS`, `TARGET_NICS_PER_APU` |
+| TQ39 | For path 1, does the unset COMM_OFI_NICS (NUMA-local NICs) beat explicit maps ("0,1;2,3;4,5;6,7" two NICs, "0;1;2;3" one NIC per APU)? | 121 | open |  | `COMM_OFI_NICS`, `TARGET_NICS_PER_APU` |
 | TQ40 | Is path 1 or path 2 faster at 4, 8, 16 nodes (the gap at 5 or more peers; aac7 has data only to 3 nodes)? | 125 | open |  | path choice; `GEN_HIDE`, `HIDE_POW2` |
 | TQ41 | Do the SHMEM library NIC controls (SHMEM_OFI_NIC_POLICY, SHMEM_OFI_NUM_NICS, SHMEM_ENV_DISPLAY defaults) change the put rate on 12.1? | 123 | open |  | SHMEM env block of the path 2 line |
 | TQ42 | How do the PPG launch arms behave on the target (MNRUN_PPG_GPUBIND none vs task, MNRUN_PPG_CPUBIND none vs ldom)? | 126 | open |  | `MNRUN_PPG_*` defaults |
