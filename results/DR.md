@@ -31,8 +31,8 @@ Cost model (modelled, 3.8e13 digits, 576 nodes): A 0.05-0.2 s, B about 60 ms, C 
 
 | step | content | status | commit | gates |
 |---|---|---|---|---|
-| 1 | `dr.c/h`, `t_dr`, registry, this file | see RESUME | | |
-| 2 | A in `mn_core` (flag retry, fatal-to-flag conversions, injection `flag`) | see RESUME | | |
+| 1 | `dr.c/h`, `t_dr`, registry, this file | done | 4af77c91 | t_dr VERIFY OK (9351 checks, measured); 1-node and 2-node gates with `ECALC_DR` unset PASS, digits identical (measured) |
+| 2 | A in `mn_core` (flag retry, fatal-to-flag conversions, injection `flag`) | done | 14926757 | see Measured, step 2 |
 | 3 | B + C (tree residue identity) | not started | | |
 | 4 | D + D' (division, cyclic) | not started | | |
 | 5 | full regression with `ECALC_DR=3` | not started | | |
@@ -40,12 +40,34 @@ Cost model (modelled, 3.8e13 digits, 576 nodes): A 0.05-0.2 s, B about 60 ms, C 
 
 ## Deviations from the design
 
-(none yet)
+- Step 2 injection positions: `P24_CHECK_TEST_S` (the existing 0|6|12 row-class switch) positions the `flag` injection; no new switch.
+- The `_PE` of `flag` is the global PE number (rho); `-1` injects on every PE of every process.
+- The persistent case (`_N=2`) prints the exit summary twice per process (the repeat's failure and the fatal path); harmless.
 
 ## Open issues
 
-(see RESUME)
+- Step 2 covers only the flag (kind 1) of the P24 piece; kind 2 and delivery faults are steps 3-4.
+- Not measured: `ECALC_DR_TOTAL` cap (only one product is injected per run, so the cap of 1 failure is never exceeded).
+
+## Measured, steps 1-2 (aac7, 2026-11-01; items 60_dra_x1, 63_dra_x2b, 62_dra_x3 of the DR-A series; all counts measured)
+
+Setup names: 2p = `t_mn_grid 1 28` on 2 processes; 4p = 1 node, 4 PEs (`ECALC_PE_PER_GPU=1 COMM_TRANSPORT=xshmem XSHMEM_LOOPBACK_PES=1 ECALC_NP=4`); 4 APU threads per process, so `_PE=-1` injects 8 (2p) or 4 (4p) at once. Counts are the DR summary lines (injected summed over processes, failures and recovered as the group-wide value).
+
+| case | result |
+|---|---|
+| step 1 gate, `ECALC_DR` unset, 1 node and 2 nodes, 1e9 | PASS, digits identical |
+| `t_mn_grid`, `ECALC_DR=1`, no injection: 2p, 3 processes, 4p; each also with `RNS_DIST_CACHE_PARTIAL=1` and `DIST_GEN=1` | 0 failures, VERIFY OK in every process |
+| legacy `P24_CHECK_TEST` runs, DR off | as before (fatal with the CRT flag; `P24_CRT_ANY=0` s=0/6 pass the flag and fail VERIFY) |
+| `flag`, K in {1,3}, PE=0, S in {0,6,12}, 2p and 4p (12 runs) | injected = failures = recovered = 1 in all 12; VERIFY OK; the log line names "PE 0 (node 0, APU thread 0: CRT flag)" |
+| same with PE=-1 (12 runs) | injected = failures = recovered = 8 (2p) and 4 (4p) in all 12; VERIFY OK; the line lists the PEs |
+| `flag` K=2 PE=-1, 3 processes: 12 injected = failures = recovered, VERIFY OK; K=3 PE=-1 with `RNS_DIST_CACHE_PARTIAL=1` (2p); K=3 PE=0 with `DIST_GEN=1` (4p) | 8 / 1 injected = failures = recovered; VERIFY OK |
+| `_N=2`, K=1 PE=0, 2p and 4p | rc 3 in both; "attempt 2 failed at 1 PE(s): PE 0 ...; failed again after the repeat (persistent), stopping" plus node, PE, APU thread, plane, first flagged point; the summary shows fatal 2 (2p, one per process) and 4 (4p, one per APU thread) |
+| 2 nodes, 1e9, `ECALC_DR=1`: no injection / K=1 PE=0 / K=5 PE=-1 | digits identical; injected = failures = recovered = 0 / 1 / 8 |
+| 2 nodes, 1.6e10, `MN_TREE_LOGN_TEST=26`: off / `ECALC_DR=1` / K=1 PE=0 / K=3 PE=-1 | digits identical in all four (total 58.6 / 55.9 / 56.1 / 55.5 s, single runs, not a timing comparison); 0 / 0 / 1 / 8 injected = failures = recovered; K=1 is a 5 x 5-grid piece (429282525 x 459606368 limbs) |
+| 2 nodes, 1.6e10, K=2 PE=0 `_N=2` | rc 3, location printed (product #2, piece of the 5 x 5 grid), no digits |
+
+Items 61_dra_x2 failed in 3 s per run (NIC-free node, libfabric rc -61; ALLOW_SLOW was wrong for the multi-process runs); repeated as 63_dra_x2b on a normal node.
 
 ## RESUME
 
-Branch `c3check`; steps 1 and 2 by agent DR-A.
+Branch `c3check`; steps 1 and 2 done and gated (above). Next: step 3 (B + C: `rns_mul_dist_mn_chk`, tracked residues in `mn.c`), design section 6.
