@@ -26,6 +26,10 @@ mn_group *mn_group_span(int l, int g0, int g);               /* the group [g0, g
 void  mn_allgather(comm *c, const uint64_t *v, int k, uint64_t *out);   /* k u64 per rank -> out[rank k + i] */
 int   mn_selftest_layered(int logR, int logC, int verbose);  /* the layered comm over 4 x (largest power of two <= size) ranks; 1 = ok */
 void  mn_tree(mdb *P, mdb *Q, struct dbig_s *Pleaf, struct dbig_s *Qleaf);   /* the leaves (taken over) -> shares of P, Q over all nodes */
+/* C3 step 3 (ECALC_DR >= 2, dr.h): the leaf check -- poll(arg, &p, &q) = 1 with this node's recurrence residues (T1's, modulo t1_q[0]) once finished, 0 while running, -1 if it never started;
+ * mn_dr_division_check (newton_db.c mn_divmod_dkm, with the residues of P, Q it computes): the leaf check if still open, then the tree's tracked values against them */
+void  mn_dr_leaf_ref(int (*poll)(void *arg, uint64_t *p, uint64_t *q), void *arg);
+void  mn_dr_division_check(const uint64_t *qs, const uint64_t *pres, const uint64_t *qres);
 void  mn_finalize(void);
 /* the top tree set in the background (ECALC_CKPT_TOP) -- mode 0 = none, 1 = background and complete,
  * 2 = background and budgeted (dropped when the measured disk rate would stall the critical path more than mn_ckpt_slack s);

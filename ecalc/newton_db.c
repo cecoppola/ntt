@@ -16,6 +16,7 @@
 #include "memsample.h"                                       /* Phase 14 S1 (E1) */
 #include "mn_plan.h"                                         /* Phase 13d L: the chain and the X1 group, asked by the plan printer too */
 #include "binsplit.h"                                        /* Phase 14 L1: dm_tight (DM_TIGHT), read once with the layout's switches */
+#include "dr.h"                                             /* C3 step 3: ECALC_DR >= 2 */
 #include "vpe.h"                                            /* S1c: PE layout (ECALC_PE_PER_GPU=1): the chain and the mdb helpers per PE */
 /* S1c: the reciprocal chain's scratch is per PE (idx 0 only when the layout is off, so the off path is unchanged) */
 static dbig g_r; static dbig g_r2; static dbig g_qt; static dbig g_t1; static dbig g_t2;
@@ -1016,6 +1017,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     memset(&mn_st, 0, sizeof mn_st);
     size_t nq = Q->n;
     mdb_mod_qs(P, qs, nres, pres, G); mdb_mod_qs(Q, qs, nres, qres, G);
+    if (dr_level() >= 2) mn_dr_division_check(qs, pres, qres);   /* C3: the leaf check if still open; the tree's tracked residues against these */
     size_t na_est = P->n + 1 + dl, k_mu = na_est - nq + 1, h_mu = newton_dkm_h(k_mu);
     mdb mu; memset(&mu, 0, sizeof mu);
     recip_mn(&mu, Q, h_mu, G);                                         /* the chain to h: one doubling fewer */
