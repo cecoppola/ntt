@@ -31,6 +31,7 @@ void  mn_tree(mdb *P, mdb *Q, struct dbig_s *Pleaf, struct dbig_s *Qleaf);   /* 
 void  mn_dr_leaf_ref(int (*poll)(void *arg, uint64_t *p, uint64_t *q), void *arg);
 void  mn_dr_leaf_final(void);   /* ecalc.c out_stage, after the recurrence thread is joined: the leaf check if the division's start found the recurrence still running (counted as deferred), or logs/counts it skipped if the recurrence never started */
 void  mn_dr_division_check(const uint64_t *qs, const uint64_t *pres, const uint64_t *qres);
+int   mn_dr_division_seen(void);   /* ECALC_DR_TEST=leafslow (test only): 1 once the division's start check has run (the recurrence thread waits for it) */
 void  mn_finalize(void);
 /* the top tree set in the background (ECALC_CKPT_TOP) -- mode 0 = none, 1 = background and complete,
  * 2 = background and budgeted (dropped when the measured disk rate would stall the critical path more than mn_ckpt_slack s);

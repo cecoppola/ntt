@@ -7,7 +7,7 @@
 typedef unsigned __int128 u128;
 
 /* ---- switches ---- */
-static struct { int init, level, total, kind, k, pe, n, m; } g = { 0, 0, 8, -1, 1, 0, 1, 1 };
+static struct { int init, level, total, kind, k, pe, n, m, slow; } g = { 0, 0, 8, -1, 1, 0, 1, 1, 0 };
 static const char *const KN[DR_NKINDS] = { "flag", "deliver", "store", "xql", "cyc", "leaf" };
 const char *dr_kind_name(int kind) { return kind >= 0 && kind < DR_NKINDS ? KN[kind] : "none"; }
 static long atol_d(const char *e, long d) { return e && *e ? atol(e) : d; }
@@ -19,13 +19,22 @@ void dr_init_from_env(void)
     long tot = atol_d(getenv("ECALC_DR_TOTAL"), 8); g.total = tot < 1 ? 1 : (int)tot;
     g.kind = -1; g.k = 1; g.pe = 0; g.n = 1; g.m = 1;
     const char *t = getenv("ECALC_DR_TEST");
-    if (t && *t && strcmp(t, "0")) {
-        for (int i = 0; i < DR_NKINDS; i++) if (!strcmp(t, KN[i])) g.kind = i;
-        if (g.kind < 0) { fprintf(stderr, "ECALC_DR_TEST=%s: unknown kind (flag, deliver, store, xql, cyc, leaf)\n", t); exit(2); }
-        long k = atol_d(getenv("ECALC_DR_TEST_K"), 1); g.k = k < 1 ? 1 : (int)k;
-        long pe = atol_d(getenv("ECALC_DR_TEST_PE"), 0); g.pe = pe < 0 ? -1 : (int)pe;
-        long n = atol_d(getenv("ECALC_DR_TEST_N"), 1); g.n = n < 1 ? 1 : (int)n;
-        long m = atol_d(getenv("ECALC_DR_TEST_M"), 1); g.m = m < 1 ? 1 : (int)m;
+    g.slow = 0;
+    if (t && *t && strcmp(t, "0")) {   /* a comma list: one kind, and the modifier leafslow */
+        char buf[96]; snprintf(buf, sizeof buf, "%s", t);
+        for (char *sp = 0, *tok = strtok_r(buf, ",", &sp); tok; tok = strtok_r(0, ",", &sp)) {
+            if (!strcmp(tok, "leafslow")) { g.slow = 1; continue; }
+            int f = -1;
+            for (int i = 0; i < DR_NKINDS; i++) if (!strcmp(tok, KN[i])) f = i;
+            if (f < 0 || g.kind >= 0) { fprintf(stderr, "ECALC_DR_TEST=%s: unknown kind or two kinds (flag, deliver, store, xql, cyc, leaf; the modifier leafslow)\n", t); exit(2); }
+            g.kind = f;
+        }
+        if (g.kind >= 0) {
+            long k = atol_d(getenv("ECALC_DR_TEST_K"), 1); g.k = k < 1 ? 1 : (int)k;
+            long pe = atol_d(getenv("ECALC_DR_TEST_PE"), 0); g.pe = pe < 0 ? -1 : (int)pe;
+            long n = atol_d(getenv("ECALC_DR_TEST_N"), 1); g.n = n < 1 ? 1 : (int)n;
+            long m = atol_d(getenv("ECALC_DR_TEST_M"), 1); g.m = m < 1 ? 1 : (int)m;
+        }
     }
     g.init = 1;
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
@@ -38,6 +47,7 @@ int dr_test_k(void) { ini(); return g.k; }
 int dr_test_pe(void) { ini(); return g.pe; }
 int dr_test_n(void) { ini(); return g.n; }
 int dr_test_m(void) { ini(); return g.m; }
+int dr_test_leafslow(void) { ini(); return g.slow; }
 
 static size_t fired[DR_SLOTS], fired_occ[DR_SLOTS], cnt[DR_C_N];
 int dr_inject(int kind, size_t occ, int pe, int slot, int attempt)
@@ -56,10 +66,11 @@ size_t dr_counter(int c) { return c >= 0 && c < DR_C_N ? __atomic_load_n(&cnt[c]
 void dr_summary(void)
 {
     if (!dr_on()) return;
-    fprintf(stdout, "DR: %zu checks (pieces %zu, products %zu, ends %zu), %zu injected, %zu failures, %zu recovered (pieces %zu, products %zu, division %zu), %zu fatal, leaf checks deferred %zu, skipped %zu\n",
+    char divs[64] = ""; if (dr_level() >= 3) snprintf(divs, sizeof divs, ", division checks %zu", dr_counter(DR_C_DIV));
+    fprintf(stdout, "DR: %zu checks (pieces %zu, products %zu, ends %zu), %zu injected, %zu failures, %zu recovered (pieces %zu, products %zu, division %zu), %zu fatal, leaf checks deferred %zu, skipped %zu%s\n",
             dr_counter(DR_C_CHECK) + dr_counter(DR_C_PROD) + dr_counter(DR_C_LEAF), dr_counter(DR_C_CHECK), dr_counter(DR_C_PROD), dr_counter(DR_C_LEAF), dr_counter(DR_C_INJECTED), dr_counter(DR_C_FAIL),
             dr_counter(DR_C_REC_PIECE) + dr_counter(DR_C_REC_PRODUCT) + dr_counter(DR_C_REC_DIV),
-            dr_counter(DR_C_REC_PIECE), dr_counter(DR_C_REC_PRODUCT), dr_counter(DR_C_REC_DIV), dr_counter(DR_C_FATAL), dr_counter(DR_C_LEAF_DEFER), dr_counter(DR_C_LEAF_SKIP));
+            dr_counter(DR_C_REC_PIECE), dr_counter(DR_C_REC_PRODUCT), dr_counter(DR_C_REC_DIV), dr_counter(DR_C_FATAL), dr_counter(DR_C_LEAF_DEFER), dr_counter(DR_C_LEAF_SKIP), divs);
     fflush(stdout);
 }
 void dr_arm(void) { static int on; if (!on) { on = 1; atexit(dr_summary); } }

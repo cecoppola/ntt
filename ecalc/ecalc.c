@@ -60,6 +60,7 @@ static void meta_line(const char *bench)
 static int g_bg_threads = 48;
 struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started, joined, done; double t; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
 static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); ec_team_set(g_bg_threads);
+    if (dr_level() >= 2 && dr_test_leafslow()) { for (int i = 0; i < 120000 && !mn_dr_division_seen(); i++) usleep(1000); }   /* ECALC_DR_TEST=leafslow (test only): the recurrence starts when the division does (at most 120 s): the leaf check's deferred path */
     for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(b->a0, b->b1, t1_q[i], &b->p[i], &b->qq[i]); b->t = mem_now() - t0;
     __atomic_store_n(&b->done, 1, __ATOMIC_RELEASE);
     return 0; }

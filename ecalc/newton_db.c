@@ -891,6 +891,40 @@ static void mn_dkm_low(mdb *xql, const mdb *Xn, mdb *Q, size_t w, mn_group *G)
     mn_prod_cut_x1(xql, Xn, Q, G, 0, w);
     if (xql->N != w) { mdb_shift(&xq, xql, 0, w, G); mfree(xql); *xql = xq; }
 }
+/* ---- C3 step 4, D (ECALC_DR >= 3; results/DR.md): the division's low products are checked against the exact identity A' = X Q + R ----------------------------------------------
+ * A' = S B^e (S = P + Q; step 2: S = R1, e = s) is cut to the window Aw = A' mod B^w, and xql = X Q mod B^w, so A' - X Q = (Aw - xql) + m B^w with m in {-1, 0, 1} (|A' - X Q| < 65 Q < B^w).
+ * With the residues modulo DR_Q (t1_q[0]): E = (R(S) B^e - R(X) R(Q)) - (R(Aw) - R(xql)) must be 0 or +-R(B^w).  R(S) = R(P) + R(Q) are the division's T1 residues (taken at its start), R(X) is
+ * taken from the X the product gets (after the test perturbations ECALC_TEST_CORR and NEWTON_DKM_TEST_HI).  Each residue is an all-gather (mdb_trk_make) summed alike on every node, so the verdict is
+ * the same everywhere.  A mismatch frees xql and recomputes it once (Xh / Xl, Qw and Aw are alive until mn_dkm_corr); a second failure is fatal with the location.  The wrap (mn_wrap_step) checks
+ * Rc instead (mn_dd_wrap): there the result is a CRT of several products and has no operand to repeat from, so a mismatch is fatal (U has D' in rns_mul_dist_mn_cyc_v). */
+static struct { int on; uint64_t rS, rQ, rR1, rA; int step; size_t occ; } g_dd;
+static uint64_t dd_res(const mdb *X, mn_group *G) { mdb_trk t; mdb_trk_make(X, G, &t); return t.r; }
+static void dd_step(int step, size_t e) { if (g_dd.on) { g_dd.step = step; g_dd.rA = dr_mulmod(step == 1 ? g_dd.rS : g_dd.rR1, dr_powB(e)); } }
+static void mn_dkm_low_d(mdb *xql, const mdb *Xn, mdb *Q, size_t w, mn_group *G, const mdb *Aw)
+{
+    if (!g_dd.on) { mn_dkm_low(xql, Xn, Q, w, G); return; }
+    const size_t occ = ++g_dd.occ; const int node = G->g0 + G->me;
+    dr_arm(); dr_ctx_set("division X Q mod B^w", -1, G->g0, G->g, -1, -1, g_dd.step);
+    const uint64_t rX = dd_res(Xn, G), rAw = dd_res(Aw, G), rBw = dr_powB(w);
+    for (int att = 0;; att++) {
+        mn_dkm_low(xql, Xn, Q, w, G);
+        mdb_dr_inject(xql, node, DR_XQL, occ, att);                 /* ECALC_DR_TEST=xql: one limb of xql wrong (K = the low product's number: 1 step 1, 2 step 2) */
+        const uint64_t rx = dd_res(xql, G);
+        const uint64_t e = dr_submod(dr_submod(g_dd.rA, dr_mulmod(rX, g_dd.rQ)), dr_submod(rAw, rx));
+        dr_count(DR_C_DIV, 1);
+        if (dr_match_m(e, rBw) != 2) { if (att) dr_count(DR_C_REC_DIV, 1); return; }
+        dr_count(DR_C_FAIL, 1);
+        const size_t ev = rns_dr_event(G); char where[160]; dr_where(where, sizeof where);
+        const int fatal = att >= 1 || ev > (size_t)dr_total_cap();
+        char msg[640];
+        snprintf(msg, sizeof msg, "low product X Q mod B^w (%zu x %zu limbs, w %zu), %s: attempt %d: (R(S) B^e - R(X) R(Q)) - (R(Aw) - R(xql)) = %llu, none of 0, +-B^w (%llu)%s", Xn->n, Q->n, w, where, att + 1,
+                 (unsigned long long)e, (unsigned long long)rBw,
+                 fatal ? (att >= 1 ? "; failed again after the repeat (persistent), stopping" : "; the run's limit ECALC_DR_TOTAL of failures is reached, stopping") : "; repeating the product");
+        if (fatal) { dr_count(DR_C_FATAL, 1); dr_summary(); ec_fatal(EC_RC_FATAL, "newton_mn_divmod: DR: %s\n", msg); }
+        if (G->me == 0) { fprintf(stderr, "DR: %s\n", msg); fflush(stderr); }
+        mfree(xql); rns_dr_cache_drop();                             /* the bad result is freed first; the repeat runs with the transform cache off */
+    }
+}
 /* R from the window and xq (both basis w, consumed): newton_mn_divmod's corrections; returns the change to X */
 static long mn_dkm_corr(mdb *Rd, mdb *Aw, mdb *xql, const mdb *Qw, mn_group *G, const char *who)
 {
@@ -967,6 +1001,19 @@ static void mn_wrap_a(mdb *Ah, mdb *T1, mdb *Y, size_t e, size_t P, size_t w, mn
     mn_fold(T1, Y, (long)h - (long)e, P, P + 4, G);
     mfree(Y);
 }
+static void mn_dd_wrap(const mdb *Rc, const mdb *X, size_t w, size_t h, mn_group *G, const char *who)   /* D on Rc: R = Rc (Rc < B^(w-1)) or Rc - M, M = B^w - B^h; A' - X Q = R exactly */
+{
+    dr_arm(); dr_ctx_set("division X Q mod B^w", -1, G->g0, G->g, -1, -1, g_dd.step);
+    const uint64_t rX = dd_res(X, G), rR = dd_res(Rc, G), rM = dr_submod(dr_powB(w), dr_powB(h));
+    uint64_t e = dr_submod(dr_submod(g_dd.rA, dr_mulmod(rX, g_dd.rQ)), rR);
+    if (Rc->n >= w) e = dr_addmod(e, rM);
+    dr_count(DR_C_DIV, 1);
+    if (!e) return;
+    dr_count(DR_C_FAIL, 1); rns_dr_event(G); char where[160]; dr_where(where, sizeof where);
+    dr_count(DR_C_FATAL, 1); dr_summary();
+    ec_fatal(EC_RC_FATAL, "newton_mn_divmod: DR: %s: R(S) B^e - R(X) R(Q) - R(R)%s = %llu, not 0 (%s; R = Rc%s, X %zu limbs, w %zu, h %zu): the low part L, the cyclic part (checked by D') or the assembly is wrong; the run stops\n",
+             where, Rc->n >= w ? " + R(M)" : "", (unsigned long long)e, who, Rc->n >= w ? " - M" : "", X->n, w, h);
+}
 /* one step's R = A' - X Q and the corrections (mn_dkm_corr's contract: *Rd = R in basis w, returns the change to X); Ah, T1 from
  * mn_wrap_a (consumed); Qw = Q in basis w; Qpp = Q B^-h folded (basis P + 4) */
 static long mn_wrap_step(mdb *Rd, const mdb *X, mdb *Ah_, mdb *T1_, const mdb *Qw, const mdb *Qpp, size_t P, size_t w, mn_group *G, const char *who)
@@ -1000,6 +1047,7 @@ static long mn_wrap_step(mdb *Rd, const mdb *X, mdb *Ah_, mdb *T1_, const mdb *Q
     mdb_shift(&Rc, &Ah, 0, w, G); mfree(&Ah);                    /* Rc = rL + B^h t, basis w */
     mdb_shift(&Tt, &T1, -(long)h, w, G); mfree(&T1);
     mdb_addsub(&Rc, &Rc, &Tt, 0, G); mfree(&Tt);
+    if (g_dd.on) mn_dd_wrap(&Rc, X, w, h, G, who);                /* C3 D (ECALC_DR >= 3) */
     mdb_zero(&Z, w, G);
     if (Rc.n < w) return mn_dkm_corr(Rd, &Rc, &Z, Qw, G, who);  /* R = Rc >= 0 */
     {   /* R = Rc - M < 0: D = M - Rc (basis w + 1, then w) */
@@ -1018,6 +1066,8 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     size_t nq = Q->n;
     mdb_mod_qs(P, qs, nres, pres, G); mdb_mod_qs(Q, qs, nres, qres, G);
     if (dr_level() >= 2) mn_dr_division_check(qs, pres, qres);   /* C3: the leaf check if still open; the tree's tracked residues against these */
+    memset(&g_dd, 0, sizeof g_dd);
+    if (dr_level() >= 3 && nres >= 1 && qs[0] == DR_Q) { g_dd.on = 1; g_dd.rQ = qres[0] % DR_Q; g_dd.rS = dr_addmod(pres[0] % DR_Q, g_dd.rQ); }   /* C3 D: R(S) = R(P) + R(Q) */
     size_t na_est = P->n + 1 + dl, k_mu = na_est - nq + 1, h_mu = newton_dkm_h(k_mu);
     mdb mu; memset(&mu, 0, sizeof mu);
     recip_mn(&mu, Q, h_mu, G);                                         /* the chain to h: one doubling fewer */
@@ -1049,6 +1099,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     if (newton_mn_pq_hook) newton_mn_pq_hook(1, Q);
     mfree(Q); mdb *Qd = &Qw;                                           /* the low products' Q: Qw (the same limbs in basis w; Q freed now) */
     long dx1;
+    dd_step(1, dl - s);
     if (Pw) {
         size_t hw = w - Pw;
         mn_fold(&Qpp, &Qw, (hw % Pw) ? (long)(hw % Pw) - (long)Pw : 0, Pw, Pw + 4, G);   /* Q B^-h folded, for both steps */
@@ -1056,7 +1107,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
         dx1 = mn_wrap_step(&R1, &Xh, &Ah, &T1, &Qw, &Qpp, Pw, w, G, "step 1 (wrap)");
         if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 1 X_hi Q");
     } else {
-        mn_dkm_low(&xql, &Xh, Qd, w, G);
+        mn_dkm_low_d(&xql, &Xh, Qd, w, G, &Aw);
         if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 1 X_hi Q");
         dx1 = mn_dkm_corr(&R1, &Aw, &xql, &Qw, G, "step 1");
     }
@@ -1068,6 +1119,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     if (xhi) xhi = newton_mn_xhi_hook(&Xh, s, newton_mn_x_arg);
     double tc = mem_now();
     /* step 2: X_lo, R of A2 = R1 B^s */
+    if (g_dd.on) { g_dd.rR1 = dd_res(&R1, G); dd_step(2, s); }       /* C3 D: R(R1) before R1 is consumed */
     size_t na2 = R1.n + s, k2 = na2 >= nq ? na2 - nq + 1 : 0;
     if (na2 >= nq) { mn_dkm_est_lean(&Xl, &R1, s, nq, k2, &mu, k2 + 1, G); mfree(&mu); }
     else { mfree(&mu); mdb_shift(&Xl, &R1, (long)R1.n + 1, 2, G); }      /* A2 < Q: X_lo = 0 */
@@ -1083,7 +1135,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
         double td = mem_now();
         long dx = 0;
         if (Pw) dx = mn_wrap_step(&Rd, &Xl, &Ah, &T1, &Qw, &Qpp, Pw, w, G, "step 2 (wrap)");   /* P1 */
-        else mn_dkm_low(&xql, &Xl, Qd, w, G);
+        else mn_dkm_low_d(&xql, &Xl, Qd, w, G, &Aw);
         if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 2 X_lo Q");
         rns_dist_cache_release();
         double te = mem_now();
@@ -1116,7 +1168,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     double td = mem_now();
     long dx = 0;
     if (Pw) dx = mn_wrap_step(&Rd, &Xl, &Ah, &T1, &Qw, &Qpp, Pw, w, G, "step 2 (wrap)");   /* P1 */
-    else mn_dkm_low(&xql, &Xl, Qd, w, G);
+    else mn_dkm_low_d(&xql, &Xl, Qd, w, G, &Aw);
     mfree(&Xl);
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 2 X_lo Q");
     rns_dist_cache_release();

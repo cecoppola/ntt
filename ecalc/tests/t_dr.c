@@ -139,6 +139,15 @@ static void t_inject(void)
     dr_ctx_clear(); VERIFY(dr_where(w, sizeof w) == 0 && !w[0], "where cleared");
     VERIFY(dr_total_cap() == 8, "default total cap"); setenv("ECALC_DR_TOTAL", "3", 1); dr_init_from_env(); VERIFY(dr_total_cap() == 3, "total cap");
     unsetenv("ECALC_DR_TOTAL"); dr_init_from_env();
+    setenv("ECALC_DR", "3", 1); setenv("ECALC_DR_TEST", "leaf,leafslow", 1); dr_init_from_env();
+    VERIFY(dr_test_kind() == DR_LEAF && dr_test_leafslow(), "kind list: leaf + leafslow");
+    setenv("ECALC_DR_TEST", "leafslow", 1); dr_init_from_env();
+    VERIFY(dr_test_kind() == -1 && dr_test_leafslow() && !dr_inject(DR_LEAF, 1, 0, 0, 0), "leafslow alone injects nothing");
+    setenv("ECALC_DR_TEST", "xql", 1); setenv("ECALC_DR_TEST_K", "2", 1); dr_init_from_env();
+    VERIFY(dr_test_kind() == DR_XQL && !dr_test_leafslow() && !dr_inject(DR_XQL, 1, 0, 0, 0) && dr_inject(DR_XQL, 2, 0, 0, 0), "xql, K = 2");
+    setenv("ECALC_DR_TEST", "cyc", 1); unsetenv("ECALC_DR_TEST_K"); dr_init_from_env();
+    VERIFY(dr_test_kind() == DR_CYC && dr_inject(DR_CYC, 1, 0, 0, 0), "cyc");
+    unsetenv("ECALC_DR_TEST"); setenv("ECALC_DR", "0", 1); dr_init_from_env();
 }
 int main(void)
 {

@@ -1973,20 +1973,83 @@ void rns_mul_dist_mn_low_basis_v(mdb *Cm, const mdbv *A, const mdbv *B, mn_group
  * in basis `basis` (>= P + 4); P a power of two between the group's smallest plane and its cap; na, nb <= P, non-zero */
 int rns_mul_dist_mn_logmin(mn_group *G) { return (int)mn_logmin(G->g); }
 int rns_mul_dist_mn_logmin_g(int g) { return (int)mn_logmin(g); }    /* D19 (binsplit.c dm_layout) */
+/* ---- C3 step 4, D' (ECALC_DR >= 3; results/DR.md): the flagless cyclic product U == A B mod (B^P - 1) is checked modulo B+1 and B-1 (P even: B^2 - 1 divides B^P - 1).
+ * Each node reduces its piece of A's view, B's view and U (db_mod_qs with the moduli 10^18 +- 1: the generic % kernel) at its place in the number; one host all-gather on mesh 0 and every node
+ * sums the same words, so the verdict, the repeat and the stop are alike on every node.  A mismatch frees U and recomputes it once (the operands are unchanged and alive); a second failure is fatal. */
+size_t rns_dr_event(mn_group *G)               /* a failure of the division checks: the run's failure count, agreed by the group (the cap ECALC_DR_TOTAL is decided alike) */
+{
+    size_t ev = G->g > 1 ? comm_allreduce_max(G->all[0], g_dr_events) : g_dr_events;
+    return g_dr_events = ev + 1;
+}
+void rns_dr_cache_drop(void) { cache_drop(); }
+int mdb_dr_inject(mdb *X, int node, int kind, size_t occ, int attempt)   /* ECALC_DR_TEST=<kind>: one limb of this node's share of X wrong (the call sites count the occurrences alike on every node) */
+{
+    size_t lo, hi; mdb_share(X, node, &lo, &hi); if (hi > X->n) hi = X->n;
+    if (hi > lo && dr_inject(kind, occ, node, 0, attempt)) { dr_flip_limb(&X->sh, (hi - lo) / 2); return 1; }
+    return 0;
+}
+static void cyc_part(const mdbv *v, int node, uint64_t out[2])   /* this node's piece of the view as a number at its place in the view, modulo B+1 and B-1 */
+{
+    static const uint64_t qm[2] = { DR_B + 1, DR_B - 1 };
+    out[0] = out[1] = 0;
+    size_t lo, hi; mdb_share(v->m, node, &lo, &hi); if (hi > v->m->n) hi = v->m->n;
+    size_t s = lo > v->off ? lo : v->off, e = hi < v->off + v->len ? hi : v->off + v->len;
+    if (e > s) {
+        dbig w = db_view(&v->m->sh, s - lo, e - s); uint64_t r[2]; db_mod_qs(&w, qm, 2, r);
+        for (int j = 0; j < 2; j++) out[j] = dr_mulmod_m(r[j], db_powmod_h(DR_B % qm[j], s - v->off, qm[j]), qm[j]);
+    }
+}
 void rns_mul_dist_mn_cyc_v(mdb *Cm, const mdbv *A, const mdbv *B, mn_group *G, size_t P, size_t basis)
 {
     int g = G->g, node = g_node_of(G);
     if (!A->len || !B->len || basis < P + 4 || P > ((size_t)1 << mn_logn_cap(g)) || P < ((size_t)1 << mn_logmin(g))) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn_cyc_v: %zu x %zu limbs on %zu points, basis %zu\n", A->len, B->len, P, basis); }
-    mdb Cn; memset(&Cn, 0, sizeof Cn); Cn.N = basis; Cn.g0 = G->g0; Cn.g = g; db_init(&Cn.sh);
-    size_t clo, chi; mdb_share(&Cn, node, &clo, &chi); db_zero_fill(&Cn.sh, chi - clo);
-    struct mn_times tm; memset(&tm, 0, sizeof tm);
-    g_top_ok = 0; g_cache_mn = 1;
-    mn_core(&Cn, A, B, 0, G, 0, 1, &tm, -1, -1, 0, P);
-    cache_drop();
-    if (getenv("RNS_VERBOSE") || getenv("ECALC_VERBOSE")) printf("dist_mn node %d: %zu x %zu limbs on one cyclic plane of 2^%d points over %d x 4 ranks (DM_MN_WRAP)\n", node, A->len, B->len, (int)log2((double)P), g);
-    mdb_norm(&Cn, G, basis);
-    if (Cm->sh.cap) db_free(&Cm->sh);
-    *Cm = Cn;
+    const int chk = dr_level() >= 3;                           /* D' (P, a power of two >= 2^20, is even: B^2 - 1 divides B^P - 1) */
+    static size_t occ; if (chk) occ++;
+    uint64_t pa[2] = { 0, 0 }, pb[2] = { 0, 0 };
+    if (chk) { cyc_part(A, node, pa); cyc_part(B, node, pb); }
+    for (int att = 0;; att++) {
+        mdb Cn; memset(&Cn, 0, sizeof Cn); Cn.N = basis; Cn.g0 = G->g0; Cn.g = g; db_init(&Cn.sh);
+        size_t clo, chi; mdb_share(&Cn, node, &clo, &chi); db_zero_fill(&Cn.sh, chi - clo);
+        struct mn_times tm; memset(&tm, 0, sizeof tm);
+        g_top_ok = 0; g_cache_mn = 1;
+        mn_core(&Cn, A, B, 0, G, 0, 1, &tm, -1, -1, 0, P);
+        cache_drop();
+        if (getenv("RNS_VERBOSE") || getenv("ECALC_VERBOSE")) printf("dist_mn node %d: %zu x %zu limbs on one cyclic plane of 2^%d points over %d x 4 ranks (DM_MN_WRAP)\n", node, A->len, B->len, (int)log2((double)P), g);
+        mdb_norm(&Cn, G, basis);
+        if (chk) {
+            mdb_dr_inject(&Cn, node, DR_CYC, occ, att);        /* ECALC_DR_TEST=cyc: one limb of U wrong after the norm */
+            uint64_t mine[6], pu[2], *all = (uint64_t *)malloc((size_t)g * sizeof mine);
+            mdbv uv = { &Cn, 0, Cn.n };
+            cyc_part(&uv, node, pu);
+            mine[0] = pa[0]; mine[1] = pa[1]; mine[2] = pb[0]; mine[3] = pb[1]; mine[4] = pu[0]; mine[5] = pu[1];
+            if (g > 1) comm_allgather_host(G->all[0], mine, all, sizeof mine); else memcpy(all, mine, sizeof mine);
+            uint64_t sm[6] = { 0, 0, 0, 0, 0, 0 };
+            for (int r = 0; r < g; r++) for (int k = 0; k < 6; k++) { uint64_t m = (k & 1) ? DR_B - 1 : DR_B + 1; sm[k] += all[6 * r + k] % m; if (sm[k] >= m) sm[k] -= m; }
+            free(all);
+            dr_count(DR_C_DIV, 1);
+            if (dr_cyc_ok(sm[4], sm[5], sm[0], sm[1], sm[2], sm[3])) {
+                if (att) dr_count(DR_C_REC_DIV, 1);
+                if (Cm->sh.cap) db_free(&Cm->sh);
+                *Cm = Cn;
+                return;
+            }
+            dr_count(DR_C_FAIL, 1);
+            size_t ev = rns_dr_event(G);
+            char where[160]; dr_where(where, sizeof where);
+            int fatal = att >= 1 || ev > (size_t)dr_total_cap();
+            char msg[768];
+            snprintf(msg, sizeof msg, "cyclic product #%zu (%zu x %zu limbs on 2^%d points), group [%d, %d)%s%s: attempt %d: U mod (B+1), (B-1) = %llu, %llu, expected A B = %llu, %llu%s", occ, A->len, B->len, (int)log2((double)P), G->g0, G->g0 + g, where[0] ? "; " : "", where, att + 1,
+                     (unsigned long long)sm[4], (unsigned long long)sm[5], (unsigned long long)dr_mulmod_m(sm[0], sm[2], DR_B + 1), (unsigned long long)dr_mulmod_m(sm[1], sm[3], DR_B - 1),
+                     fatal ? (att >= 1 ? "; failed again after the repeat (persistent), stopping" : "; the run's limit ECALC_DR_TOTAL of failures is reached, stopping") : "; repeating the product");
+            if (fatal) { dr_count(DR_C_FATAL, 1); dr_summary(); ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn_cyc_v: DR: %s\n", msg); }
+            if (G->me == 0) { fprintf(stderr, "DR: %s\n", msg); fflush(stderr); }
+            db_free(&Cn.sh);                                    /* the bad result is freed first: the repeat has the same peak */
+            continue;
+        }
+        if (Cm->sh.cap) db_free(&Cm->sh);
+        *Cm = Cn;
+        return;
+    }
 }
 /* the grid (ka x kb pieces of ceil(na/ka) + ceil(nb/kb) limbs) mn_grid forms for na x nb limbs over G; 1 x 1 = one plane (tests) */
 void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb)

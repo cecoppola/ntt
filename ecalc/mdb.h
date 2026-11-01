@@ -58,6 +58,11 @@ typedef struct { uint64_t r; uint64_t part[DB_NQ]; int held; } mdb_trk;
 void rns_mul_dist_mn_chk(mdb *C, const mdb *A, const mdb *B, const mdb *X, mn_group *G, const mdb_trk *ta, const mdb_trk *tb, const mdb_trk *tx, mdb_trk *tc);
 void mdb_trk_make(const mdb *X, mn_group *G, mdb_trk *t);
 int mdb_dr_store_inject(mdb *X, int node);
+/* C3 step 4 (ECALC_DR >= 3): mdb_dr_inject = ECALC_DR_TEST=<kind> (xql, cyc) on one limb of X's share on `node`; rns_dr_event = a failure of the division checks, counted with the pieces' and products' (returns the
+ * run's count, agreed by the group); rns_dr_cache_drop = the transform cache's slots emptied before a repeat */
+int mdb_dr_inject(mdb *X, int node, int kind, size_t occ, int attempt);
+size_t rns_dr_event(mn_group *G);
+void rns_dr_cache_drop(void);
 /* a view of a sharded number: limbs [off, off + len) of m, len the normalised length within the window; every node of
  * G computes the same view (one allreduce_max over the group), the pack kernel honours the global offset */
 typedef struct { const mdb *m; size_t off, len; } mdbv;

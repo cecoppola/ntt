@@ -497,10 +497,13 @@ static void dr_leaf_check(int mode)   /* mode 0: after a level (non-blocking); 1
     }
 }
 void mn_dr_leaf_final(void) { dr_leaf_check(2); }
+static int g_dr_div_seen;
+int mn_dr_division_seen(void) { return __atomic_load_n(&g_dr_div_seen, __ATOMIC_ACQUIRE); }
 /* newton_db.c mn_divmod_dkm, with the residues of the sharded P, Q it computes for T1: the leaf check if not yet done, then the tree's tracked values (a mismatch = corruption at rest between the tree and here) */
 void mn_dr_division_check(const uint64_t *qs, const uint64_t *pres, const uint64_t *qres)
 {
     if (!g_dr.on) return;
+    __atomic_store_n(&g_dr_div_seen, 1, __ATOMIC_RELEASE);
     dr_leaf_check(1);                                 /* only if the recurrence is done; else deferred to mn_dr_leaf_final */
     if (!g_dr.top_valid) return;
     g_dr.top_valid = 0;
