@@ -107,6 +107,7 @@ rl_module_init() {
 # ---- site.env ---------------------------------------------------------------------------------------------------------
 rl_site_load() {    # KEY=VALUE lines of site.env; the caller's environment wins
     local line k
+    unset SLURM_HINT    # a login default of nomultithread makes Slurm refuse the 192-CPU steps (target 10-29)
     if [ -f "$SITE_ENV" ]; then
         while IFS= read -r line; do
             [[ $line =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
