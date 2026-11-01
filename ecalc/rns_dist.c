@@ -29,6 +29,7 @@
 #include "mn_plan.h"                                        /* Phase 13d L: the plan printer asks this file's decisions */
 #include "vpe.h"                                            /* S1b: PE layout */
 #include "p24.h"                                            /* Phase 15 Batch 3 P24 (results/PRIMES_STRATEGY.md §P2415): 24 digits per point in the mn tier (P24) */
+#include "dr.h"                                             /* C3 detect and retry (ECALC_DR; results/DR.md) */
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define NR 4
@@ -999,6 +1000,7 @@ static int p24_crt_any(void) { static int v = -1; if (v < 0) { const char *e = g
 static char g_p24_what[160]; static size_t g_p24_seq; static int g_p24_ka = 1, g_p24_kb = 1, g_p24_pi = -1, g_p24_pj = -1; static size_t g_p24_pa, g_p24_pb;   /* the running product (mn_grid / mn_piece_form, main thread) */
 /* P24_CHECK coverage line and fault injection (results/PRIMES_STRATEGY.md §P24 audit): counters per PE process; the summary prints at exit under P24_CHECK >= 1 */
 static size_t g_c_prod, g_c_pieces, g_c_st, g_c_rc, g_c_hit, g_c_flags;
+static unsigned g_dr_in[NR];                                 /* ECALC_DR: per APU thread, a received-limb hit of p24_chk_in in this attempt (read at the piece decision) */
 static int p24_test(void) { static int v = -1; if (v < 0) { const char *e = getenv("P24_CHECK_TEST"); v = e ? atoi(e) : 0; if (v < 0) v = 0; } return v; }
 static size_t p24_test_k(void) { static long v = -1; if (v < 0) { const char *e = getenv("P24_CHECK_TEST_K"); v = e ? atol(e) : 1; if (v < 1) v = 1; } return (size_t)v; }
 static int p24_test_s(void) { static int v = -2; if (v == -2) { const char *e = getenv("P24_CHECK_TEST_S"); v = e ? atoi(e) : -1; if (v != 0 && v != 6 && v != 12) v = -1; } return v; }
@@ -1015,7 +1017,7 @@ static void p24_report(void)                                   /* at exit and be
     fflush(stdout);
 }
 static void p24_arm(void) { static int on; if (!on) { on = 1; atexit(p24_report); } }
-int rns_dist_p24_crt_all(void) { return p24_crt_any() || p24_check() > 0; }   /* 1 = the CRT flag covers every shift class (tests and gates print it) */
+int rns_dist_p24_crt_all(void) { return p24_crt_any() || p24_check() > 0 || dr_on(); }   /* 1 = the CRT flag covers every shift class (tests and gates print it) */
 size_t rns_dist_p24_products(void) { return g_c_prod; }       /* P24 products formed in this process (counted always; tests print it) */
 __global__ void k_chk24(const uint64_t *b, size_t n, unsigned long long *res)
 {
@@ -1041,6 +1043,7 @@ static void p24_chk_in(const struct mn_ctx *X, const mdbv *op, const char *nm, i
     snprintf(msg, sizeof msg, "operand %s %s: %zu of %zu limbs >= 10^18 (the first at sequence index %zu); product #%zu (%s), piece %d,%d of the %d x %d grid (%zu x %zu limbs per piece); node %d, PE %d of %d, APU thread %d; view offset %zu, %zu limbs; plane R %zu x C %zu = %zu points",
              nm, where, bad, n, first, g_p24_seq, g_p24_what, g_p24_pi, g_p24_pj, g_p24_ka, g_p24_kb, g_p24_pa, g_p24_pb, X->node, X->g * d + X->G->me, X->nr, d, op->off, op->len, X->R, X->C, X->n);
     if (!fatal) { __atomic_fetch_add(&g_p24_notes, 1, __ATOMIC_RELAXED); fprintf(stderr, "rns_mul_dist_mn: P24_CHECK note: non-normalised share (may be legal: the check assumes every stored limb < 10^18, which is not proven for every producer; P24 then needs the share normalised): %s\n", msg); return; }
+    if (dr_on()) { g_dr_in[d] = 1; fprintf(stderr, "DR: P24_CHECK input: operand %s %s: a received limb >= 10^18 (the piece repeats): %s\n", nm, where, msg); return; }   /* ECALC_DR: not fatal, the piece decision retries */
     p24_report();
     ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24_CHECK input: %s%s\n", msg, g_p24_notes ? "; stored-share notes were printed before: this is most likely the same non-normalised limbs travelling, not corruption in the exchange" : "");
 }
@@ -1388,6 +1391,35 @@ static void mn_round_add(struct mn_rounds *rd, mdb *Cn, dbig *T, size_t wlo, siz
  * pointwise product of the two length-P transforms is the cyclic convolution, so C = sum_k c_k B^k (k < P, c_k the coefficients
  * mod x^P - 1), at most P + 4 limbs, congruent to A B mod (B^P - 1); every term count stays <= min(na, nb) <= P (the prime count is
  * chosen for P).  No added operand, no P24. */
+/* ECALC_DR >= 1 (C3 step 2, results/DR.md): the decision of one P24 piece, taken before any result limb leaves the PE.  g_dr_fl[d] (bit 0 the CRT flag,
+ * bit 1 a received-limb hit) is each APU thread's verdict of this attempt; the master thread reduces them over the group (one grp_max on mesh 0: the
+ * only cost of a good piece) and on a failure gathers the per-node verdict words to name the PEs.  0 = good, 1 = repeat the piece, 2 = stop (g_dr_msg). */
+static unsigned g_dr_fl[NR]; static char g_dr_msg[1536]; static int g_dr_dec; static size_t g_dr_events;
+static int dr_piece_decide(mn_group *G, int nl, int att, size_t na, size_t nb, int logn, size_t *prev)
+{
+    uint32_t mine = 0; for (int d = 0; d < nl; d++) mine |= (uint32_t)(g_dr_fl[d] & 3) << (2 * d);
+    dr_count(DR_C_CHECK, 1);
+    if (!grp_max(G, mine != 0)) { if (att > 0) dr_count(DR_C_REC_PIECE, *prev); *prev = 0; return 0; }
+    int g = G->g; uint32_t *all = (uint32_t *)malloc((size_t)g * sizeof *all);
+    if (g > 1) comm_allgather_host(G->all[0], &mine, all, sizeof mine); else all[0] = mine;
+    char who[640]; size_t nfail = 0; int k = 0; who[0] = 0;
+    for (int r = 0; r < g; r++) for (int d = 0; d < nl; d++) {
+        unsigned c = (all[r] >> (2 * d)) & 3; if (!c) continue;
+        if (nfail < 12) k += snprintf(who + k, sizeof who - k, "%sPE %d (node %d, APU thread %d: %s)", nfail ? ", " : "", g * d + r, G->g0 + r, d, c == 3 ? "CRT flag + received limb" : c == 1 ? "CRT flag" : "received limb");
+        nfail++;
+    }
+    if (nfail > 12) snprintf(who + k, sizeof who - k, " and %zu more", nfail - 12);
+    free(all);
+    dr_count(DR_C_FAIL, nfail); g_dr_events++; *prev = nfail;
+    char where[160]; dr_where(where, sizeof where);
+    int fatal = att >= 1 || g_dr_events > (size_t)dr_total_cap();
+    snprintf(g_dr_msg, sizeof g_dr_msg, "product #%zu (%s), piece %d,%d of the %d x %d grid (%zu x %zu limbs per piece, this piece %zu x %zu), group [%d, %d), plane 2^%d%s%s: attempt %d failed at %zu PE(s): %s%s",
+             g_p24_seq, g_p24_what, g_p24_pi, g_p24_pj, g_p24_ka, g_p24_kb, g_p24_pa, g_p24_pb, na, nb, G->g0, G->g0 + G->g, logn, where[0] ? "; " : "", where, att + 1, nfail, who,
+             fatal ? (att >= 1 ? "; failed again after the repeat (persistent), stopping" : "; the run's limit ECALC_DR_TOTAL of failed pieces is reached, stopping") : "; repeating the piece with the transform cache off");
+    if (fatal) { dr_count(DR_C_FATAL, 1); dr_summary(); return 2; }
+    if (G->me == 0) { fprintf(stderr, "DR: %s\n", g_dr_msg); fflush(stderr); }
+    return 1;
+}
 static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t shift, int direct, struct mn_times *tm, int slA, int slB, int p24, size_t cyc)
 {
     int g = G->g, me = G->me, nr = NL() * g, node = G->g0 + me, verbose = getenv("RNS_VERBOSE") != 0;
@@ -1416,8 +1448,9 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     const int cok = cache_slots() && (!p24 || g_cache.pc) && !(p24 && p24_check() >= 2);   /* P24_CHECK=2: no cache on P24 products */
     int ha = cok ? cache_lookup(A->m, A->off, A->len, q, 1, np, p24) : -1, hb = cok ? cache_lookup(B->m, B->off, B->len, q, 1, np, p24) : -1;
     if (!cok) slA = slB = -1; else cache_plan(&slA, &slB, ha, hb, A->m, A->off, A->len, B->m, B->off, B->len, q, 1, np, p24);
-    const int kA = cache_slot_k(slA, np), kB = cache_slot_k(slB, np);   /* PC: the primes A's / B's slot holds (np for a held slot) */
-    const int afull = ha >= 0 && kA >= np, bfull = hb >= 0 && kB >= np;   /* a full hit: no redistribution of that operand */
+    int kA = cache_slot_k(slA, np), kB = cache_slot_k(slB, np);   /* PC: the primes A's / B's slot holds (np for a held slot); (not const: a repeated piece (ECALC_DR) runs with the cache off) */
+    int afull = ha >= 0 && kA >= np, bfull = hb >= 0 && kB >= np;   /* a full hit: no redistribution of that operand */
+    const int dra = p24 && dr_on();                            /* ECALC_DR >= 1: this piece is decided collectively before its result leaves the PEs, and repeated on a fault */
     size_t clo, chi; mdb_share(Cn, node, &clo, &chi); size_t cn = chi - clo;
     size_t tlo, thi; piece_window(Cn, node, shift, Np, &tlo, &thi); size_t tn = thi - tlo;
     if (direct && shift) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: a direct piece at a shift\n"); }   /* direct: the window is the share's first tn limbs */
@@ -1468,6 +1501,10 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         }
         struct gplan gp; if (gen) gplan_build(&gp, g, rho, logR, logC, dv);
         double s0 = mem_now(), tpl = s0 - tpl0, tfa = 0, tfb = 0, tiv = 0;
+        int att = 0; size_t dr_prev = 0;
+        for (;; att++) {                                    /* ECALC_DR >= 1 (dra): the attempts of this piece; one pass when off.  Everything below up to the decision writes planes and buffers only, never C */
+        if (att > 0) s0 = mem_now();
+        if (dra) { g_dr_fl[d] = 0; g_dr_in[d] = 0; }
         /* A: every node packs and exchanges; every rank gathers its rows for the four primes */
         if (ha < 0 && p24) {                                /* P24: A's points from its in-runs; A's sequence freed before B's (the operands' peak max(A, B)) */
             redistribute(&X0, A, &oA, d, s, "A");
@@ -1525,19 +1562,22 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         struct bdesc *dd = (struct bdesc *)dpool_get(&v->desc, dv, sizeof hd);
         HIP_CHECK(hipMemcpyAsync(dd, &hd, sizeof hd, hipMemcpyHostToDevice, s));
         if (v->spill_cap < C) { if (v->spill) HIP_CHECK(hipFree(v->spill)); v->spill_cap = C + 16; HIP_CHECK(hipMalloc(&v->spill, v->spill_cap * 4 * 8)); }
+        unsigned dr_fl = 0; size_t dr_px = 0;
         if (p24) {                                          /* P24: the CRT into my out-run sequence (<= 4 qs / 3 + 2 C limbs: xb and the idle slabs of pool 1, 3 q + 16) */
             struct p24_run om = p24_run_make(R, C, a0, rows, 0);
             if (p24_run_total(&om) > 3 * q + 16) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 out-runs %zu limbs > pool 1's 3 q + 16 = %zu\n", p24_run_total(&om), 3 * q + 16); }
             if (p24_check()) { __atomic_fetch_add(&g_c_pieces, 1, __ATOMIC_RELAXED); if (ha >= 0) __atomic_fetch_add(&g_c_hit, 1, __ATOMIC_RELAXED); if (hb >= 0) __atomic_fetch_add(&g_c_hit, 1, __ATOMIC_RELAXED); }
-            if (p24_inject(2)) {                                /* P24_CHECK_TEST=2: one plane residue replaced (any P24_CHECK); P24_CHECK_TEST_S = 0|6|12: the first row of this PE whose shift class is s (deterministic for P24_CRT_ANY=0), else row 0 */
+            int inj_ = p24_inject(2); if (dra && dr_inject(DR_FLAG, g_p24_seq, rho, d, att)) inj_ = 1;   /* ECALC_DR_TEST=flag: the same corruption, in the K-th P24 product, on PE _PE, in _N consecutive attempts */
+            if (inj_) {                                /* P24_CHECK_TEST=2: one plane residue replaced (any P24_CHECK); P24_CHECK_TEST_S = 0|6|12: the first row of this PE whose shift class is s (deterministic for P24_CRT_ANY=0), else row 0 */
                 uint64_t bad = 1234567890123ULL; size_t ri = 0; const int ts = p24_test_s();
                 if (ts >= 0) { while (ri < 2 && ri + 1 < rows && p24_s(a0 + ri) != ts) ri++;
                     if (p24_s(a0 + ri) != ts) fprintf(stderr, "P24_CHECK_TEST_S=%d: no row of that shift class among the first %zu rows of this PE (%zu rows); corrupting row %zu (class %d)\n", ts, ri + 1, rows, ri, p24_s(a0 + ri)); }
                 HIP_CHECK(hipMemcpyAsync(xa[0] + ri, &bad, 8, hipMemcpyHostToDevice, s)); }
-            p24_crt_set_check(p24_crt_any() || p24_check() > 0);   /* all-shift flag by default (P24_CRT_ANY=0: the s = 12 + spill flag only, unless P24_CHECK) */
+            p24_crt_set_check(p24_crt_any() || p24_check() > 0 || dra);   /* all-shift flag by default (P24_CRT_ANY=0: the s = 12 + spill flag only, unless P24_CHECK) */
             p24_crt_launch(xa[0], xa[1], xa[2], xa[3], &gc, R, C, a0, rows, xb, v->spill, s);
             unsigned fl = p24_crt_err(s);
-            if (fl) {
+            if (fl && dra) { __atomic_fetch_add(&g_c_flags, 1, __ATOMIC_RELAXED); dr_px = p24_crt_err_pos(); dr_fl = fl; g_dr_fl[d] |= 1; }   /* ECALC_DR: not fatal here, the decision below repeats the piece */
+            else if (fl) {
                 __atomic_fetch_add(&g_c_flags, 1, __ATOMIC_RELAXED); p24_report(); size_t px = p24_crt_err_pos();
                 ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 CRT flag %u (a coefficient past 10^60: the piece's bound); inputs %s; cache %s; product #%zu (%s), piece %d,%d of the %d x %d grid (%zu x %zu limbs per piece, this piece %zu x %zu); node %d, PE %d of %d, APU thread %d; plane 2^%d = R %zu x C %zu, first row %zu, %zu rows, shift %zu; first flagged point %zu (column %zu, row %zu, s %d)\n",
                          fl, p24_check() ? "checked < 10^18 per limb as packed and as received, except operands served from the transform cache (a hit skips the exchange and the check; P24_CHECK=2 disables the cache)" : "not checked (P24_CHECK=0)",
@@ -1548,6 +1588,26 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, qs, gc, v->spill);
         HIP_SYNC(s);
         tc[d] = mem_now() - s2;
+        if (dra) {                                          /* the collective decision, before the scatter writes any result limb */
+            if (g_dr_in[d]) g_dr_fl[d] |= 2;
+#pragma omp barrier
+#pragma omp master
+            {
+                g_dr_dec = dr_piece_decide(G, NL(), att, na, nb, logn, &dr_prev);
+                if (g_dr_dec == 1) { cache_drop(); ha = hb = slA = slB = -1; kA = kB = 0; afull = bfull = 0; }   /* the repeat runs with the transform cache off (a bad entry cannot come back) */
+            }
+#pragma omp barrier
+            if (g_dr_dec == 2) {                            /* every thread: the first caller prints and leaves, the others block (fatal.h) */
+                if (dr_fl) ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: DR: %s; this PE: node %d, PE %d of %d, APU thread %d: CRT flag %u, first flagged point %zu (column %zu, row %zu, s %d); plane R %zu x C %zu, first row %zu, %zu rows, shift %zu\n",
+                                    g_dr_msg, node, rho, nr, d, dr_fl, dr_px, dr_px / R, dr_px % R, p24_s(dr_px), R, C, a0, rows, shift);
+                ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: DR: %s\n", g_dr_msg);
+            }
+            if (g_dr_dec == 0) break;
+            HIP_CHECK(hipSetDevice(dv));                    /* (the master's group collective may have moved its device) */
+            continue;
+        }
+        break;
+        }
         /* the result's rows -> the nodes' windows: the segments of every node's window in my sequence are sent straight from
          * the CRT output (back to back in node order); the received segments of my window from the ranks (r, d) at prefix offsets.
          * Phase 13a M: in Kt rounds when chunked (each round = every node's chunk rc of its window, then this node's chunk added
@@ -1738,7 +1798,7 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     const int pc = pc_on(); int pck = 0;                      /* Phase 15 PC: the slots from the block pool per grid product (cache_pc_take, below) */
     int one = mn_grid_shape(na, nb, g, p24, &ka, &kb);
     if (p24) __atomic_fetch_add(&g_c_prod, 1, __ATOMIC_RELAXED);
-    if (p24_check() || p24_test()) { p24_arm(); g_p24_seq = g_c_prod; g_p24_ka = ka; g_p24_kb = kb; g_p24_pa = (na + ka - 1) / ka; g_p24_pb = (nb + kb - 1) / kb; g_p24_pi = g_p24_pj = -1;
+    if (p24_check() || p24_test() || dr_on()) { p24_arm(); if (dr_on()) dr_arm(); g_p24_seq = g_c_prod; g_p24_ka = ka; g_p24_kb = kb; g_p24_pa = (na + ka - 1) / ka; g_p24_pb = (nb + kb - 1) / kb; g_p24_pi = g_p24_pj = -1;
     snprintf(g_p24_what, sizeof g_p24_what, "%zu x %zu limbs%s%s%s%s%s", na, nb, X ? ", + x" : "", lowcut ? ", low cut" : "", trunc ? ", low product" : "", wskip != (size_t)-1 ? ", wskip" : "", basis ? ", basis" : ""); }
     if (one && p24) { if (nc > lowcut) { mn_core(&Cn, A, B, 0, G, 0, 1, &tm, -1, -1, 1, 0); formed = 1; if (X) mdb_add_shifted(&Cn, X, 0, G); } else skipped = 1; }   /* P24: X added afterwards */
     else if (one) { if (nc > lowcut) { mn_core(&Cn, A, B, X, G, 0, 1, &tm, -1, -1, 0, 0); formed = 1; } else skipped = 1; }
