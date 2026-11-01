@@ -10,7 +10,7 @@ Closed rows and older material are in `archive:TASKS_HISTORY_2026-10-19.md`, `ar
 Classes: 1 bugs, 2 shrink, 3 simplify, 4 performance, 5 docs (definitions in the project instructions). Within a class,
 rows are in the order to do them.
 
-Plan from the 10-29 target reports (user approval 2026-10-31; no further target run, so every item is proven on aac7 / aac6):
+Plan from the 10-29 target reports (user approval 2026-10-31). No target session of ours follows: the code is imported to the target one way and an agent there reads and tests it, so each item is proven on aac7 / aac6 and every target-only gain gets a self-contained test in PLAN.md (row 14):
 
 Class 1
 1. Launch-kit fixes: alloc.sh without SLURM_HINT, one REMOTE_DEVICE_GB -> ECALC_DEVICE_GB rule in lib.sh, NIC form 0,1;2,3;4,5;6,7, PLAN hugetlb row (branch kitfix).
@@ -28,10 +28,10 @@ Class 4
 11. Two exchanges in flight per communicator (design, after rows 8-10).
 12. Start-up: per-device allocator processes, seed-thread pool wait, self-test time visible, pool fragmentation.
 13. Checkpoints after the tree and after the reciprocal.
-Items whose gain only the target could show (two NICs per APU on path 1, switch-group check, hierarchical exchange) wait for the user's decision.
+Items whose gain only the target can show (user 2026-10-31: build them): two NICs per APU on path 1 (`XSHMEM_LANES=2`, layout D) and a launch-time switch-group check, behind switches, digits-gated on aac7; hierarchical exchange as an OPPORTUNITIES entry.
 
 Class 5
-14. Piece-boundary table and memory ceilings in results/LAUNCH_DEFAULTS.md; time model recalibrated on the 2e13 decomposition; write-time model; target facts corrected where they live; PLAN.md target section replaced.
+14. Piece-boundary table and memory ceilings in results/LAUNCH_DEFAULTS.md; time model recalibrated on the 2e13 decomposition; write-time model; target facts corrected where they live; PLAN.md target section rewritten as the target agent's test list (setting, A/B with stop rule, adoption rule).
 
 The 2026-10-27/29 work sessions (branch `cand3` = `cand` + the failures session + Q130 + the
 overnight session Q131 + the target-copy readiness work; every new behaviour behind a switch, off by default except the
@@ -90,7 +90,7 @@ Performance ideas, open or tried, are in `OPPORTUNITIES.md`.
 
 ## Target session
 
-No further target run (user 2026-10-31); the lines below are history.
+No target session of ours follows (user 2026-10-31): the target agent's test list goes into PLAN.md (row 14); the lines below are history.
 
 Target work: `target/RESTART.md` and `target/bench/QUESTIONS.md`.
 - Self-test cost (user 2026-10-26: keep the start-up self-tests if they really take < 15 s): read the self-test seconds
