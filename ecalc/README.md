@@ -117,6 +117,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_DR` | 0 | experiment | results/DR.md | - |
 | `ECALC_DR_TEST` | 0 | diagnostic | results/DR.md | - |
 | `ECALC_DR_TEST_K` | 1 | diagnostic | results/DR.md | - |
+| `ECALC_DR_TEST_M` | 1 | diagnostic | results/DR.md | - |
 | `ECALC_DR_TEST_N` | 1 | diagnostic | results/DR.md | - |
 | `ECALC_DR_TEST_PE` | 0 | diagnostic | results/DR.md | - |
 | `ECALC_DR_TOTAL` | 8 | experiment | results/DR.md | - |
@@ -255,7 +256,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | diagnostic | TARGET12 (S2) | 2027-04-12 | `ECALC_TEST_DIE_PE` |
 | diagnostic | comm | 2027-04-12 | `COMM_SEQ_CHECK`, `XSHMEM_HANG_S` |
 | diagnostic | diagnostics (TESTING.md) | 2027-04-12 | `BS_CKPT_BG_MBS`, `DIST_GEN`, `DIST_LOGN_TEST`, `DIST_STATS`, `ECALC_FATAL_TEST`, `ECALC_INIT_ONLY`, `ECALC_MEM_SAMPLE`, `ECALC_NP_AUTO_TERMS`, `ECALC_TEST_CORR`, `ECALC_WINDOWS`, `MEM_DPOOL_FILL`, `MN_OUT_DKM_HI_TEST_CARRY`, `MN_TREE_LOGN_TEST`, `NEWTON_DKM_TEST_HI`, `NEWTON_MN_RECIP_TS`, `P24_CHECK`, `P24_CHECK_TEST`, `P24_CHECK_TEST_K`, `RNS_POOL_GROW` |
-| diagnostic | diagnostics (TESTING.md) | 2027-05-01 | `ECALC_DR_TEST`, `ECALC_DR_TEST_K`, `ECALC_DR_TEST_N`, `ECALC_DR_TEST_PE` |
+| diagnostic | diagnostics (TESTING.md) | 2027-05-01 | `ECALC_DR_TEST`, `ECALC_DR_TEST_K`, `ECALC_DR_TEST_M`, `ECALC_DR_TEST_N`, `ECALC_DR_TEST_PE` |
 | test | ecalc/tests/t_alloc.c | 2027-04-12 | `T_ALLOC_NTT`, `T_ALLOC_PROBE`, `T_ALLOC_SEED` |
 | test | ecalc/tests/t_dist.c | 2027-04-12 | `DIST_BIG`, `DIST_BIG_K`, `DIST_BIG_PRIMES`, `DIST_H4`, `DIST_H4_MB`, `DIST_H4_REPS`, `DIST_LAYERED`, `DIST_LBENCH`, `DIST_LREPS`, `DIST_TBENCH`, `DIST_TINV`, `DIST_XGMI` |
 | test | ecalc/tests/t_patch.c | 2027-04-12 | `T_PATCH_DIR`, `T_PATCH_UNPACK` |

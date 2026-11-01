@@ -47,6 +47,7 @@ static const char *const cfg_names[] = {
     "ECALC_DR",
     "ECALC_DR_TEST",
     "ECALC_DR_TEST_K",
+    "ECALC_DR_TEST_M",
     "ECALC_DR_TEST_N",
     "ECALC_DR_TEST_PE",
     "ECALC_DR_TOTAL",
@@ -147,4 +148,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_THP_DISABLE",
     "XSHMEM_THREAD_LEVEL",
 };
-#define CFG_NAMES_N 145
+#define CFG_NAMES_N 146

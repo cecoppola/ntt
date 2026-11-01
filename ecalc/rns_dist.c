@@ -1399,16 +1399,20 @@ static int dr_piece_decide(mn_group *G, int nl, int att, size_t na, size_t nb, i
 {
     uint32_t mine = 0; for (int d = 0; d < nl; d++) mine |= (uint32_t)(g_dr_fl[d] & 3) << (2 * d);
     dr_count(DR_C_CHECK, 1);
-    if (!grp_max(G, mine != 0)) { if (att > 0) dr_count(DR_C_REC_PIECE, *prev); *prev = 0; return 0; }
+    /* one grp_max carries the verdict (bit 32) and this process's count of failed pieces, so the ECALC_DR_TOTAL cap is decided alike on every PE of the group
+     * (the counts differ between PEs that sat in different subgroups earlier) */
+    size_t gm = grp_max(G, ((size_t)(mine != 0) << 32) | (g_dr_events & 0xffffffffu));
+    if (!(gm >> 32)) { if (att > 0) dr_count(DR_C_REC_PIECE, *prev); *prev = 0; return 0; }
     int g = G->g; uint32_t *all = (uint32_t *)malloc((size_t)g * sizeof *all);
     if (g > 1) comm_allgather_host(G->all[0], &mine, all, sizeof mine); else all[0] = mine;
+    g_dr_events = (gm & 0xffffffffu);
     char who[640]; size_t nfail = 0; int k = 0; who[0] = 0;
     for (int r = 0; r < g; r++) for (int d = 0; d < nl; d++) {
         unsigned c = (all[r] >> (2 * d)) & 3; if (!c) continue;
-        if (nfail < 12) k += snprintf(who + k, sizeof who - k, "%sPE %d (node %d, APU thread %d: %s)", nfail ? ", " : "", g * d + r, G->g0 + r, d, c == 3 ? "CRT flag + received limb" : c == 1 ? "CRT flag" : "received limb");
+        if (nfail < 12) { k += snprintf(who + k, sizeof who - k, "%sPE %d (node %d, APU thread %d: %s)", nfail ? ", " : "", g * d + r, G->g0 + r, d, c == 3 ? "CRT flag + received limb" : c == 1 ? "CRT flag" : "received limb"); if (k > (int)sizeof who - 1) k = (int)sizeof who - 1; }
         nfail++;
     }
-    if (nfail > 12) snprintf(who + k, sizeof who - k, " and %zu more", nfail - 12);
+    if (nfail > 12) { k += snprintf(who + k, sizeof who - k, " and %zu more", nfail - 12); if (k > (int)sizeof who - 1) k = (int)sizeof who - 1; }
     free(all);
     dr_count(DR_C_FAIL, nfail); g_dr_events++; *prev = nfail;
     char where[160]; dr_where(where, sizeof where);

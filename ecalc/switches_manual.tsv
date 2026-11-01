@@ -166,3 +166,4 @@ ECALC_DR_TEST	0	str	flag|deliver|store|xql|cyc|leaf	diagnostic	dr.c dr_init_from
 ECALC_DR_TEST_K	1	int	k >= 1	diagnostic	dr.c dr_test_k: the k-th P24 product of the process (counted from 1, as P24_CHECK_TEST_K) that ECALC_DR_TEST corrupts		results/DR.md
 ECALC_DR_TEST_PE	0	int	-1|pe >= 0	diagnostic	dr.c dr_test_pe: the PE (rank index of the product) that ECALC_DR_TEST corrupts; -1 = every PE		results/DR.md
 ECALC_DR_TEST_N	1	int	n >= 1	diagnostic	dr.c dr_test_n: the number of consecutive attempts of the corrupted piece that are corrupted (1 = transient: the repeat recovers; 2 = persistent: the run stops with the location)		results/DR.md
+ECALC_DR_TEST_M	1	int	m >= 1	diagnostic	dr.c dr_test_m: the number of consecutive P24 products, from the K-th, that ECALC_DR_TEST corrupts (each with its own latch; 2 or more exercise the ECALC_DR_TOTAL cap)		results/DR.md

@@ -35,6 +35,7 @@ int dr_test_kind(void);                        /* the kind, or -1 */
 int dr_test_k(void);
 int dr_test_pe(void);
 int dr_test_n(void);
+int dr_test_m(void);
 /* 1 if this site injects now: kind matches, occurrence occ == K, pe == _PE (or _PE = -1), and this is the attempt the latch of `slot` is on (< N attempts in a row,
  * starting at the first matching site).  Counts the injection. */
 int dr_inject(int kind, size_t occ, int pe, int slot, int attempt);

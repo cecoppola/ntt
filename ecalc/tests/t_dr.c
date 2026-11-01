@@ -127,6 +127,10 @@ static void t_inject(void)
     VERIFY(!dr_inject(DR_FLAG, 3, 1, 2, 0), "other PE");
     VERIFY(dr_inject(DR_FLAG, 3, 2, 2, 0), "this PE");
     VERIFY(!dr_inject(DR_FLAG, 3, 2, 2, 1), "N = 1: no second attempt");
+    setenv("ECALC_DR_TEST_PE", "-1", 1); setenv("ECALC_DR_TEST_M", "2", 1); dr_init_from_env();
+    VERIFY(dr_test_m() == 2 && dr_inject(DR_FLAG, 3, 0, 4, 0) && !dr_inject(DR_FLAG, 3, 0, 4, 0), "M = 2: first product, one latch");
+    VERIFY(dr_inject(DR_FLAG, 4, 0, 4, 0) && !dr_inject(DR_FLAG, 5, 0, 4, 0) && !dr_inject(DR_FLAG, 2, 0, 5, 0), "M = 2: the second product fires again, the third and the one before do not");
+    unsetenv("ECALC_DR_TEST_M");
     setenv("ECALC_DR", "0", 1); unsetenv("ECALC_DR_TEST"); dr_init_from_env();
     VERIFY(!dr_on() && dr_test_kind() == -1 && !dr_inject(DR_FLAG, 3, 2, 3, 0), "off");
     dr_count(DR_C_CHECK, 4); dr_count(DR_C_FAIL, 1); VERIFY(dr_counter(DR_C_CHECK) == 4 && dr_counter(DR_C_FAIL) == 1, "counters");

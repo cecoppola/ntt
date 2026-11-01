@@ -96,3 +96,4 @@ ECALC_DR_TEST	diagnostic	diagnostics (TESTING.md)	2027-05-01	diagnostic or fault
 ECALC_DR_TEST_K	diagnostic	diagnostics (TESTING.md)	2027-05-01	diagnostic or fault-injection setting; changes no digit
 ECALC_DR_TEST_PE	diagnostic	diagnostics (TESTING.md)	2027-05-01	diagnostic or fault-injection setting; changes no digit
 ECALC_DR_TEST_N	diagnostic	diagnostics (TESTING.md)	2027-05-01	diagnostic or fault-injection setting; changes no digit
+ECALC_DR_TEST_M	diagnostic	diagnostics (TESTING.md)	2027-05-01	diagnostic or fault-injection setting; changes no digit

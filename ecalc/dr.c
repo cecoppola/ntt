@@ -7,7 +7,7 @@
 typedef unsigned __int128 u128;
 
 /* ---- switches ---- */
-static struct { int init, level, total, kind, k, pe, n; } g = { 0, 0, 8, -1, 1, 0, 1 };
+static struct { int init, level, total, kind, k, pe, n, m; } g = { 0, 0, 8, -1, 1, 0, 1, 1 };
 static const char *const KN[DR_NKINDS] = { "flag", "deliver", "store", "xql", "cyc", "leaf" };
 const char *dr_kind_name(int kind) { return kind >= 0 && kind < DR_NKINDS ? KN[kind] : "none"; }
 static long atol_d(const char *e, long d) { return e && *e ? atol(e) : d; }
@@ -17,7 +17,7 @@ void dr_init_from_env(void)
     if (lv < 0 || lv > 3) { fprintf(stderr, "ECALC_DR=%ld: must be 0, 1, 2 or 3\n", lv); exit(2); }
     g.level = (int)lv;
     long tot = atol_d(getenv("ECALC_DR_TOTAL"), 8); g.total = tot < 1 ? 1 : (int)tot;
-    g.kind = -1; g.k = 1; g.pe = 0; g.n = 1;
+    g.kind = -1; g.k = 1; g.pe = 0; g.n = 1; g.m = 1;
     const char *t = getenv("ECALC_DR_TEST");
     if (t && *t && strcmp(t, "0")) {
         for (int i = 0; i < DR_NKINDS; i++) if (!strcmp(t, KN[i])) g.kind = i;
@@ -25,6 +25,7 @@ void dr_init_from_env(void)
         long k = atol_d(getenv("ECALC_DR_TEST_K"), 1); g.k = k < 1 ? 1 : (int)k;
         long pe = atol_d(getenv("ECALC_DR_TEST_PE"), 0); g.pe = pe < 0 ? -1 : (int)pe;
         long n = atol_d(getenv("ECALC_DR_TEST_N"), 1); g.n = n < 1 ? 1 : (int)n;
+        long m = atol_d(getenv("ECALC_DR_TEST_M"), 1); g.m = m < 1 ? 1 : (int)m;
     }
     g.init = 1;
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
@@ -36,13 +37,15 @@ int dr_test_kind(void) { ini(); return g.kind; }
 int dr_test_k(void) { ini(); return g.k; }
 int dr_test_pe(void) { ini(); return g.pe; }
 int dr_test_n(void) { ini(); return g.n; }
+int dr_test_m(void) { ini(); return g.m; }
 
-static size_t fired[DR_SLOTS], cnt[DR_C_N];
+static size_t fired[DR_SLOTS], fired_occ[DR_SLOTS], cnt[DR_C_N];
 int dr_inject(int kind, size_t occ, int pe, int slot, int attempt)
 {
     ini();
-    if (g.kind < 0 || kind != g.kind || occ != (size_t)g.k || slot < 0 || slot >= DR_SLOTS) return 0;
+    if (g.kind < 0 || kind != g.kind || occ < (size_t)g.k || occ >= (size_t)g.k + (size_t)g.m || slot < 0 || slot >= DR_SLOTS) return 0;
     if (g.pe >= 0 && pe != g.pe) return 0;
+    if (fired_occ[slot] != occ) { fired_occ[slot] = occ; fired[slot] = 0; }   /* each of the M products has its own latch */
     if (attempt < 0 || (size_t)attempt != fired[slot] || fired[slot] >= (size_t)g.n) return 0;
     fired[slot]++; dr_count(DR_C_INJECTED, 1); return 1;
 }
