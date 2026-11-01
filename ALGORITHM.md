@@ -444,7 +444,7 @@ A run is good only with `VERIFY OK` on every node (`verify.c/h`, `out_stage` in 
   (`rns_mul_dist_mn_chk`): the residue of C modulo t1_q[0] must equal R(A) R(B) + R(X), with R of the operands tracked
   through the tree in `mn.c` (seeded from the leaf), and a mismatch repeats the product once (a second failure, a
   changed operand at rest, or the `ECALC_DR_TOTAL` cap is fatal and names the node and APU). Each node's leaf is also
-  compared with its recurrence, and the tree's final P, Q with the division's residues. Only the tracked residues add
+  compared with its recurrence (without waiting for it: a recurrence still running at the division's start is compared after it is joined), and the tree's final P, Q with the division's residues. Only the tracked residues add
   work (one all-gather of 7 words per product, three more descriptor words per level, and one residue pass over each node's share).
 - **Off the clock.** `tools/unpack_digits` checks every packed part against its header residues while converting;
   `ecalc/digcmp.sh` compares with a GMP reference (references exist up to 10¹¹ digits). The checks a change must pass are
