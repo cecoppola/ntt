@@ -18,7 +18,7 @@ Class 1
 3. aac7 overnight stress test for the size-dependent corruption (3.7e13+ failed 6 of 6 on the target): pool pressure, tiny rounds, P24_CHECK=2, diagnostic words, the row-2 switch on/off. After it the user decides the scope of row 4.
 4. Detect and retry: per-prime check of every distributed product (coefficient sums), retry instead of a fatal on a mismatch or CRT flag, location logged; fault-injection test.
 5. Node health gate: done 2026-11-01 (branch health, `results/HEALTH.md`): EDAC ue/ce and boot time in the node screen and snapshots (`--refuse-ue`, kit `REMOTE_REFUSE_UE=1`), per-run NIC FEC/pause/stall/drop deltas with the top 5 nodes in the run report.
-6. Per-APU memory guard: done 2026-11-01 (branch health): `device_hwm_apu_gb` from per-NUMA MemFree (the APUs the process drives), `ECALC_MEM_GUARD_APU_GB` (default off), stair rule reads it (gap keyed to its source). Open: MemFree vs MemFree + file cache (user).
+6. Per-APU memory guard: done 2026-11-01 (branch health): `device_hwm_apu_gb` from per-NUMA MemFree (the APUs the process drives), `ECALC_MEM_GUARD_APU_GB` (default off), stair rule reads it (gap keyed to its source). Free memory = MemFree + file cache (user Q140; GPU memory is not on the file LRU, measured); start-up check `ECALC_FIT_APU_CHECK` (default off) against the planner's busiest-APU peak + max(guard, 5 GB), refuses with rc 8 before GPU work (1 n D, 1 n P, 2 n D tested).
 7. Diagnostics: host timeline between exchanges (I3). Done 2026-11-01 (branch diag, `results/DIAG.md`): per-tag round and byte counters, round series and per-PE statistics to per-PE files, gpu_ms event pairing, pool peak-live table, mapping count in ECALC_INIT_TL; gates 1 n and 2 n on both paths PASS.
 
 Class 4

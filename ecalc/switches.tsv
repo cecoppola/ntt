@@ -17,7 +17,7 @@ COMM_HANG_DETAIL	int	unset	unset		built-in default	-	-	Y	ecalc	comm_xshmem.c	2	-
 COMM_LAYER_VSLOT_MB	bool	derived	derived	0|1	built-in default	-	-	Y	ecalc	comm_layered.c	1	-	-	
 COMM_OFI_NICS	str	unset	derived	NIC list, ; between devices	launch-line	-	TUNE17.md+TGTBENCH2.md	Y	ecalc	pe_geo.c	1	-	-	comm_ofi.c:123; unset = automatic
 COMM_OFI_POOL_MB	int	0	0	MiB per device	launch-line	-	STD17.md+S18KITFIX.md	Y	ecalc	binsplit.c,comm_xshmem.c,ecalc.c	7	-	-	binsplit.c:694 sets it from the modelled need when unset
-COMM_RANK	int	0	0	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,mn.c,segv_trace.c,vpe.c	21	-	-	set per process by the launcher (mnrun.sh); excluded from the config hash
+COMM_RANK	int	0	0	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,mn.c,segv_trace.c,vpe.c	25	-	-	set per process by the launcher (mnrun.sh); excluded from the config hash
 COMM_SEQ_CHECK	bool	0	unset	0|1	built-in default	-	-	Y	ecalc	comm_xshmem.c	1	comm	2027-04-12	comm_xshmem.c; every small collective and handshake
 COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_xshmem.c	7	-	-	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
 COMM_SIZE	int	1	conflict:0|1	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,ecalc.c,fatal.c,mem.c,mn.c,mn_plan.c,rns_mul.c,segv_trace.c,vpe.c	24	-	-	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
@@ -44,15 +44,16 @@ ECALC_CKPT_TOP_SLACK	float	1	1		built-in default	-	N13.md+IO15.md	Y	ecalc	ecalc.
 ECALC_CORR_PATCH	int	2	2		built-in default	-	KP15.md	Y	ecalc	ecalc.c	4	-	-	
 ECALC_CORR_PATCH_ZONE	int	4096	4096		built-in default	-	K15.md	Y	ecalc	ecalc.c	2	-	-	
 ECALC_DEVICE_GB	float	373.44	373.44	GB per node	built-in default	aac7	-	Y	ecalc	binsplit.c	2	-	-	binsplit.c binsplit_fit (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): the device edge per node the memory fit checks (the target: 373.44, m, TGTBENCH2; aac7 profile 444.0, m); a run above it is refused before launch
-ECALC_DEVICE_MARGIN_GB	float	5	5	GB per node	built-in default	-	-	Y	ecalc	binsplit.c	2	-	-	binsplit.c binsplit_fit (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): DM_MN_WRAP automatic takes the wrap only when the device with it is at most ECALC_DEVICE_GB less this margin
+ECALC_DEVICE_MARGIN_GB	float	5	5	GB per node	built-in default	-	-	Y	ecalc	binsplit.c,ecalc.c	3	-	-	binsplit.c binsplit_fit (FIT, D26, results/LAUNCH_DEFAULTS.md §FIT): DM_MN_WRAP automatic takes the wrap only when the device with it is at most ECALC_DEVICE_GB less this margin
 ECALC_FATAL_ABORT	bool	derived	derived	0|1	built-in default	-	S18W.md+C314.md	Y	ecalc	fatal.c	1	-	-	
 ECALC_FATAL_TEST	int	unset	unset		test-only	-	C314.md	Y	ecalc	binsplit.c	2	diagnostics (TESTING.md)	2027-04-12	
 ECALC_FATAL_WAIT	int	60	60		built-in default	-	C314.md	Y	ecalc	fatal.c	1	-	-	
+ECALC_FIT_APU_CHECK	int	unset	unset		launch-line	-	HEALTH.md	Y	ecalc	ecalc.c	2	-	-	ecalc.c fit_apu_check; default off
 ECALC_FIT_PER_APU	int	unset	unset		built-in default	-	-	Y	ecalc	binsplit.c	4	-	-	
 ECALC_INIT_ONLY	int	unset	unset		test-only	-	L114.md+P13b.md	Y	ecalc	ecalc.c	2	diagnostics (TESTING.md)	2027-04-12	
 ECALC_INIT_TL	bool	0	0	0|1	launch-line	-	MAP15.md	Y	ecalc	comm_xshmem.c,dbig.c,ecalc.c,mn.c,xshmem_ofi.c	7	-	-	dbig.c
 ECALC_MEMSAMPLE_SYSFS_ROOT	str			path prefix	test-only	-	HEALTH.md	Y	ecalc	memsample.c	1	HEALTH (C5)	2027-04-12	memsample.c; prefix of the /sys path of the per-APU NUMA-node MemFree reader (a mock tree proves the per-APU guard); unset = the real /sys
-ECALC_MEM_GUARD_APU_GB	float	0	0	>=0 GB	launch-line	-	HEALTH.md	Y	ecalc	memsample.c	1	-	-	memsample.c; 0 = per-APU guard off
+ECALC_MEM_GUARD_APU_GB	float	0	0	>=0 GB	launch-line	-	HEALTH.md	Y	ecalc	ecalc.c,memsample.c	2	-	-	memsample.c; 0 = per-APU guard off
 ECALC_MEM_GUARD_GB	float	0	derived	>=0 GB	launch-line	aac7	IO15.md+DOC15.md	Y	ecalc	memsample.c	1	-	-	memsample.c:113; 0 = guard off
 ECALC_MEM_SAMPLE	bool	derived	derived	0|1	test-only	-	IO15.md+S114.md	Y	ecalc	memsample.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_NODE_GB	float	480	480		built-in default	aac7	P16.md+C314.md	Y	ecalc	binsplit.c,ecalc.c	10	-	-	
@@ -63,7 +64,7 @@ ECALC_OMP_TEAM	str	omp	unset	omp|mask	experiment	-	S22.md	Y	ecalc	omp_team.h	1	T
 ECALC_OUT_MODE	bool	derived	derived	0|1	built-in default	-	IO15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_ODIRECT	int	derived	derived		built-in default	-	S114.md+KP15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_PACKED	int	2	2		built-in default	-	KP15.md+IO15.md	Y	ecalc	mn_out.c	1	coordinator (TASKS S)	2026-11-11	
-ECALC_PE_PER_GPU	bool	0	derived	0/1	experiment	-	-	Y	ecalc	ecalc.c,mem.c,memsample.c,vpe.c	4	TARGET12 (S2)	2026-12-31	vpe.c, mem.c; 1 = one process per GPU (PE; srun 4 tasks per node, SLURM_LOCALID, xshmem K = 1, implies the vPE view); needs COMM_TRANSPORT=xshmem and make XSHMEM=ofi; launch by mnrun.sh; aborts "stages not merged" until S2a..S2d are all in
+ECALC_PE_PER_GPU	bool	0	derived	0/1	experiment	-	-	Y	ecalc	ecalc.c,mem.c,memsample.c,vpe.c	6	TARGET12 (S2)	2026-12-31	vpe.c, mem.c; 1 = one process per GPU (PE; srun 4 tasks per node, SLURM_LOCALID, xshmem K = 1, implies the vPE view); needs COMM_TRANSPORT=xshmem and make XSHMEM=ofi; launch by mnrun.sh; aborts "stages not merged" until S2a..S2d are all in
 ECALC_PLANE_CAP	bool	derived	derived	0|1	experiment	-	P13b.md+CAP17.md	Y	ecalc	ecalc.c	1	coordinator (TASKS S)	2026-11-11	
 ECALC_PLANE_CAP_IDX	int	derived	derived		test-only	-	-	Y	ecalc	binsplit.c,ecalc.c	3	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	
 ECALC_RECHECK	bool	0	unset	0|1	launch-line	-	V.md+KP15.md	Y	ecalc	ecalc.c	2	-	-	ecalc.c: standalone recheck of a finished run

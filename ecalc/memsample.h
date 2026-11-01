@@ -21,6 +21,7 @@ struct meminfo { size_t total, free, avail, cached, dirty, writeback; };   /* by
 int  mem_meminfo(struct meminfo *m);                 /* /proc/meminfo; 1 ok */
 int  mem_live_on(void);
 void mem_live_line(const char *what);                /* prints and restarts the window */
+int  mem_apu_free_now(int *ids, size_t *freeb, size_t *memfree);   /* MEMFIT: per APU this process drives (<= 4): id, free = MemFree + file cache, MemFree (may be 0); returns their number, 0 = not available */
 void mem_sampler_start(void);                        /* no-op unless ECALC_MEM_SAMPLE is set; idempotent */
 void mem_sampler_stop(void);                         /* the summary line; also run at exit */
 #ifdef __cplusplus

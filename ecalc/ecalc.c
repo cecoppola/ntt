@@ -322,6 +322,30 @@ static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned lon
  * same numbers: the collective verdict is a max-reduce of "over" over the communicator.  Default on (see budget_check
  * below); ECALC_BUDGET_CHECK=0 turns it off. */
 static uint64_t host_hash(void) { char h[256] = ""; gethostname(h, sizeof h - 1); uint64_t x = 1469598103934665603ull; for (const char *p = h; *p; p++) x = (x ^ (unsigned char)*p) * 1099511628211ull; return x; }
+/* ECALC_FIT_APU_CHECK=1 (default off; MEMFIT): at start, before any GPU work, each APU this process drives must have free memory (MemFree + the reclaimable file cache of its NUMA node,
+ * memsample.c) of at least the planner's busiest-APU peak (fit->dev_apu_max, rank 0's layout) plus the margin: the larger of ECALC_MEM_GUARD_APU_GB and ECALC_DEVICE_MARGIN_GB (5).
+ * Layout P (ECALC_PE_PER_GPU): only the own APU.  Refuses with rc EC_RC_BUDGET like the budget check; the other ranks of a multi-node launch are ended by the launcher. */
+static void fit_apu_check(const struct bs_fit *fit)
+{
+    if (!(getenv("ECALC_FIT_APU_CHECK") && atoi(getenv("ECALC_FIT_APU_CHECK")))) return;
+    const char *ga = getenv("ECALC_MEM_GUARD_APU_GB"), *dm = getenv("ECALC_DEVICE_MARGIN_GB");
+    double margin = ((ga ? atof(ga) : 0) > (dm ? atof(dm) : 5.0) ? atof(ga) : dm ? atof(dm) : 5.0) * 1e9, need = (double)fit->dev_apu_max + margin;
+    int ids[8]; size_t fr[8], mf[8]; int n = mem_apu_free_now(ids, fr, mf);
+    if (n < 1 && getenv("ECALC_PE_PER_GPU") && atoi(getenv("ECALC_PE_PER_GPU")) && mem_own_device() < 0)   /* layout P with the own device unknown (no SLURM_LOCALID): say so, on stderr */
+        fprintf(stderr, "ecalc: WARNING: ECALC_FIT_APU_CHECK=1 is NOT checked: layout P but this process's device is not known yet (SLURM_LOCALID unset?)\n");
+    if (n < 1) { printf("fit apu check: ECALC_FIT_APU_CHECK=1: no readable per-APU free memory here (not 4 NUMA nodes, or no node file for the own device): not checked\n"); fflush(stdout); return; }
+    int bad = -1; for (int i = 0; i < n; i++) if ((double)fr[i] < need) { bad = i; break; }
+    if (bad >= 0) {
+        fprintf(stderr, "ecalc: FIT APU CHECK FAILED (ECALC_FIT_APU_CHECK=1) on rank %s: APU %d has %.2f GB free (MemFree %.2f + file cache %.2f) but the plan needs %.2f GB (planner's busiest-APU peak %.2f + margin %.2f): short by %.2f GB; stopping before any GPU work, rc %d\n",
+                getenv("COMM_RANK") ? getenv("COMM_RANK") : "0", ids[bad], fr[bad] * 1e-9, mf[bad] * 1e-9, (fr[bad] - mf[bad]) * 1e-9, need * 1e-9, fit->dev_apu_max * 1e-9, margin * 1e-9, (need - (double)fr[bad]) * 1e-9, EC_RC_BUDGET);
+        fflush(stdout); fflush(stderr); ec_quit(EC_RC_BUDGET);
+    }
+    if (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0) {
+        char b[160]; int o = 0; for (int i = 0; i < n; i++) o += snprintf(b + o, sizeof b - o, "%sAPU %d %.1f", i ? ", " : "", ids[i], fr[i] * 1e-9);
+        printf("fit apu check: ok: free memory (MemFree + file cache) %s GB vs the plan's busiest-APU peak %.2f + margin %.2f = %.2f GB\n", b, fit->dev_apu_max * 1e-9, margin * 1e-9, need * 1e-9);
+    }
+    fflush(stdout);
+}
 static void budget_check(unsigned long N, int verbose)
 {
     const char *sw = getenv("ECALC_BUDGET_CHECK"); if (sw && !atoi(sw)) return;   /* default on; =0 off */
@@ -553,6 +577,7 @@ int main(int argc, char **argv)
     struct bs_fit fit; int fit_g = getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1; if (fit_g < 1) fit_g = 1;
     { int pl0 = rns_pool_log(); rns_preinit_pool_log(pool_log); binsplit_fit(N, fit_g, &fit); rns_preinit_pool_log(pl0); }   /* FIT (D26): the memory fit at rank 0's layout; decides DM_MN_WRAP when unset (every rank alike) */
     if (!plan && verbose && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0)) binsplit_fit_print(&fit, (double)d_out, fit_g, "memory fit: ");
+    if (!plan) fit_apu_check(&fit);
     if (!plan && !fit.fits && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0))
         fprintf(stderr, "ecalc: WARNING: this run does not fit the modelled memory (device %.2f / %.2f GB, node %.2f / %.0f GB); launchers refuse it (mnrun.sh, tools/plan_values.py --fit)\n",
                 fit.device * 1e-9, fit.limit * 1e-9, fit.node * 1e-9, fit.budget * 1e-9);
