@@ -94,8 +94,10 @@ class MakefileSite(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr[-400:])
         return re.sub(" +", " ", r.stdout.replace(self.d, "F"))   # the lib64-or-lib link variables leave runs of spaces
 
+    # PMI_HOME / PMI_LIBDIR are set explicitly: the Makefile prefers the system Cray PMI (/opt/cray/pe) when present.
     def test_cray_site_12_1(self):
-        s = self.line("XSHMEM=cray", CRAY_PMI_PREFIX=self.d + "/pmi/6.1.17", CRAY_SHMEM_DIR=self.d + "/sma/12.1.0/ofi", CRAY_DSMML_PREFIX=self.d + "/ds")
+        s = self.line("XSHMEM=cray", CRAY_PMI_PREFIX=self.d + "/pmi/6.1.17", PMI_HOME=self.d + "/pmi/6.1.17", PMI_LIBDIR=self.d + "/pmi/6.1.17/lib",
+                      CRAY_SHMEM_DIR=self.d + "/sma/12.1.0/ofi", CRAY_DSMML_PREFIX=self.d + "/ds")
         for w in ("-IF/sma/12.1.0/ofi/include", "-LF/sma/12.1.0/ofi/lib64", "-LF/pmi/6.1.17/lib", "-Wl,-rpath,F/pmi/6.1.17/lib", "-LF/ds/lib"):
             self.assertIn(w, s)
         self.assertNotIn("11.8.0", s)
@@ -104,8 +106,10 @@ class MakefileSite(unittest.TestCase):
         s = self.line("XSHMEM=cray", CRAY_OPENSHMEMX_PREFIX="/x/y", CRAY_SHMEM_DIR=self.d + "/sma/12.1.0/ofi")
         self.assertIn("-I/x/y/include", s)
 
+    # PMI_HOME / PMI_LIBDIR are set explicitly: the Makefile prefers the system Cray PMI (/opt/cray/pe) when present.
     def test_ofi_pmi(self):
-        s = self.line("XSHMEM=ofi", "OFI=1", "LIBFABRIC=" + self.d + "/lf", CRAY_PMI_PREFIX=self.d + "/pmi/6.1.17")
+        s = self.line("XSHMEM=ofi", "OFI=1", "LIBFABRIC=" + self.d + "/lf", CRAY_PMI_PREFIX=self.d + "/pmi/6.1.17",
+                      PMI_HOME=self.d + "/pmi/6.1.17", PMI_LIBDIR=self.d + "/pmi/6.1.17/lib")
         self.assertIn("-IF/pmi/6.1.17/include", s)
         self.assertIn("-LF/pmi/6.1.17/lib -lpmi2 -Wl,-rpath,F/pmi/6.1.17/lib", s)
 
