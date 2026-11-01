@@ -58,7 +58,7 @@ Two non-ordering observations (not claimed to cause the failures):
 - `mnaccept.sh --only unit,e9` with `DB_FREE_SYNC=1`: rc 0; t_seed, t_dist, t_mn_grid VERIFY OK; e9 identical.
 - `gate.sh --build` fails at "python unit tests" (`tests/test_site.py`), also on main: environmental, pre-existing. The build, registry check and doccheck were run by hand: rc 0.
 - Pressure: 0 VMM remaps in 24 runs (4e9 and 1.6e10 digits; `ECALC_DEVICE_GB` 250/170, `DM_TIGHT=0`, `BS_ARENA_ROOM=0`, `BS_ARENA_TRIM_GB` 2..12; the trim is clamped to about 0.5 GB). All VERIFY OK. No pressure pair exists.
-- ABBA cost of `DB_FREE_SYNC=1` (2 nodes, 1.6e10): NOT MEASURED. The driver failed on a missing `tools/rundriver.sh`. A replacement item (45_c1pool_abba2) is queued; whether it runs is the user's decision.
+- ABBA cost of `DB_FREE_SYNC=1` (2 nodes, 1.6e10, item 45_c1pool_abba2, 2026-11-01 04:24 EST, 4 ABBA rounds, totals 22.75-29.17 s; measured): B - A = -0.30 s, 95 % CI [-1.96, +1.37] s (t, 3 df): not resolved, any cost is below about 1.4 s (6 %) at this size. Round 1 holds the slow first run (29.17 s). Its two extra pressure settings again gave 0 VMM remaps (one stopped at the memory guard, rc 9).
 
 **Review fixes (after the first gates).** `g_pull_run` is now cleared in `db_pull_stop_all` once the kernels exited; the sync moved out of the pool lock; the init and time sum are thread-safe. The gate results above are of the code BEFORE these fixes; re-gate results (1 node, switch 0/1/2) are in the next line; the 2-node gates with the switch wait for a second NIC node and are queued as a separate item.
 
