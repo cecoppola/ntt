@@ -1155,7 +1155,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
         *X = Xl;
         NST(newton_st.t_div += mem_now() - ta);
         if (g_dd.on) { dr_ctx_clear(); g_dd.on = 0; }   /* C3 D: the division is over; later products carry their own location */
-    mn_comm_mark("division (after the reciprocal)");   /* Phase 16 D */
+        mn_comm_mark("division (after the reciprocal)");   /* Phase 16 D */
         if (me == 0) printf("divmod(mn, DKM, X_hi writer) %.2f s: k %zu = %zu + %zu (s), h %zu; reciprocal %.2f (products %.2f), S = P + Q %.2f, step 1 (A mu, X_hi Q, corrections %ld) %.2f, step 2 A mu %.2f, X_lo Q %.2f, corrections %.2f (%ld, %s), R residues %.2f; X_lo0 %s B^s; division products %.2f s; shifts %zu/%.2f s, addsub %zu/%.2f s\n",
                             mem_now() - t0, k, k1, s, h, ta - t0, p_rec, tb - ta, dx1, tc - tb, td - tc, te - td, tf - te, dx, rel ? "deferred" : "in place", mem_now() - tf, carry ? ">=" : "<", mn_st.t_prod - p_rec, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub);
         return;

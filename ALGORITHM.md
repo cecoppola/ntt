@@ -454,7 +454,7 @@ A run is good only with `VERIFY OK` on every node (`verify.c/h`, `out_stage` in 
     D); the repeat runs inside the product call, with the transform cache dropped and the bad result freed first, so
     the peak is the first attempt's. A second failure at the same place, an operand corrupted at rest, a failed leaf,
     division-start, wrap or step-1 check, and a total of `ECALC_DR_TOTAL` (default 8) failed pieces are fatal and name
-    the product, node and APU (or the step). Cost is residue passes and small all-gathers only; no extra memory.
+    the product, node and APU (or the step). Cost is residue passes and small all-gathers only; a retry needs no memory beyond the first attempt's peak (the bad result is freed first; not tested at the memory edge).
   - Reading a run: the exit line `DR: <checks> checks, <injected> injected, <failures> failures, <recovered> recovered,
     <fatal> fatal` (injected = failures = recovered in an injection test). At one PE group the checks are inactive.
 - **Off the clock.** `tools/unpack_digits` checks every packed part against its header residues while converting;

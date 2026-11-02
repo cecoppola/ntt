@@ -16,7 +16,7 @@ Results at 9129ac52 (step 5, below): `mnaccept --only unit,e9,mn,grid,corr` with
 
 Known limitations and deviations: the wrap check is exact and fatal (inputs are consumed in place); the persistent case prints the exit summary twice; the D' modulus B-1 is weak for operands divisible by 10^18-1; retries free the bad result and re-allocate instead of zeroing in place.
 
-Not tested: different per-PE failure histories within one group (counts equal on all PEs in every test); a launcher without kill-on-bad-exit (local-only fatals rely on `srun --kill-on-bad-exit=1`; the bench launcher change was checked with `bash -n` only); D' injection before normalisation (the injection flips a limb after `mdb_norm`); peak memory of a retry at the memory edge (runs here are far below it); DR at the target's node counts (6 nodes and above) and the retry rate there.
+Not tested: different per-PE failure histories within one group (counts equal on all PEs in every test); a launcher without kill-on-bad-exit (local-only fatals rely on `srun --kill-on-bad-exit=1`; the bench launcher change was checked with `bash -n` only); D' injection before normalisation (the injection flips a limb after `mdb_norm`); peak memory of a retry at the memory edge (runs here are far below it); the fatal path of the step-1 remainder check R(R1) (added in the step-4 review fixes; exercised only on clean data, as the third division check) and the "D NOT ACTIVE" notice with its counter (no injection or test triggers either); DR at the target's node counts (6 nodes and above) and the retry rate there.
 
 **Question.** Target runs failed with CRT flags (a wrong transform-domain value, kind 1) and T1/VERIFY failures (wrong in-range limbs, kind 2), more often the larger the run. User decision Q142: full detect-and-retry. Can the product tiers detect a transient fault inside the product, before it reaches C, and repeat only the faulty piece, with no extra memory and no change of digits?
 
@@ -161,7 +161,7 @@ Checks not done: the division-start compare (`mn_dr_division_check`) had no inje
 
 Code (`ECALC_DR >= 3`): D around `mn_dkm_low` (`newton_db.c` `mn_dkm_low_d`, division steps 1 and 2): E = (R(S) B^e - R(X) R(Q)) - (R(Aw) - R(xql)) must be 0 or +-B^w; a mismatch frees xql, drops the transform cache and recomputes it once; a second failure, or the `ECALC_DR_TOTAL` cap, is fatal with the location. D in the wrap (`mn_dd_wrap`): exact E = 0, fatal on a mismatch (no stored input to recompute from; U faults are caught earlier by D'). D' in `rns_mul_dist_mn_cyc_v`: U == A B modulo B+1 and B-1 (the plane has an even size, so B^2 - 1 divides B^P - 1), one 6-word host all-gather, retry once. Each residue is an all-gather (`mdb_trk_make`) summed alike on every node: the verdict is collective. Cost: 3 gathers per low product, 2 per wrap step plus one for R(R1), 1 per cyclic product. Test injections: `xql` (K = the process's low product number: 1 step 1, 2 step 2), `cyc` (K = cyclic product number); `leafslow` is a modifier in the `ECALC_DR_TEST` comma list (`leaf,leafslow`): the recurrence waits for the division's start (at most 120 s), so the deferred leaf compare runs.
 
-2 nodes, 1e9 (digits against the reference sha, VERIFY OK where rc 0), `ECALC_DR=3`:
+2 nodes, 1e9 (digits against the reference sha, VERIFY OK where rc 0), `ECALC_DR=3`: (before the step-4 review fixes: the division-check counts below are 2 per clean run; with the R(R1) check added they are 3)
 
 | case | result |
 |---|---|
