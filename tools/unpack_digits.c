@@ -8,6 +8,8 @@
  *     -o <file>          the ASCII to <file>
  *     --cmp <ref>        compare with the ASCII file <ref> (cmp's answer: identical, or the first differing byte and the
  *                        line; a length difference is reported as EOF on the shorter one); nothing is written
+ *     --prefix           with --cmp: the reference may be longer; the packed digits (without their final newline) are
+ *                        compared with the reference's first bytes (a run smaller than the reference); a shorter reference still differs
  *     -n                 no output and no compare: the residue check alone
  *     --no-res           skip the residue check
  *     -c <MB>            the input chunk (default 256 MB of limbs)
@@ -101,7 +103,7 @@ static void *reader(void *a)
 }
 /* the output: ASCII pieces to a file / stdout, or compared with a reference */
 struct outbuf { char *mem; const char *s; size_t n; int last; };
-static struct { struct outbuf b[2]; sem_t full[2], empty[2]; int fd, cmp_fd, mode, has_last; size_t off, line, base; char *cbuf; int differ; double t_io; } W;   /* mode 0 write, 1 compare, 2 nothing */
+static struct { struct outbuf b[2]; sem_t full[2], empty[2]; int fd, cmp_fd, mode, has_last, prefix; size_t off, line, base; char *cbuf; int differ; double t_io; } W;   /* mode 0 write, 1 compare, 2 nothing */
 static void *consumer(void *a)
 {
     (void)a;
@@ -111,9 +113,9 @@ static void *consumer(void *a)
         if (W.mode == 0 && b->n) {
             size_t done = 0; while (done < b->n) { ssize_t w = write(W.fd, b->s + done, b->n - done); if (w < 0 && errno == EINTR) continue; if (w <= 0) { fprintf(stderr, "unpack_digits: write: %s\n", strerror(errno)); exit(2); } done += (size_t)w; }
         } else if (W.mode == 1 && !W.differ) {
-            size_t done = 0;
-            while (done < b->n && !W.differ) {
-                ssize_t r = read(W.cmp_fd, W.cbuf, b->n - done < (64u << 20) ? b->n - done : (64u << 20));
+            size_t done = 0, nc = (W.prefix && W.has_last && b->n && b->s[b->n - 1] == '\n') ? b->n - 1 : b->n;   /* --prefix: the run's final newline (the last byte of the buffer that holds it, which need not be the last buffer) is not compared with a reference byte */
+            while (done < nc && !W.differ) {
+                ssize_t r = read(W.cmp_fd, W.cbuf, nc - done < (64u << 20) ? nc - done : (64u << 20));
                 if (r < 0 && errno == EINTR) continue;
                 if (r < 0) { fprintf(stderr, "unpack_digits: reading the reference: %s\n", strerror(errno)); exit(2); }
                 if (r == 0) { printf("unpack_digits: EOF on the reference after byte %zu (the packed digits are longer)\n", W.base + W.off + done); W.differ = 1; break; }
@@ -126,7 +128,7 @@ static void *consumer(void *a)
                 done += (size_t)r;
             }
             for (size_t j = 0; j < b->n; j++) if (b->s[j] == '\n') W.line++;
-            if (b->last && !W.differ && W.has_last) { char c; ssize_t r = read(W.cmp_fd, &c, 1); if (r > 0) { printf("unpack_digits: EOF on the packed digits after byte %zu (the reference is longer)\n", W.base + W.off + b->n); W.differ = 1; } }   /* (a subset without the last part: the reference goes on) */
+            if (b->last && !W.differ && W.has_last && !W.prefix) { char c; ssize_t r = read(W.cmp_fd, &c, 1); if (r > 0) { printf("unpack_digits: EOF on the packed digits after byte %zu (the reference is longer)\n", W.base + W.off + b->n); W.differ = 1; } }   /* (a subset without the last part: the reference goes on) */
         }
         W.off += b->n; W.t_io += now() - t0;
         int last = b->last; sem_post(&W.empty[k]);
@@ -136,20 +138,21 @@ static void *consumer(void *a)
 
 int main(int argc, char **argv)
 {
-    const char *outname = 0, *cmpname = 0; int nores = 0, quiet = 0, none = 0; size_t chunk_mb = 256;
+    const char *outname = 0, *cmpname = 0; int prefix = 0, nores = 0, quiet = 0, none = 0; size_t chunk_mb = 256;
     struct part *p = calloc((size_t)argc, sizeof *p); int np = 0;
     if (!p) { fprintf(stderr, "unpack_digits: out of memory\n"); return 1; }
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-o") && i + 1 < argc) outname = argv[++i];
         else if (!strcmp(argv[i], "--cmp") && i + 1 < argc) cmpname = argv[++i];
+        else if (!strcmp(argv[i], "--prefix")) prefix = 1;
         else if (!strcmp(argv[i], "-c") && i + 1 < argc) chunk_mb = (size_t)atol(argv[++i]);
         else if (!strcmp(argv[i], "--no-res")) nores = 1;
         else if (!strcmp(argv[i], "-n")) none = 1;
         else if (!strcmp(argv[i], "-q")) quiet = 1;
-        else if (argv[i][0] == '-' && argv[i][1]) { fprintf(stderr, "usage: unpack_digits [-o out | --cmp ref | -n] [--no-res] [-c MB] [-q] <packed file | parts ...>\n"); return 2; }
+        else if (argv[i][0] == '-' && argv[i][1]) { fprintf(stderr, "usage: unpack_digits [-o out | --cmp ref [--prefix] | -n] [--no-res] [-c MB] [-q] <packed file | parts ...>\n"); return 2; }
         else p[np++].name = argv[i];
     }
-    if (!np) { fprintf(stderr, "usage: unpack_digits [-o out | --cmp ref | -n] [--no-res] [-c MB] [-q] <packed file | parts ...>\n"); return 2; }
+    if (!np) { fprintf(stderr, "usage: unpack_digits [-o out | --cmp ref [--prefix] | -n] [--no-res] [-c MB] [-q] <packed file | parts ...>\n"); return 2; }
     if (chunk_mb < 1) chunk_mb = 1;
     /* the headers */
     for (int i = 0; i < np; i++) {
@@ -159,6 +162,7 @@ int main(int argc, char **argv)
         const ecp_hdr *h = &p[i].h;
         if (h->endian != ECP_ENDIAN) die("%s was written on a host of the other byte order", p[i].name);
         if ((h->version != ECP_VERSION && !(h->version == ECP_VERSION60 && h->reserved0 == ECP60_BITS)) || h->hdr_bytes != ECP_HDR_BYTES || h->limb_bytes != 8 || h->limb_digits != 18 || h->order != 1) die("%s: an unknown format version or layout", p[i].name);
+        if (h->d_out > h->d) die("%s: a format error (d_out is larger than d)", p[i].name);
         if (!h->complete) die("%s: incomplete (the run did not close it: complete = 0)", p[i].name);
     }
     qsort(p, (size_t)np, sizeof *p, part_cmp);
@@ -185,6 +189,7 @@ int main(int argc, char **argv)
     R.p = p; R.np = np; R.CHL = ((chunk_mb << 20) / 8) & ~(size_t)1;   /* (even: a chunk of the 60-bit form starts on a pair) */
     if (R.CHL < 2) R.CHL = 2;
     for (int k = 0; k < 2; k++) { R.b[k].l = malloc(R.CHL * 8); R.b[k].raw = malloc(R.CHL * 8); W.b[k].mem = malloc(R.CHL * 18 + 64); if (!R.b[k].l || !W.b[k].mem) die("%s", "out of memory"); sem_init(&R.full[k], 0, 0); sem_init(&R.empty[k], 0, 1); sem_init(&W.full[k], 0, 0); sem_init(&W.empty[k], 0, 1); }
+    W.prefix = prefix && cmpname;
     W.mode = none ? 2 : cmpname ? 1 : 0; W.fd = 1;
     if (W.mode == 0 && outname && strcmp(outname, "-")) { W.fd = open(outname, O_WRONLY | O_CREAT | O_TRUNC, 0644); if (W.fd < 0) die("cannot create %s", outname); }
     if (W.mode == 1) { W.cmp_fd = open(cmpname, O_RDONLY); if (W.cmp_fd < 0) die("cannot open %s", cmpname); if (b0 && lseek(W.cmp_fd, (off_t)b0, SEEK_SET) != (off_t)b0) die("cannot seek in %s", cmpname); posix_fadvise(W.cmp_fd, 0, 0, POSIX_FADV_SEQUENTIAL); W.cbuf = malloc(64u << 20); }
@@ -232,6 +237,6 @@ int main(int argc, char **argv)
                         np, np > 1 ? "s" : "", ndig_out, d_out, R.bytes * 1e-9, R.t_io, R.t_io > 0 ? R.bytes * 1e-9 / R.t_io : 0,
                         W.mode == 0 ? "wrote" : W.mode == 1 ? "compared" : "made", W.off * 1e-9, W.t_io, W.mode == 1 ? "comparer" : "writer", t_fmt, nores ? "(off) " : badres ? "MISMATCH " : "ok ", t_res, t, t > 0 ? W.off * 1e-9 / t : 0,
                         W.mode == 1 ? (W.differ ? "; DIFFER" : "; IDENTICAL") : "");
-    if (W.mode == 1 && !W.differ) { if (whole) printf("unpack_digits: identical to %s (%zu bytes)\n", cmpname, W.off); else printf("unpack_digits: identical to bytes [%zu, %zu) of %s (%zu bytes)\n", b0, b0 + W.off, cmpname, W.off); }
+    if (W.mode == 1 && !W.differ) { if (whole) printf("unpack_digits: identical to %s (%zu bytes%s)\n", cmpname, W.off, W.prefix ? ", prefix of the reference" : ""); else printf("unpack_digits: identical to bytes [%zu, %zu) of %s (%zu bytes)\n", b0, b0 + W.off, cmpname, W.off); }
     return badres || W.differ ? 1 : 0;
 }

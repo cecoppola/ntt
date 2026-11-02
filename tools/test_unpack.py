@@ -117,6 +117,102 @@ def patched_cases(exe, wd, rnd):
     return fails
 
 
+def digcmp_cases(exe, wd, rnd):
+    """ecalc/digcmp.sh and unpack_digits --prefix: the run "2." + n digits + "\\n" against a reference "2." + m digits (m >= n) in
+    packed (1 and 3 parts) and ASCII form: equal length identical / differing, a true prefix (the reference with or without its
+    final newline), a prefix with one digit changed, a run longer than the reference (DIFFERS), and --prefix itself"""
+    import shutil
+    sh = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ecalc", "digcmp.sh")
+    if not os.path.exists(os.path.join(os.path.dirname(os.path.abspath(sh)), "..", "tools", "unpack_digits")) and exe != os.path.join(os.path.dirname(os.path.abspath(__file__)), "unpack_digits"):
+        # digcmp.sh calls tools/unpack_digits next to it: use a private copy of the tree layout for an explicit binary
+        root = os.path.join(wd, "dc_tree"); os.makedirs(os.path.join(root, "ecalc"), exist_ok=True); os.makedirs(os.path.join(root, "tools"), exist_ok=True)
+        shutil.copy(sh, os.path.join(root, "ecalc", "digcmp.sh")); shutil.copy(exe, os.path.join(root, "tools", "unpack_digits"))
+        sh = os.path.join(root, "ecalc", "digcmp.sh")
+    m = 18 * 40
+    full = "2" + "".join(rnd.choice("0123456789") for _ in range(m))
+    refs = {"full": "2." + full[1:] + "\n", "nonl": "2." + full[1:]}
+    fails = 0
+    for form in ("ascii", "packed1", "packed3"):
+        for n in (18 * 40, 18 * 40 - 5, 18 * 10, 18):
+            for rname, ref in refs.items():
+                if n == m and rname == "nonl": continue                     # (equal length needs the newline, as before)
+                rp = os.path.join(wd, "dc_ref"); open(rp, "w").write(ref)
+                runs = [("same" if n == m else "prefix", full[:n + 1], "identical" if n == m else "identical (prefix of the reference)")]
+                ch = list(full[:n + 1]); ch[n // 2 + 1] = "0" if ch[n // 2 + 1] != "0" else "1"
+                runs.append(("changed", "".join(ch), "DIFFERS"))
+                if n < m:                                                  # a changed last digit: the byte just before the newline
+                    ch = list(full[:n + 1]); ch[n] = "0" if ch[n] != "0" else "1"; runs.append(("last digit changed", "".join(ch), "DIFFERS"))
+                for what, dig, want in runs:
+                    base = os.path.join(wd, "dc_run")
+                    if form == "ascii":
+                        names = [base]; open(base, "w").write("2." + dig[1:] + "\n")
+                    else:
+                        names = write_parts(base, dig, n, n, 1 if form == "packed1" or n < 180 else 3)
+                    got = subprocess.run(["bash", sh, base, rp], stdout=subprocess.PIPE).stdout.decode().strip()
+                    ok = got == want; fails += not ok
+                    if not ok: print("digcmp FAIL: %s n %d ref %s %s: got %r want %r" % (form, n, rname, what, got, want))
+                    for x in names: os.remove(x)
+        # a run longer than the reference
+        for n in (m + 18, m + 1):
+            rp = os.path.join(wd, "dc_ref"); open(rp, "w").write(refs["full"])
+            dig = full + "".join(rnd.choice("0123456789") for _ in range(n - m))
+            base = os.path.join(wd, "dc_run")
+            if form == "ascii":
+                names = [base]; open(base, "w").write("2." + dig[1:] + "\n")
+            else:
+                names = write_parts(base, dig, n, n, 1 if form == "packed1" or n < 180 else 3)
+            got = subprocess.run(["bash", sh, base, rp], stdout=subprocess.PIPE).stdout.decode().strip()
+            ok = got == "DIFFERS"; fails += not ok
+            if not ok: print("digcmp FAIL: %s longer run n %d: got %r" % (form, n, got))
+            for x in names: os.remove(x)
+    # a part set missing its first or last part, and a header with d_out > d: DIFFERS (equal-size and longer references)
+    n = 18 * 20
+    for rname, ref in (("equal", "2." + full[1:n + 1] + "\n"), ("longer", refs["full"])):
+        rp = os.path.join(wd, "dc_ref"); open(rp, "w").write(ref)
+        base = os.path.join(wd, "dc_run"); names = write_parts(base, full[:n + 1], n, n, 3)
+        for what, drop in (("first part missing", names[0]), ("last part missing", names[-1]), ("middle part missing", names[1])):
+            keep = [x for x in names if x != drop]
+            for x in names: os.rename(x, os.path.join(wd, "dc_held")) if x == drop else None
+            got = subprocess.run(["bash", sh, base, rp], stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.decode().strip()
+            ok = got == "DIFFERS"; fails += not ok
+            if not ok: print("digcmp FAIL: %s, %s reference: got %r" % (what, rname, got))
+            os.rename(os.path.join(wd, "dc_held"), drop)
+        got = subprocess.run(["bash", sh, base, rp], stdout=subprocess.PIPE).stdout.decode().strip()     # the complete set still passes
+        ok = got == ("identical" if rname == "equal" else "identical (prefix of the reference)"); fails += not ok
+        if not ok: print("digcmp FAIL: complete set, %s reference: got %r" % (rname, got))
+        for x in names: os.remove(x)
+    ch = list(full[:n + 1]); ch[n] = "0" if ch[n] != "0" else "1"
+    for dout in (n + 5, n + 1):                                            # d_out > d (a corrupt header) with the last digit changed in the reference
+        rp = os.path.join(wd, "dc_ref"); open(rp, "w").write("2." + "".join(ch)[1:] + full[n + 1:n + 20] + "\n")
+        base = os.path.join(wd, "dc_run"); names = write_parts(base, full[:n + 1], n, dout, 1)
+        got = subprocess.run(["bash", sh, base, rp], stdout=subprocess.PIPE).stdout.decode().strip()
+        r = subprocess.run([exe, "-q", "--cmp", rp, "--prefix"] + names, stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode
+        ok = got == "DIFFERS" and r == 2; fails += not ok
+        if not ok: print("digcmp FAIL: d_out %d > d %d: got %r, unpack_digits rc %d (2 wanted)" % (dout, n, got, r))
+        for x in names: os.remove(x)
+    # the newline in a non-last chunk (d_out = d - 18 at a chunk boundary): --prefix still skips it
+    for dd, do in ((18 * 131072 + 17, 18 * 131072 - 1), (18 * 131072 + 17, 18 * 131072 + 5)):
+        dig = "2" + "".join(rnd.choice("0123456789") for _ in range(dd)); base = os.path.join(wd, "dc_run"); names = write_parts(base, dig, dd, do, 1)
+        rp = os.path.join(wd, "dc_ref"); open(rp, "w").write("2." + dig[1:do + 1] + "".join(rnd.choice("0123456789") for _ in range(40)) + "\n")
+        r = subprocess.run([exe, "-q", "-c", "1", "--cmp", rp, "--prefix"] + names, stdout=subprocess.PIPE).returncode
+        ok = r == 0; fails += not ok
+        if not ok: print("--prefix FAIL: newline in a non-last chunk d %d d_out %d: rc %d" % (dd, do, r))
+        for x in names: os.remove(x)
+    # unpack_digits itself: --prefix on a longer reference is identical, without it not; on an equal reference both are
+    n = 18 * 7; dig = full[:n + 1]; base = os.path.join(wd, "dc_run"); names = write_parts(base, dig, n, n, 2)
+    rp = os.path.join(wd, "dc_ref"); open(rp, "w").write(refs["full"])
+    r1 = subprocess.run([exe, "-q", "--cmp", rp, "--prefix"] + names, stdout=subprocess.PIPE).returncode
+    r2 = subprocess.run([exe, "-q", "--cmp", rp] + names, stdout=subprocess.PIPE).returncode
+    open(rp, "w").write("2." + dig[1:] + "\n")
+    r3 = subprocess.run([exe, "-q", "--cmp", rp, "--prefix"] + names, stdout=subprocess.PIPE).returncode
+    open(rp, "w").write("2." + dig[1:-3] + "\n")
+    r4 = subprocess.run([exe, "-q", "--cmp", rp, "--prefix"] + names, stdout=subprocess.PIPE).returncode   # a shorter reference
+    ok = (r1, r2, r3, r4) == (0, 1, 0, 1); fails += not ok
+    print("digcmp / --prefix: %s (unpack_digits --prefix: longer ref %d, without %d, equal %d, shorter %d)" % ("ok" if not fails else "FAIL", r1, r2, r3, r4))
+    for x in names + [rp]: os.remove(x)
+    return fails
+
+
 def main():
     exe = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "unpack_digits")
     wd = sys.argv[2] if len(sys.argv) > 2 else tempfile.mkdtemp(prefix="unpack_test_")
@@ -172,6 +268,7 @@ def main():
         for n in names + [ref, ref + ".bad", ref + ".long", out]:
             os.remove(n)
     fails += patched_cases(exe, wd, rnd)
+    fails += digcmp_cases(exe, wd, rnd)
     print("test_unpack: %s" % ("PASS" if not fails else "%d FAILED" % fails))
     return 1 if fails else 0
 
