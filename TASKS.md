@@ -30,7 +30,7 @@ Class 4
 13. Checkpoints after the tree and after the reciprocal.
 Items whose gain only the target can show (user 2026-10-31: build them): two NICs per APU on path 1 (`XSHMEM_LANES=2`, layout D) and a launch-time switch-group check, behind switches, digits-gated on aac7; hierarchical exchange as an OPPORTUNITIES entry.
 
-- N1 (branch roundsize, 2026-11-01, code pushed, aac7 item roundsize_a queued; `results/XSHMEM.md` §N1): `XSHMEM_ROUND_ACTIVE=1` sizes the alltoallv round chunk by the largest active-pair count (one tree max per exchange); open: results of the item, then the 6-node confirmation and the merge decision.
+- N1 (branch roundsize, 2026-11-01, aac7 gates and digits PASS at 1-3 nodes, both paths; shift rounds -20 % at 3 nodes; `results/XSHMEM.md` §N1): `XSHMEM_ROUND_ACTIVE=1` sizes the alltoallv round chunk by the largest active-pair count (one tree max per exchange); open: 6-node (D = 1 vs 5) or target-scale round count, then the merge decision.
 
 Class 5
 14. Class 5, done 2026-11-01 (branch docfix): piece-boundary table and memory ceilings (`results/LAUNCH_DEFAULTS.md` §PIECES, regenerated with the planner), write-time model set to the measured 3.4-5 GB/s per node (aggregate assumed), target facts corrected where they live (FACTS, PLAN). Time model recalibrated on the 2e13 decomposition: done 2026-11-01 (branch timemodel, D2, `results/TIME_MODEL.md` §v12, `mn_model.py v12`; residuals -11.6 % to +8.0 % over the 10-29 series, failure rate by size listed). Still open: PLAN.md target section rewritten as the target agent's test list (setting, A/B with stop rule, adoption rule).

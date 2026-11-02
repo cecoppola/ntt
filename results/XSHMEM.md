@@ -261,7 +261,7 @@ checked first): the kit chain `s0_check`, `s2_build --path both`, `s3_gate --nod
 **Verdict.** Gate PASS: digits identical, 0 P24 flags, every injection caught; cand3 merged into main 2026-10-31. **Open issues.** The
 series arm is not analysed; the off / on single runs are not timing evidence (path 2 on 28.20 vs 26.29 s needs a paired run if it matters).
 
-## N1: rounds sized by the active pairs, `XSHMEM_ROUND_ACTIVE=1` (branch roundsize, 2026-11-01; code and tests written, aac7 results pending)
+## N1: rounds sized by the active pairs, `XSHMEM_ROUND_ACTIVE=1` (branch roundsize, 2026-11-01; aac7 1-3 nodes, measured)
 
 **Why (measured, 10-29 run).** At 576 nodes the round chunk is `XSHMEM_ROUND_MB / (n - 1)` = 233 KB whatever the exchange: a shift has only 1-2 peers with bytes, yet pays about 4,600 rounds per chunk of `MDB_SHIFT_CHUNK_MB`; 165,300 rounds per PE at a mean 14 MB per round, partner polls 37.4 s.
 
@@ -289,6 +289,26 @@ series arm is not analysed; the off / on single runs are not timing evidence (pa
 | layeq | 3,977 | 182,889 | 182,889 | 3,977 |
 
 **What 2 nodes can and cannot show.** The round counts are identical with the switch unset and set. At 2 nodes the exchanges are between two members (D = n - 1 = 1: no change by construction) or between members that all carry data, so the active-pair rule has nothing to remove: the 2-node runs prove correctness and the sequence handling of the extra max, and they are not evidence of the round drop. Zero-byte pairs need at least 3 nodes (see the 3-node results below).
+
+**Results, 3 nodes (aac7, item roundsize_c, merged code 6f0febee, 2026-11-01, measured, single runs).**
+- Correctness, all PASS: `t_vpe all` at 3 nodes (12 PEs) path 1 unset and set, path 2 with `XSHMEM_LANES=2` unset and set; path 1 set at 2 nodes. Gates (digits identical): path 1 at 1, 2, 3 nodes unset and set, 3 nodes set with `XSHMEM_ROUND_MB=0.222609`; path 2 at 2 nodes unset and set, 3 nodes set. 1e10 at 3 nodes: sha e7aac3a3fe898061 in all nine runs (unset, `XSHMEM_SPARSE=1` alone, switch set; with and without `XSHMEM_ROUND_MB=0.222609`); 1e10 at 2 nodes sha bb6e0f867a5f5d91 unset and set.
+- Rounds per tag (maximum over the 12 PEs, 1e10, `XSHMEM_ROUND_MB=0.222609`):
+
+| tag | exchanges | unset | `XSHMEM_SPARSE=1` alone | `XSHMEM_ROUND_ACTIVE=1` |
+|---|---|---|---|---|
+| other | 12 | 13 | 13 | 13 |
+| redist | 96 | 23,611 | 23,611 | 23,611 |
+| result | 62 | 29,097 | 29,097 | 29,097 |
+| spill | 62 | 159 | 159 | 159 |
+| addsh (the shifts) | 75 | 19,724 | 19,724 | 15,750 (-20.1 %) |
+| layeq | 409 | 441 | 441 | 441 |
+| layv | 3,928 | 182,500 | 182,500 | 182,500 |
+
+`XSHMEM_SPARSE=1` alone changes no round count, as designed (it keeps the chunk). The switch removes 20 % of the shift rounds at 3 nodes and nothing elsewhere. Reading: with 3 members a shift has at most 2 peers with bytes, so D = 2 = n - 1 and the chunk grows only for the exchanges in which every member has a single peer (D = 1: chunk doubled). The gain per exchange is (n - 1) / D, here 1 to 2; modeled for 576 nodes with D = 2: up to 287 times fewer rounds per shift chunk, not yet measured (needs the target scale).
+
+**Cost of the max (single runs, wall seconds, 1e10).** 3 nodes with `XSHMEM_ROUND_MB=0.222609`: unset 42 / 41 / 42, set 43 / 42 / 42; 3 nodes default size: 34 vs 33; 2 nodes: 50 vs 50. No difference beyond 1 s. At most 4,644 alltoallv exchanges per PE occur (sum of the exchange column), so the cost per exchange is bounded by about 1 s / 4,644 = 200 microseconds (assumed bound from the wall resolution; not measured per exchange). At 576 nodes the max has 10 tree steps per exchange; its cost there is unmeasured.
+
+**Verdict.** Correctness and digits PASS at 1, 2, 3 nodes on both paths; the round drop appears where the model says (only the shifts, only with a group of 3 or more members) and is small at 3 nodes. Adoption needs the 576-node (or 6-node D = 1 vs 5) measurement of the rounds and the partner-poll time; default stays 0.
 
 ## N4: `XSHMEM_LANES=2` on path 1, layout D (branch netmeas, 2026-11-01 19:40-20:33 ET, aac7, measured)
 
