@@ -169,10 +169,6 @@ int rns_init(int pool_log)
      * edge the last allocations get what is left of the free memory in pieces below 2 MiB; the plane pools (every
      * transform of the dist tier) are then the victims and the tier's gathers and transforms run 4-10 x slower
      * (archive:results_merged_2026-10-24/TESTING_VERIF.md §N414).  Mapped first, they take 2 MiB blocks; the seeds start after them. */
-    /* S2: ECALC_INIT_EARLY_POOLS=1 runs the hook (region arenas, the seed thread) BEFORE the plane pools: the seed thread's wait for the
-     * region pools (8.6 s at 576 nodes) starts 6-8 s earlier.  Off by default: the plane pools mapped last may get the small pieces (the N414 effect above) when the node is near its memory edge. */
-    const int early_pools = getenv("ECALC_INIT_EARLY_POOLS") && atoi(getenv("ECALC_INIT_EARLY_POOLS")) > 0 && rns_after_staging_hook;
-    if (early_pools) { HIP_CHECK(hipSetDevice(g_d0)); rns_after_staging_hook(rns_hook_arg); db_tl("the hook (region arenas, the seed thread started) done, before the plane pools (ECALC_INIT_EARLY_POOLS)"); }
     size_t b1 = rns_pool1_bytes_req ? rns_pool1_bytes_req : bytes;
     if (!rns_pool1_bytes_req && rns_np2cap()) { size_t p1; rns_plane_pool_bytes(g_pool_log, ec_np_init(), 0, &p1); if (p1 > b1) b1 = p1; }   /* MN_NONPOW2_CAP: 3 q + 16 (4 q at four one-node primes) of the larger q exceeds 4 q of 2^(pool_log-2) */   /* C4: pool 1 sized to the dist tier's 3 q when the flow is all-device (the removed host mdev tier needed the full 2^pool_log; TREF) */
     if (getenv("RNS_POOL1_GB")) b1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);
@@ -186,7 +182,7 @@ int rns_init(int pool_log)
         dpool_get_exact(&D[d].db, d, b1);
     }
     db_tl("plane pools done (%.2f s)", mem_now() - ti1);
-    if (rns_after_staging_hook && !early_pools) { HIP_CHECK(hipSetDevice(g_d0)); rns_after_staging_hook(rns_hook_arg); db_tl("the hook (region arenas, the seed thread started) done"); }   /* N4: the region arenas and the seeds after the plane pools */
+    if (rns_after_staging_hook) { HIP_CHECK(hipSetDevice(g_d0)); rns_after_staging_hook(rns_hook_arg); db_tl("the hook (region arenas, the seed thread started) done"); }   /* N4: the region arenas and the seeds after the plane pools */
     mem_par_init = 0;
     mem_acct_register(rns_acct);
     double ti2 = mem_now();

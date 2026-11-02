@@ -97,7 +97,7 @@ Performance ideas, open or tried, are in `OPPORTUNITIES.md`.
 No target session of ours follows (user 2026-10-31): the target agent's test list goes into PLAN.md (row 14); the lines below are history.
 
 Target work: `target/RESTART.md` and `target/bench/QUESTIONS.md`.
-- Start-up S2 (seed thread's wait for the region pools; branch initwait, results/INITWAIT.md): `ECALC_INIT_EARLY_POOLS=1` (hook before the plane pools, default off) gives init -0.5 to -0.7 s at 2 n and +1 to +1.6 s at 1 n (m); not adopted. Open: a 576-node or edge-size test; a full fix is per-device allocator processes (L-A).
+- Start-up S2 (seed thread's wait for the region pools; branch initwait, results/INITWAIT.md): the measured switch (hook before the plane pools) gave init -0.5 to -0.7 s at 2 n and +1 to +1.6 s at 1 n (m) and was not kept. The real fix is per-device allocator processes (S1, L-A).
 - Start-up S3 done: the layered self-test has its own always-printed line (`init: layered transport self-test`) and a term in the `ECALC_INIT_TL=1` init sum (0.16-0.30 s at 2 n, m).
 - Self-test cost (user 2026-10-26: keep the start-up self-tests if they really take < 15 s): read the self-test seconds
   (`ECALC_INIT_TL=1`) at 2 nodes and 576 nodes with the fixed seed default (576 n layered test 3.1-3.5 s; aac7 3 n 3.7-4.2 s, m).
