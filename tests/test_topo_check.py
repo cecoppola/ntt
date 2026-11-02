@@ -69,6 +69,9 @@ class TopoCheck(unittest.TestCase):
         lines, w = tc.check(["nd001", "gateway", "nd003", "nd004"], sched=[2, 4])
         self.assertTrue(any("unknown switch group for 1 hosts" in l for l in lines))
         self.assertFalse(any(" OK" in l for l in lines))
+        lines, _ = tc.check(["s1b0", "s5b0"], sched=[2])           # trailing 0 is not a node number (aac7-style names)
+        self.assertTrue(any("unknown switch group for 2 hosts" in l for l in lines))
+        self.assertFalse(any(" OK" in l for l in lines))
         txt = "SwitchName=s0 Level=0 Nodes=nd[001-002]\n"
         lines, _ = tc.check(names([1, 2, 3, 4]), leaves=tc.leaf_map(txt), sched=[2, 4])
         self.assertTrue(any("unknown switch group for 2 hosts" in l for l in lines))

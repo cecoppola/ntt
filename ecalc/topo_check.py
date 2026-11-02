@@ -13,7 +13,7 @@ Switch-group rule: default group = (node number - 1) div 64, the number being th
 Nodes=host[001-064],..), the leaf switches then define the groups.  The node list is taken in rank order: the order the launcher
 hands to srun (block distribution: rank r on node r div (P / nodes)).  Assumption: srun -w places ranks in Slurm's sorted node
 order, not in list order, so the launchers pass --sort (natural sort: name prefix, then the trailing number) and the map shows that
-order; without --sort the list is taken as given.  A host with no trailing number, or missing from the topology file, has group
+order; without --sort the list is taken as given.  A host with no trailing number (or number 0), or missing from the topology file, has group
 "?": the tool then reports it and never prints OK.  An invalid MN_GROUPS is reported in one line (exit 0).  Pure Python 3, standard library."""
 import argparse
 import os
@@ -55,7 +55,7 @@ def group_of(host, size, leaves):
     if leaves is not None:
         return leaves.get(host, "?")
     m = re.search(r"(\d+)$", host)
-    return "g%d" % ((int(m.group(1)) - 1) // size) if m else "?"
+    return "g%d" % ((int(m.group(1)) - 1) // size) if m and int(m.group(1)) > 0 else "?"     # numbering starts at 1
 
 
 def natkey(h):
