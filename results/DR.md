@@ -1,5 +1,23 @@
 # DR — detect and retry (C3): a faulty product repeats itself instead of ending the run
 
+## Summary (final, 2026-11-01; branch `c3check`, tested commit 9129ac52; all numbers measured on aac7 unless marked modelled)
+
+`ECALC_DR` (default 0 = off, the unchanged code paths) selects what is checked inside the run; a failed check repeats only the faulty piece or product, once, inside the product call (no extra memory beyond the first attempt's peak, no change of digits):
+
+| level | adds | on a fault |
+|---|---|---|
+| 1 | A: the CRT flag of each P24 piece becomes a collective decision | piece repeats |
+| 2 | B: tree product residue identity R(C) = R(A) R(B) + R(X) with tracked residues; C: leaf and division-start residues vs the recurrence | product repeats; operand corrupted at rest, leaf or division-start mismatch: fatal naming node and APU |
+| 3 | D: division low product X Q mod B^w (xql, recomputed once); wrap check; D': cyclic product modulo B+1 and B-1; independent check of R(R1) | xql and cyclic product repeat once; a wrap or step-1 mismatch is fatal naming the step |
+
+`ECALC_DR_TOTAL` (default 8) caps the failures per run; a second failure at the same place is fatal with the location. Exit line per process: `DR: <checks> checks, <injected> injected, <failures> failures, <recovered> recovered (...), <fatal> fatal`. At size 1 (one PE group) the checks are inactive (no DR lines).
+
+Results at 9129ac52 (step 5, below): `mnaccept --only unit,e9,mn,grid,corr` with `ECALC_DR=3`: 28 passed, 0 failed; 1, 2 nodes and path 2: gates and 1e11 digits identical, all injected faults of the kinds above recovered or fatal as designed. Cost (step 6, 2 nodes, 128.82e9 digits, ABBA): B (`ECALC_DR=3`) minus A (unset) = +0.48 s on 121.18 s (+0.40 %), 95 % CI -2.53 ... +3.49 s: not distinguishable from zero at 2 nodes. The design model for 576 nodes is 0.1-0.2 % (modelled; not extrapolated from the 2-node figure).
+
+Known limitations and deviations: the wrap check is exact and fatal (inputs are consumed in place); the persistent case prints the exit summary twice; the D' modulus B-1 is weak for operands divisible by 10^18-1; retries free the bad result and re-allocate instead of zeroing in place.
+
+Not tested: different per-PE failure histories within one group (counts equal on all PEs in every test); a launcher without kill-on-bad-exit (local-only fatals rely on `srun --kill-on-bad-exit=1`; the bench launcher change was checked with `bash -n` only); D' injection before normalisation (the injection flips a limb after `mdb_norm`); peak memory of a retry at the memory edge (runs here are far below it); DR at the target's node counts (6 nodes and above) and the retry rate there.
+
 **Question.** Target runs failed with CRT flags (a wrong transform-domain value, kind 1) and T1/VERIFY failures (wrong in-range limbs, kind 2), more often the larger the run. User decision Q142: full detect-and-retry. Can the product tiers detect a transient fault inside the product, before it reaches C, and repeat only the faulty piece, with no extra memory and no change of digits?
 
 **Change / branch.** Branch `c3check` (from main c86e5fcc). Switch `ECALC_DR` (0 = off, default, the unchanged code paths; 1 = A; 2 = A + B + C; 3 = A + B + C + D + D'), `ECALC_DR_TOTAL` (default 8), fault injection `ECALC_DR_TEST` (+ `_K`, `_PE`, `_N`, `_M`). Registry rows with review dates; `ecalc/README.md` generated table. Files: `ecalc/dr.c/h` (switches, injection parser, counters, context, residue helpers), `ecalc/tests/t_dr.c`, `ecalc/rns_dist.c` (`mn_core`).
@@ -35,8 +53,8 @@ Cost model (modelled, 3.8e13 digits, 576 nodes): A 0.05-0.2 s, B about 60 ms, C 
 | 2 | A in `mn_core` (flag retry, fatal-to-flag conversions, injection `flag`) | done | 14926757 | see Measured, step 2 |
 | 3 | B + C (tree residue identity, leaf check, division-start compare): `rns_mul_dist_mn_chk`, tracked residues in `mn.c`, injection `deliver`, `store`, `leaf` | done | 489e38ee, 583b6479, 1d266195 | see Measured, step 3 |
 | 4 | D + D' (division `mn_dkm_low` steps 1-2, the wrap, the cyclic product; injection `xql`, `cyc`, test modifier `leafslow`) | done | df4caf7e, e7274f10, (this commit) | see Measured, step 4 |
-| 5 | full regression with `ECALC_DR=3` | not started | | |
-| 6 | timing (ABBA), docs (ALGORITHM §10, TESTING §4, TASKS) | not started | | |
+| 5 | full regression with `ECALC_DR=3` | done | 9129ac52 | see Measured, step 5 |
+| 6 | timing (ABBA), docs (ALGORITHM §10, TESTING §4, TASKS) | done | this commit | see Measured, step 6 |
 
 ## Deviations from the design
 
@@ -73,7 +91,7 @@ Items 61_dra_x2 failed in 3 s per run (NIC-free node, libfabric rc -61; ALLOW_SL
 
 ## RESUME
 
-Branch `c3check`; steps 1 and 2 done and gated (above). Step 3 done and gated (Measured, step 3). Step 4 done and gated (Measured, step 4). Next: step 5 (full regression with `ECALC_DR=3`), then step 6 (ABBA timing, ALGORITHM section 10, TESTING section 4, TASKS).
+Branch `c3check`; steps 1 and 2 done and gated (above). Step 3 done and gated (Measured, step 3). Step 4 done and gated (Measured, step 4). Steps 5 and 6 done (Measured, steps 5 and 6). Open: the follow-ups in TASKS "Proposed".
 
 ## Review fixes and the cap test (aac7, 2026-11-01, commit e22efde; item 70_drfix; all counts measured)
 
@@ -168,4 +186,34 @@ Deviations and notes (step 4):
 - D' modulus B-1 is weak for operands divisible by 10^18-1 (Q is, since its small prime factors occur in the product: expected residue 0): it still changes by a nonzero amount for every single-limb error, and the B+1 modulus is not degenerate.
 - The D' injection flips a limb after `mdb_norm`, so it does not test the pre-norm path. The persistent case prints the exit summary twice per process (as in steps 2-3).
 - `leafslow` is test-only; on a run whose division never starts it would wait up to 120 s.
-- Not done in this step: the full regression (step 5), ABBA timing, ALGORITHM/TESTING text (step 6). The step-1/2 regression subset (flag, deliver at 2 processes) ran on df4caf7, not e7274f10 (the later commit changes only the failure location text).
+- Not done in this step: the full regression, ABBA timing, ALGORITHM/TESTING text (steps 5-6, below). The step-1/2 regression subset (flag, deliver at 2 processes) ran on df4caf7, not e7274f10 (the later commit changes only the failure location text).
+
+## Measured, step 5 (aac7, 2026-11-01, fixed commit 9129ac52; all measured, single runs)
+
+Fixes of the review (all `ECALC_DR >= 2` only): the division flag `g_dr_div_seen` is stored before the `!g_dr.on` return; at level 3 a D that cannot be enabled (no `DR_Q` residue) prints one line on rank 0 and counts `DR_C_DIV_OFF` ("D NOT ACTIVE" in the summary); an independent check of R(R1) right after division step 1 (fatal naming the step; clean 2-node runs now show 3 division checks, not 2); `dd_step(1)` runs before the step-1 A mu product; the context is cleared at both ends of the division. Local: unittest 57 OK, switch registry 0 problems, doccheck 0.
+
+| case | result |
+|---|---|
+| `mnaccept --only unit,e9,mn,grid,corr`, `ECALC_DR=3` (1 node allocation) | 28 passed, 0 failed (1056 s); DR lines: 0 failures, 0 fatal. (A "steps left: 2" note in the item's done line was a leftover count at note time; the runner cancelled the hold.) |
+| 1 node, 4 PEs, quick checks | clean passes; `xql` K=1 and `cyc` (wrap 24) recovered; `leafslow` clean (deferred 1, no 120 s stall) |
+| 1 node gate, `ECALC_DR` unset | PASS, digits identical (8.61 s) |
+| 1 node 4e10, `ECALC_DR=3` | digits identical, no DR lines (DR inactive at size 1) |
+| 2 nodes 1e9, `ECALC_DR=3` | clean: digits identical, 12.45 s, division checks 3; `xql` K=1 recovered (1 injected = 1 failure = 1 recovered); wrap-24 `cyc` K=1 recovered |
+| 2 nodes gate, `ECALC_DR` unset | PASS, digits identical (12.69 s) |
+| path 2 (`ECALC_PE_PER_GPU=1 XSHMEM_LANES=2`, cray build), 2 nodes: gates with `ECALC_DR=3`; `ECALC_DR=3` + `xql` K=1; `ECALC_DR` unset | all three pass, digits identical |
+| 2 nodes 1e11, `ECALC_DR=3` (rerun, 19:17-19:35 ET) | rc 0, VERIFY OK on both nodes, first 16 hex of the sha1 of the unpacked ASCII digits = 578f5efb0ff2b9af (the reference, `remote/FACTS.md`); total 266.85 s; per node "DR: 42 checks (pieces 38, products 2, ends 2), 0 injected, 0 failures", division checks 5; the wrap path (`DM_MN_WRAP`) was taken |
+
+The first 1e11 attempt ended "No space left on device" (home file system full; not a code failure). The next attempt hashed the packed part files with sha256 (a method mismatch with the reference, not a digit error: VERIFY OK, "digits == X mod q ok", the e prefix and the stored tail all matched); the rerun used the reference method.
+
+## Measured, step 6 (aac7, 2026-11-01; 2 nodes, 128.82e9 digits, no digit output)
+
+ABBA: one warm-up pair discarded, then 4 rounds A B B A; A = `ECALC_DR` unset, B = `ECALC_DR=3`; all runs rc 0, VERIFY OK.
+
+| quantity | value |
+|---|---|
+| mean A / mean B (8 runs each) | 121.18 s / 121.66 s |
+| B - A over the 4 round differences | +0.48 s, 95 % CI -2.53 ... +3.49 s (t = 3.182), +0.40 % of A |
+| B - A over the 8 pairs | +0.48 s, 95 % CI -1.35 ... +2.31 s |
+| injected `flag` K=1 PE=0 with `ECALC_DR=3`, one run | 120.43 s; 1 injected = 1 failure = 1 recovered (pieces) |
+
+The cost is not distinguishable from zero at 2 nodes (the CI includes zero and is wider than the modelled 0.1-0.2 %). The injected-retry run is a single run and shows no retry cost above the run-to-run spread. The model figure for 576 nodes (0.1-0.2 %) stays modelled.
