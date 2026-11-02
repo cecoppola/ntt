@@ -383,6 +383,9 @@ everything is allocated once, up front, and sized by a model that the C layout r
   free extent is met by remapping free chunks, not by copying. The arena's tail is reserved for the division's largest
   block (the "hole", `dm_layout`) plus a room of `BS_ARENA_ROOM` (0.14) × the hole. The reciprocal's scratch is reserved once at the last
   doubling's sizes and inputs are freed as consumed (`DM_TIGHT`), which keeps the free space contiguous.
+  With `ECALC_MAPD=1` (experiment, default off; `mapd.c`) the chunks of the plane pools (`rns_init`, one VA range per pool over 2 GiB chunks) and then of the arena
+  are created by one helper process per APU and imported by the main process (POSIX fd handles); the main process still maps and sets access (the arena
+  under its mapper lock; `results/MAPBENCH.md`).
 - **Window rounds.** A grid piece's temporary window is processed in rounds of `MN_T_CHUNK_MB` per APU (code default 1024,
   launch lines 2048); `mdb_shift` slabs are bounded by `MDB_SHIFT_CHUNK_MB`.
 - **Exchange memory.** Staging for xshmem and the general map's v-slots are counted in the node budget
