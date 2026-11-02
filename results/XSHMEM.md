@@ -260,3 +260,16 @@ checked first): the kit chain `s0_check`, `s2_build --path both`, `s3_gate --nod
 
 **Verdict.** Gate PASS: digits identical, 0 P24 flags, every injection caught; cand3 merged into main 2026-10-31. **Open issues.** The
 series arm is not analysed; the off / on single runs are not timing evidence (path 2 on 28.20 vs 26.29 s needs a paired run if it matters).
+
+## N4: `XSHMEM_LANES=2` on path 1, layout D (branch netmeas, 2026-11-01 19:40-20:33 ET, aac7, measured)
+
+Gate of the plan item N4 (two NICs per APU on path 1). Build: main c86e5fcc, path 1 (`XSHMEM=ofi`), separate worktree. aac7 has one NIC per APU, so lane 2 is a virtual lane: this is a digits and no-crash gate, no gain claim. Launch line of the aac7 profile plus `XSHMEM_ROUND_STATS=1`; digits hashed (sha256 of the part files in name order) and deleted; one run per cell.
+
+| nodes | digits | LANES unset: wall s, sha | `XSHMEM_LANES=2`: wall s, sha | VERIFY |
+|---|---|---|---|---|
+| 1 | 1e9 | 13, e7b8de91be544ad9 | 14, e7b8de91be544ad9 | OK / OK |
+| 1 | 1.6e10, `MN_TREE_LOGN_TEST=26` | 91, ca5c9be6b8679b7f | 88, ca5c9be6b8679b7f | OK / OK |
+| 2 | 1e9 | 16, 7268c623afbf9dca | 15, 7268c623afbf9dca | OK / OK |
+| 2 | 1.6e10, `MN_TREE_LOGN_TEST=26` | 57, 5bc4211dbd24efd1 | 58, 5bc4211dbd24efd1 | OK / OK |
+
+The 2-node 1.6e10 hash also equals the default-settings run of the N1 section in `results/DIAG.md` (same digits with and without `MN_TREE_LOGN_TEST=26`). The 1-node and 2-node hashes of the same digits differ (probably because the part files are split differently per node count, not checked); each passes VERIFY and the pairs within one node count are identical. No lane-split counters are printed on path 1 (`XSHMEM_ROUND_STATS=1` output has no lane lines; `XSHMEM_LANE_TRACE` was not set). **Verdict.** Digits identical with `XSHMEM_LANES=2` at 1 and 2 nodes on path 1; the wall times are equal within noise (single runs). Gain on the target (two NICs per APU) is unmeasurable here.
