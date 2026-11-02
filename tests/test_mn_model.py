@@ -106,26 +106,32 @@ class V12(unittest.TestCase):
         import mn_model
         cls.M = mn_model
 
-    def test_reference_run_reproduced(self):
-        # the six measured buckets close to 206.1 s of the 206.27 s run; the rounds, volume, per-round cost and wire rate are the measured ratios
+    def test_terms_close_to_the_measured_wall(self):
+        # the six terms at 2e13 against the run's measured wall 206.27 s (an independent constant); the buckets close to 0.2 s in the run's own table, so 0.25 s
         e = self.M.v12_estimate(2e13)
-        self.assertAlmostEqual(e["wall_s"], 206.1, delta=0.05)
+        self.assertEqual(set(e["terms"]), {"init", "wire", "polls", "engine", "gpu", "host"})
+        self.assertAlmostEqual(sum(e["terms"].values()), 206.27, delta=0.25)
+        # the measured ratios the terms are built from: 165,300 rounds, 9.33 TB, per-round time, wire rate, the round-sizing rule (128 MiB / 575 = 233 KB)
         self.assertEqual(round(e["rounds"]), 165300)
         self.assertAlmostEqual(e["fabric_tb"], 9.33, places=2)
-        self.assertAlmostEqual(e["round_s"] * 1e3, 0.355, places=3)       # (37.4 + 21.3) s / 165,300 rounds
-        self.assertAlmostEqual(e["wire_gbs"], 184.4, delta=0.1)           # 9.33 TB / 50.6 s per node
-        self.assertAlmostEqual(self.M.xshmem_chunk_bytes(576) / 1e3, 233.0, delta=1.0)   # 128 MiB / 575 = 233 KB (the round-sizing rule)
+        self.assertAlmostEqual(e["round_s"] * 1e3, 0.355, places=3)
+        self.assertAlmostEqual(e["wire_gbs"], 184.4, delta=0.1)
+        self.assertAlmostEqual(self.M.xshmem_chunk_bytes(576) / 1e3, 233.0, delta=1.0)
 
     def test_other_sizes_within_twelve_percent(self):
-        # the 10-29 series (4e12 ... 2.4e13) and 1.8e13 are NOT fitted: residuals -11.6 % ... +8.0 % are known, linear scaling is too steep above 2e13 and too flat below
-        for d, meas, w, res in self.M.v12_table():
+        # NOT fitted: the 10-29 series and the second 2e13 run; 1.8e13 ran with other settings (diagnostic words) and is kept for that reason.  Excluded: the reference
+        # run (2e13, 206.27, the calibration) and 3.6e13 (the fitted row).  Known residuals -11.6 % ... +8.0 %: linear scaling is too steep above 2e13, too flat below.
+        rows = [r for r in self.M.v12_table() if r[0] != 3.6e13 and r[1] != 206.27]
+        self.assertEqual(len(rows), 7)
+        for d, meas, w, res in rows:
             self.assertLess(abs(res), 0.12, (d, meas, w))
 
     def test_phi_is_the_only_fit(self):
         # phi is solved on the 3.6e13 passes (mean of three plain runs); the pin keeps the fit visible: 0.34
         self.assertAlmostEqual(self.M.V12_PHI, 0.341, places=3)
-        self.assertEqual([self.M.v12_piece_index(d) for d in (2.6e13, 2.7e13)][0], 1.0)
-        self.assertAlmostEqual(self.M.v12_piece_index(3.6e13), 2.0)       # planner pieces 2 / 4 / 2 against 1 / 2 / 1 (results/LAUNCH_DEFAULTS.md section PIECES)
+        # piece index from results/LAUNCH_DEFAULTS.md section PIECES (1 / 2 / 1 up to 2.6e13; 1/2/2 at 2.7e13; 2/3/2 at 2.9e13; 2/4/2 at 3.6e13; 3/5/3 at 4.0e13); the form is an assumption (a)
+        for d, want in ((2.6e13, 1.0), (2.7e13, 1.33), (2.9e13, 1.83), (3.6e13, 2.0), (4.0e13, 2.83)):
+            self.assertAlmostEqual(self.M.v12_piece_index(d), want, places=2, msg=d)
 
     def test_monotone_and_576_only(self):
         w = [self.M.v12_estimate(d)["wall_s"] for d in (1e13, 2e13, 3e13, 3.6e13, 4e13)]
