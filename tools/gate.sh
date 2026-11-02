@@ -27,6 +27,7 @@
 #     that does not fit is refused (FAIL, no node time used); GATE_FIT=0 skips it (deliberate edge tests only). mnrun.sh checks again.
 #   doccheck: tools/doccheck.py (docs match the tree, <5 s) runs first. GATE_DOCCHECK=strict (default) fails the gate on any problem;
 #     GATE_DOCCHECK=warn prints the problems and goes on; GATE_DOCCHECK=off skips it.
+#   GATE_SHA=1 writes <out>/e.sha (sha256 of the digit file) before the file is deleted.
 #   Exit 0 = PASS (rc 0, VERIFY OK, digits identical, no segfault), 1 = FAIL.  Kills only its own srun PID and its own sbatch id.
 #   Examples:  tools/gate.sh --build --nodes 1 --hold 12463        tools/gate.sh --nodes 2 --alloc --line aac7
 #              tools/gate.sh --build --nodes 1 --alloc --line none          (aac6, single node)
@@ -62,6 +63,7 @@ cleanup() {
   [ -n "$WPID" ] && kill "$WPID" 2>/dev/null
   [ -n "$SPID" ] && kill -0 "$SPID" 2>/dev/null && kill "$SPID" 2>/dev/null     # only our own srun PID
   [ -n "$JOB" ] && scancel "$JOB" 2>/dev/null                                   # only the job this script submitted
+  [ -n "${GATE_SHA:-}" ] && [ -r "$OUT/e.out" ] && sha256sum "$OUT/e.out" | cut -d" " -f1 > "$OUT/e.sha" 2>/dev/null   # GATE_SHA=1: keep the digit file's sha256 (comparing two arms at a size without a reference)
   rm -rf "$OUT"/e.out "$OUT"/e.out.part* "$OUT"/e.out.* 2>/dev/null
 }
 finish() { # RES WHY
