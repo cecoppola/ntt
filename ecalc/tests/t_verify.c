@@ -59,6 +59,19 @@ int main(void)
         for (int i = 0; i < T1_NQ; i++) VERIFY(vf_digits_mod(s, strlen(s), t1_q[i]) == mpz_fdiv_ui(t, t1_q[i]), "digits mod q%d", i);
         free(s); bi_free(&a);
     }
+    printf("-- 4. vf_pq_range_mod vs the leaf P, Q of the same term range (the C3 leaf check compares it with db_mod_qs of the leaf; db_mod_qs vs host residues: t_dbig)\n");
+    {   unsigned long rg[][2] = { {1, 2}, {1, 3}, {2, 3}, {1, 100}, {7, 8}, {100, 101}, {5, 1000}, {N, N + 1}, {N - 50, N + 1}, {N / 2, N / 2 + 333}, {1, N + 1} };
+        for (size_t k = 0; k < sizeof rg / sizeof rg[0]; k++) {
+            bigint Pl, Ql; bi_init(&Pl); bi_init(&Ql); binsplit_ref(&Pl, &Ql, rg[k][0], rg[k][1]);
+            mpz_t a, b; mpz_inits(a, b, NULL); bi_to_mpz(a, &Pl); bi_to_mpz(b, &Ql);
+            for (int i = 0; i < T1_NQ; i++) {
+                uint64_t pp, qq; vf_pq_range_mod(rg[k][0], rg[k][1], t1_q[i], &pp, &qq);
+                VERIFY(pp == mpz_fdiv_ui(a, t1_q[i]) && qq == mpz_fdiv_ui(b, t1_q[i]) && pp == vf_limbs_mod(Pl.l, Pl.n, t1_q[i]) && qq == vf_limbs_mod(Ql.l, Ql.n, t1_q[i]),
+                       "range [%lu, %lu) mod q%d", rg[k][0], rg[k][1], i);
+            }
+            mpz_clears(a, b, NULL); bi_free(&Pl); bi_free(&Ql);
+        }
+    }
     free(digits);
     return verify_done("t_verify");
 }

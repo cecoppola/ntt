@@ -17,6 +17,8 @@ Sections moved to `archive:results_merged_2026-10-24/TIME_MODEL.md` (2026-10-24 
 
 ## target_fit — a profile fitted to the target's 2 / 64 / 576-node runs, with a per-round synchronisation term (A3, 2026-10-27)
 
+Superseded for 576-node planning on the remote-v12 engine by §v12 below (this fit gives 527.5 s for the 2e13 run that took 206.27 s); the profile stays selectable and pinned.
+
 Branch `model`; Python only (no run). Inputs: the target's weak-scaling phases at 8e9 digits per node, `BS_SEED_THREADS=144`, path 1, layout D (m, the target; remote/FACTS.md "Measured runs on the target"). Files: `ecalc/mn_model.py`, `tests/test_mn_model.py`.
 
 **Code changes.** (1) The model's `XSHMEM_ROUND_MB` follows the code: default 128 (`ecalc/xshmem_round.h`; every target run used it), not the 1024 it assumed (`--round-mb`, `Design.round_mb`); the time columns of every existing profile are unchanged (the old size only entered the memory plan: the SHMEM staging / pool columns drop, e.g. 4e10 digits at 64 nodes: host 44 -> 36 GB, pool 9 -> 2 GB; `--round-mb 1024` reproduces the previous lines exactly). (2) New profile `--fabric target_fit` (`TARGET_FIT_CONSTS`): fabric 21.0 GB/s per APU, 30 us per message, `ROUND_SYNC` 1.15 ms x peers^0.5 per exchange round (rounds = ceil(a stream's outgoing bytes / `XSHMEM_ROUND_MB`) per chunk, `round_sync_cost`; 0 = one round), `DC_FMT_MN` 1.79 s per 1e9 digits (the digit residue as the code stands), init 1.2 x plus 0.6 s per doubling of the nodes beyond 2 (`INIT_DOUBLING`), `NODE_SCALE` 1.15. The sync term, `INIT_DOUBLING` and the dc rate are reset for every other profile (`apply_profile`), `MN_MODEL_ROUND_SYNC`, `MN_MODEL_ROUND_SYNC_EXP`, `MN_MODEL_INIT_DOUBLING` override.
@@ -42,6 +44,50 @@ rms log error of the six points 10.9 %, worst dm at 64 nodes (-13 %). Fit A with
 (64 nodes, 5.12e11: 81.0 / 79.0 / 79.0 s.) The model says a larger round size matters only at the large sizes (-9 % at 4.6e12, -34 % at 3.82e13); this is the prediction the target's A/B (`XSHMEM_ROUND_MB` 128 / 1024 / 0 at 64 nodes, then 576) checks. The 3.82e13 totals sit above the analysis's Fit A / B headline (733 / 976 s) at the default round size and close to Fit A's at 1024.
 
 Regression: `tests/test_mn_model.py` pins the `aac7`, `aac7_l4`, `target_l4` and `target` rows at 2 and 64 nodes (main 460bed6; `--round-mb 1024` identical, default 128 identical in every time column) and checks the six points and the three totals of `target_fit` within +-30 %.
+
+## v12 — the model recalibrated on the measured decomposition of the 2e13 run (D2, 2026-11-01)
+
+Branch `timemodel`; Python only, no cluster run. Inputs (m, the target, 2026-10-29, remote-v12 engine, 576 nodes, series settings): the 2e13 run (206.27 s, VERIFY OK, every diagnostic on) with its per-PE bucket table, and the run times of the same day's other sizes. Files: `ecalc/mn_model.py` (`v12_estimate`, `mn_model.py v12`), `tests/test_mn_model.py` (class `V12`). Labels: m measured, mod modeled, a assumed.
+
+**Why the standing estimate missed (mod, `estimate --g 576 --D 3.4722e10 --fabric target_fit`: 527.5 s without the write, 6.72 TB per node; measured 206.27 s, 9.33 TB).** The terms were found by switching them off one at a time in fresh processes (the schedule search re-optimizes each time, so the pieces are approximate and do not add exactly): total 527.5 s; with `ROUND_SYNC` 0, 287.4 s; additionally latency 0, 241.3 s; additionally a 10x fabric rate (210 GB/s per APU), 155.3 s. So the estimate is about 240 s round synchronization, 46 s message latency, 86 s wire, and 155 s of init (22.4 s) plus compute and the rest (about 133 s).
+1. Round synchronization, about 240 s against 58.7 s measured (polls plus other engine work). `round_sync_cost` charges `ROUND_SYNC` x peers^0.5 = 1.15 ms x 575^0.5 = 27.6 ms for each round of a 575-peer exchange, and counts a round as the exchange's bytes per APU divided by 128 MiB, i.e. it assumes full rounds. Real rounds are far from full: 165,300 rounds carried 14.1 MB per PE on average (m, 9.33 TB / 4 PEs per node / 165,300), 11 % of the cap, so the real count is about 10x a full-round count (17,400 for 9.33 TB; 12,500 for the model's 6.72 TB). The old fit was thus wrong in both factors: too few rounds (about 8,700 full-width round equivalents implied by 240 s / 27.6 ms) times a per-round cost about 78x too high (27.6 ms against 0.355 ms mean engine time per round measured). The product happens to be 4x the measured bucket. The constants came from six points of the 8e9-per-node weak-scaling runs (4.6e12 digits at 576 nodes, 255.3 s then; the same size runs in 68-97 s now, m) that had one to a few rounds per exchange, so they could pin the peers dependence but not the rounds (said in §target_fit); the earlier statement that the model's round count agreed with the measured count was wrong and is withdrawn.
+2. Message latency, 46 s: 30 us per message (fitted jointly with the bandwidth, not a physical latency) times 1.18 million messages per APU in the final schedule (35 s direct; the rest is schedule re-optimization).
+3. Wire, about 86 s against 50.6 s measured: the fit's 21 GB/s per APU is 84 GB/s per node (x 0.655 on the non-power-of-two groups), against 184 GB/s per node measured while transferring (9.33 TB / 50.6 s copy-quiet time; a: all of the copy-quiet time is wire time). The run's report says four of eight NICs were active (about 46 GB/s per active NIC); this figure is not in a tracked document (a).
+4. Local compute and the rest, about 133 s against 60.2 s measured (GPU stream 40.3 plus other host 19.9): the model also overstates the non-fabric part by about 2x at this size.
+5. Init: 22.4 s modeled against 36.6 s measured. The formula has no growth with the digit count; the series grows about 0.94 s per 1e12 digits.
+6. Volume: 6.72 TB modeled against 9.33 TB measured (-28 %). The model prices the planned transform exchanges, operand and result redistributions, spills and the shifts (0.15 TB per node for 134 shifts at half a limb share). The 2.6 TB gap is not attributed; the shifts are a candidate of the right size (in the engine they are a group all-to-all in 1 GiB chunks; 139 shifts took 25.57 s on rank 0, up to 4.7 TB at the wire rate), but this is not shown (a). Per-tag byte counters now exist (`results/DIAG.md`); a 576-node run with them settles it.
+7. The kit's 90.5 s estimate has no protocol terms (not examined further).
+
+**The decomposition (m, per PE, seconds, 2e13 digits, 576 nodes).** Init 36.6; inside exchanges: copy quiet 50.6, partner polls 37.4, other engine work 21.3; between exchanges: GPU stream 40.3, other host 19.9. Sum 206.1 of 206.27 s. Fabric 9.33 TB per node each way (the run's report says on 4 of 8 NICs; not in a tracked document, a); 165,300 rounds per PE (mean 14.1 MB per round per PE, 4 PEs per node); 139 shifts, 25.57 s on rank 0 (a share of the exchange buckets, a memo line, not an added term).
+
+**The model (`mn_model.py v12`, 576 nodes only).**
+| term | form | calibration |
+|---|---|---|
+| init | 36.6 + 0.94 s per 1e12 digits from 2e13 | slope m across the series (20.65 s at 4e12, 39.41 s at 2.4e13), linear in between a |
+| wire | fabric TB / 184 GB/s per node; TB = 0.4665 per 1e12 digits | m at 2e13; volume linear in digits a (series 0.40-0.47 TB per 1e12 m) |
+| rounds x time per round | rounds = 165,300 x digits/2e13 (modeled at other sizes); 0.355 ms per round = mean exchange-engine time (polls + other engine work) | m ratio of two measured numbers, interpretation a (the polls include partner skew and wire wait); rounds follow the sizing rule: per-pair chunk = `XSHMEM_ROUND_MB`/(n-1) = 233 KB at 576 nodes (`xshmem_chunk_bytes`) |
+| GPU stream, host | 40.3 and 19.9 s x digits/2e13 | m, linear a |
+| pieces | the polls and engine buckets grow by 1 + phi (index - 1); index = equal-weight mean of the planner's piece counts (levels 1-6 / 7 / 8, `results/LAUNCH_DEFAULTS.md` §PIECES) against 1 / 2 / 1: 1.33 at 2.7e13, 1.83 at 2.9e13, 2.0 at 3.6e13, 2.83 at 4.0e13 | phi = 0.34, the one fitted number, from the three plain 3.6e13 passes; the form (equal weights, linear in the index) is an assumption (a) checked at no other size: the values at 2.7e13-3.5e13 and the 4e13 forecast rest on it alone (3.7e13 has the 3.6e13 plan and no timing) |
+| shifts | 139 shifts, 184 ms each at 2e13, per-shift time linear in digits | memo only (inside the buckets) |
+
+**Check (mod against m; only phi is fitted, on 3.6e13).**
+| digits | measured s | model s | residual |
+|---|---|---|---|
+| 2e13 (the reference run) | 206.27 | 206.1 | -0.1 % (by construction) |
+| 2e13 (a second run) | 207.22 | 206.1 | -0.5 % |
+| 4e12 | 62.73 | 55.5 | -11.6 % |
+| 8e12 | 99.72 | 93.1 | -6.6 % |
+| 1.2e13 | 130.92 | 130.8 | -0.1 % |
+| 1.6e13 | 168.48 | 168.4 | 0.0 % |
+| 1.8e13 (diagnostic words, other settings) | 174 | 187.3 | +7.6 % |
+| 2.4e13 | 225.73 | 243.8 | +8.0 % |
+| 3.6e13 (mean of 393, 390.8, 394.6) | 392.8 | 392.8 | 0 % (fitted) |
+
+Out of sample the residuals run -11.6 % to +8.0 % (root mean square 6.5 % over the seven unfitted rows), against 156 % for the old estimate at 2e13 (527.5 s against 206.27 s). The pattern is a real limit: the series spends 10.5 s per 1e12 digits outside init at 4e12 and 7.8 s at 2.4e13, so linear scaling from 2e13 is too flat below and too steep above; phi, fitted at 3.6e13 where the model starts from the steep side, therefore trades off against that curvature, and the prediction at 4e13 (468 s, 2.83 piece index; the 4.4e13 plan is refused) has an uncertainty of at least +-10 % (a). The seven or so 4.608e12 plain runs (67.9-96.9 s, m) are not tabulated: their spread is a third of the value; the model gives 61 s there (mod, 10 % below the fastest of them).
+
+**What the model cannot say.** (i) Any node count but 576. (ii) The effect of `XSHMEM_ROUND_MB` (task N3) or of zero-pair skipping: the share of rounds limited by the byte cap is not known (mean fill 14.1 MB per PE per round against the 128 MiB cap; per-tag round counts exist only since the diagnostics work), so no model of "fewer rounds" is offered; the wire term stays and the round term needs the per-tag counts first. (iii) The GPU and host buckets are scaled by digits only. (iv) Sizes above 4e13 (refused by the planner at the 373.44 GB edge).
+
+**Planning risk: failure rate by size (m, few runs; 576 nodes, remote-v12, 10-29). The rows are not independent samples:** the 4.608e12 size lies inside the 4e12-2.4e13 range and it is not known whether its 11 runs include any of the series' 8; the two 3.6e13 rows are subsets of each other. Do not pool them. 4.608e12: 1 of 11 runs failed (95 % interval 0.02-0.38); 4e12-2.4e13 series: 2 of 8 (0.07-0.59); 3.6e13: 3 of 7 (0.16-0.75), 0 of 4 without diagnostic words, all 3 failures with them; 3.7e13-4e13: 6 of 6 (0.61-1.00). The rate rises with size, so the expected time to one verified result is the pass time times 1 / (1 - rate) (a: independent runs, every attempt costs the full time): about 1.1 x at 4.6e12, 1.3 x at the series sizes, 1.8 x at 3.6e13 (1.0 x if the 0-of-4 reading holds), unbounded above. These rates are from a handful of runs per size and are a planning input, not a model; `mn_model.py v12` prints the rows that cover a size (none between 2.4e13 and 3.6e13).
 
 ## L4 — refit of the time model to all of 2026-10-11's multi-node aac7 runs; what it got wrong and why (wave L, agent L4)
 
@@ -154,7 +200,7 @@ Ideal weak scaling is flat 76 s.
 
 **4 n bimodality** (S47 ABBA, 42 usable 4 n runs on the same four nodes, m): fast mode **180.4-185.6 s** (~24 runs) and slow **207.3-213.2 s** (11 runs), a few between, cold outliers 224-281 s; same code and nodes, both arms alike (not an A/B effect), comes in blocks (follows fabric state). Slow mode: dm +20 s (76.8 -> 96.6-103), bs +3..+9, init unchanged; also visible at 2 n (144.1 vs 133.8 s). A mixed 4 n mean is ~190 s; fitting the slow mode would give 8.5 instead of 10.6 GB/s. (Later §L4: the cause is the NIC launch group.)
 
-**576 nodes (mod; fabric 100 GB/s per APU, 2 us, part file 1.0 GB/s assumed), no-write / with part file:** 3.71e13 standing locals 180.2 / 196.1 s; refit locals 169.9 (corrected: 152.4, see §T06) / 185.7. 3.82e13 standing 186.0 / 200.8; refit locals 175.3 (corrected 157.3) / 190.1. If a similar gap (+25 %) applied at 576 the no-write wall would be about 219 s at 3.82e13 (assumed, crude upper marker); lowering target bw by 0.72 does not move the model: the shortfall is the exchange kind. **Adoption:** `aac7_s48` as the aac7 profile (aac7 within 2 % at 1/2/4 n instead of +42..+122 %; not a 576 predictor without a non-pow2 term) — **superseded by §T06 / §L4**.
+**576 nodes (mod; fabric 100 GB/s per APU, 2 us, part file 1.0 GB/s, the prior before the 10-26 measurement; the model now uses 4.0), no-write / with part file:** 3.71e13 standing locals 180.2 / 196.1 s; refit locals 169.9 (corrected: 152.4, see §T06) / 185.7. 3.82e13 standing 186.0 / 200.8; refit locals 175.3 (corrected 157.3) / 190.1. If a similar gap (+25 %) applied at 576 the no-write wall would be about 219 s at 3.82e13 (assumed, crude upper marker); lowering target bw by 0.72 does not move the model: the shortfall is the exchange kind. **Adoption:** `aac7_s48` as the aac7 profile (aac7 within 2 % at 1/2/4 n instead of +42..+122 %; not a 576 predictor without a non-pow2 term) — **superseded by §T06 / §L4**.
 
 ## SCALE35 — scaling points at 3 and 5 nodes (docs only; main 39346d03, SHMEM build, defaults)
 

@@ -57,12 +57,14 @@ void xshmem_ofi_init_times(double *v, long *n_av);   /* xshmem_ofi.c: ECALC_INIT
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define COPY(d, s, n, st) HIP_CHECK(comm_copy_async(d, s, n, st))
 #define SYNC(st) do { HIP_CHECK(hipStreamSynchronize(st)); } while (0)
+#define HSYNC(p, st) do { if ((p)->lp->htl.on) { double th_ = now_s(); SYNC(st); htl_wait(&(p)->lp->htl, (p)->phk, now_s() - th_); } else SYNC(st); } while (0)   /* the post's stream sync, timed under ECALC_HOST_TL */
 #define MAXID 1024                         /* communicator ids (control blocks) */
 #define MAXID_VPE 512                      /* (544 with vpe_big_ids(): MAXID_VPE_BIG) */
 #define MAXID_VPE_BIG 544                      /* ... with ECALC_PE_PER_GPU (flat PE communicators: the control block grows with the PE count; 512..543: the runs of >= 64 PEs that are not aligned powers of two, mn.c sub_id; +32 ids = 7 x nw x 8 B each, 129 KB per id at 2304 PEs) */
 #define MAXL 4                             /* lane contexts per PE (XSHMEM_LANES) */
 #define MAXPST 8                           /* XSHMEM_PEER copy streams per PE */
 #define PEERBIT (1u << 8)                  /* lane_put's mask: a same-node device copy is outstanding (lane_quiet syncs the copy streams) */
+#include "hosttl.h"
 #define MAXLPE 8                           /* loopback PEs per process */
 #define MAXPEND 256                        /* exchanges one worker can hold */
 #define ALIGN 256
@@ -99,6 +101,7 @@ typedef struct xpe {                       /* one loopback PE of this process */
     /* XSHMEM_ROUND_STATS counters rst[] (seconds, summed over the run, unless a count): 0 ROFF post, 1 staging copy, 2 ROFF wait (WALL: phase 1 start to the quiet, includes the worker's turns on other pending exchanges), 3 copy issue, 4 copy quiet, 5 signal post, 6 signal wait (WALL), 7 signal quiet, 8 receive copy, 9 rounds (count), 10 ROFF poll and 11 signal poll (EXCLUSIVE worker time inside the step, without the copy issue), 12 sum and 13 max of the pending exchanges at a round start;
      * the exchange timeline (telescopes to 21): 14 post (t0 to enqueue), 15 worker wake (enqueue to the first round), 16 worker span (first round to the last), 17 late (the caller enters wait after the worker is done), 18 notice (worker done or wait entry to flushed seen), 19 end (flushed seen to wait return), 20 exchanges (count), 21 post to completion (the old counter), 22 caller blocked in wait, 23 caller work between post and wait, 24 post to the first ROFF write, 25 caller time between one exchange's end and the next post (alltoallv exchanges only);
      * inside the post: 26 self copy issue, 27 default quiet, 28 caller stream sync after the event sync, 29 GPU stream time between exchanges (events, same stream only), 30 and 31 counts of posts whose stream was idle or busy when the post started (hipStreamQuery before the event record), 32 hipEventSynchronize of the post's event, 33 device-wide sync after the stream sync, 34 and 35 event sync + stream sync time in the idle and the busy cases, 36 intervals skipped (different stream or no event before) */
+    htl_t htl;                                              /* ECALC_HOST_TL: this PE's host timeline (hosttl.h) */
     double tc[XK_NK][XTC_N];                                /* XSHMEM_ROUND_STATS: per phase tag (XK_*): exchanges, exchanges in rounds, rounds, bytes received, bytes sent, largest single pair (either direction) */
     double lqt[MAXL]; double lqlast[MAXL];                  /* XSHMEM_LANE_TRACE: summed and last quiet time per lane */
     pthread_t th; int th_on, stop; volatile int busy; pthread_mutex_t qm; pthread_cond_t qcv; struct xpriv *queue[MAXPEND]; volatile int nq;
@@ -115,6 +118,7 @@ static struct {
     int nl; size_t lmin; unsigned long long lb[MAXL];   /* XSHMEM_LANES > 1: lanes in use, the smallest chunk per lane, payload bytes put per lane */
 } X = { 1, {0}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, PTHREAD_MUTEX_INITIALIZER, 0, 0, {}, {} };
 
+static int g_htl, g_htl_pe;                 /* ECALC_HOST_TL=1: the host timeline of the PE ECALC_HOST_TL_PE (default 0; -1 = every PE); off by default */
 static int g_ctree;                        /* XSHMEM_COLL=tree: dissemination collectives (default 0 = flat, every member to every member) */
 static struct { int on, ncomm, nhs, nline; double t0, csum, cmax, hsum, hmax, hmaxi; } XT;   /* ECALC_INIT_TL=1: the start-up timeline of the engine (print only) */
 #define XTL(...) do { if (XT.on && X.q == 0) { printf("tl %7.2f  xshmem: ", now_s() - XT.t0); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -423,7 +427,7 @@ static void xex_post_rounds(xpriv *p, const void *sb, void *rb, hipStream_t s)
     RTA(26, tz);
     double tes = 0; if (g_rst) { tes = now_s(); HIP_CHECK(hipEventSynchronize(p->ev_post)); lp->rst[32] += now_s() - tes; }   /* the stream's own work up to the post, before the self copy's sync */
     tz = RT0();
-    SYNC(s);                                              /* the caller's stream is done with sb and rb: publish only after (waits for everything queued on s: earlier compute and the copy above) */
+    HSYNC(p, s);                                          /* the caller's stream is done with sb and rb: publish only after (waits for everything queued on s: earlier compute and the copy above) */
     RTA(28, tz);
     if (g_rst) { double ts = now_s() - tes; lp->rst[sidle ? 34 : 35] += ts; lp->rst[sidle ? 30 : 31] += 1; double td = now_s(); HIP_CHECK(hipDeviceSynchronize()); lp->rst[33] += now_s() - td;   /* other work on the device after this stream is done */
         double gms = -1;
@@ -468,7 +472,7 @@ static void xex_post(xpriv *p, const void *sb, void *rb, hipStream_t s)
     }
     if (p->scnt[me] && (const char *)sb + p->sdsp[me] != (char *)rb + p->rdsp[me]) COPY((char *)rb + p->rdsp[me], (const char *)sb + p->sdsp[me], p->scnt[me], s);
     if (X.ltrace) p->tpost[1] = now_s() - p->t0;
-    SYNC(s);                                              /* the stream is done with sb and rb: publish only after */
+    HSYNC(p, s);                                          /* the stream is done with sb and rb: publish only after */
     if (X.ltrace) p->tpost[2] = now_s() - p->t0;
     xshmem_ctx_quiet(XSHMEM_CTX_DEFAULT);                 /* older word writes (ROFF, collectives) */
     if (X.ltrace) p->tpost[3] = now_s() - p->t0;
@@ -528,6 +532,7 @@ static void xex_wait(xpriv *p)
     if (p->sst) xfree(p->lp, p->sst);
     if (p->rst) xfree(p->lp, p->rst);
     p->sst = p->rst = 0; p->pending = 0;
+    if (p->lp->htl.on) htl_end(&p->lp->htl, now_s());
     double t = now_s() - p->t0, b = recv_bytes(p);
     if (g_rst && rdone && p->t_r1 > 0 && p->t_dn > 0) { double *r = p->lp->rst, te = p->t0 + t, tl = t0, td = p->t_dn, mx = tl > td ? tl : td;
         r[14] += p->t_enq - p->t0; r[15] += p->t_r1 - p->t_enq; r[16] += td - p->t_r1; r[17] += mx - td; r[18] += tsn - mx; r[19] += te - tsn; r[20] += 1; r[21] += t; r[22] += tsn - tl; r[23] += tl - p->t_enq;
@@ -562,7 +567,7 @@ static int x_size(comm *c) { return c->size; }
 static void x_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
 {
     xpriv *p = PRIV(c); p->phk = comm_xtag < 0 || comm_xtag >= XK_NK ? 0 : comm_xtag;
-    enter(p);
+    enter(p); if (p->lp->htl.on) htl_post(&p->lp->htl, p->phk, now_s());
     for (int r = 0; r < p->n; r++) { p->scnt[r] = p->rcnt[r] = bytes; p->sdsp[r] = p->rdsp[r] = (size_t)r * bytes; }
     p->v = 0; xex_post(p, sb, rb, s);
     leave(p);
@@ -570,7 +575,7 @@ static void x_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
 static void x_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
 {
     xpriv *p = PRIV(c); p->phk = comm_xtag < 0 || comm_xtag >= XK_NK ? 0 : comm_xtag;
-    enter(p);
+    enter(p); if (p->lp->htl.on) htl_post(&p->lp->htl, p->phk, now_s());
     if (p->pending) die(p, "alltoallv while an exchange is pending");   /* (before the caller's arrays overwrite the pending counts) */
     memcpy(p->scnt, scnt, (size_t)p->n * sizeof(size_t)); memcpy(p->sdsp, sdsp, (size_t)p->n * sizeof(size_t));
     memcpy(p->rcnt, rcnt, (size_t)p->n * sizeof(size_t)); memcpy(p->rdsp, rdsp, (size_t)p->n * sizeof(size_t));
@@ -855,12 +860,14 @@ int comm_xshmem_init(void)
       X.t00 = now_s();
       e = getenv("XSHMEM_THP_DISABLE");   /* 1: prctl(PR_SET_THP_DISABLE) for this process: no THP faults, so no direct compaction stalls on a fragmented node */
       if (e && atoi(e) > 0) { int r = prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0); if (xshmem_my_pe() == 0 || r) fprintf(stderr, "comm_xshmem: XSHMEM_THP_DISABLE=1: pe %d prctl rc %d\n", xshmem_my_pe(), r); }
+      e = getenv("ECALC_HOST_TL"); g_htl = e && atoi(e) > 0; g_htl_pe = 0;
+      e = getenv("ECALC_HOST_TL_PE"); if (g_htl && e && *e) { char *end; long v = strtol(e, &end, 10); if (*end || v < -1 || v >= (long)np) ec_fatal(EC_RC_FATAL, "comm_xshmem: ECALC_HOST_TL_PE=%s: -1 (every PE) or a rank 0..%d\n", e, np - 1); g_htl_pe = (int)v; }
       e = getenv("XSHMEM_LANE_POLL"); X.lpoll = e && atoi(e) > 0;
       e = getenv("XSHMEM_SIG_LANES"); X.sigl = e && atoi(e) > 0;
       e = getenv("XSHMEM_LANE_CTX"); X.lctx = e && !strcmp(e, "private") ? XSHMEM_CTX_PRIVATE : e && !strcmp(e, "none") ? 0 : XSHMEM_CTX_SERIALIZED; }
     { X.lmin = (size_t)256 << 10; }
     for (int l = 0; l < K; l++) {                                     /* lane contexts first, in order, before any heap (xshmem.h: lane order) */
-        XSHMEM_SELECT(l); xpe *lp = &X.pe[l]; lp->lpe = l; if (g_rst && hipGetDevice(&lp->gdev) != hipSuccess) (void)hipGetLastError(); if (g_rser) lp->ser = (rser *)calloc(MAXSER, sizeof(rser));
+        XSHMEM_SELECT(l); xpe *lp = &X.pe[l]; lp->lpe = l; htl_init(&lp->htl, g_htl && (g_htl_pe < 0 || g_htl_pe == K * X.q + l)); if (g_rst && hipGetDevice(&lp->gdev) != hipSuccess) (void)hipGetLastError(); if (g_rser) lp->ser = (rser *)calloc(MAXSER, sizeof(rser));
         if (xshmem_ctx_create(X.lctx, &lp->lanes[0])) ec_fatal(EC_RC_FATAL, "comm_xshmem: PE %d: no context for the lane\n", K * X.q + l);
         lp->lane = lp->lanes[0];
         for (int k = 1; k < nlw; k++) if (xshmem_ctx_create(X.lctx, &lp->lanes[k])) ec_fatal(EC_RC_FATAL, "comm_xshmem: PE %d: no context for lane %d (XSHMEM_LANES=%d: the backend serves fewer)\n", K * X.q + l, k, nlw);
@@ -966,6 +973,7 @@ int comm_xshmem_geo(int *v, char *cpus, int ncpus)
 int comm_xshmem_loopback_pes(void) { return X.inited ? X.K : XS_LPES(); }
 /* XSHMEM_ROUND_STATS >= 1: the per-phase-tag table (XK_*) at finalize: node-process 0 summed over its PEs (the TOTAL row equals the totals line below), and the maximum over all PEs of
  * every column (each PE puts its counters to PE 0, which prints; collective, once at finalize, after the timed run). */
+_Static_assert(XK_NK <= HTL_NK, "hosttl.h: HTL_NK covers every phase tag");
 static const char *const tag_name[XK_NK] = { "other", "redist", "result", "spill", "addsh", "layeq", "layv" };
 static void xtag_report(void)
 {
@@ -1014,6 +1022,10 @@ void comm_xshmem_finalize(void)
     for (int l = 0; l < X.K; l++) { XSHMEM_SELECT(l); lane_quiet(&X.pe[l], (1u << (X.nl > 1 ? X.nl : 1)) - 1); }
     XSHMEM_SELECT(0); xshmem_barrier_all();
     if (X.q != 0 && X.K == 1) fprintf(stderr, "comm_xshmem: pe %d: DATA heap peak %zu MiB of %zu\n", xshmem_my_pe(), X.pe[0].peak >> 20, X.dbytes >> 20);   /* every PE's own peak (the engine's summary below is PE 0's) */
+    if (g_htl) for (int l = 0; l < X.K; l++) if (X.pe[l].htl.on) {   /* ECALC_HOST_TL: the table of this PE, xshmem_hosttl_pe<rank>.txt in the working directory */
+        int rk = X.K * X.q + l; char fn[64]; snprintf(fn, sizeof fn, "xshmem_hosttl_pe%d.txt", rk); FILE *hf = fopen(fn, "w");
+        if (!hf) fprintf(stderr, "comm_xshmem: ECALC_HOST_TL pe %d: cannot write %s\n", rk, fn);
+        else { htl_print(hf, &X.pe[l].htl, tag_name, XK_NK, rk, now_s()); fclose(hf); if (g_htl_pe >= 0 || l == 0) fprintf(stderr, "comm_xshmem: ECALC_HOST_TL: host timeline of PE %d written to %s\n", rk, fn); } }
     if (g_rst) for (int l = 0; l < X.K; l++) xrst_print(l, "final");
     if (g_rst) xtag_report();
     if (X.q == 0) {

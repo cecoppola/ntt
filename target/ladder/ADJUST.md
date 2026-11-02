@@ -23,7 +23,7 @@ only after all levels pass on both paths).
 | L3 s2 | 576 (2304) | 1e13 | 52.3 s | 55.3 s | 12.5 s | 229 / refused (380.23) |
 | L3 s3 | 576 (2304) | 3.82e13 | 187.1 s | 191.2 s | 51.6 s | 390 (planner 358.96 with cap 0) / refused |
 
-Assumptions inside the model (a): 100 GB/s per APU, 2 us per message, dragonfly group 64, part files 1 GB/s per node. The
+Assumptions inside the model (a): 100 GB/s per APU, 2 us per message, dragonfly group 64, part files 1 GB/s per node (the prior before the 10-26 measurement of 3.4-5.0 GB/s; the model now uses 4.0). The
 model was calibrated on aac7/aac6 compute at larger sizes; at 8e9 per node start-up is a large share of the wall, so a
 measured/model ratio away from 1 at L0 is expected; what matters is the growth from level to level: model L0 -> L1 +35 %,
 L1 -> L2 +14 %, L2 -> L3 +24 % of wall. A level that grows much more than that has a fabric, launch or placement problem.

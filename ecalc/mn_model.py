@@ -170,9 +170,9 @@ def round_sync_cost(nic_bytes_apu, chunks, peers):
     rounds = chunks * max(1, math.ceil(nic_bytes_apu / chunks / (rm * 1048576.0))) if rm else chunks
     return rounds * peers ** ROUND_SYNC_EXP * ROUND_SYNC
 
-TARGET_WRITE_BW = 1.0                  # 2026-09-29: the user's Lustre test on the target: ~1 GB/s write per node (ASSUMED to hold with 576 nodes writing at once); before: 0.6 (the apumult catalog's 0.58-0.64 single-stream)
-                                       # catalog); ASSUMED to hold with 576 writers at once (the aggregate, ~350 GB/s, is not measured); was 2.0 (node-local NVMe, assumed)
-TARGET_WRITE_BWS = (2.0, 1.0, 0.6)     # the rates every target estimate prints: the old assumption, the catalog's read rate as an upper write prior, the write prior
+TARGET_WRITE_BW = 4.0                  # 2026-11-01: ONE node writes 3.4-5.0 GB/s on the target (O_DIRECT, 8 threads; measured by the user, 10-26 runs); 4.0 is inside that range.  The aggregate with 576 nodes writing at once
+                                       # is NOT measured (ASSUMED to scale); before: 1.0 (the user's Lustre test of 2026-09-29, assumed to hold at 576 writers), 0.6 (the apumult catalog's single-stream), 2.0 (node-local NVMe, assumed)
+TARGET_WRITE_BWS = (5.0, 3.4, 1.0)     # the rates every target estimate prints: the measured range's two ends and the old 1.0 GB/s prior (the file system's own ceiling is added below)
 # Target facts (user-supplied 2026-10-12): 576 nodes x 4 MI300A (2304 APUs); 8 Slingshot NICs per node at 400 Gb/s (2 per APU); the file system writes
 # ~1 TB/s cumulative into ONE file with 32 processes per node.  TARGET_WRITE_BW stays ecalc's writer (one process per node,
 # MN_OUT_THREADS=8 pwrite threads, two part files per node: not the measured mode); TARGET_WRITE_BW_FS is the file system's
@@ -1872,12 +1872,112 @@ def cache_partial(T=None, g=None, keep_room=False, loops=('code', 'long'), arena
         return (b0, bw), rows
     finally: CACHE_P24 = saved
 
+
+# ============================================================================================================
+# v12 (D2, 2026-11-01): the model recalibrated on the MEASURED per-PE decomposition of the 2e13 run on 576 nodes (remote-v12 engine, every
+# diagnostic on) and checked against the other sizes of the same day.  Few explicit terms; every constant is a measured bucket of that
+# run (m), a ratio of two measured numbers (m, derived) or says "assumed".  Only 576 nodes: the per-round and wire terms were measured
+# there and nothing here is known for other node counts.  `mn_model.py v12 [--digits ...]`; results/TIME_MODEL.md section v12 has the table.
+# ============================================================================================================
+V12_NODES = 576
+V12_REF_DIGITS = 2e13
+V12_REF_S = dict(init=36.6, wire=50.6, polls=37.4, engine=21.3, gpu=40.3, host=19.9)   # m: the run's six buckets, seconds per PE (mean); they close to 206.1 of the 206.27 s
+V12_FABRIC_TB = 9.33          # m: TB per node each way at the reference size
+V12_ROUNDS = 165300           # m: exchange rounds per PE at the reference size (the model's rounds at other sizes are modeled)
+V12_SHIFTS, V12_SHIFT_S = 139, 25.57   # m: distributed shifts and their time on rank 0 (a share of the round and wire buckets, not an extra term)
+V12_INIT_SLOPE = 0.94         # s per 1e12 digits: measured across the series (20.65 s at 4e12, 39.41 s at 2.4e13); ASSUMED linear, anchored at the reference size
+V12_PIECE_ROWS = ((2.7e13, (1, 2, 1)), (2.9e13, (1, 2, 2)), (3.6e13, (2, 3, 2)), (4.0e13, (2, 4, 2)), (4.4e13, (3, 5, 3)), (9e99, (4, 6, 3)))
+# runs of 2026-10-29 on 576 nodes, VERIFY OK, (digits, seconds); the first is the reference run (not a check), the last the fitted size (not a check); 1.8e13 ran with other settings (diagnostic words); 3.6e13 is the mean of its three plain passes
+V12_RUNS = ((2e13, 206.27), (4e12, 62.73), (8e12, 99.72), (12e12, 130.92), (16e12, 168.48), (20e12, 207.22), (24e12, 225.73), (1.8e13, 174.0), (3.6e13, (393.0 + 390.8 + 394.6) / 3))
+# measured failure ledger of the same engine on 576 nodes: (label, first size, last size, runs, failures).  FEW runs: read the intervals, not the points.
+# 3.6e13 has two readings: all 7 runs (3 failed) and the 4 without diagnostic words (0 failed); the 3 failures all had the words on.
+V12_FAIL_ROWS = (("4.608e12", 4.6e12, 4.7e12, 11, 1), ("4e12-2.4e13 series", 4e12, 2.4e13, 8, 2), ("3.6e13, all runs", 3.6e13, 3.6e13, 7, 3),
+                 ("3.6e13, diagnostic words off", 3.6e13, 3.6e13, 4, 0), ("3.7e13-4e13", 3.7e13, 4.0e13, 6, 6))
+
+def xshmem_chunk_bytes(n, round_mb=128):
+    """the exchange round's per-pair chunk (comm_xshmem.c xex_post_rounds): XSHMEM_ROUND_MB / (n - 1) bytes; a pair with more than that takes more rounds"""
+    return round_mb * 1048576.0 / max(n - 1, 1)
+
+def v12_piece_index(digits):
+    """the planner's piece counts (results/LAUNCH_DEFAULTS.md section PIECES; levels 1-6 / 7 / 8) as one number: their mean relative to the
+    1 / 2 / 1 of every size up to 2.6e13 (so 1.0 up to 2.6e13, 1.33 at 2.7e13, 1.83 at 2.9e13, 2.0 at 3.6e13, 2.83 at 4.0e13).  Sizes below 2e13 are ASSUMED to be 1.
+    ASSUMED FORM (a): the equal-weight mean of the three level groups, and phi linear in it, are not checked: phi is fitted at ONE size (3.6e13); the values
+    at 2.7e13-3.5e13 and the 4e13 forecast rest on this form alone.  3.7e13 has the 3.6e13 plan and no timing, so it adds no check."""
+    for hi, (a, b, c) in V12_PIECE_ROWS:
+        if digits < hi: return (a + b / 2.0 + c) / 3.0
+    return (4 + 3 + 3) / 3.0
+
+def _v12_terms(digits, phi):
+    k = digits / V12_REF_DIGITS; r = V12_REF_S
+    pen = 1.0 + phi * (v12_piece_index(digits) - 1.0)                      # the per-exchange share of the latency terms grows with the pieces
+    t = dict(init=r["init"] + V12_INIT_SLOPE * (digits - V12_REF_DIGITS) / 1e12,
+             wire=r["wire"] * k, polls=r["polls"] * k * pen, engine=r["engine"] * k * pen, gpu=r["gpu"] * k, host=r["host"] * k)
+    return t
+
+def _v12_fit_phi():
+    """the ONE fitted number: phi, the share of the per-round (poll + engine) buckets that grows with the piece count, from the 3.6e13 passes"""
+    d, meas = 3.6e13, V12_RUNS[-1][1]
+    base = sum(_v12_terms(d, 0.0).values()); lat = (V12_REF_S["polls"] + V12_REF_S["engine"]) * d / V12_REF_DIGITS
+    return (meas - base) / (lat * (v12_piece_index(d) - 1.0))
+V12_PHI = _v12_fit_phi()   # about 0.34: ONE parameter, ONE size (three runs); sizes before 2.7e13 do not depend on it
+
+def v12_estimate(digits, nodes=V12_NODES, phi=None):
+    """seconds per term, wall, rounds, fabric volume for `digits` on 576 nodes (rounds and fabric_tb at any size but 2e13 are MODELED) (the remote-v12 engine, XSHMEM_ROUND_MB=128, the 10-29 series settings).
+    wire = fabric TB / the measured rate; rounds x time per round = (polls + engine buckets) / the measured rounds (a mean exchange-engine time per round).  Linear in digits except init (affine, assumed)
+    and the piece penalty (phi).  Fabric volume per node is linear in digits (assumed; measured 0.40-0.47 TB per 1e12 across the series)."""
+    if nodes != V12_NODES: raise ValueError("v12 is calibrated on 576 nodes only")
+    phi = V12_PHI if phi is None else phi
+    t = _v12_terms(digits, phi); k = digits / V12_REF_DIGITS
+    pen = 1.0 + phi * (v12_piece_index(digits) - 1.0)
+    out = dict(digits=digits, terms=t, wall_s=sum(t.values()), piece_index=v12_piece_index(digits), rounds=V12_ROUNDS * k * pen, fabric_tb=V12_FABRIC_TB * k,
+               wire_gbs=V12_FABRIC_TB * 1e3 / V12_REF_S["wire"], round_s=(V12_REF_S["polls"] + V12_REF_S["engine"]) / V12_ROUNDS,
+               shifts=V12_SHIFTS, shift_s=V12_SHIFT_S * k, chunk_bytes=xshmem_chunk_bytes(nodes))
+    return out
+
+def v12_wilson(n, f, z=1.96):
+    """the Wilson 95 % interval of f failures in n runs"""
+    p = f / float(n); d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d; h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return max(0.0, c - h), min(1.0, c + h)
+
+def v12_risk(digits):
+    """the failure-ledger rows that cover this size (measured, few runs): (label, runs, failures, rate, Wilson 95 % interval low, high, expected attempts for one
+    verified pass = 1 / (1 - rate), ASSUMED independent runs).  Sizes between 2.4e13 and 3.6e13 and above 4e13 have no runs: an empty list (the rate rises with size).
+    The rows overlap (4.608e12 lies inside the 4e12-2.4e13 series range; whether its 11 runs include any of the series' 8 is NOT known) and the two 3.6e13 rows are
+    subsets of each other: the rows are not independent samples and must not be pooled."""
+    out = []
+    for name, lo_d, hi_d, n, f in V12_FAIL_ROWS:
+        if lo_d * 0.99 <= digits <= hi_d * 1.01:
+            lo, hi = v12_wilson(n, f); r = f / float(n)
+            out.append((name, n, f, r, lo, hi, 1.0 / (1.0 - r) if f < n else float("inf")))
+    return out
+
+def v12_table(extra=()):
+    rows = []
+    for d, meas in tuple(V12_RUNS) + tuple(extra):
+        e = v12_estimate(d); rows.append((d, meas, e["wall_s"], e["wall_s"] / meas - 1.0))
+    return rows
+
+def v12_main(argv=None):
+    ap = argparse.ArgumentParser(prog="mn_model.py v12", description="the model recalibrated on the 2e13 decomposition (576 nodes; remote-v12; seconds per PE); prints the terms, then the residuals against the measured 10-29 runs")
+    ap.add_argument("--digits", type=float, nargs="*", default=[2e13, 2.4e13, 3.6e13, 4e13])
+    a = ap.parse_args(argv)
+    print("v12 (576 nodes, XSHMEM_ROUND_MB=128): phi %.3f (fitted on 3.6e13); mean exchange-engine time per round %.3f ms (m ratio; polls include partner skew and wire wait, a), wire %.0f GB/s per node (9.33 TB / 50.6 s, m ratio; assumes the copy-quiet time is all wire time, a)" % (V12_PHI, 1e3 * v12_estimate(2e13)["round_s"], v12_estimate(2e13)["wire_gbs"]))
+    print("%-9s %7s | %6s %6s %6s %6s %6s %6s | %7s %8s %6s | risk (measured, few runs)" % ("digits", "wall s", "init", "wire", "polls", "engine", "gpu", "host", "rounds", "fabric TB", "pieces"))
+    for d in a.digits:
+        e = v12_estimate(d); t = e["terms"]; rk = v12_risk(d)
+        print("%-9.3e %7.1f | %6.1f %6.1f %6.1f %6.1f %6.1f %6.1f | %7d %8.2f %6.2f | %s" % (d, e["wall_s"], t["init"], t["wire"], t["polls"], t["engine"], t["gpu"], t["host"], e["rounds"], e["fabric_tb"], e["piece_index"],
+              "; ".join("%s: %d of %d failed, 95%% interval %.2f-%.2f, attempts %.1f" % (r[0], r[2], r[1], r[4], r[5], r[6]) for r in rk) or "no runs at this size"))
+    print("residuals (model / measured - 1):")
+    for d, meas, w, res in v12_table(): print("  %.3e  measured %.1f  model %.1f  %+.1f %%" % (d, meas, w, 100 * res))
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "v12": return v12_main(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == "estimate":
         try: return estimate_main(sys.argv[2:])
         except mem_model.NoGrid as e:                                   # a size no grid holds: the code would stop with the same fatal (--D is digits PER NODE)
             print("mn_model.py estimate: %s -- that size cannot run (note: --D is the digits per node, e.g. 3.82e13 on 576 nodes is --D 6.63e10)" % e, file=sys.stderr); return 2   # the standing estimate (was estimate.py)
-    sys.exit("usage: mn_model.py estimate [options]   (estimate --help)")
+    sys.exit("usage: mn_model.py estimate [options]   (estimate --help) | mn_model.py v12 [--digits ...]")
 
 
 # ============================================================================================================
@@ -1927,8 +2027,8 @@ Phase 13b (agent D): the estimate is of the code after step 0 (three primes, NTT
 Phase 15 (agent MD): the default is the code's defaults since Phase 14 on the target's launch line (mn_model.DEFAULT15: auto, 2^31, both chunks
 at 1024 MB, depth 2, DM_TIGHT, MN_TREE_EARLY_FREE, NEWTON_RECIP_CUT, the SHMEM pool from the plan, XSHMEM_ROUND_MB=1024 = the user's D2;
 --round-mb 0 without it).  Every estimate prints two walls (the user's D3): without the disk write (the digits
-computed and verified) and with it, the part file at --write-bw GB/s per node (default 0.6: the target's /ssd0 is Lustre, 0.58-0.64 GB/s
-single-stream, measured there; --target prints 2.0 (the old assumption), 0.8 and 0.6).  mn_model.py estimate --target is the standing estimate.
+computed and verified) and with it, the part file at --write-bw GB/s per node (target default 4.0: one node measured 3.4-5.0 GB/s on the
+target, the aggregate at 576 nodes is assumed; --target prints the file system ceiling, 5.0, 3.4 and 1.0).  mn_model.py estimate --target is the standing estimate.
 
 Phase 15 (agent DOC, the user's decisions of 2026-09-27): the default is mn_model.DEFAULT15B -- the code's defaults of 2026-09-27 (BS_SEED_FILL=128,
 BI_MUL1_FAST, NEWTON_RECIP_MID, DIST_TWREC, RNS_AUTO_PIECE_COST, ECALC_CORR_PATCH=2, ECALC_OUT_PACKED, MN_OUT_EARLY, ECALC_ODIRECT=auto) on the target's
@@ -1952,7 +2052,7 @@ EST_LABELS = {
     "device": "modelled: mem_model (the code's own sizing formulas; measured to 0.05 % at size 1: 4e10 313.3 GB at four primes / 287.5 at three, 8e10 369.1, 1e11 431.2; at 10^10/4 19.9 GB arena)",
     "host": "modelled: 7 GB runtime + 4 GiB staging + the seed buffers at init + 6 GB per process of transport + the SHMEM pool ('pool': the larger of COMM_SHMEM_POOL_MB (8192) and the pool the run needs -- Phase 14 P2's law (--staging code, the default): 4 APU threads x the largest staged exchange's send + receive (the division's A_h mu result exchange: my rows of the piece + a quarter of my share of C inside it; MN_T_CHUNK_MB bounds it) + the control blocks; measured to 0.01 % at 1e8-1e10 on 2 nodes and 1e9-1e10 on 4 processes, archive:results_merged_2026-10-24/SHMEM_ITEMS.md §P214)",
     "fits": "modelled against 502 GB per node (the MI300A's usable HBM; 480 GB = the safe budget with a 5 % margin)",
-    "output": "the part file at --write-bw GB/s per node: 0.6 = the target's Lustre single-stream rate, MEASURED there (the apumult catalog: 0.58-0.64 write, 0.78-0.86 read), ASSUMED to hold with 576 nodes writing at once; 2.0 = the node-local NVMe assumed before.  Phase 15 (2026-09-27): packed, 8 bytes per 18 digits (ECALC_OUT_PACKED=1: 32.8 GB per node at the target, exact), started at the division's hook (MN_OUT_EARLY=1) and hidden under 0.577 of the division (OVL1, FITTED at size 1 and ASSUMED at size > 1); the process's exit 2.4 s (MEASURED) on both walls.  --b0: the ASCII file after T1, exposed whole",
+    "output": "the part file at --write-bw GB/s per node: 4.0 = inside the 3.4-5.0 GB/s one target node MEASURED (O_DIRECT, 8 threads), ASSUMED to hold with 576 nodes writing at once; 1.0 = the earlier prior, 0.6 the apumult catalog's single-stream rate, 2.0 the node-local NVMe assumed first.  Phase 15 (2026-09-27): packed, 8 bytes per 18 digits (ECALC_OUT_PACKED=1: 32.8 GB per node at the target, exact), started at the division's hook (MN_OUT_EARLY=1) and hidden under 0.577 of the division (OVL1, FITTED at size 1 and ASSUMED at size > 1); the process's exit 2.4 s (MEASURED) on both walls.  --b0: the ASCII file after T1, exposed whole",
     "p15b": "modelled (Phase 15, the defaults of 2026-09-27, mn_model DEFAULT15B, calibrated on RESULTS 86's paired 1e11 series within -3.1..+2.0 %: `mn_model.py --calib15b`): bs without the seed wait x 0.769 (BS_SEED_FILL, MEASURED at 1e11, ASSUMED at the target's leaf); the seeds' end on SEED15B (BI_MUL1_FAST, FITTED on ten runs; no slow path above 2^33); NEWTON_RECIP_MID in the fabric's reciprocal (66 pieces = the C plan); DIST_TWREC x 0.98 on the pieces' local passes (MODELLED from C2's -2.8 s at 1e11); ECALC_NP=4 at size > 1 (the plan check refuses three primes at 4.25e13 on 576: results/PRIMES_STRATEGY.md §P15)",
     "p15c": "modelled (Phase 15 DOC2, main B2 of 2026-09-28): BS_ARENA_ROOM=0.16 -- the node's arena in whole VMM chunks + 0.16 x the hole (mem_model, exact against BS_LAYOUT_ONLY: +16.5 GB of arena at 5.1e13), at size 1 the division x 0.785 (P15C_DIV1, MEASURED at 1e11: no remaps); DIST_TWREC_G=1 (the general map's packs x 0.95, G5, MODELLED); ECALC_NP=auto (four primes only for pieces over the three-prime bound; pool 0 at four planes at 576, pool 1 at three); RNS_DIST_CACHE_FIT=1: the mn cache at the slots the code's budget rule allows (0 at the target), each slot's hit x CACHE_HIT_F 0.96 (FITTED by CX on aac6); `mn_model.py --calib15c` against the fin15e 1e11 pairs (-2.1..-3.9 % on B2)",
     "host15": "modelled (Phase 15): + DB_POOL_VMM's two 8 GiB pinned seed buffers at init (measured 21.5 GB pinned on one node), the bs phase's +6 GB device (measured 2.1-5.8), the SHMEM pool = the plan's need (256 MiB steps) = the C plan exactly (43008 MiB; 9472 with XSHMEM_ROUND_MB=1024)",

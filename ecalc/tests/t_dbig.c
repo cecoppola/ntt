@@ -50,6 +50,12 @@ static int run(int logmax, int argc, char **argv)
         db_add(&z, &x, &x); bi_add(&r, &a, &a); VERIFY(same(&z, &r, "add self"), "add a+a n %zu %s", n, gen_name[kind]);
         db_copy(&z, &x); db_add(&z, &z, &y); bi_add(&r, &a, &b); VERIFY(same(&z, &r, "add in place"), "add in place n %zu %s", n, gen_name[kind]);
         VERIFY(db_top(&x) == (a.n ? a.l[a.n - 1] : 0), "top n %zu", n);
+        {   /* C3 (dr.h): the per-APU parts of the residue sum to it; db_set_limb moves it by exactly the limb's change */
+            uint64_t q = 4611686018427388039ULL, res, parts[DB_NQ], s = 0; db_mod_qs_parts(&x, &q, 1, &res, parts);
+            for (int d = 0; d < DB_NQ; d++) s = (s + parts[d]) % q;
+            VERIFY(res == db_mod_q(&x, q) && s == res, "mod_qs_parts n %zu %s", n, gen_name[kind]);
+            if (x.n) { size_t i = x.n / 2; uint64_t v = db_limb(&x, i); db_set_limb(&x, i, v ^ 1); VERIFY(db_limb(&x, i) == (v ^ 1), "set_limb n %zu", n); db_set_limb(&x, i, v); VERIFY(db_mod_q(&x, q) == res, "set_limb restore n %zu", n); }
+        }
     }
     for (size_t k = 0; k < 5000; k += 1237) { bi_set_base_pow(&r, k); db_set_base_pow(&z, k); VERIFY(same(&z, &r, "base pow"), "base_pow %zu", k); }
     /* residues mod the T1 primes by the device kernel (I3) against the host Horner, across quarter and chunk boundaries */

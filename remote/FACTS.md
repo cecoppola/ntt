@@ -15,12 +15,12 @@ output, Known problems and fixes, Settings worth testing, Decisions in force, Wh
 | fabric peak | 400 Gb/s per NIC, 100 GB/s injection per APU, 400 GB/s per node | u (measured value unknown: first thing to measure) |
 | software | ROCm 7.14.0, cray-shmem (OpenSHMEMX) 12.1.0, libfabric 2.3.1, CCE 21.0.0 | u |
 | device edge | `hipMalloc` edge 373.44 GB per node = 93.36 GB per APU (the planner's default `ECALC_DEVICE_GB`; harness figure 10-06, superseded by P1's measurement `REMOTE_DEVICE_GB`, ROUTE) | target, m (5 runs) |
-| host budget | `ECALC_NODE_GB=487` from MemAvailable 515.7 GB on an idle node (code default 480; the old 414 was an assumption) | target, m 2026-10-26 |
-| file system | about 1 TB/s cumulative into ONE file with 32 writers per node; ecalc's own writer rate unmeasured | u |
+| host budget | `ECALC_NODE_GB=487` from MemAvailable 515.7 GB on a freshly booted idle node (code default 480; the old 414 was an assumption); after a heavy job an idle node showed only about 491 GB, so plan node budgets from about 490 GB; the Slurm job memory is about 497 GB per node (286,312 divided by 576 nodes, GB as Slurm prints) | target, m (2026-10-26 and 10-29 reports) |
+| file system | about 1 TB/s cumulative into ONE file with 32 writers per node (u); one node writing with O_DIRECT and 8 threads reached 3.4-5.0 GB/s (m, 2026-10-26); the aggregate with 576 nodes writing is unmeasured | u / m |
 | physical size | 4 / 32 / 256 / 2304 APUs = 1 node / 1 chassis / 1 rack / all (ladder levels L0-L3 = 1 / 8 / 64 / 576 nodes) | u |
 | dev cluster (aac7) | same node type, ROCm 7.2.4, Cray SHMEM 11.8, **1 NIC per APU**, 6 nodes per user; all aac7 numbers below are from it | m |
 
-Differences that make aac7 numbers only a guide: 2 NICs per APU (aac7: 1), ROCm 7.14 (aac7: 7.2.4; ROCm 7.0.3 was +22 % slower
+Differences that make aac7 numbers only a guide: 2 NICs per APU (aac7: 1; the target's NICs sit on the APU's own NUMA node, two per APU, so networking tuning (lanes, NIC choice, injection rate) does not carry over from aac7, while CPU-side tuning (4 sockets x 24 cores x 2 threads, same NUMA map, same cache layout, THP `always`, no hugetlb, same `max_map_count`) and memory layout do), ROCm 7.14 (aac7: 7.2.4; ROCm 7.0.3 was +22 % slower
 than 7.2.4 at 1e11, m aac7), Cray SHMEM 12.1 (aac7: 11.8; path 2 never ran on 12.1), 576 nodes (aac7 tested to 10).
 What ecalc is: floor(10^d * e) by binary splitting of sum 1/k!, Newton reciprocal, two-half division, NTT products mod
 3-4 primes over 4 APUs and node groups; every run self-verifies (T1 residues, T2 windows, `VERIFY OK`).
@@ -34,7 +34,7 @@ ecalc ran on 1, 2, 8, 64 and 576 nodes and every node started it at least once (
 |---|---|
 | scheduler | Slurm 25.11: one default partition holding all 576 nodes; whole nodes only; no time or size limit; no GPU GRES on the compute nodes (`Gres=(null)`); `MpiDefault=cray_shasta`; allocations of 576 nodes start within seconds when the partition is idle |
 | login environment | sets `SLURM_HINT=nomultithread` and `SLURM_DISTRIBUTION=block:block` (see Known problems) |
-| topology | `topology/tree`: nine 64-node leaf switches = the nine dragonfly groups, consecutive node numbers (1-64, 65-128, ...); no xnames, so cabinet/chassis/blade are unknown |
+| topology | `topology/tree`: nine 64-node leaf switches = the nine dragonfly groups, consecutive node numbers (1-64, 65-128, ...); no xnames, so cabinet/chassis/blade are unknown. Consequence for the tree schedule (2, 4, ..., 64, then 192, 576 nodes): with rank order equal to node-number order (srun block distribution of a sorted hold) every level up to 64 nodes lies inside one group and only the 192 and 576 levels cross groups; the launch does not check this, and excluding one node shifts every later boundary |
 | node | 4 APUs, 96 Zen 4 cores = 192 threads, 4 NUMA nodes (one per APU): numa0 CPUs 0-23,96-119; numa1 24-47,120-143; numa2 48-71,144-167; numa3 72-95,168-191; distance 10 local / 32 remote |
 | memory | MemTotal 501.3 GiB; MemAvailable 515.7 GB idle (393.5 GB during the division step of a 64-node run); Slurm RealMemory 509,000 MB; each APU reports 128 GiB of VRAM from the shared HBM |
 | kernel settings | THP `always`; hugepages about 0 (8 total, 0 free); `numa_balancing=0`; memlock unlimited; open files 16,384; `max_map_count` 65530; Rocky 9.6, kernel 5.14 el9_6 |
@@ -95,6 +95,7 @@ Seconds of `ecalc`'s own lines; "seed default" = the old default (OpenMP team la
 | n576 st144 | 576 | 4.608e12 (8e9) | seed 144 (best run) | 255.30 | 111.0 | 56.5 | 73.3 | 14.5 |
 
 Weak scaling at 8e9 per node, `BS_SEED_THREADS=144` (m): 2 nodes init 12.9, bs 4.6, dm 7.6, dc 14.1, total 39.1; 64 nodes 15.8 / 23.7 / 30.8 / 14.3 / 84.6; 576 nodes 111.0 (trend about 18) / 56.5 / 73.3 / 14.5 / 255.3 (about 162 at the trend init). Best run: 4.608e12 digits on 576 nodes in 255.3 s. Model gap (`target_l4` profile, mod): 18.1 / 23.4 / 28.9 s at 2 / 64 / 576 nodes, i.e. 2.2x / 3.6x / 8.8x; the fabric moves 2.9 % of the 400 GB/s per node peak at 576 nodes (11.5 GB/s per node effective; 21 and 18 at 2 and 64). The `target_fit` profile (fitted to the six bs / dm points, per-round sync term) is in `results/TIME_MODEL.md` §target_fit. At 576 nodes: reciprocal 41.0 s, division 25.2 s of products plus shifts 15.1 s (124 calls of 122 ms; model 0.49 s), VmHWM 21.7 GB per node; the dc 14.5 s is the digit residue (13.15 s).
+The 255.3 s figure is from the older engine; the recalibrated 576-node time model on the 2e13 decomposition is in `results/TIME_MODEL.md` §v12.
 
 Per-APU calibration of the planner (aac7, m): the planner's per-APU maximum is 106.88 GB against 105.6 GB measured on APU 0 at 9e10 digits per node, and 111.18 against 109.9 GB at 1e11 (1.3 GB above measured both times; APUs 1-3 hold 86-91 GB). On the target at 64 nodes the measured per-APU peaks are 2.7-6.5 GB above the planner's per-APU figure while the node total is 6-9 GB below plan (APU 0 holds region 0's arena). `ECALC_FIT_PER_APU=1` makes the planner check this busiest APU.
 
@@ -161,6 +162,7 @@ VMM growth) against 373.44 GB, with a 5 GB margin rule for the automatic `DM_MN_
 | 3.7e13 | 83.83 (+9.53), node 371.42 | 84.64 (+8.72), node 374.64 | 93.77 REFUSED (-0.41), node 411.15 |
 | 3.82e13 | 85.98 (+7.38), node 380.01 | 86.79 (+6.57), node 383.23 | 96.18 REFUSED (-2.82), node 420.81 |
 
+  The 83.8 GB per APU that the target's memory report printed as the busiest APU at 1.6e13, 2e13 and 2.4e13 (the same figure appeared in an aac7 2-node 1e11 gate) is the memory ALLOCATED at phase boundaries (planes + regions + pool regions + tables), a reserved footprint that saturates, not the transient demand; so it neither shows the planner over-estimating nor supports a "measured excess" over the plan. The per-APU demand is the high-water of the APU's own NUMA-node free memory (`device_hwm_apu_gb`, `results/HEALTH.md`); the staircase rule in ROUTE.md uses that figure when the run prints it. (m, reports of 2026-10-29 and an aac7 gate)
   aac7 edge measurements (m, 2026-10-28, one MI300A node, `t_edge`; the target is not measured yet, P1's edge step does that): `dev` (hipMalloc, 4 APUs round-robin, touched) reached the 440 GB cap, 110 GB per APU, without failing; `vmm` the same; the touch runs at about 2.5 GB/s (a 450 GB fill takes about 190 s); device memory counts in MemAvailable (host-backed), and 96 GB of pinned `hipHostMalloc` held first made the hipMalloc fill end in an OOM kill (`pinned_counts_against_edge=yes` on aac7: one shared pool; the target may differ, hence the P1 step). `pinned_counts_against_edge` = yes when the hipMalloc edge fell by at least half of the pinned total (or the process was OOM-killed), no below a fifth, unclear between, unknown when under half the pin request was reached.
   512 (planner, mod, 2026-10-28, aac7 login run of the same planner): identical to 128 at 3.7e13 (+9.53, node 371.42) and 3.82e13 (+7.38, node 380.01): the pools are sized in 128 MB granules, so 512 is free in memory.
   So 1024 still fits both record sizes and costs 0.8 GB of per-APU margin (3.82e13 +6.57 against the staircase bar 6.5 before any measurement, and against measured excess + 2 GB afterwards: see ROUTE "The record staircase"); 0 is refused at both. Time model (`ecalc/mn_model.py estimate --g 576 --fabric target_fit --round-mb R`, mod): 4.608e12 171.8 s at 128 vs 157.2 s at 1024; 8e12 240.9 vs 200.2; 3.82e13 1072 vs 704 s (R=0 695 s at +31 GB host per node; 1024 about +8 GB host); at 64 nodes 81.0 vs 79.0 s. The fit attributes most exposed fabric time to per-round synchronisation; that mechanism is assumed (the fit cannot tell it from latency or bandwidth), hence the 128 / 1024 pair in P2 (ROUTE; last session measured 255.3 s at 128 for 4.608e12 on 576). Measured on aac7 at 1 node (m, no exchange): 14.9 s at 128 vs 15.5 s at 1024 (noise, digits identical).
@@ -171,27 +173,27 @@ VMM growth) against 373.44 GB, with a 5 GB margin rule for the automatic `DM_MN_
 ## Time model
 
 `python3 ecalc/mn_model.py estimate --g 1 8 64 576 --D 8e9 --fabric target` (run on any machine with python3). Assumptions (a): 100 GB/s per APU,
-2 us per message, dragonfly group 64, file write 1 GB/s per node. Compute is calibrated on aac7/aac6 at larger sizes: **at small
+2 us per message, dragonfly group 64, file write 4.0 GB/s per node (one node measured 3.4-5.0; the aggregate at 576 nodes is assumed). Compute is calibrated on aac7/aac6 at larger sizes: **at small
 sizes start-up (init, launch, mapping) dominates and the model is too low; trust growth between levels, not the absolute value.**
 Same model for both paths; path 2 adds about +8 s init (libsma heap registration 6.2 s, host register 1.5, barrier 1.4; m aac7) and +7.5 % at 3 n.
 
 | digits per node | nodes | digits total | wall no write | wall with write | exposed fabric | device (D) |
 |---|---|---|---|---|---|---|
-| 1e9 | 1 | 1e9 | 9.4 | 9.8 | 0 | 120 GB |
-| 1e10 | 1 | 1e10 | 19.1 | 22.8 | 0 | 166 |
-| 1e10 | 2 | 2e10 | 23.7 | 25.9 | 1.2 | 189 |
-| 8e9 | 1 | 8e9 | 16.8 | 19.9 | 0 | 155 |
-| 8e9 | 2 | 1.6e10 | 20.5 | 22.5 | 0.7 | 178 |
-| 8e9 | 8 | 6.4e10 | 22.6 | 24.6 | 1.5 | 178 |
-| 8e9 | 64 | 5.12e11 | 25.8 | 27.6 | 2.5 | 178 |
-| 8e9 | 576 | 4.608e12 | 32.0 | 33.2 | 6.5 | 181 |
-| 1e10 | 8 / 64 / 576 | 8e10 / 6.4e11 / 5.76e12 | 26.2 / 29.7 / 36.1 | 28.2 / 31.6 / 37.8 | 2.4 / 3.8 / 8.3 | 189 / 189 / 192 |
-| 1.736e10 | 576 | 1e13 | 52.3 | 55.3 | 12.5 | 229 |
-| 6.632e10 | 1 / 8 / 64 | 6.6e10 / 5.3e11 / 4.2e12 | 102.7 / 118.2 / 149.6 | 116.9 / 129.6 / 160.4 | 0 / 17.8 / 28.4 | 290 / 359 / 359 |
-| 6.632e10 | 576 | 3.82e13 | **187.1** | **191.2** | 51.6 | 390 (planner 358.96 with cap 0) |
+| 1e9 | 1 | 1e9 | 9.4 | 9.5 | 0 | 120 GB |
+| 1e10 | 1 | 1e10 | 19.1 | 19.7 | 0 | 166 |
+| 1e10 | 2 | 2e10 | 23.7 | 23.0 | 1.2 | 189 |
+| 8e9 | 1 | 8e9 | 16.8 | 17.4 | 0 | 155 |
+| 8e9 | 2 | 1.6e10 | 20.5 | 20.0 | 0.7 | 178 |
+| 8e9 | 8 | 6.4e10 | 22.6 | 22.1 | 1.5 | 178 |
+| 8e9 | 64 | 5.12e11 | 25.8 | 25.3 | 2.5 | 178 |
+| 8e9 | 576 | 4.608e12 | 32.0 | 31.6 | 6.5 | 181 |
+| 1e10 | 8 / 64 / 576 | 8e10 / 6.4e11 / 5.76e12 | 26.2 / 29.7 / 36.1 | 25.5 / 29.1 / 35.5 | 2.4 / 3.8 / 8.3 | 189 / 189 / 192 |
+| 1.736e10 | 576 | 1e13 | 52.3 | 51.3 | 12.5 | 229 |
+| 6.632e10 | 1 / 8 / 64 | 6.6e10 / 5.3e11 / 4.2e12 | 102.7 / 118.2 / 149.6 | 102.7 / 114.2 / 145.5 | 0 / 17.8 / 28.4 | 290 / 359 / 359 |
+| 6.632e10 | 576 | 3.82e13 | **187.1** | **183.0** | 51.6 | 390 (planner 358.96 with cap 0) |
 
-All wall figures: mod, seconds. Per-level growth at 8e9 (mod): 1->8 n +35 %, 8->64 +14 %, 64->576 +24 %; 576 n: 4.6e12 -> 1e13 +63 %,
-1e13 -> 3.82e13 3.6x. Older headline estimate 182-185.5 s (mod, 100 GB/s assumed); the write adds 1.0 s at 1 TB/s or 12.8 s at 1 GB/s per node.
+All wall figures: mod, seconds; the part file is written at 4.0 GB/s per node (one node measured 3.4-5.0; the aggregate is assumed) and packed output overlaps the division, so "with write" is at or slightly below "no write" (which carries the digit formatting the packed file replaces). Per-level growth at 8e9 (mod): 1->8 n +35 %, 8->64 +14 %, 64->576 +24 %; 576 n: 4.6e12 -> 1e13 +63 %,
+1e13 -> 3.82e13 3.6x. Older headline estimate 182-185.5 s (mod, 100 GB/s assumed); the write adds 1.0 s at 1 TB/s or a 2.4 s file write at 4.0 GB/s per node (1.9-2.8 s over 5.0-3.4; aggregate assumed).
 
 aac7 measured references (m; `total`, VERIFY OK, no digit file):
 
