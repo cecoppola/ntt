@@ -170,7 +170,7 @@ static int spawn_helper(int dev, int sock_child, int sock_parent)
 
 int main(int argc, char **argv)
 {
-    if (argc >= 7 && !strcmp(argv[1], "--helper")) return helper_main(atoi(argv[2]), atoi(argv[3]), atoi(argv[4]), (size_t)strtoull(argv[5], 0, 10));
+    if (argc >= 6 && !strcmp(argv[1], "--helper")) return helper_main(atoi(argv[2]), atoi(argv[3]), atoi(argv[4]), (size_t)strtoull(argv[5], 0, 10));
     if (argc < 2) { fprintf(stderr, "usage: t_mapbench A|B|C|D|E [chunks=20] [gib=2] [load=0|1] [check=0|1]\n"); return 2; }
     g_arm = argv[1][0]; double gib = 2;
     for (int i = 2; i < argc; i++) { int v; double f; if (sscanf(argv[i], "chunks=%d", &v) == 1) g_chunks = v; else if (sscanf(argv[i], "gib=%lf", &f) == 1) gib = f; else if (sscanf(argv[i], "load=%d", &v) == 1) g_load = v; else if (sscanf(argv[i], "check=%d", &v) == 1) g_check = v; }
