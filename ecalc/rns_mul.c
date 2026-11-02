@@ -177,7 +177,7 @@ int rns_init(int pool_log)
         if (getenv("RNS_VERBOSE")) printf("rns_init: APU%d staging %.1f GiB touch %.2f s register %.2f s, %d cpus; device open %.2f s, contexts %.2f s, stream+staging %.2f s\n", d, sbytes / 1073741824.0, tt, tr, D[d].ncpu, x1 - x0, x2 - x1, x3 - x2);
     }
     double ti1 = mem_now();
-    db_tl("staging and contexts done (%.2f s)", ti1 - ti0);
+    if (mapd_active()) db_tl("staging and contexts done (%.2f s)", ti1 - ti0);
     /* RNS_PLANES_FIRST=1 maps the plane pools before the hook's region arenas.  Near the node's memory
      * edge the last allocations get what is left of the free memory in pieces below 2 MiB; the plane pools (every
      * transform of the dist tier) are then the victims and the tier's gathers and transforms run 4-10 x slower

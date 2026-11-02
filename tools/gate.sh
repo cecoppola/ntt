@@ -63,7 +63,7 @@ cleanup() {
   [ -n "$WPID" ] && kill "$WPID" 2>/dev/null
   [ -n "$SPID" ] && kill -0 "$SPID" 2>/dev/null && kill "$SPID" 2>/dev/null     # only our own srun PID
   [ -n "$JOB" ] && scancel "$JOB" 2>/dev/null                                   # only the job this script submitted
-  if [ -n "${GATE_SHA:-}" ]; then   # GATE_SHA=1: keep the digit file's sha256 (comparing two arms at a size without a reference); multi-node: the parts in order
+  if [ "${GATE_SHA:-0}" != 0 ]; then   # GATE_SHA=1: keep the digit file's sha256 (comparing two arms at a size without a reference); multi-node: the parts in order
     if [ -r "$OUT/e.out" ]; then sha256sum "$OUT/e.out" | cut -d" " -f1 > "$OUT/e.sha" 2>/dev/null
     elif ls "$OUT"/e.out.part* >/dev/null 2>&1; then cat $(ls "$OUT"/e.out.part* | sort -V) | sha256sum | cut -d" " -f1 > "$OUT/e.sha" 2>/dev/null; fi
   fi

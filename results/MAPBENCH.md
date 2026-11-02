@@ -127,3 +127,10 @@ that cannot be built falls back to `hipMalloc`. Test knob `ECALC_MAPD_TEST_DIE=<
     - plane pools done: about 4.9-5.5 s unset (m) vs about 2.4 s with `=1` (m).
     - region arenas (hook) done: 10.3-10.7 s unset (m) vs 4.1-4.3 s with `=1` (m).
   - Note: `tools/gate.sh` prints "digits DIFFERS" for sizes below the 1e11 reference file even when VERIFY is OK. The digit comparison here is by hash between the two arms (`GATE_SHA=1`), not against the reference.
+
+## Known limits
+
+- With the switch on, the helper creates the whole arena (both halves) at the `rns_init` request, whereas switch 0 maps the second half only after `db_vmm_bg_release`, so the seeds see less free memory early. Not tested at the edge size; `cache_avail` slot counts may change (digits unaffected).
+- The helper keeps its own handle until it exits, so on a pool regrow while the helper lives, the memory returns only at helper exit.
+- An arena requested after `rns_init` returns gets no helper (it is created in-process).
+- Growth/restore under `g_pool_mx` can wait up to 60 s on a slow helper.

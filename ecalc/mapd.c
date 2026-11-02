@@ -237,6 +237,11 @@ void *mapd_pool_alloc(int dev, size_t bytes, size_t C)   /* NULL: use hipMalloc.
     int cur; if (hipGetDevice(&cur) != hipSuccess) return NULL;
     int n = (int)(bytes / C) + (bytes % C ? 1 : 0), nd = 0, ok = 0, mapped = 0; struct prec r; memset(&r, 0, sizeof r);
     r.dev = dev; r.cap = bytes; r.n = n; r.h = (hipMemGenericAllocationHandle_t *)calloc((size_t)n, sizeof *r.h); r.sz = (size_t *)calloc((size_t)n, sizeof *r.sz);
+    if (!r.h || !r.sz) {
+        fprintf(stderr, "ecalc: ECALC_MAPD: plane pool of %.2f GB on APU %d: out of host memory: hipMalloc\n", bytes / 1e9, dev);
+        free(r.h); free(r.sz); if (g_md[dev].state == 1) md_fail(dev, "pool chunks");
+        return NULL;
+    }
     (void)hipSetDevice(dev);
     hipMemAllocationProp prop; memset(&prop, 0, sizeof prop); prop.type = hipMemAllocationTypePinned; prop.location.type = hipMemLocationTypeDevice; prop.location.id = dev;
     size_t gran = 0; if (hipMemGetAllocationGranularity(&gran, &prop, hipMemAllocationGranularityRecommended) != hipSuccess || !gran) gran = (size_t)2 << 20;
@@ -271,12 +276,15 @@ void *mapd_pool_alloc(int dev, size_t bytes, size_t C)   /* NULL: use hipMalloc.
 }
 int mapd_pool_free(int dev, void *p)                     /* 1 if p was a pool of mapd_pool_alloc (now released) */
 {
-    (void)dev; if (!p) return 0;
+    if (!p) return 0;
     struct prec r; int found = 0; pthread_mutex_lock(&g_pr_mx);
     for (int k = 0; k < 32; k++) if (g_pr[k].base == (char *)p) { r = g_pr[k]; memset(&g_pr[k], 0, sizeof g_pr[k]); found = 1; break; }
     pthread_mutex_unlock(&g_pr_mx);
     if (!found) return 0;
+    int cur = -1; if (hipGetDevice(&cur) != hipSuccess) cur = -1;
+    (void)hipSetDevice(dev); (void)hipDeviceSynchronize();
     size_t off = 0; for (int i = 0; i < r.n; i++) { (void)hipMemUnmap(r.base + off, r.sz[i]); (void)hipMemRelease(r.h[i]); off += r.sz[i]; }
     (void)hipMemAddressFree(r.base, r.cap); free(r.h); free(r.sz);
+    if (cur >= 0) (void)hipSetDevice(cur);
     return 1;
 }
