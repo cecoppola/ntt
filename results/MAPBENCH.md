@@ -98,7 +98,24 @@ that APU's chunks are created in-process. Plane pools stay on `hipMalloc`; not u
   digits check; the 1e9 case has one.
 - **Not checked:** the gate's comparison at 1.6e10 against the 1e11 reference prints DIFFERS for the unset arm as well (also at 1e9 against that reference): the comparison does not accept a longer reference, so
   digits at 1.6e10 are not compared (VERIFY OK passed in all four runs). Memory headroom with the helpers' extra runtimes, 6-node and PPG layouts: not measured.
-- **Phase 2 (plane pools through the same path), not started:** `rns_mul.c rns_init` (the `da`/`db` dpool `hipMalloc`) to a VMM-backed dpool (contiguous VA over imported chunks, about 100 lines);
-  `mapd.c` request protocol from one request per helper to a FIFO of (kind, count, size) requests so plane-pool chunks are created first, in today's order, then arena chunks (about 60 lines; the
-  helper loop and `struct req` get a kind field); `dbig.c` consumer for the pool chunks and the `dev_used()` accounting in `rns_init` (measure tables before the helpers start); a call from `rns_init` that
-  sends the pool request before staging. Estimated 250-300 lines, 1 day plus gates.
+- **Phase 2 (plane pools through the same path), integrated below.**
+
+## Integration, phase 2 (plane pools) and review fixes (2026-11-01)
+
+Code: `mapd.c` serves a FIFO of (kind, count, size, final) requests: the plane pools' chunks first (`rns_init` sends the requests after its device-memory
+measurement, in today's creation order: pool 0, pool 1, then the arena), then the arena. `mapd_pool_alloc` builds one VA range over the imported chunks
+(`hipMemAddressReserve`, map, access for all APUs); `dpool.vmm` (set by `rns_init`) makes `dpool_malloc` in `mem.c` call it, through two function pointers
+(`mem_vmm_pool_alloc`, `mem_vmm_pool_free`) that `rns_init` sets. Any failure kills that helper, logs one line, and the rest is created in-process; a pool
+that cannot be built falls back to `hipMalloc`. Test knob `ECALC_MAPD_TEST_DIE=<dev>:<k>[:p]` (`p`: die while serving pool chunks). A log line
+`ECALC_MAPD: plane pool of X GB on APU d built from N chunks of the helper` proves the path (it also appears when the chunks were made in-process after a helper failure).
+
+- **Bug found in the first phase-2 build (fixed):** all pools silently fell back to `hipMalloc` (log: "pool chunks requested earlier were not taken") because `mem.c`
+  tested weak references (`mapd_pool_alloc && db_pool_vmm_chunk`) that the toolchain resolved to null although `mapd.o` and `dbig.o` are linked. The weak symbols are gone;
+  hooks are set at run time. Digits were correct throughout.
+- **Review fixes:** requests are sent with `MSG_NOSIGNAL` and the helper ignores SIGPIPE; `reap()` is a bounded loop (kill after 0.5 s, abandon after 2 s with a log line);
+  `mapd_ready()` waits (60 s) outside the mapper lock; a helper without a coming request is closed at the end of `rns_init` (`mapd_end_init`); the helper pins to the intersection of its NUMA node
+  and `sched_getaffinity` and exits when its parent changes.
+- **Helper footprint (measured, 1 node, 1e9, item 50_s1_a):** `APU d device memory in use before the contexts` is 31.3 MiB per APU, unset and `=1` alike: the helper's own context is not visible in
+  `hipMemGetInfo` at that point (or is below its resolution).
+- **Gate, 1 node, 1e9, unset vs `=1` (measured, item 54_s1_d):** PASS in both, result sha256 identical (`d1eb69d4...`), also with a helper dying during the pool chunks (`=1:0:p`: "helper of APU 1 failed ... the remaining 7 chunks are created in-process", PASS) and during the arena (`=2:0`, PASS).
+  Plane pools done: 3.66 s unset, 1.34 s with `=1` (single runs, measured; tl clock).
