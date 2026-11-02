@@ -439,6 +439,24 @@ A run is good only with `VERIFY OK` on every node (`verify.c/h`, `out_stage` in 
   after the patch.
 - **RECHECK.** `ECALC_RECHECK=1` re-verifies finished files from the `<out>.t1` sidecar (and the top-level P, Q set when
   written with `ECALC_CKPT_TOP=1`) without recomputation; it detects a single flipped digit.
+- **DR (detect and retry, `ECALC_DR`, off by default; `results/DR.md`).** Checks inside the run that repeat a faulty piece
+  or product instead of ending it; R(.) is the residue modulo the 62-bit prime t1_q[0], tracked through the computation,
+  never recomputed from the data being checked.
+  - Level 1: the CRT flag of a P24 piece becomes a collective decision (`mn_core`) before any result limb leaves the PE;
+    the piece repeats.
+  - Level 2: every tree product satisfies R(C) = R(A) R(B) + R(X) (`rns_mul_dist_mn_chk`; tracked residues in `mn.c`,
+    seeded from each node's leaf by `db_mod_qs`); each node's leaf P, Q equal its recurrence (compared when the recurrence
+    is done, otherwise after its join) and the tree's final P, Q equal the division's residues.
+  - Level 3: the division's low product X Q mod B^w obeys R(S) B^e - R(X) R(Q) = R(Aw) - R(xql) (0 or +-B^w; D); R(R1)
+    after step 1 equals R(S) B^(dl-s) - R(Xh) R(Q) mod t1_q[0]; in the wrap the same identity is exact (E = 0); the
+    cyclic product U = A B is checked modulo B+1 and B-1 (D'; B^2-1 divides B^P-1 for even P).
+  - Retry rules: the decision is collective (a group maximum for A, an all-gather summed alike on every node for B and
+    D); the repeat runs inside the product call, with the transform cache dropped and the bad result freed first, so
+    the peak is the first attempt's. A second failure at the same place, an operand corrupted at rest, a failed leaf,
+    division-start, wrap or step-1 check, and a total of `ECALC_DR_TOTAL` (default 8) failed pieces are fatal and name
+    the product, node and APU (or the step). Cost is residue passes and small all-gathers only; a retry needs no memory beyond the first attempt's peak (the bad result is freed first; not tested at the memory edge).
+  - Reading a run: the exit line `DR: <checks> checks, <injected> injected, <failures> failures, <recovered> recovered,
+    <fatal> fatal` (injected = failures = recovered in an injection test). At one PE group the checks are inactive.
 - **Off the clock.** `tools/unpack_digits` checks every packed part against its header residues while converting;
   `ecalc/digcmp.sh` compares with a GMP reference (references exist up to 10¹¹ digits). The checks a change must pass are
   in `TESTING.md`.

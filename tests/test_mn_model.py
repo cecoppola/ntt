@@ -10,15 +10,16 @@ from concurrent.futures import ThreadPoolExecutor
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ECALC = os.path.join(ROOT, "ecalc")
 
+# (target and target_l4 rows re-pinned 2026-11-01: the part-file write rate is 4.0 GB/s per node, was 1.0)
 # Table rows (g = 2 and 64, 8e9 digits per node) printed by `mn_model.py estimate --fabric <profile> --g 2 64 --D 8e9` of main 460bed6 (XSHMEM_ROUND_MB=1024 assumed).
 PINS = {'aac7': ['2    8.0e+09  1.600e+10  |     24.2    50.4    0.8 |    6.3   29.1    12 |    178     27      6    205 | 256.8 GB  32.1 GB   0.0 GB | yes / yes',
           '64   8.0e+09  5.120e+11  |     45.9    70.4    1.2 |   25.3   27.4    36 |    178     30      9    209 |   1.0 TB 125.3 GB   0.0 GB | yes / yes'],
  'aac7_l4': ['2    8.0e+09  1.600e+10  |     24.0    50.3    0.8 |    6.1   29.1    12 |    178     27      6    205 | 256.8 GB  32.1 GB   0.0 GB | yes / yes',
              '64   8.0e+09  5.120e+11  |     45.2    69.8    1.2 |   24.6   27.5    35 |    178     30      9    209 |   1.0 TB 125.3 GB   0.0 GB | yes / yes'],
- 'target': ['2    8.0e+09  1.600e+10  |     20.5    22.5    0.4 |    0.7    4.9     3 |    178     27      6    205 | 256.8 GB  32.1 GB   0.0 GB | yes / yes',
-            '64   8.0e+09  5.120e+11  |     25.8    27.6    0.5 |    2.5    4.7     9 |    178     30      9    209 |   1.0 TB 125.1 GB   0.0 GB | yes / yes'],
- 'target_l4': ['2    8.0e+09  1.600e+10  |     20.5    22.5    0.4 |    0.7    4.9     3 |    178     27      6    205 | 256.8 GB  32.1 GB   0.0 GB | yes / yes',
-               '64   8.0e+09  5.120e+11  |     25.8    27.6    0.5 |    2.5    4.7     9 |    178     30      9    209 |   1.0 TB 125.1 GB   0.0 GB | yes / yes']}
+ 'target': ['2    8.0e+09  1.600e+10  |     20.5    20.0    0.3 |    0.7    2.4     3 |    178     27      6    205 | 256.8 GB  32.1 GB   0.0 GB | yes / yes',
+            '64   8.0e+09  5.120e+11  |     25.8    25.3    0.4 |    2.5    2.4    10 |    178     30      9    209 |   1.0 TB 125.1 GB   0.0 GB | yes / yes'],
+ 'target_l4': ['2    8.0e+09  1.600e+10  |     20.5    20.0    0.3 |    0.7    2.4     3 |    178     27      6    205 | 256.8 GB  32.1 GB   0.0 GB | yes / yes',
+               '64   8.0e+09  5.120e+11  |     25.8    25.3    0.4 |    2.5    2.4    10 |    178     30      9    209 |   1.0 TB 125.1 GB   0.0 GB | yes / yes']}
 
 # the six measured phase times of the target (m, BS_SEED_THREADS=144, 8e9 digits per node): bs = leaf + tree levels, dm = reciprocal + division;
 # totals without an output file (init, bs, dm, dc residue): 2 and 64 nodes measured, 576 nodes at the trend init (~162 s)

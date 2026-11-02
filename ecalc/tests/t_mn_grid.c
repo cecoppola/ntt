@@ -13,6 +13,7 @@
 #include "../dbig.h"
 #include "../mdb.h"
 #include "../mn.h"
+#include "../dr.h"
 #include "../rns_mul.h"
 #include <string.h>
 static rng_t rg = { 4242 };
@@ -47,6 +48,14 @@ static int check(const mdb *C, const bigint *r, const char *what)
 }
 static void ref_low(bigint *rl, const bigint *r, size_t w) { bi_reserve(rl, r->n ? r->n : 1); size_t n = r->n < w ? r->n : w; memcpy(rl->l, r->l, n * 8); rl->n = n; bi_norm(rl); }
 static int body_rc;
+/* C = A B (+ X); with ECALC_DR >= 2 the checked product (rns_mul_dist_mn_chk) with the operands' residues made here (an entry the tree feeds from its tracked values) */
+static void mulx(mdb *C, mdb *A, mdb *B, mdb *X, mn_group *G)
+{
+    if (dr_level() < 2) { rns_mul_dist_mn(C, A, B, X, G); return; }
+    mdb_trk ta, tb, tx, tc; mdb_trk_make(A, G, &ta); mdb_trk_make(B, G, &tb); if (X) mdb_trk_make(X, G, &tx);
+    mdb_dr_store_inject(B, g_me);                              /* ECALC_DR_TEST=store: one limb of B's share wrong at rest, after its residue was recorded */
+    rns_mul_dist_mn_chk(C, A, B, X, G, &ta, &tb, X ? &tx : 0, &tc);
+}
 static void body(void *unused)
 {
     (void)unused; int argc = g_argc; char **argv = g_argv; (void)argv; double scale = g_scale;
@@ -70,10 +79,10 @@ static void body(void *unused)
         make_mdb(&B, &b, nb + 2, sub ? half : 0, sub ? g_size - half : g_size);
         make_mdb(&X, &x, nb, sub ? half : 0, sub ? g_size - half : g_size);
         double t0 = now();
-        rns_mul_dist_mn(&C, &A, &B, 0, G); double t1 = now(); tref_mul(&r, &a, &b); double t2 = now();
+        mulx(&C, &A, &B, 0, G); double t1 = now(); tref_mul(&r, &a, &b); double t2 = now();
         VERIFY(check(&C, &r, "product"), "%s %zu x %zu %s", sh[si].name, na, nb, gen_name[kind]);
         if (g_me == 0 && kind == 0) printf("   %s %zu x %zu: %.2f s (mn product %.2f, reference %.2f, check %.2f)\n", sh[si].name, na, nb, now() - t0, t1 - t0, t2 - t1, now() - t2);
-        rns_mul_dist_mn(&C, &A, &B, &X, G); bi_add(&t, &r, &x);
+        mulx(&C, &A, &B, &X, G); bi_add(&t, &r, &x);
         VERIFY(check(&C, &t, "product + x"), "%s %zu x %zu + x %s", sh[si].name, na, nb, gen_name[kind]);
         for (int wv = 0; wv < 3; wv++) {                      /* low products: pieces above w skipped, the result truncated (A5: in basis w) */
             size_t w = wv == 0 ? na + 2 : wv == 1 ? na / 2 + 1 : r.n - 1;
@@ -110,7 +119,7 @@ static void body(void *unused)
             VERIFY(check(&C, &rl, "views low"), "%s views low w %zu %s", sh[si].name, w, gen_name[kind]);
         }
         {   /* the shifted distributed add on its own: C (the product, basis na + nb + 1) += x << k */
-            rns_mul_dist_mn(&C, &A, &B, &X, G); bi_add(&t, &r, &x);
+            mulx(&C, &A, &B, &X, G); bi_add(&t, &r, &x);
             size_t ks[] = { 0, 7, na / 2, na };
             for (int ki = 0; ki < 4; ki++) {
                 mdb_add_shifted(&C, &X, ks[ki], G); bi_shl_limbs(&rl, &x, ks[ki]); bi_add(&t, &t, &rl); mdb_norm(&C, G, (size_t)-1);
@@ -129,11 +138,11 @@ static void body(void *unused)
             size_t na = (size_t)(u1 * (si == 0 ? 0.6 : si == 1 ? 1.03 : 0.3)), nb = (size_t)(u1 * (si == 0 ? 0.5 : si == 1 ? 1.03 : 0.25));
             rnd_bi(&a, na, kind); rnd_bi(&b, nb, kind); rnd_bi(&x, nb - 3, kind);
             make_mdb(&A, &a, na + 5, g0, 1); make_mdb(&B, &b, nb + 2, g0 + 1, 1); make_mdb(&X, &x, nb, g0 + 1, 1);
-            rns_mul_dist_mn(&C, &A, &B, 0, G1); tref_mul(&r, &a, &b);
+            mulx(&C, &A, &B, 0, G1); tref_mul(&r, &a, &b);
             VERIFY(check(&C, &r, "subgroup product"), "group [%d, %d) product %zu x %zu %s", g0, g0 + g1, na, nb, gen_name[kind]);
-            rns_mul_dist_mn(&C, &A, &B, &X, G1); bi_add(&t, &r, &x);
+            mulx(&C, &A, &B, &X, G1); bi_add(&t, &r, &x);
             VERIFY(check(&C, &t, "subgroup product + x"), "group [%d, %d) product + x %zu x %zu %s", g0, g0 + g1, na, nb, gen_name[kind]);
-            rns_mul_dist_mn(&C, &A, &B, &X, G1); bi_add(&t, &r, &x);   /* (the product + X: basis na + nb + 1 -- room for the adds below; the plain product's basis overflows with the all-ones operands) */
+            mulx(&C, &A, &B, &X, G1); bi_add(&t, &r, &x);   /* (the product + X: basis na + nb + 1 -- room for the adds below; the plain product's basis overflows with the all-ones operands) */
             size_t ks[] = { 0, na / 2 };
             for (int ki = 0; ki < 2; ki++) {
                 mdb_add_shifted(&C, &X, ks[ki], G1); bi_shl_limbs(&rl, &x, ks[ki]); bi_add(&t, &t, &rl); mdb_norm(&C, G1, (size_t)-1);
@@ -156,9 +165,9 @@ static void body(void *unused)
                 make_mdb(&A, &a, na + 5, l0, lh); make_mdb(&B, &b, nb + 2, l0 + lh, lg - lh); make_mdb(&X, &x, nb, l0 + lh, lg - lh);
                 int ka, kb; rns_mul_dist_mn_shape(a.n, b.n, GL, &ka, &kb);
                 if (kind == 0 && g_me == l0) printf("t_mn_grid: node %d: mixed shapes level %d group [%d, %d) round %d: %zu x %zu limbs, %d x %d pieces\n", g_me, lv, l0, l0 + lg, rd, na, nb, ka, kb);
-                rns_mul_dist_mn(&C, &A, &B, 0, GL); tref_mul(&r, &a, &b);
+                mulx(&C, &A, &B, 0, GL); tref_mul(&r, &a, &b);
                 VERIFY(check(&C, &r, "mixed product"), "mixed level %d group [%d, %d) round %d product %zu x %zu (%d x %d) %s", lv, l0, l0 + lg, rd, na, nb, ka, kb, gen_name[kind]);
-                rns_mul_dist_mn(&C, &A, &B, &X, GL); bi_add(&t, &r, &x);
+                mulx(&C, &A, &B, &X, GL); bi_add(&t, &r, &x);
                 VERIFY(check(&C, &t, "mixed product + x"), "mixed level %d group [%d, %d) round %d product + x %zu x %zu %s", lv, l0, l0 + lg, rd, na, nb, gen_name[kind]);
                 mdb_add_shifted(&C, &X, na / 2, GL); bi_shl_limbs(&rl, &x, na / 2); bi_add(&t, &t, &rl); mdb_norm(&C, GL, (size_t)-1);
                 VERIFY(check(&C, &t, "mixed add_shifted"), "mixed level %d group [%d, %d) round %d add_shifted %s", lv, l0, l0 + lg, rd, gen_name[kind]);

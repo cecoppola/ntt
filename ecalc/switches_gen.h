@@ -44,6 +44,13 @@ static const char *const cfg_names[] = {
     "ECALC_CORR_PATCH_ZONE",
     "ECALC_DEVICE_GB",
     "ECALC_DEVICE_MARGIN_GB",
+    "ECALC_DR",
+    "ECALC_DR_TEST",
+    "ECALC_DR_TEST_K",
+    "ECALC_DR_TEST_M",
+    "ECALC_DR_TEST_N",
+    "ECALC_DR_TEST_PE",
+    "ECALC_DR_TOTAL",
     "ECALC_FATAL_ABORT",
     "ECALC_FATAL_TEST",
     "ECALC_FATAL_WAIT",
@@ -143,4 +150,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_THP_DISABLE",
     "XSHMEM_THREAD_LEVEL",
 };
-#define CFG_NAMES_N 141
+#define CFG_NAMES_N 148

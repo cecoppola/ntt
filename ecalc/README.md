@@ -47,6 +47,7 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 | `mn_out.c/h`, `packed_fmt.h`, `verify.c/h` | output per node (packed part files, the correction patch), T1 residues and T2 windows |
 | `mem.c/h`, `memsample.c/h`, `nodemem.h`, `spill.c/h` | memory pools, VMM arenas, accounting and sampling; O_DIRECT file writes |
 | `fatal.c/h`, `segv_trace.c/h`, `config_line.c/h` | named exits, the crash-trace handler, the `config: hash=` line |
+| `dr.c/h` | C3 detect and retry (`ECALC_DR`, `results/DR.md`): switches, fault-injection parser, counters, context, the residue helpers (the checked tree products are in `rns_dist.c`, the tracked residues and leaf check in `mn.c`, the division checks D in `newton_db.c` and D' in `rns_mul_dist_mn_cyc_v`); `tests/t_dr.c` (host only) |
 | `switches.tsv`, `switches_manual.tsv`, `switches_gen.h` | the switch registry (`tools/switch_registry.py`; never hand-merge the generated files) |
 | `mnrun.sh`, `aac7env.sh` | the multi-process launcher (both xshmem paths); the aac7 environment (the aac7 launch line is in `profiles/aac7.conf`) |
 | `mnaccept.sh`, `digcmp.sh` | the standing regression; digit compare |
@@ -113,6 +114,13 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_CORR_PATCH_ZONE` | 4096 | built-in default | with `ECALC_CORR_PATCH`, the digits at the end whose T2 windows are checked after the patch instead of by the writer (4096) | K15.md |
 | `ECALC_DEVICE_GB` | 373.44 | built-in default | the device edge per node, GB, the memory fit checks (default 373.44 = the target's, 93.36 GB per APU, m, results/TARGET.md §TGTBENCH2; profiles/aac7.conf: 444.0, m, the aac7 t_edge VMM ... | - |
 | `ECALC_DEVICE_MARGIN_GB` | 5 | built-in default | the safety margin per node (default 5.0 GB, the tighter of CAP17's two bars) under `ECALC_DEVICE_GB` that `DM_MN_WRAP` automatic keeps: the wrap is taken only when the device with it is at ... | - |
+| `ECALC_DR` | 0 | experiment | results/DR.md | - |
+| `ECALC_DR_TEST` | 0 | diagnostic | results/DR.md | - |
+| `ECALC_DR_TEST_K` | 1 | diagnostic | results/DR.md | - |
+| `ECALC_DR_TEST_M` | 1 | diagnostic | results/DR.md | - |
+| `ECALC_DR_TEST_N` | 1 | diagnostic | results/DR.md | - |
+| `ECALC_DR_TEST_PE` | 0 | diagnostic | results/DR.md | - |
+| `ECALC_DR_TOTAL` | 8 | experiment | results/DR.md | - |
 | `ECALC_FATAL_ABORT` | derived | built-in default | `1` = a fatal error ends in `abort()` (a core file, rc 134) instead of `_exit(code)` (0). | S18W.md+C314.md |
 | `ECALC_FATAL_TEST` | unset | test-only | `1` = the four bs worker threads fail together right after the seeds (the in-phase guards' pattern): one message, rc 3 (0) | C314.md |
 | `ECALC_FATAL_WAIT` | 60 | built-in default | seconds the first failing thread may spend on its report (the memory accounting) before a watchdog `_exit`s (60) | C314.md |
@@ -234,6 +242,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | T2 (D57) | 2026-11-19 | `MN_NONPOW2_CAP`, `MN_NONPOW2_MIN` |
 | experiment | coordinator (C1POOL) | 2026-11-30 | `DB_FREE_SYNC` |
 | experiment | coordinator (C2 STRESS) | 2026-11-30 | `DB_POOL_FORCE_REMAP` |
+| experiment | coordinator (C3 DR, Q142) | 2026-12-01 | `ECALC_DR`, `ECALC_DR_TOTAL` |
 | experiment | TARGET1 (B1) | 2026-12-31 | `XSHMEM_CTRL`, `XSHMEM_HEAP_MB`, `XSHMEM_LANES`, `XSHMEM_PES_PER_GPU` |
 | experiment | TARGET1 (S2) | 2026-12-31 | `ECALC_VPE_LANES` |
 | experiment | TARGET1 (S3a) | 2026-12-31 | `XSHMEM_LOOPBACK_PES`, `XSHMEM_ROUND_MB` |
@@ -250,6 +259,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | diagnostic | TARGET12 (S2) | 2027-04-12 | `ECALC_TEST_DIE_PE` |
 | diagnostic | comm | 2027-04-12 | `COMM_SEQ_CHECK`, `XSHMEM_HANG_S` |
 | diagnostic | diagnostics (TESTING.md) | 2027-04-12 | `BS_CKPT_BG_MBS`, `DIST_GEN`, `DIST_LOGN_TEST`, `DIST_STATS`, `ECALC_FATAL_TEST`, `ECALC_INIT_ONLY`, `ECALC_MEM_SAMPLE`, `ECALC_NP_AUTO_TERMS`, `ECALC_TEST_CORR`, `ECALC_WINDOWS`, `MEM_DPOOL_FILL`, `MN_OUT_DKM_HI_TEST_CARRY`, `MN_TREE_LOGN_TEST`, `NEWTON_DKM_TEST_HI`, `NEWTON_MN_RECIP_TS`, `P24_CHECK`, `P24_CHECK_TEST`, `P24_CHECK_TEST_K`, `RNS_POOL_GROW` |
+| diagnostic | diagnostics (TESTING.md) | 2027-05-01 | `ECALC_DR_TEST`, `ECALC_DR_TEST_K`, `ECALC_DR_TEST_M`, `ECALC_DR_TEST_N`, `ECALC_DR_TEST_PE` |
 | test | ecalc/tests/t_alloc.c | 2027-04-12 | `T_ALLOC_NTT`, `T_ALLOC_PROBE`, `T_ALLOC_SEED` |
 | test | ecalc/tests/t_dist.c | 2027-04-12 | `DIST_BIG`, `DIST_BIG_K`, `DIST_BIG_PRIMES`, `DIST_H4`, `DIST_H4_MB`, `DIST_H4_REPS`, `DIST_LAYERED`, `DIST_LBENCH`, `DIST_LREPS`, `DIST_TBENCH`, `DIST_TINV`, `DIST_XGMI` |
 | test | ecalc/tests/t_patch.c | 2027-04-12 | `T_PATCH_DIR`, `T_PATCH_UNPACK` |
