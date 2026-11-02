@@ -30,6 +30,8 @@ Class 4
 13. Checkpoints after the tree and after the reciprocal.
 Items whose gain only the target can show (user 2026-10-31: build them): two NICs per APU on path 1 (`XSHMEM_LANES=2`, layout D) and a launch-time switch-group check, behind switches, digits-gated on aac7; hierarchical exchange as an OPPORTUNITIES entry.
 
+- N1 (branch roundsize, 2026-11-01, code pushed, aac7 item roundsize_a queued; `results/XSHMEM.md` §N1): `XSHMEM_ROUND_ACTIVE=1` sizes the alltoallv round chunk by the largest active-pair count (one tree max per exchange); open: results of the item, then the 6-node confirmation and the merge decision.
+
 Class 5
 14. Class 5, done 2026-11-01 (branch docfix): piece-boundary table and memory ceilings (`results/LAUNCH_DEFAULTS.md` §PIECES, regenerated with the planner), write-time model set to the measured 3.4-5 GB/s per node (aggregate assumed), target facts corrected where they live (FACTS, PLAN). Still open: time model recalibrated on the 2e13 decomposition; PLAN.md target section rewritten as the target agent's test list (setting, A/B with stop rule, adoption rule).
 

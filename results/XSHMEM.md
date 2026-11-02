@@ -260,3 +260,17 @@ checked first): the kit chain `s0_check`, `s2_build --path both`, `s3_gate --nod
 
 **Verdict.** Gate PASS: digits identical, 0 P24 flags, every injection caught; cand3 merged into main 2026-10-31. **Open issues.** The
 series arm is not analysed; the off / on single runs are not timing evidence (path 2 on 28.20 vs 26.29 s needs a paired run if it matters).
+
+## N1: rounds sized by the active pairs, `XSHMEM_ROUND_ACTIVE=1` (branch roundsize, 2026-11-01; code and tests written, aac7 results pending)
+
+**Why (measured, 10-29 run).** At 576 nodes the round chunk is `XSHMEM_ROUND_MB / (n - 1)` = 233 KB whatever the exchange: a shift has only 1-2 peers with bytes, yet pays about 4,600 rounds per chunk of `MDB_SHIFT_CHUNK_MB`; 165,300 rounds per PE at a mean 14 MB per round, partner polls 37.4 s.
+
+**Rule.** `XSHMEM_ROUND_ACTIVE=1` (default 0; implies `XSHMEM_SPARSE=1`): in an alltoallv the chunk is `XSHMEM_ROUND_MB / D`, D = the largest, over the members of the communicator, of max(peers I send bytes to, peers I receive bytes from), clamped to 1..n-1. Equal alltoall, communicators of 2 members and the whole-exchange path (`XSHMEM_ROUND_MB=0`) are unchanged (D = n - 1 there).
+
+**Agreement (the reason for the extra collective).** What has to agree is the chunk of each pair, not K: the pair (s -> r) advances both ends' sequence words by `rcount(b, c)` and round j's offset word and signal carry `seq + 1 + j`; a different c at the two ends gives a sequence mismatch fatal or a hang. K (the loop length) is local to a PE. A PE knows only its own send and receive counts, so a per-PE rule (c from my own degree) would give the two ends of a pair different chunks. One max over the members (`tiny_tree`, ceil(log2 n) steps of one put and one signal, on the same words and parity stream as the other small collectives; every member calls it, iff n > 2 and the exchange is an alltoallv) gives all pairs one c. Cost: one 8-byte tree max per exchange (assumed: tens of microseconds at 8 PEs, 10 steps at 576 nodes), and the post now waits for every member to arrive (before, the post returned first); not yet measured at scale.
+
+**Memory.** Staging per PE is the sum over active peers of min(c, count) <= D c <= m: the same bound as today, no new buffers.
+
+**Tests.** `tests/t_vpe all` gained sparse alltoallv cases (ring of 2 neighbors, star, no bytes at all; 3 repetitions each, data checked), run with `XSHMEM_ROUND_MB=0.01` so that rounds occur, switch off and on. `tests/t_xshmem` carries its own copy of the exchange (it does not link the round code of `comm_xshmem.c`), so it does not exercise the switch; it is run as the regression of the layer.
+
+**Result tables (aac7, 2 n; item roundsize_a): pending.** Expected: dense exchanges unchanged; per-tag rounds of the shift tag (`addsh`) lower at `XSHMEM_ROUND_MB=0.222609`; digits identical.
