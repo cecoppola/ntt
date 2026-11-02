@@ -4,7 +4,8 @@
  * of that next post ("host", s): everything the PE's caller does between two exchanges, kernel launches and its own
  * stream syncs included.  The time the post itself waits for the caller's stream (hipStreamSynchronize before the publish:
  * GPU work queued since the last exchange that is still running) is "wait", s.  A post made while another exchange of the
- * PE is still pending has no gap (counted as "ovl").  busy = time with at least one exchange pending, so that
+ * PE is still pending has no gap (counted as "ovl"; npend counts exchanges of all threads and communicators of the PE,
+ * so with several posting threads the gap goes to whichever posts first after an idle period).  busy = time with at least one exchange pending, so that
  * span (first post to last end) = busy + sum of the host column exactly; "tail" = last end to the report.
  * Only clock reads and a short per-PE lock; no GPU call, no sync, no allocation. */
 #ifndef HOSTTL_H
