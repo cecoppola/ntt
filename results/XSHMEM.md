@@ -322,3 +322,35 @@ Gate of the plan item N4 (two NICs per APU on path 1). Build: main c86e5fcc, pat
 | 2 | 1.6e10, `MN_TREE_LOGN_TEST=26` | 57, 5bc4211dbd24efd1 | 58, 5bc4211dbd24efd1 | OK / OK |
 
 The 2-node 1.6e10 hash also equals the default-settings run of the N1 section in `results/DIAG.md` (same digits with and without `MN_TREE_LOGN_TEST=26`). The 1-node and 2-node hashes of the same digits differ (probably because the part files are split differently per node count, not checked); each passes VERIFY and the pairs within one node count are identical. No lane-split counters are printed on path 1 (`XSHMEM_ROUND_STATS=1` output has no lane lines; `XSHMEM_LANE_TRACE` was not set). **Verdict.** Digits identical with `XSHMEM_LANES=2` at 1 and 2 nodes on path 1; the wall times are equal within noise (single runs). Gain on the target (two NICs per APU) is unmeasurable here.
+
+## N3: round size and the per-tag round counts (branch n3, 2026-11-01, aac7 3 nodes s1b0 s5b0 s6b0, measured; 576-node part modeled)
+
+**Question.** Plan item N3 asks whether a larger `XSHMEM_ROUND_MB` (128 / 256 / 512 / 1024 at 576 nodes) pays. The 576-node model (below) assumes that the rounds of every exchange with data on all pairs scale as 1/chunk and that the others sit on a one-round floor; the split of the 165,300 rounds per PE is assumed (the 10-29 run printed only totals). aac7 can test the scaling by tag, not the time per round at 575 peers.
+
+**Method.** Main d7c7f285, path 1 (`XSHMEM=ofi`), 3 nodes (12 PEs), 1e10 digits (written 10000000000), `MN_TREE_LOGN_TEST=26`, `XSHMEM_ROUND_STATS=1`, item n3_scale (one hold, 12 min). The per-pair chunk at 576 nodes is `XSHMEM_ROUND_MB / 575`; at 3 nodes the same chunk is `XSHMEM_ROUND_MB x 2 / 575`, so 128 / 256 / 512 / 1024 MiB correspond to 0.445 / 0.890 / 1.781 / 3.562 MiB. Each size with `XSHMEM_ROUND_ACTIVE` unset and `=1`; 8 runs, single runs. Rounds are the maximum over the 12 PEs (the `XSHMEM_TAGMAX` lines).
+
+**Digits.** sha e7aac3a3fe898061 in all 8 runs, VERIFY OK in all; it equals the 1e10 3-node sha of the N1 section above.
+
+**Rounds per tag (max over 12 PEs; switch unset; exchanges as in the N1 table).**
+
+| tag (exchanges) | 0.445 MiB (128) | 0.890 (256) | 1.781 (512) | 3.562 (1024) | ratio 0.445 / 3.562 (ideal 8.0) |
+|---|---|---|---|---|---|
+| other (12) | 12 | 12 | 12 | 12 | 1.0 (floor) |
+| redist (96) | 11,813 | 5,934 | 3,004 | 1,539 | 7.68 |
+| result (62) | 14,546 | 7,290 | 3,662 | 1,850 | 7.86 |
+| spill (62) | 100 | 66 | 62 | 62 | 1.6 (floor 62) |
+| addsh, the shifts (75) | 9,885 | 4,969 | 2,508 | 1,283 | 7.70 |
+| layeq (409) | 413 | 411 | 410 | 409 | 1.0 (floor 409) |
+| layv (3,928) | 92,340 | 47,308 | 24,804 | 13,564 | 6.81 |
+
+With `XSHMEM_ROUND_ACTIVE=1` only addsh changes: 7,899 / 3,975 / 2,013 / 1,036 (-20.1 / -20.0 / -19.7 / -19.2 %); every other tag is identical to the unset column.
+
+**Wall time (s, single runs, noise about 2 s).** Unset 40 / 36 / 36 / 35, set 38 / 37 / 35 / 34 for 0.445 / 0.890 / 1.781 / 3.562 MiB. The sum of the per-tag maxima falls from 129,100 to 18,700 rounds (-110,400) while the wall falls 5 s: at most about 45 us per round at 2 peers (derived from noisy single runs, an upper bound; the model's 0.355 ms is a 575-peer cost and is not tested here).
+
+**Verdict (measured).** (1) The round count of every tag with bytes on all pairs (redist, result, addsh, layv) scales as 1/chunk, within 2 % per doubling for redist, result and addsh (7.7-7.9 of 8.0 over the 8-fold range); layv is the one divergence, 6.8 of 8.0, because its many small exchanges (3,928) reach the one-round-per-exchange floor in part of their pairs. (2) Tags whose pairs are smaller than the chunk sit on their floor from the smallest size: other (12), layeq (409 = its exchanges), spill (62 = its exchanges from 1.781 MiB on). So the model's "at least one round per exchange" floor is real, and which tags are on it at 576 nodes depends on the pair sizes there, which 3 nodes cannot show. (3) The N1 shift effect is constant, about -20 % of addsh, at every chunk: it removes rounds in proportion, not a fixed number, as the model's shift term assumes; no other tag moves, so the model's "N1 on (+other)" column (all sparse rounds removed) has no support. (4) Not shown: the time per round at 575 peers, the zero-pair effect at D far below n - 1, and the tag mix at 576-node pair sizes. Digits are unchanged by the round size and the switch.
+
+**Memory (planner, aac7 2026-11-01, modeled).** `XSHMEM_ROUND_MB` 128 / 512 / 1024 give identical memory plans at 2e13 and 3.8e13 digits, because the round staging sits inside the per-APU device pool, which is sized by the largest division exchange. The separate formula estimate (staging 2 m per APU, device pool 512 / 768 / 1,280 / 2,304 MiB for 128 / 256 / 512 / 1024, +1.75 GiB per APU at 1024, 31 % of the 6.04 GB margin) is an upper bound the planner run did not confirm.
+
+**Modeled 576-node table (v12 time model plus a round-count model; every class split assumed, totals measured).** Baseline 128 MiB, switch unset: 206.1 s at 2e13 and 413.6 s at 3.8e13. Modeled wall at 2e13 and change against the baseline: 256 MiB 177 s (-14 %), 512 MiB 162.5 s (-21 %), 1024 MiB 155 s (-25 %); with the switch also set (shifts only) 182 s at 128 (-12 %), 157.6 s at 512 and 153.6 s at 1024; at 3.8e13 1024 MiB 284 s (-31 %). Assumptions: all 0.355 ms per round of the polls and engine buckets scales with the round count (halving this halves every gain), 25.6 s of shift time is round cost, the dense/sparse split of the 165,300 rounds is a guess, wire time does not change. The v12 residual (RMS 6.5 %, 13 s at 2e13) is as large as the 512-against-N1-alone difference, so single target runs cannot rank 512 against 1024; the sign of every cell is a gain because the model has no term that worsens with bigger rounds.
+
+**Why the default is 128 and not 1024.** The default came from the SHMEM proxy engine tests of 2026-10-20 (4 nodes -2.5 to -4.1 s, 2 nodes -1.5 to -3.5 s, 6 nodes neutral, with 7.2 GB per node less pool; user decisions Q58-Q60, archive:docs/private_2026-10-23/STATUS_to_2026-10-23.md), and `xshmem_round.h` kept it because whole-exchange staging fails the memory guard at full size; 1024 was only the model's assumption (D2), never a timed target setting.
