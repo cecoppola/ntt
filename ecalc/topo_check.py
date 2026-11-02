@@ -86,8 +86,8 @@ def check(nodes, procs=None, size=64, leaves=None, sched=None):
         levels = sched if sched is not None else schedule(p)
     except ValueError as e:
         lines.append("topo_check: tree schedule not checked (%s)" % e)
-        levels = []
-    for s in levels:
+        levels = None
+    for s in levels or []:
         if s >= p or s > size:
             continue
         bad = [k for k in range(0, p, s) if len(set(grp[k:k + s])) > 1]
@@ -98,7 +98,7 @@ def check(nodes, procs=None, size=64, leaves=None, sched=None):
     unk = sum(1 for h in nodes if group_of(h, size, leaves) == "?")
     if unk:
         lines.append("topo_check: unknown switch group for %d hosts (no trailing number, or not in the topology): no verdict" % unk)
-    elif not warns:
+    elif not warns and levels is not None:
         lines.append("topo_check: OK, every tree set of up to %d ranks is inside one switch group" % size)
     return lines, warns
 
@@ -116,9 +116,9 @@ def main(argv=None):
     if a.nodes:
         nodes = expand(a.nodes)
     elif a.nodes_file:
-        nodes = open(a.nodes_file).read().split()
+        nodes = expand(",".join(open(a.nodes_file).read().split()))
     else:
-        nodes = sys.stdin.read().replace(",", " ").split()
+        nodes = expand(",".join(sys.stdin.read().split()))
     if not nodes:
         print("topo_check: empty node list", file=sys.stderr)
         return 1

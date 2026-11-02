@@ -148,7 +148,7 @@ ecalc_srun() {        # TAG PATHNO NODES CMD...
     # report-only switch-group check of the rank-order host list (ecalc/topo_check.py, one python start; MNRUN_TOPO_CHECK=0 skips; a failure never fails the step)
     if [ "$n" -gt 1 ] && [ "${MNRUN_TOPO_CHECK:-1}" != 0 ] && [ "${TGT_SRUN_NO_W:-0}" = 1 ]; then echo "topology check skipped: no -w" >&2
     elif [ "$n" -gt 1 ] && [ "${MNRUN_TOPO_CHECK:-1}" != 0 ] && [ -n "$EC_DIR" ] && [ -f "$EC_DIR/topo_check.py" ] && command -v python3 >/dev/null 2>&1; then
-        echo "$h" | tr ',' '\n' | python3 "$EC_DIR/topo_check.py" --sort --procs "$n" >&2 || true; fi
+        echo "$h" | tr ',' '\n' | python3 "$EC_DIR/topo_check.py" --sort --procs $((n * ppn)) >&2 || true; fi
     local ko=(--kill-on-bad-exit=1); [ "${ECALC_SRUN_KILL:-1}" = 0 ] && ko=()   # a one-node ec_fatal ends the step in seconds, not at TMO (as mnrun.sh, D34); ECALC_SRUN_KILL=0 for independent per-node probes
     t0=$(date +%s)
     timeout -k 20 $(( ${TMO:-${TGT_ITEM_MIN:-10}} * 60 )) srun --jobid="$JOBID" --export=ALL -N "$n" "${wo[@]}" --ntasks=$((n * ppn)) --ntasks-per-node="$ppn" "${gopt[@]}" "${copt[@]}" "${xo[@]}" --overlap ${ko[@]+"${ko[@]}"} \

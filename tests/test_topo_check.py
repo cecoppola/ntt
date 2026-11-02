@@ -77,6 +77,18 @@ class TopoCheck(unittest.TestCase):
         self.assertTrue(any("unknown switch group for 2 hosts" in l for l in lines))
         self.assertFalse(any(" OK" in l for l in lines))
 
+    def test_invalid_mn_groups_no_ok(self):
+        with mock.patch.dict(os.environ, {"MN_GROUPS": "abc"}):
+            lines, _ = tc.check(names([1, 2, 3, 4]))
+        self.assertTrue(any("tree schedule not checked" in l for l in lines))
+        self.assertFalse(any(" OK" in l for l in lines))
+
+    def test_stdin_brackets(self):
+        out = io.StringIO()
+        with mock.patch("sys.stdin", io.StringIO("nd[001-003]\nnd004\n")), redirect_stdout(out):
+            self.assertEqual(tc.main(["--sched", "2,4"]), 0)
+        self.assertIn("4 PEs on 4 nodes", out.getvalue())
+
     def test_multi_bracket_nodes(self):
         txt = "SwitchName=s0 Level=0 LinkSpeed=1 Nodes=x[1-3,5],y[7-8]\nSwitchName=top Level=1 Switches=s0\n"
         self.assertEqual(tc.leaf_map(txt), {"x1": "s0", "x2": "s0", "x3": "s0", "x5": "s0", "y7": "s0", "y8": "s0"})
