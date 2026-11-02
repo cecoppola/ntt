@@ -13,6 +13,10 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 - aac7: `source aac7env.sh` (ROCm 7.2.4). The QOS allows 6 nodes per user (`sacctmgr show qos normal format=maxtrespu`; the queue runner `tools/aac7q.sh` reads this limit from Slurm every 10 min and runs items side by side while they fit, largest unit first (a GROUP counts as the sum of its members; an item waiting over 45 min reserves the earliest time running items free its nodes, and later items start only if they end by then, by their optional `EXPECT_MIN` header else `EST_MIN`, or fit in the nodes that are still extra at that time); it excludes the hosts listed in the private files `aac7q/exclude` (always) and `aac7q/exclude_slow` (unless the item sets `ALLOW_SLOW=1`); a missing file excludes nothing).
 
 **Notes on single settings.**
+- Command line: `ecalc <digits> [outfile]` takes the digit count as a plain integer (`1000000000`) or in exact scientific
+  notation (`1e9`, `1.6e10`, `5.4e13`, `1.50e1`; `e`/`E`, optional `+` in the exponent). The value must be a positive whole
+  number that fits an unsigned long (<= 18446744073709551598). Anything else (`1.6e1x`, `2.5`, `0`, `-1`, overflow) prints
+  `ecalc: bad digit count ...` and exits 2 before any device or network setup (`count_arg.h`, host test `tests/t_args.c`).
 - `mnrun.sh` (the multi-node launcher; usage in `../README.md`) sets `COMM_RANK`, `COMM_SIZE` and the transport from
   Slurm, exports `FI_UNIVERSE_SIZE`, `FI_LOG_LEVEL=warn` and `FI_MR_CACHE_MONITOR=userfaultfd` when unset (it refuses
   `disabled`), and `MNRUN_EXCLUDE_HOSTS` drops flagged nodes. Before the launch of a multi-node run it prints a report-only switch-group check (`topo_check.py`: the rank -> switch-group map and a WARN for every tree set of up to 64 ranks that spans two groups; the group is (node number - 1) div `TOPO_GROUP_SIZE` (default 64), or the leaf switches of a `scontrol show topology` text in `TOPO_TOPOLOGY_FILE`; `MNRUN_TOPO_CHECK=0` skips it; it never changes the launch). `MNRUN_GRES=auto|on|off` (default auto; `gres.sh`, shared by
@@ -32,6 +36,7 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 | file | what |
 |---|---|
 | `ecalc.c` | the driver: sizing, init, the run in order (`../ALGORITHM.md` §7) |
+| `count_arg.h` | the digit count argument: a plain integer or exact scientific notation, exact integer arithmetic (host test `tests/t_args.c`) |
 | `modarith.h` | the primes c · 2⁴⁴ + 1, FP64-Barrett modmul, roots for 2ᵏ and 3 · 2ᵏ lengths |
 | `ntt.c/h`, `ntt3.c` | the tiled NTT kernels (DIF forward, DIT inverse, fused pointwise and scale); the radix-3 layer |
 | `crt.c/h`, `p24.h`, `p24_crt.c` | CRT reconstruction; 24 digits per point in four-prime products |
@@ -215,6 +220,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `XSHMEM_PEER` | -1 | experiment | (default: on with one PE per process, Q100 2026-10-25; `0` = off, the NIC path; the default layout D is unaffected): same-node PEs exchange payload by device copies (`hipMemcpyAsync` on one ... | - |
 | `XSHMEM_PEER_STREAMS` | 8 | experiment | XSHMEM_PEER=1 device-copy streams per PE (default 8 = one per peer; peer pe uses stream pe mod k; 1 = every copy of a round on one stream); measurement aid for the copy-engine A/B, digits identical; results/SINGLE_NODE.md §PEER | - |
 | `XSHMEM_PES_PER_GPU` | 1 | experiment | PEs per GPU (default 1; the 2-PEs-per-GPU fallback of design 2.2) / a prefix for every `/sys` path (mock trees of `tests/t_pe_geo`) | - |
+| `XSHMEM_ROUND_ACTIVE` | 0 | experiment | experiment, default 0: 1 (implies XSHMEM_SPARSE=1) = the round chunk of an alltoallv is XSHMEM_ROUND_MB / D, D = the largest count of peers with bytes (either direction) over the members of the communicator (one tree max per exchange), instead of XSHMEM_ROUND_MB / (members - 1); the per-PE staging bound is unchanged; digits identical; results/XSHMEM.md N1 | - |
 | `XSHMEM_ROUND_MB` | 128 | experiment | the xshmem engine (`COMM_TRANSPORT=xshmem`) carries an all-to-all whose pair exceeds this / (n − 1) MiB in rounds that stage at most this many MiB each way (the self slab is not staged; one ... | - |
 | `XSHMEM_ROUND_STATS` | 0 | diagnostic | diagnostic, default 0 (no clock reads when off): 2 = also a per-exchange series (first 1024 exchanges per PE: host gap, GPU interval, stream busy, post sync, ROFF poll, worker span, comm id, call-site addresses; written at exit to xshmem_series_pe<rank>.txt in the working directory, one file per PE); 1 = a per-tag table on stderr (exchanges, rounds, bytes, largest pair; node-process 0 and the maximum over PEs), and every PE writes at exit (and every 5000 rounds) to xshmem_stats_pe<rank>.txt (working directory, not stderr) the round path's phase times: exclusive worker seconds per phase (ROFF post, staging copy, copy issue, copy quiet, signal post, signal quiet, receive copy, ROFF poll, signal poll), wall seconds of the two waits (these include the worker's turns on other pending exchanges) the pending exchanges per round (mean, max), a gpu line per PE (HIP-event GPU stream time between one exchange's end and the next post, per phase tag, with host, GPU index and PCI bus id on every line), a sync line per PE (whether the caller stream was idle at the post, event sync vs remaining stream sync, a device-wide sync probe: the probe adds its wait to the post), and a second line per PE with the exchange timeline (post, worker wake, worker span with its unclassified gaps, late, notice, end: they sum to the post-to-completion total; caller blocked and working times; post to the first ROFF write); digits identical; results/SINGLE_NODE.md §PEER | - |
 | `XSHMEM_SIG_LANES` | 0 | experiment | diagnosis, default off: signals on every lane instead of lane 0 only | - |
@@ -253,7 +259,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | TARGET12 (S22) | 2026-12-31 | `ECALC_OMP_TEAM`, `ECALC_RESIDUE`, `MN_OUT_EARLY_ALWAYS` |
 | experiment | TASK4 peer | 2026-12-31 | `XSHMEM_PEER`, `XSHMEM_PEER_STREAMS` |
 | experiment | TGTSHAPE | 2026-12-31 | `XSHMEM_HEAP_SLACK_MB` |
-| experiment | comm | 2026-12-31 | `XSHMEM_COLL`, `XSHMEM_HS_BATCH`, `XSHMEM_SPARSE` |
+| experiment | comm | 2026-12-31 | `XSHMEM_COLL`, `XSHMEM_HS_BATCH`, `XSHMEM_ROUND_ACTIVE`, `XSHMEM_SPARSE` |
 | experiment | craylane | 2026-12-31 | `XSHMEM_CRAY_GPU_PRETOUCH`, `XSHMEM_CRAY_HEAP_THP`, `XSHMEM_CRAY_NOMEMSET`, `XSHMEM_CRAY_NUMA`, `XSHMEM_CRAY_PUTSIG_SPLIT`, `XSHMEM_CRAY_SIGSET`, `XSHMEM_CRAY_TEST`, `XSHMEM_LANE_CTX`, `XSHMEM_LANE_POLL`, `XSHMEM_LANE_TRACE`, `XSHMEM_SIG_LANES`, `XSHMEM_THP_DISABLE`, `XSHMEM_THREAD_LEVEL` |
 | fallback | P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF) | 2026-11-11 | `DM_MN_WRAP` |
 | fallback | coordinator (Q130) | 2026-11-11 | `P24_CRT_ANY` |

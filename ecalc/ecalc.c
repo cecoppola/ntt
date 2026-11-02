@@ -46,6 +46,7 @@ extern "C" size_t comm_layered_vbytes(int dev);      /* B7ACCT (comm_layered.c) 
 #include <omp.h>
 #include "ntt.h"
 #include "config_line.h"   /* L5: the print-only `config:` line */
+#include "count_arg.h"       /* ec_parse_count: the digit count argument */
 #include <math.h>
 
 static void meta_line(const char *bench)
@@ -563,7 +564,9 @@ int main(int argc, char **argv)
     if (!plan) mapd_early();                          /* ECALC_MAPD=1 (default 0): start the per-APU helper processes now, before any HIP / PMI call (mapd.c) */
     ec_segv_trace_install();                          /* s18w task 2: after COMM_RANK is known (the environment above, or the
                                                           MN_PLAN_ONLY branch's setenv); no-op unless ECALC_SEGV_TRACE=1 */
-    unsigned long d_out = plan ? plan_d : strtoul(argv[1], 0, 10), d = d_out;   /* d: the digits computed; in decimal rounded up to a multiple of 18 (the requested digits are a prefix: floor(floor(10^d' e) / 10^(d'-d)) = floor(10^d e)); d_out: written and windowed */
+    unsigned long d_arg = 0;                          /* count_arg.h: a plain integer or exact scientific notation (1e9, 1.6e10); anything else is refused here, before any device or network setup */
+    if (!plan && ec_parse_count(argv[1], &d_arg)) { fprintf(stderr, "ecalc: bad digit count \"%s\": use a positive whole number, as an integer or in exact scientific notation (1e9, 1.6e10, 5.4e13); it must fit in an unsigned long\n", argv[1]); return 2; }
+    unsigned long d_out = plan ? plan_d : d_arg, d = d_out;   /* d: the digits computed; in decimal rounded up to a multiple of 18 (the requested digits are a prefix: floor(floor(10^d' e) / 10^(d'-d)) = floor(10^d e)); d_out: written and windowed */
     const char *outfile = argc > 2 && !plan ? argv[2] : 0;
     int verbose = getenv("ECALC_VERBOSE") ? atoi(getenv("ECALC_VERBOSE")) : 1;
     int pool_log = getenv("POOL_LOG") ? atoi(getenv("POOL_LOG")) : 31;

@@ -26,9 +26,11 @@ Class 4
 9. Shifts point-to-point instead of a group all-to-all; lazy shift (design).
 10. Larger rounds for large all-to-alls, re-evaluated with the recalibrated model.
 11. Two exchanges in flight per communicator (design, after rows 8-10).
-12. Start-up: per-device allocator processes, seed-thread pool wait, self-test time visible, pool fragmentation.
-13. Checkpoints after the tree and after the reciprocal.
+12. Start-up: per-device allocator processes (arenas and the per-prime plane pools, `ECALC_MAPD`, user decision 2026-11-01), seed-thread pool wait, self-test time visible, pool fragmentation (S4, 2026-11-02: the 2-node 6e10 gather fallback is not the cache slots, `results/MEMORY.md` §S4; the 576-node remaps are not reproduced, open).
+13. Checkpoints after the tree and after the reciprocal: not built for now (user decision 2026-11-01).
 Items whose gain only the target can show (user 2026-10-31: build them): two NICs per APU on path 1 (`XSHMEM_LANES=2`, layout D) and a launch-time switch-group check, behind switches, digits-gated on aac7; hierarchical exchange as an OPPORTUNITIES entry. Done 2026-11-01 (branch topo, plan rows N6, N7): the check is `ecalc/topo_check.py`, called by `mnrun.sh` (report only, `MNRUN_TOPO_CHECK`, default 1; unit test `tests/test_topo_check.py`; dry run on the aac7 login node with a fake list); the hierarchical exchange is OPPORTUNITIES N9 (plan item N7); the bench steps (`_ecalc.sh` `ecalc_srun`) call the check too, the kit and `remote/run` launch through `mnrun.sh`.
+
+- N1 (branch roundsize, 2026-11-01, aac7 gates and digits PASS at 1-3 nodes, both paths; shift rounds -20 % at 3 nodes; `results/XSHMEM.md` §N1): `XSHMEM_ROUND_ACTIVE=1` sizes the alltoallv round chunk by the largest active-pair count (one tree max per exchange); open: 6-node (D = 1 vs 5) or target-scale round count, then the merge decision.
 
 Class 5
 14. Class 5, done 2026-11-01 (branch docfix): piece-boundary table and memory ceilings (`results/LAUNCH_DEFAULTS.md` §PIECES, regenerated with the planner), write-time model set to the measured 3.4-5 GB/s per node (aggregate assumed), target facts corrected where they live (FACTS, PLAN). Time model recalibrated on the 2e13 decomposition: done 2026-11-01 (branch timemodel, D2, `results/TIME_MODEL.md` §v12, `mn_model.py v12`; residuals -11.6 % to +8.0 % over the 10-29 series, failure rate by size listed). Still open: PLAN.md target section rewritten as the target agent's test list (setting, A/B with stop rule, adoption rule).

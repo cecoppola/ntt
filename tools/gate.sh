@@ -203,5 +203,5 @@ if [ $CHECK_NP = 1 ]; then   # D18: the multi-node form must be visible in the l
   if grep -aq "$want" "$PL"; then NPOK="; $tag"; else NPOK="; mn form NOT as asked (no '$want' in run.log)"; fi
   WHY="$WHY$NPOK"
 fi
-if [ "$RC" = 0 ] && [ "$V" = "VERIFY OK" ] && [ "$CMP" = identical ] && [ "$SEGV" = 0 ] && { [ $CHECK_NP = 0 ] || [ -n "${NPOK##*NOT*}" ]; }; then RES=PASS; fi
+if [ "$RC" = 0 ] && [ "$V" = "VERIFY OK" ] && { [ "$CMP" = identical ] || [ "$CMP" = "identical (prefix of the reference)" ]; } && [ "$SEGV" = 0 ] && { [ $CHECK_NP = 0 ] || [ -n "${NPOK##*NOT*}" ]; }; then RES=PASS; fi
 finish

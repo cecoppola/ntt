@@ -54,6 +54,7 @@ XSHMEM_LOOPBACK_PES	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine / backend 
 XSHMEM_PES_PER_GPU	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
 PE_GEO_SYSFS_ROOT	test-only	TARGET1 (B3)	2026-12-31	mock sysfs root of tests/t_pe_geo
 XSHMEM_ROUND_MB	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine arm (comm_xshmem.c), off by default; review when the xshmem transport gate (S3a) closes
+XSHMEM_ROUND_ACTIVE	experiment	comm	2026-12-31	rounds sized by active pairs (N1); adopt or drop after the target round-count measurement
 TMPDIR	test-only	TARGET1 (B3)	2026-12-31	system temp directory read by tests/t_pe_geo
 ECALC_VPE_LANES	experiment	TARGET1 (S2)	2026-12-31	PEs per node without a launch (planners, tests); review with ECALC_PE_PER_GPU
 ECALC_PE_PER_GPU	experiment	TARGET12 (S2)	2026-12-31	one process per GPU (PE); off by default; review when S2a..S2d are merged

@@ -82,6 +82,7 @@ static int g_rst;                          /* XSHMEM_ROUND_STATS=1: the round pa
 #define RTA(k, t0) do { if (g_rst) lp->rst[k] += now_s() - (t0); } while (0)
 static int g_seqchk;                       /* COMM_SEQ_CHECK=1: every small collective carries (sequence, kind, byte count, phase tag); a mismatch between members is fatal (default 0) */
 static int g_sparse;                       /* XSHMEM_SPARSE=1: an exchange skips the peers with zero bytes (no offset word, no signal, no wait, no round) */
+static int g_ract;                         /* XSHMEM_ROUND_ACTIVE=1 (implies XSHMEM_SPARSE=1): the alltoallv round chunk is XSHMEM_ROUND_MB / D, D = the largest active-pair count (bytes either way) over the members (one tree max per exchange), not the member count - 1 */
 static int g_hsb;                          /* XSHMEM_HS_BATCH=k > 0: the flat all-to-all signal loops quiet after every k signals (default 0 = one burst) */
 static double g_hang_s = 900.0;            /* XSHMEM_HANG_S: seconds a wait for a peer may last before the HANG fatal (default 900) */
 #define HSPACE(i) do { if (g_hsb && (((i) + 1) % g_hsb) == 0) xshmem_ctx_quiet(XSHMEM_CTX_DEFAULT); } while (0)
@@ -322,7 +323,7 @@ static void *worker(void *a)
 }
 
 /* ---- the exchange in rounds (XSHMEM_ROUND_MB = m > 0; a non-blocking state machine run by the PE's worker) ----
- * A pair (s -> r) of b bytes goes in round_count(b, c) rounds of c = m / (n - 1) bytes (>= 4 KiB, 256 B multiple); every round stages at most m
+ * A pair (s -> r) of b bytes goes in round_count(b, c) rounds of c = m / (n - 1) bytes (>= 4 KiB, 256 B multiple; with XSHMEM_ROUND_ACTIVE c = m / D, D = the tree max over the members of max(sending peers, receiving peers), 1..n-1); every round stages at most m
  * each way and leaves the self slab out.  Round j: publish ROFF for every sender still active (the landing place of its chunk j: rb + rdsp + j c, or the
  * receive staging slot), stage my chunks j, put each after the receiver's word of round j, ONE quiet, one signal (seq, bytes) per peer and round, wait for
  * the signals of round j, quiet, copy the received chunks out.  Round j + 1 starts only after round j completed, so a staging slot is never overwritten
@@ -402,9 +403,14 @@ static int xex_round(xpriv *p)    /* one step; 1 when every round is done (the p
         }
     }
 }
+static uint64_t tiny_tree(xpriv *p, uint64_t v, int withval);
 static void xex_post_rounds(xpriv *p, const void *sb, void *rb, hipStream_t s)
 {
-    int n = p->n, me = p->me; xpe *lp = p->lp; size_t c = X.rbytes / (size_t)(n - 1); c &= ~(size_t)(ALIGN - 1); if (c < 4096) c = 4096;
+    int n = p->n, me = p->me; xpe *lp = p->lp; size_t dv = (size_t)(n - 1);
+    if (g_ract && p->v && n > 2) {   /* XSHMEM_ROUND_ACTIVE: both ends of a pair must use one chunk c, so c comes from a count every member knows: D = max over the members of max(sending peers, receiving peers) */
+        size_t dout = 0, din = 0; for (int r = 0; r < n; r++) if (r != me) { dout += p->scnt[r] > 0; din += p->rcnt[r] > 0; }
+        uint64_t d = tiny_tree(p, dout > din ? dout : din, 1); dv = d < 1 ? 1 : d > (uint64_t)(n - 1) ? (size_t)(n - 1) : (size_t)d; }
+    size_t c = X.rbytes / dv; c &= ~(size_t)(ALIGN - 1); if (c < 4096) c = 4096;
     if (p->scnt[me] != p->rcnt[me]) die(p, "alltoallv self count mismatch");
     long K = 1;
     for (int r = 0; r < n; r++) if (r != me) { long ko = rcount(p->scnt[r], c), ki = rcount(p->rcnt[r], c); if (ko > K) K = ko; if (ki > K) K = ki; }
@@ -824,6 +830,7 @@ int comm_xshmem_init(void)
     { const char *e = getenv("XSHMEM_ROUND_STATS"); long v = 0; if (e && *e) { char *end; v = strtol(e, &end, 10); if (*end || v < 0 || v > 2) ec_fatal(EC_RC_FATAL, "comm_xshmem: XSHMEM_ROUND_STATS=%s: 0, 1 or 2\n", e); } g_rst = v > 0; g_rser = v >= 2; }
     { const char *e = getenv("COMM_SEQ_CHECK"); g_seqchk = e && atoi(e) > 0; g_wn = g_seqchk ? W_N + 2 : W_N;   /* the same on every rank (the CTRL heaps must be one size) */
       e = getenv("XSHMEM_SPARSE"); g_sparse = e && atoi(e) > 0;
+      e = getenv("XSHMEM_ROUND_ACTIVE"); g_ract = e && atoi(e) > 0; if (g_ract) g_sparse = 1;
       e = getenv("XSHMEM_HS_BATCH"); g_hsb = e && atoi(e) > 0 ? atoi(e) : 0;
       e = getenv("XSHMEM_HANG_S"); if (e && atof(e) > 0) g_hang_s = atof(e); }
     xshmem_cfg_t cfg; xshmem_cfg_load(&cfg);
@@ -893,7 +900,7 @@ int comm_xshmem_init(void)
     char rbuf[40]; if (X.rbytes) snprintf(rbuf, sizeof rbuf, "%zu MiB", X.rbytes >> 20); else snprintf(rbuf, sizeof rbuf, "off (whole exchange)");
     if (X.q == 0) fprintf(stderr, "comm_xshmem: %d node-processes x %d loopback PEs, DATA heap %zu MiB + CTRL %zu KiB per PE, order %s, worker thread %s, rounds %s, thread level %d\n",
                           X.nodes, K, db >> 20, cb >> 10, "rot", "on", rbuf, prov);
-    if (X.q == 0 && (g_seqchk || g_hsb || g_sparse || g_hang_s != 900.0)) fprintf(stderr, "comm_xshmem: COMM_SEQ_CHECK=%d XSHMEM_HS_BATCH=%d XSHMEM_SPARSE=%d XSHMEM_HANG_S=%.0f\n", g_seqchk, g_hsb, g_sparse, g_hang_s);
+    if (X.q == 0 && (g_seqchk || g_hsb || g_sparse || g_ract || g_hang_s != 900.0)) fprintf(stderr, "comm_xshmem: COMM_SEQ_CHECK=%d XSHMEM_HS_BATCH=%d XSHMEM_SPARSE=%d XSHMEM_ROUND_ACTIVE=%d XSHMEM_HANG_S=%.0f\n", g_seqchk, g_hsb, g_sparse, g_ract, g_hang_s);
     if (g_ctree && X.q == 0) fprintf(stderr, "comm_xshmem: XSHMEM_COLL=tree: dissemination barrier / allreduce_max / allgather_host (ceil(log2 n) rounds)\n");
     XTL("init: boot + library init (PMI, fabric open, %d PEs) %.2f s; lane contexts %.2f s; CTRL heap %.2f s; DATA heap %.2f s (%zu MiB per PE); workers %.2f s; total %.2f s",
         np, tl_b - tl_a, tl_c - tl_b, tl_d - tl_c, tl_e - tl_d, db >> 20, now_s() - tl_e, now_s() - tl_a);
