@@ -26,7 +26,7 @@ Class 4
 9. Shifts point-to-point instead of a group all-to-all; lazy shift (design).
 10. Larger rounds for large all-to-alls, re-evaluated with the recalibrated model.
 11. Two exchanges in flight per communicator (design, after rows 8-10).
-12. Start-up: per-device allocator processes (arenas and the per-prime plane pools, `ECALC_MAPD`, user decision 2026-11-01), seed-thread pool wait, self-test time visible, pool fragmentation.
+12. Start-up: per-device allocator processes (arenas and the per-prime plane pools, `ECALC_MAPD`, user decision 2026-11-01), seed-thread pool wait, self-test time visible, pool fragmentation (S4, 2026-11-02: the 2-node 6e10 gather fallback is not the cache slots, `results/MEMORY.md` §S4; the 576-node remaps are not reproduced, open).
 13. Checkpoints after the tree and after the reciprocal: not built for now (user decision 2026-11-01).
 Items whose gain only the target can show (user 2026-10-31: build them): two NICs per APU on path 1 (`XSHMEM_LANES=2`, layout D) and a launch-time switch-group check, behind switches, digits-gated on aac7; hierarchical exchange as an OPPORTUNITIES entry. Done 2026-11-01 (branch topo, plan rows N6, N7): the check is `ecalc/topo_check.py`, called by `mnrun.sh` (report only, `MNRUN_TOPO_CHECK`, default 1; unit test `tests/test_topo_check.py`; dry run on the aac7 login node with a fake list); the hierarchical exchange is OPPORTUNITIES N9 (plan item N7); the bench steps (`_ecalc.sh` `ecalc_srun`) call the check too, the kit and `remote/run` launch through `mnrun.sh`.
 
