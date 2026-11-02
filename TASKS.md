@@ -31,7 +31,7 @@ Class 4
 Items whose gain only the target can show (user 2026-10-31: build them): two NICs per APU on path 1 (`XSHMEM_LANES=2`, layout D) and a launch-time switch-group check, behind switches, digits-gated on aac7; hierarchical exchange as an OPPORTUNITIES entry.
 
 Class 5
-14. Piece-boundary table and memory ceilings in results/LAUNCH_DEFAULTS.md; time model recalibrated on the 2e13 decomposition; write-time model; target facts corrected where they live; PLAN.md target section rewritten as the target agent's test list (setting, A/B with stop rule, adoption rule).
+14. Class 5, done 2026-11-01 (branch docfix): piece-boundary table and memory ceilings (`results/LAUNCH_DEFAULTS.md` §PIECES, regenerated with the planner), write-time model set to the measured 3.4-5 GB/s per node (aggregate assumed), target facts corrected where they live (FACTS, PLAN). Still open: time model recalibrated on the 2e13 decomposition; PLAN.md target section rewritten as the target agent's test list (setting, A/B with stop rule, adoption rule).
 
 The 2026-10-27/29 work sessions (branch `cand3` = `cand` + the failures session + Q130 + the
 overnight session Q131 + the target-copy readiness work; every new behaviour behind a switch, off by default except the

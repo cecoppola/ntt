@@ -276,3 +276,29 @@ The margin is not monotone in the size (the plan's piece counts step); every cel
 
 **The staircase (steps 2-4 close the memory gap).** Step 2 = 2e13 with the step-1 words (+18.65; the size that hung: tests the handshake wait). Step 3 = 2.8e13 with `BS_MDEV_LOGL=28 DIST_CHUNKS=16` (+11.67; rehearsal of the final settings below the thin margin, and outside the 2.9e13-3.6e13 mixed-piece zone). Step 4 = 3.82e13 with the same words (+7.38, the largest margin at that size; `BS_MDEV_LOGL=28` is free in time at 6.632e10 per node: +0.06 s [-1.16, +1.27], aac7 1 node, §above; the +5.5 s step only above 9.7e10 per node). `stair.sh` skips a step whose planner margin is below the need: 6.5 GB until a step has been measured, then that run's own excess of the measured peak over the plan + 2 GB (at least 3 GB), so +7.38 at step 4 needs an observed excess of at most 5.4 GB. Fallbacks: step 4 > 3.7e13 (+9.53); step 3 > the same size with 29 (+10.06) or 2.5e13 (+15.97); step 2 > 1.5e13 (+29.39); step 1 > 8e12.
 **Digit files:** `--write` only on step 4 and only on the user's word: the run's own VERIFY is the digit check either way (the digit hash is skipped above 300 GB), so a file adds no verification; it costs 15.9 TB and modelled 6-60 s (assumed rates), and the PFL stripe layout is unmeasured for 576 files. Caveat: `DIST_CHUNKS=16` at several nodes has not been run (the 2-node gate is queued on aac7); step 3 is its first multi-node use, with the fallback above.
+
+## PIECES — piece boundaries and memory ceilings at 576 nodes (2026-11-01, planner on the aac7 login node, mod)
+
+Question: where do the piece counts of the distributed products change with the digit count, what is the per-APU memory at each size, and where is the ceiling? Planner only (`MN_PLAN_ONLY=<digits>:576`, no compute nodes), built fresh from main (the existing build objects were older than the sources and printed no per-APU line). Settings: `MN_NONPOW2_CAP=0 DM_MN_WRAP=0 MN_LEVEL_UNIFORM=1 XSHMEM_ROUND_MB=128 ECALC_FIT_PER_APU=1 ECALC_DEVICE_GB=373.44 ECALC_NODE_GB=430 ECALC_NP=auto MN_T_CHUNK_MB=2048`. Labels: mod throughout (layout arithmetic, not a target measurement). The aac7 build counts 0 for the target's device pools (9.66 GB per node, 2.4 GB per APU), so a target run needs that much more than shown.
+
+Pieces are the rows × columns of the largest product of node 0's groups (levels 1-6 together, then the 192-node level 7 and the 576-node level 8); they count one operand pair, so read the boundaries, not the absolute numbers.
+
+| digits | pieces, levels 1-6 / 7 / 8 | mean per APU (GB) | busiest APU (GB) | margin of the busiest to the 93.36 GB edge (GB) | verdict |
+|---|---|---|---|---|---|
+| 2.6e13 | 1 / 2 / 1 | 77.66 | 85.18 | +8.18 | fits |
+| 2.7e13 | 1 / 2 / 2 | 80.34 | 87.32 | +6.04 | fits |
+| 2.8e13 | 1 / 2 / 2 | 80.88 | 87.32 | +6.04 | fits |
+| 2.9e13 | 2 / 3 / 2 | 81.95 | 87.32 | +6.04 | fits |
+| 3.4e13 | 2 / 3 / 2 | 84.10 | 87.32 | +6.04 | fits |
+| 3.6e13 | 2 / 4 / 2 | 85.18 | 87.32 | +6.04 | fits |
+| 3.7e13 | 2 / 4 / 2 | 86.25 | 87.32 | +6.04 | fits |
+| 4.0e13 | 3 / 5 / 3 | 87.32 | 87.32 | +6.04 | fits |
+| 4.4e13 | 4 / 6 / 3 | 93.77 | 93.77 | -0.41 | REFUSED (node 375.06 GB vs 373.44, -1.62) |
+
+- Boundaries: the piece count steps up at 2.7e13 (level 8), 2.9e13 (levels 1-6 and 7) and 3.6e13 (level 7), then at 4.0e13 and 4.4e13 on every level. The step in wall time between 2.4e13 and 3.6e13 on the target follows these steps; 3.6e13 and 3.7e13 have the same plan, so the pass/fail difference between them on the target is not a plan change.
+- The busiest-APU figure is 87.32 GB from 2.7e13 to 4.0e13 and does not move with `ECALC_DEVICE_GB`: it is region 0's fixed arena (region 0 holds the top batch levels, `binsplit.c` `dev_apu_max`), not a need that grows with the digits; the node mean rises to meet it at 4.0e13. Balancing the four APUs therefore gains nothing at these sizes under the series settings, and the margin of the busiest APU is constant (+6.04 GB), not shrinking.
+- Ceiling at the 373.44 GB edge with these settings: 4.0e13 fits (+6.04 GB on the busiest APU, +24.15 GB on the node), 4.4e13 is refused. Earlier 3.85e13 and 4.4e13 figures came from rows with other settings.
+- Ceiling with the launch route's 6.5 GB per-APU margin bar (`remote/ROUTE.md`): the busiest-APU margin is +6.04 GB from 2.7e13 on, below the bar, so with these settings only 2.6e13 (+8.18 GB) of the sizes above passes it. With the balancing words `BS_MDEV_LOGL=28 DIST_CHUNKS=16` (layout arithmetic only; `DIST_CHUNKS=16` has not run at several nodes) the busiest APU equals the mean: 3.4e13 80.08 (+13.28), 3.6e13 82.22 (+11.14), 4.0e13 86.52 (+6.84, passes the bar), 4.4e13 92.96 (+0.40, fails), 4.8e13 97.26 (-3.90, refused); so the ceiling under the bar is about 4.0e13 balanced and about 2.6e13 unbalanced. A figure of "about 3.5e13" quoted earlier for the bar is not reproduced by either.
+- The record size (how far above the last passing size to try) stays the user's choice; this section gives margins, not a recommendation.
+
+Open: the target's real per-APU peak (the planner's busiest APU is a layout figure; a measured high-water is `device_hwm_apu_gb`, `results/HEALTH.md`).

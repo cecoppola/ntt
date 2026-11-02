@@ -32,9 +32,9 @@ Labels: **m** measured, **mod** modelled, **a** assumed.
   | SHMEM, compiler, libfabric | cray-shmem 12.1.0, CCE 21.0.0, libfabric 2.3.1 | OpenSHMEMX 11.8.0, CCE 21.0.0, libfabric 2.3.1 |
   | file system | ≈ 1 TB/s cumulative write into one file at 32 processes per node | — |
 
-  Still unknown: the measured injection rate per APU (kit A3), the per-message cost, the dragonfly group size, the
-  write rate of ecalc's own writer (two part files per node from 8 threads, not the file system's measured mode;
-  OPPORTUNITIES N8), the host memory per node and the site's module names.
+  Still unknown: the measured injection rate per APU (kit A3), the per-message cost, the bandwidth at the group boundaries (the dragonfly group is 64 consecutive nodes, `remote/FACTS.md` Target site), the
+  write rate of ecalc's own writer with all 576 nodes writing at once (one node measured 3.4-5.0 GB/s with O_DIRECT and 8 threads; two part files per node, not the file system's 32-writer mode;
+  OPPORTUNITIES N8). The host memory per node is about 490 GB available (`remote/FACTS.md` Machine).
 - The digits must be right without a reference: every run checks itself (`ALGORITHM.md` §10).
 - Where the project stands against this goal, with the standing estimate and the memory margin: section 2.
 
@@ -76,7 +76,7 @@ Proposed).
 
 **Not yet done.** No run above 4.608 × 10¹² digits has completed on the target. The 576-node layout is refused by the planner with the defaults (margin -33.97 GB; with `MN_NONPOW2_CAP=0` +14.48 GB; m, planner, 2026-10-25, `results/LAUNCH_DEFAULTS.md §FIT`); the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
 `results/TARGET.md §TGT`; at the user-supplied 100 GB/s injection peak per APU, a for the achieved rate); the write adds
-12.8 s at ecalc's assumed 1.0 GB/s per node and 1.0 s at the file system's 1 TB/s (mod).
+3.2 s at ecalc's modelled 4.0 GB/s per node (one node measured 3.4-5.0 GB/s, so 3.8-2.6 s; the rate with 576 nodes writing at once is assumed) and 1.0 s at the file system's 1 TB/s (mod).
 
 ## 3. Defaults and launch lines
 
@@ -146,5 +146,5 @@ P3 and P4 the record staircase 1.8 × 10¹³, 3.6 × 10¹³, 5.4 × 10¹³ on 57
 | hangs in the ROCr / libfabric memory registration | `FI_MR_CACHE_MONITOR=userfaultfd` (0/104 hangs against 22/105, m) |
 | crash without a trace | `ECALC_SEGV_TRACE=1` on the launch line |
 | wrong digits | T1/T2 in the run, RECHECK and `unpack_digits` after it |
-| the write short of the file system's 1 TB/s (one file, 32 writers per node; ecalc: 2 files per node, 8 threads) | `tools/wbench` at scale in the kit, `MN_OUT_THREADS=32`; a shared-file writer if needed (OPPORTUNITIES N8): 12.8 s exposed at 1.0 GB/s per node (mod) |
+| the write short of the file system's 1 TB/s (one file, 32 writers per node; ecalc: 2 files per node, 8 threads) | `tools/wbench` at scale in the kit, `MN_OUT_THREADS=32`; a shared-file writer if needed (OPPORTUNITIES N8): 3.2 s exposed at 4.0 GB/s per node (mod; 12.8 s at the old 1.0 GB/s prior) |
 | Cray SHMEM 12.1 (`XSHMEM=cray`, path 2) untested on the target; the init gap (+8 s on aac7) may differ; neither machine has usable hugetlb pages (the target: 8 pages, 0 free; THP always), so the init gap is expected to persist | path 2 runs on aac7 against Cray SHMEM 11.8 (`results/XSHMEM.md`, +7.5 % against path 1, digits identical); the kit's build, plan and t_xshmem checks and the day-one list T1-T8 (`results/XSHMEM.md`, `TASKS.md`) on the target; path 1 stays as the fallback (Q85) |
