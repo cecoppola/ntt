@@ -323,7 +323,7 @@ static void *worker(void *a)
 }
 
 /* ---- the exchange in rounds (XSHMEM_ROUND_MB = m > 0; a non-blocking state machine run by the PE's worker) ----
- * A pair (s -> r) of b bytes goes in round_count(b, c) rounds of c = m / (n - 1) bytes (>= 4 KiB, 256 B multiple); every round stages at most m
+ * A pair (s -> r) of b bytes goes in round_count(b, c) rounds of c = m / (n - 1) bytes (>= 4 KiB, 256 B multiple; with XSHMEM_ROUND_ACTIVE c = m / D, D = the tree max over the members of max(sending peers, receiving peers), 1..n-1); every round stages at most m
  * each way and leaves the self slab out.  Round j: publish ROFF for every sender still active (the landing place of its chunk j: rb + rdsp + j c, or the
  * receive staging slot), stage my chunks j, put each after the receiver's word of round j, ONE quiet, one signal (seq, bytes) per peer and round, wait for
  * the signals of round j, quiet, copy the received chunks out.  Round j + 1 starts only after round j completed, so a staging slot is never overwritten

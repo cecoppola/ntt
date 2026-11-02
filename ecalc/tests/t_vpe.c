@@ -126,11 +126,14 @@ static void exercise(comm *c, int g0, const char *tag)
         CHK(bad2 == 0, "%s: large alltoallv %zu words wrong (of %zu)", tag, bad2, btr / 8);
         HIPC(hipFree(bs_)); HIPC(hipFree(br_)); free(bc); free(h1); free(h2);
     }
-    for (int pat = 0; pat < 3 && n > 1; pat++) {   /* sparse alltoallv (zero counts): 0 ring (to rank + 1, + 2), 1 star (rank 0 to all, all to rank 0), 2 nothing at all; the same counts known to both ends (XSHMEM_SPARSE, XSHMEM_ROUND_ACTIVE) */
+    for (int pat = 0; pat < 6 && n > 1; pat++) {   /* sparse alltoallv (zero counts): 0 ring (to rank + 1, + 2), 1 star (rank 0 to all, all to rank 0), 2 nothing at all, 3 ring of +1 only (degree 1), 4 unequal degrees (even ranks to + 1 and + 2, odd ranks to + 1), 5 only the even ranks have data (to + 1); the same counts known to both ends (XSHMEM_SPARSE, XSHMEM_ROUND_ACTIVE) */
         size_t *bc = (size_t *)calloc((size_t)n * 4, sizeof(size_t)), *bd = bc + n, *rc2 = bc + 2 * n, *rd2 = bc + 3 * n;
         for (int t = 0; t < n; t++) {
             int a = (t - r + n) % n, b = (r - t + n) % n, sm = t != r;      /* a: t is a neighbor ahead of me; b: t is behind me */
             int so = pat == 0 ? sm && (a == 1 || a == 2) : pat == 1 ? sm && (r == 0 || t == 0) : 0, ro = pat == 0 ? sm && (b == 1 || b == 2) : pat == 1 ? sm && (r == 0 || t == 0) : 0;
+            if (pat == 3) { so = sm && a == 1; ro = sm && b == 1; }
+            if (pat == 4) { so = sm && (a == 1 || (a == 2 && r % 2 == 0)); ro = sm && (b == 1 || (b == 2 && t % 2 == 0)); }
+            if (pat == 5) { so = sm && a == 1 && r % 2 == 0; ro = sm && b == 1 && t % 2 == 0; }
             bc[t] = so ? 8 * (1500 + 37 * (size_t)cntw(pe, g0 + t)) : 0; rc2[t] = ro ? 8 * (1500 + 37 * (size_t)cntw(g0 + t, pe)) : 0;
         }
         size_t bts = comm_prefix(bc, bd, n), btr = comm_prefix(rc2, rd2, n); uint64_t *bs_, *br_;
