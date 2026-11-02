@@ -179,6 +179,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `MN_WAIT_STATS` | 0 | launch-line | per-communicator wait-time statistics (`comm_util.c`) (0) | S27.md+S22.md |
 | `NEWTON_DKM_TEST_HI` | 0 | test-only | - | DKM15.md+EW15.md |
 | `NEWTON_MN_GROUPS` | 1 | built-in default | at size > 1 the reciprocal's early doublings on the smallest subgroup the model prefers (X1); 0 = the full group (1) | X.md+G13d.md |
+| `NEWTON_MN_LAZY` | 0 | experiment | experiment, default 0: 1 = the reciprocal's Q_t (the top limbs of Q, read only by the product Q_t r) is a window view of Q that the product's redistribution reads, instead of a shifted copy; steps on a subgroup keep the copy; digits identical; results/DIVISION.md LAZY | - |
 | `NEWTON_MN_RECIP_TS` | 0 | test-only | S30, print only (off): one line per node, `recip ts node N: ...`, with the stages of recip_mn's single-node part (shift, gather, chain, broadcast) and the wall clock (s mod 1000) | S30.md |
 | `NEWTON_MN_SPLIT` | derived | built-in default | at size > 1 the reciprocal starts single-node on the top limbs of Q up to this many limbs (65536) | A37CMP.md+A-div.md |
 | `NEWTON_RECIP_GUARD` | unset | built-in default | the reciprocal's cut (always on): limbs kept below the read band (the cut is at band − guard; ≥ 1 makes the band's error ≤ 1 unit for any number of pieces) (1) | R114.md |
@@ -248,6 +249,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | T2 (D57) | 2026-11-19 | `MN_NONPOW2_CAP`, `MN_NONPOW2_MIN` |
 | experiment | coordinator (C1POOL) | 2026-11-30 | `DB_FREE_SYNC` |
 | experiment | coordinator (C2 STRESS) | 2026-11-30 | `DB_POOL_FORCE_REMAP` |
+| experiment | lazy shift (F-in) | 2026-11-30 | `NEWTON_MN_LAZY` |
 | experiment | coordinator (C3 DR, Q142) | 2026-12-01 | `ECALC_DR`, `ECALC_DR_TOTAL` |
 | experiment | TARGET1 (B1) | 2026-12-31 | `XSHMEM_CTRL`, `XSHMEM_HEAP_MB`, `XSHMEM_LANES`, `XSHMEM_PES_PER_GPU` |
 | experiment | TARGET1 (S2) | 2026-12-31 | `ECALC_VPE_LANES` |

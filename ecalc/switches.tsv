@@ -81,7 +81,7 @@ ECALC_RESIDUE	str	off	unset	shoup	experiment	-	S22.md	Y	ecalc	residue_shoup.h	1	
 ECALC_SEGV_TRACE	bool	0	derived	0|1	launch-line	aac7	S18W.md+S30.md	Y	ecalc	segv_trace.c	1	-	-	segv_trace.c:146
 ECALC_TEST_CORR	int	0	0		test-only	-	DKM15.md+KP15.md	Y	ecalc	newton_db.c	1	diagnostics (TESTING.md)	2027-04-12	
 ECALC_TEST_DIE_PE	int	-1	unset	-1..	test-only	-	-	Y	ecalc	ecalc.c	2	TARGET12 (S2)	2027-04-12	ecalc.c; kill test (ECALC_PE_PER_GPU gate): PE <n> dies by ec_fatal after the bs phase; unset = off
-ECALC_VERBOSE	int	1	1	0|1|2	launch-line	aac7	PC15.md+M13.md	Y	ecalc	binsplit.c,ecalc.c,memsample.c,mn.c,newton_db.c,rns_dist.c	19	-	-	ecalc.c
+ECALC_VERBOSE	int	1	1	0|1|2	launch-line	aac7	PC15.md+M13.md	Y	ecalc	binsplit.c,ecalc.c,memsample.c,mn.c,newton_db.c,rns_dist.c	20	-	-	ecalc.c
 ECALC_VMM_BG	bool	unset	unset	0|1	built-in default	-	S34.md	Y	ecalc	dbig.c	1	-	-	
 ECALC_VPE_LANES	int	4	derived	1..8	experiment	-	-	Y	ecalc	vpe.c	1	TARGET1 (S2)	2026-12-31	vpe.c; PEs per node where there is no launch (planners, MN_PLAN_ONLY, unit-test views); with ECALC_PE_PER_GPU=1 the launch (SLURM tasks per node) wins and a value that disagrees is fatal
 ECALC_WINDOWS	bool	derived	derived	0|1	test-only	-	A-out.md+H.md	Y	ecalc	verify.c	1	diagnostics (TESTING.md)	2027-04-12	
@@ -105,6 +105,7 @@ MN_T_CHUNK_MB	float	1024	1024	MiB	launch-line	aac7	P214.md+S22.md	Y	ecalc	newton
 MN_WAIT_STATS	bool	0	unset	0|1	launch-line	-	S27.md+S22.md	Y	ecalc	comm_util.c	1	-	-	comm_util.c:22 (atoi > 0)
 NEWTON_DKM_TEST_HI	int	0	0		test-only	-	DKM15.md+EW15.md	Y	ecalc	newton_db.c	1	diagnostics (TESTING.md)	2027-04-12	
 NEWTON_MN_GROUPS	int	1	1		built-in default	-	X.md+G13d.md	Y	ecalc	newton_db.c	2	-	-	
+NEWTON_MN_LAZY	bool	0	0	0|1	experiment	-	-	Y	ecalc	newton_db.c	2	lazy shift (F-in)	2026-11-30	newton_db.c; recip_mn_body
 NEWTON_MN_RECIP_TS	int	0	0		test-only	-	S30.md	Y	ecalc	newton_db.c	2	diagnostics (TESTING.md)	2027-04-12	
 NEWTON_MN_SPLIT	int	derived	derived		built-in default	-	A37CMP.md+A-div.md	Y	ecalc	newton_db.c	2	-	-	
 NEWTON_RECIP_GUARD	bool	unset	unset	0|1	built-in default	-	R114.md	Y	ecalc	newton_db.c	1	-	-	

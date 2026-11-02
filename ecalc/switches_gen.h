@@ -104,6 +104,7 @@ static const char *const cfg_names[] = {
     "MN_WAIT_STATS",
     "NEWTON_DKM_TEST_HI",
     "NEWTON_MN_GROUPS",
+    "NEWTON_MN_LAZY",
     "NEWTON_MN_RECIP_TS",
     "NEWTON_MN_SPLIT",
     "NEWTON_RECIP_GUARD",
@@ -151,4 +152,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_THP_DISABLE",
     "XSHMEM_THREAD_LEVEL",
 };
-#define CFG_NAMES_N 149
+#define CFG_NAMES_N 150
