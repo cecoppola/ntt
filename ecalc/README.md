@@ -15,7 +15,7 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 **Notes on single settings.**
 - `mnrun.sh` (the multi-node launcher; usage in `../README.md`) sets `COMM_RANK`, `COMM_SIZE` and the transport from
   Slurm, exports `FI_UNIVERSE_SIZE`, `FI_LOG_LEVEL=warn` and `FI_MR_CACHE_MONITOR=userfaultfd` when unset (it refuses
-  `disabled`), and `MNRUN_EXCLUDE_HOSTS` drops flagged nodes. `MNRUN_GRES=auto|on|off` (default auto; `gres.sh`, shared by
+  `disabled`), and `MNRUN_EXCLUDE_HOSTS` drops flagged nodes. Before the launch of a multi-node run it prints a report-only switch-group check (`topo_check.py`: the rank -> switch-group map and a WARN for every tree set of up to 64 ranks that spans two groups; the group is (node number - 1) div `TOPO_GROUP_SIZE` (default 64), or the leaf switches of a `scontrol show topology` text in `TOPO_TOPOLOGY_FILE`; `MNRUN_TOPO_CHECK=0` skips it; it never changes the launch). `MNRUN_GRES=auto|on|off` (default auto; `gres.sh`, shared by
   `mnrun.sh`, `mnaccept.sh`, `tools/gate.sh`, the kit, ladder, bench items and `remote/`): the `--gpus*` and `--gpu-bind` options are passed
   only if the nodes list a gpu GRES (`scontrol show node`, else `sinfo %G`; cached in `MNRUN_GRES_RESOLVED`), because a site with `Gres=(null)`
   rejects them; aac7 lists gpu:4 and is unchanged; `off` / `on` force. A login `SLURM_HINT=nomultithread` is not passed to srun (it pins each
