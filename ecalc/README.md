@@ -102,6 +102,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `DB_POOL_VMM` | derived | built-in default | the bs/dm arena of every APU as a HIP virtual-memory range (`hipMemAddressReserve` at `DB_POOL_VMM_RESERVE` (3) × the arena; 2 GiB chunks `hipMemCreate`d and mapped with access for the four ... | R114.md |
 | `DB_POOL_VMM_CHUNK_GB` | 2 | built-in default | with `DB_POOL_VMM`: the chunk size in GiB (2) and the VA reserved as a multiple of the arena (3) | S46.md+R114.md |
 | `DB_POOL_VMM_RESERVE` | 3 | built-in default | with `DB_POOL_VMM`: the chunk size in GiB (2) and the VA reserved as a multiple of the arena (3) | R114.md |
+| `DIST_CACHE_RAW_RESERVE` | 0 | experiment | rns_dist.c; S4, 1 = the partial transform-cache slots (cache_pc_take) also leave the raw gather's plane + DIST_GATHER_RAW_MARGIN_GB free, so B is not ... | - |
 | `DIST_CHUNKS` | derived | built-in default | slabs in flight in the pipelined distributed transform, 1–16 (**8** since 2026-10-07, was 4: the user's approval, digits identical; at 3.71 × 10¹³ on 576 nodes modelled device 370.9 → 357.5 ... | S19B.md+A-comm.md |
 | `DIST_GATHER_RAW_MARGIN_GB` | 2 | built-in default | rns_dist.c; K1b, GB per APU kept free when DIST_GATHER_RAW=2 takes its plane | - |
 | `DIST_GEN` | 0 | test-only | the general (any-g) transform at a power-of-two group size too (0) | X13b.md+S36.md |
@@ -246,6 +247,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 |---|---|---|---|
 | experiment | coordinator (TASKS S) | 2026-11-11 | `BS_ARENA_TRIM_GB`, `ECALC_PLANE_CAP` |
 | experiment | T2 (D57) | 2026-11-19 | `MN_NONPOW2_CAP`, `MN_NONPOW2_MIN` |
+| experiment | S4 (results/MEMORY.md) | 2026-11-30 | `DIST_CACHE_RAW_RESERVE` |
 | experiment | coordinator (C1POOL) | 2026-11-30 | `DB_FREE_SYNC` |
 | experiment | coordinator (C2 STRESS) | 2026-11-30 | `DB_POOL_FORCE_REMAP` |
 | experiment | coordinator (C3 DR, Q142) | 2026-12-01 | `ECALC_DR`, `ECALC_DR_TOTAL` |

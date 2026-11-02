@@ -28,6 +28,7 @@ DB_POOL_VERBOSE	int	0	derived	0|1|2	launch-line	-	T215.md+S18KITFIX.md	Y	ecalc	d
 DB_POOL_VMM	bool	derived	derived	0|1	built-in default	-	R114.md	Y	ecalc	dbig.c	1	-	-	
 DB_POOL_VMM_CHUNK_GB	float	2	2		built-in default	-	S46.md+R114.md	Y	ecalc	dbig.c	1	-	-	
 DB_POOL_VMM_RESERVE	float	3	3		built-in default	-	R114.md	Y	ecalc	dbig.c	1	-	-	
+DIST_CACHE_RAW_RESERVE	int	0	0	0|1	experiment	-	-	Y	ecalc	rns_dist.c	1	S4 (results/MEMORY.md)	2026-11-30	rns_dist.c; S4, 1 = the partial transform-cache slots (cache_pc_take) also leave the raw gather's plane + DIST_GATHER_RAW_MARGIN_GB free, so B is not gathered per prime; digits unchanged
 DIST_CHUNKS	int	derived	derived		built-in default	-	S19B.md+A-comm.md	Y	ecalc	ntt_dist.c,rns_dist.c	6	-	-	
 DIST_GATHER_RAW_MARGIN_GB	float	2	2	-	built-in default	-	-	Y	ecalc	rns_dist.c	1	-	-	rns_dist.c; K1b, GB per APU kept free when DIST_GATHER_RAW=2 takes its plane
 DIST_GEN	bool	0	0	0|1	test-only	-	X13b.md+S36.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
