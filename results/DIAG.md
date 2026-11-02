@@ -40,3 +40,35 @@ Maximum over the 8 PEs (rounds): layeq 5,033, addsh 747, redist 507, result 384,
 **Verdict.** Diagnostics only; digits identical in every gate; stderr is a few lines per run. `layeq` (the layered inter-node equal-size exchange) is 89 % of the exchanges, 74 % of the rounds and 75 % of the bytes; `addsh` is 4.6 % of the exchanges and 11 % of the rounds. At 2 nodes the mean round is 79 MB: the round size follows the pair size (layeq pairs are 268 MB), not the 128 MB cap. The 576-node table (`XSHMEM_ROUND_STATS=1`) will show whether the 14 MB mean there is the same effect (hypothesis, not yet measured). This table is the input for the task "rounds sized by active pairs".
 **Open issues.** The old negative-sample rate was not re-measured on the old binary. Teardown at 576 nodes not remeasured. The per-tag maximum over PEs uses offset 0 of the DATA heap at finalize (all exchanges complete, barriers around it). `gate.sh --build` was not used for the gates (see Method). Not run: 3-node checks.
 **RESUME.** Branch `diag` on origin; the aac7 worktree of the branch and the driver folder `diag6` are left for the coordinator. Next: coordinator review and merge; remove both worktrees; run `XSHMEM_ROUND_STATS=1` at 576 nodes for the per-tag table.
+
+## N1 step 1: per-tag round counters at the 576-node chunk size, 2 nodes (branch netmeas, 2026-11-01 19:44-20:33 ET, aac7, measured)
+
+**Question.** Do the shift tags (`addsh`) dominate the round count when the per-pair chunk is the 576-node value (233 KB)? **Method.** Path 1 (`XSHMEM=ofi`, layout D), build of main c86e5fcc made in a separate worktree (`make -B`; the I1 counters print). 2 nodes, `XSHMEM_ROUND_STATS=1`, aac7 launch line, digits written to a scratch folder and hashed (sha256 of the part files in name order), then deleted. At n = 2 the chunk is c = `XSHMEM_ROUND_MB` / (n - 1) = `XSHMEM_ROUND_MB`, so the 576-node chunk 128 MiB / 575 = 233,422 B is `XSHMEM_ROUND_MB=0.222609` (the E10 value 0.23 is 3 % larger). Arms: D = default (128), S = scaled, SS = scaled with `XSHMEM_SPARSE=1`. One run per arm, no ABBA: wall times are not timing claims.
+
+| digits | arm | wall s | rounds (node-process 0, 4 PEs) | digits sha (first 16 hex) | VERIFY |
+|---|---|---|---|---|---|
+| 1e10 | D / S / SS | 47 / 48 / 48 | 11,416 / 777,179 / 777,179 | bb6e0f867a5f5d91 in all three | OK |
+| 1.6e10 | D / S / SS | 57 / 69 / 68 | 11,712 / 1,152,029 / 1,152,029 | 5bc4211dbd24efd1 in all three | OK |
+
+Per tag, 1.6e10 digits (node-process 0, summed over its 4 PEs):
+
+| tag | exchanges | rounds D | rounds S (= SS) | share of rounds S | recv MB | largest pair MB | MB per round D / S |
+|---|---|---|---|---|---|---|---|
+| other | 108 | 108 | 493 | 0.04 % | 101 | 1.05 | 0.94 / 0.21 |
+| redist | 256 | 372 | 95,432 | 8.3 % | 18,792 | 459.7 | 50.5 / 0.20 |
+| result | 128 | 208 | 61,032 | 5.3 % | 14,222 | 444.5 | 68.4 / 0.23 |
+| spill | 128 | 128 | 160 | 0.01 % | 15.5 | 0.33 | 0.12 / 0.10 |
+| addsh | 296 | 428 | 106,876 | 9.3 % | 15,999 | 888.9 | 37.4 / 0.15 |
+| layeq | 10,468 | 10,468 | 888,036 | 77.1 % | 206,293 | 67.1 | 19.7 / 0.23 |
+| total | 11,384 | 11,712 | 1,152,029 | | 255,423 | | 21.8 / 0.22 |
+
+At 1e10 the shares are the same within 1 point (S: layeq 78.7 %, addsh 8.6 %, redist 7.7 %, result 4.9 %; 777,179 rounds). Per-PE worker time inside rounds (PE 0 of node-process 0, `ROUND_STATS` final line, the exclusive phases summed; PE 0 has 1/4 of the node-process rounds): 1.6e10 D 4.1 s, S 17.2 s, SS 18.6 s; 1e10 D 3.7 s, S 11.7 s. The table has no per-tag wall time (the only per-tag time in the statistics is GPU stream time), so no per-tag time column is given.
+
+**Findings (measured).**
+- The scaled chunk multiplies the round count by 68 (1e10) and 98 (1.6e10); the count follows bytes / chunk, as modeled. Mean round: 0.22 MB, i.e. the chunk, in every tag.
+- Refuted at 2 nodes: shift tags do NOT dominate. `addsh` is 9 % of the rounds at the small chunk (11 % in the default-size 1.3e11 table above); `layeq` is 77-79 %. This is expected from the mechanism: with 2 nodes the "group" of a shift has one peer, so the shift is not a many-peer alltoallv with zero pairs. The hypothesis (shifts as group alltoallv over 576 members moving 1-2 neighbors' data) can only show at large n; 2 nodes cannot confirm or refute it.
+- `XSHMEM_SPARSE=1` changes nothing at 2 nodes (identical per-tag rounds): every pair carries data, so there is no zero-byte peer to skip. Its effect needs n >= 3 with off-neighbor zero pairs.
+- Wall time: 1e10 47 vs 48 s (S) in single runs; 1.6e10 57 vs 69 s (S, SS 68 s), one run each, not resolved from node noise (aac7 run times are bimodal). With one peer the 100-fold rounds add 13.1 s (1.6e10) and 8.0 s (1e10) of worker time on PE 0, partly hidden behind the GPU work.
+- Digits identical across D, S, SS at both sizes (same hash), VERIFY OK in all six runs.
+
+**Verdict.** The E10 test bed reproduces the round-count inflation but not the 575-peer handshake cost and not a shift-dominated mix. N1 (chunk by active pairs, zero-byte peers skipped) cannot be validated for gain at 2 nodes; its digits gate (1 / 2 / 6 nodes) and the round count at the E10 setting remain the checks. **Open issues.** No per-tag time; the 576-node per-tag table (`XSHMEM_ROUND_STATS=1`) is still the test of the shift hypothesis. **RESUME.** Next: N1 design/code as planned, with a 3-node arm so that zero-byte pairs exist.
