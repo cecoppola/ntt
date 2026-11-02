@@ -251,7 +251,7 @@ fi
 # N6 (report only): the switch-group check of the launch list in rank order (topo_check.py: rank -> group map, WARN where a tree set of up to
 # 64 ranks spans two switch groups).  MNRUN_TOPO_CHECK=0 skips it (default 1); it prints to stderr and never changes the launch or its exit status.
 if [ "${MNRUN_TOPO_CHECK:-1}" != 0 ] && [ "$P" -gt 1 ] && command -v python3 > /dev/null 2>&1; then
-    echo "$use" | python3 "$MNRUN_DIR/topo_check.py" --procs "$P" >&2 || true
+    echo "$use" | python3 "$MNRUN_DIR/topo_check.py" --sort --procs "$P" >&2 || true
 fi
 # D34 (user 2026-10-15): multi-node runs launch with srun --kill-on-bad-exit=1 (a dead rank ends the step in seconds, not at the timeout);
 # COMM_KILL_ON_BAD_EXIT=0 is the only override.

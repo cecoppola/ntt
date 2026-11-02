@@ -11,7 +11,10 @@ mem_model.mn_groups, MN_GROUPS honoured), each set a block of consecutive ranks.
 Switch-group rule: default group = (node number - 1) div 64, the number being the trailing digits of the host name
 (TOPO_GROUP_SIZE or --group-size changes the 64); --topology reads `scontrol show topology` text (SwitchName=.. Level=0
 Nodes=host[001-064],..), the leaf switches then define the groups.  The node list is taken in rank order: the order the launcher
-hands to srun (block distribution: rank r on node r div (P / nodes)).  Pure Python 3, standard library."""
+hands to srun (block distribution: rank r on node r div (P / nodes)).  Assumption: srun -w places ranks in Slurm's sorted node
+order, not in list order, so the launchers pass --sort (natural sort: name prefix, then the trailing number) and the map shows that
+order; without --sort the list is taken as given.  A host with no trailing number, or missing from the topology file, has group
+"?": the tool then reports it and never prints OK.  An invalid MN_GROUPS is reported in one line (exit 0).  Pure Python 3, standard library."""
 import argparse
 import os
 import re
@@ -55,6 +58,11 @@ def group_of(host, size, leaves):
     return "g%d" % ((int(m.group(1)) - 1) // size) if m else "?"
 
 
+def natkey(h):
+    m = re.match(r"^(.*?)(\d+)$", h)
+    return (m.group(1), int(m.group(2)), h) if m else (h, -1, h)
+
+
 def schedule(p):
     import mem_model
     return mem_model.mn_groups(p, os.environ.get("MN_GROUPS") or None)
@@ -74,7 +82,12 @@ def check(nodes, procs=None, size=64, leaves=None, sched=None):
             a = r
     lines.append("topo_check: rank map " + " ".join(runs))
     warns = 0
-    for s in (sched if sched is not None else schedule(p)):
+    try:
+        levels = sched if sched is not None else schedule(p)
+    except ValueError as e:
+        lines.append("topo_check: tree schedule not checked (%s)" % e)
+        levels = []
+    for s in levels:
         if s >= p or s > size:
             continue
         bad = [k for k in range(0, p, s) if len(set(grp[k:k + s])) > 1]
@@ -82,7 +95,10 @@ def check(nodes, procs=None, size=64, leaves=None, sched=None):
             warns += len(bad)
             lines.append("topo_check: WARN tree level %d: %d of %d sets span two switch groups (first at ranks %d-%d: %s)"
                          % (s, len(bad), p // s, bad[0], min(bad[0] + s, p) - 1, ",".join(sorted(set(grp[bad[0]:bad[0] + s])))))
-    if not warns:
+    unk = sum(1 for h in nodes if group_of(h, size, leaves) == "?")
+    if unk:
+        lines.append("topo_check: unknown switch group for %d hosts (no trailing number, or not in the topology): no verdict" % unk)
+    elif not warns:
         lines.append("topo_check: OK, every tree set of up to %d ranks is inside one switch group" % size)
     return lines, warns
 
@@ -95,6 +111,7 @@ def main(argv=None):
     ap.add_argument("--group-size", type=int, default=int(os.environ.get("TOPO_GROUP_SIZE") or 64))
     ap.add_argument("--topology", default=os.environ.get("TOPO_TOPOLOGY_FILE"))
     ap.add_argument("--sched")
+    ap.add_argument("--sort", action="store_true", help="natural-sort the host names first (Slurm's order for srun -w)")
     a = ap.parse_args(argv)
     if a.nodes:
         nodes = expand(a.nodes)
@@ -105,6 +122,8 @@ def main(argv=None):
     if not nodes:
         print("topo_check: empty node list", file=sys.stderr)
         return 1
+    if a.sort:
+        nodes = sorted(nodes, key=natkey)
     leaves = leaf_map(open(a.topology).read()) if a.topology else None
     sched = [int(x) for x in a.sched.split(",")] if a.sched else None
     lines, _ = check(nodes, a.procs, a.group_size, leaves, sched)
