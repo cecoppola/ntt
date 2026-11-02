@@ -57,6 +57,8 @@ ECALC_FATAL_TEST	int	unset	unset		test-only	-	C314.md	Y	ecalc	binsplit.c	2	diagn
 ECALC_FATAL_WAIT	int	60	60		built-in default	-	C314.md	Y	ecalc	fatal.c	1	-	-	
 ECALC_FIT_APU_CHECK	int	unset	unset		launch-line	-	HEALTH.md	Y	ecalc	ecalc.c	2	-	-	ecalc.c fit_apu_check; default off (the run kit sets 1, user 2026-11-01)
 ECALC_FIT_PER_APU	int	unset	unset		built-in default	-	-	Y	ecalc	binsplit.c	4	-	-	
+ECALC_HOST_TL	bool	0	unset	0|1	diagnostic	-	DIAG.md	Y	ecalc	comm_xshmem.c	1	coordinator (I3)	2027-01-31	comm_xshmem.c; hosttl.h
+ECALC_HOST_TL_PE	int	0	unset	-1..PEs-1	diagnostic	-	DIAG.md	Y	ecalc	comm_xshmem.c	1	coordinator (I3)	2027-01-31	comm_xshmem.c; with ECALC_HOST_TL=1
 ECALC_INIT_ONLY	int	unset	unset		test-only	-	L114.md+P13b.md	Y	ecalc	ecalc.c	2	diagnostics (TESTING.md)	2027-04-12	
 ECALC_INIT_TL	bool	0	0	0|1	launch-line	-	MAP15.md	Y	ecalc	comm_xshmem.c,dbig.c,ecalc.c,mn.c,xshmem_ofi.c	7	-	-	dbig.c
 ECALC_MEMSAMPLE_SYSFS_ROOT	str			path prefix	test-only	-	HEALTH.md	Y	ecalc	memsample.c	1	HEALTH (C5)	2027-04-12	memsample.c; prefix of the /sys path of the per-APU NUMA-node MemFree reader (a mock tree proves the per-APU guard); unset = the real /sys

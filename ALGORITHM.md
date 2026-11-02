@@ -466,6 +466,7 @@ A run is good only with `VERIFY OK` on every node (`verify.c/h`, `out_stage` in 
 | tool | what |
 |---|---|
 | `mn_model.py estimate` | wall time by phase for a size, node count and fabric profile (was `estimate.py`); `--target` prints the standing estimate |
+| `mn_model.py v12` | the 576-node time model recalibrated on the 2e13 decomposition, with residuals and the failure rate by size (results/TIME_MODEL.md §v12) |
 | `mn_model.py` | the cost model behind it (all-to-all rate per APU thread, hiding fractions, round costs) |
 | `mem_model.py` | the memory layout per node; `--check-c` compares with the C layout |
 | `MN_PLAN_ONLY`, `BS_LAYOUT_ONLY` | the code's own decisions (grids, pieces, prime counts, layout, the memory fit) without a device |
