@@ -126,6 +126,26 @@ static void exercise(comm *c, int g0, const char *tag)
         CHK(bad2 == 0, "%s: large alltoallv %zu words wrong (of %zu)", tag, bad2, btr / 8);
         HIPC(hipFree(bs_)); HIPC(hipFree(br_)); free(bc); free(h1); free(h2);
     }
+    for (int pat = 0; pat < 3 && n > 1; pat++) {   /* sparse alltoallv (zero counts): 0 ring (to rank + 1, + 2), 1 star (rank 0 to all, all to rank 0), 2 nothing at all; the same counts known to both ends (XSHMEM_SPARSE, XSHMEM_ROUND_ACTIVE) */
+        size_t *bc = (size_t *)calloc((size_t)n * 4, sizeof(size_t)), *bd = bc + n, *rc2 = bc + 2 * n, *rd2 = bc + 3 * n;
+        for (int t = 0; t < n; t++) {
+            int a = (t - r + n) % n, b = (r - t + n) % n, sm = t != r;      /* a: t is a neighbor ahead of me; b: t is behind me */
+            int so = pat == 0 ? sm && (a == 1 || a == 2) : pat == 1 ? sm && (r == 0 || t == 0) : 0, ro = pat == 0 ? sm && (b == 1 || b == 2) : pat == 1 ? sm && (r == 0 || t == 0) : 0;
+            bc[t] = so ? 8 * (1500 + 37 * (size_t)cntw(pe, g0 + t)) : 0; rc2[t] = ro ? 8 * (1500 + 37 * (size_t)cntw(g0 + t, pe)) : 0;
+        }
+        size_t bts = comm_prefix(bc, bd, n), btr = comm_prefix(rc2, rd2, n); uint64_t *bs_, *br_;
+        uint64_t *h1 = (uint64_t *)calloc(bts / 8 + 1, 8), *h2 = (uint64_t *)calloc(btr / 8 + 1, 8);
+        for (int t = 0; t < n; t++) for (size_t j = 0; j < bc[t] / 8; j++) h1[bd[t] / 8 + j] = wv(pe, g0 + t, j);
+        HIPC(hipMalloc(&bs_, bts + 8)); HIPC(hipMalloc(&br_, btr + 8)); HIPC(hipMemcpy(bs_, h1, bts, hipMemcpyHostToDevice));
+        for (int rep = 0; rep < 3; rep++) {   /* three in a row: the pair sequences must stay in step */
+            HIPC(hipMemset(br_, 0xEE, btr + 8));
+            comm_alltoallv(c, bs_, bc, bd, br_, rc2, rd2, st); comm_wait(c);
+            HIPC(hipMemcpy(h2, br_, btr, hipMemcpyDeviceToHost));
+            size_t bad3 = 0; for (int s_ = 0; s_ < n; s_++) for (size_t j = 0; j < rc2[s_] / 8; j++) if (h2[rd2[s_] / 8 + j] != wv(g0 + s_, pe, j)) bad3++;
+            CHK(bad3 == 0, "%s: sparse pattern %d rep %d: %zu words wrong (of %zu)", tag, pat, rep, bad3, btr / 8);
+        }
+        HIPC(hipFree(bs_)); HIPC(hipFree(br_)); free(bc); free(h1); free(h2);
+    }
     comm_barrier(c);
     HIPC(hipFree(ds)); HIPC(hipFree(dr)); HIPC(hipFree(des)); HIPC(hipFree(der)); HIPC(hipStreamDestroy(st));
     free(sc); free(hs); free(hr); free(es); free(er);
