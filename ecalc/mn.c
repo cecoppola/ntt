@@ -472,11 +472,53 @@ int mn_selftest_layered(int logR, int logC, int verbose)
 #include "binsplit.h"
 #include "newton.h"                                   /* newton_mn_pq_hook */
 #include "mn_plan.h"                                  /* MN_LEVEL_UNIFORM */
+#include "dr.h"                                       /* C3 (ECALC_DR >= 2): the tracked residues of the tree, the leaf check */
+#include "verify.h"                                   /* t1_q */
 #include <unistd.h>
-static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half);
+static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half, mdb_trk *tp, mdb_trk *tq);
+/* ---- C3 step 3 (ECALC_DR >= 2; results/DR.md): the tree's tracked residues (B) and the leaf check (C) ----------------------------------------------------------
+ * tp / tq: R(P), R(Q) (mod DR_Q = t1_q[0]) of the node's current P, Q (the common value of its child group, held in an explicit variable here, never in the mdb) and this node's share parts.
+ * Seeded from the leaf at the start of the tree (db_mod_qs: the only extra pass), carried through the levels by the descriptor all-gather (11 words) and the checked products.
+ * C: the seeds against the node's recurrence (pq_bg_run, ecalc.c; the T1 values of this node's term range): polled after every level, finally at the division. */
+static struct { int on, checked, deferred; uint64_t seed_p, seed_q; int top_valid; uint64_t top_p, top_q; } g_dr;
+static int (*g_leaf_poll)(void *arg, uint64_t *p, uint64_t *q); static void *g_leaf_arg;
+void mn_dr_leaf_ref(int (*poll)(void *arg, uint64_t *p, uint64_t *q), void *arg) { g_leaf_poll = poll; g_leaf_arg = arg; }
+static void dr_leaf_check(int mode)   /* mode 0: after a level (non-blocking); 1: the division's start (non-blocking: a recurrence still running defers the check, so it keeps overlapping the division); 2: the join point (ecalc.c out_stage, the recurrence is joined) */
+{
+    if (!g_dr.on || g_dr.checked || !g_leaf_poll) return;
+    uint64_t p = 0, q = 0; int st = g_leaf_poll(g_leaf_arg, &p, &q);   /* poll == 1: finished (p, q valid), 0: running, -1: never started */
+    if (st < 0) { if (mode == 2) { g_dr.checked = 1; dr_count(DR_C_LEAF_SKIP, 1); printf("mn: %s %d: DR: leaf check skipped: the recurrence never started (the T1 values are computed directly)\n", mn_who(), mn_rank()); fflush(stdout); } return; }
+    if (st == 0) { if (mode == 1 && !g_dr.deferred) { g_dr.deferred = 1; dr_count(DR_C_LEAF_DEFER, 1); } return; }
+    g_dr.checked = 1; dr_count(DR_C_LEAF, 1);
+    if (p != g_dr.seed_p || q != g_dr.seed_q) {
+        dr_count(DR_C_FATAL, 1); dr_summary();
+        ec_fatal(EC_RC_FATAL, "mn: DR: leaf check failed on %s %d: the residues of the node's leaf P_r, Q_r (%llu, %llu) differ from its recurrence's (%llu, %llu): the leaf is corrupted (kind 2, a wrong in-range limb); the run stops\n",
+                 mn_who(), mn_rank(), (unsigned long long)g_dr.seed_p, (unsigned long long)g_dr.seed_q, (unsigned long long)p, (unsigned long long)q);
+    }
+}
+void mn_dr_leaf_final(void) { dr_leaf_check(2); }
+static int g_dr_div_seen;
+int mn_dr_division_seen(void) { return __atomic_load_n(&g_dr_div_seen, __ATOMIC_ACQUIRE); }
+/* newton_db.c mn_divmod_dkm, with the residues of the sharded P, Q it computes for T1: the leaf check if not yet done, then the tree's tracked values (a mismatch = corruption at rest between the tree and here) */
+void mn_dr_division_check(const uint64_t *qs, const uint64_t *pres, const uint64_t *qres)
+{
+    __atomic_store_n(&g_dr_div_seen, 1, __ATOMIC_RELEASE);   /* also when tracking is off, so leafslow does not wait for it */
+    if (!g_dr.on) return;
+    dr_leaf_check(1);                                 /* only if the recurrence is done; else deferred to mn_dr_leaf_final */
+    if (!g_dr.top_valid) return;
+    g_dr.top_valid = 0;
+    if (qs[0] != DR_Q) return;
+    dr_count(DR_C_LEAF, 1);
+    if (pres[0] != g_dr.top_p || qres[0] != g_dr.top_q) {
+        dr_count(DR_C_FATAL, 1); dr_summary();
+        ec_fatal(EC_RC_FATAL, "mn: DR: at the division's start the residues of the tree's P, Q (%llu, %llu) differ from the tracked values (%llu, %llu) on %s %d: a stored share changed between the tree's last product and here (corruption at rest); the run stops\n",
+                 (unsigned long long)pres[0], (unsigned long long)qres[0], (unsigned long long)g_dr.top_p, (unsigned long long)g_dr.top_q, mn_who(), mn_rank());
+    }
+}
+static mdb_trk trk_from(uint64_t r, const mdb_trk *mine, int held) { mdb_trk t; memset(&t, 0, sizeof t); t.r = r; if (held && mine) { t.held = mine->held; memcpy(t.part, mine->part, sizeof t.part); } return t; }
 static int g_lv_tab[4 * 64], g_lv_on;                  /* MN_LEVEL_UNIFORM: this level's largest grid per product (mn_plan.c mn_level_grids), the same on every PE */
 static void lv_force(int pi) { if (g_lv_on) rns_dist_mn_force(g_lv_tab[2 * pi], g_lv_tab[2 * pi + 1]); }
-static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch);
+static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, mdb_trk *tp, mdb_trk *tq);
 /* the top tree set in the background (mn_ckpt_bg_mode, set by ecalc.c: 0 = none, 1 = complete, the division
  * waits for P's part before S = P + Q if it must; 2 = budgeted, dropped when the measured disk rate cannot finish a part within
  * mn_ckpt_slack seconds of its release).  The writer reads the shares while the reciprocal and the division run; the hook in
@@ -513,16 +555,26 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
     int gs[MN_MAXL]; int L = mn_groups_parse(mn_size(), gs, MN_MAXL - 1);   /* the level -> group-size schedule (MN_GROUPS; default 2, 4, ..., size: the binary tree as before) */
     int ck = bs_ckpt_dir && mn_ckpt_bg_mode > 0;            /* the top-level set (ECALC_CKPT_TOP) after the top level */
     if (ck) bs_ckpt_tree_clear(0);                           /* this node's tree sets of an earlier run in the directory go (a set at another level would outlive this run's) */
+    mdb_trk tp, tq; memset(&tp, 0, sizeof tp); memset(&tq, 0, sizeof tq);
+    memset(&g_dr, 0, sizeof g_dr);
+    if (dr_level() >= 2 && mn_size() > 1) {                 /* C3 step 3: seed the tracked residues from the leaf (after the leaf injection) */
+        if (t1_q[0] != DR_Q) ec_fatal(EC_RC_FATAL, "mn_tree: DR: t1_q[0] = %llu is not DR_Q\n", (unsigned long long)t1_q[0]);
+        if (P->sh.n && dr_inject(DR_LEAF, 1, mn_rank(), 0, 0)) { uint64_t v = db_limb(&P->sh, P->sh.n / 2); db_set_limb(&P->sh, P->sh.n / 2, v ? v - 1 : 1); }   /* ECALC_DR_TEST=leaf: one limb of P_r wrong */
+        mdb_trk_make(P, 0, &tp); mdb_trk_make(Q, 0, &tq);
+        g_dr.on = 1; g_dr.seed_p = tp.r; g_dr.seed_q = tq.r; dr_arm();
+        dr_leaf_check(0);
+    }
     int captest = getenv("MN_TREE_LOGN_TEST") ? atoi(getenv("MN_TREE_LOGN_TEST")) : 0;   /* the tree's levels at a lowered plane cap (grids at 10^10 on one node), the division at its own */
     if (captest) rns_dist_cap_test(captest);
     for (int l = 1; l <= L; l++) {
         int Gl = gs[l - 1], Gp = l > 1 ? gs[l - 2] : 1;       /* this level's group size and the children's (the previous level's) */
         int k = mn_rank() / Gl, g0 = k * Gl, g = Gl < mn_size() - g0 ? Gl : mn_size() - g0, nch = (g + Gp - 1) / Gp;
         g_lv_on = mn_level_uniform() && nch >= 2 && mn_level_grids(bs_N, mn_size(), Gl, Gp, g_lv_tab, 64) > 0;   /* every group of the level at the level's largest grid (a floor: no communication) */
-        if (nch == 2) tree_level(P, Q, l, g0, g, Gp);        /* two children: the pair of products as before (the default schedule: bit for bit, the same groups) */
-        else if (nch > 2) tree_level_k(P, Q, l, g0, g, Gp, nch);   /* a k-way level (nch children of Gp nodes): k - 1 combines over the level's group */
+        if (nch == 2) tree_level(P, Q, l, g0, g, Gp, &tp, &tq);        /* two children: the pair of products as before (the default schedule: bit for bit, the same groups) */
+        else if (nch > 2) tree_level_k(P, Q, l, g0, g, Gp, nch, &tp, &tq);   /* a k-way level (nch children of Gp nodes): k - 1 combines over the level's group */
         /* (one child: no sibling group, carried up unchanged) */
         if (g_lv_on) { g_lv_on = 0; rns_dist_mn_force(0, 0); }
+        dr_leaf_check(0);                                    /* C: the recurrence may be done by now (non-blocking) */
         if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d", mn_rank(), l); mem_live_line(w); }   /* the pool's live bytes per level */
         if (ck && l == L) {                                  /* this node's shares after the top level, in the background */
             double tc = mem_now(); uint64_t d[10] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, P->sh.n, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g, Q->sh.n };
@@ -533,26 +585,35 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
         }
     }
     if (captest) rns_dist_cap_test(0);
+    if (g_dr.on) { g_dr.top_valid = 1; g_dr.top_p = tp.r; g_dr.top_q = tq.r; }
 }
 /* one tree level: the product over the group [g0, g0+g) whose halves A = [g0, g0+half), B = the rest hold the operands */
-static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
+static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half, mdb_trk *tp, mdb_trk *tq)
 {
     double t0 = mem_now();
     mn_group *G = mn_group_span(l, g0, g);                   /* (= mn_group_at(l) for the binary schedule) */
-    uint64_t v[8] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g }, *all = (uint64_t *)malloc((size_t)g * 8 * 8);
-    mn_allgather(G->all[0], v, 8, all);
-    int inA = G->me < half; const uint64_t *da = all, *dbb = all + (size_t)half * 8;   /* member 0 describes A, member `half` describes B */
+    const int chk = g_dr.on, nw = chk ? 11 : 8;              /* ECALC_DR >= 2: the descriptor carries R(P), R(Q) and the tracking flag */
+    uint64_t v[11] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g, chk ? tp->r : 0, chk ? tq->r : 0, (uint64_t)chk }, *all = (uint64_t *)malloc((size_t)g * nw * 8);
+    mn_allgather(G->all[0], v, nw, all);
+    int inA = G->me < half; const uint64_t *da = all, *dbb = all + (size_t)half * nw;   /* member 0 describes A, member `half` describes B */
     mdb PA, QA, PB, QB; memset(&PA, 0, sizeof PA); memset(&QA, 0, sizeof QA); memset(&PB, 0, sizeof PB); memset(&QB, 0, sizeof QB);
     PA.n = da[0]; PA.N = da[1]; PA.g0 = (int)da[2]; PA.g = (int)da[3]; QA.n = da[4]; QA.N = da[5]; QA.g0 = (int)da[6]; QA.g = (int)da[7];
     PB.n = dbb[0]; PB.N = dbb[1]; PB.g0 = (int)dbb[2]; PB.g = (int)dbb[3]; QB.n = dbb[4]; QB.N = dbb[5]; QB.g0 = (int)dbb[6]; QB.g = (int)dbb[7];
+    const int use = chk && da[10] && dbb[10];
+    mdb_trk tPA, tQA, tPB, tQB, tPn, tQn;
+    if (use) { tPA = trk_from(da[8], tp, inA); tQA = trk_from(da[9], tq, inA); tPB = trk_from(dbb[8], tp, !inA); tQB = trk_from(dbb[9], tq, !inA); }
     if (inA) { PA.sh = P->sh; QA.sh = Q->sh; } else { PB.sh = P->sh; QB.sh = Q->sh; }
     free(all);
     mdb Pn, Qn; memset(&Pn, 0, sizeof Pn); memset(&Qn, 0, sizeof Qn);
-    lv_force(0); rns_mul_dist_mn(&Pn, &PA, &QB, &PB, G);
+    lv_force(0);
+    if (use) rns_mul_dist_mn_chk(&Pn, &PA, &QB, &PB, G, &tPA, &tQB, &tPB, &tPn); else rns_mul_dist_mn(&Pn, &PA, &QB, &PB, G);
     db_free(&P->sh);                                       /* my child's P (PA or PB) is dead once P_n is formed */
+    if (use) mdb_dr_store_inject(Q, mn_rank());           /* ECALC_DR_TEST=store: my child's Q wrong at rest after the first product */
     if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d mul1", mn_rank(), l); mem_live_line(w); }   /* the first product's window; the level's line then covers the second */
-    lv_force(1); rns_mul_dist_mn(&Qn, &QA, &QB, 0, G);
+    lv_force(1);
+    if (use) rns_mul_dist_mn_chk(&Qn, &QA, &QB, 0, G, &tQA, &tQB, 0, &tQn); else rns_mul_dist_mn(&Qn, &QA, &QB, 0, G);
     db_free(&P->sh); db_free(&Q->sh); *P = Pn; *Q = Qn;
+    if (use) { *tp = tPn; *tq = tQn; } else if (chk) g_dr.on = 0;   /* (a node without tracking disables the checks of the rest: never in practice) */
     size_t lo, hi; mdb_share(P, mn_rank(), &lo, &hi);
     printf("%smn: %s %d level %d [%d, %d): P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", ec_log_prefix(), mn_who(), mn_rank(), l, g0, g0 + g, P->n, Q->n, lo, hi, mem_now() - t0);
     { char w[48]; snprintf(w, sizeof w, "tree level %d", l); mn_comm_mark(w); }
@@ -565,40 +626,50 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
  * sharded over the children's subgroups or over the group), the running P, Q sharded over the group; a child's shares are
  * freed right after its combine, so a node holds at most its child's P, Q, the running pair and the new pair: O(share).
  * For nch = 2 this is tree_level's pair of products with the same operands in the same order. */
-static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch)
+static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, mdb_trk *tp, mdb_trk *tq)
 {
     double t0 = mem_now();
     mn_group *G = mn_group_span(l, g0, g);
-    uint64_t v[8] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g }, *all = (uint64_t *)malloc((size_t)g * 8 * 8);
-    mn_allgather(G->all[0], v, 8, all);
+    const int chk = g_dr.on, nw = chk ? 11 : 8;              /* ECALC_DR >= 2: R(P), R(Q) and the tracking flag ride along */
+    uint64_t v[11] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g, chk ? tp->r : 0, chk ? tq->r : 0, (uint64_t)chk }, *all = (uint64_t *)malloc((size_t)g * nw * 8);
+    mn_allgather(G->all[0], v, nw, all);
+    int use = chk; for (int r = 0; r < g; r++) if (chk && !all[(size_t)r * nw + 10]) use = 0;
+    mdb_trk tPr, tQr, tPA, tQA, tPn, tQn; memset(&tPr, 0, sizeof tPr); memset(&tQr, 0, sizeof tQr);   /* the running pair's and the child's tracked residues */
     int ci = G->me / gp;                                     /* my child */
     mdb Pr, Qr; memset(&Pr, 0, sizeof Pr); memset(&Qr, 0, sizeof Qr); int own = 0;   /* the running pair: child nch-1's (own = 0: the shares are P->sh, Q->sh on its members) */
-    { const uint64_t *dd = all + (size_t)(nch - 1) * gp * 8;
+    { const uint64_t *dd = all + (size_t)(nch - 1) * gp * nw;
       Pr.n = dd[0]; Pr.N = dd[1]; Pr.g0 = (int)dd[2]; Pr.g = (int)dd[3]; Qr.n = dd[4]; Qr.N = dd[5]; Qr.g0 = (int)dd[6]; Qr.g = (int)dd[7];
-      if (ci == nch - 1) { Pr.sh = P->sh; Qr.sh = Q->sh; } }
+      if (ci == nch - 1) { Pr.sh = P->sh; Qr.sh = Q->sh; }
+      if (use) { tPr = trk_from(dd[8], tp, ci == nch - 1); tQr = trk_from(dd[9], tq, ci == nch - 1); } }
     for (int i = nch - 2; i >= 0; i--) {
-        const uint64_t *da = all + (size_t)i * gp * 8;
+        const uint64_t *da = all + (size_t)i * gp * nw;
         mdb PA, QA; memset(&PA, 0, sizeof PA); memset(&QA, 0, sizeof QA);
         PA.n = da[0]; PA.N = da[1]; PA.g0 = (int)da[2]; PA.g = (int)da[3]; QA.n = da[4]; QA.N = da[5]; QA.g0 = (int)da[6]; QA.g = (int)da[7];
         if (ci == i) { PA.sh = P->sh; QA.sh = Q->sh; }
+        if (use) { tPA = trk_from(da[8], tp, ci == i); tQA = trk_from(da[9], tq, ci == i); }
         mdb Pn, Qn; memset(&Pn, 0, sizeof Pn); memset(&Qn, 0, sizeof Qn);
-        lv_force(2 * (nch - 2 - i)); rns_mul_dist_mn(&Pn, &PA, &Qr, &Pr, G);
+        lv_force(2 * (nch - 2 - i));
+        if (use) rns_mul_dist_mn_chk(&Pn, &PA, &Qr, &Pr, G, &tPA, &tQr, &tPr, &tPn); else rns_mul_dist_mn(&Pn, &PA, &Qr, &Pr, G);
         {                                                    /* P_i and P_run are dead once P_n = P_i Q_run + P_run is formed */
             if (ci == i || (!own && ci == nch - 1)) db_free(&P->sh);   /* my child's P_i, or the top child's P (= P_run, not owned) */
             if (own) db_free(&Pr.sh); else memset(&Pr.sh, 0, sizeof Pr.sh);
             memset(&PA.sh, 0, sizeof PA.sh);
         }
         if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul1", mn_rank(), l, nch - 1 - i); mem_live_line(w); }   /* the first product's window */
-        lv_force(2 * (nch - 2 - i) + 1); rns_mul_dist_mn(&Qn, &QA, &Qr, 0, G);
+        if (use) mdb_dr_store_inject(&Qr, mn_rank());   /* every node calls (the occurrence count must agree; a node outside Qr's holders has an empty share) -- ECALC_DR_TEST=store: the running Q wrong at rest after the first product of the combine */
+        lv_force(2 * (nch - 2 - i) + 1);
+        if (use) rns_mul_dist_mn_chk(&Qn, &QA, &Qr, 0, G, &tQA, &tQr, 0, &tQn); else rns_mul_dist_mn(&Qn, &QA, &Qr, 0, G);
         if (mem_live_on() && i > 0) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul2", mn_rank(), l, nch - 1 - i); mem_live_line(w); }   /* (the last combine's: the level's line) */
         if (ci == i || (!own && ci == nch - 1)) { db_free(&P->sh); db_free(&Q->sh); memset(&P->sh, 0, sizeof P->sh); memset(&Q->sh, 0, sizeof Q->sh); db_init(&P->sh); db_init(&Q->sh); }   /* my child's shares are used up */
         if (own) { db_free(&Pr.sh); db_free(&Qr.sh); }
         Pr = Pn; Qr = Qn; own = 1;
+        if (use) { tPr = tPn; tQr = tQn; }
         if (getenv("ECALC_VERBOSE")) printf("%smn: %s %d level %d [%d, %d): combine %d of %d: P %zu limbs, Q %zu limbs (%.2f s)\n", ec_log_prefix(), mn_who(), mn_rank(), l, g0, g0 + g, nch - 1 - i, nch - 1, Pr.n, Qr.n, mem_now() - t0);
     }
     free(all);
     if (P->sh.cap) db_free(&P->sh); if (Q->sh.cap) db_free(&Q->sh);
     *P = Pr; *Q = Qr;
+    if (use) { *tp = tPr; *tq = tQr; } else if (chk) g_dr.on = 0;
     size_t lo, hi; mdb_share(P, mn_rank(), &lo, &hi);
     printf("%smn: %s %d level %d [%d, %d) (%d children of %d): P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", ec_log_prefix(), mn_who(), mn_rank(), l, g0, g0 + g, nch, gp, P->n, Q->n, lo, hi, mem_now() - t0);
     { char w[48]; snprintf(w, sizeof w, "tree level %d", l); mn_comm_mark(w); }

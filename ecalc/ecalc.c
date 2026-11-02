@@ -29,6 +29,7 @@
 #include "dbig.h"
 static long ec_map_count(long *limit);   /* ECALC_INIT_TL=1: lines of /proc/self/maps (defined below) */
 #include "mn.h"
+#include "dr.h"                                     /* C3: ECALC_DR >= 2 (the leaf check hook) */
 #include "mn_out.h"
 #include "mn_plan.h"                                 /* MN_PLAN_ONLY */
 #include "memsample.h"                               /* E1, E12 */
@@ -57,11 +58,15 @@ static void meta_line(const char *bench)
 /* ---- overlap of disjoint work (RESULTS.md 68: 128.8 vs 112.1 s against sequential).  Background CPU work runs in pthreads with a bounded OpenMP team while the GPUs run the tiers; each
  * joins where its result is first needed. ---- */
 static int g_bg_threads = 48;
-struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started, joined; double t; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
+struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started, joined, done; double t; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
 static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); ec_team_set(g_bg_threads);
+    if (dr_level() >= 2 && dr_test_leafslow()) { for (int i = 0; i < 120000 && !mn_dr_division_seen(); i++) usleep(1000); }   /* ECALC_DR_TEST=leafslow (test only): the recurrence starts when the division does (at most 120 s): the leaf check's deferred path */
     for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(b->a0, b->b1, t1_q[i], &b->p[i], &b->qq[i]); b->t = mem_now() - t0;
+    __atomic_store_n(&b->done, 1, __ATOMIC_RELEASE);
     return 0; }
-static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->started) return; pthread_create(&b->th, 0, pq_bg_run, b); b->started = 1; }   /* O2: after the seeds */
+static int pq_bg_poll(void *a, uint64_t *p, uint64_t *q)   /* C3 (ECALC_DR >= 2): the leaf check reads the recurrence's residues modulo t1_q[0] once it is done (mn.c) */
+{ struct pq_bg *b = (struct pq_bg *)a; if (__atomic_load_n(&b->done, __ATOMIC_ACQUIRE)) { *p = b->p[0]; *q = b->qq[0]; return 1; } return __atomic_load_n(&b->started, __ATOMIC_ACQUIRE) ? 0 : -1; }
+static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->started) return; pthread_create(&b->th, 0, pq_bg_run, b); __atomic_store_n(&b->started, 1, __ATOMIC_RELEASE); }   /* O2: after the seeds */
 
 /* X's residues and the digits -- formatted in chunks and written as they are formatted
  * (mn_out.c), no whole digit string on the host -- in the background during the low product, from the hook that
@@ -189,6 +194,7 @@ static int out_stage(struct out_ctx *c)
     uint64_t pr[T1_NQ], qr[T1_NQ], Pg[T1_NQ], Qg[T1_NQ];
     if (c->pqb->started) { if (!c->pqb->joined) pthread_join(c->pqb->th, 0); c->pqb->joined = 1; memcpy(pr, c->pqb->p, sizeof pr); memcpy(qr, c->pqb->qq, sizeof qr); }
     else for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(c->pqb->a0, c->pqb->b1, t1_q[i], &pr[i], &qr[i]);
+    if (dr_level() >= 2 && multi) mn_dr_leaf_final();   /* C3: the leaf check deferred from the division's start (the recurrence is joined above) */
     mn_out_pq_combine(cm, pr, qr, Pg, Qg);
     /* the share of X this node holds: the device X (size 1, B1) or this node's share of the sharded X (size > 1: the distributed
      * division's mdb, read in place) */
@@ -751,6 +757,7 @@ static void flow_run(void *a)
         printf("mn: %s %d leaf P %zu limbs, Q %zu limbs (%s)\n", who(), mn_rank(), Pl.n, Ql.n, P.n ? "host, copied in" : "device");
         if (ckpt_top && !bs_ckpt_dir && outfile) { bs_ckpt_dir = mn_out_ckpt_default(outfile); printf("mn: %s %d: the top tree set -> %s (ECALC_CKPT_TOP)\n", who(), mn_rank(), bs_ckpt_dir); }
         mn_ckpt_bg_mode = !ckpt_top ? 0 : ckpt_top == 2 ? 2 : 1; mn_ckpt_slack = ckpt_slack;   /* the top tree set in the background */
+        if (dr_level() >= 2) mn_dr_leaf_ref(pq_bg_poll, &pqb);
         mdb Pm, Qm; mn_tree(&Pm, &Qm, &Pl, &Ql);
         double tt = mem_now();
         {                                           /* M4: the division over shares; X stays sharded (A-out) */

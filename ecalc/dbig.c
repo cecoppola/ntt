@@ -764,15 +764,25 @@ static void qrange(const dbig *x, int d, size_t n, size_t *lo, size_t *hi);
 #define MQ_MAXQ 16
 /* residues of x modulo nq primes (each < 2^63) at once: the quarters in parallel, one launch per quarter */
 static pthread_mutex_t g_mq_mx = PTHREAD_MUTEX_INITIALIZER;   /* the output stage's background thread takes X's residues while the division goes on (R's) -- the scratch above is shared */
-static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t *res);
+static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t *res, uint64_t *parts);
 void db_mod_qs(const dbig *x, const uint64_t *qs, int nq, uint64_t *res)
 {
     if (nq > MQ_MAXQ) { ec_fatal(EC_RC_FATAL, "db_mod_qs: %d primes\n", nq); }
     for (int j = 0; j < nq; j++) res[j] = 0;
     if (!x->n) return;
-    pthread_mutex_lock(&g_mq_mx); db_mod_qs_locked(x, qs, nq, res); pthread_mutex_unlock(&g_mq_mx);
+    pthread_mutex_lock(&g_mq_mx); db_mod_qs_locked(x, qs, nq, res, 0); pthread_mutex_unlock(&g_mq_mx);
 }
-static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t *res)
+/* C3 (ECALC_DR >= 2, dr.h): as db_mod_qs, and parts[d * nq + j] = quarter d's limbs as a number at their place in x (their residue times B^lo_d), so that the parts sum to res and a
+ * later recomputation names the quarter (the APU) that changed.  parts holds DB_NQ * nq words; a quarter without limbs is 0. */
+void db_mod_qs_parts(const dbig *x, const uint64_t *qs, int nq, uint64_t *res, uint64_t *parts)
+{
+    if (nq > MQ_MAXQ) { ec_fatal(EC_RC_FATAL, "db_mod_qs_parts: %d primes\n", nq); }
+    for (int j = 0; j < nq; j++) res[j] = 0;
+    for (int k = 0; k < DB_NQ * nq; k++) parts[k] = 0;
+    if (!x->n) return;
+    pthread_mutex_lock(&g_mq_mx); db_mod_qs_locked(x, qs, nq, res, parts); pthread_mutex_unlock(&g_mq_mx);
+}
+static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t *res, uint64_t *parts)
 {
     uint64_t Bq[MQ_MAXQ], Bt[MQ_MAXQ], Bch[MQ_MAXQ], powt[MQ_MAXQ * MQ_T];
     for (int j = 0; j < nq; j++) {
@@ -786,10 +796,10 @@ static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t
         uint64_t q = qs[j]; Btm[j] = (uint64_t)(((unsigned __int128)Bt[j] << 64) % q);
         for (int t = 0; t < MQ_T; t++) powtm[j * MQ_T + t] = (uint64_t)(((unsigned __int128)powt[j * MQ_T + t] << 64) % q);
     }
-    uint64_t vq[DB_NQ][MQ_MAXQ]; size_t qlen[DB_NQ]; memset(vq, 0, sizeof vq); memset(qlen, 0, sizeof qlen);
+    uint64_t vq[DB_NQ][MQ_MAXQ]; size_t qlen[DB_NQ], qpos[DB_NQ]; memset(vq, 0, sizeof vq); memset(qlen, 0, sizeof qlen); memset(qpos, 0, sizeof qpos);
 #pragma omp parallel for num_threads(nq_())
     for (int d = 0; d < nq_(); d++) { int dv = dv_(d);
-        size_t lo, hi; qrange(x, d, x->n, &lo, &hi); if (lo >= hi) continue;
+        size_t lo, hi; qrange(x, d, x->n, &lo, &hi); if (lo >= hi) continue; qpos[d] = lo;
         size_t first = x->off + lo - (size_t)d * x->qc, len = hi - lo, nc = (len + MQ_CH - 1) / MQ_CH; qlen[d] = len;
         HIP_CHECK(hipSetDevice(dv));
         if (g_mq_cap[dv] < nc * MQ_MAXQ) { if (g_mq_out[dv]) HIP_CHECK(hipFree(g_mq_out[dv])); HIP_CHECK(hipMalloc(&g_mq_out[dv], (nc * MQ_MAXQ + 1024) * 8)); g_mq_cap[dv] = nc * MQ_MAXQ + 1024; }
@@ -807,6 +817,7 @@ static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t
         free(hv);
     }
     for (int j = 0; j < nq; j++) { uint64_t r = 0; for (int d = nq_(); d-- > 0;) if (qlen[d]) r = (uint64_t)(((unsigned __int128)r * db_powmod_h(Bq[j], qlen[d], qs[j]) + vq[d][j]) % qs[j]); res[j] = r; }
+    if (parts) for (int d = 0; d < nq_(); d++) if (qlen[d]) for (int j = 0; j < nq; j++) parts[d * nq + j] = (uint64_t)(((unsigned __int128)vq[d][j] * db_powmod_h(Bq[j], qpos[d], qs[j])) % qs[j]);
 }
 uint64_t db_mod_q(const dbig *x, uint64_t q) { uint64_t r; db_mod_qs(x, &q, 1, &r); return r; }
 /* ---- kernels: one per quarter, over the result's limbs [lo, hi) of that quarter ---- */
@@ -1149,6 +1160,7 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
 }
 void db_norm(dbig *r) { r->n = maxidx(r, 0, r->n); }
 uint64_t db_limb(const dbig *a, size_t i) { uint64_t v; size_t g = a->off + i, d = hq(a, g); mem_dev_copy_on(dv_((int)d), &v, a->q[d] + (g - d * a->qc), 8); return v; }
+void db_set_limb(dbig *a, size_t i, uint64_t v) { size_t g = a->off + i, d = hq(a, g); mem_dev_copy_on(dv_((int)d), a->q[d] + (g - d * a->qc), &v, 8); }
 uint64_t db_top(const dbig *a) { return a->n ? db_limb(a, a->n - 1) : 0; }
 int db_cmp(const dbig *a, const dbig *b)
 {

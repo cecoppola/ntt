@@ -16,6 +16,7 @@
 #include "memsample.h"                                       /* Phase 14 S1 (E1) */
 #include "mn_plan.h"                                         /* Phase 13d L: the chain and the X1 group, asked by the plan printer too */
 #include "binsplit.h"                                        /* Phase 14 L1: dm_tight (DM_TIGHT), read once with the layout's switches */
+#include "dr.h"                                             /* C3 step 3: ECALC_DR >= 2 */
 #include "vpe.h"                                            /* S1c: PE layout (ECALC_PE_PER_GPU=1): the chain and the mdb helpers per PE */
 /* S1c: the reciprocal chain's scratch is per PE (idx 0 only when the layout is off, so the off path is unchanged) */
 static dbig g_r; static dbig g_r2; static dbig g_qt; static dbig g_t1; static dbig g_t2;
@@ -890,6 +891,39 @@ static void mn_dkm_low(mdb *xql, const mdb *Xn, mdb *Q, size_t w, mn_group *G)
     mn_prod_cut_x1(xql, Xn, Q, G, 0, w);
     if (xql->N != w) { mdb_shift(&xq, xql, 0, w, G); mfree(xql); *xql = xq; }
 }
+/* ---- C3 step 4, D (ECALC_DR >= 3; results/DR.md): the division's low products are checked against the exact identity A' = X Q + R ----------------------------------------------
+ * A' = S B^e (S = P + Q; step 2: S = R1, e = s) is cut to the window Aw = A' mod B^w, and xql = X Q mod B^w, so A' - X Q = (Aw - xql) + m B^w with m in {-1, 0, 1} (|A' - X Q| < 65 Q < B^w).
+ * With the residues modulo DR_Q (t1_q[0]): E = (R(S) B^e - R(X) R(Q)) - (R(Aw) - R(xql)) must be 0 or +-R(B^w).  R(S) = R(P) + R(Q) are the division's T1 residues (taken at its start), R(X) is
+ * taken from the X the product gets (after the test perturbations ECALC_TEST_CORR and NEWTON_DKM_TEST_HI).  Each residue is an all-gather (mdb_trk_make) summed alike on every node, so the verdict is
+ * the same everywhere.  A mismatch frees xql and recomputes it once (Xh / Xl, Qw and Aw are alive until mn_dkm_corr); a second failure is fatal with the location.  The wrap (mn_wrap_step) checks
+ * Rc instead (mn_dd_wrap): there the result is a CRT of several products and has no operand to repeat from, so a mismatch is fatal (U has D' in rns_mul_dist_mn_cyc_v). */
+static struct { int on; uint64_t rS, rQ, rR1, rA; int step; size_t occ; } g_dd;
+static uint64_t dd_res(const mdb *X, mn_group *G) { mdb_trk t; mdb_trk_make(X, G, &t); return t.r; }
+static void dd_step(int step, size_t e, mn_group *G) { if (g_dd.on) { g_dd.step = step; g_dd.rA = dr_mulmod(step == 1 ? g_dd.rS : g_dd.rR1, dr_powB(e)); dr_arm(); dr_ctx_set("division X Q mod B^w", -1, G->g0, G->g, -1, -1, step); } }   /* the step's A' and the location for the products that follow */
+static void mn_dkm_low_d(mdb *xql, const mdb *Xn, mdb *Q, size_t w, mn_group *G, const mdb *Aw)
+{
+    if (!g_dd.on) { mn_dkm_low(xql, Xn, Q, w, G); return; }
+    const size_t occ = ++g_dd.occ; const int node = G->g0 + G->me;
+    const uint64_t rX = dd_res(Xn, G), rAw = dd_res(Aw, G), rBw = dr_powB(w);
+    for (int att = 0;; att++) {
+        mn_dkm_low(xql, Xn, Q, w, G);
+        mdb_dr_inject(xql, node, DR_XQL, occ, att);                 /* ECALC_DR_TEST=xql: one limb of xql wrong (K = the low product's number: 1 step 1, 2 step 2) */
+        const uint64_t rx = dd_res(xql, G);
+        const uint64_t e = dr_submod(dr_submod(g_dd.rA, dr_mulmod(rX, g_dd.rQ)), dr_submod(rAw, rx));
+        dr_count(DR_C_DIV, 1);
+        if (dr_match_m(e, rBw) != 2) { if (att) dr_count(DR_C_REC_DIV, 1); return; }
+        dr_count(DR_C_FAIL, 1);
+        const size_t ev = rns_dr_event(G); char where[160]; dr_where(where, sizeof where);
+        const int fatal = att >= 1 || ev > (size_t)dr_total_cap();
+        char msg[640];
+        snprintf(msg, sizeof msg, "low product X Q mod B^w (%zu x %zu limbs, w %zu), %s: attempt %d: (R(S) B^e - R(X) R(Q)) - (R(Aw) - R(xql)) = %llu, none of 0, +-B^w (%llu)%s", Xn->n, Q->n, w, where, att + 1,
+                 (unsigned long long)e, (unsigned long long)rBw,
+                 fatal ? (att >= 1 ? "; failed again after the repeat (persistent), stopping" : "; the run's limit ECALC_DR_TOTAL of failures is reached, stopping") : "; repeating the product");
+        if (fatal) { dr_count(DR_C_FATAL, 1); dr_summary(); ec_fatal(EC_RC_FATAL, "newton_mn_divmod: DR: %s\n", msg); }
+        if (G->me == 0) { fprintf(stderr, "DR: %s\n", msg); fflush(stderr); }
+        mfree(xql); rns_dr_cache_drop();                             /* the bad result is freed first; the repeat runs with the transform cache off */
+    }
+}
 /* R from the window and xq (both basis w, consumed): newton_mn_divmod's corrections; returns the change to X */
 static long mn_dkm_corr(mdb *Rd, mdb *Aw, mdb *xql, const mdb *Qw, mn_group *G, const char *who)
 {
@@ -966,6 +1000,18 @@ static void mn_wrap_a(mdb *Ah, mdb *T1, mdb *Y, size_t e, size_t P, size_t w, mn
     mn_fold(T1, Y, (long)h - (long)e, P, P + 4, G);
     mfree(Y);
 }
+static void mn_dd_wrap(const mdb *Rc, const mdb *X, size_t w, size_t h, mn_group *G, const char *who)   /* D on Rc: R = Rc (Rc < B^(w-1)) or Rc - M, M = B^w - B^h; A' - X Q = R exactly */
+{
+    const uint64_t rX = dd_res(X, G), rR = dd_res(Rc, G), rM = dr_submod(dr_powB(w), dr_powB(h));
+    uint64_t e = dr_submod(dr_submod(g_dd.rA, dr_mulmod(rX, g_dd.rQ)), rR);
+    if (Rc->n >= w) e = dr_addmod(e, rM);
+    dr_count(DR_C_DIV, 1);
+    if (!e) return;
+    dr_count(DR_C_FAIL, 1); rns_dr_event(G); char where[160]; dr_where(where, sizeof where);
+    dr_count(DR_C_FATAL, 1); dr_summary();
+    ec_fatal(EC_RC_FATAL, "newton_mn_divmod: DR: %s: R(S) B^e - R(X) R(Q) - R(R)%s = %llu, not 0 (%s; R = Rc%s, X %zu limbs, w %zu, h %zu): the low part L, the cyclic part (checked by D') or the assembly is wrong; the run stops\n",
+             where, Rc->n >= w ? " + R(M)" : "", (unsigned long long)e, who, Rc->n >= w ? " - M" : "", X->n, w, h);
+}
 /* one step's R = A' - X Q and the corrections (mn_dkm_corr's contract: *Rd = R in basis w, returns the change to X); Ah, T1 from
  * mn_wrap_a (consumed); Qw = Q in basis w; Qpp = Q B^-h folded (basis P + 4) */
 static long mn_wrap_step(mdb *Rd, const mdb *X, mdb *Ah_, mdb *T1_, const mdb *Qw, const mdb *Qpp, size_t P, size_t w, mn_group *G, const char *who)
@@ -999,6 +1045,7 @@ static long mn_wrap_step(mdb *Rd, const mdb *X, mdb *Ah_, mdb *T1_, const mdb *Q
     mdb_shift(&Rc, &Ah, 0, w, G); mfree(&Ah);                    /* Rc = rL + B^h t, basis w */
     mdb_shift(&Tt, &T1, -(long)h, w, G); mfree(&T1);
     mdb_addsub(&Rc, &Rc, &Tt, 0, G); mfree(&Tt);
+    if (g_dd.on) mn_dd_wrap(&Rc, X, w, h, G, who);                /* C3 D (ECALC_DR >= 3) */
     mdb_zero(&Z, w, G);
     if (Rc.n < w) return mn_dkm_corr(Rd, &Rc, &Z, Qw, G, who);  /* R = Rc >= 0 */
     {   /* R = Rc - M < 0: D = M - Rc (basis w + 1, then w) */
@@ -1016,6 +1063,10 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     memset(&mn_st, 0, sizeof mn_st);
     size_t nq = Q->n;
     mdb_mod_qs(P, qs, nres, pres, G); mdb_mod_qs(Q, qs, nres, qres, G);
+    if (dr_level() >= 2) mn_dr_division_check(qs, pres, qres);   /* C3: the leaf check if still open; the tree's tracked residues against these */
+    memset(&g_dd, 0, sizeof g_dd);
+    if (dr_level() >= 3 && nres >= 1 && qs[0] == DR_Q) { g_dd.on = 1; g_dd.rQ = qres[0] % DR_Q; g_dd.rS = dr_addmod(pres[0] % DR_Q, g_dd.rQ); }   /* C3 D: R(S) = R(P) + R(Q) */
+    else if (dr_level() >= 3) { dr_count(DR_C_DIV_OFF, 1); if (me == 0) { printf("mn: DR: division check D is NOT active: the division's residue set has no DR_Q (nres %d)\n", nres); fflush(stdout); } }
     size_t na_est = P->n + 1 + dl, k_mu = na_est - nq + 1, h_mu = newton_dkm_h(k_mu);
     mdb mu; memset(&mu, 0, sizeof mu);
     recip_mn(&mu, Q, h_mu, G);                                         /* the chain to h: one doubling fewer */
@@ -1036,6 +1087,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     mdb Xh, Aw, Qw, xql, R1, Xl, Xs, Xl2, Xn, Rd;
     memset(&Xh, 0, sizeof Xh); memset(&Aw, 0, sizeof Aw); memset(&Qw, 0, sizeof Qw); memset(&xql, 0, sizeof xql); memset(&R1, 0, sizeof R1);
     memset(&Xl, 0, sizeof Xl); memset(&Xs, 0, sizeof Xs); memset(&Xl2, 0, sizeof Xl2); memset(&Xn, 0, sizeof Xn); memset(&Rd, 0, sizeof Rd);
+    dd_step(1, dl - s, G);                                             /* C3 D: step 1's context, so A mu is labelled like X_hi Q */
     mn_dkm_est_lean(&Xh, &S, dl - s, nq, k1, &mu, k1 + 1, G);          /* int15k (lean): views instead of copies, Qw in place of Q */
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 1 A mu");   /* int15k: the division's moments (ECALC_VERBOSE >= 2) */
     { long th = dkm_test_hi(); if (th) mn_dkm_add(&Xh, -th, G); }     /* NEWTON_DKM_TEST_HI (a borrow out of X_hi is fatal in mdb_add_val) */
@@ -1054,18 +1106,24 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
         dx1 = mn_wrap_step(&R1, &Xh, &Ah, &T1, &Qw, &Qpp, Pw, w, G, "step 1 (wrap)");
         if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 1 X_hi Q");
     } else {
-        mn_dkm_low(&xql, &Xh, Qd, w, G);
+        mn_dkm_low_d(&xql, &Xh, Qd, w, G, &Aw);
         if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 1 X_hi Q");
         dx1 = mn_dkm_corr(&R1, &Aw, &xql, &Qw, G, "step 1");
     }
     mn_dkm_add(&Xh, dx1, G);                                           /* X_hi exact (no one has seen it) */
     NST(newton_st.dkm_corr += (size_t)(dx1 < 0 ? -dx1 : dx1));
+    if (g_dd.on) {   /* C3 D, independent of the corrections and the negative branch: R(R1) = R(S) B^(dl-s) - R(X_hi final) R(Q) (exact, mod DR_Q) */
+        g_dd.rR1 = dd_res(&R1, G);
+        const uint64_t want = dr_submod(g_dd.rA, dr_mulmod(dd_res(&Xh, G), g_dd.rQ)); dr_count(DR_C_DIV, 1);
+        if (g_dd.rR1 != want) { dr_count(DR_C_FATAL, 1); dr_summary(); ec_fatal(EC_RC_FATAL, "newton_mn_divmod: DR: step 1 remainder R1 fails R(R1) = R(S) B^e - R(X_hi) R(Q) (%llu, expected %llu): a fault in the corrections or the negative branch (D = M - Rc); the run stops\n", (unsigned long long)g_dd.rR1, (unsigned long long)want); }
+    }
     /* Phase 15 EW (MN_OUT_DKM_HI, archive:results_merged_2026-10-24/DIVISION.md §EW15 1.3) -- the X_hi hook (every rank, the same point: the hook runs a collective): X_hi is
      * final here; the hook takes it and starts the part files of X_hi's shares.  No X0 below: the division returns X_lo */
     int xhi = newton_mn_xhi_hook && newton_mn_xlo_hook && newton_x_defer;
     if (xhi) xhi = newton_mn_xhi_hook(&Xh, s, newton_mn_x_arg);
     double tc = mem_now();
     /* step 2: X_lo, R of A2 = R1 B^s */
+    if (g_dd.on) dd_step(2, s, G);                                     /* C3 D: R(R1) was taken and checked after step 1's corrections */
     size_t na2 = R1.n + s, k2 = na2 >= nq ? na2 - nq + 1 : 0;
     if (na2 >= nq) { mn_dkm_est_lean(&Xl, &R1, s, nq, k2, &mu, k2 + 1, G); mfree(&mu); }
     else { mfree(&mu); mdb_shift(&Xl, &R1, (long)R1.n + 1, 2, G); }      /* A2 < Q: X_lo = 0 */
@@ -1081,7 +1139,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
         double td = mem_now();
         long dx = 0;
         if (Pw) dx = mn_wrap_step(&Rd, &Xl, &Ah, &T1, &Qw, &Qpp, Pw, w, G, "step 2 (wrap)");   /* P1 */
-        else mn_dkm_low(&xql, &Xl, Qd, w, G);
+        else mn_dkm_low_d(&xql, &Xl, Qd, w, G, &Aw);
         if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 2 X_lo Q");
         rns_dist_cache_release();
         double te = mem_now();
@@ -1096,6 +1154,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
         if (X->sh.cap) db_free(&X->sh);
         *X = Xl;
         NST(newton_st.t_div += mem_now() - ta);
+        if (g_dd.on) { dr_ctx_clear(); g_dd.on = 0; }   /* C3 D: the division is over; later products carry their own location */
         mn_comm_mark("division (after the reciprocal)");   /* Phase 16 D */
         if (me == 0) printf("divmod(mn, DKM, X_hi writer) %.2f s: k %zu = %zu + %zu (s), h %zu; reciprocal %.2f (products %.2f), S = P + Q %.2f, step 1 (A mu, X_hi Q, corrections %ld) %.2f, step 2 A mu %.2f, X_lo Q %.2f, corrections %.2f (%ld, %s), R residues %.2f; X_lo0 %s B^s; division products %.2f s; shifts %zu/%.2f s, addsub %zu/%.2f s\n",
                             mem_now() - t0, k, k1, s, h, ta - t0, p_rec, tb - ta, dx1, tc - tb, td - tc, te - td, tf - te, dx, rel ? "deferred" : "in place", mem_now() - tf, carry ? ">=" : "<", mn_st.t_prod - p_rec, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub);
@@ -1114,7 +1173,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     double td = mem_now();
     long dx = 0;
     if (Pw) dx = mn_wrap_step(&Rd, &Xl, &Ah, &T1, &Qw, &Qpp, Pw, w, G, "step 2 (wrap)");   /* P1 */
-    else mn_dkm_low(&xql, &Xl, Qd, w, G);
+    else mn_dkm_low_d(&xql, &Xl, Qd, w, G, &Aw);
     mfree(&Xl);
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 2 X_lo Q");
     rns_dist_cache_release();
@@ -1131,6 +1190,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     if (X->sh.cap) db_free(&X->sh);
     *X = Xn;
     NST(newton_st.t_div += mem_now() - ta);
+    if (g_dd.on) { dr_ctx_clear(); g_dd.on = 0; }   /* C3 D: the division is over; later products carry their own location */
     mn_comm_mark("division (after the reciprocal)");   /* Phase 16 D */
     if (me == 0) printf("divmod(mn, DKM) %.2f s: k %zu = %zu + %zu (s), h %zu; reciprocal %.2f (products %.2f), S = P + Q %.2f, step 1 (A mu, X_hi Q, corrections %ld) %.2f, step 2 A mu + assembly %.2f, X_lo Q %.2f, corrections %.2f (%ld), R residues %.2f; division products %.2f s; shifts %zu/%.2f s, addsub %zu/%.2f s\n",
                         mem_now() - t0, k, k1, s, h, ta - t0, p_rec, tb - ta, dx1, tc - tb, td - tc, te - td, tf - te, dx, mem_now() - tf, mn_st.t_prod - p_rec, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub);
