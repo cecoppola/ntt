@@ -28,7 +28,7 @@ Class 4
 11. Two exchanges in flight per communicator (design, after rows 8-10).
 12. Start-up: per-device allocator processes, seed-thread pool wait, self-test time visible, pool fragmentation.
 13. Checkpoints after the tree and after the reciprocal.
-Items whose gain only the target can show (user 2026-10-31: build them): two NICs per APU on path 1 (`XSHMEM_LANES=2`, layout D) and a launch-time switch-group check, behind switches, digits-gated on aac7; hierarchical exchange as an OPPORTUNITIES entry.
+Items whose gain only the target can show (user 2026-10-31: build them): two NICs per APU on path 1 (`XSHMEM_LANES=2`, layout D) and a launch-time switch-group check, behind switches, digits-gated on aac7; hierarchical exchange as an OPPORTUNITIES entry. Done 2026-11-01 (branch topo, plan rows N6, N7): the check is `ecalc/topo_check.py`, called by `mnrun.sh` (report only, `MNRUN_TOPO_CHECK`, default 1; unit test `tests/test_topo_check.py`; dry run on the aac7 login node with a fake list); the hierarchical exchange is OPPORTUNITIES N7.
 
 Class 5
 14. Piece-boundary table and memory ceilings in results/LAUNCH_DEFAULTS.md; time model recalibrated on the 2e13 decomposition; write-time model; target facts corrected where they live; PLAN.md target section rewritten as the target agent's test list (setting, A/B with stop rule, adoption rule).
