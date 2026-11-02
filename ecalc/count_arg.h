@@ -1,6 +1,6 @@
 /* count_arg.h - the digit count on the command line (ecalc.c main; tests/t_args.c).
  * Accepted: a plain integer (decimal digits), or an exact decimal in scientific notation: mantissa digits with an optional
- * fraction part, then e or E, an optional +, and the exponent digits: 1e9, 1.6e10, 5.4e13, 1.50e1 (= 15).  The value must be a
+ * fraction part (digits on both sides of the point), then e or E, an optional +, and the exponent digits: 1e9, 1.6e10, 5.4e13, 1.50e1 (= 15).  The value must be a
  * positive whole number <= ULONG_MAX - 17 (room for the rounding to a multiple of 18 in ecalc.c).  Anything else -- trailing
  * text, a fraction, a sign, zero, more than 64 mantissa characters, overflow -- returns -1.  Exact integer arithmetic only. */
 #ifndef COUNT_ARG_H
@@ -18,7 +18,7 @@ static int ec_parse_count(const char *s, unsigned long *out)
         else if (*p == '.' && !dot) dot = 1;
         else break;
     }
-    if (ml == 0) return -1;
+    if (ml == 0 || (dot && (nfrac == 0 || nfrac == ml))) return -1;   /* digits on both sides of a point */
     if (*p == 'e' || *p == 'E') {                       /* exponent: optional +, then digits (at least one) */
         p++; if (*p == '+') p++;
         if (!isdigit((unsigned char)*p)) return -1;
