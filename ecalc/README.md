@@ -13,6 +13,10 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 - aac7: `source aac7env.sh` (ROCm 7.2.4). The QOS allows 6 nodes per user (`sacctmgr show qos normal format=maxtrespu`; the queue runner `tools/aac7q.sh` reads this limit from Slurm every 10 min and runs items side by side while they fit, largest unit first (a GROUP counts as the sum of its members; an item waiting over 45 min reserves the earliest time running items free its nodes, and later items start only if they end by then, by their optional `EXPECT_MIN` header else `EST_MIN`, or fit in the nodes that are still extra at that time); it excludes the hosts listed in the private files `aac7q/exclude` (always) and `aac7q/exclude_slow` (unless the item sets `ALLOW_SLOW=1`); a missing file excludes nothing).
 
 **Notes on single settings.**
+- Command line: `ecalc <digits> [outfile]` takes the digit count as a plain integer (`1000000000`) or in exact scientific
+  notation (`1e9`, `1.6e10`, `5.4e13`, `1.50e1`; `e`/`E`, optional `+` in the exponent). The value must be a positive whole
+  number that fits an unsigned long (<= 18446744073709551598). Anything else (`1.6e1x`, `2.5`, `0`, `-1`, overflow) prints
+  `ecalc: bad digit count ...` and exits 2 before any device or network setup (`count_arg.h`, host test `tests/t_args.c`).
 - `mnrun.sh` (the multi-node launcher; usage in `../README.md`) sets `COMM_RANK`, `COMM_SIZE` and the transport from
   Slurm, exports `FI_UNIVERSE_SIZE`, `FI_LOG_LEVEL=warn` and `FI_MR_CACHE_MONITOR=userfaultfd` when unset (it refuses
   `disabled`), and `MNRUN_EXCLUDE_HOSTS` drops flagged nodes. Before the launch of a multi-node run it prints a report-only switch-group check (`topo_check.py`: the rank -> switch-group map and a WARN for every tree set of up to 64 ranks that spans two groups; the group is (node number - 1) div `TOPO_GROUP_SIZE` (default 64), or the leaf switches of a `scontrol show topology` text in `TOPO_TOPOLOGY_FILE`; `MNRUN_TOPO_CHECK=0` skips it; it never changes the launch). `MNRUN_GRES=auto|on|off` (default auto; `gres.sh`, shared by
@@ -32,6 +36,7 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 | file | what |
 |---|---|
 | `ecalc.c` | the driver: sizing, init, the run in order (`../ALGORITHM.md` §7) |
+| `count_arg.h` | the digit count argument: a plain integer or exact scientific notation, exact integer arithmetic (host test `tests/t_args.c`) |
 | `modarith.h` | the primes c · 2⁴⁴ + 1, FP64-Barrett modmul, roots for 2ᵏ and 3 · 2ᵏ lengths |
 | `ntt.c/h`, `ntt3.c` | the tiled NTT kernels (DIF forward, DIT inverse, fused pointwise and scale); the radix-3 layer |
 | `crt.c/h`, `p24.h`, `p24_crt.c` | CRT reconstruction; 24 digits per point in four-prime products |
