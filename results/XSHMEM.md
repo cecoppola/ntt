@@ -273,7 +273,22 @@ series arm is not analysed; the off / on single runs are not timing evidence (pa
 
 **Tests.** `tests/t_vpe all` gained sparse alltoallv cases (ring of 2 neighbors, star, no bytes at all; 3 repetitions each, data checked), run with `XSHMEM_ROUND_MB=0.01` so that rounds occur, switch off and on. `tests/t_xshmem` carries its own copy of the exchange (it does not link the round code of `comm_xshmem.c`), so it does not exercise the switch; it is run as the regression of the layer.
 
-**Result tables (aac7, 2 n; item roundsize_a): pending.** Expected: dense exchanges unchanged; per-tag rounds of the shift tag (`addsh`) lower at `XSHMEM_ROUND_MB=0.222609`; digits identical.
+**Results, 2 nodes (aac7, item roundsize_a, 2026-11-01, measured, single runs; code at 852eaab, before the merge of main).**
+- Correctness, all PASS: `t_vpe all` (with the new sparse cases) at `XSHMEM_ROUND_MB=0.01`: path 1 at 1 node (4 PEs, switch unset and set) and 2 nodes (8 PEs, unset and set); path 2 with `XSHMEM_LANES=2` at 2 nodes unset, 1 and 2 nodes set, and path 2 without lanes at 2 nodes set. `t_xshmem` (does not run the round code of `comm_xshmem.c`): PASS in the same arms.
+- Gates, all PASS with digits identical: path 1 at 1 and 2 nodes, unset and set, and 2 nodes set with `XSHMEM_ROUND_MB=0.222609`; path 2 (`ECALC_PE_PER_GPU=1 XSHMEM_LANES=2`) at 2 nodes unset and set, 1 node set.
+- Digits, 2 nodes: 1e10 sha bb6e0f867a5f5d91 in all three arms; 1.6e10 (written 16000000000, `MN_TREE_LOGN_TEST=26`) sha 5bc4211dbd24efd1 for default (61 s), switch set (59 s) and set with `XSHMEM_ROUND_MB=0.222609` (76 s).
+- Rounds per tag (maximum over the 8 PEs, 1e10, `XSHMEM_ROUND_STATS=1`):
+
+| tag | exchanges | rounds, `XSHMEM_ROUND_MB=0.222609`, switch unset | same, switch set | switch set, default 128 MiB |
+|---|---|---|---|---|
+| other | 36 | 133 | 133 | 36 |
+| redist | 86 | 18,643 | 18,643 | 99 |
+| result | 54 | 21,468 | 21,468 | 76 |
+| spill | 54 | 92 | 92 | 54 |
+| addsh | 74 | 16,724 | 16,724 | 97 |
+| layeq | 3,977 | 182,889 | 182,889 | 3,977 |
+
+**What 2 nodes can and cannot show.** The round counts are identical with the switch unset and set. At 2 nodes the exchanges are between two members (D = n - 1 = 1: no change by construction) or between members that all carry data, so the active-pair rule has nothing to remove: the 2-node runs prove correctness and the sequence handling of the extra max, and they are not evidence of the round drop. Zero-byte pairs need at least 3 nodes (see the 3-node results below).
 
 ## N4: `XSHMEM_LANES=2` on path 1, layout D (branch netmeas, 2026-11-01 19:40-20:33 ET, aac7, measured)
 
