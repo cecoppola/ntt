@@ -233,6 +233,7 @@ void mapd_pool_request(int dev, size_t bytes, size_t C)  /* the helper of `dev` 
 }
 void *mapd_pool_alloc(int dev, size_t bytes, size_t C)   /* NULL: use hipMalloc.  The chunks are the helper's (mapd_pool_request, same bytes and C), or created here where the helper failed */
 {
+    if (getenv("ECALC_MAPD_DEBUG")) fprintf(stderr, "mapd_pool_alloc dev %d bytes %zu C %zu on %d state %d left %d\n", dev, bytes, C, g_on, dev >= 0 && dev < MAPD_NQ ? g_md[dev].state : -1, dev >= 0 && dev < MAPD_NQ ? g_md[dev].left : -1);
     if (!g_on || dev < 0 || dev >= MAPD_NQ || g_md[dev].state != 1 || C == 0) return NULL;
     int cur; if (hipGetDevice(&cur) != hipSuccess) return NULL;
     int n = (int)(bytes / C) + (bytes % C ? 1 : 0), nd = 0, ok = 0, mapped = 0; struct prec r; memset(&r, 0, sizeof r);
