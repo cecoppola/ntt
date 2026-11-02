@@ -68,5 +68,6 @@ MEM_REPORT_DEVS=1                     # per-APU memory rows
 
 # ---- [host exclusions] ----------------------------------------------------------------------------------------------
 # How to determine: the kit's 'nodechk' stage writes flagged_hosts.txt (slow upload, bad NIC, low memory); copy the names here.
+MNRUN_TOPO_CHECK=1                   # 0 skips the report-only switch-group check printed before each multi-node launch (mnrun.sh and the bench steps); TOPO_GROUP_SIZE / TOPO_TOPOLOGY_FILE tune it (ecalc/README.md)
 MNRUN_EXCLUDE_HOSTS=__FILL__          # comma list of nodes to drop; empty if none flagged
 MNRUN_EXCLUDE_MODE=drop               # 'drop' removes them from the node list (needs the job to ask for the nodes it will use)

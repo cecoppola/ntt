@@ -54,6 +54,7 @@ XSHMEM_LOOPBACK_PES	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine / backend 
 XSHMEM_PES_PER_GPU	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
 PE_GEO_SYSFS_ROOT	test-only	TARGET1 (B3)	2026-12-31	mock sysfs root of tests/t_pe_geo
 XSHMEM_ROUND_MB	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine arm (comm_xshmem.c), off by default; review when the xshmem transport gate (S3a) closes
+XSHMEM_ROUND_ACTIVE	experiment	comm	2026-12-31	rounds sized by active pairs (N1); adopt or drop after the target round-count measurement
 TMPDIR	test-only	TARGET1 (B3)	2026-12-31	system temp directory read by tests/t_pe_geo
 ECALC_VPE_LANES	experiment	TARGET1 (S2)	2026-12-31	PEs per node without a launch (planners, tests); review with ECALC_PE_PER_GPU
 ECALC_PE_PER_GPU	experiment	TARGET12 (S2)	2026-12-31	one process per GPU (PE); off by default; review when S2a..S2d are merged
@@ -90,6 +91,8 @@ XSHMEM_PEER_STREAMS	experiment	TASK4 peer	2026-12-31	copy-stream count A/B aid; 
 DB_FREE_SYNC	experiment	coordinator (C1POOL)	2026-11-30	off by default; adopt, or remove after the large-size runs
 ECALC_MEMSAMPLE_SYSFS_ROOT	test-only	HEALTH (C5)	2027-04-12	mock sysfs root of the per-APU memory guard test
 DB_POOL_FORCE_REMAP	experiment	coordinator (C2 STRESS)	2026-11-30	off by default; keep as the stress harness knob, or remove after the pool race question closes
+ECALC_HOST_TL	diagnostic	coordinator (I3)	2027-01-31	clock-read only diagnostic; keep or remove with the instrumentation round
+ECALC_HOST_TL_PE	diagnostic	coordinator (I3)	2027-01-31	selects the PE of ECALC_HOST_TL
 ECALC_DR	experiment	coordinator (C3 DR, Q142)	2026-12-01	off by default; the user adopts on measured data (steps 5-6 of results/DR.md), or it is removed
 ECALC_DR_TOTAL	experiment	coordinator (C3 DR, Q142)	2026-12-01	follows ECALC_DR
 ECALC_DR_TEST	diagnostic	diagnostics (TESTING.md)	2027-05-01	diagnostic or fault-injection setting; changes no digit

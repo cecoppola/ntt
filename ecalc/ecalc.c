@@ -470,7 +470,7 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
 #define MEMREP(x) do { if (vpe_proc_leader()) mem_report(x); } while (0)   /* every PE reports its own process (device pools, host items) */
 static int g_flow_rc;
 static int flow_rc_all(void) { return g_flow_rc; }   /* this process's slot (the only one written) */
-struct flow_ctx { unsigned long N, d, d_out; const char *outfile; int verbose, pool_log, mn_size; double t00, t_ri, t_pre, t_mn, t_st, t_age; };   /* t_*: ECALC_INIT_TL=1 (print only): plan/fit, mn_init, mn_selftest, the process's age at main */
+struct flow_ctx { unsigned long N, d, d_out; const char *outfile; int verbose, pool_log, mn_size; double t00, t_ri, t_pre, t_mn, t_st, t_lay, t_age; };   /* t_*: ECALC_INIT_TL=1 (print only): plan/fit, mn_init, mn_selftest, the process's age at main */
 static int ckpt_top_mode(void)
 {
     return getenv("ECALC_CKPT_TOP") ? atoi(getenv("ECALC_CKPT_TOP"))
@@ -645,7 +645,7 @@ int main(int argc, char **argv)
      * in 3 of 23 launches of 10^10 at 2 nodes with 45 GB of VMM arenas and the seeds already live (archive:results_merged_2026-10-24/AAC7_PORT.md §A16 step 7).  The
      * pool rule needs only N and the size (MN_PLAN_ONLY runs it with no device); mn_init needs the pool's size from it and HIP
      * (streams, hipHostRegister), nothing of rns_init.  The self-tests stay after rns_init. */
-    int mn_size_ = 1; double t_pre = 0, t_mn = 0, t_st = 0;
+    int mn_size_ = 1; double t_pre = 0, t_mn = 0, t_st = 0, t_lay = 0;
     {
         binsplit_shmem_pool_rule(N, getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1, 0);   /* the pool from the model */
         t_pre = mem_now() - t00;                      /* ECALC_INIT_TL=1: everything between the clock's start and the transport (terms, plane cap, memory fit, pool rule) */
@@ -658,7 +658,9 @@ int main(int argc, char **argv)
     if (mn_size_ > 1 && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
     t_st = mem_now() - t_st;
     int mn_dist = mn_size_ > 1;                      /* M3: the top levels as distributed products */
+    t_lay = mem_now();
     if (mn_dist && !mn_selftest_layered(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
+    t_lay = mem_now() - t_lay;                       /* S3: the layered self-test's own time (it was inside `other` of the ECALC_INIT_TL line) */
     if (getenv("ECALC_BG_THREADS")) g_bg_threads = atoi(getenv("ECALC_BG_THREADS"));
     if (vpe_on()) {                                  /* the process-wide settings of the PE flow, once, before the flow */
         if (mn_size_ < 2) ec_fatal(EC_RC_FATAL, "ecalc: ECALC_PE_PER_GPU=1 needs at least 2 PEs (%d): run on 2+ nodes or more tasks per node\n", mn_size_);
@@ -678,7 +680,7 @@ int main(int argc, char **argv)
         printf("omp team: ECALC_OMP_TEAM=mask (rule: %s): affinity mask %d CPUs, omp_get_max_threads %d, seed threads %d, bs team %d, residue team %d, bg threads %d\n",
                ec_team_rule(), ec_team_mask_count(), omp_get_max_threads(), bs_seed_team_size(), bs_team_size(), ec_team(), g_bg_threads);
     struct flow_ctx fc; memset(&fc, 0, sizeof fc);
-    fc.N = N; fc.d = d; fc.d_out = d_out; fc.outfile = outfile; fc.verbose = verbose; fc.pool_log = pool_log; fc.mn_size = mn_size_; fc.t00 = t00; fc.t_ri = t_ri; fc.t_pre = t_pre; fc.t_mn = t_mn; fc.t_st = t_st; fc.t_age = tl_age;
+    fc.N = N; fc.d = d; fc.d_out = d_out; fc.outfile = outfile; fc.verbose = verbose; fc.pool_log = pool_log; fc.mn_size = mn_size_; fc.t00 = t00; fc.t_ri = t_ri; fc.t_pre = t_pre; fc.t_mn = t_mn; fc.t_st = t_st; fc.t_lay = t_lay; fc.t_age = tl_age;
     vpe_run(flow_run, &fc);                          /* off: once on this thread (the off path's flow, as before); process mode: this process's PE */
     int rc = flow_rc_all();
     if (vpe_on()) rns_shutdown();                    /* (off: the flow's end did it) */
@@ -698,12 +700,13 @@ static void flow_run(void *a)
     { const char *tl = getenv("ECALC_INIT_TL"); int tv = tl ? atoi(tl) : 0;   /* ECALC_INIT_TL=1 (print only): the init figure as its parts, which sum to it; the engine's own steps are the `tl ... xshmem:` lines.  =2: every node prints */
       if (tv > 0 && (mn_rank() == 0 || (tv >= 2 && vpe_node_leader()))) {
           printf("tl          %s %d: process age at main %.2f s (/proc starttime against boot time, 10 ms; it precedes the init clock)\n", who(), mn_rank(), fc->t_age);
-          printf("tl          %s %d: init = %.2f s: plan/fit/pool rule before the transport %.2f + mn_init %.2f + rns_init %.2f + mn_selftest %.2f + region pools %.2f + other %.2f (other: seeds, sampler, term ranges)\n",
-                 who(), mn_rank(), t_init, fc->t_pre, fc->t_mn, t_ri, fc->t_st, t_pg, t_init - fc->t_pre - fc->t_mn - t_ri - fc->t_st - t_pg); }
+          printf("tl          %s %d: init = %.2f s: plan/fit/pool rule before the transport %.2f + mn_init %.2f + rns_init %.2f + mn_selftest %.2f + layered self-test %.2f + region pools %.2f + other %.2f (other: seeds, sampler, term ranges)\n",
+                 who(), mn_rank(), t_init, fc->t_pre, fc->t_mn, t_ri, fc->t_st, fc->t_lay, t_pg, t_init - fc->t_pre - fc->t_mn - t_ri - fc->t_st - fc->t_lay - t_pg); }
       else if (tv > 0 && fc->t_age > 30.0) printf("tl          %s %d: LATE START: process age at main %.2f s\n", who(), mn_rank(), fc->t_age);
       if (tv > 0 && (mn_rank() == 0 || (tv >= 2 && vpe_node_leader()))) { long lim; long n = ec_map_count(&lim); printf("tl          %s %d: memory mappings at the end of init: %ld lines in /proc/self/maps (vm.max_map_count %ld)\n", who(), mn_rank(), n, lim); } }
     if (getenv("ECALC_INIT_ONLY") && atoi(getenv("ECALC_INIT_ONLY"))) { vpe_node_barrier(); MEMREP("init"); if (vpe_node_leader()) printf("ECALC_INIT_ONLY: the pools and the arena of %lu digits are mapped (%.1f s); stopping\n", d, mem_now() - t00); fflush(stdout); _exit(0); }   /* the ceiling probe (the allocation edge in seconds) */
     if (verbose >= 2 && vpe_node_leader()) printf("      init: rns_init %.2f s, region pools %.2f s, the rest %.2f s\n", t_ri, t_pg, t_init - t_ri - t_pg);   /* A-mem */
+    if (mn_size_ > 1 && mn_rank() == 0) printf("      init: layered transport self-test %.2f s (rank 0; part of the init figure; mn_selftest %.2f s)\n", fc->t_lay, fc->t_st);   /* S3: always printed, multi-node only */
     if (vpe_node_leader()) RESULT("init", "s", t_init);   /* one per node (a global figure) */
     if (vpe_proc_leader()) {                         /* S2: each PE's own process line */
     printf("      VmRSS %.1f GB after init (staging %.1f GB pinned + device regions %.0f GB); init %.1f s\n", mem_vmrss() / 1e9, rns_staging_bytes() * 4 / 1e9, mem_dev_pool_bytes() / 1e9, t_init); }

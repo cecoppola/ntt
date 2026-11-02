@@ -20,6 +20,7 @@
 # defaults -- but prints the computed variables as `export K=V` lines on stdout and exits 0 instead of
 # calling srun (no allocation needed; mnrun's own messages go to stderr).  tools/plan_values.py uses it, so the size-dependent
 # launch values have one source.  Unset, nothing changes.
+# N6: MNRUN_TOPO_CHECK=0 (default 1) skips the report-only switch-group check (ecalc/topo_check.py; settings TOPO_GROUP_SIZE, TOPO_TOPOLOGY_FILE).
 # FIT (D26, results/LAUNCH_DEFAULTS.md §FIT): before srun, the planner's memory fit of the command's ecalc run is printed and a run that does not fit
 # (device over ECALC_DEVICE_GB, node over ECALC_NODE_GB) is refused with exit 4; MNRUN_FIT=0 skips it (see the FIT block below).
 # S2a (TARGET12, ECALC_PE_PER_GPU=1, exported or a VAR=value word of the command; default off = this script is unchanged): ONE PROCESS PER GPU.  <procs> is the node count (one
@@ -246,6 +247,11 @@ if [ "${MNRUN_FIT:-1}" != 0 ]; then
             fi
         fi
     fi
+fi
+# N6 (report only): the switch-group check of the launch list in rank order (topo_check.py: rank -> group map, WARN where a tree set of up to
+# 64 ranks spans two switch groups).  MNRUN_TOPO_CHECK=0 skips it (default 1); it prints to stderr and never changes the launch or its exit status.
+if [ "${MNRUN_TOPO_CHECK:-1}" != 0 ] && [ "$P" -gt 1 ] && command -v python3 > /dev/null 2>&1; then
+    echo "$use" | python3 "$MNRUN_DIR/topo_check.py" --sort --procs "$P" >&2 || true
 fi
 # D34 (user 2026-10-15): multi-node runs launch with srun --kill-on-bad-exit=1 (a dead rank ends the step in seconds, not at the timeout);
 # COMM_KILL_ON_BAD_EXIT=0 is the only override.
