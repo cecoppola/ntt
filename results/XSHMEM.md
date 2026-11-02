@@ -261,6 +261,55 @@ checked first): the kit chain `s0_check`, `s2_build --path both`, `s3_gate --nod
 **Verdict.** Gate PASS: digits identical, 0 P24 flags, every injection caught; cand3 merged into main 2026-10-31. **Open issues.** The
 series arm is not analysed; the off / on single runs are not timing evidence (path 2 on 28.20 vs 26.29 s needs a paired run if it matters).
 
+## N1: rounds sized by the active pairs, `XSHMEM_ROUND_ACTIVE=1` (branch roundsize, 2026-11-01; aac7 1-3 nodes, measured)
+
+**Why (measured, 10-29 run).** At 576 nodes the round chunk is `XSHMEM_ROUND_MB / (n - 1)` = 233 KB whatever the exchange: a shift has only 1-2 peers with bytes, yet pays about 4,600 rounds per chunk of `MDB_SHIFT_CHUNK_MB`; 165,300 rounds per PE at a mean 14 MB per round, partner polls 37.4 s.
+
+**Rule.** `XSHMEM_ROUND_ACTIVE=1` (default 0; implies `XSHMEM_SPARSE=1`): in an alltoallv the chunk is `XSHMEM_ROUND_MB / D`, D = the largest, over the members of the communicator, of max(peers I send bytes to, peers I receive bytes from), clamped to 1..n-1. Equal alltoall and communicators of 2 members are unchanged (D = n - 1 there); the whole-exchange path (`XSHMEM_ROUND_MB=0`) keeps its own transfer but the switch still implies `XSHMEM_SPARSE` there. The post now waits for all members of the communicator (the tree max); this adds no new ordering constraint because the rounds already run in lockstep with every peer and each communicator has at most one exchange pending.
+
+**Agreement (the reason for the extra collective).** What has to agree is the chunk of each pair, not K: the pair (s -> r) advances both ends' sequence words by `rcount(b, c)` and round j's offset word and signal carry `seq + 1 + j`; a different c at the two ends gives a sequence mismatch fatal or a hang. K (the loop length) is local to a PE. A PE knows only its own send and receive counts, so a per-PE rule (c from my own degree) would give the two ends of a pair different chunks. One max over the members (`tiny_tree`, ceil(log2 n) steps of one put and one signal, on the same words and parity stream as the other small collectives; every member calls it, iff n > 2 and the exchange is an alltoallv) gives all pairs one c. Cost: one 8-byte tree max per exchange (assumed: tens of microseconds at 8 PEs, 10 steps at 576 nodes), and the post now waits for every member to arrive (before, the post returned first); not yet measured at scale.
+
+**Memory.** Staging per PE is the sum over active peers of min(c, count) <= D c <= m: the same bound as today, no new buffers.
+
+**Tests.** `tests/t_vpe all` gained sparse alltoallv cases (ring of 2 neighbors, star, no bytes at all, ring of +1 only (D = 1), unequal degrees (even ranks to +1 and +2, odd to +1), only the even ranks with data; 3 repetitions each, data checked), run with `XSHMEM_ROUND_MB=0.01` so that rounds occur, switch off and on. `tests/t_xshmem` carries its own copy of the exchange (it does not link the round code of `comm_xshmem.c`), so it does not exercise the switch; it is run as the regression of the layer.
+
+**Results, 2 nodes (aac7, item roundsize_a, 2026-11-01, measured, single runs; code at 852eaab, before the merge of main).**
+- Correctness, all PASS: `t_vpe all` (with the new sparse cases) at `XSHMEM_ROUND_MB=0.01`: path 1 at 1 node (4 PEs, switch unset and set) and 2 nodes (8 PEs, unset and set); path 2 with `XSHMEM_LANES=2` at 2 nodes unset, 1 and 2 nodes set, and path 2 without lanes at 2 nodes set. `t_xshmem` (does not run the round code of `comm_xshmem.c`): PASS in the same arms.
+- Gates, all PASS with digits identical: path 1 at 1 and 2 nodes, unset and set, and 2 nodes set with `XSHMEM_ROUND_MB=0.222609`; path 2 (`ECALC_PE_PER_GPU=1 XSHMEM_LANES=2`) at 2 nodes unset and set, 1 node set.
+- Digits, 2 nodes: 1e10 sha bb6e0f867a5f5d91 in all three arms; 1.6e10 (written 16000000000, `MN_TREE_LOGN_TEST=26`) sha 5bc4211dbd24efd1 for default (61 s), switch set (59 s) and set with `XSHMEM_ROUND_MB=0.222609` (76 s).
+- Rounds per tag (maximum over the 8 PEs, 1e10, `XSHMEM_ROUND_STATS=1`):
+
+| tag | exchanges | rounds, `XSHMEM_ROUND_MB=0.222609`, switch unset | same, switch set | switch set, default 128 MiB |
+|---|---|---|---|---|
+| other | 36 | 133 | 133 | 36 |
+| redist | 86 | 18,643 | 18,643 | 99 |
+| result | 54 | 21,468 | 21,468 | 76 |
+| spill | 54 | 92 | 92 | 54 |
+| addsh | 74 | 16,724 | 16,724 | 97 |
+| layeq | 3,977 | 182,889 | 182,889 | 3,977 |
+
+**What 2 nodes can and cannot show.** The round counts are identical with the switch unset and set. At 2 nodes the exchanges are between two members (D = n - 1 = 1: no change by construction) or between members that all carry data, so the active-pair rule has nothing to remove: the 2-node runs prove correctness and the sequence handling of the extra max, and they are not evidence of the round drop. Zero-byte pairs need at least 3 nodes (see the 3-node results below).
+
+**Results, 3 nodes (aac7, item roundsize_c, merged code 6f0febee, 2026-11-01, measured, single runs).**
+- Correctness, all PASS: `t_vpe all` at 3 nodes (12 PEs) path 1 unset and set, path 2 with `XSHMEM_LANES=2` unset and set; path 1 set at 2 nodes. Gates (digits identical): path 1 at 1, 2, 3 nodes unset and set, 3 nodes set with `XSHMEM_ROUND_MB=0.222609`; path 2 at 2 nodes unset and set, 3 nodes set. 1e10 at 3 nodes: sha e7aac3a3fe898061 in all nine runs (unset, `XSHMEM_SPARSE=1` alone, switch set; with and without `XSHMEM_ROUND_MB=0.222609`); 1e10 at 2 nodes sha bb6e0f867a5f5d91 unset and set.
+- Rounds per tag (maximum over the 12 PEs, 1e10, `XSHMEM_ROUND_MB=0.222609`):
+
+| tag | exchanges | unset | `XSHMEM_SPARSE=1` alone | `XSHMEM_ROUND_ACTIVE=1` |
+|---|---|---|---|---|
+| other | 12 | 13 | 13 | 13 |
+| redist | 96 | 23,611 | 23,611 | 23,611 |
+| result | 62 | 29,097 | 29,097 | 29,097 |
+| spill | 62 | 159 | 159 | 159 |
+| addsh (the shifts) | 75 | 19,724 | 19,724 | 15,750 (-20.1 %) |
+| layeq | 409 | 441 | 441 | 441 |
+| layv | 3,928 | 182,500 | 182,500 | 182,500 |
+
+`XSHMEM_SPARSE=1` alone changes no round count, as designed (it keeps the chunk). The switch removes 20 % of the shift rounds at 3 nodes and nothing elsewhere. Reading: with 3 members a shift has at most 2 peers with bytes, so D = 2 = n - 1 and the chunk grows only for the exchanges in which every member has a single peer (D = 1: chunk doubled). The gain per exchange is (n - 1) / D, here 1 to 2; modeled for 576 nodes with D = 2: up to 287 times fewer rounds per shift chunk, not yet measured (needs the target scale).
+
+**Cost of the max (single runs, wall seconds, 1e10).** 3 nodes with `XSHMEM_ROUND_MB=0.222609`: unset 42 / 41 / 42, set 43 / 42 / 42; 3 nodes default size: 34 vs 33; 2 nodes: 50 vs 50. No difference beyond 1 s. At most 4,644 alltoallv exchanges per PE occur (sum of the exchange column), so the cost per exchange is bounded by about 1 s / 4,644 = 200 microseconds (assumed bound from the wall resolution; not measured per exchange). At 576 nodes the max has 10 tree steps per exchange; its cost there is unmeasured.
+
+**Verdict.** Correctness and digits PASS at 1, 2, 3 nodes on both paths; the round drop appears where the model says (only the shifts, only with a group of 3 or more members) and is small at 3 nodes. Adoption needs the 576-node (or 6-node D = 1 vs 5) measurement of the rounds and the partner-poll time; default stays 0.
+
 ## N4: `XSHMEM_LANES=2` on path 1, layout D (branch netmeas, 2026-11-01 19:40-20:33 ET, aac7, measured)
 
 Gate of the plan item N4 (two NICs per APU on path 1). Build: main c86e5fcc, path 1 (`XSHMEM=ofi`), separate worktree. aac7 has one NIC per APU, so lane 2 is a virtual lane: this is a digits and no-crash gate, no gain claim. Launch line of the aac7 profile plus `XSHMEM_ROUND_STATS=1`; digits hashed (sha256 of the part files in name order) and deleted; one run per cell.
