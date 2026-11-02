@@ -89,5 +89,71 @@ class TargetFit(unittest.TestCase):
         self.assertEqual(r.stdout.split(), ["0.0", "0.0", "0.061", "1.0", "1.0"], r.stderr[-500:])
 
 
+OLD_SCRIPT = r"""
+import sys
+sys.path.insert(0, %r)
+import mn_model as M
+e = M.estimate(576, 3.4722e10, fabric=M.apply_profile("target_fit"))
+print(round(e["nowrite_s"], 1), round(e["nic_bytes"] / 1e12, 2), round(e["init"], 1))
+""" % ECALC
+
+
+class V12(unittest.TestCase):
+    """D2 (2026-11-01): the model recalibrated on the measured decomposition of the 2e13 run (576 nodes).  Pins say why."""
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, ECALC)
+        import mn_model
+        cls.M = mn_model
+
+    def test_terms_close_to_the_measured_wall(self):
+        # the six terms at 2e13 against the run's measured wall 206.27 s (an independent constant); the buckets close to 0.2 s in the run's own table, so 0.25 s
+        e = self.M.v12_estimate(2e13)
+        self.assertEqual(set(e["terms"]), {"init", "wire", "polls", "engine", "gpu", "host"})
+        self.assertAlmostEqual(sum(e["terms"].values()), 206.27, delta=0.25)
+        # the measured ratios the terms are built from: 165,300 rounds, 9.33 TB, per-round time, wire rate, the round-sizing rule (128 MiB / 575 = 233 KB)
+        self.assertEqual(round(e["rounds"]), 165300)
+        self.assertAlmostEqual(e["fabric_tb"], 9.33, places=2)
+        self.assertAlmostEqual(e["round_s"] * 1e3, 0.355, places=3)
+        self.assertAlmostEqual(e["wire_gbs"], 184.4, delta=0.1)
+        self.assertAlmostEqual(self.M.xshmem_chunk_bytes(576) / 1e3, 233.0, delta=1.0)
+
+    def test_other_sizes_within_twelve_percent(self):
+        # NOT fitted: the 10-29 series and the second 2e13 run; 1.8e13 ran with other settings (diagnostic words) and is kept for that reason.  Excluded: the reference
+        # run (2e13, 206.27, the calibration) and 3.6e13 (the fitted row).  Known residuals -11.6 % ... +8.0 %: linear scaling is too steep above 2e13, too flat below.
+        rows = [r for r in self.M.v12_table() if r[0] != 3.6e13 and r[1] != 206.27]
+        self.assertEqual(len(rows), 7)
+        for d, meas, w, res in rows:
+            self.assertLess(abs(res), 0.12, (d, meas, w))
+
+    def test_phi_is_the_only_fit(self):
+        # phi is solved on the 3.6e13 passes (mean of three plain runs); the pin keeps the fit visible: 0.34
+        self.assertAlmostEqual(self.M.V12_PHI, 0.341, places=3)
+        # piece index from results/LAUNCH_DEFAULTS.md section PIECES (1 / 2 / 1 up to 2.6e13; 1/2/2 at 2.7e13; 2/3/2 at 2.9e13; 2/4/2 at 3.6e13; 3/5/3 at 4.0e13); the form is an assumption (a)
+        for d, want in ((2.6e13, 1.0), (2.7e13, 1.33), (2.9e13, 1.83), (3.6e13, 2.0), (4.0e13, 2.83)):
+            self.assertAlmostEqual(self.M.v12_piece_index(d), want, places=2, msg=d)
+
+    def test_monotone_and_576_only(self):
+        w = [self.M.v12_estimate(d)["wall_s"] for d in (1e13, 2e13, 3e13, 3.6e13, 4e13)]
+        self.assertEqual(w, sorted(w))
+        with self.assertRaises(ValueError): self.M.v12_estimate(2e13, nodes=64)
+
+    def test_risk_rows(self):
+        r = self.M.v12_risk(3.6e13)
+        self.assertEqual([(x[1], x[2]) for x in r], [(7, 3), (4, 0)])
+        self.assertEqual(self.M.v12_risk(3e13), [])                        # no runs between 2.4e13 and 3.6e13
+        self.assertEqual(self.M.v12_risk(4e13)[0][3], 1.0)
+
+    def test_cli(self):
+        r = subprocess.run([sys.executable, os.path.join(ECALC, "mn_model.py"), "v12", "--digits", "2e13"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=120)
+        self.assertEqual(r.returncode, 0, r.stderr[-500:])
+        self.assertIn("206.1", r.stdout)
+
+    def test_old_target_fit_estimate_pinned_as_stale(self):
+        # target_fit stays selectable and unchanged: 527.5 s / 6.72 TB / init 22.4 s for the 2e13 run that took 206.27 s with 9.33 TB and init 36.6 s (the D2 comparison)
+        r = subprocess.run([sys.executable, "-c", OLD_SCRIPT], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=300, cwd=ECALC)
+        self.assertEqual(r.stdout.split(), ["527.5", "6.72", "22.4"], r.stderr[-500:])
+
+
 if __name__ == "__main__":
     unittest.main()
