@@ -113,7 +113,7 @@ static void *consumer(void *a)
         if (W.mode == 0 && b->n) {
             size_t done = 0; while (done < b->n) { ssize_t w = write(W.fd, b->s + done, b->n - done); if (w < 0 && errno == EINTR) continue; if (w <= 0) { fprintf(stderr, "unpack_digits: write: %s\n", strerror(errno)); exit(2); } done += (size_t)w; }
         } else if (W.mode == 1 && !W.differ) {
-            size_t done = 0, nc = (W.prefix && b->last && W.has_last && b->n) ? b->n - 1 : b->n;   /* --prefix: the run's final newline is not compared with a reference byte */
+            size_t done = 0, nc = (W.prefix && W.has_last && b->n && b->s[b->n - 1] == '\n') ? b->n - 1 : b->n;   /* --prefix: the run's final newline (the last byte of the buffer that holds it, which need not be the last buffer) is not compared with a reference byte */
             while (done < nc && !W.differ) {
                 ssize_t r = read(W.cmp_fd, W.cbuf, nc - done < (64u << 20) ? nc - done : (64u << 20));
                 if (r < 0 && errno == EINTR) continue;
@@ -162,6 +162,7 @@ int main(int argc, char **argv)
         const ecp_hdr *h = &p[i].h;
         if (h->endian != ECP_ENDIAN) die("%s was written on a host of the other byte order", p[i].name);
         if ((h->version != ECP_VERSION && !(h->version == ECP_VERSION60 && h->reserved0 == ECP60_BITS)) || h->hdr_bytes != ECP_HDR_BYTES || h->limb_bytes != 8 || h->limb_digits != 18 || h->order != 1) die("%s: an unknown format version or layout", p[i].name);
+        if (h->d_out > h->d) die("%s: a format error (d_out is larger than d)", p[i].name);
         if (!h->complete) die("%s: incomplete (the run did not close it: complete = 0)", p[i].name);
     }
     qsort(p, (size_t)np, sizeof *p, part_cmp);

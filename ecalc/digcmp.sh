@@ -10,6 +10,12 @@ P=$(ls "$f".part* 2>/dev/null | sort); [ -n "$P" ] || P=$f
 first=$(echo "$P" | head -1); last=$(echo "$P" | tail -1)
 rs=$(stat -L -c %s "$ref" 2>/dev/null || echo 0)
 if [ "$(head -c 8 "$first" 2>/dev/null)" = ECPACK18 ]; then
+  # the part set must be complete: as many files as the header's nparts, with the part indices 0..nparts-1 in order (unpack_digits
+  # alone compares only the byte range of the parts it is given)
+  np=$(od -An -tu4 -j36 -N4 "$first" 2>/dev/null | tr -d ' '); i=0; bad=
+  [ "$(echo "$P" | wc -l)" = "$np" ] || bad="$(echo "$P" | wc -l) part file(s), the header says $np"
+  for p in $P; do [ "$(od -An -tu4 -j32 -N4 "$p" 2>/dev/null | tr -d ' ')" = "$i" ] || bad=${bad:-"part $i missing or out of order ($p)"}; i=$((i + 1)); done
+  if [ -n "$bad" ]; then echo "digcmp: incomplete part set: $bad" >&2; echo DIFFERS; exit 0; fi
   n=$(od -An -tu8 -j56 -N8 "$first" 2>/dev/null | tr -d ' ')   # header d_out: the run's ASCII is "2." + d_out digits + "\n"
   pre=; [ -n "$n" ] && [ "$rs" -gt $((n + 3)) ] && pre=--prefix
   "$here/../tools/unpack_digits" -q --cmp "$ref" $pre $P > /dev/null 2>&1 && { [ -n "$pre" ] && echo "identical (prefix of the reference)" || echo identical; } || echo DIFFERS

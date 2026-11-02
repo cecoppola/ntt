@@ -165,6 +165,39 @@ def digcmp_cases(exe, wd, rnd):
             ok = got == "DIFFERS"; fails += not ok
             if not ok: print("digcmp FAIL: %s longer run n %d: got %r" % (form, n, got))
             for x in names: os.remove(x)
+    # a part set missing its first or last part, and a header with d_out > d: DIFFERS (equal-size and longer references)
+    n = 18 * 20
+    for rname, ref in (("equal", "2." + full[1:n + 1] + "\n"), ("longer", refs["full"])):
+        rp = os.path.join(wd, "dc_ref"); open(rp, "w").write(ref)
+        base = os.path.join(wd, "dc_run"); names = write_parts(base, full[:n + 1], n, n, 3)
+        for what, drop in (("first part missing", names[0]), ("last part missing", names[-1]), ("middle part missing", names[1])):
+            keep = [x for x in names if x != drop]
+            for x in names: os.rename(x, os.path.join(wd, "dc_held")) if x == drop else None
+            got = subprocess.run(["bash", sh, base, rp], stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.decode().strip()
+            ok = got == "DIFFERS"; fails += not ok
+            if not ok: print("digcmp FAIL: %s, %s reference: got %r" % (what, rname, got))
+            os.rename(os.path.join(wd, "dc_held"), drop)
+        got = subprocess.run(["bash", sh, base, rp], stdout=subprocess.PIPE).stdout.decode().strip()     # the complete set still passes
+        ok = got == ("identical" if rname == "equal" else "identical (prefix of the reference)"); fails += not ok
+        if not ok: print("digcmp FAIL: complete set, %s reference: got %r" % (rname, got))
+        for x in names: os.remove(x)
+    ch = list(full[:n + 1]); ch[n] = "0" if ch[n] != "0" else "1"
+    for dout in (n + 5, n + 1):                                            # d_out > d (a corrupt header) with the last digit changed in the reference
+        rp = os.path.join(wd, "dc_ref"); open(rp, "w").write("2." + "".join(ch)[1:] + full[n + 1:n + 20] + "\n")
+        base = os.path.join(wd, "dc_run"); names = write_parts(base, full[:n + 1], n, dout, 1)
+        got = subprocess.run(["bash", sh, base, rp], stdout=subprocess.PIPE).stdout.decode().strip()
+        r = subprocess.run([exe, "-q", "--cmp", rp, "--prefix"] + names, stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode
+        ok = got == "DIFFERS" and r == 2; fails += not ok
+        if not ok: print("digcmp FAIL: d_out %d > d %d: got %r, unpack_digits rc %d (2 wanted)" % (dout, n, got, r))
+        for x in names: os.remove(x)
+    # the newline in a non-last chunk (d_out = d - 18 at a chunk boundary): --prefix still skips it
+    for dd, do in ((18 * 131072 + 17, 18 * 131072 - 1), (18 * 131072 + 17, 18 * 131072 + 5)):
+        dig = "2" + "".join(rnd.choice("0123456789") for _ in range(dd)); base = os.path.join(wd, "dc_run"); names = write_parts(base, dig, dd, do, 1)
+        rp = os.path.join(wd, "dc_ref"); open(rp, "w").write("2." + dig[1:do + 1] + "".join(rnd.choice("0123456789") for _ in range(40)) + "\n")
+        r = subprocess.run([exe, "-q", "-c", "1", "--cmp", rp, "--prefix"] + names, stdout=subprocess.PIPE).returncode
+        ok = r == 0; fails += not ok
+        if not ok: print("--prefix FAIL: newline in a non-last chunk d %d d_out %d: rc %d" % (dd, do, r))
+        for x in names: os.remove(x)
     # unpack_digits itself: --prefix on a longer reference is identical, without it not; on an equal reference both are
     n = 18 * 7; dig = full[:n + 1]; base = os.path.join(wd, "dc_run"); names = write_parts(base, dig, n, n, 2)
     rp = os.path.join(wd, "dc_ref"); open(rp, "w").write(refs["full"])

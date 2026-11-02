@@ -115,7 +115,7 @@ Digits against a reference:
 A reference longer than the run (e.g. a 1.6e10 run against the 1e11 reference) is compared by its first bytes: `digcmp.sh`
 then prints `identical (prefix of the reference)` (`unpack_digits --cmp <ref> --prefix`; the run's final newline is not
 matched against a reference digit); `tools/gate.sh` counts that answer as identical. Equal length behaves as before, a
-run longer than the reference is `DIFFERS`. `tools/test_unpack.py` tests both forms (ASCII and packed, host only).
+run longer than the reference is `DIFFERS`. `digcmp.sh` also answers `DIFFERS` (reason on stderr) for an incomplete packed part set (fewer files than the header's part count, or a missing first, middle or last part); `unpack_digits` alone compares only the parts it is given, and rejects a header with d_out > d. `tools/test_unpack.py` tests both forms (ASCII and packed, host only).
 
 A run's own checks (`VERIFY OK`: T1 residues, T2 windows) are described in `ALGORITHM.md` §10; they do not replace the
 reference compare, they replace it only where no reference exists.
