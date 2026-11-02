@@ -335,8 +335,6 @@ static int cache_pc_take(mn_group *G, size_t na, size_t nb, const mdbv *A, const
 #undef OVL
     size_t need = rns_mul_dist_mn_scratch(na, nb, 0, g, sha, shb, sc1 - sc0, 0);
     double mg = 0.5 * 1e9;
-    { static int rr = -1; if (rr < 0) { const char *e = getenv("DIST_CACHE_RAW_RESERVE"); rr = e ? atoi(e) != 0 : 0; }
-      if (rr) mg += (double)plane + gather_raw_margin() * 1e9; }   /* S4: also leave the raw gather's plane + margin (else B is gathered per prime, 2 nodes 6e10) */
     const size_t PM = (size_t)DIST_CACHE_MAX * EC_NP; size_t P = PM, fmin = (size_t)-1;
     for (int d = 0; d < NR; d++) {
         size_t fr = db_pool_free_bytes(d), fc = db_pool_fit_count(d, plane); if (fr < fmin) fmin = fr;

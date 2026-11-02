@@ -27,7 +27,6 @@ static const char *const cfg_names[] = {
     "DB_POOL_VMM",
     "DB_POOL_VMM_CHUNK_GB",
     "DB_POOL_VMM_RESERVE",
-    "DIST_CACHE_RAW_RESERVE",
     "DIST_CHUNKS",
     "DIST_GATHER_RAW_MARGIN_GB",
     "DIST_GEN",
@@ -152,4 +151,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_THP_DISABLE",
     "XSHMEM_THREAD_LEVEL",
 };
-#define CFG_NAMES_N 150
+#define CFG_NAMES_N 149
