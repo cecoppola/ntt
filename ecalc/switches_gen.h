@@ -60,6 +60,8 @@ static const char *const cfg_names[] = {
     "ECALC_HOST_TL_PE",
     "ECALC_INIT_ONLY",
     "ECALC_INIT_TL",
+    "ECALC_MAPD",
+    "ECALC_MAPD_TEST_DIE",
     "ECALC_MEMSAMPLE_SYSFS_ROOT",
     "ECALC_MEM_GUARD_APU_GB",
     "ECALC_MEM_GUARD_GB",
@@ -151,4 +153,4 @@ static const char *const cfg_names[] = {
     "XSHMEM_THP_DISABLE",
     "XSHMEM_THREAD_LEVEL",
 };
-#define CFG_NAMES_N 149
+#define CFG_NAMES_N 151

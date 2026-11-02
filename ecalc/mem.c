@@ -15,6 +15,9 @@
 #include <unistd.h>
 #include <hip/hip_runtime.h>
 #include "mem.h"
+/* hooks set by rns_init under ECALC_MAPD=1 (no weak symbols: the small test programs link mem.o without mapd.o / dbig.o) */
+void *(*mem_vmm_pool_alloc)(int dev, size_t bytes) = 0;   /* a plane pool as a VA range over helper-created chunks, or NULL */
+int (*mem_vmm_pool_free)(int dev, void *p) = 0;           /* 1 if p was such a pool (released) */
 #include "omp_team.h"                                     /* A1: ECALC_OMP_TEAM */
 
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
@@ -133,6 +136,7 @@ void *mem_dev_malloc(int dev, size_t bytes)
 void mem_dev_release(int dev, void *p)
 {
     if (!p) return;
+    if (mem_vmm_pool_free && mem_vmm_pool_free(dev, p)) return;                 /* a plane pool built from chunks (ECALC_MAPD=1) */
     int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
     HIP_CHECK(hipFree(p));
     HIP_CHECK(hipSetDevice(cur));
@@ -265,6 +269,12 @@ void mem_hstage_free(void *p)
 
 int mem_pool_guard = 0;                               /* see mem.h */
 static size_t pow2_ceil(size_t x) { size_t c = 1; while (c < x) c <<= 1; return c; }
+size_t dpool_cap(size_t bytes, int pow2) { const size_t al = (size_t)2 << 20; return pow2 ? pow2_ceil(bytes) : (bytes + al - 1) / al * al; }
+static void *dpool_malloc(dpool *d, int dev, size_t cap)   /* hipMalloc, or (d->vmm, the pool's first allocation) chunks made by the APU's helper process */
+{
+    if (d->vmm && !d->p && mem_vmm_pool_alloc) { void *p = mem_vmm_pool_alloc(dev, cap); if (p) return p; }
+    return mem_dev_malloc(dev, cap);
+}
 
 /* MEM_DPOOL_FILL=1 fills a plane pool with 0xA5 bytes when it is grown inside a phase, =2 at
  * every allocation -- a tier that relied on fresh device memory being zero would fail deterministically instead of once in
@@ -283,7 +293,7 @@ void *dpool_get(dpool *d, int dev, size_t bytes)
     if (d->p) mem_dev_release(d->dev, d->p);
     HIP_CHECK(hipSetDevice(dev));
     int grew = d->p != 0;
-    if (!(d->p = mem_dev_malloc(dev, cap))) mem_oom("dpool_get", dev, cap);
+    if (!(d->p = dpool_malloc(d, dev, cap))) mem_oom("dpool_get", dev, cap);
     d->cap = cap; d->dev = dev;
     dpool_fill(d, grew);
     return d->p;
@@ -295,7 +305,7 @@ void *dpool_get_exact(dpool *d, int dev, size_t bytes)
     if (d->p) mem_dev_release(d->dev, d->p);
     HIP_CHECK(hipSetDevice(dev));
     int grew = d->p != 0;
-    if (!(d->p = mem_dev_malloc(dev, cap))) mem_oom("dpool_get_exact", dev, cap);
+    if (!(d->p = dpool_malloc(d, dev, cap))) mem_oom("dpool_get_exact", dev, cap);
     d->cap = cap; d->dev = dev;
     dpool_fill(d, grew);
     return d->p;
