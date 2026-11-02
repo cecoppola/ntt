@@ -41,7 +41,6 @@ Maximum over the 8 PEs (rounds): layeq 5,033, addsh 747, redist 507, result 384,
 **Open issues.** The old negative-sample rate was not re-measured on the old binary. Teardown at 576 nodes not remeasured. The per-tag maximum over PEs uses offset 0 of the DATA heap at finalize (all exchanges complete, barriers around it). `gate.sh --build` was not used for the gates (see Method). Not run: 3-node checks.
 **RESUME.** Branch `diag` on origin; the aac7 worktree of the branch and the driver folder `diag6` are left for the coordinator. Next: coordinator review and merge; remove both worktrees; run `XSHMEM_ROUND_STATS=1` at 576 nodes for the per-tag table.
 
-<<<<<<< HEAD
 ## N1 step 1: per-tag round counters at the 576-node chunk size, 2 nodes (branch netmeas, 2026-11-01 19:44-20:33 ET, aac7, measured)
 
 **Question.** Do the shift tags (`addsh`) dominate the round count when the per-pair chunk is the 576-node value (233 KB)? **Method.** Path 1 (`XSHMEM=ofi`, layout D), build of main c86e5fcc made in a separate worktree (`make -B`; the I1 counters print). 2 nodes, `XSHMEM_ROUND_STATS=1`, aac7 launch line, digits written to a scratch folder and hashed (sha256 of the part files in name order), then deleted. At n = 2 the chunk is c = `XSHMEM_ROUND_MB` / (n - 1) = `XSHMEM_ROUND_MB`, so the 576-node chunk 128 MiB / 575 = 233,422 B is `XSHMEM_ROUND_MB=0.222609` (the E10 value 0.23 is 3 % larger). Arms: D = default (128), S = scaled, SS = scaled with `XSHMEM_SPARSE=1`. One run per arm, no ABBA: wall times are not timing claims.
@@ -73,7 +72,7 @@ At 1e10 the shares are the same within 1 point (S: layeq 78.7 %, addsh 8.6 %, re
 - Digits identical across D, S, SS at both sizes (same hash), VERIFY OK in all six runs.
 
 **Verdict.** The E10 test bed reproduces the round-count inflation but not the 575-peer handshake cost and not a shift-dominated mix. N1 (chunk by active pairs, zero-byte peers skipped) cannot be validated for gain at 2 nodes; its digits gate (1 / 2 / 6 nodes) and the round count at the E10 setting remain the checks. **Open issues.** No per-tag time; the 576-node per-tag table (`XSHMEM_ROUND_STATS=1`) is still the test of the shift hypothesis. **RESUME.** Next: N1 design/code as planned, with a 3-node arm so that zero-byte pairs exist.
-=======
+
 ## I3 — host timeline between exchanges (`ECALC_HOST_TL`, branch `hosttl`)
 
 **What it is.** `ECALC_HOST_TL=1` (default 0) records, for the traced PE (`ECALC_HOST_TL_PE`, default 0, -1 = every PE), the wall time from the end of the last pending exchange to the next post ("host"), attributed to the phase tag of that next post, plus the wait inside the post (the caller's stream sync) and the number of posts made while another exchange was pending ("ovl"). It is header-only (`ecalc/hosttl.h`) with hooks in `ecalc/comm_xshmem.c` only; one file `xshmem_hosttl_pe<rank>.txt` per traced PE at finalize. Check printed per file: span (first post to last end) = busy + sum(host), exact. Unit test `tests/t_hosttl` (9 checks).
@@ -122,5 +121,4 @@ The table's host column sum equals the run's own gap counter (`ROUND_STATS` rst[
 
 **Limits.** (0) The state is per PE: with several threads or communicators posting on one PE (the target's one process driving four GPUs), only the first post after an idle period gets the gap and later overlapping posts count as "ovl"; "last end" is the end of the last of all pending exchanges, so wait and busy mix those threads (in the measured aac7 runs "ovl" was 0). (1) Calls to `hipStreamSynchronize` or other syncs made by the caller inside a gap count as host time; the comm layer cannot separate them (the GPU-time subtraction above is the only split). (2) The tag is that of the next post, not the work that preceded it. (3) The GPU time skips intervals on a different stream, so gap - GPU is an upper bound of the pure host part. (4) One 2-node size, single runs; a 6-node run was not possible (queue capacity). (5) Per-call-site attribution (which function of bs, recip, dm) is not available here; `XSHMEM_ROUND_STATS=2` has the call-site series.
 
-**RESUME.** Branch `hosttl` (origin), main merged at 99397bdc. Not merged to main; the switch stays off by default. Next: coordinator review and merge, remove the worktrees.
->>>>>>> origin/main
+**RESUME.** Merged to main 2026-11-01 (39195ef9); the switch stays off by default. Open: a run at 6 nodes or more when aac7 has the nodes.
