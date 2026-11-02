@@ -69,3 +69,36 @@ Raw lines: `ssh <cluster> 'cat ~/mapbench/all.txt'` (RESULT lines, one per run).
 
 **RESUME.** Branch mapd: program and result committed, not merged. Next (decision for the coordinator): integrate behind
 `ECALC_MAPD=1` (design §3 step 2), or take only the NUMA pinning (arm C, 1.29x) which needs no helper.
+
+## Integration, phase 1 (arenas only): `ECALC_MAPD=1` (2026-11-01)
+
+Code: `ecalc/mapd.c`, `mapd.h`; hooks in `dbig.c` (`vmm_map_run` takes the next chunk from the APU's helper, `db_vmm_arena_alloc` sends the
+request, the mapper lock and the background mapper are unchanged) and `ecalc.c` (`mapd_early()` at main start, helper entry on
+`--mapd-helper`). The helper is this executable; one per APU, NUMA-pinned, socket pair with fd passing; a helper exits after its last chunk.
+Failure (spawn, helper init, create or export, 60 s without a chunk, import) kills that helper, prints one `ECALC_MAPD:` line, and the rest of
+that APU's chunks are created in-process. Plane pools stay on `hipMalloc`; not used with `ECALC_PE_PER_GPU`. Test knob `ECALC_MAPD_TEST_DIE=<dev>:<k>`.
+
+- **Gates (measured, aac7, 1e9 digits, tools/gate.sh, ref e_1e9):** 1 node unset PASS, `ECALC_MAPD=1` PASS; 2 nodes unset PASS, `=1` PASS; all "digits identical",
+  VERIFY OK. (Unset 1-node gate: item 41_s1_a g1_off.)
+- **Init timeline, 2 nodes, 1.6e10 digits, `ECALC_INIT_TL=1`, nodes s1b0 + s5b0, interleaved off/on/off/on; single runs (measured), rank-0 node:**
+
+| run | init total (s) | rns_init (s) | slowest foreground arena (s) | last background mapping done (tl s) |
+|---|---|---|---|---|
+| off 1 | 12.75 | 10.46 | 2.36 | 10.32 |
+| on 1 | 9.22 | 6.86 | 1.17 | 6.73 |
+| off 2 | 13.46 | 10.06 | 2.42 | 10.05 |
+| on 2 | 9.83 | 7.46 | 1.03 | 7.42 |
+
+  Init: off 13.1 s mean, on 9.5 s mean (-3.6 s, -28 %); arena mapping (foreground half, slowest APU): 2.4 s -> 1.1 s; mapping complete 10.2 -> 7.1 s on the rns_init clock.
+  The main process waited 0.11-0.32 s per APU for helpers and spent 0.01-0.24 s importing. Arenas here are small (3-9 chunks per APU); the gain scales with
+  the chunk count, so the 2e13 arenas (7-12 chunks in the background alone) should gain more (modeled, not measured).
+- **Fallback (measured):** `ECALC_MAPD_TEST_DIE=2:0` at 1e9, 1 node: `ecalc: ECALC_MAPD: helper of APU 2 failed (helper exited) after 0 chunks: the remaining 1 chunks are created in-process`, rc 0, VERIFY OK,
+  digits identical (gate PASS). `=1:3` at 1e10, 1 node: line "after 3 chunks: the remaining 2 chunks ..." and the run continued to the same stage as the unset arm.
+  The 1e10 1-node runs (this and the unset arm) both exit with rc 1 in the memory phase (node MemFree 5.4 GB), a limit of the launch line at that size, not of the switch; so the mid-stream fallback has no
+  digits check; the 1e9 case has one.
+- **Not checked:** the gate's comparison at 1.6e10 against the 1e11 reference prints DIFFERS for the unset arm as well (also at 1e9 against that reference): the comparison does not accept a longer reference, so
+  digits at 1.6e10 are not compared (VERIFY OK passed in all four runs). Memory headroom with the helpers' extra runtimes, 6-node and PPG layouts: not measured.
+- **Phase 2 (plane pools through the same path), not started:** `rns_mul.c rns_init` (the `da`/`db` dpool `hipMalloc`) to a VMM-backed dpool (contiguous VA over imported chunks, about 100 lines);
+  `mapd.c` request protocol from one request per helper to a FIFO of (kind, count, size) requests so plane-pool chunks are created first, in today's order, then arena chunks (about 60 lines; the
+  helper loop and `struct req` get a kind field); `dbig.c` consumer for the pool chunks and the `dev_used()` accounting in `rns_init` (measure tables before the helpers start); a call from `rns_init` that
+  sends the pool request before staging. Estimated 250-300 lines, 1 day plus gates.
