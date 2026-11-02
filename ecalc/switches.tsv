@@ -25,7 +25,7 @@ COMM_TRANSPORT	enum	unset	derived	shmem	launch-line	-	S.md+OFI17.md	Y	ecalc	bins
 DB_FREE_SYNC	int	0	0	0|1|2	experiment	-	POOLRACE.md	Y	ecalc	dbig.c	1	coordinator (C1POOL)	2026-11-30	dbig.c; 0 = off; 1 = hipDeviceSynchronize on the block's device before it returns to the free list and before a VMM chunk is unmapped; 2 = on every pool device
 DB_POOL_FORCE_REMAP	int	0	0	>=0	experiment	-	STRESS.md	Y	ecalc	dbig.c	1	coordinator (C2 STRESS)	2026-11-30	dbig.c; 0 = off; n = every n-th block-pool allocation first unmaps up to max(64, ceil(need/chunk)) of the highest wholly free VMM chunks and maps them again (no growth)
 DB_POOL_VERBOSE	int	0	derived	0|1|2	launch-line	-	T215.md+S18KITFIX.md	Y	ecalc	dbig.c	6	-	-	dbig.c:123: defaults to 1 when RNS_VERBOSE is set, else 0
-DB_POOL_VMM	bool	derived	derived	0|1	built-in default	-	R114.md	Y	ecalc	dbig.c	1	-	-	
+DB_POOL_VMM	bool	derived	derived	0|1	built-in default	-	R114.md	Y	ecalc	dbig.c,mapd.c	2	-	-	
 DB_POOL_VMM_CHUNK_GB	float	2	2		built-in default	-	S46.md+R114.md	Y	ecalc	dbig.c	1	-	-	
 DB_POOL_VMM_RESERVE	float	3	3		built-in default	-	R114.md	Y	ecalc	dbig.c	1	-	-	
 DIST_CHUNKS	int	derived	derived		built-in default	-	S19B.md+A-comm.md	Y	ecalc	ntt_dist.c,rns_dist.c	6	-	-	
@@ -61,6 +61,8 @@ ECALC_HOST_TL	bool	0	unset	0|1	diagnostic	-	DIAG.md	Y	ecalc	comm_xshmem.c	1	coor
 ECALC_HOST_TL_PE	int	0	unset	-1..PEs-1	diagnostic	-	DIAG.md	Y	ecalc	comm_xshmem.c	1	coordinator (I3)	2027-01-31	comm_xshmem.c; with ECALC_HOST_TL=1
 ECALC_INIT_ONLY	int	unset	unset		test-only	-	L114.md+P13b.md	Y	ecalc	ecalc.c	2	diagnostics (TESTING.md)	2027-04-12	
 ECALC_INIT_TL	bool	0	0	0|1	launch-line	-	MAP15.md	Y	ecalc	comm_xshmem.c,dbig.c,ecalc.c,mn.c,xshmem_ofi.c	7	-	-	dbig.c
+ECALC_MAPD	bool	0	0	0|1	experiment	-	MAPBENCH.md	Y	ecalc	mapd.c	1	coordinator (TASKS S1)	2026-11-30	mapd.c; ecalc.c main start
+ECALC_MAPD_TEST_DIE	str	derived	derived	<dev>:<k>	test-only	-	MAPBENCH.md	Y	ecalc	mapd.c	1	coordinator (TASKS S1)	2026-11-30	mapd.c
 ECALC_MEMSAMPLE_SYSFS_ROOT	str			path prefix	test-only	-	HEALTH.md	Y	ecalc	memsample.c	1	HEALTH (C5)	2027-04-12	memsample.c; prefix of the /sys path of the per-APU NUMA-node MemFree reader (a mock tree proves the per-APU guard); unset = the real /sys
 ECALC_MEM_GUARD_APU_GB	float	0	0	>=0 GB	launch-line	-	HEALTH.md	Y	ecalc	ecalc.c,memsample.c	2	-	-	memsample.c; 0 = per-APU guard off
 ECALC_MEM_GUARD_GB	float	0	derived	>=0 GB	launch-line	aac7	IO15.md+DOC15.md	Y	ecalc	memsample.c	1	-	-	memsample.c:113; 0 = guard off
@@ -73,7 +75,7 @@ ECALC_OMP_TEAM	str	omp	unset	omp|mask	experiment	-	S22.md	Y	ecalc	omp_team.h	1	T
 ECALC_OUT_MODE	bool	derived	derived	0|1	built-in default	-	IO15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_ODIRECT	int	derived	derived		built-in default	-	S114.md+KP15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_PACKED	int	2	2		built-in default	-	KP15.md+IO15.md	Y	ecalc	mn_out.c	1	coordinator (TASKS S)	2026-11-11	
-ECALC_PE_PER_GPU	bool	0	derived	0/1	experiment	-	-	Y	ecalc	ecalc.c,mem.c,memsample.c,vpe.c	6	TARGET12 (S2)	2026-12-31	vpe.c, mem.c; 1 = one process per GPU (PE; srun 4 tasks per node, SLURM_LOCALID, xshmem K = 1, implies the vPE view); needs COMM_TRANSPORT=xshmem and make XSHMEM=ofi; launch by mnrun.sh; aborts "stages not merged" until S2a..S2d are all in
+ECALC_PE_PER_GPU	bool	0	derived	0/1	experiment	-	-	Y	ecalc	ecalc.c,mapd.c,mem.c,memsample.c,vpe.c	7	TARGET12 (S2)	2026-12-31	vpe.c, mem.c; 1 = one process per GPU (PE; srun 4 tasks per node, SLURM_LOCALID, xshmem K = 1, implies the vPE view); needs COMM_TRANSPORT=xshmem and make XSHMEM=ofi; launch by mnrun.sh; aborts "stages not merged" until S2a..S2d are all in
 ECALC_PLANE_CAP	bool	derived	derived	0|1	experiment	-	P13b.md+CAP17.md	Y	ecalc	ecalc.c	1	coordinator (TASKS S)	2026-11-11	
 ECALC_PLANE_CAP_IDX	int	derived	derived		test-only	-	-	Y	ecalc	binsplit.c,ecalc.c	3	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	
 ECALC_RECHECK	bool	0	unset	0|1	launch-line	-	V.md+KP15.md	Y	ecalc	ecalc.c	2	-	-	ecalc.c: standalone recheck of a finished run

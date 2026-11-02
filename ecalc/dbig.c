@@ -13,6 +13,7 @@
 #include <stdarg.h>
 #include "p24.h"                                       /* a P24 product's spill decode (sparse_get) */
 #include "vpe.h"
+#include "mapd.h"
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define CH 4096                                        /* limbs per carry chunk (256 threads x 16) */
@@ -305,7 +306,11 @@ static int vmm_map_run(int d, int slot0, int m, hipMemGenericAllocationHandle_t 
     prop.type = hipMemAllocationTypePinned; prop.location.type = hipMemLocationTypeDevice; prop.location.id = d;
     for (int i = 0; i < m; i++) {
         double t0 = mem_now();
-        if (!hs[i]) { if (hipMemCreate(&hs[i], v->chunk, &prop, 0) != hipSuccess) return 0; v->n_grow++; v->grow_chunks++; }
+        if (!hs[i]) {
+            void *mh = 0;
+            if (mapd_chunk(d, &mh)) hs[i] = (hipMemGenericAllocationHandle_t)mh;   /* ECALC_MAPD=1: the next chunk of the APU's helper process, imported (counted as `create`) */
+            else { if (hipMemCreate(&hs[i], v->chunk, &prop, 0) != hipSuccess) return 0; v->n_grow++; v->grow_chunks++; }
+        }
         double t1 = mem_now();
         if (hipMemMap(v->base + (size_t)(slot0 + i) * v->chunk, v->chunk, 0, hs[i], 0) != hipSuccess) return 0;
         v->t_cr += t1 - t0; v->t_mp += mem_now() - t1;
@@ -340,6 +345,7 @@ static void *vmm_bg_map(void *arg)                       /* the arena's chunks a
         if (k + 1 == v->mark_m) db_tl("APU%d background: the parity-1 half is mapped (chunk %d)", dev, k);
         pthread_mutex_lock(&g_pool_mx); v->mapped = k + 1; pthread_cond_broadcast(&g_vmm_cv); pthread_mutex_unlock(&g_pool_mx);
     }
+    { int mn; double mw, mi; if (mapd_stat(dev, &mn, &mw, &mi)) db_tl("APU%d mapd: %d chunks from the helper, %.2f s waiting for it, %.2f s importing", dev, mn, mw, mi); }
     db_tl("APU%d background mapping done: %d chunks in %.2f s (create %.2f, map %.2f, access %.2f, zero %.2f, queued for the mapper lock %.2f)", dev, v->m0 - k0, mem_now() - t0, v->t_cr - c0, v->t_mp - p0, v->t_ac - a0, v->t_ms - s0, tlk);
     HIP_CHECK(hipStreamDestroy(st)); HIP_CHECK(hipSetDevice(cur));
     pthread_mutex_lock(&g_pool_mx);
@@ -373,6 +379,7 @@ void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of 
     const char *e = getenv("DB_POOL_VMM_RESERVE"); double rf = e ? atof(e) : 3.0; if (rf < 1.0) rf = 1.0;
     int m0 = (int)((bytes + C - 1) / C), nslot = (int)(m0 * rf) + 1; if (nslot < m0 + 1) nslot = m0 + 1;
     int nd; HIP_CHECK(hipGetDeviceCount(&nd)); if (nd > DB_NQ) nd = DB_NQ;
+    mapd_request(dev, m0, C);                                     /* ECALC_MAPD=1: the helper of this APU starts creating the m0 chunks (no-op otherwise) */
     v->chunk = C; v->nslot = nslot; v->nd = nd; v->reserved = (size_t)nslot * C; v->h = (hipMemGenericAllocationHandle_t *)calloc(nslot, sizeof *v->h);
     hipMemAllocationProp prop; memset(&prop, 0, sizeof prop); prop.type = hipMemAllocationTypePinned; prop.location.type = hipMemLocationTypeDevice; prop.location.id = dev;
     size_t gran = 0; if (hipMemGetAllocationGranularity(&gran, &prop, hipMemAllocationGranularityRecommended) != hipSuccess || !gran) gran = (size_t)2 << 20;
@@ -401,7 +408,7 @@ void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of 
 void db_vmm_arena_release(int dev)                     /* after the pool is done with it (rns_shutdown): every chunk unmapped and released, the VA freed */
 {
     struct vmm *v = &g_vmm[dev]; if (!v->base) return;
-    db_vmm_arena_wait(dev, (size_t)-1);
+    db_vmm_arena_wait(dev, (size_t)-1); mapd_finish(dev);
     for (int k = 0; k < v->nslot; k++) if (v->h[k]) { (void)hipMemUnmap(v->base + (size_t)k * v->chunk, v->chunk); (void)hipMemRelease(v->h[k]); v->h[k] = 0; }
     (void)hipMemAddressFree(v->base, v->reserved); free(v->h);
     if (vmm_vb()) printf("dbig pool: APU%d VMM arena released (%zu remaps of %zu chunks in %.2f s, %zu of them forced by DB_POOL_FORCE_REMAP, %zu growths of %zu chunks)\n", dev, v->n_remap, v->remap_chunks, v->t_remap, v->n_force, v->n_grow, v->grow_chunks);

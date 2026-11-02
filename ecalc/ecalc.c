@@ -37,6 +37,7 @@ static long ec_map_count(long *limit);   /* ECALC_INIT_TL=1: lines of /proc/self
 #include "fatal.h"                                   /* ec_quit, EC_RC_BUDGET */
 #include "omp_team.h"                              /* A1: ECALC_OMP_TEAM */
 #include "vpe.h"                                   /* PE identity (ECALC_PE_PER_GPU=1, off by default) */
+#include "mapd.h"
 #include "segv_trace.h"                               /* s18w task 2: ECALC_SEGV_TRACE=1 (default 0) */
 extern "C" size_t comm_layered_vbytes(int dev);      /* B7ACCT (comm_layered.c) */
 #include <pthread.h>
@@ -545,6 +546,7 @@ static double ec_proc_age_s(void)
 }
 int main(int argc, char **argv)
 {
+    if (mapd_is_helper(argc, argv)) return mapd_helper_main(argc, argv);   /* ECALC_MAPD=1: this executable as an APU's chunk-creating helper (mapd.c) */
     const double tl_age = ec_proc_age_s();                   /* ECALC_INIT_TL=1: the process's age at main (read before anything else runs) */
     cfg_snapshot();                                   /* L5: record the registered switches set in the environment, before ecalc sets any itself (print-only) */
     /* MN_PLAN_ONLY=<total digits>:<g> -- the plan of a run of that size on g node-processes (mn_plan.c): every
@@ -558,6 +560,7 @@ int main(int argc, char **argv)
         char gb[16]; snprintf(gb, sizeof gb, "%d", plan_g); setenv("COMM_SIZE", gb, 1); setenv("COMM_RANK", "0", 1);
     } else plan = 0;
     if (argc < 2 && !plan) { fprintf(stderr, "usage: ecalc <digits> [outfile]\n"); return 2; }
+    if (!plan) mapd_early();                          /* ECALC_MAPD=1 (default 0): start the per-APU helper processes now, before any HIP / PMI call (mapd.c) */
     ec_segv_trace_install();                          /* s18w task 2: after COMM_RANK is known (the environment above, or the
                                                           MN_PLAN_ONLY branch's setenv); no-op unless ECALC_SEGV_TRACE=1 */
     unsigned long d_out = plan ? plan_d : strtoul(argv[1], 0, 10), d = d_out;   /* d: the digits computed; in decimal rounded up to a multiple of 18 (the requested digits are a prefix: floor(floor(10^d' e) / 10^(d'-d)) = floor(10^d e)); d_out: written and windowed */
