@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include "rns_mul.h"
 #include "dbig.h"
+#include "mapd.h"
 #include "ntt.h"
 #include "mem.h"
 #include "crt.h"
@@ -128,6 +129,15 @@ static void rns_acct(int ndev, size_t b[][MEM_DEV_NCAT])
     for (int d = 0; d < ndev && d < EC_NP; d++) { b[d][MEM_DEV_PLANES] += D[d].da.cap + D[d].db.cap; b[d][MEM_DEV_TABLES] += g_tables[d]; }
 }
 static size_t dev_used(int d) { size_t f = 0, t = 0; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d)); if (hipMemGetInfo(&f, &t) != hipSuccess) f = t = 0; HIP_CHECK(hipSetDevice(cur)); return t - f; }
+/* pool 0's bytes per APU as rns_init asks for them (*pow2: dpool_get's power-of-two rounding applies, else dpool_get_exact's 2 MiB) */
+static size_t pool_a_bytes(size_t bytes, int *pow2)
+{
+    size_t p0; *pow2 = 0;
+    if (ec_np == 3 && rns_pool0_np() == 4) { rns_plane_pool_bytes(g_pool_log, 4, &p0, 0); return p0; }   /* NP (ECALC_NP=auto): four planes where a product may need them */
+    if (ec_np == 3) return pool0_np3_bytes();                                                           /* P3: the dist tier's 3 q (3/4 of the four-prime pool) */
+    if (rns_np2cap()) { rns_plane_pool_bytes(g_pool_log, ec_np, &p0, 0); return p0; }                  /* MN_NONPOW2_CAP: np q at the larger q */
+    *pow2 = 1; return bytes;                                                                           /* pregrow to 2^pool_log */
+}
 int rns_init(int pool_log)
 {
     if (g_nd) return g_nd;
@@ -155,7 +165,9 @@ int rns_init(int pool_log)
     for (int d = g_d0; d < g_d1; d++) {
         double tt, tr, x0 = mem_now(), x1, x2, x3;
         HIP_CHECK(hipSetDevice(d));
+        mapd_sync(d);                         /* ECALC_MAPD=1: the helper's runtime is up before the measurements below, so tables are not mixed with it */
         size_t u0 = dev_used(d); x1 = mem_now();
+        if (db_tl_on()) db_tl("APU%d device memory in use before the contexts: %.1f MiB", d, u0 / 1048576.0);
         D[d].ctx = ntt_ctx_create(d);
         size_t u1 = dev_used(d); g_tables[d] = u1 > u0 ? u1 - u0 : 0; x2 = mem_now();
         HIP_CHECK(hipStreamCreate(&D[d].s));
@@ -172,17 +184,21 @@ int rns_init(int pool_log)
     size_t b1 = rns_pool1_bytes_req ? rns_pool1_bytes_req : bytes;
     if (!rns_pool1_bytes_req && rns_np2cap()) { size_t p1; rns_plane_pool_bytes(g_pool_log, ec_np_init(), 0, &p1); if (p1 > b1) b1 = p1; }   /* MN_NONPOW2_CAP: 3 q + 16 (4 q at four one-node primes) of the larger q exceeds 4 q of 2^(pool_log-2) */   /* C4: pool 1 sized to the dist tier's 3 q when the flow is all-device (the removed host mdev tier needed the full 2^pool_log; TREF) */
     if (getenv("RNS_POOL1_GB")) b1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);
+    int vmm_pools = mapd_active();                /* ECALC_MAPD=1 (phase 2): the plane pools are VMM ranges over chunks the APU's helper process creates (mapd.c); else hipMalloc, unchanged */
 #pragma omp parallel for num_threads(g_d1 - g_d0) schedule(static)
     for (int d = g_d0; d < g_d1; d++) {
         HIP_CHECK(hipSetDevice(d));
-        if (ec_np == 3 && rns_pool0_np() == 4) { size_t p0; rns_plane_pool_bytes(g_pool_log, 4, &p0, 0); dpool_get_exact(&D[d].da, d, p0); }   /* NP (ECALC_NP=auto): four planes where a product may need them */
-        else if (ec_np == 3) dpool_get_exact(&D[d].da, d, pool0_np3_bytes());   /* P3: the dist tier's 3 q (3/4 of the four-prime pool) */
-        else if (rns_np2cap()) { size_t p0; rns_plane_pool_bytes(g_pool_log, ec_np, &p0, 0); dpool_get_exact(&D[d].da, d, p0); }   /* MN_NONPOW2_CAP: np q at the larger q */
-        else dpool_get(&D[d].da, d, bytes);      /* pregrow to 2^pool_log */
+        int ap2 = 0; size_t ab = pool_a_bytes(bytes, &ap2);
+        if (vmm_pools) {                          /* the requests go out here, after the contexts' device-memory measurement (dev_used above), in today's creation order: pool 0, pool 1, then (the hook) the arena */
+            D[d].da.vmm = D[d].db.vmm = 1;
+            mapd_pool_request(d, dpool_cap(ab, ap2), db_pool_vmm_chunk()); mapd_pool_request(d, dpool_cap(b1, 0), db_pool_vmm_chunk());
+        }
+        if (ap2) dpool_get(&D[d].da, d, ab); else dpool_get_exact(&D[d].da, d, ab);
         dpool_get_exact(&D[d].db, d, b1);
     }
     db_tl("plane pools done (%.2f s)", mem_now() - ti1);
     if (rns_after_staging_hook) { HIP_CHECK(hipSetDevice(g_d0)); rns_after_staging_hook(rns_hook_arg); db_tl("the hook (region arenas, the seed thread started) done"); }   /* N4: the region arenas and the seeds after the plane pools */
+    mapd_end_init();                              /* ECALC_MAPD=1: a helper whose APU got no arena request is finished and reaped now */
     mem_par_init = 0;
     mem_acct_register(rns_acct);
     double ti2 = mem_now();
@@ -197,7 +213,7 @@ int rns_init(int pool_log)
     HIP_CHECK(hipSetDevice(g_d0));
     db_tl("peer access done (%.2f s)", mem_now() - ti2);
     db_pool_vmm_on() ? db_vmm_bg_release() : (void)0;   /* the arenas' second halves map from here, after the plane pools */
-    if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB (%s), staging %.2f GiB, tables %.3f GB; staging+contexts %.2f s, pools %.2f s, peer access %.2f s\n", D[g_d0].da.cap / 1073741824.0, b1 / 1073741824.0, "hipMalloc", sbytes / 1073741824.0, g_tables[g_d0] / 1e9, ti1 - ti0, ti2 - ti1, mem_now() - ti2);
+    if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB (%s), staging %.2f GiB, tables %.3f GB; staging+contexts %.2f s, pools %.2f s, peer access %.2f s\n", D[g_d0].da.cap / 1073741824.0, b1 / 1073741824.0, vmm_pools ? "VMM, ECALC_MAPD" : "hipMalloc", sbytes / 1073741824.0, g_tables[g_d0] / 1e9, ti1 - ti0, ti2 - ti1, mem_now() - ti2);
     return g_nd;
 }
 int rns_pool_log(void) { return g_pool_log; }

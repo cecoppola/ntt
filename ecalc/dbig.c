@@ -333,6 +333,7 @@ static void *vmm_bg_map(void *arg)                       /* the arena's chunks a
     hipStream_t st; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev)); HIP_CHECK(hipStreamCreateWithFlags(&st, hipStreamNonBlocking));
     for (int k = v->mapped; k < v->m0; k++) {
         hipMemGenericAllocationHandle_t h[1] = { 0 };
+        mapd_ready(dev);                                       /* ECALC_MAPD=1: wait for the helper's chunk outside the mapper lock (a stuck helper must not stall the other APUs' mappers for its 60 s) */
         double tq = mem_now();
         pthread_mutex_lock(&g_vmm_map_mx);
         double tg = mem_now(); tlk += tg - tq;
@@ -379,7 +380,7 @@ void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of 
     const char *e = getenv("DB_POOL_VMM_RESERVE"); double rf = e ? atof(e) : 3.0; if (rf < 1.0) rf = 1.0;
     int m0 = (int)((bytes + C - 1) / C), nslot = (int)(m0 * rf) + 1; if (nslot < m0 + 1) nslot = m0 + 1;
     int nd; HIP_CHECK(hipGetDeviceCount(&nd)); if (nd > DB_NQ) nd = DB_NQ;
-    mapd_request(dev, m0, C);                                     /* ECALC_MAPD=1: the helper of this APU starts creating the m0 chunks (no-op otherwise) */
+    mapd_request(dev, 1, m0, C, 1);                               /* ECALC_MAPD=1: the helper of this APU starts creating the m0 chunks, then exits (no-op otherwise) */
     v->chunk = C; v->nslot = nslot; v->nd = nd; v->reserved = (size_t)nslot * C; v->h = (hipMemGenericAllocationHandle_t *)calloc(nslot, sizeof *v->h);
     hipMemAllocationProp prop; memset(&prop, 0, sizeof prop); prop.type = hipMemAllocationTypePinned; prop.location.type = hipMemLocationTypeDevice; prop.location.id = dev;
     size_t gran = 0; if (hipMemGetAllocationGranularity(&gran, &prop, hipMemAllocationGranularityRecommended) != hipSuccess || !gran) gran = (size_t)2 << 20;
