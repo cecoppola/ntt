@@ -1872,12 +1872,108 @@ def cache_partial(T=None, g=None, keep_room=False, loops=('code', 'long'), arena
         return (b0, bw), rows
     finally: CACHE_P24 = saved
 
+
+# ============================================================================================================
+# v12 (D2, 2026-11-01): the model recalibrated on the MEASURED per-PE decomposition of the 2e13 run on 576 nodes (remote-v12 engine, every
+# diagnostic on) and checked against the other sizes of the same day.  Few explicit terms; every constant is a measured bucket of that
+# run (m), a ratio of two measured numbers (m, derived) or says "assumed".  Only 576 nodes: the per-round and wire terms were measured
+# there and nothing here is known for other node counts.  `mn_model.py v12 [--digits ...]`; results/TIME_MODEL.md section v12 has the table.
+# ============================================================================================================
+V12_NODES = 576
+V12_REF_DIGITS = 2e13
+V12_REF_S = dict(init=36.6, wire=50.6, polls=37.4, engine=21.3, gpu=40.3, host=19.9)   # m: the run's six buckets, seconds per PE (mean); they close to 206.1 of the 206.27 s
+V12_FABRIC_TB = 9.33          # m: TB per node each way at the reference size (4 of 8 NICs)
+V12_ROUNDS = 165300           # m: exchange rounds per PE at the reference size
+V12_SHIFTS, V12_SHIFT_S = 139, 25.57   # m: distributed shifts and their time on rank 0 (a share of the round and wire buckets, not an extra term)
+V12_INIT_SLOPE = 0.94         # s per 1e12 digits: measured across the series (20.65 s at 4e12, 39.41 s at 2.4e13); ASSUMED linear, anchored at the reference size
+V12_PIECE_ROWS = ((2.7e13, (1, 2, 1)), (2.9e13, (1, 2, 2)), (3.6e13, (2, 3, 2)), (4.0e13, (2, 4, 2)), (4.4e13, (3, 5, 3)), (9e99, (4, 6, 3)))
+# runs of 2026-10-29 on 576 nodes, VERIFY OK, (digits, seconds); the first is the reference run; 3.6e13 is the mean of its three plain passes
+V12_RUNS = ((2e13, 206.27), (4e12, 62.73), (8e12, 99.72), (12e12, 130.92), (16e12, 168.48), (20e12, 207.22), (24e12, 225.73), (1.8e13, 174.0), (3.6e13, (393.0 + 390.8 + 394.6) / 3))
+# measured failure ledger of the same engine on 576 nodes: (label, first size, last size, runs, failures).  FEW runs: read the intervals, not the points.
+# 3.6e13 has two readings: all 7 runs (3 failed) and the 4 without diagnostic words (0 failed); the 3 failures all had the words on.
+V12_FAIL_ROWS = (("4.608e12", 4.6e12, 4.7e12, 11, 1), ("4e12-2.4e13 series", 4e12, 2.4e13, 8, 2), ("3.6e13, all runs", 3.6e13, 3.6e13, 7, 3),
+                 ("3.6e13, diagnostic words off", 3.6e13, 3.6e13, 4, 0), ("3.7e13-4e13", 3.7e13, 4.0e13, 6, 6))
+
+def xshmem_chunk_bytes(n, round_mb=128):
+    """the exchange round's per-pair chunk (comm_xshmem.c xex_post_rounds): XSHMEM_ROUND_MB / (n - 1) bytes; a pair with more than that takes more rounds"""
+    return round_mb * 1048576.0 / max(n - 1, 1)
+
+def v12_piece_index(digits):
+    """the planner's piece counts (results/LAUNCH_DEFAULTS.md section PIECES; levels 1-6 / 7 / 8) as one number: their mean relative to the
+    1 / 2 / 1 of every size up to 2.6e13 (so 1.0 up to 2.6e13, 2.0 at 3.6e13, 2.83 at 4.0e13).  Sizes below 2e13 are ASSUMED to be 1."""
+    for hi, (a, b, c) in V12_PIECE_ROWS:
+        if digits < hi: return (a + b / 2.0 + c) / 3.0
+    return (4 + 3 + 3) / 3.0
+
+def _v12_terms(digits, phi):
+    k = digits / V12_REF_DIGITS; r = V12_REF_S
+    pen = 1.0 + phi * (v12_piece_index(digits) - 1.0)                      # the per-exchange share of the latency terms grows with the pieces
+    t = dict(init=r["init"] + V12_INIT_SLOPE * (digits - V12_REF_DIGITS) / 1e12,
+             wire=r["wire"] * k, polls=r["polls"] * k * pen, engine=r["engine"] * k * pen, gpu=r["gpu"] * k, host=r["host"] * k)
+    return t
+
+def _v12_fit_phi():
+    """the ONE fitted number: phi, the share of the per-round (poll + engine) buckets that grows with the piece count, from the 3.6e13 passes"""
+    d, meas = 3.6e13, V12_RUNS[-1][1]
+    base = sum(_v12_terms(d, 0.0).values()); lat = (V12_REF_S["polls"] + V12_REF_S["engine"]) * d / V12_REF_DIGITS
+    return (meas - base) / (lat * (v12_piece_index(d) - 1.0))
+V12_PHI = _v12_fit_phi()   # about 0.34: ONE parameter, ONE size (three runs); sizes before 2.7e13 do not depend on it
+
+def v12_estimate(digits, nodes=V12_NODES, phi=None):
+    """seconds per term, wall, rounds, fabric volume for `digits` on 576 nodes (the remote-v12 engine, XSHMEM_ROUND_MB=128, the 10-29 series settings).
+    wire = fabric TB / the measured rate; rounds x latency = polls + engine buckets / the measured rounds.  Linear in digits except init (affine, assumed)
+    and the piece penalty (phi).  Fabric volume per node is linear in digits (assumed; measured 0.40-0.47 TB per 1e12 across the series)."""
+    if nodes != V12_NODES: raise ValueError("v12 is calibrated on 576 nodes only")
+    phi = V12_PHI if phi is None else phi
+    t = _v12_terms(digits, phi); k = digits / V12_REF_DIGITS
+    pen = 1.0 + phi * (v12_piece_index(digits) - 1.0)
+    out = dict(digits=digits, terms=t, wall_s=sum(t.values()), piece_index=v12_piece_index(digits), rounds=V12_ROUNDS * k * pen, fabric_tb=V12_FABRIC_TB * k,
+               wire_gbs=V12_FABRIC_TB * 1e3 / V12_REF_S["wire"], round_s=(V12_REF_S["polls"] + V12_REF_S["engine"]) / V12_ROUNDS,
+               shifts=V12_SHIFTS, shift_s=V12_SHIFT_S * k, chunk_bytes=xshmem_chunk_bytes(nodes))
+    return out
+
+def v12_wilson(n, f, z=1.96):
+    """the Wilson 95 % interval of f failures in n runs"""
+    p = f / float(n); d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d; h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return max(0.0, c - h), min(1.0, c + h)
+
+def v12_risk(digits):
+    """the failure-ledger rows that cover this size (measured, few runs): (label, runs, failures, rate, Wilson 95 % interval low, high, expected attempts for one
+    verified pass = 1 / (1 - rate), ASSUMED independent runs).  Sizes between 2.4e13 and 3.6e13 and above 4e13 have no runs: an empty list (the rate rises with size)."""
+    out = []
+    for name, lo_d, hi_d, n, f in V12_FAIL_ROWS:
+        if lo_d * 0.99 <= digits <= hi_d * 1.01 or (name.startswith("4e12") and 4e12 * 0.99 <= digits <= hi_d):
+            lo, hi = v12_wilson(n, f); r = f / float(n)
+            out.append((name, n, f, r, lo, hi, 1.0 / (1.0 - r) if f < n else float("inf")))
+    return out
+
+def v12_table(extra=()):
+    rows = []
+    for d, meas in tuple(V12_RUNS) + tuple(extra):
+        e = v12_estimate(d); rows.append((d, meas, e["wall_s"], e["wall_s"] / meas - 1.0))
+    return rows
+
+def v12_main(argv=None):
+    ap = argparse.ArgumentParser(prog="mn_model.py v12", description="the model recalibrated on the 2e13 decomposition (576 nodes; remote-v12; seconds per PE); prints the terms, then the residuals against the measured 10-29 runs")
+    ap.add_argument("--digits", type=float, nargs="*", default=[2e13, 2.4e13, 3.6e13, 4e13])
+    a = ap.parse_args(argv)
+    print("v12 (576 nodes, XSHMEM_ROUND_MB=128): phi %.3f (fitted on 3.6e13); per-round cost %.3f ms, wire %.0f GB/s per node (measured at 2e13)" % (V12_PHI, 1e3 * v12_estimate(2e13)["round_s"], v12_estimate(2e13)["wire_gbs"]))
+    print("%-9s %7s | %6s %6s %6s %6s %6s %6s | %7s %8s %6s | risk (measured, few runs)" % ("digits", "wall s", "init", "wire", "polls", "engine", "gpu", "host", "rounds", "fabric TB", "pieces"))
+    for d in a.digits:
+        e = v12_estimate(d); t = e["terms"]; rk = v12_risk(d)
+        print("%-9.3e %7.1f | %6.1f %6.1f %6.1f %6.1f %6.1f %6.1f | %7d %8.2f %6.2f | %s" % (d, e["wall_s"], t["init"], t["wire"], t["polls"], t["engine"], t["gpu"], t["host"], e["rounds"], e["fabric_tb"], e["piece_index"],
+              "; ".join("%s: %d of %d failed, 95%% interval %.2f-%.2f, attempts %.1f" % (r[0], r[2], r[1], r[4], r[5], r[6]) for r in rk) or "no runs at this size"))
+    print("residuals (model / measured - 1):")
+    for d, meas, w, res in v12_table(): print("  %.3e  measured %.1f  model %.1f  %+.1f %%" % (d, meas, w, 100 * res))
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "v12": return v12_main(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == "estimate":
         try: return estimate_main(sys.argv[2:])
         except mem_model.NoGrid as e:                                   # a size no grid holds: the code would stop with the same fatal (--D is digits PER NODE)
             print("mn_model.py estimate: %s -- that size cannot run (note: --D is the digits per node, e.g. 3.82e13 on 576 nodes is --D 6.63e10)" % e, file=sys.stderr); return 2   # the standing estimate (was estimate.py)
-    sys.exit("usage: mn_model.py estimate [options]   (estimate --help)")
+    sys.exit("usage: mn_model.py estimate [options]   (estimate --help) | mn_model.py v12 [--digits ...]")
 
 
 # ============================================================================================================
