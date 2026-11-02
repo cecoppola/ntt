@@ -212,6 +212,8 @@ precision j → 2j in the **correction form**, with Q_t the top `take` = min(2j 
     corr = (r · d) / B^j           (a high product, pieces below j − guard skipped)
     r' = (r · B^j) ± corr
 
+With `NEWTON_MN_LAZY=1` Q_t is not cut out: when the step runs on the full group, the product reads it as a window view of Q (`mdb_view`, `rns_mul_dist_mn_cut_v`; the same limbs, so the same digits) and no copy is allocated; steps on a subgroup keep the copy.
+
 Two products per doubling. If the correction is larger than expected the step repeats at the same precision; an overshoot
 (r' ≤ 0) shrinks r by 1/16 and retries. The chain of targets is **anchored from the top** (`newton_chain_next`: k, ⌈k/2⌉,
 ⌈k/4⌉, … read downward), so the last doubling lands exactly on k with no wasted precision. The seed is a schoolbook

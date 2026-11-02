@@ -770,6 +770,8 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
      * members only (the others wait at the next exchange over G), and r moves to the next step's group when it grows */
     mn_group *Gs = 0; int member = 0, mid_ok = 0;                     /* R4: the first sharded round forms the whole product (the chain's last |d| is not carried over) */
     mdb r; memset(&r, 0, sizeof r);
+    static int lazy_on = -1; size_t lazy_skipped = 0;                  /* NEWTON_MN_LAZY (default 0): the right shift whose only consumer is a product becomes a view (F-in) */
+    if (lazy_on < 0) lazy_on = getenv("NEWTON_MN_LAZY") ? atoi(getenv("NEWTON_MN_LAZY")) != 0 : 0;
     mdb qt, t, u, pw, d, corr, rs; memset(&qt, 0, sizeof qt); memset(&t, 0, sizeof t); memset(&u, 0, sizeof u); memset(&pw, 0, sizeof pw); memset(&d, 0, sizeof d); memset(&corr, 0, sizeof corr); memset(&rs, 0, sizeof rs);
     if (me == 0) printf("recip(mn): the single-node chain to %zu limbs (%.2f s), then the sharded steps to %zu over %d nodes%s\n", kp, t1 - t0, k, G->g, vpe_on() ? " (vPE chain: own per PE)" : "");
     while (j < k) {
@@ -783,14 +785,18 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
             Gs = Gn;
             mid_ok = 0;                                                /* R4: the new group's nodes must agree (a node that was not a member has no previous round); job 21475: size 3, 4 */
         }
-        if (take == nq && Gs == G) ;                                   /* Q_t = Q itself (no shift copy) */
+        int qlazy = lazy_on && take < nq && Gs == G;                   /* NEWTON_MN_LAZY: Q_t as a view of Q (F-in); a step on a subgroup keeps the copy */
+        mdbv qv; memset(&qv, 0, sizeof qv);
+        if (qlazy) { qv = mdb_view(Q, nq - take, take, G); lazy_skipped++; }
+        else if (take == nq && Gs == G) ;                              /* Q_t = Q itself (no shift copy) */
         else mdb_shift_g(&qt, Q, (long)(nq - take), take, G, 0, Ln ? 1 << Ln : G->g);   /* Q_t: the top limbs of Q, onto the step's group [0, 2^L) (once per step: a repeat reuses it) */
         if (!member) { j = jn; NST(newton_st.iters++); continue; }
         for (;;) {
             double s0 = mem_now();
             size_t c1 = j <= take ? newton_recip_cut(take - j) : 0;   /* Phase 14 R1 (E7): the same cut over shares (results/DIVISION.md §R114 1.7) */
             size_t hw = mid_ok ? newton_recip_mid(j, take) : (size_t)-1;   /* Phase 15 R4: the middle product (archive:results_merged_2026-10-24/DIVISION.md §R415 1.6) -- the result in basis hw */
-            if (take == nq && Gs == G) mn_prod_cut(&t, Q, &r, Gs, c1, hw);
+            if (qlazy) { mdbv rv = mdb_view(&r, 0, r.n, Gs); double tp = mem_now(); rns_mul_dist_mn_cut_v(&t, &qv, &rv, Gs, c1, hw); mn_st.t_prod += mem_now() - tp; }   /* the same product on the same limbs (cut_v clips at hw as cut does) */
+            else if (take == nq && Gs == G) mn_prod_cut(&t, Q, &r, Gs, c1, hw);
             else mn_prod_cut(&t, &qt, &r, Gs, c1, hw);                 /* Q_t r */
             int neg;
             if (hw != (size_t)-1) {                                    /* R4: u mod B^(j+4) = t >> (take - j) (t is mod B^(take+4)); d = |e| from it */
@@ -842,6 +848,7 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     if (Gs != G) { x1_regroup(&r, G, member); Gs = G; member = 1; }    /* mu over the full group */
     if (j > k) { mdb_shift(&rs, &r, (long)(j - k), r.n - (j - k), G); mfree(&r); r = rs; memset(&rs, 0, sizeof rs); }
     mfree(&qt); mfree(&t);
+    if (lazy_on && me == 0 && getenv("ECALC_VERBOSE")) printf("recip(mn): NEWTON_MN_LAZY: %zu Q_t shifts skipped (views of Q)\n", lazy_skipped);
     if (mu->sh.cap) db_free(&mu->sh);
     *mu = r;
     NST(newton_st.t_recip += mem_now() - t0);
