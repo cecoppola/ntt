@@ -233,7 +233,6 @@ void mapd_pool_request(int dev, size_t bytes, size_t C)  /* the helper of `dev` 
 }
 void *mapd_pool_alloc(int dev, size_t bytes, size_t C)   /* NULL: use hipMalloc.  The chunks are the helper's (mapd_pool_request, same bytes and C), or created here where the helper failed */
 {
-    fprintf(stderr, "mapd_pool_alloc dev %d bytes %zu C %zu on %d state %d left %d\n", dev, bytes, C, g_on, dev >= 0 && dev < MAPD_NQ ? g_md[dev].state : -1, dev >= 0 && dev < MAPD_NQ ? g_md[dev].left : -1);
     if (!g_on || dev < 0 || dev >= MAPD_NQ || g_md[dev].state != 1 || C == 0) return NULL;
     int cur; if (hipGetDevice(&cur) != hipSuccess) return NULL;
     int n = (int)(bytes / C) + (bytes % C ? 1 : 0), nd = 0, ok = 0, mapped = 0; struct prec r; memset(&r, 0, sizeof r);
@@ -265,7 +264,7 @@ void *mapd_pool_alloc(int dev, size_t bytes, size_t C)   /* NULL: use hipMalloc.
         return NULL;
     }
     pthread_mutex_lock(&g_pr_mx);
-    for (int k = 0; k < 32; k++) if (!g_pr[k].base) { g_pr[k] = r; pthread_mutex_unlock(&g_pr_mx); return r.base; }
+    for (int k = 0; k < 32; k++) if (!g_pr[k].base) { g_pr[k] = r; pthread_mutex_unlock(&g_pr_mx); fprintf(stderr, "ecalc: ECALC_MAPD: plane pool of %.2f GB on APU %d built from %d chunks of the helper\n", bytes / 1e9, dev, n); return r.base; }
     pthread_mutex_unlock(&g_pr_mx);
     for (int i = 0; i < n; i++) { (void)hipMemUnmap(r.base + (size_t)i * C, r.sz[i]); (void)hipMemRelease(r.h[i]); } (void)hipMemAddressFree(r.base, bytes); free(r.h); free(r.sz);   /* (no free slot: cannot track) */
     return NULL;

@@ -62,6 +62,8 @@ int  mem_region_threads(int *rank);                 /* count of threads on this 
  * division that follow it; cleared around the level-0 sizing, where a fresh run legitimately lays its pools out again).
  * A pool that would grow while it is set aborts with the accounting unless RNS_POOL_GROW=1 (archive:results_merged_2026-10-24/CRASHES_HANGS.md §R). */
 extern int mem_pool_guard;
+extern void *(*mem_vmm_pool_alloc)(int dev, size_t bytes);   /* ECALC_MAPD=1 hooks (rns_init sets them) */
+extern int (*mem_vmm_pool_free)(int dev, void *p);
 typedef struct { void *p; size_t cap; int dev; int vmm; } dpool;   /* vmm: ECALC_MAPD=1 plane pool (rns_init sets it): the first allocation is a VMM range over helper-created chunks (mapd.c) */
 size_t dpool_cap(size_t bytes, int pow2);          /* the cap dpool_get (pow2) / dpool_get_exact (2 MiB multiple) gives for `bytes` */
 void *dpool_get(dpool *d, int dev, size_t bytes);   /* grows to pow2 >= bytes on device dev */

@@ -15,10 +15,9 @@
 #include <unistd.h>
 #include <hip/hip_runtime.h>
 #include "mem.h"
-#include "mapd.h"
-size_t db_pool_vmm_chunk(void) __attribute__((weak));     /* dbig.c: the VMM chunk, also the plane pools' chunk under ECALC_MAPD=1 */
-void *mapd_pool_alloc(int, size_t, size_t) __attribute__((weak));   /* (weak: the small test programs link mem.o without mapd.o / dbig.o; d->vmm is set only by rns_init) */
-int mapd_pool_free(int, void *) __attribute__((weak));
+/* hooks set by rns_init under ECALC_MAPD=1 (no weak symbols: the small test programs link mem.o without mapd.o / dbig.o) */
+void *(*mem_vmm_pool_alloc)(int dev, size_t bytes) = 0;   /* a plane pool as a VA range over helper-created chunks, or NULL */
+int (*mem_vmm_pool_free)(int dev, void *p) = 0;           /* 1 if p was such a pool (released) */
 #include "omp_team.h"                                     /* A1: ECALC_OMP_TEAM */
 
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
@@ -137,7 +136,7 @@ void *mem_dev_malloc(int dev, size_t bytes)
 void mem_dev_release(int dev, void *p)
 {
     if (!p) return;
-    if (mapd_pool_free && mapd_pool_free(dev, p)) return;                 /* a plane pool built from chunks (ECALC_MAPD=1) */
+    if (mem_vmm_pool_free && mem_vmm_pool_free(dev, p)) return;                 /* a plane pool built from chunks (ECALC_MAPD=1) */
     int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
     HIP_CHECK(hipFree(p));
     HIP_CHECK(hipSetDevice(cur));
@@ -273,7 +272,7 @@ static size_t pow2_ceil(size_t x) { size_t c = 1; while (c < x) c <<= 1; return 
 size_t dpool_cap(size_t bytes, int pow2) { const size_t al = (size_t)2 << 20; return pow2 ? pow2_ceil(bytes) : (bytes + al - 1) / al * al; }
 static void *dpool_malloc(dpool *d, int dev, size_t cap)   /* hipMalloc, or (d->vmm, the pool's first allocation) chunks made by the APU's helper process */
 {
-    if (d->vmm && !d->p && mapd_pool_alloc && db_pool_vmm_chunk) { void *p = mapd_pool_alloc(dev, cap, db_pool_vmm_chunk()); if (p) return p; }
+    if (d->vmm && !d->p && mem_vmm_pool_alloc) { void *p = mem_vmm_pool_alloc(dev, cap); if (p) return p; }
     return mem_dev_malloc(dev, cap);
 }
 

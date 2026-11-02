@@ -138,6 +138,7 @@ static size_t pool_a_bytes(size_t bytes, int *pow2)
     if (rns_np2cap()) { rns_plane_pool_bytes(g_pool_log, ec_np, &p0, 0); return p0; }                  /* MN_NONPOW2_CAP: np q at the larger q */
     *pow2 = 1; return bytes;                                                                           /* pregrow to 2^pool_log */
 }
+static void *rns_vmm_pool_alloc(int dev, size_t bytes) { return mapd_pool_alloc(dev, bytes, db_pool_vmm_chunk()); }
 int rns_init(int pool_log)
 {
     if (g_nd) return g_nd;
@@ -184,7 +185,8 @@ int rns_init(int pool_log)
     size_t b1 = rns_pool1_bytes_req ? rns_pool1_bytes_req : bytes;
     if (!rns_pool1_bytes_req && rns_np2cap()) { size_t p1; rns_plane_pool_bytes(g_pool_log, ec_np_init(), 0, &p1); if (p1 > b1) b1 = p1; }   /* MN_NONPOW2_CAP: 3 q + 16 (4 q at four one-node primes) of the larger q exceeds 4 q of 2^(pool_log-2) */   /* C4: pool 1 sized to the dist tier's 3 q when the flow is all-device (the removed host mdev tier needed the full 2^pool_log; TREF) */
     if (getenv("RNS_POOL1_GB")) b1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);
-    int vmm_pools = mapd_active();                /* ECALC_MAPD=1 (phase 2): the plane pools are VMM ranges over chunks the APU's helper process creates (mapd.c); else hipMalloc, unchanged */
+    int vmm_pools = mapd_active();
+    if (vmm_pools) { mem_vmm_pool_alloc = rns_vmm_pool_alloc; mem_vmm_pool_free = mapd_pool_free; }                /* ECALC_MAPD=1 (phase 2): the plane pools are VMM ranges over chunks the APU's helper process creates (mapd.c); else hipMalloc, unchanged */
 #pragma omp parallel for num_threads(g_d1 - g_d0) schedule(static)
     for (int d = g_d0; d < g_d1; d++) {
         HIP_CHECK(hipSetDevice(d));
