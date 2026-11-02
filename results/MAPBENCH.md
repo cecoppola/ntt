@@ -47,7 +47,7 @@ Load changes nothing beyond the spread (D 3.82 -> 3.87; A 15.87 -> 15.77).
   (about 19 GiB/s); the importer's import is 1 ms per chunk and the first-touch kernel 10 ms per chunk (A: create 0.15 s, touch 0.00 s).
   So the gain exists: creation, the dominant cost, moves to the helpers and runs in parallel across processes.
 - **What remains in the main process** is map + access: 3.2 s per APU for 20 chunks = 0.16 s per chunk, which is above the design's
-  secondary target (import+map+access of 0.05 s per chunk) and is now the critical path (helper 2.2 s, main 3.8 s). Map and access cost
+  secondary target (import+map+access of 0.05 s per chunk) and is now the critical path (helper 2.2 s, main 3.8 s). Map and access were
   not compared with a local handle here (A's map 0.11 s is not comparable: its lock keeps the other threads out; B's 3.65 s is
   four threads contending). Not measured: whether the main-side map+access can be cut (the runtime's per-process cost).
 - **Checks (all passed, measured):** data written by APU d is read correctly by APU d+1 through the main process's mapping (peer access
