@@ -110,7 +110,7 @@ how to test: `TESTING.md`; open work: `TASKS.md`; ideas: `OPPORTUNITIES.md`; evi
 (8 × 10⁹ digits per node, 4.608 × 10¹² digits on 576 nodes); then larger sizes up to the long-standing headline
 d = 3.82 × 10¹³ digits on all 576 nodes (6.63 × 10¹⁰ digits per node), digits right without a
 reference, as fast as possible. Standing estimate 182-185.5 s without the write (mod, fabric assumed at the 100 GB/s
-injection peak per APU); the write adds 1.0 s at the file system's 1 TB/s or 12.8 s at 1.0 GB/s per node (mod).
+injection peak per APU); the write adds 1.0 s at the file system's 1 TB/s or a 2.4 s file write at 4.0 GB/s per node (mod; the 1.0 GB/s prior gave 12.8 s, before the 10-26 measurement of 3.4-5.0 GB/s on one node).
 The fabric numbers are the biggest unknown: the bench measures them first.
 
 **Two multi-node paths (user rule Q85, both stay working; digits identical between them).**

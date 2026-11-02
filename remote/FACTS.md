@@ -20,7 +20,7 @@ output, Known problems and fixes, Settings worth testing, Decisions in force, Wh
 | physical size | 4 / 32 / 256 / 2304 APUs = 1 node / 1 chassis / 1 rack / all (ladder levels L0-L3 = 1 / 8 / 64 / 576 nodes) | u |
 | dev cluster (aac7) | same node type, ROCm 7.2.4, Cray SHMEM 11.8, **1 NIC per APU**, 6 nodes per user; all aac7 numbers below are from it | m |
 
-Differences that make aac7 numbers only a guide: 2 NICs per APU (aac7: 1; the target's NICs sit on the APU's own NUMA node, two per node, so networking tuning (lanes, NIC choice, injection rate) does not carry over from aac7, while CPU-side tuning (4 sockets x 24 cores x 2 threads, same NUMA map, same cache layout, THP `always`, no hugetlb, same `max_map_count`) and memory layout do), ROCm 7.14 (aac7: 7.2.4; ROCm 7.0.3 was +22 % slower
+Differences that make aac7 numbers only a guide: 2 NICs per APU (aac7: 1; the target's NICs sit on the APU's own NUMA node, two per APU, so networking tuning (lanes, NIC choice, injection rate) does not carry over from aac7, while CPU-side tuning (4 sockets x 24 cores x 2 threads, same NUMA map, same cache layout, THP `always`, no hugetlb, same `max_map_count`) and memory layout do), ROCm 7.14 (aac7: 7.2.4; ROCm 7.0.3 was +22 % slower
 than 7.2.4 at 1e11, m aac7), Cray SHMEM 12.1 (aac7: 11.8; path 2 never ran on 12.1), 576 nodes (aac7 tested to 10).
 What ecalc is: floor(10^d * e) by binary splitting of sum 1/k!, Newton reciprocal, two-half division, NTT products mod
 3-4 primes over 4 APUs and node groups; every run self-verifies (T1 residues, T2 windows, `VERIFY OK`).
@@ -178,21 +178,21 @@ Same model for both paths; path 2 adds about +8 s init (libsma heap registration
 
 | digits per node | nodes | digits total | wall no write | wall with write | exposed fabric | device (D) |
 |---|---|---|---|---|---|---|
-| 1e9 | 1 | 1e9 | 9.4 | 9.8 | 0 | 120 GB |
-| 1e10 | 1 | 1e10 | 19.1 | 22.8 | 0 | 166 |
-| 1e10 | 2 | 2e10 | 23.7 | 25.9 | 1.2 | 189 |
-| 8e9 | 1 | 8e9 | 16.8 | 19.9 | 0 | 155 |
-| 8e9 | 2 | 1.6e10 | 20.5 | 22.5 | 0.7 | 178 |
-| 8e9 | 8 | 6.4e10 | 22.6 | 24.6 | 1.5 | 178 |
-| 8e9 | 64 | 5.12e11 | 25.8 | 27.6 | 2.5 | 178 |
-| 8e9 | 576 | 4.608e12 | 32.0 | 33.2 | 6.5 | 181 |
-| 1e10 | 8 / 64 / 576 | 8e10 / 6.4e11 / 5.76e12 | 26.2 / 29.7 / 36.1 | 28.2 / 31.6 / 37.8 | 2.4 / 3.8 / 8.3 | 189 / 189 / 192 |
-| 1.736e10 | 576 | 1e13 | 52.3 | 55.3 | 12.5 | 229 |
-| 6.632e10 | 1 / 8 / 64 | 6.6e10 / 5.3e11 / 4.2e12 | 102.7 / 118.2 / 149.6 | 116.9 / 129.6 / 160.4 | 0 / 17.8 / 28.4 | 290 / 359 / 359 |
-| 6.632e10 | 576 | 3.82e13 | **187.1** | **191.2** | 51.6 | 390 (planner 358.96 with cap 0) |
+| 1e9 | 1 | 1e9 | 9.4 | 9.5 | 0 | 120 GB |
+| 1e10 | 1 | 1e10 | 19.1 | 19.7 | 0 | 166 |
+| 1e10 | 2 | 2e10 | 23.7 | 23.0 | 1.2 | 189 |
+| 8e9 | 1 | 8e9 | 16.8 | 17.4 | 0 | 155 |
+| 8e9 | 2 | 1.6e10 | 20.5 | 20.0 | 0.7 | 178 |
+| 8e9 | 8 | 6.4e10 | 22.6 | 22.1 | 1.5 | 178 |
+| 8e9 | 64 | 5.12e11 | 25.8 | 25.3 | 2.5 | 178 |
+| 8e9 | 576 | 4.608e12 | 32.0 | 31.6 | 6.5 | 181 |
+| 1e10 | 8 / 64 / 576 | 8e10 / 6.4e11 / 5.76e12 | 26.2 / 29.7 / 36.1 | 25.5 / 29.1 / 35.5 | 2.4 / 3.8 / 8.3 | 189 / 189 / 192 |
+| 1.736e10 | 576 | 1e13 | 52.3 | 51.3 | 12.5 | 229 |
+| 6.632e10 | 1 / 8 / 64 | 6.6e10 / 5.3e11 / 4.2e12 | 102.7 / 118.2 / 149.6 | 102.7 / 114.2 / 145.5 | 0 / 17.8 / 28.4 | 290 / 359 / 359 |
+| 6.632e10 | 576 | 3.82e13 | **187.1** | **183.0** | 51.6 | 390 (planner 358.96 with cap 0) |
 
-All wall figures: mod, seconds. Per-level growth at 8e9 (mod): 1->8 n +35 %, 8->64 +14 %, 64->576 +24 %; 576 n: 4.6e12 -> 1e13 +63 %,
-1e13 -> 3.82e13 3.6x. Older headline estimate 182-185.5 s (mod, 100 GB/s assumed); the write adds 1.0 s at 1 TB/s or 3.2 s at 4.0 GB/s per node (aggregate assumed).
+All wall figures: mod, seconds; the part file is written at 4.0 GB/s per node (one node measured 3.4-5.0; the aggregate is assumed) and packed output overlaps the division, so "with write" is at or slightly below "no write" (which carries the digit formatting the packed file replaces). Per-level growth at 8e9 (mod): 1->8 n +35 %, 8->64 +14 %, 64->576 +24 %; 576 n: 4.6e12 -> 1e13 +63 %,
+1e13 -> 3.82e13 3.6x. Older headline estimate 182-185.5 s (mod, 100 GB/s assumed); the write adds 1.0 s at 1 TB/s or a 2.4 s file write at 4.0 GB/s per node (1.9-2.8 s over 5.0-3.4; aggregate assumed).
 
 aac7 measured references (m; `total`, VERIFY OK, no digit file):
 

@@ -75,8 +75,8 @@ since the 2026-10-31 merge; 2-node gate `results/XSHMEM.md` §G2N), sets `MN_LEV
 Proposed).
 
 **Not yet done.** No run above 4.608 × 10¹² digits has completed on the target. The 576-node layout is refused by the planner with the defaults (margin -33.97 GB; with `MN_NONPOW2_CAP=0` +14.48 GB; m, planner, 2026-10-25, `results/LAUNCH_DEFAULTS.md §FIT`); the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
-`results/TARGET.md §TGT`; at the user-supplied 100 GB/s injection peak per APU, a for the achieved rate); the write adds
-3.2 s at ecalc's modelled 4.0 GB/s per node (one node measured 3.4-5.0 GB/s, so 3.8-2.6 s; the rate with 576 nodes writing at once is assumed) and 1.0 s at the file system's 1 TB/s (mod).
+`results/TARGET.md §TGT`; at the user-supplied 100 GB/s injection peak per APU, assumed for the achieved rate); the write adds
+2.4 s of file write at ecalc's modelled 4.0 GB/s per node (1.9-2.8 s over the 5.0-3.4 GB/s one node measured; the rate with 576 nodes writing at once is assumed) and 1.0 s at the file system's 1 TB/s (mod).
 
 ## 3. Defaults and launch lines
 
@@ -146,5 +146,5 @@ P3 and P4 the record staircase 1.8 × 10¹³, 3.6 × 10¹³, 5.4 × 10¹³ on 57
 | hangs in the ROCr / libfabric memory registration | `FI_MR_CACHE_MONITOR=userfaultfd` (0/104 hangs against 22/105, m) |
 | crash without a trace | `ECALC_SEGV_TRACE=1` on the launch line |
 | wrong digits | T1/T2 in the run, RECHECK and `unpack_digits` after it |
-| the write short of the file system's 1 TB/s (one file, 32 writers per node; ecalc: 2 files per node, 8 threads) | `tools/wbench` at scale in the kit, `MN_OUT_THREADS=32`; a shared-file writer if needed (OPPORTUNITIES N8): 3.2 s exposed at 4.0 GB/s per node (mod; 12.8 s at the old 1.0 GB/s prior) |
+| the write short of the file system's 1 TB/s (one file, 32 writers per node; ecalc: 2 files per node, 8 threads) | `tools/wbench` at scale in the kit, `MN_OUT_THREADS=32`; a shared-file writer if needed (OPPORTUNITIES N8): 2.4 s file write at 4.0 GB/s per node, hidden under the division in the model (mod; the old 1.0 GB/s prior gave 12.8 s) |
 | Cray SHMEM 12.1 (`XSHMEM=cray`, path 2) untested on the target; the init gap (+8 s on aac7) may differ; neither machine has usable hugetlb pages (the target: 8 pages, 0 free; THP always), so the init gap is expected to persist | path 2 runs on aac7 against Cray SHMEM 11.8 (`results/XSHMEM.md`, +7.5 % against path 1, digits identical); the kit's build, plan and t_xshmem checks and the day-one list T1-T8 (`results/XSHMEM.md`, `TASKS.md`) on the target; path 1 stays as the fallback (Q85) |
