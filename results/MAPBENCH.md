@@ -119,3 +119,11 @@ that cannot be built falls back to `hipMalloc`. Test knob `ECALC_MAPD_TEST_DIE=<
   `hipMemGetInfo` at that point (or is below its resolution).
 - **Gate, 1 node, 1e9, unset vs `=1` (measured, item 54_s1_d):** PASS in both, result sha256 identical (`d1eb69d4...`), also with a helper dying during the pool chunks (`=1:0:p`: "helper of APU 1 failed ... the remaining 7 chunks are created in-process", PASS) and during the arena (`=2:0`, PASS).
   Plane pools done: 3.66 s unset, 1.34 s with `=1` (single runs, measured; tl clock).
+- **Full-size check, aac7 (2026-11-02, measured, label "(m)"):**
+  - 1 node, 1e10 digits, single runs: `ECALC_MAPD` unset vs `=1`, both rc 0, VERIFY OK, identical digit hash. ecalc total 49.8 s unset (m) vs 31.5 s with `=1` (m).
+  - 2 nodes, 1.6e10 digits, two interleaved runs per arm (m): all four digit hashes identical (`296bdc45fb3ab6ee`, sha256 prefix of the digit file).
+    - ecalc total: 53.13 and 50.94 s unset (m) vs 44.25 and 43.73 s with `=1` (m).
+    - init total: 12.75-13.10 s unset (m) vs 6.56-6.67 s with `=1` (m).
+    - plane pools done: about 4.9-5.5 s unset (m) vs about 2.4 s with `=1` (m).
+    - region arenas (hook) done: 10.3-10.7 s unset (m) vs 4.1-4.3 s with `=1` (m).
+  - Note: `tools/gate.sh` prints "digits DIFFERS" for sizes below the 1e11 reference file even when VERIFY is OK. The digit comparison here is by hash between the two arms (`GATE_SHA=1`), not against the reference.
