@@ -77,7 +77,7 @@ int ec_np_prod(size_t nterms, const char *where)
     if (np == 3) ec_np_check(nterms, where);
     return np;
 }
-/* D18 (the user's decision of 2026-10-12, results/LAUNCH_DEFAULTS.md §DEF): under ECALC_NP=auto pool 0 holds four planes in every run of more than one
+/* D18 (the user's decision of 2026-10-12, results/MODEL.md §DEF): under ECALC_NP=auto pool 0 holds four planes in every run of more than one
  * node-process, so every multi-node product runs the four-prime 24-digit form P24 (rns_dist.c mn_p24_of).  The three-prime multi-node
  * rule before D18 (ECALC_NP_MN3) was removed 2026-10-19 (D56).  At g = 1 the plane count follows the switch-over bound */
 int ec_np_planes(int pool_log, int g)

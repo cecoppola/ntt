@@ -17,13 +17,13 @@
 #                 config_src.txt (config-src: line). Unknown/misspelled key or __FILL__ = FAIL. Not given = behaviour unchanged.
 #                 --build also runs `tools/switch_registry.py --check`, `tools/profile_load.py --validate-all`, `tools/xshmem_api_check.py` and
 #                 `python3 -m unittest discover -s tests` first (any failing = FAIL; python3 missing = FAIL with a message).
-#     (at --nodes > 1 the gate CHECKS the multi-node product form: since D18 (2026-10-12, results/LAUNCH_DEFAULTS.md §DEF) every multi-node product runs the
+#     (at --nodes > 1 the gate CHECKS the multi-node product form: since D18 (2026-10-12, results/MODEL.md §DEF) every multi-node product runs the
 #                 four-prime 24-digit form P24 (crt.c ec_np_planes; rns_dist.c mn_p24_of), so the run log must show "plane pool 0 for 4 primes";
 #                 needs ECALC_NP=auto on the line, or no ECALC_NP. )
 #     --ref FILE  reference digits (default ~/ref/e_1000000000.txt, else ecalc/results/e_1000000000.out, else ~/ntt/ecalc/results/...); only 1e9 has a default
 #     --out DIR   output dir (default ~/gate/<timestamp>): build.log, run.log, gate.txt (one line), digit files are deleted after
 #     --timeout   seconds allowed for the run (default 1500); --wait seconds to wait for an --alloc job to start (default 1800)
-#   FIT (D26, results/LAUNCH_DEFAULTS.md §FIT): before the allocation the run's memory fit is printed (tools/plan_values.py --fit, file fit.txt) and a run
+#   FIT (D26, results/MODEL.md §FIT): before the allocation the run's memory fit is printed (tools/plan_values.py --fit, file fit.txt) and a run
 #     that does not fit is refused (FAIL, no node time used); GATE_FIT=0 skips it (deliberate edge tests only). mnrun.sh checks again.
 #   doccheck: tools/doccheck.py (docs match the tree, <5 s) runs first. GATE_DOCCHECK=strict (default) fails the gate on any problem;
 #     GATE_DOCCHECK=warn prints the problems and goes on; GATE_DOCCHECK=off skips it.
@@ -144,7 +144,7 @@ fi
 ENVSHOW="line=${LINE_SEL%%:*}${PROFILE:+ profile=$PROFILE} $EXTRA ECALC_SEGV_TRACE=1"
 ENVSHOW=$(echo $ENVSHOW)
 
-# ---- FIT (user decision D26, results/LAUNCH_DEFAULTS.md §FIT): the memory fit of this run (tools/plan_values.py --fit: the planner's `plan fit` lines),
+# ---- FIT (user decision D26, results/MODEL.md §FIT): the memory fit of this run (tools/plan_values.py --fit: the planner's `plan fit` lines),
 # before any node time is used; a run that does not fit is refused here (GATE_FIT=0 skips: deliberate edge tests only)
 if [ "${GATE_FIT:-1}" != 0 ]; then
   python3 "$ROOT/tools/plan_values.py" --fit --env "$LINE $EXTRA ECALC_SEGV_TRACE=1" --ecalc "$E/ecalc" "$DIG" "$NODES" > "$OUT/fit.txt" 2>&1; frc=$?

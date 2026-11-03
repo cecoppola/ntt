@@ -1,7 +1,7 @@
 /* mapd.c -- ECALC_MAPD=1: helper processes (one per APU, NUMA-pinned) run hipMemCreate for the plane pools (phase 2) and the dbig VMM arena
  * (phase 1) chunks and export each as a POSIX fd handle (SCM_RIGHTS over a Unix socket pair); the main process imports
  * (hipMemImportFromShareableHandle), maps and sets access (dbig.c vmm_map_run, its mapper lock unchanged; mapd_pool_alloc below for the pools).
- * Experiment: tests/t_mapbench.c, results/MAPBENCH.md.
+ * Experiment: tests/t_mapbench.c, results/MEMORY_IO.md.
  * The helper is this very executable started with argv[1] = --mapd-helper (posix_spawn = fork + exec: no HIP state is inherited).  It serves
  * a FIFO of requests (kind, count, size): pool chunks first (rns_init), then the arena (kind 1, `final`: the helper exits after it); a helper
  * whose device never gets an arena is closed at the end of rns_init (mapd_end_init).  The imported memory stays valid (E1).  Any failure
@@ -93,7 +93,7 @@ int mapd_helper_main(int argc, char **argv)             /* argv: --mapd-helper <
             int rc = send_fd(sock, fd, 'x'); close(fd);
             if (rc) return 5;
         }
-        if (rq.final) return 0;                           /* exit: the imported chunks stay valid (results/MAPBENCH.md E1) */
+        if (rq.final) return 0;                           /* exit: the imported chunks stay valid (results/MEMORY_IO.md E1) */
     }
 }
 

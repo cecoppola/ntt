@@ -99,7 +99,7 @@ The fabric numbers are the biggest unknown: the bench measures them first.
    2 nodes where it fits, slower at 1 node.
 
 **What aac7 measured (the development cluster: same node type, 1 NIC per APU, 6 nodes per user; all m, 2026-10-25,
-`results/LAUNCH_DEFAULTS.md §AAC7OPT`):**
+`results/MODEL.md §AAC7OPT`):**
 
 | size | result |
 |---|---|

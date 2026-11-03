@@ -66,7 +66,7 @@ int rns_pool0_np(void)
     const char *e = getenv("COMM_SIZE"); int g = e ? atoi(e) : 1; if (g < 1) g = 1;
     return ec_np_planes(g_pool_log ? g_pool_log : 31, g);
 }
-/* MN_NONPOW2_CAP (Q58, user 2026-10-20; unset or "auto" = on only when the run's digits per node-process >= MN_NONPOW2_MIN, default 4.5e10: results/DIVISION.md §NPCAP,
+/* MN_NONPOW2_CAP (Q58, user 2026-10-20; unset or "auto" = on only when the run's digits per node-process >= MN_NONPOW2_MIN, default 4.5e10: results/COMPUTE.md §NPCAP,
  * the larger pools' init cost is fixed (+7 s at 3 n 6e10), the gain grows with the digits; =1 forces on, =0 restores the power-of-two plane): in a run whose COMM_SIZE is not a power of two (3, 5, 6, 7, ...) the rank plane q may be 43/32 x 2^(pool_log-2) limbs, so a group of
  * g = 3 * 2^k nodes takes the next power-of-two plane (2^33 points over 3 nodes: 716 M limbs per rank, not 2^29 = 537 M) and its products need fewer pieces.
  * Costs 11/32 more plane pool memory per APU (both pools and the cache slots); rns_plane_pool_bytes is the one formula, so the planner and the fit see it.

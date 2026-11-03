@@ -49,7 +49,7 @@ typedef struct mn_group { int g0, g, gt, me; comm *all[4], *tr[4], *lay[4]; int 
  * into a temporary window of this node's share and a shifted fixed-length add with the cross-node carry scan;
  * X then by mdb_add_shifted.  DIST_LOGN_TEST lowers the plane cap (tests). */
 void rns_mul_dist_mn(mdb *C, const mdb *A, const mdb *B, const mdb *X, mn_group *G);
-/* C3 step 3 (ECALC_DR >= 2, dr.h; results/DR.md): checked products.  mdb_trk = a tracked residue r = (the whole number) mod DR_Q, valid on every node of the group, and, where this node holds
+/* C3 step 3 (ECALC_DR >= 2, dr.h; results/CORRECTNESS.md): checked products.  mdb_trk = a tracked residue r = (the whole number) mod DR_Q, valid on every node of the group, and, where this node holds
  * a share (held), the per-APU parts of that share's residue as recorded when it was produced.  Callers keep it in an explicit variable beside the mdb (never inside: in-place operations would
  * leave it stale).  rns_mul_dist_mn_chk(C, A, B, X, G, ta, tb, tx, tc): C = A B + X checked against R(A) R(B) + R(X) (tx 0 without X); a mismatch repeats the product once (an operand whose
  * stored share changed since production = fatal naming node and APU, a second failure = fatal); tc (optional) = R(C) and this node's parts of C's share.  mdb_trk_make: the residue and parts of
@@ -83,7 +83,7 @@ void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb);
 int rns_dist_p24_crt_all(void);                                   /* 1 = the P24 CRT flag covers every shift class (P24_CRT_ANY, default 1, or P24_CHECK) */
 size_t rns_dist_p24_products(void);                              /* P24 products formed in this process (rns_dist.c; tests print it) */
 int  rns_mul_dist_mn_logcap(mn_group *G);                     /* log2 of the plane cap over G (one plane per node pool; tests) */
-/* P1 (DM_MN_WRAP, results/DIVISION.md §P1): the division's low product in two parts -- the pieces at or above wskip skipped, C in a given basis;
+/* P1 (DM_MN_WRAP, results/COMPUTE.md §P1): the division's low product in two parts -- the pieces at or above wskip skipped, C in a given basis;
  * and one cyclic plane of P points (C == A B mod (B^P - 1), C < B^(P + 4), basis >= P + 4); the group's smallest plane (log2) */
 void rns_mul_dist_mn_low_basis_v(mdb *C, const mdbv *A, const mdbv *B, mn_group *G, size_t wskip, size_t basis);
 void rns_mul_dist_mn_cyc_v(mdb *C, const mdbv *A, const mdbv *B, mn_group *G, size_t P, size_t basis);

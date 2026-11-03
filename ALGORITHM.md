@@ -84,7 +84,7 @@ is chosen per level from the largest node length `max_nl`:
 | 2·max_nl + 1 ≤ 2³⁰ points (`BS_MDEV_LOGL`) | **batch** | one `rns_mul_batch` of all 2·npairs products of the level (`rns_mul.c`) |
 | otherwise | **device top levels** | each pair as `dbig` numbers through `rns_mul_dist_db` (`rns_dist.c`); inputs freed as consumed |
 
-(The CPU schoolbook tier below `bs_school_nl` is set to 0: the batch tier is faster at every size. The batch tier's host side (D20) runs without needless gaps: a level's layout and the products' scans in parallel and each device's tiles issued back to back through pinned descriptor slots, one length read-back per level, `results/KERNELS.md §N3`.)
+(The CPU schoolbook tier below `bs_school_nl` is set to 0: the batch tier is faster at every size. The batch tier's host side (D20) runs without needless gaps: a level's layout and the products' scans in parallel and each device's tiles issued back to back through pinned descriptor slots, one length read-back per level, `results/COMPUTE.md §N3`.)
 
 **Across nodes.** With size > 1, node r takes the term range [1 + N·r/size, 1 + N·(r+1)/size) and runs the whole leaf tree
 on it, leaving (P_r, Q_r) on its devices. `mn_tree` then combines nodes in groups (§6.5), so after the last level P and Q
@@ -114,7 +114,7 @@ primes give p₀p₁p₂ = 2^155.36 against (B − 1)² = 2^119.59, so three pri
 
 - one-node tiers use three primes (`ECALC_NP` defaults to 3 in `ecalc.c`);
 - multi-node products use `ECALC_NP=auto` (`ecalc.c` sets it when `ECALC_NP` is unset at size > 1): since the user's
-  decision D18 (2026-10-12, `results/LAUNCH_DEFAULTS.md §DEF`) plane pool 0 holds four planes in every run of more than one node-process
+  decision D18 (2026-10-12, `results/MODEL.md §DEF`) plane pool 0 holds four planes in every run of more than one node-process
   (`ec_np_planes`), so every multi-node product runs four primes in the P24 form (below). `ec_np_check` refuses a
   product above the bound for its prime count.
 
@@ -144,7 +144,7 @@ digits (`ec_words_to_dec`, at most four). Limb k of the product is
 
 where Cj are the j-th base-10¹⁸ digits of the coefficients and x_k the added operand; the carry chain is resolved in LDS
 (per 256-coefficient chunk, as a carry-lookahead over the waves'
-ballot masks, `results/KERNELS.md §K4b`).
+ballot masks, `results/COMPUTE.md §K4b`).
 On the GPU (`k_crt_batch`) a product's coefficients are cut into S stripes (a block per stripe, coalesced reads, 256
 coefficients per chunk); each stripe emits a 4-limb *spill* past its end, and the spills are merged into the limbs
 (`k_spill_merge`, or chunked-carry adds in the distributed tiers). A CPU Garner is kept for small products and tests.
@@ -153,10 +153,10 @@ coefficients per chunk); each stripe emits a 4-limb *spill* past its end, and th
 to 3 points, so a view of n limbs has ⌈3n/4⌉ points and a piece is 3/4 as long. A coefficient is then at most
 min·(10²⁴ − 1)², which fits four primes while min(Pa, Pb) ≤ 10¹² (`P24_MIN_MAX`); the coefficient of point x, shifted by
 s = 6·(x mod 3) digits, lands on limbs L(x) … L(x)+3 with L(x) = ⌊4x/3⌋. Gain: −38 % at 10¹⁰ digits on 2 processes (m;
-`results/PRIMES_STRATEGY.md §P2415`). It applies to every multi-node product whose plane pool holds four primes (since D18 every multi-node product).
+`results/COMPUTE.md §P2415`). It applies to every multi-node product whose plane pool holds four primes (since D18 every multi-node product).
 Its CRT kernel `k_crt24` (`p24_crt.c`, one block per column, 256 points per chunk) sums the at most three points meeting
 each of a chunk's up to 342 limbs and resolves the chunk's carry chain on one thread; as a carry-lookahead (D24;
-`results/KERNELS.md §K4c`) over wave ballot masks as in `k_crt_batch` (two limbs per thread, 512-bit masks).
+`results/COMPUTE.md §K4c`) over wave ballot masks as in `k_crt_batch` (two limbs per thread, 512-bit masks).
 
 ### 4.4 Product tiers
 
@@ -171,7 +171,7 @@ Every product goes to the cheapest tier that can hold it:
 
 `RNS_STRATEGY=auto` (default) picks B where its planes fit the plane pools sized at init, else C, and never allocates.
 The host product tier (`rns_mul`: one product per prime per APU from host operands, a Karatsuba split above the pool, a CPU
-schoolbook below 2¹⁰ points) had no production caller and was removed (TREF, `results/CODE_REDUCTION.md §TREF`); the tests check products
+schoolbook below 2¹⁰ points) had no production caller and was removed (TREF, `results/CODE_TOOLS.md §TREF`); the tests check products
 against `ecalc/tests/tref.h` instead.
 With three primes form B transforms on three APUs and the fourth only takes part in the CRT.
 
@@ -187,7 +187,7 @@ piece products:
 - the shape minimises the total transform points under a cost model that prices form B pieces at 0.70 (3·2^k
   form B lengths at 1.05 per point) and adds a per-piece pipeline cost (one search, `grid_search` in `rns_dist.c`, over a form per tier; one piece loop, `grid_loop`);
 - the shape jumps at some sizes (a "grid step", e.g. about +20 s of modelled wall above 3.82 × 10¹³, mod;
-  `results/GRID_GROUPS.md §S52`); the target size is chosen just below a step;
+  `results/COMPUTE.md §S52`); the target size is chosen just below a step;
 - **cuts** skip pieces that cannot contribute: `grid_piece_skipped(oa, ob, la, lb, lowcut, w)` skips a piece that starts at
   or above w (low products, the band of the reciprocal) or ends at or below `lowcut` (high products whose low limbs are
   discarded). Entry points: `rns_mul_dist_db`, `rns_mul_low_db` (A·B mod B^w), `rns_mul_high_db` (only C ≫ cut used),
@@ -223,7 +223,7 @@ reciprocal of Q's top limbs (`newton_seed_top`). Functions: `recip_db2` (one nod
 error (≤ 2M + 3 units at 2j) by ≥ 1 limb; a doubling with jn = 2j (the anchored chain does this whenever the target is even)
 keeps it, and a run of such doublings squares it (k = 2^m: up to two limbs lost, modelled). The division's corrections
 absorb it unless the run is long and μ's top limbs are used uncut (DKM with h = k₁, i.e. an odd quotient length); then the
-step-1 estimate can be off by more than the 64-correction limit (fatal, never wrong digits). The chain guard (since D25) anchors the chain at k, ⌈k/2⌉ + 1, … so every doubling is cut: |error| ≤ 8 units at any M (results/DIVISION.md §RECIP).
+step-1 estimate can be off by more than the 64-correction limit (fatal, never wrong digits). The chain guard (since D25) anchors the chain at k, ⌈k/2⌉ + 1, … so every doubling is cut: |error| ≤ 8 units at any M (results/COMPUTE.md §RECIP).
 
 ### 5.2 Division in two quotient halves ("DKM")
 
@@ -263,7 +263,7 @@ Two layouts exist (both supported, user rule Q85):
   gives each PE N SHMEM contexts (lane k on NIC k) and stripes every payload put over them (`comm_xshmem.c`). With no
   striped tier on one device, batch products larger than one device's plane pool are split over the PE's own device
   (`RNS_BATCH_SPLIT`, `rns_mul.c`; automatic under `ECALC_PE_PER_GPU=1`, Q110). P cuts start-up, so
-  it wins at small sizes and is equal within noise at 3 nodes, 10¹¹ digits (`results/XSHMEM.md`).
+  it wins at small sizes and is equal within noise at 3 nodes, 10¹¹ digits (`results/TRANSPORT.md`).
 
 ### 6.2 The four-step transform
 
@@ -293,7 +293,7 @@ boundaries are resolved by a scan over (carry, propagate) flags (`mn_core`, `db_
 Fabric bytes equal a flat all-to-all's; messages per APU fall from 4g − 1 to g − 1; the on-node quarter never touches a NIC.
 Two exchanges are in flight (depth 2), so one exchange's xGMI stage hides under the previous one's fabric stage.
 `alltoallv` has the same stages with per-peer counts (the node's send counts are all-gathered over the four APU threads).
-All-gather runs the inter stage first and the xGMI stage second, so the fabric moves 4× less. One inter stage is in flight at a time (two in flight was slower on both transports, `results/SHMEM.md`), and `COMM_LAYER_VSLOT_*` take
+All-gather runs the inter stage first and the xGMI stage second, so the fabric moves 4× less. One inter stage is in flight at a time (two in flight was slower on both transports, `results/TRANSPORT.md`), and `COMM_LAYER_VSLOT_*` take
 the v-exchange slots from the communicator pool and share and release them between products (they are counted in the node
 budget).
 
@@ -305,7 +305,7 @@ budget).
 |---|---|
 | `tests/comm_local.c` | test-only: one rank (size 1), no-ops and copies (used by `t_dist`) |
 | `comm_xgmi.c` | the node's four APUs: peer copies over the xGMI mesh, driven by four host threads |
-| `comm_xshmem.c` | `COMM_TRANSPORT=xshmem` (the only multi-node transport; built by default where libfabric is found, `XSHMEM=0` omits it): the inter-node meshes over `xshmem.h`, the 1:1 mapping of the Cray SHMEM 12.1 calls (libfabric backend `xshmem_ofi.c` on aac7, `xshmem_cray.h` on the target); one node-process hosts one loopback PE per APU thread; the receiver publishes offsets, a worker thread (every layout, Q96) puts and signals, rounds (`XSHMEM_ROUND_MB`, default 128); `results/XSHMEM.md` |
+| `comm_xshmem.c` | `COMM_TRANSPORT=xshmem` (the only multi-node transport; built by default where libfabric is found, `XSHMEM=0` omits it): the inter-node meshes over `xshmem.h`, the 1:1 mapping of the Cray SHMEM 12.1 calls (libfabric backend `xshmem_ofi.c` on aac7, `xshmem_cray.h` on the target); one node-process hosts one loopback PE per APU thread; the receiver publishes offsets, a worker thread (every layout, Q96) puts and signals, rounds (`XSHMEM_ROUND_MB`, default 128); `results/TRANSPORT.md` |
 | `xshmem.h`, `xshmem_ofi.c`, `xshmem_boot.c`, `xshmem_cray.h`, `pe_geo.c` | the API (the 1:1 mapping of the Cray SHMEM 12.1 calls) and its two backends: libfabric cxi with PMI2 bootstrap (`XSHMEM=ofi`, path 1) and Cray SHMEM (`XSHMEM=cray`, static inline, path 2); `pe_geo.c` reports each PE's GPU, NUMA node and NICs. `vpe.c` holds the PE identity of the one-process-per-GPU layout |
 | `comm_layered.c` | the layered composition of an intra (xGMI) and an inter (xshmem) communicator, §6.3 |
 | `tests/comm_sim4.c` | test-only: a synthetic four-rank layout in one APU's memory (used by `t_dist`) |
@@ -327,7 +327,7 @@ that divide the size, then the odd part's prime factors in ascending order; at 5
   P = P_i·Q + P, Q = Q_i·Q: 2(k−1) products in sequence, each balanced over all g nodes.
 - Each product runs `rns_mul_dist_mn` → `mn_grid` → `mn_core` over the group. Dead shares are freed between a level's two
   products, so a node holds its child's P, Q, the running pair and the new pair.
-- Uneven last groups are correct but not faster (`results/GRID_GROUPS.md §B06`); the group structure follows the rack layout.
+- Uneven last groups are correct but not faster (`results/COMPUTE.md §B06`); the group structure follows the rack layout.
 
 The only checkpoint is the top-level set (`ECALC_CKPT_TOP`, `bs_ckpt_tree_*` / `bs_ckpt_bg_*` in `binsplit.c`): each node's P and Q after the last tree level, read by `ECALC_RECHECK`. There is no restart inside a run.
 
@@ -384,12 +384,12 @@ everything is allocated once, up front, and sized by a model that the C layout r
   doubling's sizes and inputs are freed as consumed (`DM_TIGHT`), which keeps the free space contiguous.
   With `ECALC_MAPD=1` (experiment, default off; `mapd.c`) the chunks of the plane pools (`rns_init`, one VA range per pool over 2 GiB chunks) and then of the arena
   are created by one helper process per APU and imported by the main process (POSIX fd handles); the main process still maps and sets access (the arena
-  under its mapper lock; `results/MAPBENCH.md`).
+  under its mapper lock; `results/MEMORY_IO.md`).
 - **Window rounds.** A grid piece's temporary window is processed in rounds of `MN_T_CHUNK_MB` per APU (code default 1024,
   launch lines 2048); `mdb_shift` slabs are bounded by `MDB_SHIFT_CHUNK_MB`.
 - **Exchange memory.** Staging for xshmem and the general map's v-slots are counted in the node budget
   (`binsplit_vslot_bytes`, `binsplit_shmem_pool_need`); the v-slots are shared and released in time (built in; `COMM_LAYER_VSLOT_MB` sizes them).
-- **Memory fit (FIT, `results/LAUNCH_DEFAULTS.md §FIT`).** `binsplit_fit` (`binsplit.c`) puts the node's device peak -- the larger of the dm
+- **Memory fit (FIT, `results/MODEL.md §FIT`).** `binsplit_fit` (`binsplit.c`) puts the node's device peak -- the larger of the dm
   phase (planes + arena + transport pools + the v-slots) and the bs phase (the same + the VMM pool's bs growth, 6.0 GB m, + the
   tree top's v-slots) -- against the device edge `ECALC_DEVICE_GB` and the node (planes + arena + bs growth + host + v-slots)
   against `ECALC_NODE_GB`, at rank 0's layout, so every rank computes the same numbers. `MN_PLAN_ONLY` prints it (`plan fit`),
@@ -443,7 +443,7 @@ A run is good only with `VERIFY OK` on every node (`verify.c/h`, `out_stage` in 
   after the patch.
 - **RECHECK.** `ECALC_RECHECK=1` re-verifies finished files from the `<out>.t1` sidecar (and the top-level P, Q set when
   written with `ECALC_CKPT_TOP=1`) without recomputation; it detects a single flipped digit.
-- **DR (detect and retry, `ECALC_DR`, off by default; `results/DR.md`).** Checks inside the run that repeat a faulty piece
+- **DR (detect and retry, `ECALC_DR`, off by default; `results/CORRECTNESS.md`).** Checks inside the run that repeat a faulty piece
   or product instead of ending it; R(.) is the residue modulo the 62-bit prime t1_q[0], tracked through the computation,
   never recomputed from the data being checked.
   - Level 1: the CRT flag of a P24 piece becomes a collective decision (`mn_core`) before any result limb leaves the PE;
@@ -470,14 +470,14 @@ A run is good only with `VERIFY OK` on every node (`verify.c/h`, `out_stage` in 
 | tool | what |
 |---|---|
 | `mn_model.py estimate` | wall time by phase for a size, node count and fabric profile (was `estimate.py`); `--target` prints the standing estimate |
-| `mn_model.py v12` | the 576-node time model recalibrated on the 2e13 decomposition, with residuals and the failure rate by size (results/TIME_MODEL.md §v12) |
+| `mn_model.py v12` | the 576-node time model recalibrated on the 2e13 decomposition, with residuals and the failure rate by size (results/MODEL.md §v12) |
 | `mn_model.py` | the cost model behind it (all-to-all rate per APU thread, hiding fractions, round costs) |
 | `mem_model.py` | the memory layout per node; `--check-c` compares with the C layout |
 | `MN_PLAN_ONLY`, `BS_LAYOUT_ONLY` | the code's own decisions (grids, pieces, prime counts, layout, the memory fit) without a device |
 | `tools/plan_values.py` | the launch values of a size; `--fit`: the memory-fit report, exit 1 when a run does not fit |
 
-Fabric profiles: `target_l4` (default; the target fabric with the L4 refit, `results/TIME_MODEL.md §L4`) and `aac7` (the S48 refit,
-`results/TIME_MODEL.md §S48`). The model is calibrated on the test system up to 6 nodes; the target's per-NIC rate and its fall-off are
+Fabric profiles: `target_l4` (default; the target fabric with the L4 refit, `results/MODEL.md §L4`) and `aac7` (the S48 refit,
+`results/MODEL.md §S48`). The model is calibrated on the test system up to 6 nodes; the target's per-NIC rate and its fall-off are
 assumed (a).
 
 ## Glossary

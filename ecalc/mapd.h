@@ -1,5 +1,5 @@
 /* mapd.h -- ECALC_MAPD (default 0): per-APU helper processes create the plane-pool and dbig VMM arena chunks and hand them to the main process as POSIX
- * file-descriptor handles (results/MAPBENCH.md, S1).  Every function is a no-op (returns 0) when the switch is off or a helper failed. */
+ * file-descriptor handles (results/MEMORY_IO.md, S1).  Every function is a no-op (returns 0) when the switch is off or a helper failed. */
 #ifndef MAPD_H
 #define MAPD_H
 #include <stddef.h>

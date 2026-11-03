@@ -5,13 +5,13 @@ Maintained: updated in the same merge as any change to a profile, the loader/che
 
 Status (O3, merged 2026-10-12): step 2 done. `tools/profile_load.py` validates and loads a profile (explicit environment > profile > code
 default); `tools/profile_load.py NAME --run -- cmd` runs a command under it and prints a `config-src:` line; `tools/gate.sh --profile NAME` uses it, and
-`gate.sh --build` runs `switch_registry.py --check` and `profile_load.py --validate-all` first. Nothing reads a profile unless asked. Details: results/TOOLS_PROFILES.md §O3.
+`gate.sh --build` runs `switch_registry.py --check` and `profile_load.py --validate-all` first. Nothing reads a profile unless asked. Details: results/CODE_TOOLS.md §O3.
 T27 (2026-10-12): the computed values have one source. `ecalc/mnrun.sh` computes them for every launch (the pool from the planner,
 `MN_PLAN_ONLY`; the heap; `FI_UNIVERSE_SIZE`), the code computes `MN_GROUPS` (its default schedule); `tools/plan_values.py
 [--profile P] [--line FILE] [--exports] DIGITS NODES` prints them without launching (`MNRUN_PRINT_ENV=1`), compares a hand line
-with them (MATCH / DIFF / NO-CONSUMER) and gives `export` lines for a launch that does not go through `mnrun.sh`. Details: results/TOOLS_PROFILES.md §T27.
+with them (MATCH / DIFF / NO-CONSUMER) and gives `export` lines for a launch that does not go through `mnrun.sh`. Details: results/CODE_TOOLS.md §T27.
 
-FIT (D26, 2026-10-13, `results/LAUNCH_DEFAULTS.md §FIT`): `ECALC_DEVICE_GB` -- the device edge per node, measured per machine -- is a profile key
+FIT (D26, 2026-10-13, `results/MODEL.md §FIT`): `ECALC_DEVICE_GB` -- the device edge per node, measured per machine -- is a profile key
 (aac7 444.0, target 373.44 = the code default); the planner's memory fit (`tools/plan_values.py --fit`) puts the run's device peak
 against it, and `mnrun.sh` / `tools/gate.sh` refuse a run that does not fit. aac7 carries it on its launch line (`LAUNCH_LINE_KEYS`).
 
@@ -41,7 +41,7 @@ generic values only; the filled copy stays out of git.
   `adopted ... pending move to built-in defaults`, `safety/diagnostics`, `launch line`, `host exclusions`.
 * `__FILL__` is the value of an unknown. The validator must refuse a profile that still has one (the checker lists them as UNFILLED).
 * A key to be **unset** is not expressible yet (the target's record run unsets `ECALC_CHECKPOINT ECALC_CKPT_TOP BS_CKPT_DIR`): the
-  entry point needs an `unset` section; open question in `results/TOOLS_PROFILES.md §C01`.
+  entry point needs an `unset` section; open question in `results/CODE_TOOLS.md §C01`.
 * Each key carries its evidence in the trailing comment: the `ecalc/README.md` switch row, `results/<ID>.md`, or the user's decision with its
   date. Numbers are labelled (m) measured, (mod) modelled, (a) assumed. A line without evidence is a bug in the profile.
 
@@ -85,7 +85,7 @@ target config is `target/config/target.conf` (read by `target/lib/common.sh` and
 
 ## First SHMEM run on the target
 
-Background and evidence: `results/SHMEM.md` (cause of the aac7 stalls, the stall checklist and the target implications, condensed) and `archive:results_merged_2026-10-23/SHMEM_STALLS.md` (the full report: causes sections 4-5; target implications section 9; hugetlb switch 9.1; healthy values 8.3; stall checklist 8.4). The SHMEM transport depends on three things outside ecalc: kernel memory settings, the GPU driver's queue eviction
+Background and evidence: `results/TRANSPORT.md` (cause of the aac7 stalls, the stall checklist and the target implications, condensed) and `archive:results_merged_2026-10-23/SHMEM_STALLS.md` (the full report: causes sections 4-5; target implications section 9; hugetlb switch 9.1; healthy values 8.3; stall checklist 8.4). The SHMEM transport depends on three things outside ecalc: kernel memory settings, the GPU driver's queue eviction
 when the kernel moves pages, and the NIC count per node. The probe (node phase, `--hold`) reads them; none is changed by it.
 
 | probe fact | meaning | switch choice |
@@ -100,8 +100,8 @@ when the kernel moves pages, and the NIC count per node. The probe (node phase, 
 
 Checklist for the first SHMEM run (after steps 0-9; 2 nodes, `1e10` digits or larger, then 4 nodes), adding to the launch line:
 
-1. Read the log: the node-process heap line (`heap ... MiB PMD-mapped after`) shows whether the heap was collapsed to 2 MiB pages; a shortfall means 4 KiB pages are left: see the `MADV_COLLAPSE` row. (The communication trace and its report were removed with the plain SHMEM transport, Q103; the stall checklist of `results/SHMEM.md` uses `/proc/vmstat` deltas and the KFD counters.)
-2. Stalls present: follow the checklist in `results/SHMEM.md` (per-second `/proc/vmstat` deltas on the late node, kcompactd ticks, score above 90, KFD `evicted_ms`), then try in this order: hugetlb heap if a pool exists; `compaction_proactiveness=0` per job (A/B with an A/A control, at least 4 ABBA pairs); a prolog that compacts and drops caches.
+1. Read the log: the node-process heap line (`heap ... MiB PMD-mapped after`) shows whether the heap was collapsed to 2 MiB pages; a shortfall means 4 KiB pages are left: see the `MADV_COLLAPSE` row. (The communication trace and its report were removed with the plain SHMEM transport, Q103; the stall checklist of `results/TRANSPORT.md` uses `/proc/vmstat` deltas and the KFD counters.)
+2. Stalls present: follow the checklist in `results/TRANSPORT.md` (per-second `/proc/vmstat` deltas on the late node, kcompactd ticks, score above 90, KFD `evicted_ms`), then try in this order: hugetlb heap if a pool exists; `compaction_proactiveness=0` per job (A/B with an A/A control, at least 4 ABBA pairs); a prolog that compacts and drops caches.
 3. Measure the stall rate per node-hour on a short run before assuming it is zero: at 576 nodes one frozen node costs everyone (section 6.4 of the archived report).
 4. Compare SHMEM (path 2) against libfabric (path 1), same digits and nodes, A/A first; time from run 2 on (the first run of an allocation is a cold start, `target/RESTART.md` §9).
 

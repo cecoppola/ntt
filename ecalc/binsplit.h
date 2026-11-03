@@ -67,7 +67,7 @@ extern const char *const bs_cap_name[2];
 size_t binsplit_div_product_limbs(unsigned long N);   /* the run's largest single product (the division's t = A_h mu: 2 k + 8 limbs, dm_layout's non-DKM tcap); ECALC_PLANE_CAP=run asks whether it fits one plane of the cap */
 void binsplit_seeds_begin(unsigned long N);
 void binsplit_free_pools(void);
-/* B7ACCT (results/GRID_GROUPS.md §B7ACCT): the general map's v-exchange slots resident per APU thread (bytes; hipMalloc'd by comm_layered.c beside the
+/* B7ACCT (results/COMPUTE.md §B7ACCT): the general map's v-exchange slots resident per APU thread (bytes; hipMalloc'd by comm_layered.c beside the
  * layout, alive to the run's end): the dm phase's sum (the run's largest), *tree_top = during the tree's top level, by = the terms per level.
  * (the slots are in the comm pool, not in the node budget) */
 size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *by, size_t bylen);
@@ -77,7 +77,7 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan);           
 void binsplit_release_arenas(void);                      /* the region arenas (hooked into rns_shutdown when the block pool borrowed them) */
 extern int bs_balance_n;                                 /* levels with at most this many nodes are laid out least-loaded-first (16) */
 extern void (*bs_after_seeds_hook)(void *); extern void *bs_hook_arg;
-/* FIT (D26, results/LAUNCH_DEFAULTS.md §FIT): the pre-launch memory fit of (N, g) at rank 0's layout, and DM_MN_WRAP automatic (binsplit.c) */
+/* FIT (D26, results/MODEL.md §FIT): the pre-launch memory fit of (N, g) at rank 0's layout, and DM_MN_WRAP automatic (binsplit.c) */
 struct bs_fit {
     size_t planes, arena, bs2, ofi, ofi_all, pool, seedbuf, host, vslot, vslot_top, grow;   /* per node (vslot, vslot_top: per APU) */
     size_t dev_apu_max;                                                                         /* ECALC_FIT_PER_APU: the busiest APU's device bytes (per APU) */

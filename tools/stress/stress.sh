@@ -1,5 +1,5 @@
 #!/bin/bash
-# tools/stress/stress.sh - the pool/CRT stress harness (results/STRESS.md): factorial arms of repeated ecalc runs inside one Slurm hold on aac7.
+# tools/stress/stress.sh - the pool/CRT stress harness (results/MEMORY_IO.md): factorial arms of repeated ecalc runs inside one Slurm hold on aac7.
 #
 # USAGE  tools/stress/stress.sh --nodes N --digits D --reps R --out DIR [--hold J] [--arms "k0s0d0r0 k1s1d1r1 ..."] [--ref auto|none|FILE]
 #                               [--max-min M] [--nic] [--force-n n] [--chunk-gb g] [--round-mb m] [--timeout SEC]

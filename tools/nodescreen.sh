@@ -19,7 +19,7 @@
 #   --flagged-file FILE  append the EXCLUDE hosts to FILE (the file later screening stages read to drop them)
 #   --exclude-hosts LIST hosts of the allocation never used by the screen (srun -x), reported as such
 #   --want-nics N        flag a node whose runtime sees fewer than N cxi NICs (fi_info -p cxi domains; a node with 1 NIC aborts a SHMEM launch with
-#                        SHMEM_OFI_NUM_NICS=4, results/NODE_SLOWMODE.md §NIC); default $SHMEM_OFI_NUM_NICS, 0 = report only
+#                        SHMEM_OFI_NUM_NICS=4, results/TRANSPORT.md §NIC); default $SHMEM_OFI_NUM_NICS, 0 = report only
 #   --refuse-ue          a node with EDAC uncorrectable memory errors (ue > 0 since boot) is put on EXCLUDE; without it only a WARN in the table and a
 #                        "health:" line (the table always shows ue, ce and the boot time of every node; NODEHEALTH_SYSFS_ROOT=<dir> is the test hook, tools/nodehealth.sh)
 #   --min-avail-gb G     also flag MemAvailable < G GB (default 0 = off: a low MemAvailable alone was not a stall, archive:results_merged_2026-10-24/NODE_SLOWMODE.md §S49)

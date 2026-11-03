@@ -129,7 +129,7 @@ class V12(unittest.TestCase):
     def test_phi_is_the_only_fit(self):
         # phi is solved on the 3.6e13 passes (mean of three plain runs); the pin keeps the fit visible: 0.34
         self.assertAlmostEqual(self.M.V12_PHI, 0.341, places=3)
-        # piece index from results/LAUNCH_DEFAULTS.md section PIECES (1 / 2 / 1 up to 2.6e13; 1/2/2 at 2.7e13; 2/3/2 at 2.9e13; 2/4/2 at 3.6e13; 3/5/3 at 4.0e13); the form is an assumption (a)
+        # piece index from results/MODEL.md section PIECES (1 / 2 / 1 up to 2.6e13; 1/2/2 at 2.7e13; 2/3/2 at 2.9e13; 2/4/2 at 3.6e13; 3/5/3 at 4.0e13); the form is an assumption (a)
         for d, want in ((2.6e13, 1.0), (2.7e13, 1.33), (2.9e13, 1.83), (3.6e13, 2.0), (4.0e13, 2.83)):
             self.assertAlmostEqual(self.M.v12_piece_index(d), want, places=2, msg=d)
 

@@ -49,7 +49,7 @@ L0 (aac7 1 n 8e9, m); the growth from level to level is the check.
 
 Which path to take up: the one with the lower mean `total` at L1 if the gap is outside the replica spread, else path 2 (the
 target's shape) for L2/L3. On aac7 at 1 node layout D (path 1) was fastest; at 2 nodes P on path 1 was fastest and path 2 was
-+7.5 % (m, `results/LAUNCH_DEFAULTS.md` §AAC7OPT); the target decides. Set it with `--path`.
++7.5 % (m, `results/MODEL.md` §AAC7OPT); the target decides. Set it with `--path`.
 
 ## 3. Rules between runs
 

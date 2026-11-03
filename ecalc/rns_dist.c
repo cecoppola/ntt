@@ -28,8 +28,8 @@
 #include "mem.h"
 #include "mn_plan.h"                                        /* Phase 13d L: the plan printer asks this file's decisions */
 #include "vpe.h"                                            /* S1b: PE layout */
-#include "p24.h"                                            /* Phase 15 Batch 3 P24 (results/PRIMES_STRATEGY.md §P2415): 24 digits per point in the mn tier (P24) */
-#include "dr.h"                                             /* C3 detect and retry (ECALC_DR; results/DR.md) */
+#include "p24.h"                                            /* Phase 15 Batch 3 P24 (results/COMPUTE.md §P2415): 24 digits per point in the mn tier (P24) */
+#include "dr.h"                                             /* C3 detect and retry (ECALC_DR; results/CORRECTNESS.md) */
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define NR 4
@@ -109,7 +109,7 @@ __global__ void k_gather(uint64_t *x, struct acc src, size_t R, size_t rows, siz
     }
 }
 static unsigned nblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 16 ? 228 * 16 : b); }
-/* K1b (results/EXCHANGE.md §K1b, DIST_GATHER_RAW=2, the only form since 2026-10-23, Q87): S39 candidate A -- gather an operand once without the canon (the strided
+/* K1b (results/TRANSPORT.md §K1b, DIST_GATHER_RAW=2, the only form since 2026-10-23, Q87): S39 candidate A -- gather an operand once without the canon (the strided
  * gather is the cost, not the prime), then one coalesced elementwise canon pass per prime.  canon(raw) = what k_gather writes, bit for bit
  * (the zero beyond src.n stays zero).  1 = A into xa[np-1] (its own plane is the staging), B into its cache plane when it has one (no memory);
  * 2 = also B without a cache plane, through one extra q-limb plane taken from the block pool's free extents only (no growth; a margin of
@@ -179,7 +179,7 @@ struct dist_slot { const void *key; size_t lo, n, q; uint64_t *pl[NR]; int mn, n
 static struct { int n, nmn, navail, tried, init; struct dist_slot s[DIST_CACHE_MAX]; size_t hits, misses, bytes; double t_alloc;
                 size_t slot_bytes, slot_q; int pc; } g_cache;     /* Phase 15 TC: one slot's bytes per APU, and the q (limbs per prime per rank) it holds under the cache fit (0: unbounded);
                                                                * Phase 15 PC: pc = the slots now are RNS_DIST_CACHE_PARTIAL's (planes from the block pool for one grid product) */
-/* ---- Phase 15 TC (internal target task list T7, results/CACHE.md): the slots sized to the cap and bounded by the budget (the cache fit,
+/* ---- Phase 15 TC (internal target task list T7, results/TRANSPORT.md): the slots sized to the cap and bounded by the budget (the cache fit,
  * on every launch line since 2026-09-28, built in 2026-10-12; the unsized form -- 16 GiB slots counted by the free memory alone, +37.5 %
  * or OOM at the target -- was removed):
  *   size   a slot is rns_pool0_np() x 2^(c - 2) limbs per APU, c = min(dist_logn_max, POOL_LOG): the largest rank plane of either tier
@@ -393,7 +393,7 @@ static void cache_pc_report(void)                             /* the run's parti
  *         the three primes' upper residues ((y[j] - y[j + h]) w_m^j, Y read once); APU p multiplies its upper half by
  *         APU 3's plane (a peer read), inverts, and the CRT as in B.  1.5 n points per APU (C's 12 n bytes at P = 3),
  *         transforms 2.5 n on APUs 0-2 and 1.5 n on APU 3 (B: 3 n).
- *   auto  the B form (RNS_STRATEGY_FORM=B|B4, default B -- results/PRIMES_STRATEGY.md §B13b) wherever its planes fit the plane
+ *   auto  the B form (RNS_STRATEGY_FORM=B|B4, default B -- results/COMPUTE.md §B13b) wherever its planes fit the plane
  *         pools as sized at init, else C.
  * B and B4 run every product in their form: the planes that do not fit the pools come from one grow-only buffer per APU
  * (hipMalloc, kept until rns_dist_cache_release at the end of the dm phase) -- the "B at more memory" row of the
@@ -705,7 +705,7 @@ void rns_mul_low_db(dbig *Cd, const dbig *A, const dbig *B, size_t w)
 }
 /* Phase 13b B: under RNS_STRATEGY=auto the grid knows which pieces run in the B form (default under auto):
  * a piece that fits the B form's planes costs its B-length points x 0.70 (the library's B against C per product, measured
- * 0.66-0.74 at 2^26..2^31, results/PRIMES_STRATEGY.md §B13b), one that does not its C points x 1; B's 3 2^k lengths x 1.05.  The digits do
+ * 0.66-0.74 at 2^26..2^31, results/COMPUTE.md §B13b), one that does not its C points x 1; B's 3 2^k lengths x 1.05.  The digits do
  * not depend on the grid.  Off (or any other strategy): C's grid. */
 static int b_fits(size_t nc)
 {
@@ -922,7 +922,7 @@ __global__ void k_scatter_mn(struct acc dst, size_t lo, const uint64_t *rb, cons
         *acc_ptr(dst, m - lo) = rb[sg[r].off + k];
     }
 }
-/* p24_mn.h - (results/PRIMES_STRATEGY.md §P2415): the P24 kernels of mn_core's exchanges.  Included by rns_dist.c
+/* p24_mn.h - (results/COMPUTE.md §P2415): the P24 kernels of mn_core's exchanges.  Included by rns_dist.c
  * after k_scatter_mn (it uses struct acc, struct seg, acc_get / acc_ptr and part0 / partn from there).  The index maps are p24.h's:
  * rank rho's in-runs (ex 1: the operands) and out-runs (ex 0: the result) in place of its rows. */
 #include "p24.h"
@@ -989,7 +989,7 @@ static comm *lay_get(mn_group *G, int d)
     if (!G->lay[d]) G->lay[d] = comm_layered_create(RS[d].cm, G->all[d], d);
     return G->lay[d];
 }
-/* P24_CHECK (default 0; results/PRIMES_STRATEGY.md §P24 audit): 1 = every P24 operand's limbs are checked < 10^18 (so every input point < 10^24: the
+/* P24_CHECK (default 0; results/COMPUTE.md §P24 audit): 1 = every P24 operand's limbs are checked < 10^18 (so every input point < 10^24: the
  * premise of the CRT's bound) twice per product -- as packed by this node ("sent": the stored share is bad) and as received ("received": the
  * exchange or the sender's share is bad) -- and the CRT flags c >= 10^60 at every s (p24_crt_set_check; P24_CRT_ANY, default 1, does that even with P24_CHECK=0; =0 gives the old s = 12 + spill flag unless P24_CHECK >= 1);
  * any hit is fatal with the product's kind, piece, node, PE, sizes and the first bad position.  2 = also no transform cache on P24 products
@@ -998,7 +998,7 @@ static int p24_check(void) { static int v = -1; if (v < 0) { const char *e = get
 /* P24_CRT_ANY (default 1; Q130, 2026-10-27): the CRT flag (c >= 10^60) covers every shift class s = 0, 6, 12 and the spill, not only s = 12 and the spill.  0 = the old flag (fallback). */
 static int p24_crt_any(void) { static int v = -1; if (v < 0) { const char *e = getenv("P24_CRT_ANY"); v = e ? atoi(e) != 0 : 1; } return v; }
 static char g_p24_what[160]; static size_t g_p24_seq; static int g_p24_ka = 1, g_p24_kb = 1, g_p24_pi = -1, g_p24_pj = -1; static size_t g_p24_pa, g_p24_pb;   /* the running product (mn_grid / mn_piece_form, main thread) */
-/* P24_CHECK coverage line and fault injection (results/PRIMES_STRATEGY.md §P24 audit): counters per PE process; the summary prints at exit under P24_CHECK >= 1 */
+/* P24_CHECK coverage line and fault injection (results/COMPUTE.md §P24 audit): counters per PE process; the summary prints at exit under P24_CHECK >= 1 */
 static size_t g_c_prod, g_c_pieces, g_c_st, g_c_rc, g_c_hit, g_c_flags;
 static unsigned g_dr_in[NR];                                 /* ECALC_DR: per APU thread, a received-limb hit of p24_chk_in in this attempt (read at the piece decision) */
 static int p24_test(void) { static int v = -1; if (v < 0) { const char *e = getenv("P24_CHECK_TEST"); v = e ? atoi(e) : 0; if (v < 0) v = 0; } return v; }
@@ -1391,11 +1391,11 @@ static void mn_round_add(struct mn_rounds *rd, mdb *Cn, dbig *T, size_t wlo, siz
  * the rows go straight into C's zero-filled shares (M3's path, bit for bit).  Otherwise the rows go into a temporary T
  * of this node's window [tlo, thi) of the piece (in piece coordinates), the spills are added there, and C's share
  * += T << (tlo + shift - clo).  Np = the piece's basis (na + nb, + 1 with X). */
-/* P1 (DM_MN_WRAP, results/DIVISION.md §P1): cyc = P > 0 -- the cyclic product on a plane of exactly P points (a power of two, na, nb <= P): the
+/* P1 (DM_MN_WRAP, results/COMPUTE.md §P1): cyc = P > 0 -- the cyclic product on a plane of exactly P points (a power of two, na, nb <= P): the
  * pointwise product of the two length-P transforms is the cyclic convolution, so C = sum_k c_k B^k (k < P, c_k the coefficients
  * mod x^P - 1), at most P + 4 limbs, congruent to A B mod (B^P - 1); every term count stays <= min(na, nb) <= P (the prime count is
  * chosen for P).  No added operand, no P24. */
-/* ECALC_DR >= 1 (C3 step 2, results/DR.md): the decision of one P24 piece, taken before any result limb leaves the PE.  g_dr_fl[d] (bit 0 the CRT flag,
+/* ECALC_DR >= 1 (C3 step 2, results/CORRECTNESS.md): the decision of one P24 piece, taken before any result limb leaves the PE.  g_dr_fl[d] (bit 0 the CRT flag,
  * bit 1 a received-limb hit) is each APU thread's verdict of this attempt; the master thread reduces them over the group (one grp_max on mesh 0: the
  * only cost of a good piece) and on a failure gathers the per-node verdict words to name the PEs.  0 = good, 1 = repeat the piece, 2 = stop (g_dr_msg). */
 static unsigned g_dr_fl[NR]; static char g_dr_msg[1536]; static int g_dr_dec; static size_t g_dr_events;
@@ -1436,7 +1436,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     if (!na || !nb) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: a zero operand\n"); }
     if (cyc && (X || p24 || na > cyc || nb > cyc || (cyc & (cyc - 1)))) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: cyclic plane %zu with %zu x %zu limbs%s%s\n", cyc, na, nb, X ? ", an added operand" : "", p24 ? ", P24" : ""); }
     if (X && X->n > nc) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: the added operand (%zu limbs) exceeds the product (%zu)\n", X->n, nc); }
-    /* Phase 15 Batch 3 P24 (results/PRIMES_STRATEGY.md §P2415): the plane holds 24-digit points, p24_pts(na) + p24_pts(nb) of them, at four primes;
+    /* Phase 15 Batch 3 P24 (results/COMPUTE.md §P2415): the plane holds 24-digit points, p24_pts(na) + p24_pts(nb) of them, at four primes;
      * the operands' sequences are the ranks' in-runs of limbs (p24.h), the result's their out-runs; X is added by the caller */
     const size_t npt = cyc ? cyc : p24 ? p24_pts(na) + p24_pts(nb) : nc;
     if (p24 && X) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 with an added operand\n"); }
@@ -1489,7 +1489,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         oA.hs = hseg; oA.ds = dseg; oA.cnt = cnt; oB.hs = hseg + 2 * g; oB.ds = dseg + 2 * g; oB.cnt = cnt + 4 * g; oX.hs = hseg + 4 * g; oX.ds = dseg + 4 * g; oX.cnt = cnt + 8 * g;
         comm *cl = lay_get(G, d);
         /* (Phase 14 P2's DIST_MN_SYM_SLABS=1, the slabs and scratch in the transport's symmetric pool, was removed 2026-10-12: not the
-         * design, results/SHMEM.md) */
+         * design, results/TRANSPORT.md) */
         uint64_t *cx = X ? db_pool_alloc(dv, q * 8) : 0, *tmp = (gen || vpe_on()) ? 0 : db_pool_alloc(dv, q * 8);   /* (vPE: the flat communicator needs no layered scratch) */
         /* A1: the cache planes of A and B on this rank: cache_pl(slA / slB, d, p, q) for primes p < kA / kB (Phase 15 PC) */
         /* planes: xa[4] in pool 0, xb (q + 16: the CRT's carry limb) | sbuf | rbuf in pool 1 */
@@ -1737,7 +1737,7 @@ void mdb_norm(mdb *C, mn_group *G, size_t below)
  * low product X Q comes out in the corrections' basis without a re-sharding shift; pieces whose limbs end at or below
  * lowcut (oa + ob + len_a + len_b <= lowcut: the A_h mu product's pieces below k + 1, B3) are skipped as on one node.  A
  * skipped (0,0) piece just leaves the first formed piece on the accumulating path (C's shares start zero-filled). */
-/* ---- C3 step 3, B (ECALC_DR >= 2; results/DR.md): checked tree products ----------------------------------------------------------------------------------
+/* ---- C3 step 3, B (ECALC_DR >= 2; results/CORRECTNESS.md): checked tree products ----------------------------------------------------------------------------------
  * A tracked residue is R(x) = x mod DR_Q (the 62-bit t1_q[0]) of a whole number, held by the caller as an explicit variable (mdb_trk: never inside the mdb, whose in-place operations
  * would leave it stale) together with this node's share residue split by APU (the parts, recorded when the share was produced).  C = A B + X is exact, so R(C) = R(A) R(B) + R(X);
  * rns_mul_dist_mn_chk compares the residue of the delivered shares with it (one host all-gather on mesh 0, summed alike on every node), repeats the product once on a mismatch (after
@@ -1778,7 +1778,7 @@ int mdb_dr_store_inject(mdb *X, int node)    /* ECALC_DR_TEST=store: one limb of
     return 0;
 }
 static size_t mn_logmin(int g) { int nr = NL() * g, lg = 0; while ((1 << lg) < nr) lg++; int logmin = 2 * (5 + lg); return logmin < 20 ? 20 : logmin; }
-/* ---- Phase 15 Batch 3 P24 (results/PRIMES_STRATEGY.md §P2415): four primes at 24 digits per transform point in the mn tier ------------------------
+/* ---- Phase 15 Batch 3 P24 (results/COMPUTE.md §P2415): four primes at 24 digits per transform point in the mn tier ------------------------
  * Every mn product runs P24 when pool 0 holds four planes (ECALC_NP=4, or auto where the run's largest group can form a four-prime
  * piece); else the 18-digit form.  (P24 as the 2-mode, the user's decision of 2026-09-29, built in 2026-10-12; its forms 0 = off and 1 = only the
  * products whose 18-digit grid's largest piece would run four primes were removed.) */
@@ -1960,7 +1960,7 @@ void rns_mul_dist_mn_cut_v(mdb *Cm, const mdbv *A, const mdbv *B, mn_group *G, s
     mn_grid(Cm, &a, &b, 0, G, lowcut, highcut, highcut, 0);
 }
 void rns_mul_low_mn(mdb *Cm, const mdb *A, const mdb *B, mn_group *G, size_t w) { rns_mul_dist_mn_cut(Cm, A, B, G, 0, w); }
-/* P1 (DM_MN_WRAP, results/DIVISION.md §P1): the pieces starting at or above wskip skipped, C in basis `basis` (limbs at or above it dropped):
+/* P1 (DM_MN_WRAP, results/COMPUTE.md §P1): the pieces starting at or above wskip skipped, C in basis `basis` (limbs at or above it dropped):
  * congruent to A B mod B^wskip (the caller clears the limbs in [wskip, basis)).  Operands non-zero views. */
 void rns_mul_dist_mn_low_basis_v(mdb *Cm, const mdbv *A, const mdbv *B, mn_group *G, size_t wskip, size_t basis)
 {
@@ -1973,7 +1973,7 @@ void rns_mul_dist_mn_low_basis_v(mdb *Cm, const mdbv *A, const mdbv *B, mn_group
  * in basis `basis` (>= P + 4); P a power of two between the group's smallest plane and its cap; na, nb <= P, non-zero */
 int rns_mul_dist_mn_logmin(mn_group *G) { return (int)mn_logmin(G->g); }
 int rns_mul_dist_mn_logmin_g(int g) { return (int)mn_logmin(g); }    /* D19 (binsplit.c dm_layout) */
-/* ---- C3 step 4, D' (ECALC_DR >= 3; results/DR.md): the flagless cyclic product U == A B mod (B^P - 1) is checked modulo B+1 and B-1 (P even: B^2 - 1 divides B^P - 1).
+/* ---- C3 step 4, D' (ECALC_DR >= 3; results/CORRECTNESS.md): the flagless cyclic product U == A B mod (B^P - 1) is checked modulo B+1 and B-1 (P even: B^2 - 1 divides B^P - 1).
  * Each node reduces its piece of A's view, B's view and U (db_mod_qs with the moduli 10^18 +- 1: the generic % kernel) at its place in the number; one host all-gather on mesh 0 and every node
  * sums the same words, so the verdict, the repeat and the stop are alike on every node.  A mismatch frees U and recomputes it once (the operands are unchanged and alive); a second failure is fatal. */
 size_t rns_dr_event(mn_group *G)               /* a failure of the division checks: the run's failure count, agreed by the group (the cap ECALC_DR_TOTAL is decided alike) */
@@ -2064,7 +2064,7 @@ void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb)
  * unless a whole piece is zero). */
 void rns_dist_plan_pools(size_t pool0_bytes, size_t pool1_bytes) { g_plan_pool[0] = pool0_bytes; g_plan_pool[1] = pool1_bytes; }
 void rns_dist_plan_cap_test(int logn) { g_cap_test = logn; }
-/* Phase 15 TC (results/CACHE.md): the plan's line for the mn transform cache -- where it is first wanted (the first mn grid product;
+/* Phase 15 TC (results/TRANSPORT.md): the plan's line for the mn transform cache -- where it is first wanted (the first mn grid product;
  * ), the slots the default takes if hipMemGetInfo lets it (outside
  * every budget) and what the cache fit would take against node_bytes (the layout's node: plane pools + arena + tables + the init
  * host, binsplit_node_bytes -- the run's own check uses its measured init peak where that is larger) */
@@ -2181,7 +2181,7 @@ size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t sh
 #undef RT
     return bytes;
 }
-/* B7ACCT (results/GRID_GROUPS.md §B7ACCT): the layered communicator's v-exchange scratch that one product's general-map transform grows on each APU
+/* B7ACCT (results/COMPUTE.md §B7ACCT): the layered communicator's v-exchange scratch that one product's general-map transform grows on each APU
  * thread (comm_layered.c need_vslot / need_vtmp: hipMalloc'd OUTSIDE the block pool and the layout, grow-only, freed only when the
  * communicator is destroyed -- mn.c groups_finalize, the run's end).  gen_fwd / gen_inv_pw post one alltoallv per chunk k < K (gplan_build's
  * K) over the 4 g ranks rho = g d + r.  For APU d of node r the exchange's intra-stage receive A (what the node's four APUs send to the ranks
@@ -2231,7 +2231,7 @@ size_t rns_mul_dist_mn_vslot(size_t na, size_t nb, int g)
     }
     return vslot_shape(logR, logC, g);
 }
-/* Phase 14 P2 (results/SHMEM.md): the xshmem transport's staging for the same product, limbs per APU thread = the send + receive of
+/* Phase 14 P2 (results/TRANSPORT.md): the xshmem transport's staging for the same product, limbs per APU thread = the send + receive of
  * its largest staged exchange (with XSHMEM_ROUND_MB 0 comm_xshmem.c stages every buffer per exchange, released after it; the
  * four APU threads run the same exchange at once, so the pool holds 4 of these): the result exchange (xb -> rbO: my rows of the
  * piece RT(nc), and my window's part win / NL()), the redistribution of A or B (my share's part va / NL() + 2 g rows out, my rows RT(pa)

@@ -1,4 +1,4 @@
-/* t_dr - C3 step 1 (results/DR.md): the host helpers of dr.c against GMP.  Host only, no node time.
+/* t_dr - C3 step 1 (results/CORRECTNESS.md): the host helpers of dr.c against GMP.  Host only, no node time.
  * residue algebra (add/sub/mul/pow, B^e, a limb array and a number cut into shifted parts) vs mpz; the D identity's m in {-1, 0, 1}
  * (and a fault giving 2); the residues modulo B+1 and B-1 of random and extreme cyclic products U = A B mod (B^P - 1), P even;
  * the injection parser and latches; the counters and the context text.  Run: tests/t_dr */

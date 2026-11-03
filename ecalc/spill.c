@@ -53,7 +53,7 @@ int sp_direct_for(const char *path) { return sp_odirect_auto() ? sp_direct_by_fs
 int sp_direct_by_fs(const char *path)
 {
     switch (sp_fs_kind(path)) {
-    case SP_FS_NFS:    return 1;   /* W1 (results/OUTPUT_IO.md §IO15 §3): on aac6's NFS O_DIRECT 0.64-0.96 GB/s vs buffered + fsync 0.36-0.48 (10 GbE), 0.113-0.116 vs 0.098-0.104 (1 GbE) */
+    case SP_FS_NFS:    return 1;   /* W1 (results/MEMORY_IO.md §IO15 §3): on aac6's NFS O_DIRECT 0.64-0.96 GB/s vs buffered + fsync 0.36-0.48 (10 GbE), 0.113-0.116 vs 0.098-0.104 (1 GbE) */
     case SP_FS_LUSTRE: return 1;   /* ASSUMED: large aligned direct writes are Lustre's fast path; measure on the target (TARGET_TASKS T1) */
     case SP_FS_TMPFS:  return 0;
     default:           return 1;   /* local disks and unknown file systems: O_DIRECT (ECALC_ODIRECT=0 turns all of it off) */
@@ -63,7 +63,7 @@ void sp_drop_cache(int fd)
 {
     if (fd < 0) return;
     fsync(fd);
-    posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);     /* only clean pages go: hence the fsync first (results/APUMULT.md) */
+    posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);     /* only clean pages go: hence the fsync first (results/COMPUTE.md) */
 }
 /* every device's queued work complete (the DMA of this file runs on its own non-blocking streams, which are not ordered
  * after the pipeline's null-stream work the way a hipMemcpy is); the calling thread's device kept */
@@ -119,7 +119,7 @@ static int pwrite_full(sp_file *f, const void *p, size_t n, uint64_t off)
     f->t_io += mem_now() - t;
     return 1;
 }
-/* reads until `need` bytes are in (the rest of `n` may be past the end of the file).  CKPT (results/CHECKPOINT.md §CKPT): the home
+/* reads until `need` bytes are in (the rest of `n` may be past the end of the file).  CKPT (results/CORRECTNESS.md §CKPT): the home
  * file system of the test cluster is NFS mounted `soft` on the compute nodes, so a read whose RPCs wait longer than the
  * mount's timeouts fails with EIO; four 512 MiB O_DIRECT reads per node on 6 nodes queued enough to fail 16 of 24 top-set
  * files.  So: (1) one pread asks for at most SP_READ_MAX bytes (64 MiB: 1.5 GiB in flight over 6 nodes, seconds of queue

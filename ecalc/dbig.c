@@ -67,7 +67,7 @@ void db_copy_h2d_wait(int dev) { if (g_h2d_init[dev]) HIP_CHECK(hipStreamSynchro
  * store of `seq` (db_pull_copy_async), its completion a host spin on the kernel's `done` counter (db_pull_wait), and the kernels
  * leave on `quit` (db_pull_stop_all, at the end of seeds_stream, before the buffers are unregistered).  The source's device
  * pointer is resolved once per buffer (db_pull_resolve, from the seed thread right after the buffers are registered).  Same bytes
- * to the same addresses as db_copy_h2d_async: digits identical.  Always on (results/SINGLE_NODE.md §CAND; the fallback BS_SEED_PULL=0
+ * to the same addresses as db_copy_h2d_async: digits identical.  Always on (results/COMPUTE.md §CAND; the fallback BS_SEED_PULL=0
  * was removed 2026-10-23, Q87; on a CPX XCD the 456 blocks need not all be resident and the first copy never completes). */
 struct db_pullctl { unsigned long long seq, done, exited, quit; unsigned long long dst, src, n; };
 #define DB_PULL_BLOCKS 456
@@ -431,7 +431,7 @@ static void ext_remove(int d, char *p, size_t bytes)   /* [p, p + bytes) out of 
     }
     ec_fatal(EC_RC_FATAL, "dbig: ext_remove: range not free\n");
 }
-/* DB_FREE_SYNC (default 0 = unchanged; results/POOLRACE.md): a test of the hypothesis that a block, or a VMM chunk, goes back to the free list (or is unmapped and mapped
+/* DB_FREE_SYNC (default 0 = unchanged; results/MEMORY_IO.md): a test of the hypothesis that a block, or a VMM chunk, goes back to the free list (or is unmapped and mapped
  * again elsewhere) while GPU work that was enqueued earlier still reads or writes it.  1: hipDeviceSynchronize on the block's device before q_free puts it on the free
  * list and before vmm_make_room unmaps a chunk; 2: the same on every device this process uses for the pool (the peers that read a quarter).  A device on which the
  * persistent seed-pull kernel runs gets the null stream's sync instead (a device sync would wait for that kernel).  Nothing else changes: same blocks, same digits. */
@@ -449,7 +449,7 @@ static void free_sync(int d)
     HIP_CHECK(hipSetDevice(cur));
     __atomic_fetch_add(&g_fsync_n, 1, __ATOMIC_RELAXED); pthread_mutex_lock(&g_fsync_mx); g_fsync_t += mem_now() - t0; pthread_mutex_unlock(&g_fsync_mx);   /* (the time is a sum over threads, approximate) */
 }
-/* DB_POOL_FORCE_REMAP=<n> (default 0 = off; results/STRESS.md): a stress knob.  Every n-th q_alloc or q_free on a device runs vmm_make_room(force=1) (before the allocation, after the free): it unmaps up to
+/* DB_POOL_FORCE_REMAP=<n> (default 0 = off; results/MEMORY_IO.md): a stress knob.  Every n-th q_alloc or q_free on a device runs vmm_make_room(force=1) (before the allocation, after the free): it unmaps up to
  * max(64, ceil(need/chunk)) of the HIGHEST wholly free chunks (never creates chunks) and maps them again, in reverse order, into the lowest run of empty slots, although the request
  * would have been met from the free list.  Only free memory moves, so the digits do not change; it makes the remap path (hipMemUnmap / hipMemMap / hipMemSetAccess under
  * traffic) run many times at small sizes.  Small DB_POOL_VMM_CHUNK_GB (e.g. 0.0625) gives many chunks to move.
@@ -645,7 +645,7 @@ static void bounce_init(int d)
 }
 /* Small bounce (always on; the fallback DBIG_SMALL_BOUNCE=0 was removed 2026-10-23, Q87) -- a quarter of at most SBOUNCE limbs (8 MiB) goes through one small pinned buffer
  * per device instead of the two 1 GiB ones.  The first host copy of a run allocated 4 x 2 GiB of pinned host memory (≈2.2 s on
- * every aac7 node, longer on one, in the reciprocal's gather of 0.2 MB, results/DIVISION.md §O2); the small buffer costs milliseconds.
+ * every aac7 node, longer on one, in the reciprocal's gather of 0.2 MB, results/COMPUTE.md §O2); the small buffer costs milliseconds.
  * The bytes copied are the same, so digits are identical; the big buffers are still allocated on the first large copy. */
 #define SBOUNCE ((size_t)1 << 20)
 static uint64_t *g_sbounce[DB_NQ];
@@ -840,7 +840,7 @@ __global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a,
  * The b operand is either a dbig or a sparse set of 4-limb spills (sp != 0): spill j sits at limb
  * R j + row0 + rows for row0 in {0, rows, 2 rows, 3 rows} (four ranks' spill arrays). */
 struct sparse { const uint64_t *sp[4]; size_t R, rows, C; int single; size_t pos; uint64_t val;
-                size_t lo; int gt; const size_t *tab[4]; int p24; int vl; };   /* vl (S1b, vPE) = 1: gt counts PEs, one rank per PE -- one spill array per rank (sp[0], tab[0] only), rho = the PE's index, nr = gt */   /* p24 (results/PRIMES_STRATEGY.md §P2415): the blocks at L(R j + a') of p24.h */   /* tab[d] (the exact spill exchange): sp[d] holds only the blocks that meet this share, per source node r the columns [tab[3r], tab[3r+1]) at block offset tab[3r+2]; 0 = the full [r][j][4] layout */   /* single: one limb val at pos.  gt > 0 (M3): the node's share [lo, ..) of a number whose product ran on 4 gt ranks,
+                size_t lo; int gt; const size_t *tab[4]; int p24; int vl; };   /* vl (S1b, vPE) = 1: gt counts PEs, one rank per PE -- one spill array per rank (sp[0], tab[0] only), rho = the PE's index, nr = gt */   /* p24 (results/COMPUTE.md §P2415): the blocks at L(R j + a') of p24.h */   /* tab[d] (the exact spill exchange): sp[d] holds only the blocks that meet this share, per source node r the columns [tab[3r], tab[3r+1]) at block offset tab[3r+2]; 0 = the full [r][j][4] layout */   /* single: one limb val at pos.  gt > 0 (M3): the node's share [lo, ..) of a number whose product ran on 4 gt ranks,
                                          * rank rho = gt d + r: sp[d] holds [r][j][4], spill (rho, j) at global limb R j + (rho + 1) rows -- or, when rows nr != R
                                          * (gt = g nodes of any count, rows = floor(R / nr)), at R j + R (rho + 1) / nr */
 __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
@@ -1149,7 +1149,7 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
             blocks = nblk(whi - wlo);
 #pragma omp critical
             k_maxidx<<<blocks, 256>>>(va, vb, b != 0, wlo, whi, g_red[dv]);
-        /* (results/CRASHES_HANGS.md §A114) the per-block results come to this thread's own
+        /* (results/CORRECTNESS.md §A114) the per-block results come to this thread's own
          * buffer.  They went to a process-wide malloc'd g_hred whose first-use allocation (`if (!g_hred) g_hred = malloc()`)
          * ran unguarded inside this four-thread region: two threads could allocate, and a thread whose hipMemcpy landed in
          * one buffer read the other, uninitialised one.  The first db_norm of a process is the leaf hand-over's db_copy at
