@@ -234,14 +234,18 @@ void mn_finalize(void)
     if (g_size > 1 && g_xshmem) { comm_xshmem_finalize(); return; }
 #endif
 }
-/* the self-tests over PE communicators -- every PE (process) is one rank of one communicator (the flat one, or the first 2^k PEs for the
- * layered test, k the largest with 2^k <= #PE), one plane of one prime, its rows against the one-rank engine; no omp.  The 12-PE case (not a power of two)
- * is covered by the 8 PEs of vpe_sub(0, 8); the R / ranks >= 32 growth of the loops below is kept as it is.  Called from the flow's thread of the process. */
-static uint64_t xs(uint64_t *s);
-static int selftest_pe_core(comm *cm, int prime, int logR, int logC, int verbose)
+/* Self-tests: a random cyclic convolution of 2^(logR+logC) points through the distributed fwd/pw/inv of communicator cm (one plane of one
+ * prime; rank r holds rows [r R/nr, (r+1) R/nr), row i, column j <-> point i + R j) against the one-rank engine on the same rows.  a2a also
+ * checks the layered all-to-all pattern; want_rank >= 0 checks the communicator's rank.  Runs on the calling thread's device. */
+static int pow2_floor(int g) { int p = 1; while (2 * p <= g) p *= 2; return p; }
+static uint64_t xs(uint64_t *s) { *s ^= *s << 13; *s ^= *s >> 7; *s ^= *s << 17; return *s; }
+static int selftest_core(comm *cm, int prime, int want_rank, int logR, int logC, int verbose, int a2a)
 {
     int r = comm_rank(cm), nr = comm_size(cm), ok = 1;
-    while (((size_t)1 << logR) / (size_t)nr < 32) logR++;
+    if (logR < NTT_LOGN_MIN) logR = NTT_LOGN_MIN;
+    while (((size_t)1 << logR) / (size_t)nr < 32) logR++;        /* R / ranks >= 32 (k_twpack_r's grid is rk/32 blocks) */
+    if (want_rank >= 0 && r != want_rank) ec_fatal(EC_RC_FATAL, "mn selftest: rank %d, expected %d\n", r, want_rank);
+    if (prime < 0) prime = (logR + logC) & 3;
     int logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
     uint64_t p = ec_P[prime], seed = 0x9E3779B97F4A7C15ull + prime;
     uint64_t *hx = (uint64_t *)malloc(n * 8), *hy = (uint64_t *)malloc(n * 8), *ref = (uint64_t *)malloc(n * 8), *tmp = (uint64_t *)malloc(rows * 8);
@@ -253,6 +257,16 @@ static int selftest_pe_core(comm *cm, int prime, int logR, int logC, int verbose
     HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(ref, dx, n * 8, hipMemcpyDeviceToHost));
     dist_plan pl; dist_plan_create(&pl, cm, ctx, prime, logR, logC);
     uint64_t *rx, *ry; HIP_CHECK(hipMalloc(&rx, rows * 8)); HIP_CHECK(hipMalloc(&ry, rows * 8));
+    if (a2a) {   /* slab sigma of rank rho tagged (rho, sigma, i) must arrive as slab rho of rank sigma */
+        size_t sl = rows / nr, bad = 0; uint64_t *pat = (uint64_t *)malloc(rows * 8);
+        for (int sg = 0; sg < nr; sg++) for (size_t i = 0; i < sl; i++) pat[sg * sl + i] = ((uint64_t)r << 40) | ((uint64_t)sg << 32) | i;
+        HIP_CHECK(hipMemcpy(rx, pat, rows * 8, hipMemcpyHostToDevice));
+        comm_alltoall(cm, rx, ry, sl * 8, s); comm_wait(cm);
+        HIP_CHECK(hipMemcpy(pat, ry, rows * 8, hipMemcpyDeviceToHost));
+        for (int src = 0; src < nr; src++) for (size_t i = 0; i < sl; i++) bad += pat[src * sl + i] != (((uint64_t)src << 40) | ((uint64_t)r << 32) | i);
+        if (bad) { printf("%smn: %s %d rank %d: layered all-to-all pattern: %zu of %zu words wrong\n", ec_log_prefix(), mn_who(), mn_rank(), r, bad, rows); ok = 0; }
+        free(pat);
+    }
     for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hx[(r * rr + il) + R * j];
     HIP_CHECK(hipMemcpy(rx, tmp, rows * 8, hipMemcpyHostToDevice));
     for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hy[(r * rr + il) + R * j];
@@ -261,12 +275,13 @@ static int selftest_pe_core(comm *cm, int prime, int logR, int logC, int verbose
     HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(tmp, rx, rows * 8, hipMemcpyDeviceToHost));
     size_t bad = 0;
     for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) if (tmp[il * C + j] != ref[(r * rr + il) + R * j]) bad++;
-    if (bad || verbose) printf("%smn: PE rank %d of %d, 2^%d points: %zu of %zu differ\n", ec_log_prefix(), r, nr, logn, bad, rows);
+    if (bad || verbose) printf("%smn: %s %d prime %d rank %d of %d, 2^%d points: %zu of %zu differ\n", ec_log_prefix(), mn_who(), mn_rank(), prime, r, nr, logn, bad, rows);
     if (bad) ok = 0;
     dist_plan_free(&pl); HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy)); HIP_CHECK(hipStreamDestroy(s)); ntt_ctx_free(ctx);
     free(hx); free(hy); free(ref); free(tmp);
     return ok;
 }
+/* PE layout: every PE is one rank of the flat communicator, or of the first 2^k PEs for the layered test (2^k <= #PE) */
 static int selftest_pe(int logR, int logC, int verbose, int layered)
 {
     int npe = vpe_npe(); comm *cm; double t0 = mem_now();
@@ -274,61 +289,26 @@ static int selftest_pe(int logR, int logC, int verbose, int layered)
         if (npe & (npe - 1)) { if (vpe_root()) printf("mn: self-test over the plain meshes skipped (%d PEs is not a power of two; the layered self-test covers the transform PEs)\n", npe); return 1; }
         cm = flat;
     } else {
-        int gt = 1; while (2 * gt <= npe) gt *= 2;
-        cm = vpe_sub(0, gt); if (!cm) return 1;
+        cm = vpe_sub(0, pow2_floor(npe)); if (!cm) return 1;
     }
-    int ok = selftest_pe_core(cm, (logR + logC) & 3, logR, logC, verbose);
+    int ok = selftest_core(cm, -1, -1, logR, logC, verbose, 0);
     if (vpe_root()) printf("mn: %sself-test over %d PEs at 2^%d+ points: %s (%.2f s)\n", layered ? "layered " : "", comm_size(cm), logR + logC, ok ? "ok" : "FAILED", mem_now() - t0);
     return ok;
 }
-static int selftest_pe_entry(int logR, int logC, int verbose, int layered) { return selftest_pe(logR, logC, verbose, layered); }
-/* self-test: on every APU thread, prime d, a random cyclic convolution of 2^(logR+logC) points from a seed all
- * nodes share; the distributed fwd/pw/inv over mesh d's `size` ranks must equal the one-rank engine on this
- * rank's block-cyclic rows (rank r holds rows [r R/nr, (r+1) R/nr); row i, column j <-> point i + R j) */
-static uint64_t xs(uint64_t *s) { *s ^= *s << 13; *s ^= *s >> 7; *s ^= *s << 17; return *s; }
+/* node layout, on every APU thread d: prime d over mesh d's `size` ranks */
 int mn_selftest(int logR, int logC, int verbose)
 {
     if (mn_size() <= 1) return 1;
-    if (vpe_on()) return selftest_pe_entry(logR, logC, verbose, 0);
+    if (vpe_on()) return selftest_pe(logR, logC, verbose, 0);
     if (mn_size() & (mn_size() - 1)) { printf("mn: self-test over the plain meshes skipped (size %d is not a power of two; the layered self-test covers the transform nodes)\n", mn_size()); return 1; }
-    int nr = mn_size();
-    if (logR < NTT_LOGN_MIN) logR = NTT_LOGN_MIN;   /* the column pass is ntt_fwd(..., p->logR, ...): logR itself must be a valid transform size */
-    /* (results/TRANSPORT.md's growth pattern) the fixed 2^11 rows give R/ranks < 32 from 128
-     * ranks on (k_twpack_r's grid is rk/32 blocks, 0 at R/ranks = 16: a silent no-op, not a HIP error).  Grow logR until
-     * R/ranks >= 32, as the layered test does; below 128 ranks R/ranks is already >= 32 (2048/64
-     * = 32) so the loop never fires and behavior is unchanged. */
-    while (((size_t)1 << logR) / (size_t)nr < 32) logR++;
-    int ok = 1, logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
-    if (rr < 32) { fprintf(stderr, "mn_selftest: R / ranks < 32\n"); return 0; }
-    double t0 = mem_now();
+    int ok = 1; double t0 = mem_now();
 #pragma omp parallel for num_threads(NA) schedule(static) reduction(&&:ok)
     for (int d = 0; d < NA; d++) {
         HIP_CHECK(hipSetDevice(d));
-        int prime = d, r = mn_rank(); uint64_t p = ec_P[prime], seed = 0x9E3779B97F4A7C15ull + prime;
-        uint64_t *hx = (uint64_t *)malloc(n * 8), *hy = (uint64_t *)malloc(n * 8), *ref = (uint64_t *)malloc(n * 8), *tmp = (uint64_t *)malloc(rows * 8);
-        for (size_t i = 0; i < n; i++) { hx[i] = xs(&seed) % p; hy[i] = xs(&seed) % p; }
-        ntt_ctx *ctx = ntt_ctx_create(prime); hipStream_t s; HIP_CHECK(hipStreamCreate(&s));
-        uint64_t *dx, *dy; HIP_CHECK(hipMalloc(&dx, n * 8)); HIP_CHECK(hipMalloc(&dy, n * 8));
-        HIP_CHECK(hipMemcpy(dx, hx, n * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dy, hy, n * 8, hipMemcpyHostToDevice));
-        ntt_fwd(ctx, dx, logn, 1, s); ntt_fwd(ctx, dy, logn, 1, s); ntt_pw(ctx, dx, dy, n, s); ntt_inv(ctx, dx, logn, 1, s);
-        HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(ref, dx, n * 8, hipMemcpyDeviceToHost));
-        dist_plan pl; dist_plan_create(&pl, g_cm[d], ctx, prime, logR, logC);
-        uint64_t *rx, *ry; HIP_CHECK(hipMalloc(&rx, rows * 8)); HIP_CHECK(hipMalloc(&ry, rows * 8));
-        for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hx[(r * rr + il) + R * j];
-        HIP_CHECK(hipMemcpy(rx, tmp, rows * 8, hipMemcpyHostToDevice));
-        for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hy[(r * rr + il) + R * j];
-        HIP_CHECK(hipMemcpy(ry, tmp, rows * 8, hipMemcpyHostToDevice));
-        dist_fwd(&pl, rx, s); dist_fwd(&pl, ry, s); dist_pw(&pl, rx, ry, s); dist_inv(&pl, rx, s);
-        HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(tmp, rx, rows * 8, hipMemcpyDeviceToHost));
-        size_t bad = 0;
-        for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) if (tmp[il * C + j] != ref[(r * rr + il) + R * j]) bad++;
-        if (bad || verbose) printf("mn: node %d mesh %d 2^%d points: %zu of %zu differ\n", r, d, logn, bad, rows);
-        if (bad) ok = 0;
-        dist_plan_free(&pl); HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy)); HIP_CHECK(hipStreamDestroy(s)); ntt_ctx_free(ctx);
-        free(hx); free(hy); free(ref); free(tmp);
+        ok = selftest_core(g_cm[d], d, -1, logR, logC, verbose, 0) && ok;
     }
     HIP_CHECK(hipSetDevice(0));
-    printf("mn: self-test, four meshes over %d nodes at 2^%d points: %s (%.2f s)\n", nr, logn, ok ? "ok" : "FAILED", mem_now() - t0);
+    printf("mn: self-test, four meshes over %d nodes at 2^%d+ points: %s (%.2f s)\n", mn_size(), logR + logC, ok ? "ok" : "FAILED", mem_now() - t0);
     return ok;
 }
 
@@ -343,7 +323,6 @@ static comm *sub_mesh(int g0, int g, int slot, int d)
     if (g0 == 0 && g == mn_size()) return g_cm[d];
     comm *r = mesh_create(g0, 1, g, NA + NA * slot + d); return r;   /* S: the PE set [g0, g0+g); id unique per (slot, d) -- the base meshes hold ids 0..3 */
 }
-static int pow2_floor(int g) { int p = 1; while (2 * p <= g) p *= 2; return p; }
 /* this node's group at level l >= 1: the nodes [k 2^l, min((k+1) 2^l, size)), k = rank >> l; its meshes are
  * created on first use by all its members together (a singleton group has none) */
 mn_group *mn_group_at(int level)
@@ -352,7 +331,7 @@ mn_group *mn_group_at(int level)
     if (g_groups[level]) return g_groups[level];
     mn_group *G = (mn_group *)calloc(1, sizeof *G);
     int k = mn_rank() >> level; G->g0 = k << level; G->g = (1 << level) < mn_size() - G->g0 ? (1 << level) : mn_size() - G->g0;
-    G->gt = pow2_floor(G->g); G->me = mn_rank() - G->g0; G->lvl = level;
+    G->me = mn_rank() - G->g0; G->lvl = level;
     if (vpe_on()) {                                      /* S1a: the group of 2^level PEs; all[0] = its PE communicator (the other fields stay unused; S1b's mn_group.pe) */
         if (G->g > 1) G->all[0] = vpe_sub_slot(G->g0, G->g, big_slot(G->g0, G->g, level));
         if (vpe_on()) G->pe = G->all[0];   /* S1b: the PE communicator (all[0] == pe; NULL for one PE) */
@@ -363,10 +342,10 @@ mn_group *mn_group_at(int level)
         for (int d = 0; d < NA; d++) {
             HIP_CHECK(hipSetDevice(d));
             G->all[d] = sub_mesh(G->g0, G->g, 2 * level - 1, d);
-            G->tr[d] = G->gt == G->g ? G->all[d] : (G->me < G->gt ? sub_mesh(G->g0, G->gt, 2 * level, d) : 0);
+            G->tr[d] = pow2_floor(G->g) == G->g ? G->all[d] : (G->me < pow2_floor(G->g) ? sub_mesh(G->g0, pow2_floor(G->g), 2 * level, d) : 0);
         }
         HIP_CHECK(hipSetDevice(0));
-        printf("%smn: %s %d: level %d group [%d, %d) (transform nodes %d): meshes connected in %.2f s\n", ec_log_prefix(), mn_who(), mn_rank(), level, G->g0, G->g0 + G->g, G->gt, mem_now() - t0);
+        printf("%smn: %s %d: level %d group [%d, %d) (transform nodes %d): meshes connected in %.2f s\n", ec_log_prefix(), mn_who(), mn_rank(), level, G->g0, G->g0 + G->g, pow2_floor(G->g), mem_now() - t0);
     }
     g_groups[level] = G;
     return G;
@@ -388,12 +367,12 @@ mn_group *mn_group_span(int l, int g0, int g)
     }
     if (g_sched[l]) { if (g_sched[l]->g0 != g0 || g_sched[l]->g != g) { ec_fatal(EC_RC_FATAL, "mn_group_span: level %d group changed\n", l); } return g_sched[l]; }
     mn_group *G = (mn_group *)calloc(1, sizeof *G);
-    G->g0 = g0; G->g = g; G->gt = pow2_floor(g); G->me = mn_rank() - g0; G->lvl = l; G->sched = 1;
+    G->g0 = g0; G->g = g; G->me = mn_rank() - g0; G->lvl = l; G->sched = 1;
     if (vpe_on()) { G->all[0] = G->pe = vpe_sub_slot(g0, g, big_slot(g0, g, 15 + l)); g_sched[l] = G; return G; }   /* S1a: the general map over PEs; all[0] = the PE run's communicator */
     double t0 = mem_now();
 #pragma omp parallel for num_threads(NA) schedule(static)
     for (int d = 0; d < NA; d++) {
-        HIP_CHECK(hipSetDevice(d)); G->tr[d] = 0;
+        HIP_CHECK(hipSetDevice(d));
         /* a PE-set id of its own (NA + NA (2 MN_MAXL + l) + d) */
         G->all[d] = mesh_create(g0, 1, g, NA + NA * (2 * MN_MAXL + l) + d);
     }
@@ -404,64 +383,25 @@ mn_group *mn_group_span(int l, int g0, int g)
 }
 /* all-gather of k u64 per node over a mesh: the transport's host all-gather (M7, A-comm; was a point-to-point loop) */
 void mn_allgather(comm *c, const uint64_t *v, int k, uint64_t *out) { comm_allgather_host(c, v, out, (size_t)k * 8); }
-/* the layered communicator's self-test (the mn_selftest pattern over 4 gt ranks, gt = the largest power of two <= size,
- * rank rho = gt d + node): one plane of one prime spread over all 4 gt ranks (the four APUs of a node hold rows of the
- * same plane, as in the product tier), each rank's distributed convolution against the one-rank engine on its rows */
+/* the layered communicator over 4 x gt ranks (gt = the largest power of two <= size, rank rho = gt d + node): one plane of one prime
+ * spread over all 4 gt ranks, as in the product tier */
 int mn_selftest_layered(int logR, int logC, int verbose)
 {
     if (mn_size() <= 1) return 1;
-    if (vpe_on()) return selftest_pe_entry(logR, logC, verbose, 1);
+    if (vpe_on()) return selftest_pe(logR, logC, verbose, 1);
     int L = 0; while ((1 << L) < mn_size()) L++;
-    mn_group *G = mn_group_at(L); int gt = G->gt;
+    mn_group *G = mn_group_at(L); int gt = pow2_floor(G->g);
     if (mn_rank() >= gt) return 1;
-    /* logR grows until R / ranks >= 32 -- the fixed 2^11 rows refuse from 32 PEs on
-     * (4 x 32 = 128 ranks, R / ranks = 16), so the rows grow with the rank count */
-    while (((size_t)1 << logR) / ((size_t)NA * gt) < 32) logR++;
-    int ok = 1, nr = NA * gt, logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
-    if (rr < 32) { fprintf(stderr, "mn_selftest_layered: R / ranks < 32\n"); return 0; }
-    double t0 = mem_now();
+    int ok = 1; double t0 = mem_now();
 #pragma omp parallel for num_threads(NA) schedule(static) reduction(&&:ok)
     for (int d = 0; d < NA; d++) {
         HIP_CHECK(hipSetDevice(d));
-        int prime = (logR + logC) & 3, r = gt * d + mn_rank(); uint64_t p = ec_P[prime], seed = 0x9E3779B97F4A7C15ull + prime;   /* one plane (one prime) over all 4 gt ranks, as the product tier runs it */
-        uint64_t *hx = (uint64_t *)malloc(n * 8), *hy = (uint64_t *)malloc(n * 8), *ref = (uint64_t *)malloc(n * 8), *tmp = (uint64_t *)malloc(rows * 8);
-        for (size_t i = 0; i < n; i++) { hx[i] = xs(&seed) % p; hy[i] = xs(&seed) % p; }
-        ntt_ctx *ctx = ntt_ctx_create(prime); hipStream_t s; HIP_CHECK(hipStreamCreate(&s));
-        uint64_t *dx, *dy; HIP_CHECK(hipMalloc(&dx, n * 8)); HIP_CHECK(hipMalloc(&dy, n * 8));
-        HIP_CHECK(hipMemcpy(dx, hx, n * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dy, hy, n * 8, hipMemcpyHostToDevice));
-        ntt_fwd(ctx, dx, logn, 1, s); ntt_fwd(ctx, dy, logn, 1, s); ntt_pw(ctx, dx, dy, n, s); ntt_inv(ctx, dx, logn, 1, s);
-        HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(ref, dx, n * 8, hipMemcpyDeviceToHost));
         comm *xg = comm_xgmi_create(d), *cm = comm_layered_create(xg, G->tr[d], d);
-        if (comm_rank(cm) != r || comm_size(cm) != nr) { ec_fatal(EC_RC_FATAL, "mn_selftest_layered: rank %d/%d, expected %d/%d\n", comm_rank(cm), comm_size(cm), r, nr); }
-        dist_plan pl; dist_plan_create(&pl, cm, ctx, prime, logR, logC);
-        uint64_t *rx, *ry; HIP_CHECK(hipMalloc(&rx, rows * 8)); HIP_CHECK(hipMalloc(&ry, rows * 8));
-        {   /* the all-to-all alone: slab sigma of rank rho tagged (rho, sigma, i) must arrive as slab rho of rank sigma */
-            size_t sl = rows / nr; uint64_t *pat = (uint64_t *)malloc(rows * 8);
-            for (int sg = 0; sg < nr; sg++) for (size_t i = 0; i < sl; i++) pat[sg * sl + i] = ((uint64_t)r << 40) | ((uint64_t)sg << 32) | i;
-            HIP_CHECK(hipMemcpy(rx, pat, rows * 8, hipMemcpyHostToDevice));
-            comm_alltoall(cm, rx, ry, sl * 8, s); comm_wait(cm);
-            HIP_CHECK(hipMemcpy(pat, ry, rows * 8, hipMemcpyDeviceToHost));
-            size_t bad = 0;
-            for (int src = 0; src < nr; src++) for (size_t i = 0; i < sl; i++) { uint64_t want = ((uint64_t)src << 40) | ((uint64_t)r << 32) | i; if (pat[src * sl + i] != want) { if (!bad) printf("%smn: %s %d rank %d: slab %d word %zu = (rank %llu, slab %llu, %llu), want (%d, %d, %zu)\n", ec_log_prefix(), mn_who(), mn_rank(), r, src, i, (unsigned long long)(pat[src * sl + i] >> 40), (unsigned long long)((pat[src * sl + i] >> 32) & 255), (unsigned long long)(pat[src * sl + i] & 0xffffffff), src, r, i); bad++; } }
-            if (bad) { printf("%smn: %s %d rank %d: layered all-to-all pattern: %zu of %zu words wrong\n", ec_log_prefix(), mn_who(), mn_rank(), r, bad, rows); ok = 0; }
-            free(pat);
-        }
-        for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hx[(r * rr + il) + R * j];
-        HIP_CHECK(hipMemcpy(rx, tmp, rows * 8, hipMemcpyHostToDevice));
-        for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hy[(r * rr + il) + R * j];
-        HIP_CHECK(hipMemcpy(ry, tmp, rows * 8, hipMemcpyHostToDevice));
-        dist_fwd(&pl, rx, s); dist_fwd(&pl, ry, s); dist_pw(&pl, rx, ry, s); dist_inv(&pl, rx, s);
-        HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(tmp, rx, rows * 8, hipMemcpyDeviceToHost));
-        size_t bad = 0;
-        for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) if (tmp[il * C + j] != ref[(r * rr + il) + R * j]) bad++;
-        if (bad || verbose) printf("%smn: %s %d layered rank %d of %d, 2^%d points: %zu of %zu differ\n", ec_log_prefix(), mn_who(), mn_rank(), r, nr, logn, bad, rows);
-        if (bad) ok = 0;
-        dist_plan_free(&pl); comm_destroy(cm); comm_destroy(xg);
-        HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy)); HIP_CHECK(hipStreamDestroy(s)); ntt_ctx_free(ctx);
-        free(hx); free(hy); free(ref); free(tmp);
+        ok = selftest_core(cm, -1, gt * d + mn_rank(), logR, logC, verbose, 1) && ok;
+        comm_destroy(cm); comm_destroy(xg);
     }
     HIP_CHECK(hipSetDevice(0));
-    printf("mn: layered self-test, %d x 4 ranks at 2^%d points: %s (%.2f s)\n", gt, logn, ok ? "ok" : "FAILED", mem_now() - t0);
+    printf("mn: layered self-test, %d x 4 ranks at 2^%d+ points: %s (%.2f s)\n", gt, logR + logC, ok ? "ok" : "FAILED", mem_now() - t0);
     return ok;
 }
 /* the top log2(size) levels of the binary-splitting tree as distributed products: level l pairs the groups A (lower

@@ -366,7 +366,7 @@ static void h4_bench(void)
 static void layered_bench(int logn, int reps)
 {
     int sz = mn_size(), L = 0; while ((1 << L) < sz) L++;
-    mn_group *G = mn_group_at(L); int gt = G->gt;
+    mn_group *G = mn_group_at(L); int gt = 1; while (2 * gt <= G->g) gt *= 2;
     if (mn_rank() >= gt) return;
     int logR = logn / 2, logC = logn - logR; size_t n = (size_t)1 << logn, rows = n / (4 * (size_t)gt);
     double tp[4] = { 0, 0, 0, 0 };
@@ -482,7 +482,7 @@ int main(int argc, char **argv)
         if (logmax >= 26) VERIFY(mn_selftest_layered(13, 13, 0), "layered conv 2^26");
         {   /* M7: the layered communicator's all-gathers (4 gt ranks, rank gt d + node) and the mesh's */
             int L = 0; while ((1 << L) < sz) L++; mn_group *G = mn_group_at(L); int ok = 1;
-            if (mn_rank() < G->gt && G->tr[0]) {
+            if (G->tr[0]) {
 #pragma omp parallel for num_threads(4) schedule(static) reduction(&&:ok)
                 for (int d = 0; d < 4; d++) {
                     HIP_CHECK(hipSetDevice(d));

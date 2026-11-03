@@ -38,9 +38,8 @@ static inline void mdb_share(const mdb *x, int r, size_t *lo, size_t *hi)
 }
 /* a node group for one level of the tree: nodes [g0, g0+g), this node me = rank - g0; all[d] the mesh over the
  * group (rank = node - g0) for APU thread d, 0 when the group is one node; lay[d] the layered communicator over
- * all[d] (built by the product, cached).  gt (the largest power of two <= g) and tr[d] (the mesh over the first
- * gt nodes) are no longer used by the product (Phase 11 L: every node transforms); kept for mn.c / t_dist */
-typedef struct mn_group { int g0, g, gt, me; comm *all[4], *tr[4], *lay[4]; int lvl, sched; comm *pe; } mn_group;   /* lvl / sched: the group's level, and whether it is a schedule group (their ids) */
+ * all[d] (built by the product, cached); tr[d] the mesh over the first 2^k <= g nodes (the layered self-test only) */
+typedef struct mn_group { int g0, g, me; comm *all[4], *tr[4], *lay[4]; int lvl, sched; comm *pe; } mn_group;   /* lvl / sched: the group's level, and whether it is a schedule group (their ids) */
 /* S1b (PE layout, ECALC_PE_PER_GPU=1): G->pe is the group's flat PE communicator (rank = PE - g0); under vPE every size in this header counts PEs, g = PEs of the group,
  * nr = vpe_lanes() g ranks, one rank per PE; the all[d] arrays are unused (all[0] == pe). Off: pe is NULL. */
 /* C = A B + X (X may be 0) over the group; C's share on this node is a new dbig (C->sh freed first if set).
