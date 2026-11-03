@@ -1,17 +1,10 @@
-/* xshmem_cray.h -- the Cray SHMEM backend of xshmem.h (static inline, one forwarding line per call).  Included by xshmem.h when
- * XSHMEM_CRAY is defined (make XSHMEM=cray).  Builds against the 11.8 headers on aac7 (-lsma, SHMEM_LIBS) and is the file edited on the
- * target (12.1): the unknown names of design 1.3 are the XSHMEM_CRAY_* selectors below; none is guessed, an unselected unknown is the
- * 11.8 / OpenSHMEM-1.5 form or a compile-time #error with a hint.
- *
- * Selectors (-D on the make line via XSHMEM_CRAY_DEFS, default = what works on 11.8):
- *   XSHMEM_CRAY_HEAP     0 host heap shmem_malloc (default; design 1.3 a-3, MI300A host memory is the same HBM)
- *                        1 shmem_space_malloc(SHMEM_SPACE_DEVICE, n)   [12.1 name from research, UNVERIFIED]
- *                        2 shmem_malloc_with_hints(n, XSHMEM_CRAY_HINT)   [define XSHMEM_CRAY_HINT, else #error]
- *                        3 shmemg_malloc(n)                              [UNVERIFIED]
+/* xshmem_cray.h -- the Cray SHMEM backend of xshmem.h (static inline, one forwarding line per call), included when XSHMEM_CRAY is defined
+ * (make XSHMEM=cray).  Compile-time selectors (-D via XSHMEM_CRAY_DEFS; the default is what works on the 11.8 headers):
+ *   XSHMEM_CRAY_HEAP     0 host heap shmem_malloc (default; MI300A host memory is the same HBM)
+ *                        1 shmem_space_malloc(SHMEM_SPACE_DEVICE, n)  2 shmem_malloc_with_hints(n, XSHMEM_CRAY_HINT)  3 shmemg_malloc(n)   [12.1 names, UNVERIFIED]
  *   XSHMEM_CRAY_WAIT     0 shmem_signal_wait_until (default)  1 shmem_uint64_wait_until
- *   XSHMEM_CRAY_HOSTREG  1 (default): HEAP=0 registers the DATA heap with hipHostRegister (needs -DUSE_HIP, set by the Makefile); 0 = no
- * The XSHMEM_CTRL=host switch (design 1.3 b) puts the CTRL space in a second host shmem_malloc when HEAP is a device heap.
- */
+ *   XSHMEM_CRAY_HOSTREG  1 (default): HEAP=0 registers the DATA heap with hipHostRegister (needs -DUSE_HIP); 0 = no
+ * XSHMEM_CTRL=host puts the CTRL space in a second host shmem_malloc when HEAP is a device heap. */
 #ifndef XSHMEM_CRAY_H
 #define XSHMEM_CRAY_H
 
