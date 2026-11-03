@@ -1043,7 +1043,6 @@ void rns_mul_batch(rns_prod *P, size_t N)
  * and one plane Y for B; then the striped CRT over all stripes on this device and the spills of the stripes added by one chunked-carry pass
  * (db_add_spills, the layout of b_core: stripe g = 4 j + r -> sp[r][j], at limb (g + 1) rows).  The planes come from the dbig block pool.
  * Form B and the one-node four-step (form C over xGMI) do not exist under vPE; the digits are those of every form (the same primes, the same CRT). */
- */
 struct lstate {
     int init; ntt_ctx *ctx[EC_NP]; hipStream_t s;
     uint64_t *sp[4]; size_t spcap;                       /* the sparse spill arrays (pinned host: written by the CRT kernel through spall, read by the carry kernel) */
