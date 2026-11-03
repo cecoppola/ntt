@@ -259,7 +259,7 @@ static int out_stage(struct out_ctx *c)
         double tj = mem_now(); o = mn_out_early_join(c->early, &c->t_early);
         node_pfx(c); printf("      %s started in the division (MN_OUT_EARLY%s): its writer ran %.2f s, joined after %.2f s here%s\n", c->outfile ? (c->hi ? "the part files" : "the part file") : "the residues (no output file)", c->hi ? ", MN_OUT_DKM_HI: X_hi's after step 1, X_lo's at the release" : "", c->t_early, mem_now() - tj, c->ncorr && !c->defer ? "; X corrected after it started: redoing the part file" : "");
         oh = mn_out_early_hi(c->early);
-        if (c->ncorr && !c->defer) {   /* (with ECALC_CORR_PATCH=2 the corrections are deferred to the tail patch below) */ mn_out_finish(o); mn_out_boundaries(o, &src, cm); mn_out_run(o, &src); }   /* (every rank: the corrections are the group's) */
+        if (c->ncorr && !c->defer) {   /* (the corrections are deferred to the tail patch below) */ mn_out_finish(o); mn_out_boundaries(o, &src, cm); mn_out_run(o, &src); }   /* (every rank: the corrections are the group's) */
     } else {
         o->d = c->d; o->d_out = c->d_out; o->outfile = c->outfile; o->rank = c->rank; o->size = c->size; o->verbose = c->verbose >= 2;
         if (c->defer) o->t2_defer = c->zone;
@@ -269,7 +269,7 @@ static int out_stage(struct out_ctx *c)
     mn_out_fix fx; memset(&fx, 0, sizeof fx); int badp = 0;
     if (c->defer) {                                   /* the file complete, then the tail the corrections reach patched (collective at size > 1) */
         mn_out_finish(o); badp = mn_out_tail_fix(o, &src, cm, c->dx, &fx);
-        node_pfx(c); printf("      patch: X %+ld after the formatting started (ECALC_CORR_PATCH): %s; %d deferred windows; %.3f s%s\n", c->dx,
+        node_pfx(c); printf("      patch: X %+ld after the formatting started: %s; %d deferred windows; %.3f s%s\n", c->dx,
                             c->dx ? "" : "nothing to patch", fx.nwin, fx.t, badp ? "  FAILED" : "");
         if (c->dx) { node_pfx(c); printf("      patch: digits [%zu, %lu] change (%zu low limbs read); this node: %zu bytes in %d part file%s\n", fx.kp, c->d, fx.w, fx.bytes, fx.parts, fx.parts == 1 ? "" : "s"); }
     }
@@ -314,7 +314,7 @@ static int out_stage(struct out_ctx *c)
  * reciprocal and Q under the division.  the driver releases P before S = P + Q
  * overwrites it, and Q only after the output stage when the writer still needs it (joining before Q's block goes, at
  * the end of the division, waited 113 s at 0.31 GB/s); ECALC_CKPT_TOP=2 budgets both releases by the measured disk rate
- * (ECALC_CKPT_TOP_SLACK seconds, default 1): a set the disk cannot finish in time is dropped instead of waited for. */
+ * (1 s of slack): a set the disk cannot finish in time is dropped instead of waited for. */
 static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned long)(uintptr_t)a); }
 /* ECALC_BUDGET_CHECK=1 -- before the run computes (after init's allocations and
  * mem_report("init")), every rank models its peak and the ranks decide together whether any node is over its budget; if one
@@ -495,8 +495,7 @@ static int env_vpe_bg_threads(void)                    /* the background team of
 /* the division's hooks, set once (the slots in newton.h are process-wide; a hook finds the flow's out_ctx through oc_of) */
 static void mn_hooks_set(struct out_ctx *oc, const char *outfile)
 {
-    /* MN_OUT_EARLY_ALWAYS=1 (B3b, default off): the hook also without an output file: the writer then computes the digit residues only (no file is opened) while the division runs */
-    if ((outfile || (getenv("MN_OUT_EARLY_ALWAYS") && atoi(getenv("MN_OUT_EARLY_ALWAYS")))) && (getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) : 1)) {   /* default 1 */ newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = oc; }
+    if (outfile && (getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) : 1)) {   /* default 1 */ newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = oc; }
     /* the writer on X_hi after DKM's step 1 (MN_OUT_DKM_HI, always on since 2026-10-12; the =0 fallback was removed 2026-10-23, Q87): needs the early writer and the deferred corrections */
     if (newton_mn_x_hook && newton_x_defer) { newton_mn_xhi_hook = mn_early_hi_hook; newton_mn_xlo_hook = mn_early_lo_hook; }
 }
@@ -678,7 +677,7 @@ int main(int argc, char **argv)
                    vpe_npe(), vpe_lanes(), vpe_nnodes(), vpe_nnodes() > 1 ? "s" : "", g_bg_threads, omp_get_num_procs(), vpe_lanes(), omp_get_max_threads());
         bs_ckpt_dir = getenv("BS_CKPT_DIR"); if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
         if (ckpt_top_mode() && !bs_ckpt_dir && outfile) bs_ckpt_dir = mn_out_ckpt_default(outfile);   /* the one .top directory of all PEs (names are per PE, binsplit.c) */
-        { int cp = getenv("ECALC_CORR_PATCH") ? atoi(getenv("ECALC_CORR_PATCH")) : 2; newton_x_defer = cp >= 2; }   /* (as the flow's size > 1 rule) */
+        newton_x_defer = 1;
         mn_hooks_set(0, outfile);
     }
     if (ec_team_on() && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0))   /* A1: ECALC_OMP_TEAM=mask (nothing printed with it off) */
@@ -731,10 +730,8 @@ static void flow_run(void *a)
     struct pq_bg pqb; memset(&pqb, 0, sizeof pqb); pqb.N = N; pqb.a0 = bs_a0; pqb.b1 = bs_b1 ? bs_b1 : N + 1;   /* M5: the T1 recurrence over this node's terms */
     struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.d_out = d_out; xb.outfile = outfile; xb.verbose = verbose >= 2;
     struct out_ctx oc; memset(&oc, 0, sizeof oc); oc.N = N; oc.d = d; oc.d_out = d_out; oc.outfile = outfile; oc.verbose = verbose; oc.size = mn_size_; oc.rank = mn_rank(); g_ocp = &oc;
-    { int cp = getenv("ECALC_CORR_PATCH") ? atoi(getenv("ECALC_CORR_PATCH")) : 2;   /* default 2 */   /* 1 = size 1 (the writer runs before the corrections), 2 = also size > 1 */
-      if (!vpe_on()) newton_x_defer = (ovl && cp >= 1) || (mn_size_ > 1 && cp >= 2);   /* (PE layout: set in main) */
-      oc.zone = getenv("ECALC_CORR_PATCH_ZONE") ? strtoul(getenv("ECALC_CORR_PATCH_ZONE"), 0, 10) : 4096;
-      if (newton_x_defer) xb.t2_defer = oc.zone; }
+    if (!vpe_on()) newton_x_defer = 1;                /* (PE layout: set in main) */
+    oc.zone = 4096; xb.t2_defer = oc.zone;            /* the deferred T2 windows: the last 4096 digits */
     oc.pqb = &pqb; oc.xb = &xb; oc.t00 = t00; oc.t_init = t_init;
     if (mn_dist) bs_keep_dev = 1;                     /* M3: the leaf's P_r, Q_r stay on the device when the top leaf level ran there */
     if (ovl) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; bs_keep_dev = 1; }
@@ -754,7 +751,7 @@ static void flow_run(void *a)
      * division waits for (dm 28 -> 113 s, the 4e10 wall 81 -> 164 s, regression job 20964).  The set is what makes
      * ECALC_RECHECK possible for a finished run, so it stays one switch away: ECALC_CKPT_TOP=1. */
     int ckpt_top = ckpt_top_mode();                 /* off for record runs; ECALC_CHECKPOINT=1 (development and testing) = the budgeted top set (=2); ECALC_CKPT_TOP overrides both */
-    double ckpt_slack = getenv("ECALC_CKPT_TOP_SLACK") ? atof(getenv("ECALC_CKPT_TOP_SLACK")) : 1.0;   /* ECALC_CKPT_TOP=2's budget per release */
+    double ckpt_slack = 1.0;   /* ECALC_CKPT_TOP=2's budget per release */
     bs_ckpt_bg *topbg = 0; int topq_held = 0;       /* the size-1 top set's writer; Q held past the division for it */
     /* the reciprocal and the division over the sharded P, Q at size > 1.  The residues of P, Q, R come from the sharded kernels;
      * X stays sharded and every node writes its part (A-out) */

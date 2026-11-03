@@ -118,9 +118,6 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_BUDGET_CHECK` | unset | built-in default | `1` = after init every rank models its peak (device in use or the model's planes + arena, whichever is larger, + the host terms or VmRSS) and the ranks decide together (an allgather, the ... | C314.md+V314.md |
 | `ECALC_CHECKPOINT` | 0 | launch-line | `1` = development and testing: the budgeted top set (`ECALC_CKPT_TOP=2`) unless `ECALC_CKPT_TOP` is set; the headline / record runs leave it unset (0) | P16.md+DOC15.md |
 | `ECALC_CKPT_TOP` | auto | launch-line | the top-level P, Q on disk for the recheck (above): `BS_CKPT_DIR` or `<outfile>.top` (**off by default** — record timing runs, the user's decision of 2026-09-27; `ECALC_CHECKPOINT=1` makes ... | N13.md |
-| `ECALC_CKPT_TOP_SLACK` | 1 | built-in default | `ECALC_CKPT_TOP=2`: the seconds a release may wait for the writer (1) | N13.md+IO15.md |
-| `ECALC_CORR_PATCH` | 2 | built-in default | the division's ±1 corrections (/dx/ ≤ 64) made after the size-1 writer started on X (the hook before the low product) are **not** applied to X: T1 takes X's residues from the writer thread ... | KP15.md |
-| `ECALC_CORR_PATCH_ZONE` | 4096 | built-in default | with `ECALC_CORR_PATCH`, the digits at the end whose T2 windows are checked after the patch instead of by the writer (4096) | K15.md |
 | `ECALC_DEVICE_GB` | 373.44 | built-in default | the device edge per node, GB, the memory fit checks (default 373.44 = the target's, 93.36 GB per APU, m, results/MODEL.md §TGTBENCH2; profiles/aac7.conf: 444.0, m, the aac7 t_edge VMM ... | - |
 | `ECALC_DEVICE_MARGIN_GB` | 5 | built-in default | the safety margin per node (default 5.0 GB, the tighter of CAP17's two bars) under `ECALC_DEVICE_GB` that `DM_MN_WRAP` automatic keeps: the wrap is taken only when the device with it is at ... | - |
 | `ECALC_DR` | 0 | experiment | results/CORRECTNESS.md | - |
@@ -130,9 +127,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_DR_TEST_N` | 1 | diagnostic | results/CORRECTNESS.md | - |
 | `ECALC_DR_TEST_PE` | 0 | diagnostic | results/CORRECTNESS.md | - |
 | `ECALC_DR_TOTAL` | 8 | experiment | results/CORRECTNESS.md | - |
-| `ECALC_FATAL_ABORT` | derived | built-in default | `1` = a fatal error ends in `abort()` (a core file, rc 134) instead of `_exit(code)` (0). | S18W.md+C314.md |
 | `ECALC_FATAL_TEST` | unset | test-only | `1` = the four bs worker threads fail together right after the seeds (the in-phase guards' pattern): one message, rc 3 (0) | C314.md |
-| `ECALC_FATAL_WAIT` | 60 | built-in default | seconds the first failing thread may spend on its report (the memory accounting) before a watchdog `_exit`s (60) | C314.md |
 | `ECALC_FIT_APU_CHECK` | unset | launch-line | `1`: at start, before any GPU work, each APU the process drives (layout P: its own) must have free memory (MemFree + file cache of its NUMA node) of at least the planner's busiest-APU peak (`dev_apu_max`, the `per APU (max)` figure; rank 0's layout) plus a margin (the larger of `ECALC_MEM_GUARD_APU_GB` and `ECALC_DEVICE_MARGIN_GB`, 5 by default; so a small guard floor cannot loosen the check); else the run is refused (rc 8, as the budget check) with a message naming the APU, the free memory and the shortfall. Default off; prints one `fit apu check:` line when on | HEALTH.md |
 | `ECALC_FIT_PER_APU` | unset | built-in default | `1`: the planner's device fit also compares the busiest APU (a quarter of the planes + the largest region's arena + the device pool's share + the v-slots; region 0 holds the top batch levels) against its quarter of ECALC_DEVICE_GB and refuses above it, and prints a `per APU (max)` line; the default 0 keeps the node-mean fit and the output unchanged (`binsplit.c binsplit_fit`; twin `mem_model.py` key `dev_apu_max`). | - |
 | `ECALC_HOST_TL` | 0 | diagnostic | 1 = the host timeline of one PE at the exchange layer: the wall time from the end of the last pending exchange to the next post, per phase tag (host s), and the post's own stream-sync wait (wait s), written at exit to `xshmem_hosttl_pe<rank>.txt` in the working directory (clock reads only: no extra sync); default 0. | DIAG.md |
@@ -150,7 +145,6 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_NP_AUTO_TERMS` | derived | test-only | under `ECALC_NP=auto`, the switch-over in terms (1 … 58 424 467 928, the three-prime bound): a lower value makes small runs form both counts (the forced tests of results/COMPUTE.md ... | NP15.md |
 | `ECALC_ODIRECT` | 1 | built-in default | 1 = the checkpoint files (the top-level set, in the background) and the output file are written with O_DIRECT through aligned buffers (`spill.c`'s `sp_file`; the last partial block padded, ... | S114.md+KP15.md |
 | `ECALC_OMP_TEAM` | omp | experiment | omp_team.h: size of the host OpenMP teams (bs_nthreads, packed_mods residue, verify.c, mem.c hstage): omp = omp_get_max_threads() (latched from the ... | S22.md |
-| `ECALC_OUT_MODE` | derived | built-in default | the part file's write mode: `direct` (O_DIRECT), `buffered` (page cache, no sync: the pre-Phase-14 form), `sync` (buffered, `fsync` + `posix_fadvise(DONTNEED)` at close), `drop` (buffered, ... | IO15.md |
 | `ECALC_OUT_ODIRECT` | derived | built-in default | with `ECALC_ODIRECT=1`, 0 keeps the output file buffered (1) | S114.md+KP15.md |
 | `ECALC_OUT_PACKED` | 2 | built-in default | (`packed_fmt.h` version 2): the same header and checks, the limbs (< 2^60) as a little-endian 60-bit stream, 15 bytes per 2 limbs (7.5 B per 18 digits = 0.4167 B/digit, -6.25 % bytes ... | KP15.md+IO15.md |
 | `ECALC_PE_PER_GPU` | 0 | experiment | (default 0 = off, byte-identical to before): 1 = ONE PROCESS PER GPU (PE): `mnrun.sh` launches 4 tasks per node (`MNRUN_PPG_PPN`, default the node's GPU count; block distribution, ... | - |
@@ -176,7 +170,6 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `MN_OUT_CHUNK_MB` | 256 | built-in default | the streamed writer's digit chunk per node (256) | IO15.md+A-out.md |
 | `MN_OUT_DKM_HI_TEST_CARRY` | unset | test-only | - | EW15.md |
 | `MN_OUT_EARLY` | 1 | built-in default | at size > 1 the part file starts at the division's hook (X formed, before the low product: `newton_mn_x_hook` → `mn_out_early_start`) in a background thread over the node's share, as the ... | IO15.md |
-| `MN_OUT_EARLY_ALWAYS` | 0 | experiment | ecalc.c mn_hooks_set: 1 = the early output hook (MN_OUT_EARLY) also without an output file: the writer computes the digit residues only, overlapped ... | S22.md |
 | `MN_OUT_STRIPE` | 1 | built-in default | `<count>[:<stripe MB>[:<OSTs>]]` — each part file created with that Lustre layout (`lfs setstripe`); with `<OSTs>` the first OST is `(part × count) mod OSTs`. | IO15.md+SC15.md |
 | `MN_OUT_THREADS` | 8 | built-in default | pwrite threads per chunk of the part file (8) | IO15.md+TARGET_HW_REVIEW.md |
 | `MN_PLAN_ONLY` | unset | launch-line | `<total digits>:<g>` — the plan of a run (every large product's grid, pieces, planes, from the code's own decisions; no device) and exit. | P15.md+T215.md |
@@ -250,7 +243,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | TARGET1 (S2) | 2026-12-31 | `ECALC_VPE_LANES` |
 | experiment | TARGET1 (S3a) | 2026-12-31 | `XSHMEM_LOOPBACK_PES`, `XSHMEM_ROUND_MB` |
 | experiment | TARGET12 (S2) | 2026-12-31 | `ECALC_PE_PER_GPU`, `RNS_BATCH_SPLIT` |
-| experiment | TARGET12 (S22) | 2026-12-31 | `ECALC_OMP_TEAM`, `ECALC_RESIDUE`, `MN_OUT_EARLY_ALWAYS` |
+| experiment | TARGET12 (S22) | 2026-12-31 | `ECALC_OMP_TEAM`, `ECALC_RESIDUE` |
 | experiment | TASK4 peer | 2026-12-31 | `XSHMEM_PEER` |
 | experiment | TGTSHAPE | 2026-12-31 | `XSHMEM_HEAP_SLACK_MB` |
 | experiment | comm | 2026-12-31 | `XSHMEM_COLL`, `XSHMEM_HS_BATCH`, `XSHMEM_ROUND_ACTIVE`, `XSHMEM_SPARSE` |

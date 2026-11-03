@@ -15,7 +15,7 @@
  * or the tails of the nodes above, all-gathered before the run).  The writes go through a helper thread with
  * two chunk buffers, so a chunk is written while the next one is formatted.
  *
- * the write mode ECALC_OUT_MODE (direct, buffered, sync, drop, auto) and MN_OUT_THREADS; the
+ * the write mode (O_DIRECT, buffered or sync, by ECALC_ODIRECT) and MN_OUT_THREADS; the
  * packed form ECALC_OUT_PACKED (any nonzero value: the 60-bit form, the default; the limbs as they are, packed_fmt.h: no ASCII formatting in the run; the T1 digit residues
  * from the packed bytes, the T2 windows from the digits they cover; tools/unpack_digits converts and checks); MN_OUT_STRIPE
  * (a Lustre layout per part file).  ECALC_RECHECK reads packed

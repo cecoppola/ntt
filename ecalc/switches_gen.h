@@ -55,9 +55,6 @@ static const struct { const char *name, *def; char kind; } cfg_reg[] = {
     {"ECALC_BUDGET_CHECK", "unset", 'h'},
     {"ECALC_CHECKPOINT", "0", 'h'},
     {"ECALC_CKPT_TOP", "auto", 'h'},
-    {"ECALC_CKPT_TOP_SLACK", "1", 'h'},
-    {"ECALC_CORR_PATCH", "2", 'h'},
-    {"ECALC_CORR_PATCH_ZONE", "4096", 'h'},
     {"ECALC_DEVICE_GB", "373.44", 'h'},
     {"ECALC_DEVICE_MARGIN_GB", "5", 'h'},
     {"ECALC_DIR", "-", 'l'},
@@ -68,9 +65,7 @@ static const struct { const char *name, *def; char kind; } cfg_reg[] = {
     {"ECALC_DR_TEST_N", "1", 'h'},
     {"ECALC_DR_TEST_PE", "0", 'h'},
     {"ECALC_DR_TOTAL", "8", 'h'},
-    {"ECALC_FATAL_ABORT", "derived", 'h'},
     {"ECALC_FATAL_TEST", "unset", 'h'},
-    {"ECALC_FATAL_WAIT", "60", 'h'},
     {"ECALC_FIT_APU_CHECK", "unset", 'h'},
     {"ECALC_FIT_PER_APU", "unset", 'h'},
     {"ECALC_HOST_TL", "0", 'h'},
@@ -90,7 +85,6 @@ static const struct { const char *name, *def; char kind; } cfg_reg[] = {
     {"ECALC_ODIRECT", "1", 'h'},
     {"ECALC_OMP_TEAM", "omp", 'h'},
     {"ECALC_OUT_DIR", "-", 'l'},
-    {"ECALC_OUT_MODE", "derived", 'h'},
     {"ECALC_OUT_ODIRECT", "derived", 'h'},
     {"ECALC_OUT_PACKED", "2", 'h'},
     {"ECALC_PE_PER_GPU", "0", 'h'},
@@ -156,7 +150,6 @@ static const struct { const char *name, *def; char kind; } cfg_reg[] = {
     {"MN_OUT_CHUNK_MB", "256", 'h'},
     {"MN_OUT_DKM_HI_TEST_CARRY", "unset", 'h'},
     {"MN_OUT_EARLY", "1", 'h'},
-    {"MN_OUT_EARLY_ALWAYS", "0", 'h'},
     {"MN_OUT_STRIPE", "1", 'h'},
     {"MN_OUT_THREADS", "8", 'h'},
     {"MN_PLAN_ONLY", "unset", 'h'},
@@ -213,7 +206,7 @@ static const struct { const char *name, *def; char kind; } cfg_reg[] = {
     {"XSHMEM_ROUND_STATS", "0", 'h'},
     {"XSHMEM_SPARSE", "0", 'h'},
 };
-#define CFG_REG_N 209
+#define CFG_REG_N 202
 static const char *const cfg_prefixes[] = {
     "ECALC_",
     "XSHMEM_",

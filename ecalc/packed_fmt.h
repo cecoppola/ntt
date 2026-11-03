@@ -16,7 +16,7 @@
  * The header is written when the file is opened (complete = 0) and rewritten when the run closes it (complete = 1, the
  * residues): dres[i] = the part's digits [k0, k1) as a decimal number mod q[i] -- computed by the run from the bytes it
  * wrote, the same values its T1 "digits == X mod q" check used -- so a converter can check its own output against them.
- * a division correction deferred past the writer (ECALC_CORR_PATCH) is patched in place after the close: the
+ * a division correction deferred past the writer is patched in place after the close: the
  * limbs it changes are rewritten at their offsets and dres is moved by the same change (mn_out.c packed_patch), so the header
  * stays the residues of the limbs the file holds.
  */

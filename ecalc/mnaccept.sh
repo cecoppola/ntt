@@ -16,7 +16,7 @@
 #   recheck 10^9 at size 1 and 10^8 at size 2 with the top-level P, Q set (ECALC_CKPT_TOP=1, the default <outfile>.top), then
 #          ECALC_RECHECK=1 on their files (RECHECK OK on every node, P and Q from the checkpoint) and on a copy with one
 #          digit flipped (RECHECK FAILED)
-#   corr   Phase 15 KP: forced division corrections on the defaults (packed output, ECALC_CORR_PATCH=2, MN_OUT_EARLY=1), at sizes
+#   corr   Phase 15 KP: forced division corrections on the defaults (packed output, MN_OUT_EARLY=1), at sizes
 #          where e's digits end in a run of 0s / 9s, so the deferred correction's patch rewrites digits inside the file (not only
 #          past d_out): 511461828 at size 1 with ECALC_TEST_CORR=14 (digits [511461818, 511461828]), then ECALC_RECHECK=1 on the
 #          patched file; 108388422 at sizes 2 and 4 with ECALC_TEST_CORR=36 (digits [108388413, 108388422], node 0's part).

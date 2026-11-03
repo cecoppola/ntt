@@ -47,7 +47,7 @@ int  sp_odirect_auto(void);            /* ECALC_ODIRECT=auto */
 int  sp_fs_kind(const char *path);     /* the file system under path (or its directory when path does not exist yet) */
 const char *sp_fs_name(int kind);
 int  sp_direct_for(const char *path);  /* O_DIRECT for this file? (auto: by sp_fs_kind; else sp_odirect()) */
-int  sp_direct_by_fs(const char *path);   /* the file-system rule alone (ECALC_OUT_MODE=auto uses it whatever ECALC_ODIRECT says) */
+int  sp_direct_by_fs(const char *path);   /* the file-system rule alone (sp_direct_for uses it when ECALC_ODIRECT=auto) */
 int  spf_open(sp_file *f, const char *path, int write, int direct);   /* 1 ok; direct falls back to buffered if the fs refuses O_DIRECT */
 /* the next `bytes` of the file <- src (write) / -> dst (read).  dev >= 0: device memory on APU dev, moved through buf[0]
  * (and buf[1] if non-null: double-buffered) of bcap bytes each (aligned, a multiple of SP_ALIGN, >= 4 SP_ALIGN; pinned

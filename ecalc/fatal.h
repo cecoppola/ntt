@@ -12,10 +12,9 @@
  *     atexit handler, no destructor, no race;
  *   - every LATER caller (another worker thread that found the same, or any thread after the first) blocks for good and prints
  *     nothing; the process is gone within the first caller's reporting time;
- *   - a watchdog started by the first caller _exit()s after ECALC_FATAL_WAIT seconds (default 60) in case its reporting
+ *   - a watchdog started by the first caller _exit()s after 60 seconds in case its reporting
  *     blocks (a lock held by a thread that is itself parked in ec_fatal);
  *   - a re-entry from the first caller's own thread (a failure inside its reporting) _exit()s at once with the same code.
- * ECALC_FATAL_ABORT=1: abort() instead of _exit (a core file for a debugger; rc 134).
  *
  * Exit codes (distinct from a signal's 128 + n and from the usage errors' 2): */
 #ifndef EC_FATAL_H

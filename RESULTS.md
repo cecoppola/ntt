@@ -82,7 +82,7 @@ names identify the change only.
 | division in two quotient halves (DKM) | Phase 15 | -25.7 s at 10¹¹ | m | results/COMPUTE.md §DKM15 |
 | P24: 24 digits per point, four primes in every multi-node product (D18) | 2026-10-12 | -38 % at 10¹⁰ on 2 processes; 2 n -8.9 s at 1.2882e11 | m | results/COMPUTE.md §P2415, §MEAS-P24 |
 | `RNS_STRATEGY=auto`, three primes at size 1, `ECALC_NP=auto` above the bound | Phase 13/15 | three primes: -17 % wall, -25.8 GB | m | results/COMPUTE.md §B13b, §NP15 |
-| write overlapped with the division: `ECALC_CORR_PATCH=2`, `MN_OUT_EARLY=1`, `MN_OUT_DKM_HI=1`; packed 60-bit output `ECALC_OUT_PACKED=2` | Phase 15; 2026-10-12 | write hidden under the division; 0.4167 B/digit, 10¹⁰ write 18.6 vs 27.9 s ASCII | m | results/MEMORY_IO.md §IO15, §O4 |
+| write overlapped with the division: deferred corrections (built in), `MN_OUT_EARLY=1`, `MN_OUT_DKM_HI=1`; packed 60-bit output `ECALC_OUT_PACKED=2` | Phase 15; 2026-10-12 | write hidden under the division; 0.4167 B/digit, 10¹⁰ write 18.6 vs 27.9 s ASCII | m | results/MEMORY_IO.md §IO15, §O4 |
 | `FI_MR_CACHE_MONITOR=userfaultfd` set by `mnrun.sh` (`disabled` refused); `FI_UNIVERSE_SIZE`, `FI_LOG_LEVEL=warn` | 2026-10-06/11 | reproducer hangs 22/105 -> 0/104; 46 four-node runs, 0 segfaults | m | results/CORRECTNESS.md §S46, results/MODEL.md §TGTBENCH2 |
 | transport opened before the arenas (`COMM_INIT_EARLY`, built in) | 2026-10-05 | init segfault 8/78 before; ≥ 32 processes start | m | results/CORRECTNESS.md §S16 |
 | `DIST_CHUNKS=8` (was 4) | 2026-10-07 | device -13.4 GB at 576 nodes for +2.4 s | mod | results/COMPUTE.md §S45 |
