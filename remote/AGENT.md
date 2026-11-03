@@ -48,7 +48,7 @@ Prefer a setting (`--env "K=V"`) over a patch.
 
 ## Not used in this session
 
-`target/kit/` and the Claude-Code-on-target workflow (`install.sh`, LOG.md, `target/RESTART.md`, `target/README.md` step 0) are not used and not needed: this file and `ROUTE.md` govern. The target/ files
+`target/kit/` (removed) and the Claude-Code-on-target workflow (`install.sh`, LOG.md, `target/RESTART.md`, `target/README.md` step 0) are not used and not needed: this file and `ROUTE.md` govern. The target/ files
 you may read or use: `target/bench/` (items and `QUESTIONS.md`, only for the optional appendix of ROUTE.md), `target/ladder/`, `target/probe/` (through `s1_facts.sh`), `target/FORMATS.md`.
 
 ## Safety

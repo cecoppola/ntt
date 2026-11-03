@@ -11,13 +11,11 @@ here. Entry point for a new session: `target/RESTART.md`.
 | `RESTART.md` | full context for the agent on the target: mission, steps 1-4, rules, install steps | here (before access) |
 | `README.md` | one-page map and the run order | here |
 | `FORMATS.md` | this file | here |
-| `governance/` | copies of the rule files (CLAUDE.md files, coordinator rules, settings, hooks, agents, memory); install steps in RESTART.md | here |
 | `lib/common.sh` | shared shell functions (§3); every script sources it | here |
 | `probe/` | step 1: `probe.sh` (fast system facts), `probe_shmem.c`, `gen_conf.py` (facts → `config/target.conf`) | here |
 | `config/` | `target.conf.template`; `target.conf` (generated on the target, committed) | template here, conf on target |
-| `bench/` | step 3: `manifest.d/*.tsv`, `QUESTIONS.md` (question register), `run.sh` (claiming runner), `items/<id>.sh`, `aggregate.py` | here |
+| `bench/` | step 3: `manifest.d/*.tsv`, `QUESTIONS.md` (question register), `run.sh` (claiming runner), `items/<id>.sh` | here |
 | `ladder/` | step 4: `ladder.sh`, `locality.py`, `parse_run.py` (log parser, replica collect), `levels/L0..L3.conf`, `ADJUST.md` (rules for changes between runs); tests `tests/test_locality.py`, `tests/test_ladder_parse.py` | here |
-| `kit/` | `target_kit.sh`: the older staged bring-up kit (optional; some bench items and TQ83 use its stages) | here |
 | `build/` | binaries built on the target by `bld01`/`bld02` (`build/<sha7>-p1|p2/`); git-ignored | target |
 | `results/` | everything measured on the target, committed raw (decision Q112) | target |
 
@@ -27,8 +25,6 @@ here. Entry point for a new session: `target/RESTART.md`.
 results/probe/<host>-<YYYYmmdd-HHMM>/   probe output (facts.tsv, raw/*.txt, summary.txt)
 results/probe/topology.tsv              host -> physical location table (locality.py nodes)
 results/bench/<id>/                     one dir per bench item: claim, summary.txt, raw/, DONE
-results/bench/METRICS.tsv               all m.* values of all items (aggregate.py)
-results/bench/ANSWERS.md                question register with the answers filled (aggregate.py)
 results/bench/_slurm/  _old/            worker sbatch logs; results moved aside by `run.sh --reclaim --force`
 results/ladder/<level>/<tag>-r<k>/      one dir per ladder replica (a job): summary.txt (keys p<path>r<run>.<key>), raw/, DONE
 results/ladder/<level>/<tag>.submit.txt  job ids, hosts, done markers of one submit; results/ladder/LADDER.md = collect output; results/ladder/exclude.txt = hosts to leave out
@@ -119,8 +115,7 @@ e.<NAME>=<value>               environment / settings used (e.g. e.MN_T_CHUNK_MB
 note=<free text>
 ```
 
-`aggregate.py` turns every `m.*` into a row of `results/bench/METRICS.tsv` (`id metric value unit`) and every `q.*`
-into the Answer column of `results/bench/ANSWERS.md`.
+The `m.*` and `q.*` lines are read from each item's `summary.txt` (the aggregator that collected them is archived).
 
 ## 7. Question register — `bench/QUESTIONS.md`
 
@@ -161,7 +156,7 @@ settings before the next run and when to move up a level.
 ## 11. Rules for every agent in target/
 
 - Correctness first: a ladder run counts only with its digit check PASS.
-- Label every number m (measured) / mod (modelled) / a (assumed) in prose; times with the time zone.
+- Label every number m (measured) / mod (modeled) / a (assumed) in prose; times with the time zone.
 - Raw target data is committed as it is (Q112). Never commit passwords, keys or tokens (Q116).
 - Run each bench item once; fast over exhaustive. Priority order everywhere (Q115): the session may end at any time.
 - Agents never ask the user directly; the coordinator collects decisions with options.

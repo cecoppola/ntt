@@ -1,4 +1,4 @@
-/* dr.c - C3 "detect and retry": switches, fault-injection parser, counters, context and the residue helpers (dr.h; results/DR.md).  Host only. */
+/* dr.c - C3 "detect and retry": switches, fault-injection parser, counters, context and the residue helpers (dr.h; results/CORRECTNESS.md).  Host only. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

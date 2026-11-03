@@ -1,7 +1,7 @@
 /* spill.h - file I/O that leaves nothing in the page cache (the spill of a device
  * number's limb range to disk and back is not provided: no production caller).
  *
- * On the APU the page cache is HBM (results/APUMULT.md, apumult_M: a 64 GiB buffered write took 64 GiB of MemFree and
+ * On the APU the page cache is HBM (results/COMPUTE.md, apumult_M: a 64 GiB buffered write took 64 GiB of MemFree and
  * kept it after fsync).  Two remedies, both measured there: O_DIRECT (never enters the cache; 2.0 GB/s write, 5.9 GB/s
  * read on aac6's NVMe) and fsync + posix_fadvise(DONTNEED) (gives the cache back after the write).  O_DIRECT needs
  * 4 KiB-aligned buffers, lengths and offsets, and cannot DMA from hipMalloc memory (EFAULT): device data goes through a
@@ -39,7 +39,7 @@ typedef struct sp_file {
 
 int  sp_odirect(void);                 /* ECALC_ODIRECT=1 (also 1 for ECALC_ODIRECT=auto: the cache-hygiene paths on, O_DIRECT per file below) */
 /* ECALC_ODIRECT=auto -- O_DIRECT chosen per file by the file system under it (statfs f_type): local disks
- * (ext4, xfs, ...) O_DIRECT; NFS O_DIRECT (measured faster, results/OUTPUT_IO.md §IO15); Lustre O_DIRECT (an ASSUMPTION
+ * (ext4, xfs, ...) O_DIRECT; NFS O_DIRECT (measured faster, results/MEMORY_IO.md §IO15); Lustre O_DIRECT (an ASSUMPTION
  * to be measured on the target); tmpfs buffered (it refuses O_DIRECT; the file is memory).
  * Without auto, sp_direct_for() is sp_odirect(). */
 enum { SP_FS_LOCAL = 0, SP_FS_NFS, SP_FS_LUSTRE, SP_FS_TMPFS, SP_FS_OTHER };

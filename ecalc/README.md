@@ -52,12 +52,11 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 | `mn_out.c/h`, `packed_fmt.h`, `verify.c/h` | output per node (packed part files, the correction patch), T1 residues and T2 windows |
 | `mem.c/h`, `memsample.c/h`, `nodemem.h`, `spill.c/h` | memory pools, VMM arenas, accounting and sampling; O_DIRECT file writes |
 | `fatal.c/h`, `segv_trace.c/h`, `config_line.c/h` | named exits, the crash-trace handler, the `config: hash=` line |
-| `dr.c/h` | C3 detect and retry (`ECALC_DR`, `results/DR.md`): switches, fault-injection parser, counters, context, the residue helpers (the checked tree products are in `rns_dist.c`, the tracked residues and leaf check in `mn.c`, the division checks D in `newton_db.c` and D' in `rns_mul_dist_mn_cyc_v`); `tests/t_dr.c` (host only) |
+| `dr.c/h` | C3 detect and retry (`ECALC_DR`, `results/CORRECTNESS.md`): switches, fault-injection parser, counters, context, the residue helpers (the checked tree products are in `rns_dist.c`, the tracked residues and leaf check in `mn.c`, the division checks D in `newton_db.c` and D' in `rns_mul_dist_mn_cyc_v`); `tests/t_dr.c` (host only) |
 | `switches.tsv`, `switches_manual.tsv`, `switches_gen.h` | the switch registry (`tools/switch_registry.py`; never hand-merge the generated files) |
 | `mnrun.sh`, `aac7env.sh` | the multi-process launcher (both xshmem paths); the aac7 environment (the aac7 launch line is in `profiles/aac7.conf`) |
 | `mnaccept.sh`, `digcmp.sh` | the standing regression; digit compare |
-| `../target/kit/target_kit.sh` | the target session in stages (`-h`; `--dry-run` prints every command): environment, build, uffd, plan, memory edge, node screen (slow nodes; NIC count vs `SHMEM_OFI_NUM_NICS`, `--want-nics`), A3/A4 fabric tests, init check; one `KIT_SUMMARY.txt` |
-| `mn_model.py` (with its `estimate` subcommand), `mem_model.py`, `aac7_fit.json` (the refit and design-table generators are archived: `archive:scripts_2026-10-23/`) | time and memory models and their fits (`mn_model.py estimate --fabric target_fit`: the profile fitted to the target's 2/64/576-node runs, results/TIME_MODEL.md §target_fit; the model's `XSHMEM_ROUND_MB` is the code's 128) |
+| `mn_model.py` (with its `estimate` subcommand), `mem_model.py`, `aac7_fit.json` (the refit and design-table generators are archived: `archive:scripts_2026-10-23/`) | time and memory models and their fits (`mn_model.py estimate --fabric target_fit`: the profile fitted to the target's 2/64/576-node runs, results/MODEL.md §target_fit; the model's `XSHMEM_ROUND_MB` is the code's 128) |
 | `ref/`, `tests/` | reference generator; unit tests (`tests/harness.h`) |
 
 ## Switches
@@ -82,7 +81,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `BS_CKPT_BG_MBS` | 0 | test-only | the top-level set's background writer: its DMA chunk (256; bounds the time to stop); *test*: emulate a disk of this many MB/s (unset) | N13.md |
 | `BS_CKPT_DIR` | unset | launch-line | the directory of the top-level set (`ECALC_CKPT_TOP`); unset = `<outfile>.top`. | W.md+WP7.md |
 | `BS_LAYOUT_ONLY` | unset | launch-line | `D:g[,D:g…]` — print the arena request `binsplit_pregrow` would make for D digits per node over g node-processes (one `layout:` line each) and exit; `mem_model.py --check-c <log>` compares ... | MS15.md+B7ACCT.md |
-| `BS_MDEV_LOGL` | derived | built-in default | products above 2^this limbs go to the mdev tier; lower it to test at 10⁹ (30); set on target runs from 1e13 digits by the `S6 s2 env` and `S6 s3 env` lines of `remote/ROUTE.md` (balances the 4 APUs, `results/MEMORY.md` §B4) | M3.md+A-ckpt.md |
+| `BS_MDEV_LOGL` | derived | built-in default | products above 2^this limbs go to the mdev tier; lower it to test at 10⁹ (30); set on target runs from 1e13 digits by the `S6 s2 env` and `S6 s3 env` lines of `remote/ROUTE.md` (balances the 4 APUs, `results/MEMORY_IO.md` §B4) | M3.md+A-ckpt.md |
 | `BS_SEED_CHUNK_MB` | derived | built-in default | the seed stream's buffered chunk per region (8192 with `DB_POOL_VMM`, the default; 2048 without) | H.md+R114.md |
 | `BS_SEED_FILL` | unset | built-in default | the seed span chosen per run as the largest S whose last span has at most this many limbs, so the batch tier's products fill their lengths: 128 fills 2ᵏ (S = 239 at 4 × 10¹⁰, 229 at 10¹¹), ... | T215.md+DOC15.md |
 | `BS_SEED_TERMS` | derived | built-in default | the seed span in terms (256; set in the environment it turns `BS_SEED_FILL`'s default off) | T215.md+WP7.md |
@@ -107,7 +106,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `DIST_GEN` | 0 | test-only | the general (any-g) transform at a power-of-two group size too (0) | X13b.md+S36.md |
 | `DIST_LOGN_TEST` | derived | test-only | a lower plane cap so the grid split runs at small sizes (31) | G12.md+P13b.md |
 | `DIST_STATS` | derived | test-only | per-part timing of the distributed transform, the exposed exchange per part (unset) | G515.md+CX15.md |
-| `DM_MN_WRAP` | auto (fit) | built-in default | Automatic since 2026-10-13 (user decision D26, results/LAUNCH_DEFAULTS.md §FIT): unset = 1 when the device peak with the wrap is at most `ECALC_DEVICE_GB` − `ECALC_DEVICE_MARGIN_GB` (the ... | - |
+| `DM_MN_WRAP` | auto (fit) | built-in default | Automatic since 2026-10-13 (user decision D26, results/MODEL.md §FIT): unset = 1 when the device peak with the wrap is at most `ECALC_DEVICE_GB` − `ECALC_DEVICE_MARGIN_GB` (the ... | - |
 | `DM_TIGHT` | derived | built-in default | the reciprocal's scratch reserved once at the last doubling's sizes instead of the final ones — r at ⌈k/2⌉ + 4 limbs, r2 at 2⌈k/2⌉ + 4, t1 at Q_t·r's size there — with r' copied into r's ... | L114.md+T114.md |
 | `ECALC_ARENA_GB` | 0 | built-in default | the region arena per device, in GB, instead of the layout's own sizing (auto) | M11.md+A-mem.md |
 | `ECALC_BG_THREADS` | 48 | built-in default | the background OpenMP team of the recurrence and the writer (48) | - |
@@ -117,15 +116,15 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_CKPT_TOP_SLACK` | 1 | built-in default | `ECALC_CKPT_TOP=2`: the seconds a release may wait for the writer (1) | N13.md+IO15.md |
 | `ECALC_CORR_PATCH` | 2 | built-in default | the division's ±1 corrections (/dx/ ≤ 64) made after the size-1 writer started on X (the hook before the low product) are **not** applied to X: T1 takes X's residues from the writer thread ... | KP15.md |
 | `ECALC_CORR_PATCH_ZONE` | 4096 | built-in default | with `ECALC_CORR_PATCH`, the digits at the end whose T2 windows are checked after the patch instead of by the writer (4096) | K15.md |
-| `ECALC_DEVICE_GB` | 373.44 | built-in default | the device edge per node, GB, the memory fit checks (default 373.44 = the target's, 93.36 GB per APU, m, results/TARGET.md §TGTBENCH2; profiles/aac7.conf: 444.0, m, the aac7 t_edge VMM ... | - |
+| `ECALC_DEVICE_GB` | 373.44 | built-in default | the device edge per node, GB, the memory fit checks (default 373.44 = the target's, 93.36 GB per APU, m, results/MODEL.md §TGTBENCH2; profiles/aac7.conf: 444.0, m, the aac7 t_edge VMM ... | - |
 | `ECALC_DEVICE_MARGIN_GB` | 5 | built-in default | the safety margin per node (default 5.0 GB, the tighter of CAP17's two bars) under `ECALC_DEVICE_GB` that `DM_MN_WRAP` automatic keeps: the wrap is taken only when the device with it is at ... | - |
-| `ECALC_DR` | 0 | experiment | results/DR.md | - |
-| `ECALC_DR_TEST` | 0 | diagnostic | results/DR.md | - |
-| `ECALC_DR_TEST_K` | 1 | diagnostic | results/DR.md | - |
-| `ECALC_DR_TEST_M` | 1 | diagnostic | results/DR.md | - |
-| `ECALC_DR_TEST_N` | 1 | diagnostic | results/DR.md | - |
-| `ECALC_DR_TEST_PE` | 0 | diagnostic | results/DR.md | - |
-| `ECALC_DR_TOTAL` | 8 | experiment | results/DR.md | - |
+| `ECALC_DR` | 0 | experiment | results/CORRECTNESS.md | - |
+| `ECALC_DR_TEST` | 0 | diagnostic | results/CORRECTNESS.md | - |
+| `ECALC_DR_TEST_K` | 1 | diagnostic | results/CORRECTNESS.md | - |
+| `ECALC_DR_TEST_M` | 1 | diagnostic | results/CORRECTNESS.md | - |
+| `ECALC_DR_TEST_N` | 1 | diagnostic | results/CORRECTNESS.md | - |
+| `ECALC_DR_TEST_PE` | 0 | diagnostic | results/CORRECTNESS.md | - |
+| `ECALC_DR_TOTAL` | 8 | experiment | results/CORRECTNESS.md | - |
 | `ECALC_FATAL_ABORT` | derived | built-in default | `1` = a fatal error ends in `abort()` (a core file, rc 134) instead of `_exit(code)` (0). | S18W.md+C314.md |
 | `ECALC_FATAL_TEST` | unset | test-only | `1` = the four bs worker threads fail together right after the seeds (the in-phase guards' pattern): one message, rc 3 (0) | C314.md |
 | `ECALC_FATAL_WAIT` | 60 | built-in default | seconds the first failing thread may spend on its report (the memory accounting) before a watchdog `_exit`s (60) | C314.md |
@@ -143,7 +142,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `ECALC_MEM_SAMPLE` | derived | test-only | seconds between memory samples (RSS, MemFree, MemAvailable, Cached, Dirty, Writeback from `/proc/meminfo`, the pool's live bytes per APU), a summary line at exit and the per-APU high-water line `device_hwm_apu_gb=` (the largest drop of each APU's NUMA-node MemFree from the first sample; also printed when only a guard runs the sampler) (minimum MemAvailable, ... | IO15.md+S114.md |
 | `ECALC_NODE_GB` | 480 | built-in default | - | P16.md+C314.md |
 | `ECALC_NP` | auto | launch-line | the number of NTT primes: 3 (Phase 13b step 0: −17 % wall, −25.8 GB of planes; `ecalc.c` sets it when unset; 4 was the binary-limb count, archived with archive:PLAN §28.5). | P15.md |
-| `ECALC_NP_AUTO_TERMS` | derived | test-only | under `ECALC_NP=auto`, the switch-over in terms (1 … 58 424 467 928, the three-prime bound): a lower value makes small runs form both counts (the forced tests of results/PRIMES_STRATEGY.md ... | NP15.md |
+| `ECALC_NP_AUTO_TERMS` | derived | test-only | under `ECALC_NP=auto`, the switch-over in terms (1 … 58 424 467 928, the three-prime bound): a lower value makes small runs form both counts (the forced tests of results/COMPUTE.md ... | NP15.md |
 | `ECALC_ODIRECT` | 1 | built-in default | 1 = the checkpoint files (the top-level set, in the background) and the output file are written with O_DIRECT through aligned buffers (`spill.c`'s `sp_file`; the last partial block padded, ... | S114.md+KP15.md |
 | `ECALC_OMP_TEAM` | omp | experiment | omp_team.h: size of the host OpenMP teams (bs_nthreads, packed_mods residue, verify.c, mem.c hstage): omp = omp_get_max_threads() (latched from the ... | S22.md |
 | `ECALC_OUT_MODE` | derived | built-in default | the part file's write mode: `direct` (O_DIRECT), `buffered` (page cache, no sync: the pre-Phase-14 form), `sync` (buffered, `fsync` + `posix_fadvise(DONTNEED)` at close), `drop` (buffered, ... | IO15.md |
@@ -168,7 +167,7 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `MN_GROUPS` | unset | launch-line | the tree's level → group-size schedule, e.g. | T114.md+SC15.md |
 | `MN_LEVEL_UNIFORM` | 0 | launch-line | mn_plan.c mn_level_uniform; 1 = every group of a tree level forms the level's largest piece grid (ka x kb, per product, from the plan's predicted ... | - |
 | `MN_NONPOW2_CAP` | auto | built-in default | *T2 (D57), default auto since Q58 (user 2026-10-20): on from `MN_NONPOW2_MIN` digits per node-process, off below (the larger pools cost a fixed +7 s of init at 3 n 6e10; crossover about ... | - |
-| `MN_NONPOW2_MIN` | 4.5e10 | built-in default | digits per node-process (total digits / `COMM_SIZE`) from which `MN_NONPOW2_CAP` auto is on; default 4.5e10 (results/DIVISION.md §NPCAP crossover, mod); `MN_PLAN_ONLY` and the memory fit ... | - |
+| `MN_NONPOW2_MIN` | 4.5e10 | built-in default | digits per node-process (total digits / `COMM_SIZE`) from which `MN_NONPOW2_CAP` auto is on; default 4.5e10 (results/COMPUTE.md §NPCAP crossover, mod); `MN_PLAN_ONLY` and the memory fit ... | - |
 | `MN_OUT_CHUNK_MB` | 256 | built-in default | the streamed writer's digit chunk per node (256) | IO15.md+A-out.md |
 | `MN_OUT_DKM_HI_TEST_CARRY` | unset | test-only | - | EW15.md |
 | `MN_OUT_EARLY` | 1 | built-in default | at size > 1 the part file starts at the division's hook (X formed, before the low product: `newton_mn_x_hook` → `mn_out_early_start`) in a background thread over the node's share, as the ... | IO15.md |
@@ -181,15 +180,15 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `MN_WAIT_STATS` | 0 | launch-line | per-communicator wait-time statistics (`comm_util.c`) (0) | S27.md+S22.md |
 | `NEWTON_DKM_TEST_HI` | 0 | test-only | - | DKM15.md+EW15.md |
 | `NEWTON_MN_GROUPS` | 1 | built-in default | at size > 1 the reciprocal's early doublings on the smallest subgroup the model prefers (X1); 0 = the full group (1) | X.md+G13d.md |
-| `NEWTON_MN_LAZY` | 0 | experiment | experiment, default 0: 1 = the reciprocal's Q_t (the top limbs of Q, read only by the product Q_t r) is a window view of Q that the product's redistribution reads, instead of a shifted copy; steps on a subgroup keep the copy; digits identical; results/DIVISION.md LAZY | - |
+| `NEWTON_MN_LAZY` | 0 | experiment | experiment, default 0: 1 = the reciprocal's Q_t (the top limbs of Q, read only by the product Q_t r) is a window view of Q that the product's redistribution reads, instead of a shifted copy; steps on a subgroup keep the copy; digits identical; results/COMPUTE.md LAZY | - |
 | `NEWTON_MN_RECIP_TS` | 0 | test-only | S30, print only (off): one line per node, `recip ts node N: ...`, with the stages of recip_mn's single-node part (shift, gather, chain, broadcast) and the wall clock (s mod 1000) | S30.md |
 | `NEWTON_MN_SPLIT` | derived | built-in default | at size > 1 the reciprocal starts single-node on the top limbs of Q up to this many limbs (65536) | A37CMP.md+A-div.md |
 | `NEWTON_RECIP_GUARD` | unset | built-in default | the reciprocal's cut (always on): limbs kept below the read band (the cut is at band − guard; ≥ 1 makes the band's error ≤ 1 unit for any number of pieces) (1) | R114.md |
-| `P24_CHECK` | 0 | diagnostic | results/PRIMES_STRATEGY.md §P24 audit | - |
-| `P24_CHECK_TEST` | 0 | diagnostic | results/PRIMES_STRATEGY.md §P24 audit | - |
-| `P24_CHECK_TEST_K` | 1 | diagnostic | results/PRIMES_STRATEGY.md §P24 audit | - |
-| `P24_CHECK_TEST_S` | -1 | diagnostic | results/PRIMES_STRATEGY.md §P24 audit | - |
-| `P24_CRT_ANY` | 1 | built-in default | results/PRIMES_STRATEGY.md §P24 audit | - |
+| `P24_CHECK` | 0 | diagnostic | results/COMPUTE.md §P24 audit | - |
+| `P24_CHECK_TEST` | 0 | diagnostic | results/COMPUTE.md §P24 audit | - |
+| `P24_CHECK_TEST_K` | 1 | diagnostic | results/COMPUTE.md §P24 audit | - |
+| `P24_CHECK_TEST_S` | -1 | diagnostic | results/COMPUTE.md §P24 audit | - |
+| `P24_CRT_ANY` | 1 | built-in default | results/COMPUTE.md §P24 audit | - |
 | `PE_GEO_SYSFS_ROOT` | - | test-only | PEs per GPU (default 1; the 2-PEs-per-GPU fallback of design 2.2) / a prefix for every `/sys` path (mock trees of `tests/t_pe_geo`) | - |
 | `POOL_LOG` | 31 | launch-line | the plane pools' 2ᵏ points per APU (31; 27–29 with several node-processes on one node) | A-mem.md+M13.md |
 | `RNS_BATCH_LOCAL_MIN` | unset | built-in default | below this many products the striped batch path is used (16) | P3.md+R.md |
@@ -200,29 +199,29 @@ tables below, `switches.tsv` and `switches_gen.h`; `--check` verifies them).
 | `RNS_POOL_GROW` | 0 | test-only | a region pool that would grow inside bs aborts with the accounting unless 1 (the stress recipe sets it) (0) | B16.md+R.md |
 | `RNS_STRATEGY` | derived | built-in default | the single-node product's strategy (`dist_core`: top levels, reciprocal, division): `C` four-step; `B` prime-per-APU (planes that do not fit the pools from an extra per-APU buffer); `auto` ... | B13b.md+G13d.md |
 | `RNS_VERBOSE` | 0 | launch-line | 1 per-call times, 2 CRT re-runs; also the pool allocations' times (unset) | PS15.md+M.md |
-| `XSHMEM_COLL` | flat | experiment | experiment, default flat: tree = dissemination (ceil(log2 n) rounds, offsets only with the log n partners) instead of every member to every member; digits identical; results/XSHMEM.md | - |
+| `XSHMEM_COLL` | flat | experiment | experiment, default flat: tree = dissemination (ceil(log2 n) rounds, offsets only with the log n partners) instead of every member to every member; digits identical; results/TRANSPORT.md | - |
 | `XSHMEM_CRAY_HEAP_THP` | 0 | experiment | diagnosis, default 0 (XSHMEM=cray): 1 = madvise(MADV_HUGEPAGE) on the DATA heap before it is zeroed and MADV_COLLAPSE after; 2 = only report; each PE prints the heap mapping's ... | - |
 | `XSHMEM_CRAY_NUMA` | 0 | experiment | default 0 in the engine; `mnrun.sh` sets 1 and `MNRUN_PPG_CPUBIND=ldom` by default for a Cray build under `ECALC_PE_PER_GPU=1` (explicit values win; ofi builds and layout D unchanged; the ... | - |
 | `XSHMEM_CTRL` | heap | experiment | `heap` (default; control words in the device heap) or `host` (control words in a host region, design 1.3 b) | - |
 | `XSHMEM_HANG_S` | 900 | built-in default | diagnostic: the seconds after which a handshake or small collective wait is reported as HANG (fatal); raise it (e.g. 3600) to tell a slow member (imbalance: the run then completes) from a lost one; the default keeps the old 900 s. | - |
 | `XSHMEM_HEAP_MB` | 0 | experiment | MiB of the per-PE symmetric heap (0 = backend default). | - |
 | `XSHMEM_HEAP_SLACK_MB` | 0 | experiment | (default 0 = off, nothing changes): MiB added to each loopback PE's DATA heap in `comm_xshmem.c`; the Cray backend (`make XSHMEM=cray`) takes the control words and alignment out of the same ... | - |
-| `XSHMEM_HS_BATCH` | 0 | experiment | experiment, default 0: k > 0 = the flat handshake / small collectives visit their members in rotated order (no common first target) and quiet every k signals, instead of one ascending burst; digits identical; results/XSHMEM.md | - |
+| `XSHMEM_HS_BATCH` | 0 | experiment | experiment, default 0: k > 0 = the flat handshake / small collectives visit their members in rotated order (no common first target) and quiet every k signals, instead of one ascending burst; digits identical; results/TRANSPORT.md | - |
 | `XSHMEM_LANES` | 1 | experiment | lanes (SHMEM contexts) per PE, default 1; the engine creates them right after init in order (lane k = NIC k); may exceed the PE's NICs (virtual lanes on aac7); at most 4 (larger values are ... | - |
 | `XSHMEM_LOOPBACK_PES` | 1 | experiment | PEs one process hosts in the libfabric backend (default 1 = one PE per process, the only value the flow runs: `ECALC_PE_PER_GPU=1` refuses another; `mnrun.sh` sets it under ... | - |
 | `XSHMEM_PEER` | -1 | experiment | (default: on with one PE per process, Q100 2026-10-25; `0` = off, the NIC path; the default layout D is unaffected): same-node PEs exchange payload by device copies (`hipMemcpyAsync` on one ... | - |
 | `XSHMEM_PES_PER_GPU` | 1 | experiment | PEs per GPU (default 1; the 2-PEs-per-GPU fallback of design 2.2) / a prefix for every `/sys` path (mock trees of `tests/t_pe_geo`) | - |
-| `XSHMEM_ROUND_ACTIVE` | 0 | experiment | experiment, default 0: 1 (implies XSHMEM_SPARSE=1) = the round chunk of an alltoallv is XSHMEM_ROUND_MB / D, D = the largest count of peers with bytes (either direction) over the members of the communicator (one tree max per exchange), instead of XSHMEM_ROUND_MB / (members - 1); the per-PE staging bound is unchanged; digits identical; results/XSHMEM.md N1 | - |
+| `XSHMEM_ROUND_ACTIVE` | 0 | experiment | experiment, default 0: 1 (implies XSHMEM_SPARSE=1) = the round chunk of an alltoallv is XSHMEM_ROUND_MB / D, D = the largest count of peers with bytes (either direction) over the members of the communicator (one tree max per exchange), instead of XSHMEM_ROUND_MB / (members - 1); the per-PE staging bound is unchanged; digits identical; results/TRANSPORT.md N1 | - |
 | `XSHMEM_ROUND_MB` | 128 | experiment | the xshmem engine (`COMM_TRANSPORT=xshmem`) carries an all-to-all whose pair exceeds this / (n − 1) MiB in rounds that stage at most this many MiB each way (the self slab is not staged; one ... | - |
-| `XSHMEM_ROUND_STATS` | 0 | diagnostic | diagnostic, default 0 (no clock reads when off): 2 = also a per-exchange series (first 1024 exchanges per PE: host gap, GPU interval, stream busy, post sync, ROFF poll, worker span, comm id, call-site addresses; written at exit to xshmem_series_pe<rank>.txt in the working directory, one file per PE); 1 = a per-tag table on stderr (exchanges, rounds, bytes, largest pair; node-process 0 and the maximum over PEs), and every PE writes at exit (and every 5000 rounds) to xshmem_stats_pe<rank>.txt (working directory, not stderr) the round path's phase times: exclusive worker seconds per phase (ROFF post, staging copy, copy issue, copy quiet, signal post, signal quiet, receive copy, ROFF poll, signal poll), wall seconds of the two waits (these include the worker's turns on other pending exchanges) the pending exchanges per round (mean, max), a gpu line per PE (HIP-event GPU stream time between one exchange's end and the next post, per phase tag, with host, GPU index and PCI bus id on every line), a sync line per PE (whether the caller stream was idle at the post, event sync vs remaining stream sync, a device-wide sync probe: the probe adds its wait to the post), and a second line per PE with the exchange timeline (post, worker wake, worker span with its unclassified gaps, late, notice, end: they sum to the post-to-completion total; caller blocked and working times; post to the first ROFF write); digits identical; results/SINGLE_NODE.md §PEER | - |
-| `XSHMEM_SPARSE` | 0 | experiment | experiment, default 0: 1 = a peer with zero bytes in one direction gets no offset word / signal / wait / round for that direction (no offset word, no signal, no wait, no round), so a shift moves messages only between the nodes that overlap; counts must agree on both sides (a mismatch then hangs instead of a count fatal); digits identical; results/XSHMEM.md | - |
+| `XSHMEM_ROUND_STATS` | 0 | diagnostic | diagnostic, default 0 (no clock reads when off): 2 = also a per-exchange series (first 1024 exchanges per PE: host gap, GPU interval, stream busy, post sync, ROFF poll, worker span, comm id, call-site addresses; written at exit to xshmem_series_pe<rank>.txt in the working directory, one file per PE); 1 = a per-tag table on stderr (exchanges, rounds, bytes, largest pair; node-process 0 and the maximum over PEs), and every PE writes at exit (and every 5000 rounds) to xshmem_stats_pe<rank>.txt (working directory, not stderr) the round path's phase times: exclusive worker seconds per phase (ROFF post, staging copy, copy issue, copy quiet, signal post, signal quiet, receive copy, ROFF poll, signal poll), wall seconds of the two waits (these include the worker's turns on other pending exchanges) the pending exchanges per round (mean, max), a gpu line per PE (HIP-event GPU stream time between one exchange's end and the next post, per phase tag, with host, GPU index and PCI bus id on every line), a sync line per PE (whether the caller stream was idle at the post, event sync vs remaining stream sync, a device-wide sync probe: the probe adds its wait to the post), and a second line per PE with the exchange timeline (post, worker wake, worker span with its unclassified gaps, late, notice, end: they sum to the post-to-completion total; caller blocked and working times; post to the first ROFF write); digits identical; results/COMPUTE.md §PEER | - |
+| `XSHMEM_SPARSE` | 0 | experiment | experiment, default 0: 1 = a peer with zero bytes in one direction gets no offset word / signal / wait / round for that direction (no offset word, no signal, no wait, no round), so a shift moves messages only between the nodes that overlap; counts must agree on both sides (a mismatch then hangs instead of a count fatal); digits identical; results/TRANSPORT.md | - |
 
 <!-- switch-table:end -->
 
 Switches read only by tests are listed in `switches.tsv` (source `tests`); `mnaccept.sh` reads `ECALC_REF` and `ECALC_REF_4E10`
 (the reference files).
 
-**Review dates (owner and expiry of every non-default setting; TASKS 27, results/TOOLS_PROFILES.md §T27)**
+**Review dates (owner and expiry of every non-default setting; TASKS 27, results/CODE_TOOLS.md §T27)**
 
 Every experiment, diagnostic and test-harness switch, and every fallback value kept after a default flipped, has an owner
 and a review date in `switches_review.tsv` (hand-written; columns `owner` and `review` of the generated `switches.tsv`).
@@ -251,7 +250,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | TGTSHAPE | 2026-12-31 | `XSHMEM_HEAP_SLACK_MB` |
 | experiment | comm | 2026-12-31 | `XSHMEM_COLL`, `XSHMEM_HS_BATCH`, `XSHMEM_ROUND_ACTIVE`, `XSHMEM_SPARSE` |
 | experiment | craylane | 2026-12-31 | `XSHMEM_CRAY_HEAP_THP`, `XSHMEM_CRAY_NUMA` |
-| fallback | P1/DEF (D22, results/DIVISION.md §P1, results/LAUNCH_DEFAULTS.md §DEF) | 2026-11-11 | `DM_MN_WRAP` |
+| fallback | P1/DEF (D22, results/COMPUTE.md §P1, results/MODEL.md §DEF) | 2026-11-11 | `DM_MN_WRAP` |
 | fallback | coordinator (Q130) | 2026-11-11 | `P24_CRT_ANY` |
 | fallback | coordinator (TASKS S) | 2026-11-11 | `ECALC_OUT_PACKED` |
 | diagnostic | coordinator (I3) | 2027-01-31 | `ECALC_HOST_TL`, `ECALC_HOST_TL_PE` |

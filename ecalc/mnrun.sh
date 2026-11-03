@@ -14,14 +14,14 @@
 # ECALC_LOG_CLOCKS=1 runs aac7env.sh --log (rocm-smi clocks, the APU / NIC NUMA map) on every node before the command.
 # Phase 16 D: MNRUN_UNLOAD=<modules> (unset by default) is unloaded before MNRUN_MODULES in every wrapper and the plan call -- a versioned
 # rocm module (rocm/7.2.4) conflicts with the default rocm/7.0.3 of the login shell (aac7env.sh sets both from AAC7_ROCM).
-# Phase 16 P (results/OFI_FABRIC.md): MNRUN_NODES=<n> (unset by default) uses at most the first n nodes of the allocation -- 4 PEs on one node
+# Phase 16 P (results/TRANSPORT.md): MNRUN_NODES=<n> (unset by default) uses at most the first n nodes of the allocation -- 4 PEs on one node
 # (`MNRUN_NODES=1 mnrun.sh 4`) or a 2-node A/B inside a 4-node job.
-# T27 (results/TOOLS_PROFILES.md §T27): MNRUN_PRINT_ENV=1 (default 0) computes everything as for a launch -- the plan's pool, the heap, the libfabric
+# T27 (results/CODE_TOOLS.md §T27): MNRUN_PRINT_ENV=1 (default 0) computes everything as for a launch -- the plan's pool, the heap, the libfabric
 # defaults -- but prints the computed variables as `export K=V` lines on stdout and exits 0 instead of
 # calling srun (no allocation needed; mnrun's own messages go to stderr).  tools/plan_values.py uses it, so the size-dependent
 # launch values have one source.  Unset, nothing changes.
 # N6: MNRUN_TOPO_CHECK=0 (default 1) skips the report-only switch-group check (ecalc/topo_check.py; settings TOPO_GROUP_SIZE, TOPO_TOPOLOGY_FILE).
-# FIT (D26, results/LAUNCH_DEFAULTS.md §FIT): before srun, the planner's memory fit of the command's ecalc run is printed and a run that does not fit
+# FIT (D26, results/MODEL.md §FIT): before srun, the planner's memory fit of the command's ecalc run is printed and a run that does not fit
 # (device over ECALC_DEVICE_GB, node over ECALC_NODE_GB) is refused with exit 4; MNRUN_FIT=0 skips it (see the FIT block below).
 # S2a (TARGET12, ECALC_PE_PER_GPU=1, exported or a VAR=value word of the command; default off = this script is unchanged): ONE PROCESS PER GPU.  <procs> is the node count (one
 # group per node); each node runs PPN tasks (MNRUN_PPG_PPN; default the node's GPU count from scontrol Gres, else 4), --distribution=block, every task keeps its stdout, COMM_RANK / COMM_SIZE
@@ -47,7 +47,7 @@ __fmc=${FI_MR_CACHE_MONITOR-}; __fmc=${__fmc,,}
 if [ "$__fmc" = disabled ]; then echo "mnrun.sh: refusing FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR: it corrupts exchanges silently (S46 section 4.6). Unset it (memhooks, the default) or use userfaultfd." >&2; exit 1; fi
 export MNRUN_DIR=$(cd "$(dirname "$0")" && pwd)
 . "$MNRUN_DIR/gres.sh"   # MNRUN_GRES=auto|on|off: GPU options only where the nodes list a gpu GRES
-# Phase 16 V: the Cray default module picks up AAC7_ROCM (default rocm/7.2.4, results/AAC7_PORT.md) instead of the bare "rocm" alias;
+# Phase 16 V: the Cray default module picks up AAC7_ROCM (default rocm/7.2.4, results/TRANSPORT.md) instead of the bare "rocm" alias;
 # rocm/7.0.3 (the login default) must be unloaded first (module conflict).
 case "${AAC7_ROCM:-}" in ""|*/*) ;; *) AAC7_ROCM=rocm/$AAC7_ROCM;; esac   # merge V+D: a bare version (D: 7.2.4) means rocm/<version>
 if [ -z "${MNRUN_MODULES+x}" ]; then if [ -d /opt/cray/pe/sma ]; then MNRUN_MODULES="cray-dsmml cray-openshmemx ${AAC7_ROCM:-rocm/7.2.4}"; else MNRUN_MODULES=rocm; fi; fi
@@ -58,7 +58,7 @@ if [ "$PRINT_ENV" != 0 ]; then nodes=$(seq -f "print-env-node%g" 1 "$P"); else  
 nodes=$(scontrol show hostnames "$(squeue -j "$SLURM_JOB_ID" -h -o %N)")
 fi
 [ -n "${MNRUN_NODELIST:-}" ] && nodes=$(echo "$MNRUN_NODELIST" | tr , "\n")   # s29: run on exactly these nodes of the allocation (unset: all, in squeue order)
-# S35 wrap-up: MNRUN_EXCLUDE_HOSTS="h1,h2" (default empty = off) names slow hosts (aac7: aac7-n01, a ~20 s host->device upload stall, results/SESSIONS.md).
+# S35 wrap-up: MNRUN_EXCLUDE_HOSTS="h1,h2" (default empty = off) names slow hosts (aac7: aac7-n01, a ~20 s host->device upload stall, results/CODE_TOOLS.md).
 # If one is in the node list: default MNRUN_EXCLUDE_MODE=warn warns on stderr and changes nothing; MNRUN_EXCLUDE_MODE=drop removes it (the run then uses the remaining nodes;
 # ranks shift, so it needs >= the nodes asked for, else fewer nodes are used as with MNRUN_NODES).
 if [ -n "${MNRUN_EXCLUDE_HOSTS:-}" ]; then
@@ -166,7 +166,7 @@ if [ "${COMM_TRANSPORT:-}" = xshmem ]; then
         export FI_LOG_LEVEL=${FI_LOG_LEVEL:-warn}
     fi
     # S46 (adopted 2026-10-11): FI_MR_CACHE_MONITOR=userfaultfd by default (memhooks deadlocks ROCr <-> libfabric: base 22/105 hangs vs uffd 0/104,
-    # results/CRASHES_HANGS.md §S46). An explicit value (e.g. memhooks) is respected; `disabled` was refused above. Independent of MNRUN_FI_DEFAULTS.
+    # results/CORRECTNESS.md §S46). An explicit value (e.g. memhooks) is respected; `disabled` was refused above. Independent of MNRUN_FI_DEFAULTS.
     export FI_MR_CACHE_MONITOR=${FI_MR_CACHE_MONITOR:-userfaultfd}
     echo "mnrun.sh: FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR"
     echo "mnrun.sh: FI_UNIVERSE_SIZE=${FI_UNIVERSE_SIZE:-<unset>} FI_LOG_LEVEL=${FI_LOG_LEVEL:-<unset>} (MNRUN_FI_DEFAULTS=${MNRUN_FI_DEFAULTS:-1})"
@@ -193,7 +193,7 @@ if [ "${COMM_TRANSPORT:-}" = xshmem ]; then
             if [ "$COMM_TRANSPORT" = xshmem ] && [ -n "$xmb" ] && [ -z "${XSHMEM_HEAP_MB:-}" ]; then export XSHMEM_HEAP_MB=$xmb; echo "mnrun.sh: XSHMEM_HEAP_MB=$xmb (the plan's DATA heap per loopback PE)"; fi
             # The Cray backend of the xshmem engine (make XSHMEM=cray; the binary carries the string "xshmem_cray:") has ONE DATA heap per process (K = 1), inside the libsma heap:
             # the plan's figure is for one PE, so a process of 4 APU threads (no ECALC_PE_PER_GPU) needs 4 x it, one PE per process 1 x it; + XSHMEM_HEAP_SLACK_MB (192) for
-            # the control area and alignment.  Automatic when MNRUN_SYMHEAP_XSHMEM is unset and XSHMEM_HEAP_MB is not given (results/XSHMEM.md, target shape); MNRUN_SYMHEAP_XSHMEM=0 leaves it off.
+            # the control area and alignment.  Automatic when MNRUN_SYMHEAP_XSHMEM is unset and XSHMEM_HEAP_MB is not given (results/TRANSPORT.md, target shape); MNRUN_SYMHEAP_XSHMEM=0 leaves it off.
             if [ "$COMM_TRANSPORT" = xshmem ] && [ -n "$xmb" ] && [ -z "${MNRUN_SYMHEAP_XSHMEM:-}" ] && grep -q -a 'xshmem_cray: ' "$pbin" 2>/dev/null; then
                 export MNRUN_SYMHEAP_XSHMEM=1 MNRUN_SYMHEAP_PES=1 XSHMEM_HEAP_SLACK_MB=${XSHMEM_HEAP_SLACK_MB:-192}
                 if [ -z "${XSHMEM_HEAP_MB:-}" ] || [ "${XSHMEM_HEAP_MB:-}" = "$xmb" ]; then
@@ -217,7 +217,7 @@ if [ "${COMM_TRANSPORT:-}" = xshmem ]; then
     echo "mnrun.sh: SHMEM_SYMMETRIC_SIZE=$SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE=$XT_SYMMETRIC_HEAP_SIZE (pool $POOL MiB + 512)"
 fi
 [ "$PRINT_ENV" = 0 ] || print_env_exit
-# ---- FIT (user decision D26, results/LAUNCH_DEFAULTS.md §FIT): the pre-launch memory fit.  A block of its own (the pool block above belongs to the
+# ---- FIT (user decision D26, results/MODEL.md §FIT): the pre-launch memory fit.  A block of its own (the pool block above belongs to the
 # SHMEM pool sizing; nothing here changes the pool).  The command's ecalc (the first executable whose name starts with `ecalc`, followed by
 # a digit count) is planned on this host with the command's VAR=value words and MN_PLAN_ONLY=<digits>:<procs> (no device touched); its
 # `plan fit` lines (device per node and per APU vs ECALC_DEVICE_GB, node vs ECALC_NODE_GB, the margins, the largest consumers, the
@@ -261,7 +261,7 @@ kopt=(); { [ "$nn" -gt 1 ] || [ "$MNRUN_PPG" = 1 ]; } && [ "${COMM_KILL_ON_BAD_E
 mn_gres_on "$(echo "$use" | head -1)" || gopt=()
 launch=(srun --jobid="$SLURM_JOB_ID" "${kopt[@]}" -N "$nn" -w "$list" --ntasks="$((P * PPN))" --ntasks-per-node="$((per * PPN))" "${copt[@]}" --distribution=block "${gopt[@]}" --overlap --export=ALL \
      bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; k=${MNRUN_PPN:-1}; export COMM_RANK=$((SLURM_PROCID / k)) COMM_SIZE=$((SLURM_NTASKS / k)); [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec '"$pre"'"$@"' _ "$@")
-# MNRUN_NICGRP=1 (default off; results/NODE_SLOWMODE.md §A14): log which NIC launch group (A = oxe_mcu_meas 18-25, B = 28-33) carried this
+# MNRUN_NICGRP=1 (default off; results/TRANSPORT.md §A14): log which NIC launch group (A = oxe_mcu_meas 18-25, B = 28-33) carried this
 # launch's traffic: per node, the counter deltas around the srun, one line "mnrun.sh: nicgrp <host> A=<bytes> B=<bytes> -> <A|B|none>" and a
 # summary "nicgrp: <A|B|mixed|none>"; log only, the exit status is the run's.  The group is per launch (§A13) and sets the 4-node rate, so
 # this lets a multi-node timing be split by group (the layv factor 0.92 of TIME_MODEL.md §L4 assumed B).

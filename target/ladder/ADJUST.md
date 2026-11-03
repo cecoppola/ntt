@@ -1,7 +1,7 @@
 # target/ladder/ADJUST.md — what to change between ladder runs, and when to move up
 
 Scope: the rules the agent on the target applies after each `ladder.sh` run: which measured number leads to which change,
-and the gate to the next level. Commands: `FORMATS.md` §9-§10, the header of `ladder.sh`. Labels: m measured, mod modelled,
+and the gate to the next level. Commands: `FORMATS.md` §9-§10, the header of `ladder.sh`. Labels: m measured, mod modeled,
 a assumed. The session may end at any time: never wait for a perfect level, move up as soon as the gate holds.
 
 Loop at each level: submit (`ladder.sh --level L0`) -> the DONE markers appear -> `ladder.sh --collect L0` (one summary,
@@ -49,7 +49,7 @@ L0 (aac7 1 n 8e9, m); the growth from level to level is the check.
 
 Which path to take up: the one with the lower mean `total` at L1 if the gap is outside the replica spread, else path 2 (the
 target's shape) for L2/L3. On aac7 at 1 node layout D (path 1) was fastest; at 2 nodes P on path 1 was fastest and path 2 was
-+7.5 % (m, `results/LAUNCH_DEFAULTS.md` §AAC7OPT); the target decides. Set it with `--path`.
++7.5 % (m, `results/MODEL.md` §AAC7OPT); the target decides. Set it with `--path`.
 
 ## 3. Rules between runs
 
@@ -61,7 +61,7 @@ Keys in the summary are `p<path>r<run>.<key>` (`raw/<id>.log` is the full output
 | 2 | rc 4 from ladder.sh, or `plan REFUSED`, or rc 8 | the memory plan does not fit | ladder.sh already printed the largest fitting digits: re-run with `--set DIGITS=<that>`; or a smaller pool/chunk (`--set MN_T_CHUNK_MB=1024`, costs ~0.6 s, m aac7). At L3 the code default is refused (device 407.41 GB vs 373.44, mod planner) and `L3.conf` carries `ENV_MN_NONPOW2_CAP=0` (user decision Q119, 2026-10-25); L0-L2 are powers of two and unaffected. |
 | 3 | spread across replicas above the gate, one replica slower, `slow_hosts` names a host | straggler node or a bad placement | Put the host in `results/ladder/exclude.txt` (one host per line; `ladder.sh` and `locality.py pick` read it), re-run the level. Same group slow twice: another group (`--exclude`). All groups equally slow: no node problem, rows 4-7. A host that is slow only in `dc` (the upload / write stage) = file system or its NIC. |
 | 4 | `init_s` above 25 s at L0 (aac7 24 s, m) or growing with the level | VMM / pinned-memory mapping, seed upload | Compare L0 hosts (`m.*_total` per replica); a host above the median by > 3 s goes to the exclude list. Path 2 init gap (+8 s on aac7) is expected; if it is larger, prefer path 1 for the run. |
-| 5 | `bs_s` high, rest as modelled | compute-bound leaf phase | `--set ECALC_NP=3` or `4` (aac7: no difference at 1 node, m; four primes cost +17 GB planes); `--set BS_SEED_CHUNK_MB=2048`: both tried on aac7, within noise — try only if bs is > 1.3 x its share in the model. |
+| 5 | `bs_s` high, rest as modeled | compute-bound leaf phase | `--set ECALC_NP=3` or `4` (aac7: no difference at 1 node, m; four primes cost +17 GB planes); `--set BS_SEED_CHUNK_MB=2048`: both tried on aac7, within noise — try only if bs is > 1.3 x its share in the model. |
 | 6 | `dm_s` (reciprocal + division) high, or `dm_share` rises with the level | fabric time in the distributed division | `--set MN_T_CHUNK_MB=1024` (vs 2048); `--set XSHMEM_ROUND_MB=512` (aac7: no effect, m); path 2: `--set XSHMEM_LANES=1` vs 2 to see if both NICs of an APU help; `MN_GROUPS` (the tree schedule; default is the plan's pick, change only with a measurement: `tools/plan_values.py` prints it). Level step beyond the model (section 1) with a large `dm` rise = the fabric rate is below the assumed 100 GB/s per APU: record it, it feeds `mn_model.py` (`--bw`). |
 | 7 | `dev_peak_gb` within 10 GB of the limit, or the plan margin below +10 GB | memory edge | `--set MN_T_CHUNK_MB=1024` (smaller exchange buffers), `--set ECALC_NP=3` if it was 4; at non-power-of-two groups `MN_NONPOW2_CAP=0` (3 x 2^k nodes; this also is what L3 does); last: fewer digits (`--set DIGITS`). |
 | 8 | `write_max_s` / `write_after_checks_max_s` large (run with WRITE) | file system, not compute | `--set MN_OUT_THREADS=32` (the file system reaches its rate with 32 writers per node, user's figure); `ECALC_OUT_DIR` on another directory; do not repeat a write run to tune: it costs minutes at L2/L3. |

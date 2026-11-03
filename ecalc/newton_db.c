@@ -40,14 +40,14 @@ static void shrink_db(dbig *r)
 /* is any limb of a below index e nonzero? (a - B^e test when a has e+1 limbs with top 1) */
 static int maxidx_below(const dbig *a, size_t e) { dbig v = db_view(a, 0, e); v.n = e; db_norm(&v); return v.n != 0; }
 /* (a << j) <= b, both with the same limb count (rare path: an explicit shift).  plus1 (Phase 14 R1, E7): (a << j) <= b + 1 -- under the
- * cut, corr may be one below the exact value, so the overshoot test contains every exact overshoot (results/DIVISION.md §R114 1.4) */
+ * cut, corr may be one below the exact value, so the overshoot test contains every exact overshoot (results/COMPUTE.md §R114 1.4) */
 static int shifted_cmp_le(const dbig *a, size_t j, const dbig *b, int plus1)
 {
     dbig t; db_init(&t); db_shl_limbs(&t, a, j); int c = db_cmp(&t, b), le = c <= 0;
     if (!le && plus1) { db_sub(&t, &t, b); le = t.n == 1 && db_limb(&t, 0) == 1; }   /* (a << j) - b == 1: r' would be 1 */
     db_free(&t); return le;
 }
-/* Phase 14 R1 (E7, results/DIVISION.md §R114 1): the reciprocal's two products (Q_t r, read as t1 >> (take - j); r d, read
+/* Phase 14 R1 (E7, results/COMPUTE.md §R114 1): the reciprocal's two products (Q_t r, read as t1 >> (take - j); r d, read
  * as t1 >> j) as the grid with the pieces wholly below the read band skipped (rns_mul_high_db's low cut), NEWTON_RECIP_GUARD (1) limbs
  * below the band kept: the band is then off by at most one unit (in practice identical), the same kind of error as the floor the
  * step already makes; healed by the next doubling, absorbed by the division's corrections at the last.  Always on (the NEWTON_RECIP_CUT
@@ -78,7 +78,7 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
 /* Phase 13d L: the chain's next target and the sharded reciprocal's start, extracted unchanged from recip_db2 / recip_mn (the plan
  * printer, mn_plan.c, asks them too).  Anchored (the default): the targets k, ceil(k/2), ... read from the top -- the next target
  * after j is the smallest of them above j (anchored; the power-of-two doubling, NEWTON_ANCHOR=0, was removed 2026-10-12) */
-/* The chain guard (RECIP, results/DIVISION.md §RECIP; on since D25, the NEWTON_CHAIN_GUARD=0 fallback removed 2026-10-23, Q87): the anchored targets k, g(k), g(g(k)), ... with g(t) = ceil(t/2) + 1
+/* The chain guard (RECIP, results/COMPUTE.md §RECIP; on since D25, the NEWTON_CHAIN_GUARD=0 fallback removed 2026-10-23, Q87): the anchored targets k, g(k), g(g(k)), ... with g(t) = ceil(t/2) + 1
  * instead of ceil(t/2), so every doubling j -> jn has jn <= 2j - 1 and its output is cut by >= 1 limb (>= 2 above the seed's 2 -> 3).
  * Without it a doubling with jn = 2j keeps its own error, up to ~2 M units (M = B^nq / Q, 1..B: the decimal limbs are not normalised;
  * -22 units at M 42.6 in SIMP), and a run of such doublings squares it (k = 2^m: up to two limbs lost, model) */
@@ -209,7 +209,7 @@ long newton_test_corr(void)                          /* Phase 15 K: ECALC_TEST_C
     if (k > 60 || k < -60) { ec_fatal(EC_RC_FATAL, "ECALC_TEST_CORR=%ld: |k| <= 60 (the division stops at 64 corrections)\n", k); }
     return k;
 }
-/* Phase 15 DKM (newton.h): the reciprocal's length (DKM is the only division since SIMP, results/CODE_REDUCTION.md §SIMP) */
+/* Phase 15 DKM (newton.h): the reciprocal's length (DKM is the only division since SIMP, results/CODE_TOOLS.md §SIMP) */
 size_t newton_dkm_h(size_t k) { return k / 2 + 1; }         /* max(k - s, s + 1) at s = floor(k/2) */
 /* Phase 15 int15k (the lean division set, archive:results_merged_2026-10-24/DIVISION.md §M615 1.2's target part; built in since 2026-10-12): the multi-node reciprocal and DKM division without
  * their dead copies -- recip_mn frees t once u (then corr) is formed; mn_divmod_dkm takes A_h and mu's top as VIEWS of S / R1 and mu
@@ -238,7 +238,7 @@ void newton_db_recip(bigint *mu, const bigint *Q, size_t k)
  * remainder window A mod B^w (w = nq + 2) is S's low w - dl limbs shifted up by dl, and the corrections run
  * on device numbers.  X is copied out (through the hook, before the low product, when set); R stays on the
  * device: its residues mod the T1 primes come back in rres (nres of them), R itself is freed. */
-/* ---- Phase 15 DKM (results/DIVISION.md §DKM15 1.2): the shifted division in two quotient halves, size 1 -------------------------------- */
+/* ---- Phase 15 DKM (results/COMPUTE.md §DKM15 1.2): the shifted division in two quotient halves, size 1 -------------------------------- */
 /* X0 = ((S >> (nq - 1 - dl)) mu) >> (k + 1), mu (a view of) k + 1 limbs; X0 = 0 when S has nothing at or above nq - 1 - dl */
 static void dkm_est_db(dbig *Xd, const dbig *S, size_t dl, size_t nq, size_t k, const dbig *mu)
 {
@@ -741,7 +741,7 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     size_t kp = newton_mn_chain_start(k);                              /* Phase 13d L: extracted (unchanged) */
     size_t T = 2 * kp + 2 < nq ? 2 * kp + 2 : nq;                     /* the top limbs of Q the single-node part reads */
     /* S30: NEWTON_MN_RECIP_TS=1 (print only): this node's clock at the chain's stages, one line per node (find who enters the sharded steps late).
-     * (NEWTON_MN_CHAIN_BCAST, the chain on node 0 only with r0 broadcast, was removed 2026-10-11: no measured gain, results/CRASHES_HANGS.md §S30) */
+     * (NEWTON_MN_CHAIN_BCAST, the chain on node 0 only with r0 broadcast, was removed 2026-10-11: no measured gain, results/CORRECTNESS.md §S30) */
     static int rts = -1;
     if (rts < 0) rts = getenv("NEWTON_MN_RECIP_TS") ? atoi(getenv("NEWTON_MN_RECIP_TS")) : 0;
     double tsa = mem_now(), tsb, tsc, tsd;
@@ -793,7 +793,7 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
         if (!member) { j = jn; NST(newton_st.iters++); continue; }
         for (;;) {
             double s0 = mem_now();
-            size_t c1 = j <= take ? newton_recip_cut(take - j) : 0;   /* Phase 14 R1 (E7): the same cut over shares (results/DIVISION.md §R114 1.7) */
+            size_t c1 = j <= take ? newton_recip_cut(take - j) : 0;   /* Phase 14 R1 (E7): the same cut over shares (results/COMPUTE.md §R114 1.7) */
             size_t hw = mid_ok ? newton_recip_mid(j, take) : (size_t)-1;   /* Phase 15 R4: the middle product (archive:results_merged_2026-10-24/DIVISION.md §R415 1.6) -- the result in basis hw */
             if (qlazy) { mdbv rv = mdb_view(&r, 0, r.n, Gs); double tp = mem_now(); rns_mul_dist_mn_cut_v(&t, &qv, &rv, Gs, c1, hw); mn_st.t_prod += mem_now() - tp; }   /* the same product on the same limbs (cut_v clips at hw as cut does) */
             else if (take == nq && Gs == G) mn_prod_cut(&t, Q, &r, Gs, c1, hw);
@@ -823,7 +823,7 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
             mdb_shift(&rs, &r, -(long)j, NB, Gs);                       /* r << j */
             if (neg) {
                 int over = rs.n < corr.n || (rs.n == corr.n && mdb_cmp(&rs, &corr, Gs) <= 0);
-                if (!over && rs.n == corr.n) {             /* E7 (results/DIVISION.md §R114 1.4): rs <= corr + 1 -- rs - corr == 1 also overshoots */
+                if (!over && rs.n == corr.n) {             /* E7 (results/COMPUTE.md §R114 1.4): rs <= corr + 1 -- rs - corr == 1 also overshoots */
                     mdb df; memset(&df, 0, sizeof df); mdb_addsub(&df, &rs, &corr, 1, Gs); over = df.n == 1 && mdb_limb(&df, 0, Gs) == 1; mfree(&df); }
                 if (over) {                                             /* overshoot: r -= r / 16, through the host (rare) */
                     NST(newton_st.overshoots++); bigint h, dd; bi_init(&h); bi_init(&dd); mdb_to_host_all(&h, &r, Gs);
@@ -860,7 +860,7 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
 void (*newton_mn_pq_hook)(int stage, mdb *x) = 0;   /* Phase 13 N (mn.c): 0 = before S = P + Q overwrites P, 1 = before Q is freed */
 void (*newton_mn_x_hook)(mdb *X, void *arg) = 0; void *newton_mn_x_arg = 0;   /* Phase 15 IO (W5d): the part file streamed during the low product (ecalc.c, MN_OUT_EARLY) */
 int (*newton_mn_xhi_hook)(mdb *Xh, size_t s, void *arg) = 0; int (*newton_mn_xlo_hook)(mdb *Xl, size_t s, int carry, void *arg) = 0;   /* Phase 15 EW (MN_OUT_DKM_HI): newton.h */
-/* ---- Phase 15 DKM (results/DIVISION.md §DKM15 1.2): newton_mn_divmod in two quotient halves ------------------------------------------- */
+/* ---- Phase 15 DKM (results/COMPUTE.md §DKM15 1.2): newton_mn_divmod in two quotient halves ------------------------------------------- */
 /* Xo = ((Sx >> (nq - 1 - dl)) mu) >> (k + 1) in basis (its length + 1: room for the +1 corrections); mu has exactly k + 1 limbs */
 static void mn_dkm_est(mdb *Xo, const mdb *Sx, size_t dl, size_t nq, size_t k, const mdb *mu, mn_group *G)
 {
@@ -898,7 +898,7 @@ static void mn_dkm_low(mdb *xql, const mdb *Xn, mdb *Q, size_t w, mn_group *G)
     mn_prod_cut_x1(xql, Xn, Q, G, 0, w);
     if (xql->N != w) { mdb_shift(&xq, xql, 0, w, G); mfree(xql); *xql = xq; }
 }
-/* ---- C3 step 4, D (ECALC_DR >= 3; results/DR.md): the division's low products are checked against the exact identity A' = X Q + R ----------------------------------------------
+/* ---- C3 step 4, D (ECALC_DR >= 3; results/CORRECTNESS.md): the division's low products are checked against the exact identity A' = X Q + R ----------------------------------------------
  * A' = S B^e (S = P + Q; step 2: S = R1, e = s) is cut to the window Aw = A' mod B^w, and xql = X Q mod B^w, so A' - X Q = (Aw - xql) + m B^w with m in {-1, 0, 1} (|A' - X Q| < 65 Q < B^w).
  * With the residues modulo DR_Q (t1_q[0]): E = (R(S) B^e - R(X) R(Q)) - (R(Aw) - R(xql)) must be 0 or +-R(B^w).  R(S) = R(P) + R(Q) are the division's T1 residues (taken at its start), R(X) is
  * taken from the X the product gets (after the test perturbations ECALC_TEST_CORR and NEWTON_DKM_TEST_HI).  Each residue is an all-gather (mdb_trk_make) summed alike on every node, so the verdict is
@@ -946,7 +946,7 @@ static long mn_dkm_corr(mdb *Rd, mdb *Aw, mdb *xql, const mdb *Qw, mn_group *G, 
     return dx;
 }
 static void mn_dkm_add(mdb *Y, long dx, mn_group *G) { if (dx) mdb_add_val(Y, 0, (uint64_t)(dx < 0 ? -dx : dx), dx < 0, G); }
-/* ---- P1 (DM_MN_WRAP, results/DIVISION.md §P1): the low product X Q mod B^w in two parts ------------------------------------------------
+/* ---- P1 (DM_MN_WRAP, results/COMPUTE.md §P1): the low product X Q mod B^w in two parts ------------------------------------------------
  * Each DKM step needs R = A' - X Q exactly (|R| < 65 Q < B^(w - 1), w = nq + 2), today from X Q mod B^w: a grid of pieces of the
  * cap's plane.  With P = a plane of the cap (2^k points) and h = w - P, M = B^h (B^P - 1) > 2 |R|, and R is fixed by R mod B^h and
  * R mod (B^P - 1) (CRT; the factors are coprime):

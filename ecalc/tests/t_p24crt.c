@@ -1,4 +1,4 @@
-/* t_p24crt - (results/PRIMES_STRATEGY.md §P24 audit): the P24 CRT kernel (p24_crt.c k_crt24, via p24_crt_launch / p24_crt_err) against GMP.
+/* t_p24crt - (results/COMPUTE.md §P24 audit): the P24 CRT kernel (p24_crt.c k_crt24, via p24_crt_launch / p24_crt_err) against GMP.
  * Residues are built from chosen coefficients c_x (x the plane point; the residue of c_x at the four primes), the kernel's out-runs and spills are summed
  * into one number and compared with sum c_x 10^(24 x) (GMP), and the flag is checked:
  *   in bound (c < 10^60: random, all 10^60 - 1, edge mixes)         flag 0, digits equal;

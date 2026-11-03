@@ -1,6 +1,6 @@
 /* t_pe_geo.c -- pe_geo on mock sysfs trees (host only, no GPU, no boot), and with `live` on a real launch.
  * Build: make XSHMEM=ofi tests/t_pe_geo (host-only cc: -DPE_GEO_NOBOOT -I.. t_pe_geo.c ../pe_geo.c)     Run: ./t_pe_geo   (prints "t_pe_geo: N checks, 0 failed")
- * live (boot over PMI2 + pe_geo, one line per PE, rank 0 the verdict; expected shape in results/XSHMEM.md):
+ * live (boot over PMI2 + pe_geo, one line per PE, rank 0 the verdict; expected shape in results/TRANSPORT.md):
  *   srun -N<n> --ntasks-per-node=<p> ... ./tests/t_pe_geo live
  * Checks: boot allgather of a 3000 B blob (chunking) returns every rank's bytes; all PEs agree on nics; no two PEs of a node share a NIC when pes_per_gpu == 1. */
 #include <stdio.h>

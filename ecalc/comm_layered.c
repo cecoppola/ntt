@@ -157,7 +157,7 @@ static void y_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     inter_post(c, e);
 }
 /* ---- B7: the unequal exchange ---- */
-/* B7ACCT (results/GRID_GROUPS.md §B7ACCT): the v-exchange scratch hipMalloc'd now per device, over every layered communicator (need_vtmp, need_vslot,
+/* B7ACCT (results/COMPUTE.md §B7ACCT): the v-exchange scratch hipMalloc'd now per device, over every layered communicator (need_vtmp, need_vslot,
  * freed by y_destroy) -- MEM_REPORT_DEVS prints it beside the layout's term (binsplit_vslot_bytes); a counter only, nothing else reads it */
 static size_t g_vlive[16];
 static void vlive_add(int dev, size_t add, size_t sub) { if (dev >= 0 && dev < 16) { __atomic_add_fetch(&g_vlive[dev], add, __ATOMIC_RELAXED); __atomic_sub_fetch(&g_vlive[dev], sub, __ATOMIC_RELAXED); } }
@@ -262,7 +262,7 @@ static void complete_v(comm *c)
  * A + max(A, B) bytes, two slots alternating, each the communicator's own and grown only while not pending.  The intra receive
  * x1 (A) lives in the slot's x3 area: it is dead once reordered into x2, before the inter stage receives into x3.  Scratch:
  * x0 + 2 (A + max(A, B)) against depth 1's x0 + 2 A + B -- with A ~ B one exchange's A more (4 S against 3 S). */
-/* S36 (results/GRID_GROUPS.md §S36): the v-slots are one pair per device, shared by every layered communicator of the APU thread.  The tree's levels run one
+/* S36 (results/COMPUTE.md §S36): the v-slots are one pair per device, shared by every layered communicator of the APU thread.  The tree's levels run one
  * after the other and a node is in one group per level, so a level's slots are dead when the next level's exchange begins: instead of each communicator holding its own
  * pair to the run's end (the sum over the levels), the pair is handed on (the previous owner's pending exchange is completed first) and held at the largest level's size.
  * Only where the buffers live and when they are reused: the exchanges, their order and the data are the same.  The pair is freed with the last communicator. */
@@ -288,7 +288,7 @@ static void need_vslot(comm *c, int k, size_t bytes)
     p->vx[k] = S->vx[k]; p->vxcap[k] = S->cap[k];          /* (a stale view of the other slot is refreshed too: only the owner's view is used) */
     p->vx[k ^ 1] = S->vx[k ^ 1]; p->vxcap[k ^ 1] = S->cap[k ^ 1];
 }
-/* M3 (always on; results/GRID_GROUPS.md §C06): rns_dist.c calls this when a product's last v-exchange has been waited for, before the CRT and the
+/* M3 (always on; results/COMPUTE.md §C06): rns_dist.c calls this when a product's last v-exchange has been waited for, before the CRT and the
  * result exchanges.  The comm pool holds the slots only while a product's v-exchanges run; the staged exchanges around them (the redistribution, the result, the shifted add) use the
  * same pool, so the pool rule sizes it for the larger of the two, not their sum.  The slots are scratch (every exchange writes its x2 / x3 before reading them): nothing carries over;
  * the next product's first v-exchange allocates them again (need_vslot*: at the pool rule's size, so the same size; the receivers publish where a slab lands, so the offset need not match).
@@ -396,7 +396,7 @@ static void y_destroy(comm *c)
 static void *y_sym_alloc(comm *c, size_t bytes) { return comm_sym_alloc(PRIV(c)->inter, bytes); }
 static void y_sym_free(comm *c, void *p) { comm_sym_free(PRIV(c)->inter, p); }
 static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_barrier, y_modq, y_max, y_destroy, 0, 0, y_allgather, y_allgather_host, y_alltoallv, y_alltoallv_host, y_sym_alloc, y_sym_free };
-/* One inter stage in flight (xshmem; user 2026-10-21, results/SHMEM.md).  The v-slots always come from the comm pool; the shared v-slot pair (S36) and the
+/* One inter stage in flight (xshmem; user 2026-10-21, results/TRANSPORT.md).  The v-slots always come from the comm pool; the shared v-slot pair (S36) and the
  * release after each product (M3) are always on. */
 static void lay_opts(lay_priv *p) {
     vslot_attach(p);   /* S36: the shared pair */

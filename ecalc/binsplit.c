@@ -440,7 +440,7 @@ static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_
     (void)pool_log;
     return best + best / 16;
 }
-/* B7ACCT (results/GRID_GROUPS.md §B7ACCT; STD17 4): the general map's v-exchange slots, resident per APU thread (bytes).  Every group whose transform
+/* B7ACCT (results/COMPUTE.md §B7ACCT; STD17 4): the general map's v-exchange slots, resident per APU thread (bytes).  Every group whose transform
  * is the general map (g not a power of two, or DIST_GEN) owns a layered communicator per APU thread (rns_dist.c lay_get) whose v-slots
  * grow to its largest product's exchange (rns_mul_dist_mn_vslot) and stay until groups_finalize at the run's end -- outside the arena,
  * the plane pools and the comm pools.  So the slots of every general-map level of the tree add up, and the whole machine's group (the
@@ -479,7 +479,7 @@ size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *b
     if (tree_top) *tree_top = tt;
     return all;
 }
-/* X2 (results/OFI_FABRIC.md item 2): the v-slots come from the comm pool (comm_sym_alloc), so the pool rule counts them and the hipMalloc'd budget does not */
+/* X2 (results/TRANSPORT.md item 2): the v-slots come from the comm pool (comm_sym_alloc), so the pool rule counts them and the hipMalloc'd budget does not */
 /* S31: each v-slot is allocated once at the model's per-slot maximum of its group size g (env COMM_LAYER_VSLOT_MB_<g>, MiB; comm_layered.c need_vslot),
  * not regrown with every larger product -- a slot regrown in the comm pool (free, then allocate) strands holes between the short-lived staging blocks (S28: 10 nodes,
  * COMM_OFI_POOL_MB 4096 "too small" with 1432 MiB free but no 1023 MiB hole).  A hand-set COMM_LAYER_VSLOT_MB or COMM_LAYER_VSLOT_MB_<g> wins.  Called by the pool rule on every rank. */
@@ -599,7 +599,7 @@ static int as_room_fits(unsigned long N, int size, size_t room)
                room * 1e-9, node * 1e-9, planes * 1e-9, ar * 1e-9, AS_VMM_BS_GROW * 1e-9, host * 1e-9, budget * 1e-9);
     return g_room_cfit;
 }
-/* D19 (results/LAUNCH_DEFAULTS.md §DEF; mem_model.py wrap_bytes): DM_MN_WRAP's extra bytes per device in the mn division's low-product moment
+/* D19 (results/MODEL.md §DEF; mem_model.py wrap_bytes): DM_MN_WRAP's extra bytes per device in the mn division's low-product moment
  * (newton_db.c mn_wrap_step) -- Q B^-h folded (Qpp, basis P + 4, held over both steps) and the folded A' (T1, basis P + 4) beside
  * the assembly's Rc + Tt (basis w each, where Aw + xql were): 2 quarters of P + 4 limbs; 0 when the wrap is off or not used
  * (mn_wrap_plane's rule: P = 2^cap or 2^k in [2^logmin, 2^cap]; w = n_Q + 2 >= P + 2; at 1 not when X_hi Q fits one plane) */
@@ -879,9 +879,9 @@ void binsplit_layout_comm_size(int g)
     if (old) { bs_setenv("COMM_SIZE", old, 1); free(old); old = 0; } else bs_unsetenv("COMM_SIZE");
     saved = 0;
 }
-/* ---- FIT (user decision D26, results/LAUNCH_DEFAULTS.md §FIT): the pre-launch memory fit, and DM_MN_WRAP automatic --------------------------------
+/* ---- FIT (user decision D26, results/MODEL.md §FIT): the pre-launch memory fit, and DM_MN_WRAP automatic --------------------------------
  * The device memory of a node against the machine's device edge (ECALC_DEVICE_GB, the profile's measured figure; code default
- * 373.44 = the target's, 93.36 GB per APU, results/TARGET.md §TGTBENCH2) and the node against the node budget (ECALC_NODE_GB, 480), from the
+ * 373.44 = the target's, 93.36 GB per APU, results/MODEL.md §TGTBENCH2) and the node against the node budget (ECALC_NODE_GB, 480), from the
  * layout's own terms at rank 0's range (the BS_LAYOUT_ONLY convention, so every rank decides alike):
  *   device = max(the dm phase: planes + arena + device pools + 4 v-slots,  the bs phase: planes + arena + device pools + the VMM
  *            pool's bs growth (AS_VMM_BS_GROW, 6.0 GB measured) + 4 v-slots of the tree's top level)   (mem_model.py dev_max's form)
@@ -1154,7 +1154,7 @@ static uint64_t *ckpt_buf(int r, int *own, const struct ckpt_io *io)
 }
 /* a checkpoint data file -- the stdio stream as before, or with ECALC_ODIRECT=1 spill.c's sp_file: O_DIRECT
  * through the (aligned) DMA buffer, the 1 GiB buffer split in two halves so the DMA of one runs under the write of the
- * other; nothing is left in the page cache (on the APU the cache is HBM, results/APUMULT.md, apumult_M) */
+ * other; nothing is left in the page cache (on the APU the cache is HBM, results/COMPUTE.md, apumult_M) */
 typedef struct { FILE *f; sp_file sf; int direct; } ckf;
 static size_t ck_halves(uint64_t *buf, void *b2[2], size_t bytes) { b2[0] = buf; b2[1] = (char *)buf + bytes / 2; return bytes / 2; }
 static ckf *ckpt_open(const char *kind, int level, int r, int write, char *tmp, char *final)

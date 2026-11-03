@@ -1,5 +1,5 @@
 #!/bin/bash
-# tools/nodehealth.sh - one line on stdout: this node's memory-error totals and boot time (C4, results/HEALTH.md).
+# tools/nodehealth.sh - one line on stdout: this node's memory-error totals and boot time (C4, results/MEMORY_IO.md).
 #   nodehealth.sh            ->  NS health host=<h> ue=<n> ce=<n> boot=<epoch> boot_at=<YYYY-MM-DDTHH:MM:SSZ> up_s=<s> mc=<mcN:ue/ce,...>
 # ue / ce = the sums of /sys/devices/system/edac/mc/mc*/ue_count and ce_count (uncorrectable / correctable errors since boot, no timestamps), mc = the
 # same per memory controller.  ue=NA ce=NA when the node has no EDAC controller.  The boot time comes from /proc/uptime.

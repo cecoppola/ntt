@@ -78,7 +78,7 @@ elif [ "${NNODES:-1}" -gt 1 ]; then TMP=$HOME/sess/mnaccept_$J; mkdir -p "$HOME/
 else TMP=/tmp/mnaccept_$J; fi
 if [ -z "${MNRUN_MODULES+x}" ]; then if [ -d /opt/cray/pe/sma ]; then MNRUN_MODULES="cray-dsmml cray-openshmemx rocm"; else MNRUN_MODULES=rocm; fi; fi
 export MNRUN_MODULES
-# Phase 16 S: `| head -1` -- on a multi-node job scontrol prints one CPUTot per node and R()'s srun got "-c 192<newline>192" (execve(): 192: No such file; results/CRASHES_HANGS.md §S16)
+# Phase 16 S: `| head -1` -- on a multi-node job scontrol prints one CPUTot per node and R()'s srun got "-c 192<newline>192" (execve(): 192: No such file; results/CORRECTNESS.md §S16)
 case "${MNRUN_CPUS_PER_TASK-auto}" in "") RC=;; auto) RC="-c $(scontrol show node "$NODE" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p' | head -1)";; *) RC="-c $MNRUN_CPUS_PER_TASK";; esac
 SHA=$(git rev-parse --short HEAD 2>/dev/null)
 echo "== mnaccept: job $J on $NODE, $(date -Is), $(git log --oneline -1 2>/dev/null); ref $REF ==" | tee "$SUM"
@@ -205,7 +205,7 @@ if want recheck; then
   recheck_check recheck_e8_2 2 100000000 27
 fi
 
-# ---- Phase 15 KP: forced corrections on the defaults, patching file bytes (results/OUTPUT_IO.md §KP15) ------------------------------------
+# ---- Phase 15 KP: forced corrections on the defaults, patching file bytes (results/MEMORY_IO.md §KP15) ------------------------------------
 # corr_check <tag> <procs> <digits> <k> [recheck]: the run with ECALC_TEST_CORR=<k>, the patch lines, the digits against the reference prefix
 corr_check() { local tag=$1 p=$2 d=$3 k=$4 rk=$5 log=$OUT/$1.log f=$TMP/$1.txt rf=$TMP/ref_$3.txt name="corr d=$3 size $2 TEST_CORR=$4" rc c np nb nf
   N "head -c $(( d + 2 )) $REF/e_1000000000.txt > $rf; echo >> $rf"

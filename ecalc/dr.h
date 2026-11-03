@@ -1,4 +1,4 @@
-/* dr.h - C3 "detect and retry" (results/DR.md; ALGORITHM.md §10): the shared part of the checks that make a product repeat itself
+/* dr.h - C3 "detect and retry" (results/CORRECTNESS.md; ALGORITHM.md §10): the shared part of the checks that make a product repeat itself
  * instead of ending the run when a transient fault corrupts one of its pieces.
  *
  *   switch   ECALC_DR = 0 (default: off, the code paths are the unchanged ones), 1 = the CRT flag of a P24 piece in mn_core is a

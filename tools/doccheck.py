@@ -7,7 +7,7 @@ Checks:
   registry  tools/switch_registry.py --check passes (called, not duplicated); its review-date WARN lines are printed as
             `[review]` warnings and never count as failures
   scope     central docs have a "Scope:" line in their first 8 lines
-  path      relative paths / links / results/TIME_MODEL.md §X / tools/x / ecalc/x cited in the central docs exist (results/*.md are dated records, not checked)
+  path      relative paths / links / results/MODEL.md §X / tools/x / ecalc/x cited in the central docs exist (results/*.md are dated records, not checked)
   plan      "PLAN §N" / "PLAN.md §N" outside results/ names a section PLAN.md has
   paper     no "the paper" / "epaper" in tracked files outside results/
   archive   no `archive/` path references (use `archive:`)
@@ -46,8 +46,7 @@ def main():
         for d, ds, fs in os.walk(root):
             ds[:] = [x for x in ds if x != ".git"]
             files += [os.path.relpath(os.path.join(d, x), root) for x in fs]
-    # target/governance/ holds copies of the private rule files (Q113), not repository docs
-    files = [f for f in files if os.path.isfile(os.path.join(root, f)) and not f.startswith("target/governance/")]
+    files = [f for f in files if os.path.isfile(os.path.join(root, f))]
     fileset = set(files)
     dirset = {os.path.dirname(f) for f in files}
     for f in list(dirset):
@@ -153,7 +152,9 @@ def main():
         for i, l in enumerate(lines(f) or [], 1):
             for m in sec.finditer(l):
                 fn, t = m.groups()
-                if fn in heads and not any(re.search(r"(?<![A-Za-z0-9_])" + re.escape(t) + r"(?![A-Za-z0-9_])", h) for h in heads[fn]):
+                if fn not in heads:
+                    bad("section", f, i, f"results/{fn} does not exist (topic files: {', '.join(sorted(heads))})")
+                elif not any(re.search(r"(?<![A-Za-z0-9_])" + re.escape(t) + r"(?![A-Za-z0-9_])", h) for h in heads[fn]):
                     bad("section", f, i, f"results/{fn} has no heading with §{t}")
 
     total = 0

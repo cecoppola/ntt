@@ -21,7 +21,7 @@ Labels: **m** measured, **mod** modelled, **a** assumed.
   target session runs the user's staircase 1.8 × 10¹³, 3.6 × 10¹³, 5.4 × 10¹³ digits on 576 nodes (user 2026-10-29; section 4).
 - Constraints per node: device memory ≤ **373.44 GB** (the measured `hipMalloc` edge on the target, 93.36 GB per APU, m),
   host total ≤ **480 GB** (the budget check's default). Each node has 8 NICs (two per APU) on the target and one per APU on aac7.
-- What is known about the target (user-supplied 2026-10-12, a; re-assessed in `results/TARGET.md §TGT`):
+- What is known about the target (user-supplied 2026-10-12, a; re-assessed in `results/MODEL.md §TGT`):
 
   | item | target | aac7, for comparison |
   |---|---|---|
@@ -51,31 +51,31 @@ identical between the two supported multi-node paths (sha 578f5efb0ff2b9af at 2 
 10¹¹ digits (CI +3.4 to +11.5 %, 11 interleaved pairs), the whole gap is start-up (init +8 s, aac7-specific). The
 exchange worker is the default in every layout (Q96: init -6.5 to -7.5 s, host memory halved, bs and dm neutral). The
 plain SHMEM transport, `COMM_TRACE`, the proxy mode and the virtual-PE thread mode are removed (Q103, Q78, Q86; list in `RESULTS.md`). `XSHMEM_PEER` is on by default under one process per GPU (Q100). aac7 run times are bimodal (about half the runs 5-8 % slower, both
-backends), so every A/B comparison is paired (`results/NODE_SLOWMODE.md §BM`).
+backends), so every A/B comparison is paired (`results/TRANSPORT.md §BM`).
 
 Timings (all m, current engine, after the 2026-10-21 default change Q73).
 
 | scale | measured time | source |
 |---|---|---|
-| 3 n, 1e11, path 1 | 81.2 to 83 s (D and P equal within noise) | `results/XSHMEM.md` craylane |
-| 3 n, 1e11, path 2 | 85 to 93 s (fast mode 85-87, slow 90-94); layout D on Cray 194.6 s | `results/XSHMEM.md` craylane |
-| 2 n, 1e11, path 2 (no digit file) | worker 137-158 s, poll-only 145-154 s (3 ABBA pairs, not resolved) | `results/XSHMEM.md §XWLAT` |
-| 2 n, 1e10 | path 2 worker 32.0 s, poll-only 40.2 s; path 1 D 39.2 s (4 pairs each) | `results/XSHMEM.md §XWLAT` |
-| 1 n, 3.3e10 | D 39.3 s, P 34.9 s with `XSHMEM_PEER` (51.5 s without) | `results/SINGLE_NODE.md §PEER` |
-| 1 n, 6.6e10 (the target's share per node) | D 74.2 s, P 83.8 s (4 pairs): D is the fastest here | `results/LAUNCH_DEFAULTS.md §AAC7OPT` |
-| 2 n, 5e10 | P (path 1) 39.7 s, D 54.4 s, path 2 53.5 s (3 rounds); P fits 2 n only to 5e10 (node budget) | `results/LAUNCH_DEFAULTS.md §AAC7OPT` |
+| 3 n, 1e11, path 1 | 81.2 to 83 s (D and P equal within noise) | `results/TRANSPORT.md` craylane |
+| 3 n, 1e11, path 2 | 85 to 93 s (fast mode 85-87, slow 90-94); layout D on Cray 194.6 s | `results/TRANSPORT.md` craylane |
+| 2 n, 1e11, path 2 (no digit file) | worker 137-158 s, poll-only 145-154 s (3 ABBA pairs, not resolved) | `results/TRANSPORT.md §XWLAT` |
+| 2 n, 1e10 | path 2 worker 32.0 s, poll-only 40.2 s; path 1 D 39.2 s (4 pairs each) | `results/TRANSPORT.md §XWLAT` |
+| 1 n, 3.3e10 | D 39.3 s, P 34.9 s with `XSHMEM_PEER` (51.5 s without) | `results/COMPUTE.md §PEER` |
+| 1 n, 6.6e10 (the target's share per node) | D 74.2 s, P 83.8 s (4 pairs): D is the fastest here | `results/MODEL.md §AAC7OPT` |
+| 2 n, 5e10 | P (path 1) 39.7 s, D 54.4 s, path 2 53.5 s (3 rounds); P fits 2 n only to 5e10 (node budget) | `results/MODEL.md §AAC7OPT` |
 
-Older figures (comm_ofi era, 1 n 1e11 129.3 s before the 2026-10-12 defaults, the 1 / 2 / 4 / 6 n scaling at 6.441e10 per node 67.6 / 119.4 / 172.2 / 204.6 s, 6 n 3.8646e11 190.7 to 202.1 s) are in `results/TIME_MODEL.md §M2a`, `§SCALE35` and `archive:results_merged_2026-10-23/NIGHT_RUNS.md`; the 4-6 node figures have not been re-measured on the current engine.
+Older figures (comm_ofi era, 1 n 1e11 129.3 s before the 2026-10-12 defaults, the 1 / 2 / 4 / 6 n scaling at 6.441e10 per node 67.6 / 119.4 / 172.2 / 204.6 s, 6 n 3.8646e11 190.7 to 202.1 s) are in `results/MODEL.md §M2a`, `§SCALE35` and `archive:results_merged_2026-10-23/NIGHT_RUNS.md`; the 4-6 node figures have not been re-measured on the current engine.
 
 **On the target (2026-10-26, m; `remote/FACTS.md` "Measured runs on the target").** Path 1, layout D, ran 2 to 576 nodes at
 8 × 10⁹ digits per node, every run VERIFY OK; the best 576-node run, 4.608 × 10¹² digits, took 255.3 s, of which 111.0 s was
 init. Two larger runs failed: 2 × 10¹³ in a communicator handshake hang and 3 × 10¹³ with the P24 CRT flag on nodes 283-376; both
 had a mixed piece layout at tree level 7. The frozen copy for the next session, branch remote-v12 (= cand3 0c2da14, in main
-since the 2026-10-31 merge; 2-node gate `results/XSHMEM.md` §G2N), sets `MN_LEVEL_UNIFORM=1` on every record step; the root cause is open (`TASKS.md`
+since the 2026-10-31 merge; 2-node gate `results/TRANSPORT.md` §G2N), sets `MN_LEVEL_UNIFORM=1` on every record step; the root cause is open (`TASKS.md`
 Proposed).
 
-**Not yet done.** No run above 4.608 × 10¹² digits has completed on the target. The 576-node layout is refused by the planner with the defaults (margin -33.97 GB; with `MN_NONPOW2_CAP=0` +14.48 GB; m, planner, 2026-10-25, `results/LAUNCH_DEFAULTS.md §FIT`); the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
-`results/TARGET.md §TGT`; at the user-supplied 100 GB/s injection peak per APU, assumed for the achieved rate); the write adds
+**Not yet done.** No run above 4.608 × 10¹² digits has completed on the target. The 576-node layout is refused by the planner with the defaults (margin -33.97 GB; with `MN_NONPOW2_CAP=0` +14.48 GB; m, planner, 2026-10-25, `results/MODEL.md §FIT`); the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
+`results/MODEL.md §TGT`; at the user-supplied 100 GB/s injection peak per APU, assumed for the achieved rate); the write adds
 2.4 s of file write at ecalc's modelled 4.0 GB/s per node (1.9-2.8 s over the 5.0-3.4 GB/s one node measured; the rate with 576 nodes writing at once is assumed) and 1.0 s at the file system's 1 TB/s (mod).
 
 ## 3. Defaults and launch lines
@@ -111,7 +111,7 @@ asks for a pool of 2304 MiB and a heap of 2816 MiB (m, planner).
 nodes, profile) the device peak per node and per APU against `ECALC_DEVICE_GB` (target 373.44 GB per node, m; aac7 444.0
 in `profiles/aac7.conf`), the node against `ECALC_NODE_GB`, the margins and the largest consumers;
 `tools/plan_values.py --fit`, `mnrun.sh`, `tools/gate.sh` and the kit's plan stage print it and refuse a run that does not
-fit (`results/LAUNCH_DEFAULTS.md §FIT`, which owns the figures for the target and aac7 sizes; the 576-node result today is in section 2). Every setting that is not a plain
+fit (`results/MODEL.md §FIT`, which owns the figures for the target and aac7 sizes; the 576-node result today is in section 2). Every setting that is not a plain
 default has an owner and a review date (`tools/switch_registry.py --check`).
 
 ## 4. Plan to the target run
@@ -123,9 +123,8 @@ writes command blocks; the user pastes them on the target and pastes each summar
 owns the steps, sizes and go / no-go rules: P1 check, build and gates; P2 node screen, 64-node A/B arms and 4.608 × 10¹² on 576 nodes;
 P3 and P4 the record staircase 1.8 × 10¹³, 3.6 × 10¹³, 5.4 × 10¹³ on 576 nodes, stopping at the first failure; P5 the report.
 
-**The 2026-10-26 target session** (an agent team on the target; entry `target/RESTART.md`; kept as reference, the older staged kit is
-`target/kit/target_kit.sh -h`):
-1. Install the rules (`target/governance/install.sh`), probe the system (`target/probe/probe.sh`, login then one node; about
+**The 2026-10-26 target session** (an agent team on the target; entry `target/RESTART.md`; kept as reference):
+1. Probe the system (`target/probe/probe.sh`, login then one node; about
    30 s on aac7, m) and generate `target/config/target.conf` (`target/probe/gen_conf.py`).
 2. Build path 1 and path 2 (bench items `bld01`, `bld02`; about 25 s each on aac7, m).
 3. Bench (`target/bench/run.sh`, one worker per allocation, 59 items run once each in priority order; questions and the
@@ -142,9 +141,9 @@ P3 and P4 the record staircase 1.8 × 10¹³, 3.6 × 10¹³, 5.4 × 10¹³ on 57
 |---|---|
 | fabric rate at 576 nodes below the assumption | the kit measures it first; the size can drop to the next grid step |
 | a slow or faulty node | node screen and `initchk.py` before the run; exclusion only (`MNRUN_EXCLUDE_HOSTS`), no spares; any 572-576 nodes pass the plan check |
-| device memory near the edge | budget check (rc 8) before compute; guard (rc 9) during; margins per `MN_NONPOW2_CAP` setting in `results/LAUNCH_DEFAULTS.md §FIT` |
+| device memory near the edge | budget check (rc 8) before compute; guard (rc 9) during; margins per `MN_NONPOW2_CAP` setting in `results/MODEL.md §FIT` |
 | hangs in the ROCr / libfabric memory registration | `FI_MR_CACHE_MONITOR=userfaultfd` (0/104 hangs against 22/105, m) |
 | crash without a trace | `ECALC_SEGV_TRACE=1` on the launch line |
 | wrong digits | T1/T2 in the run, RECHECK and `unpack_digits` after it |
 | the write short of the file system's 1 TB/s (one file, 32 writers per node; ecalc: 2 files per node, 8 threads) | `tools/wbench` at scale in the kit, `MN_OUT_THREADS=32`; a shared-file writer if needed (OPPORTUNITIES N8): 2.4 s file write at 4.0 GB/s per node, hidden under the division in the model (mod; the old 1.0 GB/s prior gave 12.8 s) |
-| Cray SHMEM 12.1 (`XSHMEM=cray`, path 2) untested on the target; the init gap (+8 s on aac7) may differ; neither machine has usable hugetlb pages (the target: 8 pages, 0 free; THP always), so the init gap is expected to persist | path 2 runs on aac7 against Cray SHMEM 11.8 (`results/XSHMEM.md`, +7.5 % against path 1, digits identical); the kit's build, plan and t_xshmem checks and the day-one list T1-T8 (`results/XSHMEM.md`, `TASKS.md`) on the target; path 1 stays as the fallback (Q85) |
+| Cray SHMEM 12.1 (`XSHMEM=cray`, path 2) untested on the target; the init gap (+8 s on aac7) may differ; neither machine has usable hugetlb pages (the target: 8 pages, 0 free; THP always), so the init gap is expected to persist | path 2 runs on aac7 against Cray SHMEM 11.8 (`results/TRANSPORT.md`, +7.5 % against path 1, digits identical); the kit's build, plan and t_xshmem checks and the day-one list T1-T8 (`results/TRANSPORT.md`, `TASKS.md`) on the target; path 1 stays as the fallback (Q85) |

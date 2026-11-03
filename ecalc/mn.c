@@ -293,7 +293,7 @@ int mn_selftest(int logR, int logC, int verbose)
     if (mn_size() & (mn_size() - 1)) { printf("mn: self-test over the plain meshes skipped (size %d is not a power of two; the layered self-test covers the transform nodes)\n", mn_size()); return 1; }
     int nr = mn_size();
     if (logR < NTT_LOGN_MIN) logR = NTT_LOGN_MIN;   /* the column pass is ntt_fwd(..., p->logR, ...): logR itself must be a valid transform size */
-    /* (results/OFI_FABRIC.md's growth pattern) the fixed 2^11 rows give R/ranks < 32 from 128
+    /* (results/TRANSPORT.md's growth pattern) the fixed 2^11 rows give R/ranks < 32 from 128
      * ranks on (k_twpack_r's grid is rk/32 blocks, 0 at R/ranks = 16: a silent no-op, not a HIP error).  Grow logR until
      * R/ranks >= 32, as the layered test does; below 128 ranks R/ranks is already >= 32 (2048/64
      * = 32) so the loop never fires and behavior is unchanged. */
@@ -476,7 +476,7 @@ int mn_selftest_layered(int logR, int logC, int verbose)
 #include "verify.h"                                   /* t1_q */
 #include <unistd.h>
 static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half, mdb_trk *tp, mdb_trk *tq);
-/* ---- C3 step 3 (ECALC_DR >= 2; results/DR.md): the tree's tracked residues (B) and the leaf check (C) ----------------------------------------------------------
+/* ---- C3 step 3 (ECALC_DR >= 2; results/CORRECTNESS.md): the tree's tracked residues (B) and the leaf check (C) ----------------------------------------------------------
  * tp / tq: R(P), R(Q) (mod DR_Q = t1_q[0]) of the node's current P, Q (the common value of its child group, held in an explicit variable here, never in the mdb) and this node's share parts.
  * Seeded from the leaf at the start of the tree (db_mod_qs: the only extra pass), carried through the levels by the descriptor all-gather (11 words) and the checked products.
  * C: the seeds against the node's recurrence (pq_bg_run, ecalc.c; the T1 values of this node's term range): polled after every level, finally at the division. */

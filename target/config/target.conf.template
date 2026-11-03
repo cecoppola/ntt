@@ -14,12 +14,12 @@
 
 # ---- [modules/build] ------------------------------------------------------------------------------------------------
 # How to determine: `module avail rocm cray-openshmemx cray-dsmml` on a login node; the ROCm version of the compute image
-# (`module list` inside a one-node job). target/kit/target_kit.sh stage 'build' picks them and writes kit_modules.env -- copy from there.
+# (`module list` inside a one-node job).
 # target libraries: ROCm 7.14.0, cray-shmem 12.1.0, libfabric 2.3.1, CCE 21.0.0 -- user-supplied; module names are determined on the target
 TARGET_ROCM=__FILL__               # the ROCm module name/version on the target (aac7 build with XSHMEM=cray passed; run time vs 7.2.4 not yet measured, OPPORTUNITIES M7d)
-TARGET_SMA_MODULE=__FILL__         # the OpenSHMEM module on the target (confirm with `module avail`; the kit auto-detects only cray-openshmemx/*)
-TARGET_DSMML_MODULE=__FILL__          # the dsmml module (target/kit/target_kit.sh TARGET_DSMML_MODULE)
-MNRUN_MODULES=__FILL__                # the full module line: "<TARGET_DSMML_MODULE> <TARGET_SMA_MODULE> <TARGET_ROCM>" (kit_modules.env); needs the dsmml version
+TARGET_SMA_MODULE=__FILL__         # the OpenSHMEM module on the target (confirm with `module avail`)
+TARGET_DSMML_MODULE=__FILL__          # the dsmml module
+MNRUN_MODULES=__FILL__                # the full module line: "<TARGET_DSMML_MODULE> <TARGET_SMA_MODULE> <TARGET_ROCM>"; needs the dsmml version
 MNRUN_UNLOAD=__FILL__                 # modules to unload first (a versioned rocm conflicts with a login default); empty if none conflicts
 GMP_HOME=__FILL__                     # a GMP built from source if the site has no gmp.h: `ls $GMP_HOME/include/gmp.h`; remove the key if the site provides one
 
@@ -42,18 +42,18 @@ MNACCEPT_TMP=__FILL__                 # scratch for mnaccept (must not be a RAM 
 # code default of MN_GROUPS at the headline size is the plan's pick, so leave MN_GROUPS unset unless a measurement says otherwise.
 
 # ---- [libfabric] ----------------------------------------------------------------------------------------------------
-FI_MR_CACHE_MONITOR=userfaultfd       # (u) libfabric 2.3.1 = aac7's version, on which S46/G1 were measured. S46: memhooks hangs ROCr<->libfabric (22/105 vs 0/104, m on the sister machine); 'disabled' is refused. Verify with the kit's 'uffd' stage
+FI_MR_CACHE_MONITOR=userfaultfd       # (u) libfabric 2.3.1 = aac7's version, on which S46/G1 were measured. S46: memhooks hangs ROCr<->libfabric (22/105 vs 0/104, m on the sister machine); 'disabled' is refused. Verify with the probe
 FI_LOG_LEVEL=warn                     # TGTBENCH2 L2 (the user's tested value)
 # FI_UNIVERSE_SIZE: computed by mnrun.sh = max(4096, 4 x ntasks). Not a key.
-# How to check the NIC set: `fi_info -p cxi | grep -c domain` (the kit's 'env' stage logs it); COMM_OFI_NICS only if the NICs per APU are not the default.
+# How to check the NIC set: `fi_info -p cxi | grep -c domain` (the probe logs it); COMM_OFI_NICS only if the NICs per APU are not the default.
 # (u) 2 NICs per APU: unset, the libfabric engine (pe_geo.c) takes the cxi devices on each APU's NUMA node and stripes chunks over both -- the two-endpoint
-# form is the default.  Set COMM_OFI_NICS (e.g. 0,1;2,3;4,5;6,7) only if the kit's 'env' stage shows a NUMA map that is not 2 per APU.
+# form is the default.  Set COMM_OFI_NICS (e.g. 0,1;2,3;4,5;6,7) only if the probe shows a NUMA map that is not 2 per APU.
 
 # ---- [memory pools tied to the hardware] ----------------------------------------------------------------------------
 # SHMEM_SYMMETRIC_SIZE, XT_SYMMETRIC_HEAP_SIZE, COMM_OFI_POOL_MB: COMPUTED from MN_PLAN_ONLY=<digits>:<nodes> (pool + 512 MiB for the heap). Not typed.
 ECALC_NODE_GB=__FILL__                # usable host RAM per node for the budget check: `free -g` on a compute node, less the OS/service reserve. Measured on the target 2026-10-26 (m): MemAvailable 515.7 GB idle -> 487 (gen_conf.py proposes its own floor(GiB) - 4 from the probe). README ECALC_PLANE_CAP row (code default 480)
 ECALC_MEM_GUARD_GB=6                  # named stop (rc 9) when MemAvailable < 6 GB instead of the OOM killer: user decision 2026-09-27
-ECALC_DEVICE_GB=373.44                # FIT (D26): the device edge per node, 93.36 GB per APU (m, target, A6, n = 5, results/TARGET.md §TGTBENCH2); also the code default
+ECALC_DEVICE_GB=373.44                # FIT (D26): the device edge per node, 93.36 GB per APU (m, target, A6, n = 5, results/MODEL.md §TGTBENCH2); also the code default
 
 # ---- [adopted switches, pending move to built-in defaults] ------------------------------------------------------------
 ECALC_NP=auto                         # user decision 1, 2026-09-28
@@ -67,7 +67,7 @@ ECALC_VERBOSE=2                       # first runs and calibration
 MEM_REPORT_DEVS=1                     # per-APU memory rows
 
 # ---- [host exclusions] ----------------------------------------------------------------------------------------------
-# How to determine: the kit's 'nodechk' stage writes flagged_hosts.txt (slow upload, bad NIC, low memory); copy the names here.
+# How to determine: tools/nodescreen.sh writes flagged_hosts.txt (slow upload, bad NIC, low memory); copy the names here.
 MNRUN_TOPO_CHECK=1                   # 0 skips the report-only switch-group check printed before each multi-node launch (mnrun.sh and the bench steps); TOPO_GROUP_SIZE / TOPO_TOPOLOGY_FILE tune it (ecalc/README.md)
 MNRUN_EXCLUDE_HOSTS=__FILL__          # comma list of nodes to drop; empty if none flagged
 MNRUN_EXCLUDE_MODE=drop               # 'drop' removes them from the node list (needs the job to ask for the nodes it will use)

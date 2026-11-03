@@ -14,7 +14,7 @@ starts with `RESTART.md`; conventions are in `FORMATS.md`.
 | 0 | (Claude-Code workflow only, not used in the paste session) install the rules and memory | login node | 5 min |
 | 1 | system facts: `probe/probe.sh` on a login node, then inside a one-node job; `probe/gen_conf.py` → `config/target.conf` | login + 1 node | ≤ 10 min |
 | 2 | build path 1 and path 2 (bench items `bld01`, `bld02`) | login node | ~5 min |
-| 3 | bench: workers loop `bench/run.sh` in parallel allocations; answers in `results/bench/ANSWERS.md` | 1-64 nodes each | minutes per item |
+| 3 | bench: workers loop `bench/run.sh` in parallel allocations; answers in each item's `summary.txt` | 1-64 nodes each | minutes per item |
 | 4 | ladder: `ladder/ladder.sh --level L0` (a few runs, adjust per `ladder/ADJUST.md`), then L1, L2, L3 | 1 / 8 / 64 / 576 nodes | per level |
 
 ## Folder map
