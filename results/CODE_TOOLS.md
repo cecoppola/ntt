@@ -42,8 +42,6 @@ Scope: audits, shrink passes, settings-removal waves, validation of the reductio
 
 **Open.** `recip_db2` +-8-unit outlier (not investigated); `dm_layout` still sizes the size-1 division below 1.9e10 digits for the full-length set (larger than DKM needs; never short); `t_cap.c` keeps a mirror of the old 3·2^k caps; AUD3 items 5-10 not done.
 
-### §SH3 — shrink pass 3: rns_dist.c dead items, duplicated helpers, the host product tier (2026-10-12)
-
 ### §W2A — wave 2, lane A of the user-approved settings removal (2026-10-12)
 
 Batches A1, A3, A4, A2, D5, A5, all on main; every removed path was off at the defaults (or its default is now built in), so digits are identical by construction. Each batch gated on aac7 (1 and 2 nodes, 10^9 digits identical, VERIFY OK, then listed mnaccept steps); no timing runs.
@@ -59,18 +57,6 @@ Batches A1, A3, A4, A2, D5, A5, all on main; every removed path was off at the d
 
 Totals (m): 42 switches + 1 value removed, 1 default changed; about 1800 lines removed, 300 added; registry 257 at lane A start, 185 after; `switch_registry --check`, `profile_load --validate-all`, doccheck 0 problems after every merge.
 
-### §CR3S — path 1 speed after the cleanup merges of 2026-10-23/24 (Q85 no-slower rule)
-
-Item 9zz6_cln1n2 (measured 2026-10-24 21:23-22:04 ET, aac7, 4 NIC-less nodes, one stream each, default build, layout D, 1 n 3.3e10 digits,
-no network; ABBA within each stream, first arm rotated by stream): A = main 1e2ea1b (before cleanup wave 2), B = main 669f11a (wave 2,
-k_crt24 guard, plq2, vscal merged). 224 runs, all VERIFY OK: A 39.76 s, B 39.75 s; B - A over the 4 streams -0.01 s, 95 % CI [-0.23, 0.20]
-(per node -0.16 .. +0.15 s); adjacent pairs (n 56) -0.02 s [-0.41, 0.37]. No change: within 0.5 %. The first attempt (9zz1_cln1n)
-recorded nothing (the stream directory was not created).
-
-### §W2B — wave 2, lane B of the settings removal (2026-10-12)
-
-User-approved removal of experiment / adopted-default switches (transport, NTT kernels, distributed products); each removal keeps today's value, digits identical by construction, each batch gated on aac7 (SHMEM build).
-
 ### §H4 — PLAN 28.5 on branch `h4`: the binary limb pipeline archived, decimal limbs only
 
 **Open.** The user's merge decision (binary vs decimal only; H5 below is the evidence); H3 step 6 (kernel `decimal` arguments) left for a separate timed change. aac6 `ckpt e8 size 2` FAIL seen in an H4 phase C driver ("3 nodes exited; restart rc 0; identical") was not investigated there.
@@ -82,12 +68,6 @@ User-approved removal of experiment / adopted-default switches (transport, NTT k
 **Verdict.** The reference catches every injected fault (0 missed, both forms) and agrees with the old reference on every case (83 products by value, 6 large by cross-acceptance); the host tier is removed; merged to main.
 
 **Open.** `struct acc`'s `flat` branches in `rns_dist.c` are dead (about 25 lines, kernel code, not touched); `rns_stats` keeps host-tier fields (always 0) and `ecalc.c` prints `n_mdev` / `n_split` in three summary lines (dropping them changes output lines; left to the coordinator). The tests lost the host tier as an independent code path; replacement independence is the residue form and the device path at two plane sizes (`t_mul` §1, §2; `t_primes`; `t_dbig`).
-
-### §CR4 — cleanup round 4 (user order 2026-10-25, Q103-Q111 all (a))
-
-### §CR6 — cleanup round 6, code part (user order 2026-10-25), branch `cl6code`
-
-Audit: a dead-function scan of all `ecalc/*.c|h` (every defined function or macro with no reference outside its definition and prototype), a `gcc -Wall -fsyntax-only` pass over the plain-C files, a registry review of every switch with no user in `ecalc/tests`, `mnaccept.sh`, `tools/`, `target/` or a doc workflow, and a read of the Python models for options of removed features. The code was already small after rounds 1-5: only one function was dead.
 
 ## TOOLS_PROFILES — tools and the parameter system
 
@@ -104,7 +84,7 @@ Current state (cross-checked against ecalc/README.md and RESULTS.md; the README 
 - Calibration: `total = a + b / r` (r = the run's own all-to-all rate) reduces the residual sd from 11.9 s to 1.6 s on 63 clean 4-node runs (B05/B07, mod on m). `calib_table.py` implements the parser, fit and rate-adjusted A/B. Caveat: where an arm changes the exchange itself, the rate covariate moves with the arm (T2048, X2 results are between raw and adjusted).
 - Environment probe (C04): built; the r256 bracket correlation (-0.98, n=6) is a hypothesis, not proven. The queued 5-run test was not collected in this report; treat the probe as not adopted.
 - `aac7_s18` model profile (S18M): off by default; `bw_apu` 4.25 GB/s per APU thread centers two same-digit 10-node walls (-3.1 %, +3.0 %); the 6.441e11 point stays +23.5 % high. `--target` output is unchanged.
-- Target bring-up script (archived with the rest of `target/bring-up script/`) (stages env, build, uffd, plan, edge, a3, a4, initchk, optional nodechk, s2chk). A06 added exclusion, spares, plan and uffd stages; S18KIT added ROCm candidate selection (7.2.4 first) and per-stage module loading; S18KITFIX fixed a3 pool sizing (now through `mnrun.sh`), per-n a4 logs and the edge map-rate line. a4 runs with `RNS_DIST_CACHE_FIT=1` (a switch since built in). After the removal of the plain SHMEM transport (Q103) the bring-up script's build and a3 stages still name `t_comm`, `COMM_TRANSPORT=shmem` and `COMM_OFI` (TASKS: bring-up script on hold).
+- Target bring-up script (archived) (stages env, build, uffd, plan, edge, a3, a4, initchk, optional nodechk, s2chk). A06 added exclusion, spares, plan and uffd stages; S18KIT added ROCm candidate selection (7.2.4 first) and per-stage module loading; S18KITFIX fixed a3 pool sizing (now through `mnrun.sh`), per-n a4 logs and the edge map-rate line. a4 runs with `RNS_DIST_CACHE_FIT=1` (a switch since built in). After the removal of the plain SHMEM transport (Q103) the bring-up script's build and a3 stages still name `t_comm`, `COMM_TRANSPORT=shmem` and `COMM_OFI` (TASKS: bring-up script on hold).
 - mnaccept.sh (A04): shared TMP on multi-node, reference-dir search, `refneed`, `--mem=0` on steps, `--skip-grid`; 10/10 passed on aac7 (1 and 2 nodes) and aac6.
 - Open or superseded: B05's top-set restart, warm process and exchange benchmark ranks 5-7 were not built. B05 section 9 (`t_ntt 24` speed) is inconclusive. The S18KIT sweep of record is RESULTS §117 (the collision it caused is §118). Stale stand-ins: `MN_WAIT_STATS` exists in main (A06 correction).
 
@@ -138,10 +118,6 @@ The tool: `ecalc/calib_table.py LOGDIR_OR_FILES... [--tsv F] [--fit [--oos]] [--
 Files: `ecalc/calib_table.py` (new, about 400 lines, stdlib), `ecalc/README.md` (one row). Open: `--table` output for `archive:scripts_2026-10-23/refit_s48.py` and the ABBA stop rule on the adjusted CI not wired; `config` is `-` for all current logs (drivers should echo an `env:` line, else pass `--config`); xstats/wait columns not validated against T09 logs.
 
 (Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/TOOLS_PROFILES.md`.)
-
-### A06 (N6): target_kit.sh hand-off items
-
-Branch a06 (from main 6d80ef1). Files: `ecalc/target_kit.sh`, `ecalc/README.md` (3 rows), `tools/initchk.py` (unchanged from branch a03). Rehearsal numbers are m on aac7, 2 nodes (`--site aac7`).
 
 ## SESSIONS — aac7 measurement sessions of September/October
 

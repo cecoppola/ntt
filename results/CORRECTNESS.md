@@ -29,10 +29,6 @@ Scope: the t_mn_grid "hangs", the multi-node segfault and hang track (ROCr vs li
 
 **Recommendation for the target line (the user decided: uffd adopted).** (a) `ECALC_VMM_BG=0`: 0/104 hangs, +20 s per 2-node 1e9 on aac7 (m earlier), removes the mapper itself. (b) uffd: 0/104 hangs, wall 44.6 vs 44.7 s, removes libfabric's mmap intercept (the lock in the cycle), keeps the MR cache, digits identical. (c) both: no gain shown. Recommended (b) alone. Residual risk: the reproducer produces hangs, not the segfault, and 0 segfaults in 322 + 223 runs cannot test the shared-cause hypothesis; confirming (b) at 4 nodes and real size (rate about 1 in 26) needs 80+ clean runs (a, rule of three). Not tested: (b) at 4 nodes, real size.
 
-### §S34 — where the rc 139 segfault is (2026-10-09)
-
-**Finding (m, 3 independent traces, identical offsets):** the multi-node segfault is inside `hipMemMap`, called from `vmm_map_run` (`ecalc/dbig.c`) in `vmm_bg_map`, the background VMM mapper thread (one pthread per APU, started by `db_vmm_arena_alloc` when `first < arena`, released by `db_vmm_bg_release` from `rns_init`). Symbolised: `libamdhip64.so.7` (ROCm 7.2.4) fault at `+0x3f8624`, via `+0x403b0d, +0x3cbd39, +0x8cf57/+0x8d21d, +0x36bb8e`; at about 42 s wall, when the mapper runs against init / level 1 work and SHMEM/libfabric registration. Consequence: `ECALC_VMM_SAFE=2` (a tail-of-thread fix) cannot help.
-
 ### §S30 — the reciprocal's late node, and today's two segfaults (2026-10-08; analysis only)
 
 Late node (m): `NEWTON_MN_CHAIN_BCAST` (only node 0 runs the one-node chain) was null in a 7-round ABBA at 10 nodes (-2.70 s, CI [-13.3, +7.9]); the slow chain stage follows node 1, not the algorithm (switch removed 2026-10-11). Two start-up segfaults at the end of the init-time VMM mapping, no backtrace; they lead to §S34 and §S46.
@@ -48,11 +44,23 @@ Other findings: `mnaccept.sh`'s `MNRUN_CPUS_PER_TASK=auto` broke every unit step
 
 (Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/CRASHES_HANGS.md`.)
 
-### §G2 — hang bound for the `DBIG_QSEL=1` start-up hang (aac6 CPX soak)
-
-TASKS item 2: `DBIG_QSEL=1` (now default) stalled once in 64 aac6 runs (1-node 4e9, after init), not reproduced in 44 repeats (`=0`: 0/14). The soak (armed 2026-10-12 06:30 ET on idle CPX nodes, main a448d73, `ecalc 4000000000`, `RNS_INIT_POOL_LOG=29 ECALC_PLANE_CAP=2^30`, about 20-26 s per run, timeout 3x median, hang capture with gdb through a `PR_SET_PTRACER_ANY` wrapper) measures the 1-node no-network case; the multi-node S46 mechanism is different and not exercised. With zero hangs in n runs the one-sided 95 % upper bound is 3/n. **Results were never filled in** (pending at collection); the aac6 outputs are gone and the soak is superseded by the 2026-10-24 aac7 soak of §A114 E1 (main 2d54d6b, the same 1-node no-network case at 1e9 and 7.7e10: 0 hangs in 1127 + 45 runs). It is not repeated. Classes: OK, HANG, SEGV, VFAIL, OTHER.
-
 ### §A114 — A1 (Phase 14, W3): the intermittent leaf / seed-stage defect — root cause, fix, soak
+
+**Evidence.** E1: job 21105, 7.70e10, size 1: a hang right after init (197 threads in `futex_wait_queue`, 2 in `kfd_wait_on_events`; the next line would have followed the `pthread_join` of the seed thread, binsplit.c 1228), 1 in 31 runs, not reproduced in 5. E2: job 21222, `mn e8 size 4` (1e8, 4 node-processes): node 3 printed `leaf P 18385101070989787659 limbs, Q 1466159 limbs` and the level-1 product refused it; the step passed in three other jobs. The garbage length 0xff2500040000020b is uninitialised memory read as a `size_t`.
+
+**Root cause of E2 (i, the value fits).** At size > 1 a batch-tier leaf is copied to device numbers (`db_copy` -> `shift_into` -> `db_norm` -> `maxidx`, dbig.c); `maxidx` scans the four quarters with one OpenMP thread each. The host buffer for the per-block results was a process-wide `g_hred`, allocated on first use inside `flags_reserve` by `if (!g_hred) g_hred = malloc(...)`, unguarded, and `maxidx` read the global twice (as `hipMemcpy` destination, then as scan source). Two threads both seeing `g_hred == 0` both `malloc`; one then scans the other, never-written buffer: heap garbage as a length. It is P not Q and size > 1 because the leaf hand-over's `db_copy(&bs_Pd)` is the first `dbig` operation of a process (first-use), and it is rare because the preceding serialized allocations stagger the threads; at size 1 the same race is possible with a wrong top-level length as symptom (not seen). Not the Phase 12 copy-order race (the D2H copy is host-synchronous).
+
+**Fix (`ecalc/dbig.c`).** `maxidx` copies each quarter into a per-thread stack buffer (`size_t hred[228 * 8]`, 14.6 KB); `g_hred` is gone; `maxidx` also aborts loudly if its result exceeds the limbs scanned. No computed value changes (bit-identical by construction).
+
+**Mechanism measured (m, job 21230, 4 APUs; `tests/t_hred_race`, 20 000 rounds of the old pattern).** Old pattern: **9 884 of 20 000 rounds with more than one allocation, 29 402 garbage reads**; per-thread buffer: **0**, VERIFY OK. In ecalc the race needs a preemption (a scheduling event: idle-node soaks never show it, a loaded batch did).
+
+**Soak (m).** Before-fix binary on s24-26: mn 1e8 size 4 x100, size 3 x30, size 2 x10: **140/140 ok** (so the idle-node rate is < 1/100; T1's failure was 1 in about 4 executions of the mnaccept step under load); after the fix: **140/140 ok**, 0 DIFFERS. E1 (hang after init) is **open**: hypothesis (a): a lost completion of the seed thread's last DMA wait (`mem_dev_copy_wait` does not `hipSetDevice(dev)` before waiting); the gdb-launch soak `h1` (1e9 size 1 x60, 7.7e10 size 1 x8) was running at write-up and its results were lost with the cluster. **Status: closed 2026-10-25** (not reproduced on current main: 0 hangs in 301 runs at 7.7e10, one-sided 95 % bound 1.0 %, measured); a hang caught with `ECALC_INIT_TL=1` plus `eu-stack` reopens it.
+
+**E1 re-soak, 2026-10-24 (main 2d54d6b, aac7, 1 node, default launch, layout D, `./mnrun.sh 1 env ./ecalc <digits>`, no digit file, `ECALC_INIT_TL=1` on every second run; timeout 3x the running median with `eu-stack` capture armed, never fired).** Eight node-streams of independent 1-node runs on six nodes (1e9, 15 runs per 1 run of 7.7e10): **1e9: 1127 of 1127 OK (about 12 s each); 7.7e10: 45 of 45 OK (98-127 s each, plan fit 316 GB device of 373); HANG 0, SEGV 0, VFAIL 0, OTHER 0** (measured; classes by exit code and the run's own VERIFY line). One-sided 95 % upper bounds 3/n: **0.27 % per run at 1e9, 6.7 % at 7.7e10** (measured, from zero events). E1's old rate (1/31 = 3.2 %) is not excluded at 7.7e10: with that rate 45 clean runs have probability 0.23 (modeled). Note the nodes of four of the eight streams had no working NIC (single-process runs, no network use). E1 is not reproduced on the code after the seed-pull rework; its cause is unknown.
+
+**E1 soak extension, 2026-10-24 19:23-20:28 ET (main 1e7c781, same code as 2d54d6b; item 9zv4_soak5).** 7.7e10 only, same launch, four parallel 1-node streams on the four NIC-less nodes: **129 of 129 OK (33 + 33 + 33 + 30), HANG 0** (measured). With the 45 above: **0 hangs in 174 runs at 7.7e10, one-sided 95 % bound 1.7 % per run** (3/n, measured from zero events). E1's old rate 3.2 % would leave 174 clean runs with probability 0.0035 (modeled): **E1 is excluded at its old rate on current code.**
+
+**E1 soak, 2026-10-25 01:39-02:40 ET (main 614267d; items a0e1_soak6, a0e2_soak7).** 7.7e10 only, same launch: two 1-node streams on the two NIC nodes (30 min, **20 of 20 OK**) and four on the four NIC-less nodes (60 min, **107 of 107 OK**, 26 + 27 + 28 + 26), HANG 0 (measured). With the 174 above: **0 hangs in 301 runs at 7.7e10, one-sided 95 % bound 1.0 % per run** (3/n, measured from zero events); E1 stays a watch item.
 
 **Reading of the current seed path (2026-10-24).** (a) `mem_dev_copy_wait` (mem.c) is reached only in the direct (non-VMM) seed path and calls `hipStreamSynchronize` on the stream stored for `dev`; HIP does not need the current device to match, so the missing `hipSetDevice` is not a defect found by reading. (b) The default (VMM) path uses the persistent pull kernels: `db_pull_stop_all` runs at the end of `seeds_stream` before `mem_hstage_free` (hipHostUnregister), so the ordering that hung the dropped branch is not present; the pull streams are non-blocking, so null-stream syncs do not wait on them, but `hipDeviceSynchronize` in `mem_dev_alloc` / `dpool_fill` / dbig.c (pool growth) would wait for the pull kernels until the seed thread quits them: a delay while the seed thread works, a deadlock only if the seed thread ever waited on the thread that sits in that sync (it waits only for `pools_ready`, set before the kernels start). `db_pull_wait` aborts after 600 s instead of hanging. No code change made.
 
@@ -69,18 +77,6 @@ Scope: checkpoint and restart of the binary-splitting phase (per-node checkpoint
 - aac7 compute nodes mount the home file system NFS soft; a huge single O_DIRECT `pread` can fail with EIO under load (CKPT). The reader now reads ≤ 64 MiB per call with retries; confirmed at scale 2026-10-14 (0 retries).
 - A recheck at 6 nodes / 3.8646 × 10¹¹ takes 7380 s (m); use a timeout of ≥ 3 h (TESTING.md §3). The part-file pass at 12.5 MB/s per node is the recheck's main cost (TASKS "Proposed" candidate).
 - Never run at 10¹⁰ / 4 × 10¹⁰ for the removed restart; extrapolations there were by the measured per-node rate only.
-
-### Verification summary (from the former TESTING_VERIF)
-
-- **The "intermittent size > 1 verification failure" (D5) is closed.** (a) §V found seven of the eight T1 moduli composite (two divide every Q, so T1 was blind there) and replaced them by the first eight primes above 2^62 (digits unchanged); (b) the real fault was a timing-dependent wrong leaf P, Q on node 0 or 1 under forced growth of plane pool 1, localised in §V and fixed in Phase 12 R (the batch tier's odd-node copy `mem_dev_copy_on` did not wait for its copy; `archive:results_merged_2026-10-24/CRASHES_HANGS.md §R`).
-- Standing tools: `mnaccept.sh` (the gate per TESTING.md owns the step list); `ECALC_RECHECK=1` standalone recheck of a finished run from its part files and the top-level P, Q set (§V); per-level check switches `ECALC_RES_LOG`, `ECALC_RES_LOG_LEVEL`, `ECALC_LEAF_DUMP` (debug).
-- `RNS_PLANES_FIRST`: 2.01x at 1.42 x 10^11 on a node with a small 2 MiB-block supply (1349.7 -> 672.0 s, m); an adopted default. `mnrun.sh` detects SOS vs OSHMEM from the binary's ELF dependencies.
-- Weak-memory audit (Phase 15): about 60 sites read, one real hazard (WAR between a sender's xGMI push and the receiver's unpack of the previous transform), fixed by an event wait (`DIST_RB_WAIT`, default on), demonstrated failing 52/52 under an induced lag (`DIST_TEST_LAG_MS`), no measurable cost.
-- `mnaccept` unit tests cannot pass on a GPU-partitioned (CPX) node (about 22.9 GB per logical GPU); `t_ntt 24` always fails its speed check on CPX (hardware).
-
-### N13 — Phase 13a agent N — checkpoint hardening (TASKS 1.7, 4.1, 1.4)
-
-**Open issues.** Holding Q past the division keeps 17.8 GB in the block pool through the output stage at 4 × 10¹⁰ (fits; not checked at 10¹¹). Size > 1 background top set tested only at 10⁸ / 10⁹ (write 0.1 s; waits unexercised at scale). Behavior changes outside the default: a fresh run with `BS_CKPT_DIR` at size > 1 deletes its own earlier tree sets; a failed synchronous tree-set write removes partial files; the size > 1 top set is always written in the background (`BS_CKPT_TREE_BG=0` restores synchronous). Done at `6392f78`/`a7884f0`; nothing live.
 
 ### CKPT — the recheck could not read the top-level set of the 6-node 3.8646 × 10¹¹ run
 
@@ -106,68 +102,24 @@ Scope: checkpoint and restart of the binary-splitting phase (per-node checkpoint
 
 ## DR — detect and retry (C3): a faulty product repeats itself instead of ending the run
 
-### Summary (final, 2026-11-01; branch `c3check`, tested commit 9129ac52; all numbers measured on aac7 unless marked modeled)
-
-`ECALC_DR` (default 0 = off, the unchanged code paths) selects what is checked inside the run; a failed check repeats only the faulty piece or product, once, inside the product call (no extra memory beyond the first attempt's peak, no change of digits):
-
 ### Design summary (planning agent, 2026-11-01; code read at main c86e5fcc)
 
 Kind (1), the CRT flag, already detects the fault; missing is recovery: the flag becomes a collective, per-piece decision inside `mn_core`, taken before any result limb leaves the PE (the scatter and the chunked rounds write C), and the piece repeats. Kind (2) needs an independent expected value (a residue computed at consumption from corrupted storage proves nothing): the 62-bit prime `t1_q[0]` (`DR_Q`) and tracked residues with exact end-to-end identities: tree products (tracked residues seeded by the T1 recurrence), the leaf (per-node recurrence), each division step (A' = X Q + R), and the flagless cyclic product (modulo B+1 and B-1; B^2-1 divides B^P-1 for even P). Rejected: coefficient sums at x = +-1 (misses most kind-1 faults, whole-limb input faults and delivery faults).
 
-### Counting rule (step 2)
+| product | check | kind 1 | kind 2 |
+|---|---|---|---|
+| leaf, node-local | C: residues of P_r, Q_r vs the per-node recurrence | n/a | detected; fatal naming the node |
+| tree, full P24 +- X | A flag -> piece retry; B R(C) = R(A) R(B) + R(X) from tracked residues -> product retry | recovered | production / redistribution / delivery faults recovered; operand corrupted at rest -> fatal naming node and APU |
+| reciprocal, division estimate | A only | recovered | cannot make wrong digits (corrections after the exact remainder fix any error) |
+| division low product X Q mod B^w | A + D before `mn_dkm_corr` | recovered | recovered (xql recomputed once) |
+| wrap: L (low_basis), U (cyclic) | D on Rc; D': U = X~ Q'' mod (B+1), (B-1) | L: flag; U: D' | U recovered; L or assembly -> fatal naming the step |
+| backstop | existing T1 at the end | | |
 
-`failures` counts the PEs that failed the check of a piece, group-wide, so it is the same on every process; `injected` is local (the injections done by this process's threads); `recovered` counts those PEs once the repeat passes; the gate sums `injected` over the processes and compares: injected = failures = recovered. `checks` counts piece decisions (one `grp_max` each).
+Retry rules: every retry runs inside the product call (inputs are freed right after it returns); no extra memory (planes reused, C's share re-zeroed in place); the decision is collective (A by `grp_max` on mesh 0, B and D by an allgather summed identically on every node); the repeat runs with the transform cache off (`cache_drop()`); a second failure at the same place is fatal with the location; `ECALC_DR_TOTAL` caps the failures per run. Localization: the log line carries product number, size, piece i,j of ka x kb, cause, attempt, first flagged point and, from an allgather of per-node masks, the PEs. Exit summary per process: `DR: <checks> checks, <injected> injected, <failures> failures, <recovered> recovered (pieces, products, division), <fatal> fatal`.
 
-### Steps
+Injection: `ECALC_DR_TEST=<kind>`, `_K` (k-th P24 product of the process), `_PE` (-1 = all), `_N` (consecutive attempts; 2 = persistent). Kinds: flag (step 2), deliver, store, xql, cyc, leaf (steps 3-4).
 
-| step | content | status | commit | gates |
-|---|---|---|---|---|
-| 1 | `dr.c/h`, `t_dr`, registry, this file | done | 4af77c91 | t_dr VERIFY OK (9351 checks, measured); 1-node and 2-node gates with `ECALC_DR` unset PASS, digits identical (measured) |
-| 2 | A in `mn_core` (flag retry, fatal-to-flag conversions, injection `flag`) | done | 14926757 | see Measured, step 2 |
-| 3 | B + C (tree residue identity, leaf check, division-start compare): `rns_mul_dist_mn_chk`, tracked residues in `mn.c`, injection `deliver`, `store`, `leaf` | done | 489e38ee, 583b6479, 1d266195 | see Measured, step 3 |
-| 4 | D + D' (division `mn_dkm_low` steps 1-2, the wrap, the cyclic product; injection `xql`, `cyc`, test modifier `leafslow`) | done | df4caf7e, e7274f10, (this commit) | see Measured, step 4 |
-| 5 | full regression with `ECALC_DR=3` | done | 9129ac52 | see Measured, step 5 |
-| 6 | timing (ABBA), docs (ALGORITHM §10, TESTING §4, TASKS) | done | this commit | see Measured, step 6 |
-
-### Deviations from the design
-
-- Step 2 injection positions: `P24_CHECK_TEST_S` (the existing 0|6|12 row-class switch) positions the `flag` injection; no new switch.
-- The `_PE` of `flag` is the global PE number (rho); `-1` injects on every PE of every process.
-- Step 3, retry: the design re-zeroed C's share in place (`db_zero_fill`); the code frees the bad result and re-runs `mn_grid`, which allocates C again. Peak memory: the bad C is freed before the repeat allocates its replacement, so the repeat's peak equals the first attempt's (one C share plus the planes; the planes are reused, the transform cache is dropped); an in-place zero fill would have saved only the allocator round trip. Unmeasured at the memory edge (the runs here are far below it).
-- Step 3, leaf: the tracked residues are seeded from the leaf by `db_mod_qs` (one extra pass over the node's P_r, Q_r at the start of the tree) and the independent check is the node's recurrence (`pq_bg_run`, the T1 values of its term range), compared as soon as the recurrence is done (non-blocking after every level and at the division's start; a recurrence still running at the division's start is not waited for, so it keeps overlapping the division: the compare is deferred to the join in `out_stage` (`mn_dr_leaf_final`, before T1), runs exactly once, and is counted in the summary line as `leaf checks deferred`; a recurrence that never started is logged and counted as `skipped`; `pq_bg.started` is stored with release), not the other way round (the design seeded from the recurrence). `ends` counts the leaf compare and the division-start compare of the tree's final P, Q (2 per node).
-- Step 3, local-only fatals (leaf check, division-start compare) call `ec_fatal` on the failing node only; the other nodes are ended by the launcher's `srun --kill-on-bad-exit=1` (`mnrun.sh`, D34), the same path as every other multi-node fatal. The bench launcher `ecalc_srun` (`target/bench/items/_ecalc.sh`) lacked the option (peers would have waited for the item timeout); it now passes it (`ECALC_SRUN_KILL=0` switches it off for the independent per-node probes of `mem02.sh`). Other multi-node srun launches checked: `target_kit.sh` node check (independent probes, no collective), `remote/run/lib.sh` snapshot and monitor (independent, monitor deliberately `=0`). Not tested with a launcher without that option; the `ecalc_srun` change was checked with `bash -n` only (no bench item run).
-- The persistent case (`_N=2`) prints the exit summary twice per process (the repeat's failure and the fatal path); harmless.
-
-### Open issues
-
-- Step 2 covers only the flag (kind 1) of the P24 piece; kind 2 and delivery faults are steps 3-4.
-- Not exercised: PEs of one group with different failure counts (the cap decision is collective, so it cannot diverge, but no test builds such a history; the counts here are equal on all PEs).
-
-### Measured, steps 1-2 (aac7, 2026-11-01; items 60_dra_x1, 63_dra_x2b, 62_dra_x3 of the DR-A series; all counts measured)
-
-Setup names: 2p = `t_mn_grid 1 28` on 2 processes; 4p = 1 node, 4 PEs (`ECALC_PE_PER_GPU=1 COMM_TRANSPORT=xshmem XSHMEM_LOOPBACK_PES=1 ECALC_NP=4`); 4 APU threads per process, so `_PE=-1` injects 8 (2p) or 4 (4p) at once. Counts are the DR summary lines (injected summed over processes, failures and recovered as the group-wide value).
-
-### RESUME
-
-### Review fixes and the cap test (aac7, 2026-11-01, commit e22efde; item 70_drfix; all counts measured)
-
-Fixes in `dr_piece_decide`: (1) the `who[640]` text is clamped after every append (a long PE list used to push `sizeof who - k` below zero); (2) the `ECALC_DR_TOTAL` decision is collective: the first `grp_max` now carries the verdict (bit 32) and the process's count of failed pieces (low 32 bits), so every PE of the group adopts the group's maximum count and takes the same branch; no collective is added, and with `ECALC_DR` unset nothing changes. New injection setting `ECALC_DR_TEST_M` (default 1): corrupt M consecutive P24 products from the K-th (each product has its own latch), so two distinct products fail in one run.
-
-### Measured, step 3 (aac7, 2026-11-01, 16:17-16:39 ET; items 81_drb_t1, 82_drb_n2, 83_drb_n1; commits 583b647 and 1d26619; all counts measured)
-
-`t_mn_grid 1 28`, `ECALC_DR=2` (shapes: product, product + x, subgroups, mixed). Setup 4p = 1 node, 4 PEs (`ECALC_PE_PER_GPU=1 COMM_TRANSPORT=xshmem XSHMEM_LOOPBACK_PES=1 ECALC_NP=4`).
-
-### Measured, step 4 (aac7, 2026-11-01, 16:00-17:30 ET; items 90_drc_x1 (commit df4caf7), 91_drc_n1 (df4caf7), 92_drc_x2 (e7274f10); all counts measured, single runs)
-
-Code (`ECALC_DR >= 3`): D around `mn_dkm_low` (`newton_db.c` `mn_dkm_low_d`, division steps 1 and 2): E = (R(S) B^e - R(X) R(Q)) - (R(Aw) - R(xql)) must be 0 or +-B^w; a mismatch frees xql, drops the transform cache and recomputes it once; a second failure, or the `ECALC_DR_TOTAL` cap, is fatal with the location. D in the wrap (`mn_dd_wrap`): exact E = 0, fatal on a mismatch (no stored input to recompute from; U faults are caught earlier by D'). D' in `rns_mul_dist_mn_cyc_v`: U == A B modulo B+1 and B-1 (the plane has an even size, so B^2 - 1 divides B^P - 1), one 6-word host all-gather, retry once. Each residue is an all-gather (`mdb_trk_make`) summed alike on every node: the verdict is collective. Cost: 3 gathers per low product, 2 per wrap step plus one for R(R1), 1 per cyclic product. Test injections: `xql` (K = the process's low product number: 1 step 1, 2 step 2), `cyc` (K = cyclic product number); `leafslow` is a modifier in the `ECALC_DR_TEST` comma list (`leaf,leafslow`): the recurrence waits for the division's start (at most 120 s), so the deferred leaf compare runs.
-
-### Measured, step 5 (aac7, 2026-11-01, fixed commit 9129ac52; all measured, single runs)
-
-Fixes of the review (all `ECALC_DR >= 2` only): the division flag `g_dr_div_seen` is stored before the `!g_dr.on` return; at level 3 a D that cannot be enabled (no `DR_Q` residue) prints one line on rank 0 and counts `DR_C_DIV_OFF` ("D NOT ACTIVE" in the summary); an independent check of R(R1) right after division step 1 (fatal naming the step; clean 2-node runs now show 3 division checks, not 2); `dd_step(1)` runs before the step-1 A mu product; the context is cleared at both ends of the division. Local: unittest 57 OK, switch registry 0 problems, doccheck 0.
-
-### Measured, step 6 (aac7, 2026-11-01; 2 nodes, 128.82e9 digits, no digit output)
-
-ABBA: one warm-up pair discarded, then 4 rounds A B B A; A = `ECALC_DR` unset, B = `ECALC_DR=3`; all runs rc 0, VERIFY OK.
+Cost model (modeled, 3.8e13 digits, 576 nodes): A 0.05-0.2 s, B about 60 ms, C about 5 ms, D about 12 ms, D' 0.1-0.15 s; total 0.25-0.4 s = 0.1-0.2 % of a 200 s run.
 
 ### Measured, step 6 repeat: paired timing in the aac7 campaign (M6, 2026-11-02 00:33-00:48 ET, main d7c7f28, item 64_m6_dr; 2 nodes, 6.441e10 digits, measured)
 

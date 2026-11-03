@@ -32,7 +32,7 @@ Superseded for 576-node planning on the remote-v12 engine by §v12 below (this f
 4. Local compute and the rest, about 133 s against 60.2 s measured (GPU stream 40.3 plus other host 19.9): the model also overstates the non-fabric part by about 2x at this size.
 5. Init: 22.4 s modeled against 36.6 s measured. The formula has no growth with the digit count; the series grows about 0.94 s per 1e12 digits.
 6. Volume: 6.72 TB modeled against 9.33 TB measured (-28 %). The model prices the planned transform exchanges, operand and result redistributions, spills and the shifts (0.15 TB per node for 134 shifts at half a limb share). The 2.6 TB gap is not attributed; the shifts are a candidate of the right size (in the engine they are a group all-to-all in 1 GiB chunks; 139 shifts took 25.57 s on rank 0, up to 4.7 TB at the wire rate), but this is not shown (a). Per-tag byte counters now exist (`results/TRANSPORT.md`); a 576-node run with them settles it.
-7. The earlier bring-up script's 90.5 s estimate has no protocol terms (not examined further).
+7. The bring-up script's 90.5 s estimate has no protocol terms (not examined further).
 
 **The decomposition (m, per PE, seconds, 2e13 digits, 576 nodes).** Init 36.6; inside exchanges: copy quiet 50.6, partner polls 37.4, other engine work 21.3; between exchanges: GPU stream 40.3, other host 19.9. Sum 206.1 of 206.27 s. Fabric 9.33 TB per node each way (the run's report says on 4 of 8 NICs; not in a tracked document, a); 165,300 rounds per PE (mean 14.1 MB per round per PE, 4 PEs per node); 139 shifts, 25.57 s on rank 0 (a share of the exchange buckets, a memo line, not an added term).
 
@@ -43,6 +43,19 @@ Superseded for 576-node planning on the remote-v12 engine by §v12 below (this f
 What it changes in the model (modeled arithmetic on measured inputs): (1) The cost per round does not grow from 2 to 3 members (54 -> 38 us; weak test: 1 vs 2 peers), so no growth detected with the peer count; the superseded `ROUND_SYNC x peers^0.5` form would predict 1.4x from 2 to 3 members and is not supported at this range. (2) At 38-54 us the 165,300 rounds of the 10-29 run would cost 6.3-8.9 s, against the 58.7 s of polls and engine buckets measured at 576 nodes: only 11-15 % of the model's round term is a per-round cost that exists at 2-3 members, the other 85-89 % (about 50 s) is attributed (inference) to per-round cost that appears only with more peers or larger rounds (14.1 MB per round against 0.3-0.5 MB); part of it may be partner skew and wire wait, not per-round cost at all. So `alpha` has two parts in the model: a floor of about 40-55 us per round (measured), and the 576-node excess of about 0.30 ms per round (inferred from the 10-29 total, not measured). (3) Gains from larger rounds (XSHMEM §N3 table: -14 % to -25 % at 2e13) assumed the whole 0.355 ms scales with the round count; the floor part does scale with rounds (measured: the line is straight), the excess part is assumed to; the table's assumption is untested, but nothing here contradicts it. (4) `mn_model.py` is not changed here; a v13 round term would be `rounds x (floor + excess)` with the floor fixed to 38-54 us and the excess to be set from the next target data.
 
 **Not measurable on aac7:** the 575-peer cost per round (the excess); it needs a run with many peers. A rerun of the sweep on current main gives seconds per tag from the stats summary (the polls and other-engine seconds), the closest aac7 can come to the split.
+
+**Init growth (M3, measured; 2 and 3 members from the M2 runs' `init:` lines, 1 member from the M3 item).** The model assumes 0.94 s of init per 1e12 digits at 576 nodes, which is 0.54 s per 1e9 digits per node (1e12 / 576 = 1.74e9 per node; modeled conversion; the model figure is a total-init slope across the 576-node series; the measured figures are the rns_init maximum over nodes at 1-3 nodes, not the same quantity). `rns_init` on the slowest node (seconds; digits per node in brackets):
+
+| members | digits | digits per node | rns_init, max over nodes | runs |
+|---|---|---|---|---|
+| 1 | 6.6e10 | 6.6e10 | 24.6 s (init total 25.0) | 1 |
+| 2 | 1e10 | 5e9 | 8.9 +-0.45 s (sd) | 48 |
+| 2 | 4e10 | 2e10 | 21.4 +-2.2 s | 16 |
+| 2 | 1e11 | 5e10 | 32.1 s (init total 40.4: mn_init 1.6, layered tests 5.6) | 1 |
+| 3 | 1e10 | 3.3e9 | 7.8 +-0.3 s | 48 |
+| 3 | 4e10 | 1.3e10 | 16.5 +-0.7 s | 24 |
+
+Slope between sizes: 2 members 1e10 -> 4e10: 0.83 s per 1e9 digits per node; 4e10 -> 1e11: 0.36 s per 1e9 (one run); 3 members: 0.87 s per 1e9 per node. The 1-member points at the other sizes (1e9 - 3e10) did not keep init lines (only the last run of an item kept its timeline), so the 1-node slope is not available; the one point 6.6e10 gives 0.37 s per 1e9 average (24.6 s). So the growth is between 0.36 and 0.87 s per 1e9 digits per node, bracketing the model's 0.54 s, and it is concave (flatter at the largest size), not clearly a function of digits per node alone (2 members at 2e10 per node: 21.4 s; 3 members at 1.3e10: 16.5 s; 1 member at 6.6e10: 24.6 s). A straight line through the aac7 points would be wrong in either direction by about 10 s; the model's one-slope form is within that spread. Split (timeline lines, the last run of each item): at 1 member 6.6e10, the region pools take 18.7 s of the 24.6 s `rns_init` (76 %), of which the seed thread waited 13.7 s; the rest of `rns_init` is 5.9 s (staging and contexts 0.6 s first). At 2 members 1e11: region pools 17.6 / 22.8 s (two nodes) of `rns_init` 26.4 / 32.1 s, seed wait 11.2 / 16.4 s; the arena mapping takes 4.5-8.3 s for 7-10 chunks per APU (create 2.4-4.5, map 1-3.4, access 0.3-1.1 s) and the background mappers queue for the mapper lock up to 4.6 s. At 3 members 4e10: region pools 8.9 / 12.9 / 16.2 s, seed wait 2.8 / 6.9 / 13.2 s, `rns_init` 19.5-24.6 s (that run was slower than the M2 mean of 16.5 s, a node-to-node spread of 5 s). Mapping plus seed wait is therefore 70-80 % of the init growth; what remains after it (transport 1.2-1.6 s, layered tests 0.2-5.6 s) does not grow with digits. This is the S1 / `ECALC_MAPD` baseline (`results/MEMORY_IO.md` §S4); the repeat with `ECALC_MAPD=1` is not run yet.
 
 ### L4 — refit of the time model to all of 2026-10-11's multi-node aac7 runs; what it got wrong and why (wave L, agent L4)
 
@@ -87,10 +100,6 @@ Base main daeb0f9, SHMEM build, aac7 launch line + `COMM_XSTATS=1 MN_WAIT_STATS=
 | 4 | 181.97 / 181.62 | 181.80 | 30.1 / 28.9 | 70.9 / 72.3 | 76.9 / 76.9 | 22.0 / 22.0 |
 | 6 | 304.12 / 282.82 | 293.47 | 41.6 / 31.3 | 112.6 / 112.0 | 145.9 / 135.7 | 40.3 / 38.5 |
 
-### SCALE35 — scaling points at 3 and 5 nodes (docs only; main 39346d03, SHMEM build, defaults)
-
-3 runs per count, 6.441e10 digits per node, no output; all 6 VERIFY OK, no segfault (m).
-
 ### S19B — profile analysis of S19A (2 -> 10 nodes), the S19C switch A/B, and a 576-node projection (2026-10-07)
 
 Read-only analysis (job 12287); code `ntt-acc` main @ 3e508e76; inputs S19A (2026-10-07 09:52-10:39 EDT) and S19C (10:40-12:11). Config: 6.441e10 digits per node (the 3.71e13 target's share), no write, `COMM_TRANSPORT=shmem` with comm_ofi device exchanges, `ECALC_NP=auto RNS_DIST_CACHE_FIT=1 RNS_DIST_CACHE_PARTIAL=1 MN_OUT_DKM_HI=1 MN_T_CHUNK_MB=1024 COMM_SHMEM_ROUND_MB=1024 MN_TOPO_GROUP=0 ECALC_MEM_GUARD_GB=6 MEM_REPORT_DEVS=1`. `DM_MN_LEAN=1` was not set although the target's launch line has it, so "base" is the line without LEAN. All 19 runs rc 0, VERIFY OK.
@@ -109,10 +118,16 @@ Agent C, branch `p16-C` (from `p16-A` 26671c6). Everything measured unless marke
 
 (Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/TIME_MODEL.md`.)
 
-### F16 — the 576-node figures re-estimated from the inputs measured on aac7, with bands (Phase 16 F, 2026-10-04)
+### SCALE35 — scaling points at 3 and 5 nodes (docs only; main 39346d03, SHMEM build, defaults)
 
-Agent F, branch `p16-F` (from main dbde0c7); local Python only. All numbers modeled (B3 model on the launch line with `MN_OUT_DKM_HI=1`, `RNS_DIST_CACHE_PARTIAL=1`) from measured aac7 inputs (C16) or assumed target inputs; two walls per cell: without / with the part file packed at 1.0 GB/s per node (assumed). Test sizes 5.276e13 and 5.167e13 on 576. Added to `estimate.py`: `--hide-pow2`, `--t-round`, `--local-factor F` (NODE_SCALE and INIT_SCALE together; `MN_MODEL_LOCAL_F`); `--target` also prints the second size's row; default output unchanged (284.2 / 299.3 s).
-**Recommendation.** The estimate is row E on 7.2.4: **290.2 / 303.9 s at 5.276e13 and 286.2 / 298.1 s at 5.167e13** (+6.0 / +4.6 s over the standing row: the measured per-message cost +15 s, the measured round cost -10 s); on the target's ROCm 7.0.3 336.3 / 347.4 s (ceiling; AAC7 fit 316.9 / 329.2): the first thing to ask of the target is a 7.2.4 module. **The injection bandwidth per APU is the only input that moves the wall by more than +-20 s, and it remains assumed.** Also assumed: the 576-node taper (0.5 adds +22 s) and group, Lustre aggregate with 576 writers, `GEN_HIDE`, APU binning. **Open:** RESULTS §94's 278.5 / 293.0 s at 5.167e13 differs from the pool rule's 280.2 / 293.8 (tree 1 / division 0 primes; forced 1 / 1 gives 278.3 / 292.7), inside noise; the model's 2-node byte law is 2.2x the code's (conservative on bytes if it carried to 576); the 3.6 -> 1.0 GB/s fall-off has no model. **Superseded** as the standing estimate by §L4 (`target_l4`, 3.82e13) and the later launch-line sections; kept for the input table and band structure.
+3 runs per count, 6.441e10 digits per node, no output; all 6 VERIFY OK, no segfault (m).
+
+| nodes | digits | totals (s) | mean +- sd | bs / recip / dm / init |
+|---|---|---|---|---|
+| 3 | 1.9323e11 | 147.98, 143.11, 152.06 | 147.72 +- 4.48 | 52.7 / 15.7 / 57.4 / 34.0 |
+| 5 | 3.2205e11 | 175.90, 177.18, 193.25 | 182.11 +- 9.67 | 68.0 / 21.0 / 77.9 / 32.1 |
+
+With the 1/2/4/6-node means of PLAN.md §2 (67.6 / 119.4 / 172.2 / 204.6 s) the curve reads 67.6, 119.4, 147.7, 172.2, 182.1, 204.6 s at 1-6 nodes; efficiency T1/Tn 1.00, 0.57, 0.46, 0.39, 0.37, 0.33 (m / derived). Monotone; 3 and 5 nodes show no slow mode. Data point only; nothing to adopt (3 runs per count; 5-node sd 9.7 s the largest). (These totals are from an earlier code state than §S48's 76 / 139 / 182 / 293 s series.)
 
 ## LAUNCH_DEFAULTS — launch-line decisions and defaults adopted
 
@@ -136,10 +151,6 @@ History. Put `MN_T_CHUNK_MB=2048` and the X2 exchange on the target line (X2 rem
 
 (Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/LAUNCH_DEFAULTS.md`.)
 
-### L1 -- COMM_LAYER_VSLOT_RELEASE=1 on the launch lines (user, 2026-10-11)
-
-History. Slot release (now built in) cut the comm_ofi pool 4352 to 2304 MiB per APU and the 576-node device figure by 8.59 GB (m, layout), restoring a 12.9 GB margin at 3.82e13 (mod). Superseded by FIT.
-
 ### DEF — P24 as the multi-node default (D18) and DM_MN_WRAP in the memory model + 6-node A/B (D19 b)
 
 Question: D18 makes P24 the default for every multi-node product (three-prime path stays selectable); D19 (b): count `DM_MN_WRAP`'s extra block-pool memory in `dm_layout`/`mem_model.py` and time `DM_MN_WRAP=0` vs `=1` at 6 nodes with the new default. Branch `def` (from main d1d19bf).
@@ -158,6 +169,23 @@ Change:
 - Launchers: `tools/plan_values.py --fit <digits> <nodes>` (exit 1 = does not fit; the device comm pools are always counted since Q103, 2026-10-25); `ecalc/mnrun.sh` (refuses with exit 4 before srun; `MNRUN_FIT=0` skips); `tools/gate.sh` (`fit.txt`, FAIL if not fit; `GATE_FIT=0` skips); `target_kit.sh` plan stage. `mem_model.py --check-c` ports the decision. Planner with fit 0.73 s vs 0.58 s before (m, MN_PLAN_ONLY 3.82e13:576, login node).
 
 Results (planner on the aac7 login node; figures from the C layout, mod). GB:
+
+| run | profile | device per node (per APU) / limit | margin | node vs 480 | node margin | DM_MN_WRAP |
+|---|---|---|---|---|---|---|
+| 3.82e13 on 576, defaults (NPCAP auto on) | target | 407.41 (101.85) / 373.44 | -33.97 | 443.49 | +36.51 | 0 (fit): with it 433.18; REFUSED |
+| 3.82e13 on 576, `MN_NONPOW2_CAP=0` (the 2026-10-19 figure) | target | 358.96 (89.74) / 373.44 | +14.48 | 395.04 | +84.96 | 0 (fit): with it 384.73 > 368.44 |
+| same, `DM_MN_WRAP=1` set | target | 384.73 / 373.44 | −11.29 | 421.62 | +58.38 | 1 (set): WARNING, REFUSED |
+| 6.441e10 on 1 | aac7 | 290.09 / 444.00 | +153.91 | 316.44 | +163.56 | not used at size 1 |
+| 1.2882e11 on 2 | aac7 | 402.83 / 444.00 | +41.17 | 437.84 | +42.16 | 1 (fit): without 368.47 |
+| 2.5764e11 on 4 | aac7 | 402.83 / 444.00 | +41.17 | 437.84 | +42.16 | 1 (fit) |
+| 3.8646e11 on 6 | aac7 | 374.22 / 444.00 | +69.78 | 409.24 | +70.76 | 1 (fit): without 348.45 |
+
+- Why 358.96 became 407.41 (bisect 2026-10-25, planner on the build caches and login builds, `ECALC_NP=auto MN_T_CHUNK_MB=2048 ECALC_DEVICE_GB=373.44`, xshmem; m, planner): 36a4c38 and d330ef3 (10-13, 10-19) 349.29 GB without the comm pools (planes 120.88); 463f87d (10-21) 394.52 without comm pools (planes 162.22, v-slots 11.56); from 10-21 the xshmem default counts the comm pools (Q73): +9.66 with the plain plane, +12.88 with NPCAP; today 407.41. The step is `MN_NONPOW2_CAP` auto (Q58, `results/COMPUTE.md §NPCAP`: plane memory +41.3 GB, as this planner shows: +41.34); the 10-19 figure was never re-run after it; `BS_ARENA_ROOM` 0.14 vs 0.16 changes nothing here (arena 214.75 either way). A real need, not a planner over-count. Per-term at 3.82e13 on 576 with `MN_NONPOW2_CAP=0` (peak is the bs phase; dm phase 352.96): planes 120.88 + arena 214.75 + comm_ofi pools 9.66 + bs growth 6.00 + v-slots 7.67 GB; per APU arena 53.69 (dm need 51.73: reciprocal set 38.53, division 37.45; tree 50.93), plane pools 30.22; wrap term 7.64 GB per APU.
+- `--check-c` on six `BS_LAYOUT_ONLY` points with the launch-line settings (`COMM_SHMEM_ROUND_MB=1024 MN_T_CHUNK_MB=2048`, `ECALC_DEVICE_GB=444`): 0 terms inexact, wrap decision equal everywhere (m); also exact after rebasing on main (rebuilt with `make -B SHMEM_CRAY=1`, gates not rerun after the rebase).
+- Gates (aac7, commit 54f62a1, m): `gate.sh --build --nodes 2` PASS (VERIFY OK, digits identical, P24; fit 137.61/444.00 GB; `dm_mn_wrap:0(fit)` at 1e9); `--nodes 1` PASS (fit 120.44/444.00); 6 nodes 3.8646e11 via `mnrun.sh` (no digit output): rc 0, VERIFY OK on all 7 lines, `dm_mn_wrap:1(fit)`, ecalc total 238.5 s (one run, not a timing claim). The first attempt failed at doccheck because an untracked stand-in `profiles/target.conf` was in the worktree.
+
+Verdict: done as decided (D26); the fit is computed before every launch, a run that does not fit is refused, the wrap is automatic. The target at 3.82e13 on 576 fitted with the wrap off (+14.48 GB, planner) before NPCAP's default; with `MN_NONPOW2_CAP` auto it is refused (-33.97 GB, 2026-10-25). Merged.
+Open: the device figure is the layout's, not a target measurement (bs growth 6.0 GB measured at size 1 on aac7; comm_ofi pools depend on `COMM_OFI_PLAN_CXI`); `mem_model.py --check-c` without `COMM_SHMEM_ROUND_MB=1024` differs in the comm_ofi pools at 6 and 576 nodes (-11.6 % / -19.5 %; exact with the launch lines' 1024); `mem_model.py dev_max` omits the comm_ofi pools (345.0 vs C's 358.96 GB); aac7 without its profile gets the 373.44 GB edge (stricter, never looser).
 
 ### S47 - exchange settings re-confirm at 4 nodes (aac7, batch 2026-10-11, track T2)
 
@@ -204,6 +232,34 @@ Question (TASKS "Path 2 at the target's scale"): at the same per-node share 1.73
 | 288, 576 | 371.64 (380.23 with the wrap) | 120.88 | 120.26 | 63.35 | 61.15 | node 467 GB (budget 414) |
 | path 1 (layout D) 64 / 576 | 232.10 / 238.97 | 120.88 | 103.08 / 96.64 | 2.15 / 9.66 | 0 / 5.79 | same share, `MN_NONPOW2_CAP` has no effect below 4.5e10 per node |
 
+**Cause.** The jump is not the node count itself but "is the group a power of two". A power-of-two group uses `ntt_dist`'s transform, which takes its exchange scratch from the block pool: v-slots 0 (`rns_mul_dist_mn_vslot` returns 0). 576 nodes = 2304 PEs = 9 x 2^8 (and the tree's groups 192 and 576) are not powers of two, so every product uses the general map, whose v-exchange slots (two per APU, 2 x (A + max(A, B)), hipMalloc'd beside the arena, kept to the run's end) are resident: 1.92 GB per APU in layout D (K = 8 chunks) but 15.29 GB per APU under one process per GPU, because `DIST_CHUNKS` defaults to 1 under vPE (ntt_dist.c, rns_dist.c: "one exchange per transform") and the slot size is proportional to 1/K (15.29 / 1.92 = 7.97; the Python model with K = 1 gives 15.31). The v-slots set the comm_ofi pools too (`XSHMEM_HEAP_MB` 15104 = 256 MiB + 2 x 7291 MiB slot, per APU) and the planner books them twice: 61.15 + 63.35 GB. The arena shrinks by 25.8 GB at the same time (general-map grid), so the net is +95.5 GB (371.64 vs 276.13) and +104.1 with the wrap. 96 = 3 x 32 is already +64 GB; 448 = 7 x 64 is +51 GB. 576 = 9 x 64 is the worst because the top group and the 192 group both stay general-map; nothing here is the 576-node scale itself.
+
+**Fix options (modeled, path 2 at 1.736e10 per node, 576 n):**
+
+| setting | device | node | v-slots | ofi pools |
+|---|---|---|---|---|
+| default (`DIST_CHUNKS` unset = 1) | 380.23 refused | 467.17 | 61.15 | 63.35 |
+| `DIST_CHUNKS=2` | 318.56 fits | 414.09 | 30.62 | 32.21 |
+| `DIST_CHUNKS=4` | 288.22 | 383.76 | 15.32 | 17.18 |
+| `DIST_CHUNKS=8` | 273.06 (= the 64 n figure less 3) | 368.59 | 7.67 | 9.66 |
+| `DIST_CHUNKS=16` | 264.94 | 360.47 | 3.84 | 5.37 |
+
+**A3 re-run on the built cand3 planner (2026-10-28, `ECALC_PE_PER_GPU=1 SLURM_NTASKS_PER_NODE=4 XSHMEM_LANES=2 ECALC_FIT_PER_APU=1`, target limits device 373.44 / node 487, 576 n, planner output = mod; the device / node figures reproduce the table above to the 0.01 GB).** GB per node (per busiest APU against 93.36); "unset" is `DIST_CHUNKS` not set (= 1 under vPE):
+
+| digits | `DIST_CHUNKS` | device (per APU) | node | verdict, per-APU margin |
+|---|---|---|---|---|
+| 4.608e12 (8e9 per node) | unset = 1 / 2 / 4 / 8 | 328.69 (82.17) / 267.02 / 236.68 / 221.52 | 406.32 / 344.65 / 314.31 / 299.15 | fits, +11.19 / +26.61 / +34.19 / +37.98 |
+| 1e13 (1.74e10 per node) | unset = 1 | 371.64 (92.91) | 467.17 | fits by +0.45 per APU (+1.80 node-mean); the wrap (380.23) is off by the auto rule, so the older "refused" figure was against the old 414 GB node budget |
+| 1e13 | 2 / 4 / 8 | 318.56 (79.64) / 288.22 (72.06) / 273.06 (68.26) | 414.09 / 383.76 / 368.59 | fits, +13.72 / +21.30 / +25.10 (wrap on) |
+| 3e13 (5.2e10 per node) | unset / 1 / 2 / 4 / 8 | 611.02 (152.75) / 611.02 / 519.01 / 473.58 / 450.29 (112.57) | 741.94 / 741.94 / 649.93 / 604.50 / 581.21 | REFUSED at every `DIST_CHUNKS` up to 8 (-59.39 ... -19.21 per APU; node over 487 too) |
+| path 1 D reference: 4.608e12 / 1e13 | default | 135.54 (40.33 busiest) / 238.97 (74.24) | 160.54 / 268.12 | fits, +53.03 / +19.12 |
+
+Reading: the 8e9-per-node campaign shape fits path 2 with 11 GB per APU to spare even at `DIST_CHUNKS` unset; 1e13 fits only barely unset and comfortably at 2 or more; 3e13 does not fit path 2 at any slicing (the tree term, see the 6.632e10 note below). `DIST_CHUNKS` > 1 under vPE is still not run (see Digit safety). `DIST_CHUNKS=16` gives 264.94 GB (66.23 per APU, +27.13) at 1e13 and 439.22 (109.80, -16.44, REFUSED) at 3e13. `XSHMEM_LANES` 1 / 2 / 4 does not change any planner figure (checked at 1e13 and 3e13, `DIST_CHUNKS` 1 and 16).
+
+`MN_NONPOW2_CAP=0` changes nothing here (it is off by auto below 4.5e10 per node). `COMM_ALLTOALLV_DEPTH=1` changes nothing in the planner. `MN_GROUPS` cannot help: the top group must be all 576 nodes. A power-of-two node count (512) avoids it (276.13) but is not the target. Digit safety: `DIST_CHUNKS` only re-slices the rows of one exchange (digits were identical for 4 -> 8 on layout D, README), but under vPE K > 1 has not been run, the K = 1 default was chosen for message size (64 KiB at K = 8), and the effect on time is unmeasured: it needs the gate at 3 nodes (12 PEs, general map) with `ECALC_PE_PER_GPU=1` and an ABBA at 3 n before anything is adopted. Smallest change that fits: `DIST_CHUNKS=2` (node 414.09 against 480 GB real budget), or 4 (margin +85 GB device).
+
+**The 6.632e10 per node share (earlier note), same binary:** device with `DIST_CHUNKS` unset, `MN_NONPOW2_CAP` auto (on from 4.5e10): 362.03 (2 n), 430.75 (8 n), 456.52 (64 n), 671.15 GB (576 n; planes 162.22, v-slots 91.69); with `MN_NONPOW2_CAP=0` 576 n is 560.62 and with also `DIST_CHUNKS=8` 453.45 GB (v-slots 7.67). The growth from 2 to 64 n at that share is the tree term of path 2 (arena 232 / 301 / 326 GB at 2 / 8 / 64 n, tree 44.95 / 63.74 / 70.02 per APU) while layout D stays at 360.95 GB: path 2's plan runs the tree over the nodes (`plan pe` line: the groups below a node are not modeled until the PE-level products exist), so each deeper level adds a bigger product per PE; the dm need (55.96 GB per APU) is the same in both. No K or cap setting removes that: path 2 needs a PE-level tree model (and then a smaller real footprint) to fit 6.6e10 per node; values here differ by 8-9 GB from the earlier note's (447.93 / 473.70 / 517.67), a planner or settings difference not traced.
+
 ### A2EDGE — record memory edge per APU at 3e13 and 3.82e13 on 576 nodes (2026-10-28, planner, mod)
 
 **Result 1, the planner's per-APU peak is the busiest APU (region 0) unless `BS_MDEV_LOGL` balances it.** Per-APU max / margin to 93.36 (GB), `MN_NONPOW2_CAP=0`, `MN_T_CHUNK_MB` 512 or 1024 (no effect at `DIST_CHUNKS` 8 / 16), `DM_MN_WRAP` auto:
@@ -246,6 +302,33 @@ Pieces are the rows × columns of the largest product of node 0's groups (levels
 | 3.7e13 | 2 / 4 / 2 | 86.25 | 87.32 | +6.04 | fits |
 | 4.0e13 | 3 / 5 / 3 | 87.32 | 87.32 | +6.04 | fits |
 | 4.4e13 | 4 / 6 / 3 | 93.77 | 93.77 | -0.41 | REFUSED (node 375.06 GB vs 373.44, -1.62) |
+
+**Where `BS_MDEV_LOGL=28` starts to cost on one node (measured, aac7 1 node, 2026-10-28, item c06, remote-v7 d6167b2, same method as above: A = `BS_MDEV_LOGL=29`, B = `BS_MDEV_LOGL=28 DIST_CHUNKS=16`).** Means per arm, seconds; digits identical within every size (6.632e10 ...79932777543051118449; 8e10 ...52640279071809056008; 9e10 ...32983517734368241080):
+
+| digits | rounds | total A / B | division A / B | B - A (95 % interval) |
+|---|---|---|---|---|
+| 6.4e10 (above) | 2 | 78.10 / 77.24 | 19.30 / 19.32 | -0.86 [-4.05, +2.34] |
+| **6.632e10 (the 3.82e13 per-node share)** | 2 | 76.36 / 75.82 | 18.09 / 18.05 | -0.55 [-1.76, +0.66] (-0.7 %) |
+| 8e10 | 2 | 99.28 / 98.15 | 28.97 / 28.44 | -1.13 [-13.10, +10.84] (the wide interval is one round pair of 0.2 s and one of 2.1 s) |
+| 9e10 | 1 | 106.29 / 106.89 | 29.25 / 29.66 | +0.60 (1 round, no interval) |
+| 1e11 (above) | 2 | 136.47 / 149.84 | 42.90 / 57.39 | +13.37 [-0.46, +27.20] |
+
+Reading: at the record's per-node share (6.632e10) `BS_MDEV_LOGL=28` costs nothing resolved (-0.55 s, interval +-1.2 s) and the same holds to 9e10; the division jumps from about 30 s at 9e10 to 57 s at 1e11, so the cost starts between 9e10 and 1e11 per node (the cliff, not a slope; not narrowed further). So at 6.632e10 the +2.15 GB per APU of `BS_MDEV_LOGL=28` is free on one node; its behavior in the 576-node tree (different levels) is still untested. Decision on ROUTE S6 stays with the user.
+
+
+**Mechanism and 576-node verdict for the `BS_MDEV_LOGL=28` cliff (2026-10-28, items c07 and c08, cand3 remote-v8 13322ef merged into c3-plan, aac7 NIC-free hold, 1 node).**
+
+- (a) Planner diff, `MN_PLAN_ONLY`, aac7 limits, 28 vs 29 (modeled): at 9e10 and 1e11 the only change is leaf level 22, whose products (4.6e8 to 5.3e8 limbs, between 2^28 and 2^29) leave the batch tier and become device-tier dist_db products on 2^29-point planes (25.77 GB each). Leaf dist_db product counts rise by 20 at 1 node (for example 30 to 50, 34 to 54, 36 to 58 across the sizes tried). Tree top levels, reciprocal products, division products, grids and plane caps are identical. The plan therefore contains no division-side change; any division cost would come from device-tier leaf traffic interfering, not from a planned shape.
+- (b) Placement (measured, 1 node, paired ABBA, digits identical in every run): 9.5e10, 1 round, B - A = +2.28 s total (dm 36.8 vs 38.2 s, not a division cost). 1e11, two new one-round pairs with the arm order swapped: +5.59 s (28 as B: 127.9 vs 122.3 s, bs +2.7 s, dm +2.8 s) and +3.87 s (28 as A: 126.6 vs 122.7 s, bs +1.6 s, dm +3.8 s), about +3 to +5 %. The earlier +13.4 / +16.3 s with division +14 s (c05) did not reproduce. Run-to-run spread within an arm is 1 to 3 s and aac7 has a documented slow mode (about +4 s on one run in three), so the earlier cliff is most likely a slow-mode artefact plus a small real cost; it is not located between 9.5e10 and 1e11 and not explained by a plan change. Doubt: 2 pairs at 1e11, no interval.
+- (c) 576 nodes (planner, target limits, modeled): the same shape appears. At 3.82e13 level 22 gets 12 more dist_db leaf products (14 to 26) and at 3e13 8 more (10 to 18); the top tree levels and division products are unchanged by the switch. So the switch can reach the 1-node shape at 576 n, but it adds only leaf-tier device traffic, the same thing measured at 1 node as +3 to +5 % at 1e11 and no resolved cost at 6.632e10. Verdict: expect at most a few percent, no division cliff by mechanism. Not measured at scale; a 64-node run at 6.632e10 per node (A 29 vs B 28) is the cheap check and has not been run. The ROUTE S6 choice stays with the user.
+
+**Settled: `BS_MDEV_LOGL=28` costs about +5.5 s per 1e11 digits on one node (measured, 2026-10-28, items c09 on s3b1 and c10 on s5b0, remote-v9 9d34130 builds, path 1, ABBA, A = `BS_MDEV_LOGL=29`, B = `BS_MDEV_LOGL=28 DIST_CHUNKS=16`, digits identical in every run).** The c05 cost (+13 to +16 s, division +14 s) did not recur.
+
+| set | rounds | A total | B total | B - A (95 % interval) |
+|---|---|---|---|---|
+| c09, s3b1 | 5 | 120.9 s | 126.7 s | +5.84 [+4.63, +7.04] s, +4.8 %; rounds +7.13 +6.12 +5.94 +5.55 +4.45 |
+| c10, s5b0 (4 NICs) | 3 | 121.1 s | 126.5 s | +5.46 [+2.59, +8.33] s, +4.5 %; rounds +5.66 +4.22 +6.50 |
+| c08, s3b1 (one-round pairs, both orders, remote-v8) | 2 | - | - | +5.59, +3.87 s |
 
 ## TARGET — the target (digits and 576 nodes)
 

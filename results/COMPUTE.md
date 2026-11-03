@@ -47,7 +47,21 @@ Single-node GPU and host kernels of the e-digit run, from the NTT constants (Pha
 
 ### NTT3P: can ecalc's large transforms run in 3 memory passes instead of 4? (design study, no code changed)
 
+Labels (m), (mod), (a). Sources: S21 A37-Q4 NTT sweep, K13/K13b, `ecalc/ntt.c` (`make_plan`, `plan_auto`, `k_b16`, `k_b16r`, `k_b1r`), `estimate.py` / `mn_model.py` (`target-m --bw 47`, `aac7_s18 --bw 6`).
+
 **Summary.** Best split at 2^31: **13 / 9 / 9** (b1 of 2^13 points, two strided 9-stage passes, all with 16-column 128 B segments) or **12 / 10 / 9** (keeps today's 2^12 b1; one 10-stage pass with 64 B segments); both fit the 64 KB LDS with no register staging. **Modeled saving per 2^31 forward: about 15 ms of 90.4 (17 %), range 5-24 ms**; the floor of any 3-pass plan is about 66 ms (3 x 17.3 ms NOP pass + 14 ms modmul). Per run (mod): 10 nodes about 1-2 s of 435 s (0.3 %); 576 nodes about 4 s (1.5-7) of 219-266 s (1.5-2 %), mostly NOT the 2^31 transform but the four-step pieces' row/column transforms of length 2^20-2^22, which run 3 passes today and would run 2. Effort M-L (2-3 weeks), correctness risk low (canonical outputs are unique), performance risk medium (1 block/CU, 64 B segments). No prior attempt at more than 7 strided stages or a 2^13 b1 existed. Recommendation: a 2-3 day microbench first (E0/E1), build only if the fat pass is within 10 % of the model. **Outcome: E0 was run in S24 and failed both gates (13/9/9 forward 90.6 ms against the gate <= 80 ms and today's 89.9; `results/CODE_TOOLS.md / S23 / S24`); NTT_SIZE_STATS measured the whole transforms >= 2^27 at only 2.5 s per APU of 453 s at 10 nodes. Dropped.**
+
+**Constraints.** `k_b16`/`k_b16r`: block 2^7 rows x 16 adjacent columns = 2048 points (128 B per row), 256 threads, `sh[128][17]` = 18.4 KB, 3 blocks/CU (LDS-limited), VGPR 46-66; `NTT_B16_STG` clamped to 3..7, so no strided pass is longer than 7 stages. `k_b1r`: 2^10-2^12 points per block (2^12 in production at 2^31, plan 121, 32 KB, 2 blocks/CU). LDS 64 KB per workgroup = exactly 8192 points; HBM 2.0 TB/s in NOP passes, copy kernels 2.2-2.4 TB/s (m). Pass logic is private to `ntt.c`.
+
+**Pass counts now vs with 13/9/9 (computed).** logn 17-19: 2 / 2; **20-22: 3 / 2** (13+7, 13+8, 13+9); 23: 3 / 3 (13 + 9 = 22 stages); 24-26: 3 / 3; **27-30: 4 / 3**; **31 (plan 121, 5/7/7 + b1 12): 4 / 3**; 32-33: 4 / 3 (with C = 8 or 12+10+10). Two-pass coverage logn <= 22; three-pass coverage logn <= 31 (<= 33 with 64 B / 32 B segments). Splits enumerated at logn 31: 9/9/13 (recommended, s_lo 22, 13, 0, 1 block/CU), 9/10/12 (alternative, b1 untouched, 64 B segments), 10/10/11 (more segment risk), 11/10/10 with 32 B segments (not recommended: half-sector reads), 8/8/8/7 (4 passes: no gain, shows the pass count is the cost). All avoid s_lo 17 and 24.
+
+**Cost model at 2^31** (forward, ms; 34.4 GB per pass; calibration S21 (m): NOP passes 17.3 / 19.0 / 17.1, b1-12 NOP 24.2, real 24.0 / 20.8 / 19.4 / 25.8; b1-12 costs 25.8/12 = 2.15 ms per stage all-in). Strided 9-stage 128 B pass 20.0 / 22.5 / 25 (optimistic / central +10 % for 1 block/CU / pessimistic +25 %); strided 10-stage 64 B 21.5 / 24.5 / 29; b1 13 26.5 / 30 / 33. Plan totals optimistic / central / pessimistic: 9/9/13 66.5 / 75.0 / 83 (saving **24 / 15 / 7 ms**); 9/10/12 67.3 / 72.8 / 79.8 (23 / 18 / 11); 10/10/11 66 / 74 / 85 (24 / 16 / 5). Once the passes are not HBM-bound the total is about 31 stages x 2.15 = 67 ms whatever the split, so choose by risk; the memory-only floor (3 x 34.4 GB at 2.2-2.4 TB/s) is 43-47 ms. Other lengths (per 2^31 points, mod): logn 20-22, 3 -> 2 passes: 60 -> 50-52 (-15 %, -22 % at best); logn 27-30 about -15 ms-equivalent. (E0's measured per-stage cost of 3.2-3.6 ms for the fat pass is why the model failed.)
+
+**Prior attempts (relevance).** RESULTS §33 (D5, 2026-09-14): 2^11/2^12 b1 with the old kernels lost to occupancy (2^11 at 24 KB 126-129 ms, 2^12 at 48 KB 153 ms vs 117 for 2^10), superseded by the register-blocked b1r; RESULTS §48: LDS bandwidth 35.8 TB/s at 3 blocks/CU, 19.0-19.3 at 1 block/CU (the 1-block price: LDS traffic of a 9-stage body about 3.6 ms at 19 TB/s (mod), not binding); K13 H6 occupancy +-2 %; K13 H2 no MALL cliff; K13b: "no 3-pass plan avoids s_lo 17 and 24 with b1 2^10" (the 3 x 7 limit came from the 7-stage clamp); the b1 2^11/2^12 lever that removes a pass "worked every time it was tried".
+
+**How many large transforms a run does (mod; NTT_SIZE_STATS replaced this).** Node-local B form / mdev / batch: logn 27-31 (bs top levels 16.2 s at 10 nodes, 14.4 s at 576 in the estimator; part of the batch tier 19.8 / 17.6 s). Four-step C-form pieces: at 10 nodes rows 2^17-2^18 are already 2 passes (no gain); **at 576 nodes (plane 2^20 x 2^20 over 2304 ranks) rows are 2^20-2^21 = 3 passes today, 2 after**: about 37 s of local piece time at rows >= 2^20, NTT share 27 % (a). Totals: 10 nodes 8.5 s of node-local NTT time x 17 % = **1.4 s** (0.5-2.5) and 0 for the pieces; 576 nodes 7.6 s x 17 % = 1.3 s plus pieces 37 s x 27 % = 10 s x 22-30 % = **2.5 s** (0.9-3.6, 0 under the pessimistic fat-pass cost): **about 3.8 s (1.5-6)**, 1.5-1.7 % of 219-266 s, 0.5 % of the aac7-class 748 s. Four-prime pieces scale the 576 term by 1.33 (a); exposed fabric hides nothing of this (upper bound if the chunk pipeline hides some passes).
+
+**Effort, risk, test plan, decision.** Effort M-L: E0 microbench (1 day: tile copy rates at s_lo 12, 13, 21, 22 and the 2^13 b1), a 9-10-stage register-blocked strided body `k_b16w` (4-6 days), plan integration (S), validation (M). Risks: correctness low; occupancy/latency medium (1 block/CU); memory pattern medium (64 B segments unmeasured, E0 settles it); dist integration low; possible regression at logn 24-26 (keep `plan_auto` per logn). Test plan: E0 go/no-go (9-stage 16-column tiles at s_lo 13/22 >= 1.6 TB/s), `t_ntt bench 31 pass` (go if real 3-pass total <= 80 ms), whole and batched 2^20-2^22 shapes, `t_ntt 24`, `t_mul 20`, `ecalc 1e9` identical, 6.44e10 single-node. Options: (a) E0/E1 only (1-2 days, one node-hour), (b) build (2-3 weeks, -15 ms per 2^31 transform, about -1.4 s at 10 nodes, about -3.8 s at 576 (mod)), (c) leave. Recommendation was (a), then (b) only if the target's NTT_SIZE_STATS shows rows >= 2^20: E0 then failed.
 
 ### N3 — host gaps in the batch tier (`BS_BATCH_PIPE`)
 
@@ -75,6 +89,19 @@ Scope: single-node speed and options: init, level pairing, remaining options on 
 
 ### §CAND — the three off-by-default speed switches combined (interaction test)
 
+**aac7, 2 nodes (item 7e round 1, rerun as round 2), paired B - A:**
+
+| round | pairs | paired B - A total (95 % CI, p) | paired B - A chain (95 % CI, p) |
+|---|---|---|---|
+| 1 | 6 (pair 1 cold: A 170.0, B 145.5) | -4.95 s [-15.45, +5.55], p 0.280 | -4.51 s [-8.39, -0.64], p 0.030 |
+| 2 | 6 | -6.22 s [-12.20, -0.24], p 0.044 | -4.62 s [-7.61, -1.64], p 0.011 |
+| **pooled (12 per-run totals)** | 12 | A 140.10 s, B 134.51 s: **-5.58 s [-10.54, -0.63], p 0.031** | **-4.57 s [-6.57, -2.57], p 0.0004** |
+| pooled without cold pair 1 | 11 | A 137.38, B 133.52: -3.86 s [-7.39, -0.33], p 0.035 | - |
+
+B was faster in 11 of 12 pairs. "Chain" is the `db_to_bi` conversion chain: B 0.05-0.06 s in every run; A 2.0-2.4 s normally but 6.1-10.8 s in 5 of 12 A runs (late PE up to +6.8 s on one node): those A spikes explain the spread; a single-switch effect cannot be separated (all three on). NIC launch groups occur in both arms (no group pattern visible, an effect cannot be excluded). Memory, rank 0: identical in A and B (device in use 317.8 GB, pool peak live 201.80 GB): no memory cost.
+
+**aac6, 1 node (4 pairs, stop rule met):** totals A 74.10, 73.47, 72.86, 74.54 (mean 73.74 s); B 66.08, 66.55, 66.10, 67.61 (mean 66.59 s); **paired B - A -7.16 s [-8.08, -6.23], p 0.0001**, all four pairs negative. **Profile of cand all-on (6.441e10, 1 node, indicative):** total 66.45 s profiled / 66.91 s unprofiled; init 13.74, bs 36.56 (seeds 8.2, batch 21.1, mdev 7.1), dm about 16.6 s; vs main (O7b, 1 node, one run) total 73.32 -> 66.91 s, init 15.5 -> 13.7, bs 38.2 -> 36.6, dm 19.5 -> about 16.6. GPU busy per APU 47.8 / 49.0 / 48.7 / 41.9 s (main 43.7 / 44.7 / 44.4 / 38.1): `k_pull` 8.6 s per APU (18.5 %), `k_gather_raw<1>` 2.0 s (4.3 %).
+
 **Verdict.** All three on together: faster at 1 node (-7.16 s, aac6) and 2 nodes (-5.58 s pooled, aac7), digits identical, no memory change; per-switch shares not separated; interaction vs the sum of the single results not evaluated here. Adoption is the user's decision. **Pending:** item 7g (4 nodes) was running; its result is not recorded in this file.
 
 ### §S21 — single-node A37 measurements (R2 seed microbench, Q1 init timeline, R4 dc split, R6 small-j doublings, Q4 NTT structure)
@@ -85,16 +112,18 @@ aac7 runs 2026-10-07 21:02-21:13 on hold 12377 (and a CPX node for R2); all rc 0
 
 (Details moved to `archive:repo_cl6_2026-10-25/results/SINGLE_NODE.md`, 2026-10-25.)
 
-### §P1N - one process per GPU (P) at one node: which phase loses (a0c2_p1n1, a0c3_p1n33; main 9ec6d50, aac7 2026-10-25; m)
-
-Question (TASKS, from 9zh7: 1e10, D 36.5 s vs P 52.8 s). Method: 1 node, `mnrun.sh 1`, `ECALC_VERBOSE=2`, arms Do = layout D (ofi build), Po = `ECALC_PE_PER_GPU=1` (same build), Pc = P on the Cray build
-(`XSHMEM=cray SHMEM_CRAY=1`, `XSHMEM_LANES=2`); rounds in alternating order (Do Po Pc / Pc Po Do); 3 rounds at 1e10, 2 at 3.3e10; every run VERIFY OK. Means, seconds:
-
 ### §PEER - `XSHMEM_PEER=1`: same-node PEs exchange by device copy instead of the NIC (branch peer 78015d4; aac7 2026-10-25 02:10-03:05 ET; m)
 
 **Verdict.** Digits identical, no memory cost, no regression at 1-2 nodes; Pp - Po -16.8 s at 1 n 3.3e10 and -7.2 s (2 n 2e10) / -20.7 s (2 n 6e10). Adoption (switch default on for P, or tie it to `ECALC_PE_PER_GPU=1`) is the user's decision. **Not done:** 3 n; signals / control words by direct writes; a copy kernel using several SDMA engines; Path 2 (Cray 12.1 `shmem_ptr` with xpmem) is untested (the switch is inert there).
 
 **Verdict.** Measured: communication proper (worker span, 6.1-9.0 s per PE) is separate from the GPU work waited for in the post (4.9-7.7 s per PE, 14-22 % of the 34 s run); the latter is the PE's own queued GPU compute, not exchange cost. Compute imbalance between PEs is small (0.3-0.7 s above the others on one device, 1-2 % of the run) and does not account for the ROFF poll of 0.8-3.7 s per PE; that idle is the slack between four PEs whose GPU work ends at different times in every exchange. Hypothesis (not shown): the per-exchange spread of GPU completion times is larger than the run totals suggest. Next measurement: a per-exchange series (GPU time of the work before each post, per PE) at a few hundred exchanges, with kernel names.
+
+#### Layout D (path 1, one process per node) at the record per-node share, 6.632e10 digits, 1 node (aac7 2026-10-28; m)
+The engine does not apply at one node in layout D: with `COMM_TRANSPORT=xshmem` the init finds one node, switches the engine off (no `XSHMEM_ROUND_STATS` output, no posts), and the 4 APUs of the process exchange in process (`k_push3`). So the posts, sync wait and pre-pass window of the P tables do not exist on one node in layout D; they need two nodes (the 2-node hold is not available outside the e8b/e31n gate slots).
+- Times, digits tail 79932777543051118449 (the reference), VERIFY OK in all four runs: plain 76.31 s; `COMM_TRANSPORT=xshmem` (engine off at 1 node) 77.58 s; `XSHMEM_ROUND_STATS=2` 75.59 s; rocprofv3 trace 75.14 s (no perturbation; one process, 4 agents, one 17 MB csv).
+- Kernels per APU (kernel sum 35-42 s, union-busy 31-38 s of a 62-64 s kernel span): `k_push3` 4.9 s (2376 calls, the in-process exchange), `k_b1r<10,3,0>` 4.1-4.8 s, `k_b16<6,0>` 2.6-2.8 s, `k_crt_batch` 2.7-2.8 s, `k_b16r<0>` 2.4-2.5 s, `k_gather_raw` 2.2-2.3 s (3 % of the run; there is no `k_gather_mn`), `k_b1r<10,3,2>` 1.4-1.8 s. APU 7 is the least busy (31 s).
+- GPU idle: 24.5, 25.2, 26.4, 32.4 s per APU (39-51 % of the span). By gap size: under 1 ms 0.35-0.45 s, 1-10 ms 0.5-0.6 s, 10 ms and longer 23.6-31.5 s (72-126 gaps): 95 % or more of the idle is long waits (CPU phases, GMP, sync), 1.2-1.5 % of the run is short gaps.
+- Launch-fusion lever: does not apply to layout D at one node. Upper bound (all sub-10-ms gaps removed, which fusion cannot do) 0.9-1.1 s of 75-76 s (1.2-1.5 %, measured as a bound; realistic gain a fraction of it). On layout P the same bound is 1.9-2.8 s of 34 s (6-8 %, m as a bound). Whether the record's multi-node layout D has busy posts and a pre-pass wait needs a 2-node run (`XSHMEM_ROUND_STATS=2`, trace with the wrapper used here); not measured.
 
 ## PRIMES_STRATEGY — prime count and strategy
 
@@ -130,8 +159,6 @@ Times Eastern.
 **Open issues at close.** Cache off for P24 products (later cache work: results/TRANSPORT.md); mem_model had no P24 term; the layout did not
 see mode 2 (harmless, <= +0.04 GB); surcharge measured at one configuration; B's gathers run per prime; 1e11 size-1 and ckpt/recheck with
 P24 on not run then. **Decision/origin:** adoption later by D18 (2026-10-12).
-
-### §NP15 — four primes only where needed (`ECALC_NP=auto`; Phase 15 Batch 2, PLAN §37 row 1)
 
 ### §P15 — roots above 2^33 and the prime bound at the 576 target (Phase 15, Batch 1 from L8's findings)
 
@@ -207,11 +234,42 @@ verdicts above. No code run; numbers are quoted with their labels. Verdicts: **n
 | A9, A18, A19, A20, A33 | adversarial kernel harness, gate ladder with fault grep, soak, T2 windows, gate-removal audit | n/a (method) | not performance items; ecalc has TESTING.md gates, T1 residues on 8 primes plus T2 windows, the switch registry audit; the soak gap is TASKS "G2 soak" |
 | A11 | P and Q arenas split over dies | closed | rejected (#24: local HBM 3.8 TB/s against 93 GB/s remote, m); ecalc already spreads numbers over the four APUs (`dbig` quarters, regions) |
 | A12, A13 | zero-copy root P, Q and A as arena views | have | P, Q pass to the block pool without copy; A = S·B^dl is never formed |
+| A14 | asynchronous pinned-staging pre-grow | closed | init reorderings K8 each lost 2.0-11.5 s (m); remaining start-up items are TASKS "Default start-up time" and "Start-up shortening" |
+| A15 | three-tier dispatch thresholds | new (probe) | school tier measured and removed (loss 42-59 s, m); the batch/device boundary (`BS_MDEV_LOGL`) was never timed: TASKS row |
+| A16 | shared operand's forward transform reused by the second product | new | the batch tier pairs products that share an operand, but the device top levels and the tree levels transform Q_B twice (the transform cache empties after each product): TASKS row |
+| A17 | two-term reciprocal modmul, one correction | have | `mm_lazy` (ALGORITHM §4.2); apumult's g3r3 is the slower form |
+| A21-A24 | per-node leaf ranges, log2 P reduction tree, β-transpose and c_top·log2 P models | have | node ranges and `MN_GROUPS` tree (ALGORITHM §3, §6.5); `estimate.py` / `mn_model.py`; ecalc's measured multi-node cost is the exchange, not c_top |
+| A25, A26, A27 | fused CRT + carry, added operand fused into the CRT, CRT writes the result in place | have | `k_crt_batch` / `k_crt24` with LDS carry-lookahead, P₂ as the added operand, results written into the destination `dbig` |
+| A28, A30, A31 | `HSA_XNACK=1` hipMalloc arena; SDMA and GPU-write hazards under XNACK | closed / n/a | XNACK=1 was 2x slower (1e10 80 -> 159 s, m); with XNACK off the two hazards do not arise (GPU writes go to device memory or registered pinned pools) |
+| A29 | 101 GB usable per die | have | measured device edge 93.36 GB per APU, `ECALC_DEVICE_GB` budget and the memory fit (ALGORITHM §8) |
+| A34 | ω derived from an order-2^44 root | have | `ec_root` derives any 2^logn up to v2(p - 1) = 44 from the generator; `tests/t_roots` checks order and the root chain |
 
 Side finding: ALGORITHM §4.5 still said the transform cache served the reciprocal's last doubling and the division's X·Q
 (stale since the held slots were removed 2026-10-11); corrected in the same merge.
 
-### INIT — region pools before the plane pools, the plane pools beside the hook, a seed prebuffer (2026-10-25)
+**Measured follow-ups (2026-10-23, aac7 item 9zu4, main 53778c7, 1 node, 1e11 digits, every run VERIFY OK).**
+- A1, start-up timeline (`ECALC_INIT_TL=1`), layout D, 2 runs: plane pools done 7.5 / 6.2 s, last background mapping 37.4 / 37.9 s,
+  seed thread ends 51.5 / 52.0 s (seed − mapping +14.1 s both), bs level 1 starts 52.0 / 52.4 s; totals 142.3 / 139.2 s (init 38.5 / 38.9,
+  bs 61.6 / 56.5, dm 42.2 / 43.7). Layout P (`ECALC_PE_PER_GPU=1 RNS_BATCH_SPLIT=1`): seed threads end 21.7 / 19.9 s, mappings 24.0 / 13.5 s,
+  but both runs stopped at the host budget check (rc 8) before bs, so P has no full run. Without `RNS_BATCH_SPLIT=1` the planner refuses
+  P at 1 n at both 1e11 and 5e10 (item 9zu3).
+- A15, `BS_MDEV_LOGL` 28 / 29 / 30 / 30 (layout D, one run each): totals 135.07 / 127.45 / 136.89 / 131.62 s; bs 61.3 / 57.0 / 57.1 / 56.5 s.
+  The batch tier is faster than the device tier at the levels that move (level 22: batch 1.80 s vs device 3.87 s; level 23: 2.86 vs 3.83 s),
+  so 28 loses about 4 s of bs and 29 equals 30 within noise; the default stays (OPPORTUNITIES, rejected).
+- A1 under P (Q93 rerun, aac7 item 9zu5, main 1e2ea1b, 1 node, 7e10 digits, P = `ECALC_PE_PER_GPU=1 RNS_BATCH_SPLIT=1`; 3 P runs and
+  2 D runs, alternating, the third D run cut by the item's time cap; every run VERIFY OK, same sha). Seed thread ends: D 33.7 / 30.9 s,
+  P 19.3 / 21.7 / 19.3 s; last background mapping: D 25.5 / 21.6 s, P 28.8 / 13.9 / 17.0 s; seed − mapping: D +8.2 / +9.3 s,
+  P −9.5 / +7.8 / +2.2 s; bs level 1 starts: D 34.0 / 31.2 s, P 29.2 / 22.2 / 19.8 s. So P's per-APU seed threads start bs about
+  10 s earlier, and in P the mapping, not the seed, binds in one run of three. Totals: D 207.1 / 198.0 s, P 444.5 / 373.2 / 369.9 s
+  (bs 38.7 / 37.8 vs 98.0 / 58.0 / 58.4; dm 27.8 / 20.0 vs 107.1 / 63.7 / 63.4; recip 5.4 / 4.4 vs 25.8 / 16.1 / 16.0), so at one node P is
+  about 1.8x slower overall and the start-up gain does not matter there; P is the target-shaped layout, not the 1-node one.
+- BS_SEED_NUMA (Q92: the layout-D seed by four per-APU workers pinned to their NUMA node, as P seeds; aac7 items 9zu6, 9zuf-9zuj,
+  1 n): 1e9 digits identical; at 1e11, alternating 1/0/0/1, seed ends 56.7 / 41.7 / 49.2 / 40.1 s, bs level 1 starts 57.1 / 42.4 / 49.9 /
+  40.4 s, totals 145.4 / 133.4 / 137.9 / 130.8 s (init varies 26-43 s between runs). In every run the seed ends 13.8-14.4 s after the
+  region pools exist (the pull kernels' launch): the seed waits for the pools, not for CPU speed or NUMA placement. Dropped (Q94 (b)).
+
+
+Sections moved to `archive:results_merged_2026-10-24/APUMULT.md` (2026-10-24 cleanup): apumult_summary; apumult_F1; apumult_F2; apumult_M; apumult_R.
 
 ### AP34-reuse — RNS_PAIR_REUSE: Q_B's forward planes kept for a pair's second product (A16; branch `reuse` babb434, 2026-10-25)
 
@@ -233,6 +291,31 @@ Scope: the distributed division and the reciprocal: Newton error, DKM halves, mi
 - **Open (per item):** 2-node gate and ABBA for `NEWTON_CHAIN_GUARD` were closed by its adoption; the 6-node ABBA of `DM_MN_WRAP`; the 2-node `ECALC_VERBOSE=2` measurement of the mn dm peak (§M615); the part-file count 2·size under `MN_OUT_DKM_HI` for target scripts (§EW15).
 
 ### P1 — the distributed division multiply: the low product X·Q as a low part + one cyclic plane (`DM_MN_WRAP`)
+
+**Where the time goes** (6.441 × 10¹⁰ digits per node; S48, O1 r12, one instrumented 2-node run; m):
+
+| nodes | dm | reciprocal (its products) | division products | X_lo·Q | shifts (count / s) |
+|---|---|---|---|---|---|
+| 1 | 22.5 | 6.0 | — | — | — |
+| 2 (S48 r1 / P1 i1) | 61.3 / 55.4 | 18.4 (13.4) / 13.6 (11.8) | 40.5 / 39.8 | 15.8 / 17.9 | 85 / 3.4–3.5 |
+| 4 | 76.9 | 22.0 (16.4) | 51.8 | 17.6 | 91 / 4.9 |
+| 6 | 117.3 | 25.9 (21.0) | 88.7 | 31.1 | 94 / 5.1 |
+
+The division's products are 72–76 % of dm at 2–6 nodes and the two low products X·Q are the largest part (≈ 10.8 + 11.7 s of 39.8 s at 2 nodes; ≈ 26 + 31 s of 88.7 s at 6). Grids: X·Q is 2 × 3 pieces of 2³² at 2 nodes (6 formed), 2 × 7 of 2³³ at 6 (13 formed); A·μ 2 × 2 (3 formed) and 2 × 4 (7 formed). A 2³²-point piece takes 1.9–2.2 s (1.5–1.7 s with the outer transform cached), the all-to-alls being 0.77–1.14 s of it: **exchange-bound**. The partial transform cache gets fewer primes in the second low product (1 of 3 at 2 nodes, 2 of 3 at 6; ≈ 1–5 s per division, mod). The grid shapes are already best (skip-aware search at 2, 4, 6, 576 nodes, mod); the lever left is fewer transforms.
+
+**Correctness** (m; `tools/gate.sh --build` 10⁹, aac7 items `72_p1_gates2`, `77_p1_gates3` after the rebase on f08a4ea): all PASS (VERIFY OK, digits identical): off, `DM_MN_WRAP=24` (h > P, multi-chunk folds), `=21`, `=22 DIST_GEN=1`, `=24 NEWTON_DKM_TEST_HI=±3` (up-corrections, R < 0 branch), `=24 ECALC_TEST_CORR=2`, `=1` (no wrap at 10⁹), 1-node variants; after the rebase the wrap ran with P24 (cyclic plane in 18-digit points).
+
+**Timing** (paired ABBA, 2 nodes, 1.2882 × 10¹¹ digits, no digit output, aac7 launch line, A = default, B = `DM_MN_WRAP=1`, branch 13aa201, 3 rounds ABBA, p < 0.05 stop rule fired after round 3, all 12 runs VERIFY OK; m):
+
+| quantity (s) | A mean (6) | B mean (6) | B − A, 95 % CI (3 rounds) |
+|---|---|---|---|
+| `total` | 140.4 | 129.4 | **−11.1 [−19.1, −3.1], p 0.027** |
+| dm | 54.5 | 46.8 | −7.7 [−10.3, −5.1] |
+| division products | 38.5 | 28.1 | −10.4 (means) |
+| shifts (count / s) | 85 / 3.45 | 97 / 5.90 | +2.45 |
+| step 2's X_lo·Q + corrections | 15.5 | 11.3 | −4.2 |
+
+`total` moves more than dm because bs varies (43–50 s). Memory (m): block pool at the step-2 low product 57.98 GB per APU under B vs 53.69 under A (+4.3 GB per APU), VmHWM unchanged (28.9 GB). At 6 nodes (mod): ≈ −8…−11 s of dm (−15.6 s of products less ≈ +5…+8 s of shifts); 576 nodes −39 % of X·Q transform volume (mod, seconds not modeled).
 
 **Verdict.** At 2 nodes saves 11.1 s of `total` (CI 3.1–19.1, m), 7.7 s of dm, digits identical in every gate; costs +4.3 GB per APU of pool at 2 nodes, not in the memory model (`dm_layout`, `mem_model.py` must count Q″ and the fold accumulators, basis P + 4, before target use), not timed at 6 nodes or with P24. Switch stays off; merged to main; next (user's call) a 6-node ABBA (≤ 4 rounds).
 
@@ -295,10 +378,6 @@ Scope: the distributed division and the reciprocal: Newton error, DKM halves, mi
   (switch on, SHMEM and libfabric) PASS, digits identical. 6 n 3.8646e11 with the switch on runs for both transports:
   libfabric 174.2, 173.5, 174.7 s (mean 174.1); SHMEM 193.7 (first), 182.3, 184.0 s (186.7). 3 n 6e10 (libfabric): auto
   (off) 59.2, 51.8 s against `=0` 54.7, 53.6 s.
-
-### DKMHI — the size-1 price of the old writer start in `mn_model` (2026-10-25)
-
-Question (TASKS, closed): with `MN_MODEL_DKM_HI` on (the default, as in the code) the modeled size-1 write column rose (68.1 -> 68.8 s at D = 4e10) while `est_partial_row` said `MN_OUT_DKM_HI` saves about 7 s. Finding (modeled, from `mn_model.py` and §EW15): the two numbers priced different things. With the switch off, size 1 used `OVL1` = 0.577 of the division as the part the writer hides, a fit on the pre-DKM division whose hook sat before the whole X Q product; with DKM the old hook sits before step 2's low product and hides only B = 0.369 of the division (DKM15's measured 18.17 + 0.74 of 51.3 s, `OVL1_HI`), while the switch adds A = 0.144 (7.38 s of 51.3). `early_exposed` now prices the off arm at B (`ecalc/mn_model.py`), so the switch gains A x the division: 7.2 s at 1e11, write column 70.5 -> 68.8 s at 4e10 (modeled; the default arm is unchanged, unit tests pass). Not re-measured on aac7: the measured size-1 write phases (§EW15: exposed write about 2.3 s on and off on aac6's local disk) cannot show the gain; it appears only where the write is exposed.
 
 ### LAZY — the reciprocal's Q_t as a window view (`NEWTON_MN_LAZY`, branch lazy, 2026-11-02; aac7 1-3 nodes, measured)
 

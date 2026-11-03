@@ -26,18 +26,6 @@ Current state (cross-checked with `ecalc/README.md`; where an item below says "o
 
 **Recommendation (user's decision):** adopt `BS_ARENA_ROOM=0.16` with `BS_SEED_FILL=128`; the whole-chunk rounding alone is free and removes the reciprocal's remaps. Open: f chosen on 17 traced sizes, placement greedy so an untested size can still remap (one traced run answers any size); `mem_model.py` node peak with the room is pessimistic (+16.3 GB at 10¹¹, one-node ceiling 1.24 vs 1.34 × 10¹¹ modeled) while the run cannot be refused (budget rule); effect at the 576 target unmeasured. 576-node estimate unchanged: **4.25 × 10¹³ digits in 256.0 s (4.27 min) without the write, 285.7 s with the packed write** (modeled, RESULTS §87 / DOC15), node memory 416.0 GB of 480 on defaults, 429.0 with the room (modeled).
 
-### §MAP15 — Phase 15 Batch 2, row 5 (N2): the arena's mapping, the seeds and level 1
-
-Agent MAP, branch `p15-MAP` from `int15d` 3e0a0db (= main B1 f184d51 + NP + AS + N3x, all off by default). **STOPPED after a second node failure; nothing here is adopted except the print-only timeline.**
-**Conclusions.** (a) The stream removes the seeds' idle wait exactly as modeled (seeds end 28.3 / 29.2 s instead of 34.3–35.5, m) but level 1 does not move: **the mapping itself is the floor**, ≈ 0.2 s per 2 GiB chunk whoever calls it (one worker 0.216; old pregrow threads 0.16–0.19; old background mappers 0.20–0.23 under seed load; 0.131 only with the CPU idle; `hipMemCreate` ≈ 70 %, `hipMemSetAccess` ≈ 30 %). The runtime serialises the calls, four workers map slower and starve launches. Letting bs levels wait only for their own chunks would overlap mapping with compute, the regime preceding both failures: not built. (b) Seed threads at 10¹¹ on the old path (m): 192 threads (default) level 1 at 35.07 / 35.40 s; 96: 36.46 (spans 16.6 → 19.9 s); 48: 47.63 (spans 35.7 s): **keep all threads**. (c) Timeline facts: `rns_init` staging + contexts 1.5–2.5 s, plane pools 4.2–5.6 s (≈ 0.045 s/GB); seed pinned buffers (2 × 8 GiB) cost 1.4–1.6 s at start. **The remaining lever is the mapping rate outside the VMM path:** hipMalloc maps at 0.036–0.05 s/GB against hipMemCreate's 0.077–0.1 (R114 §6b); R114 measured the VMM arena at +8 s of init at 10¹¹ vs the hipMalloc arena. With `BS_ARENA_ROOM=0.16` the division at 10¹¹ remaps 0 times (§AS15), so `DB_POOL_VMM=0` where memory allows may be worth one paired series (untested; no code needed).
-Tests: timeline, stream off, 10¹¹ × 7 (job 21659): 7 × VERIFY OK, totals 187.1–199.5 s; r0c (room, stream off) 179.07 s VERIFY OK; e9 stream W = 4 VERIFY OK 12.41 s. **Gates owed before anything merges** (not run after the node failures): `t_dbig 0`, `mnaccept --stress --only unit,e9,mn,stress` at b94072c, stream off. Open: two nodes (s24-26, s24-30) needed the admin; if ever retried, a unit test that maps chunks on one APU while kernels run on all four first, on a node that can be spared. **Merge only `ECALC_INIT_TL` (5162a8f, print only); do not adopt `DB_POOL_VMM_STREAM`.** 576-node estimate unchanged: 4.25 × 10¹³ digits in ≈ 256 s without the write, ≈ 286 s with it (modeled, RESULTS §87 / DOC15); node memory 416 of 480 GB.
-
-### §DL15 — the arena sized to DKM's division, and the room check on the model's node (Phase 15 Batch 3, agent DL)
-
-**Built (`binsplit.c`, `mem_model.py`).** (1) `dm_layout` follows `NEWTON_DKM` (DKM layout at size > 1 always, at size 1 only in the device flow n_Q ≥ 9/8 · 2^`BS_MDEV_LOGL`): reciprocal's jl at h, DKM's division set, the hole is DKM's largest block (size 1: step 1's `X_hi·Q`, n_Q + ⌈k/2⌉ + 8 limbs, which `mul_grid` reserves whole; size > 1: t, k + 8 limbs; the model had used k + 8 at size 1 too, smaller than that block). With `NEWTON_DKM=0` the layout lines are byte-identical to ab8daa2's. (2) `as_room_fits` counts the model's node (planes by the `auto` rule, arena with the room, 6.0 GB of VMM bs growth, host HWM); `mem_model.as_room_fits` / `room_host` is the twin; `BS_LAYOUT_ONLY` prints a `room:` line, the layout line gains ` dkm 1`. (3) `--check-c` exact on 16 layout files (0 terms not exact, room terms included). (4) Outside: `mn_model.py` passes `dkm=DKM`; `--check-c`'s `MN_P24` default 2; `DEFAULTS15D` the new `mem_per_node` base; README rows `NEWTON_DKM`, `BS_ARENA_ROOM`, `BS_LAYOUT_ONLY`.
-**Tests (aac6, m).** Batch A (job 21801, s24-16): 10¹¹ ×4 alternating new / base (ab8daa2), all `NEWTON_DKM=1`: identical to `e_1e11.out`; arena **283.5 vs 289.9 GB (−6.4 GB)**, device at init 387.2 vs 393.6; 0 remaps, 0 growths, 0 hipMalloc; division window peak 54.07 GB per APU in both (76.3 % of the new pool); `dm` 72.49 / 74.24 s new vs 72.93 / 74.63 base: **neutral** (new_2's bs outlier 105.1 s vs 78.8–82.9 s is noise). Stage D (timing series) not run. Batch B (job 21805, s24-30): 1.3 × 10¹¹ new: room kept, arena 335.0 GB, 0 remaps, dm 114.25 s, VERIFY OK, budget peak 464.1 GB; base (old check dropped the room): 2 remaps (0.92 s), dm 117.70 s; 4 × 10¹⁰ identical; 10¹⁰ at sizes 2/3/4 identical (window peak 5.52 / 2.96 / 2.76 GB per APU, 43–49 % of the pool). Batch C (job 21808): `mnaccept --stress --only unit,e9,mn,corr,stress` **20 passed 0 failed**.
-Open issues: (1) the target's mn division peak is counted, not measured (DKM mn path peaks at 5.5 u + product scratch; reservation 55.54 GB per APU vs 54.11 counted at 5.1 × 10¹³: margin 1.4 GB, modeled; today's path 6.0 u = 59.0 GB vs 56.83 reserved, already over, M6's finding; sizes 2–4 on one node are 43–49 % of pool so do not test it; a 2-node `ECALC_VERBOSE=2` run at a dm-bound size would); (2) `mem_model`'s node should round VMM arenas to chunks at `BS_ARENA_ROOM=0` (not done); (3) size-1 room host uses log10 N! (< 0.02 GB difference).
-
 ### §K8 — init and the seed wait at one node: where the time goes, and why reordering does not help (2026-10-12)
 
 Task K8 (OPPORTUNITIES B.3), branch `k8` off main a448d73, not merged. aac6, one node, one run per arm, `ECALC_INIT_TL=1 ECALC_VERBOSE=2`, all VERIFY OK. **Result: diagnosis only, no switch proposed; code unchanged** (the two patches, `RNS_HOOK_CONCUR` in `rns_mul.c` and `ECALC_VMM_FILL` in `dbig.c`, are in `archive:results_merged_2026-10-19/`'s original of this item).
@@ -52,10 +40,6 @@ Nothing built or run. Starting point (m, archive:results/A09.md, 6.441e10 per no
 ### §L114 — L1 — Phase 14 (PLAN §34), window W1: E2 tight reservation (`DM_TIGHT`) and E5's layout half (`DM_TAIL_DEAD`)
 
 **Verdict.** Merged as an opt-in (`BS_ARENA_TRIM_GB`, default 0): the memory saving is large at 2 n and time is neutral to slightly better; the measured row is in `RESULTS.md`. No adoption decision; no 4 n / 6 n data.
-
-### XSHMEM_ROUND_MB 128 / 1024 / 0 at the target sizes: staging fit (B5, 2026-10-27; modeled, planner not run)
-
-Input for the target A/B (`XSHMEM_ROUND_MB` 128 / 1024 / 0). Python only: `mn_model.memory` (-> `mem_model.mem_per_node`) with the target's launch design, `MN_T_CHUNK_MB=2048`, `MN_NONPOW2_CAP=0` at 576 nodes; the C planner (`tools/plan_values.py --fit`) needs a current build and was not available locally (the aac7 binary predates the code), so the C planner's own lines on the target are the check. Calibration: at 3.82e13 / 576 nodes (round 128, cap 0) the model's device peak is 349.9 GB against the C planner's 358.96 GB (9 GB low, 2.5 %) and its node peak 394.0 GB against the planner's 395.04 GB (planner figures: remote/FACTS.md); the round size does not enter the device figure.
 
 ### §B4 — APU balance of the top bs levels: cause, design, zero-code test (2026-10-27; `BS_TOP_SPREAD` dropped by the user 2026-10-27, option 0 adopted)
 
@@ -80,9 +64,38 @@ Input for the target A/B (`XSHMEM_ROUND_MB` 128 / 1024 / 0). Python only: `mn_mo
 
 **Retained evidence.** The harness keeps the full log only for a failed run, and the memory files (`mem [phase]` lines, `live:` lines, planner lines) are overwritten by the next size of the same item. So the comparison below exists for three points only: 1 node 6.6e10 and 2 nodes 1.5e11 (largest size of each passing item), and 1 node 1.15e11 (the guard stop). The sampler's `device_hwm_apu_gb` is in the log of the stopped run only; for the 11 passing sizes the high-water is not retained. Rerunning with a per-size copy of the memory files would fill the table (a one-line change in the campaign driver, not made).
 
-### §ATRIM — BS_ARENA_TRIM_GB (trim the dm arena need; merged 2026-10-23)
+| point | planner per APU (device) | measured per APU | pool peak of the busiest phase |
+|---|---|---|---|
+| 1 node, 6.6e10 | 72.52 GB (290.09 per node: planes 25.92 + arena 45.10 + bs growth 1.50) | 71.0 GB in use at every phase on all 4 APUs (planes 25.77, pool 45.10, tables 0.15; 284.1 per node); driver view 71.2 of 137.4 GB | live peak 41.57 GB at the division, 92.2 % of the 45.10 GB pool; the dm need was predicted 44.33 GB |
+| 2 nodes, 1.5e11 | 105.27 GB (421.08 per node; budget line: rank 0 device peak 412.9 GB) | not retained (no `mem [phase]` lines kept) | live peak 67.18 GB in the division window, 92.0 % of the 73.01 GB pool (dm need predicted 71.59 GB); node MemAvailable 59.5 GB, Cached 62.6 GB |
+| 1 node, 1.15e11 | 105.81 GB (423.23 per node: planes 103.70 + arena 313.53 + bs growth 6.00) | high-water 113.73 GB (APU 1) after 45 s: per APU 111.83 / 113.73 / 111.29 / 109.02; a floor, since the run stopped in start-up | none (stopped) |
 
-Switch `BS_ARENA_TRIM_GB`, default 0 (off): subtracted at the end of `dm_layout`, clamped at `max(v2, v3)`; twin `mem_model.py arena_trim`. aac7, `=8` against off: 2 nodes at 1.2882e11 digits, arena per node 266.3 -> 231.9 GB (m), time 115.2 -> 111.4 s (m), 0 remaps; 3 nodes at 1.9323e11 digits 149.4 vs 149.6 s (m), 0 remaps.
+- **Agreement.** At 6.6e10 the device figure is within the planner: 71.0 used against 72.52 predicted (-1.5 GB per APU; (modeled reading) the bs growth reserve of 1.50 GB per APU not yet touched at the sampled points), and the pool peak stays 7.8 % below the pool (3.5 GB). At 2 nodes 1.5e11 the pool peak is 8.0 % (5.8 GB) below the pool. Both busiest phases sit at 92 % of the pool: the planner's pool size is tight by design (`DM_TIGHT`) and was not exceeded.
+- **The 1.15e11 point is above the planner's device figure** (113.7 against 105.8 GB per APU, +7.9 GB, 7.5 %). Modeled reading: the sampler counts the whole NUMA node (device arena plus the process's host memory), and the host share is about 6 GB per APU (run RSS 25.1 GB at the stop, planner host 27.41 GB, /4 = 6.3-6.9 GB); 105.8 + 6.3 = 112.1 GB against the 111.3 GB mean measured. The two figures are then compatible, and the planner's device number is not the sampler's number. The earlier APU 0 overshoot at 1e11 (109.9 GB, §B4) is the same quantity.
+- **The ceiling (measured).** On the aac7 node at `ECALC_MEM_GUARD_GB=6` the 1-node ceiling lies between 1e11 (passes, VERIFY OK) and 1.15e11 (guard stop at 45.0 s: MemAvailable 5.48 GB, MemFree 6.26 GB, Cached 82.95 GB, Dirty 0, RSS 25.11 GB, pool live 0). The planner said FITS with margins +20.77 GB (device) and +29.36 GB (node) at 1.15e11, yet MemAvailable was already below the 6 GB floor during start-up (before the bs phase and its growth reserve); the planner's node margin was not available in practice at this size at this guard setting (ECALC_MEM_GUARD_GB=6, one stop).
+- **Cached against available.** 83 GB of "Cached" coexisted with 5.5 GB of MemAvailable, so that cache was evidently not reclaimable (inferred). Evidence: the sampler counts Active(file) and Inactive(file) as free and still saw a NUMA-node minimum of 0.04 GB (APU 1) and 0.67 GB (APU 0); at 6.6e10, 1 node, Cached was 13 GB with 233 GB available, and at 2 nodes 1.5e11 62.6 GB against 59.5 GB available. Modeled reading (not verified, no Shmem breakdown in the log): the large Cached figure is shared or mapped memory attributed to the process (arena mappings), growing with the pool, so Cached is not a safe margin and the guard rightly follows MemAvailable.
+- **For the 6.04 GB per-APU margin (phase 1 C5).** Measured 6.6e10 (record per-node load) leaves 71.0 of 137.4 GB driver memory per APU; the busiest-phase pool peak keeps 3.5 GB per APU of pool unused. The margin is not tested at the edge: no passing point lies between 1e11 and the guard stop.
+
+### §MAP15 — Phase 15 Batch 2, row 5 (N2): the arena's mapping, the seeds and level 1
+
+Agent MAP, branch `p15-MAP` from `int15d` 3e0a0db (= main B1 f184d51 + NP + AS + N3x, all off by default). **STOPPED after a second node failure; nothing here is adopted except the print-only timeline.**
+**Conclusions.** (a) The stream removes the seeds' idle wait exactly as modeled (seeds end 28.3 / 29.2 s instead of 34.3–35.5, m) but level 1 does not move: **the mapping itself is the floor**, ≈ 0.2 s per 2 GiB chunk whoever calls it (one worker 0.216; old pregrow threads 0.16–0.19; old background mappers 0.20–0.23 under seed load; 0.131 only with the CPU idle; `hipMemCreate` ≈ 70 %, `hipMemSetAccess` ≈ 30 %). The runtime serializes the calls, four workers map slower and starve launches. Letting bs levels wait only for their own chunks would overlap mapping with compute, the regime preceding both failures: not built. (b) Seed threads at 10¹¹ on the old path (m): 192 threads (default) level 1 at 35.07 / 35.40 s; 96: 36.46 (spans 16.6 → 19.9 s); 48: 47.63 (spans 35.7 s): **keep all threads**. (c) Timeline facts: `rns_init` staging + contexts 1.5–2.5 s, plane pools 4.2–5.6 s (≈ 0.045 s/GB); seed pinned buffers (2 × 8 GiB) cost 1.4–1.6 s at start. **The remaining lever is the mapping rate outside the VMM path:** hipMalloc maps at 0.036–0.05 s/GB against hipMemCreate's 0.077–0.1 (R114 §6b); R114 measured the VMM arena at +8 s of init at 10¹¹ vs the hipMalloc arena. With `BS_ARENA_ROOM=0.16` the division at 10¹¹ remaps 0 times (§AS15), so `DB_POOL_VMM=0` where memory allows may be worth one paired series (untested; no code needed).
+Tests: timeline, stream off, 10¹¹ × 7 (job 21659): 7 × VERIFY OK, totals 187.1–199.5 s; r0c (room, stream off) 179.07 s VERIFY OK; e9 stream W = 4 VERIFY OK 12.41 s. **Gates owed before anything merges** (not run after the node failures): `t_dbig 0`, `mnaccept --stress --only unit,e9,mn,stress` at b94072c, stream off. Open: two nodes (s24-26, s24-30) needed the admin; if ever retried, a unit test that maps chunks on one APU while kernels run on all four first, on a node that can be spared. **Merge only `ECALC_INIT_TL` (5162a8f, print only); do not adopt `DB_POOL_VMM_STREAM`.** 576-node estimate unchanged: 4.25 × 10¹³ digits in ≈ 256 s without the write, ≈ 286 s with it (modeled, RESULTS §87 / DOC15); node memory 416 of 480 GB.
+
+(Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/MEMORY.md`.)
+
+#### §ATRIM — BS_ARENA_TRIM_GB (trim the dm arena need; merged 2026-10-23 from ATRIM.md)
+
+**Results.**
+
+| size | arm | arena per node (GB) | time (s) | runs | remaps |
+|---|---|---|---|---|---|
+| 2 n 1.2882e11 | S | 266.3 (m) | 115.2 (m) | 7 | 0 |
+| 2 n 1.2882e11 | TR8 | 231.9 (m), -34.4 | 111.4 (m) | 5 | 0 |
+| 3 n 1.9323e11 | S | - | 149.4 (m) | - | 0 |
+| 3 n 1.9323e11 | TR8 | - | 149.6 (m) | - | 0 |
+
+**Verdict.** Merged as an opt-in (`BS_ARENA_TRIM_GB`, default 0): the memory saving is large at 2 n and time is neutral to slightly better; the measured row is in `RESULTS.md`. No adoption decision; no 4 n / 6 n data.
 
 ## OUTPUT_IO — output
 
@@ -205,62 +218,22 @@ the main threads pinned. "Load" = 48 threads copying 128 MiB buffers in a loop (
 | D helpers | 3.82 (3.81-3.83) | 3.87 (3.82-3.89) | **4.2 / 4.1** |
 | E helpers, main pinned | 3.82 (3.76-3.84) | 3.87 (3.82-3.88) | 4.2 / 4.1 |
 
-### Answers
+Quick size (1 repetition each, no load): A 1.20, B 1.11, C 0.98, D 0.49, E 0.54 (A/D = 2.4); the helper's 0.4 s start-up is larger
+relative to this size.
 
-- **Pass criterion (D at least 2.5x faster than A, create through first touch): met, 4.2x measured** (4.1x under load). A to B shows the
-  in-process serialization (four unlocked threads are no faster than one locked sequence: each phase of B takes about twice A's);
-  pinning (C) recovers only 22 %; separate processes recover 74 %.
-- **Where the page clearing happens (U1): at `hipMemCreate`, in the creating process.** The helper's create is 0.108 s per 2 GiB chunk
-  (about 19 GiB/s); the importer's import is 1 ms per chunk and the first-touch kernel 10 ms per chunk (A: create 0.15 s, touch 0.00 s).
-  So the gain exists: creation, the dominant cost, moves to the helpers and runs in parallel across processes.
-- **What remains in the main process** is map + access: 3.2 s per APU for 20 chunks = 0.16 s per chunk, which is above the design's
-  secondary target (import+map+access of 0.05 s per chunk) and is now the critical path (helper 2.2 s, main 3.8 s). Map and access were
-  not compared with a local handle here (A's map 0.11 s is not comparable: its lock keeps the other threads out; B's 3.65 s is
-  four threads contending). Not measured: whether the main-side map+access can be cut (the runtime's per-process cost).
-- **Checks (all passed, measured):** data written by APU d is read correctly by APU d+1 through the main process's mapping (peer access
-  after import works); unmap + remap of an imported chunk at another slot and back works (APU d and d+1 read the same data); after
-  all helpers exited (waitpid) the imported memory reads back correctly and `hipMemGetInfo` used memory is unchanged (40.1 GiB per
-  APU): **helpers need not stay alive** once the main process has imported the handle (the fd may be closed after import); releasing
-  all handles returns the memory (free 87.8 -> 125.8 GiB on APU 0). Same results for D and E at the quick size.
-- Shareable handles: ROCm 7.2.4 on aac7 accepts `hipMemHandleTypePosixFileDescriptor` for pinned device allocations on MI300A. No error.
+Phases, mean over the 4 APUs of each thread's summed time (full size, no load, median; A's phases exclude the wait for the lock):
 
-### Caveats
+| arm | create | export / import | map | access | first touch | wait for helper |
+|---|---|---|---|---|---|---|
+| A | 3.01 | - | 0.11 | 0.85 | 0.00 | - |
+| B | 6.46 | - | 3.65 | 2.20 | 1.64 | - |
+| C | 5.33 | - | 3.21 | 1.84 | 0.51 | - |
+| D main | - | 0.02 (import; export in the helper 0.001) | 1.96 | 1.26 | 0.19 | 0.11 |
+| D helper | 2.17 (20 chunks, ends at 2.19) | | | | | |
 
-- Standalone, not ecalc: a process that has done only HIP init; in ecalc the same helpers would start at program start and create
-  while the plan fit and `mn_init` run, so their 0.4 s start-up is hidden, but the main process's other work competes for the
-  runtime lock. The pass is for the creation phase; the gain in ecalc's init also depends on what binds (seed wait, rns_init tail).
-- Memory: helper RSS (4 HIP runtimes) not measured here. The main process maps what the helpers created, one extra copy of nothing.
-- 3 repetitions; the spread is under 4 % for D, up to 14 % for A under load.
-
-### Integration, phase 1 (arenas only): `ECALC_MAPD=1` (2026-11-01)
-
-Code: `ecalc/mapd.c`, `mapd.h`; hooks in `dbig.c` (`vmm_map_run` takes the next chunk from the APU's helper, `db_vmm_arena_alloc` sends the
-request, the mapper lock and the background mapper are unchanged) and `ecalc.c` (`mapd_early()` at main start, helper entry on
-`--mapd-helper`). The helper is this executable; one per APU, NUMA-pinned, socket pair with fd passing; a helper exits after its last chunk.
-Failure (spawn, helper init, create or export, 60 s without a chunk, import) kills that helper, prints one `ECALC_MAPD:` line, and the rest of
-that APU's chunks are created in-process. Plane pools stay on `hipMalloc`; not used with `ECALC_PE_PER_GPU`. Test knob `ECALC_MAPD_TEST_DIE=<dev>:<k>`.
-
-### Integration, phase 2 (plane pools) and review fixes (2026-11-01)
-
-Code: `mapd.c` serves a FIFO of (kind, count, size, final) requests: the plane pools' chunks first (`rns_init` sends the requests after its device-memory
-measurement, in today's creation order: pool 0, pool 1, then the arena), then the arena. `mapd_pool_alloc` builds one VA range over the imported chunks
-(`hipMemAddressReserve`, map, access for all APUs); `dpool.vmm` (set by `rns_init`) makes `dpool_malloc` in `mem.c` call it, through two function pointers
-(`mem_vmm_pool_alloc`, `mem_vmm_pool_free`) that `rns_init` sets. Any failure kills that helper, logs one line, and the rest is created in-process; a pool
-that cannot be built falls back to `hipMalloc`. Test knob `ECALC_MAPD_TEST_DIE=<dev>:<k>[:p]` (`p`: die while serving pool chunks). A log line
-`ECALC_MAPD: plane pool of X GB on APU d built from N chunks of the helper` proves the path (it also appears when the chunks were made in-process after a helper failure).
-
-### Known limits
-
-- With the switch on, the helper creates the whole arena (both halves) at the `rns_init` request, whereas switch 0 maps the second half only after `db_vmm_bg_release`, so the seeds see less free memory early. Not tested at the edge size; `cache_avail` slot counts may change (digits unaffected).
-- The helper keeps its own handle until it exits, so on a pool regrow while the helper lives, the memory returns only at helper exit.
-- An arena requested after `rns_init` returns gets no helper (it is created in-process).
-- Growth/restore under `g_pool_mx` can wait up to 60 s on a slow helper.
+Load changes nothing beyond the spread (D 3.82 -> 3.87; A 15.87 -> 15.77).
 
 ## POOLRACE — free or remap of a dbig pool block while GPU work still uses it (C1POOL)
-
-### 1. Audit (code reading, main 260d2c18; every line number is of `ecalc/` at that commit, not of the branch, where the switch code shifted them)
-
-Facts the verdicts rest on (all read in the code):
 
 ### 2. Method, results, verdict
 
@@ -272,13 +245,19 @@ Facts the verdicts rest on (all read in the code):
 - Pressure: 0 VMM remaps in 24 runs (4e9 and 1.6e10 digits; `ECALC_DEVICE_GB` 250/170, `DM_TIGHT=0`, `BS_ARENA_ROOM=0`, `BS_ARENA_TRIM_GB` 2..12; the trim is clamped to about 0.5 GB). All VERIFY OK. No pressure pair exists.
 - ABBA cost of `DB_FREE_SYNC=1` (2 nodes, 1.6e10, item 45_c1pool_abba2, 2026-11-01 04:24 EST, 4 ABBA rounds, totals 22.75-29.17 s; measured): B - A = -0.30 s, 95 % CI [-1.96, +1.37] s (t, 3 df): not resolved, any cost is below about 1.4 s (6 %) at this size. Round 1 holds the slow first run (29.17 s). Its two extra pressure settings again gave 0 VMM remaps (one stopped at the memory guard, rc 9).
 
+**Review fixes (after the first gates).** `g_pull_run` is now cleared in `db_pull_stop_all` once the kernels exited; the sync moved out of the pool lock; the init and time sum are thread-safe. The gate results above are of the code BEFORE these fixes; re-gate results (1 node, switch 0/1/2) are in the next line; the 2-node gates with the switch wait for a second NIC node and are queued as a separate item.
+
+Re-gate after the fixes (measured, aac7, commit 7a4ab8fe, 1 node, 1e9 digits, single runs, not a timing result): `DB_FREE_SYNC=0` PASS (ecalc 9.18 s), `=1` PASS (7.86 s), `=2` PASS (7.96 s); VERIFY OK, digits identical, segv 0; registry and doccheck rc 0; checked: the item rebuilt (`make -B`) the binary from 7a4ab8fe just before the gates, and the three run logs show `DB_FREE_SYNC=0`, `1`, `2` in their config lines. 2-node re-gate (measured, aac7, item 47_c1pool_regate2, 2026-11-01 03:07-03:08 EST, same commit, 1e9 digits, single runs, not a timing result): `DB_FREE_SYNC=0` PASS (ecalc 15.13 s), `=1` PASS (11.74 s), `=2` PASS (12.15 s); VERIFY OK, digits identical, segv 0; build with the OFI flag, registry and doccheck rc 0.
+
+**Remap path untested.** No remap occurred in any pressure run (0 in 24), so the `vmm_make_room` remap path was never exercised on hardware by this work.
+
 **Verdict.** Inconclusive. No caller proven UNSAFE and no race reproduced; the switch is harmless in the gates (no slowdown seen at 1e9, one run each). The hypothesis is neither confirmed nor excluded at sizes where remaps occur. Recommendation: keep the switch (default 0), do not enable it.
 
 **Open issues.** (1) Remaps were never exercised on aac7; a test that shrinks the arena directly is needed. (2) ABBA cost unmeasured. (3) UNCLEAR unmap row relies on the driver ordering of `hipMemUnmap`.
 
 ## STRESS — forced VMM remaps of the dbig block pool, with the CRT/VERIFY checks on (C2)
 
-**Hazard.** The knob can itself create the race it tests for: with `DB_FREE_SYNC=0` it unmaps chunks of a block that was just freed while a stream may still use them; with `DB_FREE_SYNC=1` the sync precedes the free, so work enqueued later is unprotected (the same holds for RDMA-registered memory). A failure with the knob on and `DB_FREE_SYNC=0` is therefore not evidence of a product bug until it is rerun with `DB_FREE_SYNC=1`. The knob is never on by default and never in the node screen. Consequence for the clean s0 arms: had any caller freed a block early in the exercised paths, the knob would have turned that into a fault; 0 failures in the s0 arms with the knob on is evidence that no early free happened there (exercised paths and sizes only). Driver `tools/stress/stress.sh`, summary `tools/stress/summarize.py`.
+**Hazard.** The knob can itself create the race it tests for: with `DB_FREE_SYNC=0` it unmaps chunks of a block that was just freed while a stream may still use them; with `DB_FREE_SYNC=1` the sync precedes the free, so work enqueued later is unprotected (the same holds for RDMA-registered memory). A failure with the knob on and `DB_FREE_SYNC=0` is therefore not evidence of a product bug until it is rerun with `DB_FREE_SYNC=1`. The knob is never on by default and never in the bring-up script. Consequence for the clean s0 arms: had any caller freed a block early in the exercised paths, the knob would have turned that into a fault; 0 failures in the s0 arms with the knob on is evidence that no early free happened there (exercised paths and sizes only). Driver `tools/stress/stress.sh`, summary `tools/stress/summarize.py`.
 
 **Results (all measured, aac7, 2026-11-01).**
 
