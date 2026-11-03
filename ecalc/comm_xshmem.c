@@ -80,6 +80,7 @@ static int g_rser;                         /* XSHMEM_ROUND_STATS=2: also the per
 static int g_rst;                          /* XSHMEM_ROUND_STATS=1: the round path's phase times per PE (xpe.rst), printed at finalize; 0 = no clock reads (default 0) */
 #define RT0() (g_rst ? now_s() : 0.0)
 #define RTA(k, t0) do { if (g_rst) lp->rst[k] += now_s() - (t0); } while (0)
+#define RTB(k, t0) do { if (g_rst) { double d_ = now_s() - (t0); lp->rst[k] += d_; p->lp->tc[p->phk][7] += d_; } } while (0)   /* RTA that also adds to the exchange's tag (tc[][7]: other engine seconds) */
 static int g_seqchk;                       /* COMM_SEQ_CHECK=1: every small collective carries (sequence, kind, byte count, phase tag); a mismatch between members is fatal (default 0) */
 static int g_sparse;                       /* XSHMEM_SPARSE=1: an exchange skips the peers with zero bytes (no offset word, no signal, no wait, no round) */
 static int g_ract;                         /* XSHMEM_ROUND_ACTIVE=1 (implies XSHMEM_SPARSE=1): the alltoallv round chunk is XSHMEM_ROUND_MB / D, D = the largest active-pair count (bytes either way) over the members (one tree max per exchange), not the member count - 1 */
@@ -91,7 +92,7 @@ struct xblk { size_t off, len; int used; struct xblk *next; };
 struct xpriv;
 #define MAXSER 1024                        /* XSHMEM_ROUND_STATS=2: exchanges recorded per PE in the series */
 typedef struct rser { float gap, gpu, sync, roff, span; int id, n; unsigned kb; unsigned char tag, busy; void *f[4]; double r10_0; } rser;   /* one exchange: host gap before the post, GPU interval (-1 = none), post sync, ROFF poll, worker span (ms), comm id, members, KB received, phase tag, stream busy at the post, call-site return addresses */
-#define XTC_N 6
+#define XTC_N 8
 typedef struct xpe {                       /* one loopback PE of this process */
     int lpe; xshmem_ctx_t lane; xshmem_ctx_t lanes[MAXL];   /* lane = lanes[0] */
     char *data; size_t dlen; uint64_t *ctrl;
@@ -103,7 +104,7 @@ typedef struct xpe {                       /* one loopback PE of this process */
      * the exchange timeline (telescopes to 21): 14 post (t0 to enqueue), 15 worker wake (enqueue to the first round), 16 worker span (first round to the last), 17 late (the caller enters wait after the worker is done), 18 notice (worker done or wait entry to flushed seen), 19 end (flushed seen to wait return), 20 exchanges (count), 21 post to completion (the old counter), 22 caller blocked in wait, 23 caller work between post and wait, 24 post to the first ROFF write, 25 caller time between one exchange's end and the next post (alltoallv exchanges only);
      * inside the post: 26 self copy issue, 27 default quiet, 28 caller stream sync after the event sync, 29 GPU stream time between exchanges (events, same stream only), 30 and 31 counts of posts whose stream was idle or busy when the post started (hipStreamQuery before the event record), 32 hipEventSynchronize of the post's event, 33 device-wide sync after the stream sync, 34 and 35 event sync + stream sync time in the idle and the busy cases, 36 intervals skipped (different stream or no event before) */
     htl_t htl;                                              /* ECALC_HOST_TL: this PE's host timeline (hosttl.h) */
-    double tc[XK_NK][XTC_N];                                /* XSHMEM_ROUND_STATS: per phase tag (XK_*): exchanges, exchanges in rounds, rounds, bytes received, bytes sent, largest single pair (either direction) */
+    double tc[XK_NK][XTC_N];                                /* XSHMEM_ROUND_STATS: per phase tag (XK_*): exchanges, exchanges in rounds, rounds, bytes received, bytes sent, largest single pair (either direction), 6 ROFF + signal poll seconds (EXCLUSIVE worker time, rst 10 + 11), 7 other engine seconds (ROFF post, staging copy, copy issue, quiets, signal post, receive copy: rst 0, 1, 3, 4, 5, 7, 8) */
     double lqt[MAXL]; double lqlast[MAXL];                  /* XSHMEM_LANE_TRACE: summed and last quiet time per lane */
     pthread_t th; int th_on, stop; volatile int busy; pthread_mutex_t qm; pthread_cond_t qcv; struct xpriv *queue[MAXPEND]; volatile int nq;
 } xpe;
@@ -344,14 +345,14 @@ static int xex_round(xpriv *p)    /* one step; 1 when every round is done (the p
             for (int q = 0; q < n; q++) { int i = ORD(p, q); if (i == me || j >= rcount(p->rcnt[i], c)) continue;
                 const char *land = p->rin ? p->vrb + (p->rcnt[i] ? p->rdsp[i] + o : 0) : lp->data + p->rst + p->rpre[i];
                 xshmem_ctx_signal_set(lp->lane, WORD(p, W_ROFF, me), PACK(p->iseq[i] + 1 + j, xshmem_off(land)), p->pe[i]); }
-            RTA(0, ta); if (g_rst && j == 0) lp->rst[24] += now_s() - p->t0;
+            RTB(0, ta); if (g_rst && j == 0) lp->rst[24] += now_s() - p->t0;
             ta = RT0();
             if (!p->sin) {
                 int any = 0;
                 for (int r = 0; r < n; r++) if (r != me && j < rcount(p->scnt[r], c) && p->scnt[r] > o) { COPY(lp->data + p->sst + p->spre[r], p->vsb + p->sdsp[r] + o, rlen(p->scnt[r], c, j), p->rs); any = 1; }
                 if (any) SYNC(p->rs);
             }
-            RTA(1, ta); if (g_rst) { lp->rst[9] += 1; p->rst_t = now_s(); p->rst_ci = 0; double pn = lp->busy; lp->rst[12] += pn; if (pn > lp->rst[13]) lp->rst[13] = pn; if (((long)lp->rst[9] % 5000) == 0) xrst_print(lp->lpe, "periodic, cumulative so far"); }
+            RTB(1, ta); if (g_rst) { lp->rst[9] += 1; p->rst_t = now_s(); p->rst_ci = 0; double pn = lp->busy; lp->rst[12] += pn; if (pn > lp->rst[13]) lp->rst[13] = pn; if (((long)lp->rst[9] % 5000) == 0) xrst_print(lp->lpe, "periodic, cumulative so far"); }
             memset(p->posted, 0, (size_t)n); memset(p->rxdone, 0, (size_t)n); p->touched = 0; p->rdone = 0; p->rneed = 0;
             for (int r = 0; r < n; r++) if (r != me && j < rcount(p->scnt[r], c)) p->rneed++;
             p->rph = 1;
@@ -365,16 +366,16 @@ static int xex_round(xpriv *p)    /* one step; 1 when every round is done (the p
                 size_t len = rlen(p->scnt[i], c, j);
                 double tc = RT0();
                 if (len) p->touched |= (int)lane_put(lp, xshmem_at((ptrdiff_t)(v & VMASK)), p->sin ? p->vsb + p->sdsp[i] + o : lp->data + p->sst + p->spre[i], len, p->pe[i]);
-                if (g_rst) { double d = now_s() - tc; lp->rst[3] += d; p->rst_ci += d; cis += d; }
+                if (g_rst) { double d = now_s() - tc; lp->rst[3] += d; lp->tc[p->phk][7] += d; p->rst_ci += d; cis += d; }
                 p->posted[i] = 1; p->rdone++;
             }
-            if (p->rdone < p->rneed) { if (g_rst) lp->rst[10] += now_s() - tph - cis; return 0; }
-            double tq = RT0(); if (g_rst) { lp->rst[2] += tq - p->rst_t - p->rst_ci; lp->rst[10] += tq - tph - cis; }
+            if (p->rdone < p->rneed) { if (g_rst) { double d = now_s() - tph - cis; lp->rst[10] += d; lp->tc[p->phk][6] += d; } return 0; }
+            double tq = RT0(); if (g_rst) { lp->rst[2] += tq - p->rst_t - p->rst_ci; lp->rst[10] += tq - tph - cis; lp->tc[p->phk][6] += tq - tph - cis; }
             if (p->touched) lane_quiet(lp, (unsigned)p->touched);
-            RTA(4, tq); tq = RT0();
+            RTB(4, tq); tq = RT0();
             for (int q = 0; q < n; q++) { int i = ORD(p, q); if (i != me && j < rcount(p->scnt[i], c))
                 xshmem_ctx_signal_set(sig_lane(lp, i), WORD(p, W_SIG, me), PACK(p->oseq[i] + 1 + j, rlen(p->scnt[i], c, j)), p->pe[i]); }
-            RTA(5, tq); if (g_rst) p->rst_t = now_s();
+            RTB(5, tq); if (g_rst) p->rst_t = now_s();
             p->rdone = 0; p->rneed = 0;
             for (int r = 0; r < n; r++) if (r != me && j < rcount(p->rcnt[r], c)) p->rneed++;
             p->rph = 2;
@@ -389,16 +390,16 @@ static int xex_round(xpriv *p)    /* one step; 1 when every round is done (the p
                 if ((v & VMASK) != want) ec_fatal(EC_RC_FATAL, "comm_xshmem: alltoallv count mismatch (round %ld): rank %d sends %ld bytes to rank %d, which expects %zu\n", j, i, (long)(v & VMASK), me, want);
                 p->rxdone[i] = 1; p->rdone++;
             }
-            if (p->rdone < p->rneed) { if (g_rst) lp->rst[11] += now_s() - tph; return 0; }
-            double tr = RT0(); if (g_rst) { lp->rst[6] += tr - p->rst_t; lp->rst[11] += tr - tph; }
+            if (p->rdone < p->rneed) { if (g_rst) { double d = now_s() - tph; lp->rst[11] += d; lp->tc[p->phk][6] += d; } return 0; }
+            double tr = RT0(); if (g_rst) { lp->rst[6] += tr - p->rst_t; lp->rst[11] += tr - tph; lp->tc[p->phk][6] += tr - tph; }
             sig_quiet(lp);
-            RTA(7, tr); tr = RT0();
+            RTB(7, tr); tr = RT0();
             if (!p->rin) {
                 int any = 0;
                 for (int r = 0; r < n; r++) if (r != me && j < rcount(p->rcnt[r], c) && p->rcnt[r] > o) { COPY(p->vrb + p->rdsp[r] + o, lp->data + p->rst + p->rpre[r], rlen(p->rcnt[r], c, j), p->rs); any = 1; }
                 if (any) SYNC(p->rs);                                        /* before round j + 1 publishes the same slots */
             }
-            RTA(8, tr);
+            RTB(8, tr);
             p->rj++; p->rph = 0;
         }
     }
@@ -1004,15 +1005,17 @@ static void xtag_report(void)
         const double *r = (const double *)(sl + 8); npr++;
         for (int k = 0; k < XK_NK; k++) for (int j = 0; j < XTC_N; j++) if (r[k * XTC_N + j] > mx[k][j]) mx[k][j] = r[k * XTC_N + j]; }
     for (int l = 0; l < X.K; l++) for (int k = 0; k < XK_NK; k++) for (int j = 0; j < XTC_N; j++) { if (j == 5) { if (X.pe[l].tc[k][j] > sm[k][j]) sm[k][j] = X.pe[l].tc[k][j]; } else sm[k][j] += X.pe[l].tc[k][j]; }
-    double te = 0, tr = 0, tn = 0, tb = 0;
-    fprintf(stderr, "comm_xshmem: XSHMEM_ROUND_STATS per tag (node-process 0, summed over its %d PEs; round size XSHMEM_ROUND_MB): tag exchanges in-rounds rounds recv_MB sent_MB max_pair_MB MB_per_round\n", X.K);
-    for (int k = 0; k < XK_NK; k++) { const double *r = sm[k]; te += r[0]; tr += r[1]; tn += r[2]; tb += r[3];
-        fprintf(stderr, "comm_xshmem: XSHMEM_TAG node-process 0 %-6s %10.0f %10.0f %10.0f %12.1f %12.1f %10.2f %10.2f\n", tag_name[k], r[0], r[1], r[2], r[3] / 1e6, r[4] / 1e6, r[5] / 1e6, r[2] > 0 ? r[3] / 1e6 / r[2] : 0.0); }
+    double te = 0, tr = 0, tn = 0, tb = 0, tp = 0, to = 0;
+    fprintf(stderr, "comm_xshmem: XSHMEM_ROUND_STATS per tag (node-process 0, summed over its %d PEs; round size XSHMEM_ROUND_MB): tag exchanges in-rounds rounds recv_MB sent_MB max_pair_MB MB_per_round poll_s other_s\n", X.K);
+    for (int k = 0; k < XK_NK; k++) { const double *r = sm[k]; te += r[0]; tr += r[1]; tn += r[2]; tb += r[3]; tp += r[6]; to += r[7];
+        fprintf(stderr, "comm_xshmem: XSHMEM_TAG node-process 0 %-6s %10.0f %10.0f %10.0f %12.1f %12.1f %10.2f %10.2f %9.3f %9.3f\n", tag_name[k], r[0], r[1], r[2], r[3] / 1e6, r[4] / 1e6, r[5] / 1e6, r[2] > 0 ? r[3] / 1e6 / r[2] : 0.0, r[6], r[7]); }
     fprintf(stderr, "comm_xshmem: XSHMEM_TAG node-process 0 TOTAL  %10.0f %10.0f %10.0f %12.1f   (totals line: %ld exchanges, %ld in rounds, %ld rounds, %.1f MB received) sums %s\n", te, tr, tn, tb / 1e6, X.nev, X.nrex, X.nrounds, X.bv / 1e6,
             (te == (double)X.nev && tr == (double)X.nrex && tn == (double)X.nrounds && fabs(tb - X.bv) < 1.0) ? "EQUAL" : "DIFFER");
-    fprintf(stderr, "comm_xshmem: XSHMEM_ROUND_STATS per tag, maximum over all %d PEs of each column%s: tag exchanges in-rounds rounds recv_MB sent_MB max_pair_MB MB_per_round(max recv / max rounds)\n", npr, ok ? "" : " (some PE blocks missing: only the PEs that arrived)");
+    { double gp = 0, go = 0; for (int l = 0; l < X.K; l++) { const double *q = X.pe[l].rst; gp += q[10] + q[11]; go += q[0] + q[1] + q[3] + q[4] + q[5] + q[7] + q[8]; }
+      fprintf(stderr, "comm_xshmem: XSHMEM_TAG node-process 0 TOTAL poll_s %.3f other_s %.3f (per-tag sums; the PE totals of rst 10 + 11 and 0 + 1 + 3 + 4 + 5 + 7 + 8: %.3f, %.3f) %s\n", tp, to, gp, go, (fabs(tp - gp) < 1e-6 * (1 + gp) && fabs(to - go) < 1e-6 * (1 + go)) ? "EQUAL" : "DIFFER"); }
+    fprintf(stderr, "comm_xshmem: XSHMEM_ROUND_STATS per tag, maximum over all %d PEs of each column%s: tag exchanges in-rounds rounds recv_MB sent_MB max_pair_MB MB_per_round(max recv / max rounds) poll_s other_s\n", npr, ok ? "" : " (some PE blocks missing: only the PEs that arrived)");
     for (int k = 0; k < XK_NK; k++) { const double *r = mx[k];
-        fprintf(stderr, "comm_xshmem: XSHMEM_TAGMAX %-6s %10.0f %10.0f %10.0f %12.1f %12.1f %10.2f %10.2f\n", tag_name[k], r[0], r[1], r[2], r[3] / 1e6, r[4] / 1e6, r[5] / 1e6, r[2] > 0 ? r[3] / 1e6 / r[2] : 0.0); }
+        fprintf(stderr, "comm_xshmem: XSHMEM_TAGMAX %-6s %10.0f %10.0f %10.0f %12.1f %12.1f %10.2f %10.2f %9.3f %9.3f\n", tag_name[k], r[0], r[1], r[2], r[3] / 1e6, r[4] / 1e6, r[5] / 1e6, r[2] > 0 ? r[3] / 1e6 / r[2] : 0.0, r[6], r[7]); }
     }
     XSHMEM_SELECT(0); xshmem_barrier_all();                       /* PE 0 has read the block */
 }
