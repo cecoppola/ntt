@@ -219,3 +219,7 @@ ABBA: one warm-up pair discarded, then 4 rounds A B B A; A = `ECALC_DR` unset, B
 The cost is not distinguishable from zero at 2 nodes (the CI includes zero and is wider than the modelled 0.1-0.2 %). The injected-retry run is a single run and shows no retry cost above the run-to-run spread. The model figure for 576 nodes (0.1-0.2 %) stays modelled.
 
 M1 soak (aac7 campaign, 2026-11-02, main d7c7f28; measured): DR was active in 16 clean runs of 36 (10 layout P at 1 node 6.6e10, 6 at 2 nodes 1e11; `ECALC_DR=3`, forced remaps, diagnostic words, tiny rounds): 0 fatal, 0 rc != 0, 0 digit differences; the false-positive count (failures without injection) is not known because the harness deletes the logs that hold the `DR:` exit lines (results/STRESS.md §M1).
+
+## Measured, step 6 repeat: paired timing in the aac7 campaign (M6, 2026-11-02 00:33-00:48 ET, main d7c7f28, item 64_m6_dr; 2 nodes, 6.441e10 digits, measured)
+
+ABBA, 6 pairs, A = `ECALC_DR` unset, B = `ECALC_DR=3`, all runs rc 0 and VERIFY OK. Mean A 65.18 s, mean B 64.62 s: **B - A = -0.56 s, 95 % interval [-3.52, +2.40] s** (-0.9 %, interval -5.4 % to +3.7 %). Together with the step-6 table above (+0.48 s, 4 round differences, 128.82e9 digits), the overhead of `ECALC_DR=3` is not distinguishable from zero at 2 nodes at either size; the interval is about 3 s wide, so a cost of 0.1-0.2 % (modeled) is far below what aac7 can resolve, and the 576-node figure stays modeled.

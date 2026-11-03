@@ -354,3 +354,37 @@ With `XSHMEM_ROUND_ACTIVE=1` only addsh changes: 7,899 / 3,975 / 2,013 / 1,036 (
 **Modeled 576-node table (v12 time model plus a round-count model; every class split assumed, totals measured).** Baseline 128 MiB, switch unset: 206.1 s at 2e13 and 413.6 s at 3.8e13. Modeled wall at 2e13 and change against the baseline: 256 MiB 177 s (-14 %), 512 MiB 162.5 s (-21 %), 1024 MiB 155 s (-25 %); with the switch also set (shifts only) 182 s at 128 (-12 %), 157.6 s at 512 and 153.6 s at 1024; at 3.8e13 1024 MiB 284 s (-31 %). Assumptions: all 0.355 ms per round of the polls and engine buckets scales with the round count (halving this halves every gain), 25.6 s of shift time is round cost, the dense/sparse split of the 165,300 rounds is a guess, wire time does not change. The v12 residual (RMS 6.5 %, 13 s at 2e13) is as large as the 512-against-N1-alone difference, so single target runs cannot rank 512 against 1024; the sign of every cell is a gain because the model has no term that worsens with bigger rounds.
 
 **Why the default is 128 and not 1024.** The default came from the SHMEM proxy engine tests of 2026-10-20 (4 nodes -2.5 to -4.1 s, 2 nodes -1.5 to -3.5 s, 6 nodes neutral, with 7.2 GB per node less pool; user decisions Q58-Q60, archive:docs/private_2026-10-23/STATUS_to_2026-10-23.md), and `xshmem_round.h` kept it because whole-exchange staging fails the memory guard at full size; 1024 was only the model's assumption (D2), never a timed target setting.
+
+## M2: time per round fitted from a chunk-size sweep (aac7 campaign M2, 2026-11-01 to 11-02 ET, main d7c7f28, path 1, measured)
+
+**Question.** What does one exchange round cost (the model's `alpha`), as seen by fitting run time against the number of rounds while `XSHMEM_ROUND_MB` changes the count by up to 280x? N3 above had four sizes and single runs; this sweep has eight sizes and repeats.
+
+**Method.** Path 1 (`XSHMEM=ofi`), 2 members (2 nodes, 8 PEs) and 3 members (3 nodes, 12 PEs), `MN_TREE_LOGN_TEST=26`, `XSHMEM_ROUND_STATS=1`. At 1e10 digits: `XSHMEM_ROUND_MB` 0.056, 0.111, 0.222, 0.445, 1.781, 8, 32, 128 (0.445 = the 576-node 128 MiB chunk per pair at 3 members), each with `XSHMEM_ROUND_ACTIVE` unset and `=1`, 3 repeats per size (queue items r1-r3). At 4e10 digits: 0.111, 0.445, 8, 128 with the same two settings, 2 repeats at 2 nodes and 3 at 3 nodes. 136 runs, all rc 0 and VERIFY OK. Rounds = the sum over tags of the per-tag maximum over PEs (`XSHMEM_TAGMAX` lines), the same count as N3. Fit: ordinary least squares of the ecalc total time (and of the wall) on that round count, separately for each member count and size; the interval is the 95 % t-interval of the slope.
+
+| members | digits | runs | intercept a (s) | b = seconds per round (ecalc total) | R^2 | b from the wall (R^2) | rounds range |
+|---|---|---|---|---|---|---|---|
+| 2 | 1e10 | 48 | 19.1 | 50.7 us +-1.0 | 0.996 | 50.9 us +-1.5 (0.990) | 2.9e3 - 7.8e5 |
+| 2 | 4e10 | 16 | 48.9 | 55.6 us +-2.1 | 0.996 | 56.0 us +-2.3 (0.995) | 3.7e3 - 1.6e6 |
+| 3 | 1e10 | 48 | 18.8 | 38.9 us +-2.0 | 0.970 | 40.8 us +-3.2 (0.933) | 2.8e3 - 8.4e5 |
+| 3 | 4e10 | 24 | 46.7 | 38.1 us +-1.3 | 0.994 | 38.3 us +-1.5 (0.992) | 3.6e3 - 1.7e6 |
+
+Pooled over both sizes (one intercept per size): **54.0 us +-1.1 per round at 2 members (R^2 0.997) and 38.3 us +-1.0 at 3 members (R^2 0.994)**. The intercept is the run time with almost no rounds (19 s at 1e10, 47-49 s at 4e10). The campaign rule (more repeats if R^2 is below 0.8) is not triggered.
+
+**Robustness (measured).** Fitting only the runs with 3e5 or more rounds (small chunks) gives 47.8 +-3.4 (2 members 1e10), 56.2 +-5.1 (2 members 4e10), 41.2 +-6.5 (3 members 1e10) and 38.2 +-3.2 us (3 members 4e10); the runs with fewer rounds alone cannot fix the slope (R^2 0.15-0.22 at 4e10, intervals of tens of us) because the round term is under 1 s of about 50 s there. So the slope is set by the small-chunk runs and is the same over the range: no visible curvature. `XSHMEM_ROUND_ACTIVE=1` leaves the slope unchanged within the interval (2 members 1e10: 50.7 unset, 50.8 set; 3 members 4e10: 36.9 and 39.3 us), as expected, since it only removes addsh rounds.
+
+**Per-tag scaling (measured, max over PEs, switch unset).** Going from 0.445 to 0.056 MiB (8x smaller chunk) multiplies the rounds by 7.87-7.96: redist 8,455 -> 67,231 and result 4,984 -> 39,684 and addsh 11,476 -> 91,287 and layv 81,348 -> 639,828 (all at 3 members), layeq 76,973 -> 606,444 (2 members). Below 0.445 MiB no tag is on its floor. At 3 members layeq stays at 409-413 rounds (its floor, one per exchange) and layv carries the small many-pair exchanges; at 2 members all layered work is layeq (layv has 0 exchanges) and it is the largest tag (76,973 of about 98,900 rounds at 0.445). The tag structure thus depends on the member count, which N3 (3 members only) could not show. The time per tag cannot be separated by regression: the tag counts move together with the chunk, and a two-term fit (redist + result + addsh against layeq + layv) has intervals larger than its values (3 members 4e10: first term -14 +-70 us, second 53 +-20 us). The campaign build (main d7c7f28) predates the per-tag poll and other-engine seconds (branch tagsec, merged since); a rerun on current main gives the seconds per tag directly.
+
+**Compared with N3 and the model.** (1) N3's "at most about 45 us per round at 3 members" (single runs, an upper bound) is confirmed and tightened: 38.3 +-1.0 us at 3 members, 54.0 +-1.1 us at 2 members. (2) The cost per round did not rise with the member count (2 to 3 members: 54 -> 38 us); the cause of the higher 2-member value is not established (the layered work sits in layeq there). (3) The v12 round term of 0.355 ms per round at 576 nodes is 6.6x the 2-member and 9.3x the 3-member value; `results/TIME_MODEL.md` §M2fit gives the consequence for the model.
+
+**Not measurable on aac7.** The cost of a round with 575 peers: partner skew and wire wait in the polls, the round volume (14.1 MB per PE on average in the 10-29 run against 0.3-0.5 MB here) and fabric congestion exist only at many peers; aac7 has 3 nodes with working NICs, so the largest member count is 3.
+
+## M6: paired timings of `XSHMEM_ROUND_ACTIVE` and `XSHMEM_LANES=2` (aac7 campaign M6, 2026-11-01/02 ET, main d7c7f28, path 1, measured)
+
+ABBA order, 95 % interval on the mean of the per-pair differences (t distribution), all runs rc 0 and VERIFY OK; the numbers are the items' own `paired` lines.
+
+| comparison | setup | pairs | mean A | mean B | B - A, 95 % interval |
+|---|---|---|---|---|---|
+| `XSHMEM_ROUND_ACTIVE` unset (A) -> 1 (B) | 3 nodes, 1e10, ecalc total | 8 | 21.10 s | 21.42 s | +0.33 s [-0.11, +0.77] |
+| `XSHMEM_LANES` unset (A) -> 2 (B) | 2 nodes, 6.441e10, ecalc total, item 78_m6_ln2 | 6 | 67.53 s | 65.25 s | -2.28 s [-8.68, +4.11] |
+
+ROUND_ACTIVE is not distinguishable from zero (+1.6 % at the 576-node chunk setting, interval -0.5 to +3.6 %). Its 20 % fewer addsh rounds (N1) are about 2,300 rounds, 0.09 s at the M2 cost of 38 us per round (modeled), far below the noise. The LANES=2 mean is pulled by the first pair (A 79.15 s, the first run of the item, no warm-up); without it the difference is +0.15 s [-1.58, +1.88] (5 pairs, from the items' per-run totals). aac7 has one NIC per PE, so lane 2 is virtual and a gain could only appear with two NICs per APU (the target): here it is "no cost, no gain". The first attempt (78_m6_ln) timed out in the queue and has no data.
