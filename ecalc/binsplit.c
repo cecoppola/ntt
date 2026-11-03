@@ -440,17 +440,11 @@ static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_
     (void)pool_log;
     return best + best / 16;
 }
-/* B7ACCT (results/COMPUTE.md §B7ACCT; STD17 4): the general map's v-exchange slots, resident per APU thread (bytes).  Every group whose transform
- * is the general map (g not a power of two, or DIST_GEN) owns a layered communicator per APU thread (rns_dist.c lay_get) whose v-slots
- * grow to its largest product's exchange (rns_mul_dist_mn_vslot) and stay until groups_finalize at the run's end -- outside the arena,
- * the plane pools and the comm pools.  So the slots of every general-map level of the tree add up, and the whole machine's group (the
- * tree's top level, then the reciprocal and the division: the same communicator) holds the larger of its tree products' and the dm
- * phase's (the division's A_h mu, n_Q x n_Q, and the reciprocal's Q_t r, as binsplit_shmem_pool_need lists them; pieces at the cap).
- * A level whose last group is cut by the size (MN_GROUPS: 512 -> 576) counts the larger of the two group shapes.  Returns the resident
- * sum from the dm phase on (the run's largest); *tree_top: the resident sum during the tree's top level; by: the per-level terms.
- * Not in the arena request nor in any allocation: the layout reports it (BS_LAYOUT_ONLY `vslot:`, MN_PLAN_ONLY `plan vslot`,
- * MEM_REPORT_DEVS); the node budget also counts it in the node budget (binsplit_node_bytes, as_room_fits,
- * ecalc.c budget_check), which can change the room / cache-fit / plane-cap decisions. */
+/* The general map's v-exchange slots, resident per APU thread (bytes): every general-map group (g not a power of two, or DIST_GEN) owns a layered
+ * communicator per APU thread whose v-slots grow to its largest product's exchange and stay until groups_finalize, outside the arena, plane pools
+ * and comm pools.  Returns the resident sum from the dm phase on (the run's largest); *tree_top: the sum during the tree's top level; by: per-level terms.
+ * A level whose last group is cut by the size counts the larger of the two group shapes.  The node budget counts it (binsplit_node_bytes, as_room_fits,
+ * ecalc.c budget_check). */
 static size_t dm_nq_of(unsigned long N)                    /* dm_layout's n_Q (Q's limbs), without the rest of the layout (no room decision) */
 {
     double lg = lgamma((double)N + 1.0) / log(10.0), dl10 = 18.0;
@@ -509,7 +503,7 @@ int binsplit_vslot_budget_on(void) { return 1; }   /* always 1; kept for the `vs
  * chunks (DB_POOL_VMM_CHUNK_GB) -- the chunks are mapped whole anyway, so this costs no memory, and the reserved tail then ends
  * where the arena's last extent ends (a remainder after it made the pool carve spills from the tail's front: the reciprocal's two
  * remaps); (2) the dm need gains f x the hole (the division's largest block), so the blocks that spill around the tail leave it
- * whole.  f from the pool replays of measured traces (archive:scripts_2026-10-23/as_pool_replay.py). */
+ * whole.  f from the pool replays of measured traces. */
 static double bs_arena_room(void) { static double f = -1; if (f < 0) { const char *e = getenv("BS_ARENA_ROOM"); f = e ? atof(e) : 0.14; if (f < 0) f = 0; } return f; }   /* default 0.14 (memfix; 0.16 until then) */
 /* BS_ARENA_TRIM_GB=<GB per APU> (0 = off, the default) -- trim the dm need by this much (before the arenas are rounded to chunks): the model's
  * need sits above the measured live peak (2 n 1.2882e11: arena 66.57 GB, peak 55.47 GB) and every chunk is mapped (the extra by the background
@@ -521,18 +515,12 @@ static size_t as_arena(size_t bytes)                  /* an arena's bytes as BS_
     if (!(bs_arena_room() > 0) || !db_pool_vmm_on()) return bytes;
     size_t C = db_pool_vmm_chunk(); return (bytes + C - 1) / C * C;
 }
-/* The room is time, the budget is not: the room is dropped (the arenas stay in whole chunks, which costs nothing) when the node with it
- * would exceed ECALC_NODE_GB (480).  the node is counted as mem_model.py's node peak
- * counts it (mem_per_node: with the room the bs phase binds), so the room is dropped exactly when that node would go over:
- *   device = the plane pools at this run's cap and prime count (ECALC_NP=auto: pool 0 by the group, as binsplit_node_bytes) + the arena
- *            with the room + the VMM pool's growth in the bs phase (AS_VMM_BS_GROW = mem_model VMM_BS_GROW, 6.0 GB measured);
- *   host   = size 1: the measured host HWM (mem_model host_size1_vmm: 25.85 GB + 0.0208 GB per 10^9 digits above 4e10, the digits taken
- *            as log10 N!); size > 1: the larger of init -- the runtime 7.0 GB + the checkpoint staging 4 GiB + the two VMM seed buffers
- *            (seeds_stream's: as_seedbuf) + the transport 6.0 GB + the xshmem pool (binsplit_shmem_pool_rule's pool) --
- *            and the division's (the runtime, the staging, the writer 0.65 GB, the transport, the pool, MN_OUT_EARLY's 0.9 GB).
- * Before DL the host was 7.0 GB + 8 GiB (+ 6 GB at size > 1) + a 10 GB margin (AS_HOST_MARGIN), 18.8 GB below the node at the target,
- * over three-prime planes under ECALC_NP=auto (MS15 1.3): the room stayed up to ~5.63e13 on 576 with the node at 480.5-497.7 GB.  The
- * decision is made once per (N, size) (layout_arena simulates the levels) and printed once (BS_LAYOUT_ONLY: a `room:` line per point). */
+/* The room is time, the budget is not: the room is dropped (arenas stay in whole chunks, which costs nothing) when the node with it would exceed
+ * ECALC_NODE_GB (480), counted as mem_model.py's node peak (mem_per_node):
+ *   device = plane pools at this run's cap and prime count + the arena with the room + the VMM pool's growth in the bs phase (AS_VMM_BS_GROW);
+ *   host   = size 1: the measured host HWM (mem_model host_size1_vmm); size > 1: the larger of init (runtime, staging, two VMM seed buffers,
+ *            transport, xshmem pool) and the division's (runtime, staging, writer, transport, pool, MN_OUT_EARLY).
+ * The decision is made once per (N, size) (layout_arena simulates the levels) and printed once (BS_LAYOUT_ONLY: a `room:` line per point). */
 #define AS_VMM_BS_GROW ((size_t)6000000000)
 static size_t layout_arena(unsigned long N, int g, size_t *bs2_);
 static __thread int g_room_probe;                              /* 1: dm_layout keeps the room without deciding (the probe's own layout_arena) */
@@ -820,17 +808,9 @@ static size_t layout_arena(unsigned long N, int g, size_t *bs2_)
     if (bs2_) *bs2_ = bs2;
     return arena;
 }
-/* the plane caps, their settings and the node's device and host bytes at a cap.
- * cap c: 0 = 2^30 (POOL_LOG 30), 1 = 2^31 (POOL_LOG 31).  Device = the plane pools at the prime count (rns_plane_pool_bytes) + the arena + the transform contexts
- * (0.61 GB measured at 2^31, taken for every cap); host = the init peak's constants (runtime 7.0 GB, the checkpoint staging
- * 4 GiB, the seed buffers 4 GiB: mem_model.py HOST_*), + 6 GB per process of the comm at size > 1.  Only before rns_init (the
- * pool_log is switched per cap); after it, the caller's own cap only.
- * B5 fix (06 EVALUATION §2 row B5 / §4.1 item 3): host at g > 1 was BS_HOST_INIT_BYTES + 6 GB flat, which undercounts the
- * VMM seed buffers (as_seedbuf can be up to 2 x 8 GiB, not the flat 8 GiB in BS_HOST_INIT_BYTES) and omits the SHMEM pool
- * entirely.  Now mirrors as_room_fits's size > 1 host term exactly: runtime 7.0 GB + staging 4 GiB + transport 6 GB + the
- * SHMEM pool (as_shmem_pool), plus the larger of the two VMM seed buffers (as_seedbuf) or the writer 0.65 GB + MN_OUT_EARLY's
- * 0.9 GB.  size 1 is unchanged (BS_HOST_INIT_BYTES: as_room_fits's size 1 path is a different, measured formula that this
- * function does not mirror). */
+/* the plane caps and the node's device and host bytes at a cap (c: 0 = 2^30, 1 = 2^31; the pool_log is switched per cap, so only before rns_init).
+ * Device = plane pools at the prime count + arena + 0.61 GB of transform contexts; host = runtime, staging, transport and SHMEM pool
+ * as as_room_fits's size > 1 term (+ the larger VMM seed buffer or the writer + MN_OUT_EARLY); size 1 uses as_room_fits's own measured formula, not mirrored. */
 const char *const bs_cap_name[2] = { "2^30", "2^31" };   /* the cap index c = pool_log - 30 */
 #define BS_TABLES_BYTES ((size_t)610000000)
 #define BS_HOST_INIT_BYTES ((size_t)7000000000 + ((size_t)8 << 30))
@@ -1446,18 +1426,11 @@ static void seeds_compute(struct level *cur, size_t per, unsigned long S, unsign
         bi_free(&p); bi_free(&q);
     }
 }
-/* ---- the seeds streamed to the device regions through two small pinned buffers.  Before, region r's
- * spans were computed into a region-sized pinned staging on APU r (4 x 10.7 GB at 4e10: the largest pinned item of the
- * run) and copied to the region in one DMA after all of them.  Now the spans go in chunks of BS_SEED_CHUNK_MB (2048):
- * the threads compute chunk c into buffer c & 1 and issue its DMA to the region (hipMemcpyAsync from pinned memory on a
- * non-blocking stream: on the null stream it queued behind init's hipMemset of the plane pools, 4 GB/s), and the buffer
- * is refilled two chunks later once that copy has landed (0.4 s of computing per 2 GiB against 0.1 s of DMA).  The DMA needs
- * the region pools, so binsplit_seeds_begin (I2: called from rns_init once the staging exists, before the plane pools)
- * allocates them first (binsplit_pregrow: the same bytes, mapped before rns_init's plane pools) and then
- * starts the seed thread; a chunk waits for the pools only if they are not there yet (they are: 4e10 measured below).
- * The same function runs synchronously in binsplit_e when the seeds were not started at init (BS_RESTART, or a caller
- * without the init hook such as tests/t_bs).  The
- * pinned staging of rns_init is no longer used by the seeds (1 GiB per APU remains for the checkpoints' chunks). ---- */
+/* ---- the seeds streamed to the device regions through two small pinned buffers: spans go in chunks of BS_SEED_CHUNK_MB (2048); the threads
+ * compute chunk c into buffer c & 1 and DMA it to the region (hipMemcpyAsync from pinned memory on a non-blocking stream: the null stream
+ * queued behind init's hipMemset of the plane pools), and the buffer is refilled two chunks later.  The DMA needs the region pools, so
+ * binsplit_seeds_begin (called from rns_init once the staging exists) allocates them first (binsplit_pregrow) and then starts the seed
+ * thread.  The same function runs synchronously in binsplit_e when the seeds were not started at init (BS_RESTART, tests/t_bs). ---- */
 struct seed_stream {
     uint64_t *buf[2]; size_t bytes, chunk_spans; int buf_dev[2];         /* buf_dev: the device of the copy in flight from the buffer (-1: none) */
     struct { int r, b; size_t c0, c1; } pend[2]; int npend;              /* chunks computed into the buffers while the regions did not exist yet */
@@ -1504,7 +1477,7 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
     int nt = seed_nthreads();   /* I2: fewer than all leaves cores to init's allocations */
     ss->nchunks = ss->nbuf = ss->npend = 0; ss->t_span = ss->t_wait_pool = ss->t_wait_dma = ss->t_issue = ss->t_free = 0;
     int direct = !db_pool_vmm_on();                              /* the host cannot store into a VMM range */
-    int pull = !direct;                                          /* K8b (archive:results_merged_2026-10-24/MEMORY.md §K8b): the copies by the persistent pull kernels (no runtime call in the mapping window; fallback BS_SEED_PULL=0 removed 2026-10-23, Q87) */
+    int pull = !direct;                                          /* K8b: the copies by the persistent pull kernels (no runtime call in the mapping window; fallback BS_SEED_PULL=0 removed 2026-10-23, Q87) */
     void (*cpy)(int, void *, const void *, size_t) = direct ? mem_dev_copy_async : db_pull_copy_async;   /* into a VMM range: by a kernel (hipMemcpyAsync ran at 6 GB/s, synchronously) */
     void (*cwait)(int) = direct ? mem_dev_copy_wait : db_pull_wait;
     if (pull) for (int b = 0; b < 2; b++) db_pull_resolve(ss->buf[b]);   /* K8b: the buffers' device pointers once, here (the copies make no runtime call) */
@@ -1547,7 +1520,7 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
     tw = mem_now(); for (int b = 0; b < 2; b++) { mem_hstage_free(ss->buf[b]); ss->buf[b] = 0; } ss->t_free = mem_now() - tw;
 }
 static size_t seed_region_limbs(size_t per, const size_t *r0, int r) { return 2 * per * (r0[r + 1] - r0[r]) + 2; }
-/* the seeds computed in a background thread during init's device allocations (archive:PLAN §16); binsplit_e
+/* the seeds computed in a background thread during init's device allocations; binsplit_e
  * joins and takes the level-0 table from here.  B2: streamed to the regions as they are computed (above) */
 static struct { int active, joined; pthread_t th; unsigned long N, nspan; size_t per, r0[NRMAX + 1]; struct node *nd; double t; struct seed_stream ss; } g_pre;
 static void *pre_seeds_run(void *a)
