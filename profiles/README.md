@@ -73,7 +73,7 @@ tools/profile_load.py aac7 --line                  # the launch line (the keys o
 tools/profile_load.py aac7 --check -q              # problems only; --strict exits 1 on SAME-AS-SCRIPT / UNKNOWN
 ```
 
-Statuses: SAME-AS-SCRIPT (a literal `${VAR:-default}` in `mnrun.sh`, `aac7env.sh` or `target/kit/target_kit.sh` equals the profile value: delete the key), OVERRIDE (the
+Statuses: SAME-AS-SCRIPT (a literal `${VAR:-default}` in `mnrun.sh` or `aac7env.sh` equals the profile value: delete the key), OVERRIDE (the
 script defaults to another value; the profile wins), PROFILE-ONLY (no script defaults it), UNFILLED, UNKNOWN (no such name anywhere in `ecalc/` or
 `tools/`: a typo or a key without a consumer). Read-only.
 

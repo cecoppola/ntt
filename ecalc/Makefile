@@ -82,10 +82,10 @@ tests/t_ntt: tests/t_ntt.c ntt.o ntt3.o bigint.o fatal.o $(HDRS) tests/harness.h
 tests/t_alloc: tests/t_alloc.c ntt.o ntt3.o bigint.o mem.o fatal.o $(HDRS) tests/harness.h
 	$(HIPC) $< -x none ntt.o ntt3.o bigint.o mem.o fatal.o -o $@ $(GMP_LIBS) -lpthread
 
-# built on demand (target/kit/target_kit.sh), not in TESTS
+# built on demand (tools/nodescreen.sh, remote/run/s2_build.sh), not in TESTS
 tests/t_edge: tests/t_edge.c     # the memory-edge probe
 	$(HIPC) $< -o $@
-tests/t_nodechk: tests/t_nodechk.c     # target/kit/target_kit.sh stage nodechk: per-node meminfo + 1 GB host->device upload per APU
+tests/t_nodechk: tests/t_nodechk.c     # tools/nodescreen.sh: per-node meminfo + 1 GB host->device upload per APU
 	$(HIPC) $< -o $@
 
 tests/t_mapbench: tests/t_mapbench.c     # S1/E1 standalone mapping timing (results/MAPBENCH.md), not in TESTS

@@ -152,7 +152,7 @@ def main():
             for k in ("ECALC_OUT_DIR", "MNACCEPT_TMP"):
                 why[k] = "no writable shared (lustre/gpfs/nfs) file system and no $HOME in the login facts (fs.mount.*, fs.writable_mounts, fs.dir.HOME)"
 
-    val["MNRUN_EXCLUDE_HOSTS"] = ('""', "none flagged yet (the kit's nodechk stage fills it)")
+    val["MNRUN_EXCLUDE_HOSTS"] = ('""', "none flagged yet (tools/nodescreen.sh fills it)")
 
     # ---- NIC map check: 2 NICs per APU, each on its APU's NUMA node ----
     npa, cxi, pci = F.get("net.nics_per_apu"), F.get("net.cxi_numa_map"), F.get("gpu.pci_numa_map")
@@ -181,7 +181,7 @@ def main():
     adv.append("uffd: syscall %s, sysctl unprivileged_userfaultfd=%s; FI_MR_CACHE_MONITOR=userfaultfd is %s" %
                (F.get("uffd.syscall"), F.get("uffd.sysctl"), F.get("lib.fi_monitor.userfaultfd", "untested")))
     if F.get("lib.fi_monitor.userfaultfd") not in (None, "accepted", "missing", "none"):
-        adv.append("WARNING: libfabric refuses the userfaultfd monitor here; the template value FI_MR_CACHE_MONITOR=userfaultfd needs the site / kit 'uffd' stage")
+        adv.append("WARNING: libfabric refuses the userfaultfd monitor here; the template value FI_MR_CACHE_MONITOR=userfaultfd needs the site / probe")
     adv.append("libfabric %s, cxi domains %s; ROCm %s; SMA prefix %s" % (F.get("lib.fi_version"), F.get("lib.fi_cxi_domain_count"),
                F.get("rocm.version_file"), F.get("lib.sma_prefix")))
     adv.append("APUs: %s x %s, VRAM bytes %s (ECALC_DEVICE_GB template 373.44 = 4 x 93.36 GB, measured on the target earlier; confirm with t_edge)" %

@@ -4,8 +4,7 @@ Scope: every open question about ecalc on the target (576 nodes x 4 MI300A, 8 Sl
 Cray EX, Slurm 25.11.8, ROCm 7.14.0, cray-shmem 12.1.0, libfabric 2.3.1) and every parameter the offline models still carry as
 assumed, with the decision it drives, the fastest measurement that answers it, and the offline constant it feeds. Add rows, never
 renumber. Bands: 0-99 ladder-critical (needed before the ladder's first run), 100-199 optimization, 200+ calibration (for offline
-development after access). `aggregate.py` parses the table below (columns by header name; no `|` inside cells) and fills
-`results/bench/ANSWERS.md`; each item reports `q.TQnn=<one-line answer with number and unit>` in its summary.
+development after access). The table has columns by header name and no `|` inside cells; each item reports `q.TQnn=<one-line answer with number and unit>` in its summary.
 
 Sources read: PLAN §1-§4, TASKS (open, Proposed, Target session rows 6-31), OPPORTUNITIES (open rows N1 C7 M7a-d C3 A37-R1 N4 C9 N6 M2
 N8; XSPIN, S52), results/TARGET.md, TIME_MODEL.md, LAUNCH_DEFAULTS.md (§AAC7OPT, §FIT), MEMORY.md, XSHMEM.md (T1-T8), `ecalc/mn_model.py`

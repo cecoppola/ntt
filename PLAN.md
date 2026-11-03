@@ -123,8 +123,7 @@ writes command blocks; the user pastes them on the target and pastes each summar
 owns the steps, sizes and go / no-go rules: P1 check, build and gates; P2 node screen, 64-node A/B arms and 4.608 × 10¹² on 576 nodes;
 P3 and P4 the record staircase 1.8 × 10¹³, 3.6 × 10¹³, 5.4 × 10¹³ on 576 nodes, stopping at the first failure; P5 the report.
 
-**The 2026-10-26 target session** (an agent team on the target; entry `target/RESTART.md`; kept as reference, the older staged kit is
-`target/kit/target_kit.sh -h`):
+**The 2026-10-26 target session** (an agent team on the target; entry `target/RESTART.md`; kept as reference):
 1. Probe the system (`target/probe/probe.sh`, login then one node; about
    30 s on aac7, m) and generate `target/config/target.conf` (`target/probe/gen_conf.py`).
 2. Build path 1 and path 2 (bench items `bld01`, `bld02`; about 25 s each on aac7, m).

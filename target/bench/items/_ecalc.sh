@@ -120,7 +120,7 @@ ecalc_tool() {      # REL below the ecalc dir (tests/t_edge, mnrun.sh) or below 
     _ec_path "$1" >/dev/null 2>&1; [ -n "$EC_DIR" ] || return 0
     if [ -e "$EC_DIR/$2" ]; then echo "$EC_DIR/$2"; else echo "$(cd "$EC_DIR/.." && pwd)/$2"; fi; }
 
-# the per-task module preamble of the srun wrappers (as the kit's module_preamble and mnrun.sh)
+# the per-task module preamble of the srun wrappers (as mnrun.sh)
 _ec_pre() { printf '[ -n "%s" ] && module unload %s >/dev/null 2>&1; [ -n "%s" ] && module load %s >/dev/null 2>&1; ' "$EC_UNLOAD" "$EC_UNLOAD" "$EC_MODS" "$EC_MODS"; }
 
 _ec_hosts_of() {      # NODES -> comma list of the first NODES hosts of HOSTS_SUB / HOSTS (empty when fewer)

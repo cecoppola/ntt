@@ -204,7 +204,6 @@ target/bench/run.sh --plan 8                      # how many workers of which si
 mkdir -p target/results/bench/_slurm      # sbatch logs: kept and committed (Q112), never at the clone root
 sbatch -N <n> -p <partition> -t <min> --exclusive --gpus-per-node=4 -o target/results/bench/_slurm/%j.out --wrap "cd $PWD && target/bench/run.sh --jobid \$SLURM_JOB_ID --worker w<k>"
 target/bench/run.sh --status                      # who runs what, what is done
-python3 target/bench/aggregate.py                 # results/bench/METRICS.tsv + ANSWERS.md (+ coverage warnings, progress line)
 ```
 
 Worker sizes: a few 1-node and 2-node workers take the many small items; one 8-node and one 64-node worker take the
@@ -212,7 +211,7 @@ scaling items (`net04`, `net05`, `scl02`, `scl04`, the `cal0*` multi-node points
 dependencies pass (the runner waits up to `--wait-min M` minutes, default 30, for dependencies, then exits saying what is left: restart it later).
 Stale claim (a worker died): `run.sh --reclaim <id>`; redo a FAIL after a fix: `--reclaim <id> --force` (old results move
 to `results/bench/_old/`). A failed path-2 build does not block anything: path-2 arms SKIP with a note. After every few
-items: `aggregate.py`, commit `target/results/` (coordinator). Read `ANSWERS.md` as it fills: answers in band 0-99 can
+items: commit `target/results/` (coordinator). Read the `q.*` lines of the item summaries: answers in band 0-99 can
 change the ladder's settings (ADJUST.md) before L1.
 
 Two questions have no bench script and are run by hand after the ladder's L0 passes (the rows say how): TQ83 (the archived bring-up script's stages
@@ -276,7 +275,7 @@ machine, so schedule it when the bench prio < 200 items are done or the session 
 
 | symptom | cause and fix (evidence) |
 |---|---|
-| run hangs in memory registration (ROCr ↔ libfabric) | keep `FI_MR_CACHE_MONITOR=userfaultfd` (the `mnrun.sh` default; 0/104 hangs vs 22/105 with memhooks, m aac7); `disabled` gives WRONG exchanges and is refused. If the site's kernel refuses userfaultfd (probe `uffd.*`, kit stage `uffd`), stop and tell the user before any multi-node run |
+| run hangs in memory registration (ROCr ↔ libfabric) | keep `FI_MR_CACHE_MONITOR=userfaultfd` (the `mnrun.sh` default; 0/104 hangs vs 22/105 with memhooks, m aac7); `disabled` gives WRONG exchanges and is refused. If the site's kernel refuses userfaultfd (probe `uffd.*`), stop and tell the user before any multi-node run |
 | rc 8 at start | the memory plan does not fit (`ECALC_DEVICE_GB` / `ECALC_NODE_GB`): lower the digits (the refusal prints the largest that fits) or change the settings the plan names |
 | rc 9 during a run | the memory guard (`ECALC_MEM_GUARD_GB=6`) stopped the run before the OOM killer: lower `ECALC_NODE_GB` by the overshoot it prints |
 | rc 134 | `abort()` (core file) — with `ECALC_SEGV_TRACE=1` the trace is in the log; keep the log in `results/` |
@@ -297,7 +296,7 @@ machine, so schedule it when the bench prio < 200 items are done or the session 
 ## 10. Before access ends
 
 - Commit and push `target/results/` (the coordinator, every 30-60 min and now).
-- `bench/aggregate.py`; check `results/bench/ANSWERS.md` and `METRICS.tsv` are committed.
+- Check the item summaries under `results/bench/` are committed.
 - Write `target/results/HANDOFF.md`: what ran, what is left (by priority), surprises, the next questions.
 
 ## 11. Next session plan (superseded 2026-10-28)
