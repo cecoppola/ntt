@@ -309,8 +309,7 @@ budget).
 | `xshmem.h`, `xshmem_ofi.c`, `xshmem_boot.c`, `xshmem_cray.h`, `pe_geo.c` | the API (the 1:1 mapping of the Cray SHMEM 12.1 calls) and its two backends: libfabric cxi with PMI2 bootstrap (`XSHMEM=ofi`, path 1) and Cray SHMEM (`XSHMEM=cray`, static inline, path 2); `pe_geo.c` reports each PE's GPU, NUMA node and NICs. `vpe.c` holds the PE identity of the one-process-per-GPU layout |
 | `comm_layered.c` | the layered composition of an intra (xGMI) and an inter (xshmem) communicator, §6.3 |
 | `tests/comm_sim4.c` | test-only: a synthetic four-rank layout in one APU's memory (used by `t_dist`) |
-| `comm_util.c` | shared helpers |
-| `comm_copy.c` | N7D: the GPU copy kernel for copies that touch a host-registered pool (called from `comm_xshmem.c`'s `COPY`) |
+| `comm_util.c` | shared helpers, and the GPU copy kernel for copies that touch a host-registered pool (called from `comm_xshmem.c`'s `COPY`) |
 
 Builds: the default build (`XSHMEM=ofi`, where libfabric and the PMI2 header are found) runs `COMM_TRANSPORT=xshmem` multi-node; `XSHMEM=cray` builds path 2 (`PLAN.md` section 3). The transport is xshmem on both paths. The transport, the meshes and the
 communicators are opened before any HIP thread exists, because opening them after the arenas crashed in a vendor

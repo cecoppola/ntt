@@ -101,7 +101,7 @@ static inline void comm_recv(comm *c, int from, void *b, size_t n) { c->ops->rec
 static inline void *comm_sym_alloc(comm *c, size_t bytes) { return c->ops->sym_alloc ? c->ops->sym_alloc(c, bytes) : 0; }   /* S12: a device-accessible buffer of the transport's symmetric pool, or 0 */
 static inline void comm_sym_free(comm *c, void *p) { if (p && c->ops->sym_free) c->ops->sym_free(c, p); }
 
-hipError_t comm_copy_async(void *d, const void *s, size_t n, hipStream_t st);   /* N7D: copy kernel (comm_copy.c) for copies that touch host-registered pools */
+hipError_t comm_copy_async(void *d, const void *s, size_t n, hipStream_t st);   /* N7D: copy kernel (comm_util.c) for copies that touch host-registered pools */
 comm *comm_xgmi_create(int rank);              /* WP5: four real ranks = four APUs of one node, driven by four host threads; safe to create concurrently */
 /* M3: the layered communicator of a node group: intra (the four APUs, xGMI, size 4) x inter (mesh d over the
  * g nodes, rank = node); this APU thread d is global rank g d + node, size 4 g (comm_layered.c) */
