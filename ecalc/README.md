@@ -61,6 +61,11 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 
 ## Switches
 
+At start-up `ecalc` exits with rc 2 and names the variable when the environment has a name with one of our prefixes (`ECALC_`, `XSHMEM_`,
+`MN_`, `RNS_`, `P24_`, `DB_`, `BS_`, `COMM_`, `DM_`, `MNRUN_`, `NEWTON_`, `MDB_`, `DIST_`, `MEM_`, `TSTRAT_`) that the generator does not know
+(read by the code, by a test, or named in a launcher script): a typo would otherwise do nothing. `ecalc --settings` prints each registered
+setting, its default and the value in force.
+
 Every environment variable the code reads (`grep -ho 'getenv("[A-Z0-9_]*")\|env_int("[A-Z0-9_]*"' *.c *.h`), one row each: the
 default, the scope (launch-line, built-in default, experiment, test-only, unclassified), one sentence and the `results/` evidence.
 The digits never depend on any of them: everything is bit-identical by construction and checked so by the regression (the

@@ -549,6 +549,8 @@ int main(int argc, char **argv)
 {
     if (mapd_is_helper(argc, argv)) return mapd_helper_main(argc, argv);   /* ECALC_MAPD=1: this executable as an APU's chunk-creating helper (mapd.c) */
     const double tl_age = ec_proc_age_s();                   /* ECALC_INIT_TL=1: the process's age at main (read before anything else runs) */
+    if (argc > 1 && !strcmp(argv[1], "--settings")) { cfg_settings(); return 0; }
+    if (cfg_guard()) return 2;                        /* an unregistered ECALC_/XSHMEM_/... name: a typo would silently do nothing */
     cfg_snapshot();                                   /* L5: record the registered switches set in the environment, before ecalc sets any itself (print-only) */
     /* MN_PLAN_ONLY=<total digits>:<g> -- the plan of a run of that size on g node-processes (mn_plan.c): every
      * large product's grid, pieces and planes from the code's own decisions, no device, no communicator; exits after the knobs

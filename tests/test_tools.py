@@ -36,6 +36,28 @@ class SwitchRegistry(unittest.TestCase):
         self.assertFalse(sr.in_comment("int a = getenv(\"X\");", 8))
 
 
+class SettingsGuard(unittest.TestCase):
+    """ecalc/config_line.c: an unregistered ECALC_/XSHMEM_/... name in the environment is refused (rc 2)"""
+    def test_guard(self):
+        tmp = tempfile.mkdtemp(prefix="test_guard_")
+        try:
+            with open(os.path.join(tmp, "m.c"), "w") as f:
+                f.write('#include "config_line.h"\nint main(int c, char **v){ if (c > 1) { cfg_settings(); return 0; } return cfg_guard() ? 2 : 0; }\n')
+            exe = os.path.join(tmp, "m")
+            e = os.path.join(ROOT, "ecalc")
+            subprocess.check_call(["gcc", "-I" + e, "-o", exe, os.path.join(tmp, "m.c"), os.path.join(e, "config_line.c")])
+            env = {"PATH": os.environ["PATH"]}
+            self.assertEqual(subprocess.call([exe], env=env), 0)
+            self.assertEqual(subprocess.call([exe], env=dict(env, ECALC_NP="3", MNRUN_PPN="1", PE_ENV="x")), 0)
+            r = subprocess.run([exe], env=dict(env, ECALC_FOO="1"), stderr=subprocess.PIPE, universal_newlines=True)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("ECALC_FOO", r.stderr)
+            r = subprocess.run([exe, "s"], env=dict(env, ECALC_NP="3"), stdout=subprocess.PIPE, universal_newlines=True)
+            self.assertRegex(r.stdout, r"ECALC_NP\s+\S+\s+3\n")
+        finally:
+            shutil.rmtree(tmp)
+
+
 class DocCheck(unittest.TestCase):
     def test_repo_clean(self):
         r = run("doccheck.py")
