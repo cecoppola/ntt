@@ -1187,20 +1187,7 @@ void db_set_base_pow(dbig *r, size_t k)
     uint64_t one = 1; size_t d = hq(r, k); mem_dev_copy_on(dv_((int)d), r->q[d] + (k - d * r->qc), &one, 8);
     r->n = k + 1;
 }
-/* r = (the low m limbs of a) B^k, as an n-limb number: zeros plus a small copy (I3: the division's remainder window) */
 __global__ void k_fill0(uint64_t *p, size_t n) { size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x; for (; i < n; i += st) p[i] = 0; }
-void db_set_shifted_low(dbig *r, const dbig *a, size_t m, size_t k, size_t n)
-{
-    db_reserve(r, n);
-#pragma omp parallel for num_threads(nq_())
-    for (int d = 0; d < nq_(); d++) { int dv = dv_(d); size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(dv));
-#pragma omp critical
-        k_fill0<<<228 * 8, 256>>>(r->q[d], hi - lo);                  /* (hipMemset runs at ~10 GB/s here) */
-        HIP_CHECK(hipStreamSynchronize(0)); } }
-    if (m > a->n) m = a->n;
-    for (size_t i = 0; i < m && k + i < n; i++) { uint64_t v = db_limb(a, i); size_t g = k + i, d = hq(r, g); mem_dev_copy_on(dv_((int)d), r->q[d] + (g - d * r->qc), &v, 8); }
-    r->n = n; db_norm(r);
-}
 /* M3: r = n zero limbs (r->n = n, not normalised: a share to be filled by a scatter) */
 void db_zero_fill(dbig *r, size_t n)
 {

@@ -403,7 +403,7 @@ static void layered_bench(int logn, int reps)
     }
     HIP_CHECK(hipSetDevice(0));
 }
-/* --vpe: form S (rns_local.c) on lane 0 (the PE view forced, no threads) against form C (the four-APU product, switch off): same operands, identical bigints,
+/* --vpe: form S (rns_mul.c) on lane 0 (the PE view forced, no threads) against form C (the four-APU product, switch off): same operands, identical bigints,
  * the forced-carry kinds (all-ones, sparse) included; low / band products against the truncated full product; the grid at a lowered plane cap */
 struct vcase { bigint A, B, C; };
 static struct vcase g_vc[24]; static int g_nvc; static int g_vbad[VPE_MAX]; static char g_vw[VPE_MAX][96];

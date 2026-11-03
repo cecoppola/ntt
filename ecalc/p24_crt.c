@@ -1,6 +1,6 @@
 /* p24_crt.c - (results/COMPUTE.md §P2415): the CRT of a P24 plane (four primes, 24 digits per point) into
  * base-10^18 limbs.  One block per column j of the rank's plane: its points [x0, x0 + rows), x0 = R j + a, in chunks of 256 --
- * thread k does Garner for point x0 + k0 + k (dgarner4: a copy of rns_mul.c's, static there), its four base-10^18 digits and their
+ * thread k does Garner for point x0 + k0 + k (dgarner4, rns_int.h), its four base-10^18 digits and their
  * shift by s(x) = 6 (x mod 3) digits into E[x] = e[0..3] at limbs L(x) .. L(x) + 3 (p24.h); then the chunk's limbs
  * [L(x0 + k0), L(x0 + k0 + n)) sum the E of the (at most three) points that meet them -- the last three points of the previous chunk
  * kept as the tails -- the carry chain is a carry-lookahead over
@@ -18,32 +18,6 @@
 #define P24_T 256
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
-
-/* ---- the device Garner (dmod128 / dmod192 are shared with rns_mul.c through rns_int.h) -------------------------------------- */
-__device__ static inline void p24_dgarner4(const struct gconst *g, const uint64_t r[4], uint64_t out[4])
-{
-    uint64_t x0 = r[0], x1, x2;
-    { uint64_t xm = ec_canon64(x0, g->m[1].pu, g->m[1].mu), df = ec_fold(r[1] + g->m[1].pu - xm, g->m[1].pu);
-      uint64_t t1 = (uint64_t)ec_mm((double)df, (double)g->c1, g->m[1].p, g->m[1].pinv);
-      uint64_t lo = t1 * g->m[0].pu, hi = __umul64hi(t1, g->m[0].pu);
-      uint64_t s = lo + x0; hi += s < lo; x0 = s; x1 = hi; }
-    { uint64_t xm = dmod128(x1, x0, g->m[2], g->c64[2]), df = ec_fold(r[2] + g->m[2].pu - xm, g->m[2].pu);
-      uint64_t t2 = (uint64_t)ec_mm((double)df, (double)g->c2, g->m[2].p, g->m[2].pinv);
-      uint64_t l0 = t2 * g->M1[0], h0 = __umul64hi(t2, g->M1[0]);
-      uint64_t l1 = t2 * g->M1[1], h1 = __umul64hi(t2, g->M1[1]);
-      uint64_t s0 = l0 + x0, c0 = s0 < l0;
-      uint64_t s1 = h0 + l1, c1 = s1 < h0; s1 += x1; c1 += s1 < x1; s1 += c0; c1 += s1 < c0;
-      x0 = s0; x1 = s1; x2 = h1 + c1; }
-    { uint64_t xm = dmod192(x2, x1, x0, g->m[3], g->c64[3]), df = ec_fold(r[3] + g->m[3].pu - xm, g->m[3].pu);
-      uint64_t t3 = (uint64_t)ec_mm((double)df, (double)g->c3, g->m[3].p, g->m[3].pinv);
-      uint64_t l0 = t3 * g->M2[0], h0 = __umul64hi(t3, g->M2[0]);
-      uint64_t l1 = t3 * g->M2[1], h1 = __umul64hi(t3, g->M2[1]);
-      uint64_t l2 = t3 * g->M2[2], h2 = __umul64hi(t3, g->M2[2]);
-      uint64_t s0 = l0 + x0, c0 = s0 < l0;
-      uint64_t s1 = h0 + l1, c1 = s1 < h0; s1 += x1; c1 += s1 < x1; s1 += c0; c1 += s1 < c0;
-      uint64_t s2 = h1 + l2, c2 = s2 < h1; s2 += x2; c2 += s2 < x2; s2 += c1; c2 += s2 < c1;
-      out[0] = s0; out[1] = s1; out[2] = s2; out[3] = h2 + c2; }
-}
 
 __device__ unsigned long long p24_err_x = ~0ULL;           /* per device: the smallest plane point index that raised a flag since the last read */
 __global__ __launch_bounds__(P24_T)
@@ -67,7 +41,7 @@ void k_crt24(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const u
         uint64_t e[4] = { 0, 0, 0, 0 };
         if ((size_t)tid < n) {
             size_t k = base + k0 + tid; uint64_t r[4] = { p0[k], p1[k], p2[k], p3[k] }, c[4], d[4];
-            p24_dgarner4(&g, r, c); ec_words_to_dec4(c, d);
+            dgarner4(&g, r, c); ec_words_to_dec4(c, d);
             unsigned fl = p24_shift_digits(d, p24_s(xc + tid), e) ? 1u : 0u;
             if (chk && d[3] >= 1000000ULL) fl |= 4u;           /* all-shift flag (P24_CRT_ANY / P24_CHECK): c >= 10^60 (d[3] 10^54) at any s */
             if (fl) { atomicOr(err, fl); atomicMin(&p24_err_x, (unsigned long long)(xc + tid)); }

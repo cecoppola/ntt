@@ -388,7 +388,7 @@ static void cache_pc_report(void)                             /* the run's parti
  *         2 n points per APU on ec_np APUs (at P = 3 APU 3 only takes part in the CRT).
  *   B4    B spread over all four APUs at P = 3 (ec_np = 3; at P = 4 it is B): the product mod x^n - 1 splits into its
  *         residues mod x^(n/2) - 1 and x^(n/2) + 1 -- in the forward DIF's bit-reversed output (of each third for
- *         3 2^k: ntt3.c's radix-3 stage first) the lower and the upper half.  APU p < 3 transforms X (the longer operand)
+ *         3 2^k: ntt.c's radix-3 stage first) the lower and the upper half.  APU p < 3 transforms X (the longer operand)
  *         whole and Y's lower residue (n/2 points: y[j] + y[j + h] after the radix-3 stage); APU 3 forms and transforms
  *         the three primes' upper residues ((y[j] - y[j + h]) w_m^j, Y read once); APU p multiplies its upper half by
  *         APU 3's plane (a peer read), inverts, and the CRT as in B.  1.5 n points per APU (C's 12 n bytes at P = 3),
@@ -685,7 +685,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
                       dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_a2a = 0; }
 }
 
-/* the one-plane product of the single-node tier: form S under vPE (rns_local.c; the operands and the result are whole dbigs), else dist_core */
+/* the one-plane product of the single-node tier: form S under vPE (rns_mul.c; the operands and the result are whole dbigs), else dist_core */
 static void prod_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int sa, int sb)
 {
     if (vpe_on()) { rns_local_core(Cw.owner, A.owner, B.owner, nc); return; }

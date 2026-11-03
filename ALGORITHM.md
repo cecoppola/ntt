@@ -97,14 +97,14 @@ on it, leaving (P_r, Q_r) on its devices. `mn_tree` then combines nodes in group
 
 All big products C = A·B (optionally + X, or restricted to a window of the result) are computed as integer polynomial
 products: the limbs are the coefficients, the result coefficients are reconstructed exactly and their carries propagated
-into limbs. Files: `modarith.h` (primes, modular arithmetic), `ntt.c/h`, `ntt3.c` (kernels), `crt.c/h`, `p24.h`,
+into limbs. Files: `modarith.h` (primes, modular arithmetic), `ntt.c/h` (kernels), `crt.c/h`, `p24.h`,
 `p24_crt.c` (reconstruction), `rns_mul.c/h` (batch tier, plane pools), `rns_dist.c`, `ntt_dist.c/h`
 (distributed tiers, grids).
 
 ### 4.1 Primes and sizes
 
 The primes are p = c·2⁴⁴ + 1 with 3 | c, c = 240, 216, 207, 147 (`ec_P` in `modarith.h`), all below 2⁵². The factor 3
-gives roots of unity of order 3·2^k, so transform lengths are 2^k **or 3·2^k** (radix-3 layer in `ntt3.c`); a product pads
+gives roots of unity of order 3·2^k, so transform lengths are 2^k **or 3·2^k** (radix-3 layer in `ntt.c`); a product pads
 to at most 1.5× its coefficient count instead of 2×.
 
 For operands of na and nb limbs the product has nc = na + nb coefficients; the transform length n is the smallest 2^k or
@@ -131,7 +131,7 @@ the butterflies and canonical values for twiddles. About 1.3 × 10¹² modmul/s 
 needed: the forward output is bit-reversed and the pointwise product only needs both operands in the same order. A
 transform of 2^logn points is a series of **passes**: register-blocked 7-stage radix-2 passes over the top stages, then one
 pass on 2^10–2^12-point blocks in LDS; `plan_auto` moves pass boundaries off the slow strides at a few sizes. The pointwise
-product is fused into the first inverse pass and the scaling by n⁻¹ into the last. Lengths 3·2^k (`ntt3.c`) do one radix-3
+product is fused into the first inverse pass and the scaling by n⁻¹ into the last. Lengths 3·2^k (`ntt.c`) do one radix-3
 stage over the thirds and then three 2^k transforms (batch 3); the inverse mirrors it.
 
 ### 4.3 Reconstruction back to decimal limbs

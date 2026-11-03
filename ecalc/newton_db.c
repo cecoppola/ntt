@@ -248,7 +248,7 @@ static void dkm_est_db(dbig *Xd, const dbig *S, size_t dl, size_t nq, size_t k, 
     rns_mul_high_db(&t, &Ah, mu, k + 1);
     db_shr_limbs(Xd, &t, k + 1); db_free(&t);
 }
-/* A mod B^w for A = S B^dl: (S mod B^(w - dl)) B^dl by a device shift (db_set_shifted_low copies limb by limb: a few limbs only) */
+/* A mod B^w for A = S B^dl: (S mod B^(w - dl)) B^dl by a device shift */
 static void dkm_window_db(dbig *Aw, const dbig *S, size_t dl, size_t w)
 {
     size_t m = w > dl ? w - dl : 0; if (m > S->n) m = S->n;
