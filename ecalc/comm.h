@@ -79,7 +79,7 @@ void comm_wst_wait(comm *c); void comm_wst_barrier(comm *c);
 int comm_wst_set_phase(int p);                       /* returns the previous phase */
 int comm_wst_enabled(void);
 void comm_wst_totals(uint64_t ns[WST_NP][3], uint64_t n[WST_NP][3]);   /* [phase][0 barrier, 1 wait, 2 ready]: ns summed over the threads */
-/* X1: the kind of the exchange a caller is about to post, thread-local, captured by the transport at post time (comm_xshmem.c: the lane trace).  Callers set it before comm_alltoall[v] and restore the previous value after;
+/* X1: the kind of the exchange a caller is about to post, thread-local, captured by the transport at post time.  Callers set it before comm_alltoall[v] and restore the previous value after;
  * the default is XK_OTHER.  Layered exchanges (comm_layered.c's inter stage) are XK_LAYEQ / XK_LAYV; everything else is direct. */
 enum { XK_OTHER, XK_REDIST, XK_RESULT, XK_SPILL, XK_ADDSH, XK_LAYEQ, XK_LAYV, XK_NK };
 extern __thread int comm_xtag;
@@ -101,7 +101,7 @@ static inline void comm_recv(comm *c, int from, void *b, size_t n) { c->ops->rec
 static inline void *comm_sym_alloc(comm *c, size_t bytes) { return c->ops->sym_alloc ? c->ops->sym_alloc(c, bytes) : 0; }   /* S12: a device-accessible buffer of the transport's symmetric pool, or 0 */
 static inline void comm_sym_free(comm *c, void *p) { if (p && c->ops->sym_free) c->ops->sym_free(c, p); }
 
-hipError_t comm_copy_async(void *d, const void *s, size_t n, hipStream_t st);   /* N7D: copy kernel (comm_copy.c) for copies that touch host-registered pools */
+hipError_t comm_copy_async(void *d, const void *s, size_t n, hipStream_t st);   /* N7D: copy kernel (comm_util.c) for copies that touch host-registered pools */
 comm *comm_xgmi_create(int rank);              /* WP5: four real ranks = four APUs of one node, driven by four host threads; safe to create concurrently */
 /* M3: the layered communicator of a node group: intra (the four APUs, xGMI, size 4) x inter (mesh d over the
  * g nodes, rank = node); this APU thread d is global rank g d + node, size 4 g (comm_layered.c) */

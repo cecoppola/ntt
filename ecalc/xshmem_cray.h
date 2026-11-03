@@ -1,21 +1,10 @@
-/* xshmem_cray.h -- the Cray SHMEM backend of xshmem.h (static inline, one forwarding line per call).  Included by xshmem.h when
- * XSHMEM_CRAY is defined (make XSHMEM=cray).  Builds against the 11.8 headers on aac7 (-lsma, SHMEM_LIBS) and is the file edited on the
- * target (12.1): the unknown names of design 1.3 are the XSHMEM_CRAY_* selectors below; none is guessed, an unselected unknown is the
- * 11.8 / OpenSHMEM-1.5 form or a compile-time #error with a hint.
- *
- * Selectors (-D on the make line via XSHMEM_CRAY_DEFS, default = what works on 11.8):
- *   XSHMEM_CRAY_HEAP     0 host heap shmem_malloc (default; design 1.3 a-3, MI300A host memory is the same HBM)
- *                        1 shmem_space_malloc(SHMEM_SPACE_DEVICE, n)   [12.1 name from research, UNVERIFIED]
- *                        2 shmem_malloc_with_hints(n, XSHMEM_CRAY_HINT)   [define XSHMEM_CRAY_HINT, else #error]
- *                        3 shmemg_malloc(n)                              [UNVERIFIED]
- *   XSHMEM_CRAY_SIGSET   0 shmemx_ctx_signal_set (default; the 11.8 name)  1 shmem_ctx_signal_set  2 shmem_ctx_uint64_p
- *                        3 zero-length putmem_signal_nbi on the signal word
+/* xshmem_cray.h -- the Cray SHMEM backend of xshmem.h (static inline, one forwarding line per call), included when XSHMEM_CRAY is defined
+ * (make XSHMEM=cray).  Compile-time selectors (-D via XSHMEM_CRAY_DEFS; the default is what works on the 11.8 headers):
+ *   XSHMEM_CRAY_HEAP     0 host heap shmem_malloc (default; MI300A host memory is the same HBM)
+ *                        1 shmem_space_malloc(SHMEM_SPACE_DEVICE, n)  2 shmem_malloc_with_hints(n, XSHMEM_CRAY_HINT)  3 shmemg_malloc(n)   [12.1 names, UNVERIFIED]
  *   XSHMEM_CRAY_WAIT     0 shmem_signal_wait_until (default)  1 shmem_uint64_wait_until
- *   XSHMEM_CRAY_TEST     0 shmem_signal_fetch + compare (default)  1 shmem_uint64_test
- *   XSHMEM_CRAY_HOSTREG  1 (default): HEAP=0 registers the DATA heap with hipHostRegister (needs -DUSE_HIP, set by the Makefile); 0 = no
- *   XSHMEM_CRAY_PUTSIG_SPLIT  1: putmem_signal_nbi = putmem_nbi + ctx_fence + signal_set (design 1.3 c); default 0 = the library call
- * The XSHMEM_CTRL=host switch (design 1.3 b) puts the CTRL space in a second host shmem_malloc when HEAP is a device heap.
- */
+ *   XSHMEM_CRAY_HOSTREG  1 (default): HEAP=0 registers the DATA heap with hipHostRegister (needs -DUSE_HIP); 0 = no
+ * XSHMEM_CTRL=host puts the CTRL space in a second host shmem_malloc when HEAP is a device heap. */
 #ifndef XSHMEM_CRAY_H
 #define XSHMEM_CRAY_H
 
@@ -31,24 +20,13 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/mman.h>
-#include <time.h>
-static inline double xshmem_cray_now(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return (double)ts.tv_sec + 1e-9 * (double)ts.tv_nsec; }
 #include "pe_geo.h"
 
 #ifndef XSHMEM_CRAY_HEAP
 #define XSHMEM_CRAY_HEAP 0
 #endif
-#ifndef XSHMEM_CRAY_SIGSET
-#define XSHMEM_CRAY_SIGSET 0
-#endif
 #ifndef XSHMEM_CRAY_WAIT
 #define XSHMEM_CRAY_WAIT 0
-#endif
-#ifndef XSHMEM_CRAY_TEST
-#define XSHMEM_CRAY_TEST 0
-#endif
-#ifndef XSHMEM_CRAY_PUTSIG_SPLIT
-#define XSHMEM_CRAY_PUTSIG_SPLIT 0
 #endif
 
 #if XSHMEM_CRAY_HEAP == 1 && !defined(SHMEM_SPACE_DEVICE)
@@ -59,9 +37,6 @@ static inline double xshmem_cray_now(void) { struct timespec ts; clock_gettime(C
 #endif
 #if XSHMEM_CRAY_HEAP < 0 || XSHMEM_CRAY_HEAP > 3
 #error "xshmem_cray.h: XSHMEM_CRAY_HEAP must be 0..3"
-#endif
-#if XSHMEM_CRAY_SIGSET < 0 || XSHMEM_CRAY_SIGSET > 3
-#error "xshmem_cray.h: XSHMEM_CRAY_SIGSET must be 0..3"
 #endif
 #ifndef XSHMEM_CRAY_HOSTREG
 #define XSHMEM_CRAY_HOSTREG 1       /* HEAP=0: hipHostRegister the DATA heap (the engine's copy kernels and hipMemcpy touch it from the GPU) */
@@ -79,16 +54,11 @@ typedef struct xshmem_cray_state {
     size_t size[2];
     char *reg_base;           /* hipHostRegister'ed by us (page range enclosing the heap), else NULL; never set when libsma already owns the mapping */
     int prov;
-    int rt_sigset, rt_test, rt_split;   /* runtime overrides of XSHMEM_CRAY_SIGSET / _TEST / _PUTSIG_SPLIT (env of the same name), -1 = the compiled default; read at init */
 } xshmem_cray_state_t;
 extern xshmem_cray_state_t xshmem_cray_st;
 __attribute__((weak)) xshmem_cray_state_t xshmem_cray_st;
 
-static inline int xshmem_init_thread(int req, int *prov) { int pv = 0; const char *e1 = getenv("XSHMEM_CRAY_SIGSET"), *e2 = getenv("XSHMEM_CRAY_TEST"), *e3 = getenv("XSHMEM_CRAY_PUTSIG_SPLIT");
-    xshmem_cray_st.rt_sigset = e1 && *e1 && atoi(e1) >= 0 && atoi(e1) <= 3 ? atoi(e1) : -1; xshmem_cray_st.rt_test = e2 && *e2 && atoi(e2) >= 0 && atoi(e2) <= 1 ? atoi(e2) : -1; xshmem_cray_st.rt_split = e3 && *e3 && atoi(e3) >= 0 && atoi(e3) <= 1 ? atoi(e3) : -1;
-    double t0_ = xshmem_cray_now(); int r = shmem_init_thread(req, &pv);
-    { const char *tr = getenv("XSHMEM_LANE_TRACE"); if (tr && atof(tr) > 0) fprintf(stderr, "xshmem_cray: pe %d: shmem_init_thread %.2f s\n", shmem_my_pe(), xshmem_cray_now() - t0_); }
-    if (prov) *prov = pv; xshmem_cray_st.prov = pv; return r; }
+static inline int xshmem_init_thread(int req, int *prov) { int pv = 0; int r = shmem_init_thread(req, &pv); if (prov) *prov = pv; xshmem_cray_st.prov = pv; return r; }
 static inline void xshmem_finalize(void) { shmem_finalize(); }
 static inline void xshmem_global_exit(int status) { shmem_global_exit(status); }
 static inline int xshmem_my_pe(void) { return shmem_my_pe(); }
@@ -121,41 +91,9 @@ static inline void xshmem_cray_thp_report(void *p, size_t n, const char *when)
             shmem_my_pe(), p, n >> 20, when, hdr, kps, rss >> 10, ahp >> 10, spmd >> 10, fpmd >> 10);
 }
 
-#if defined(USE_HIP) && XSHMEM_CRAY_HOSTREG && defined(__HIP__)   /* kernel: HIP-language compile only (the tests compile this header with -x c) */
-#ifdef __cplusplus
-extern "C++" {   /* the tests include this header inside extern "C": the HIP headers and the kernel need C++ linkage */
-#endif
-#include <hip/hip_runtime.h>
-/* XSHMEM_CRAY_GPU_PRETOUCH=1 (default 0): after hipHostRegister, one GPU kernel reads one byte per 4 KiB page of the DATA heap on the PE's own device, so the GPU page tables
- * are populated at init (diagnosis of the ~5 s first-exchange stream sync on every PE: lazy GPU first touch of a 4 KiB registered heap?). */
-__global__ static void xshmem_cray_touch_k(const volatile unsigned char *p, size_t npg, unsigned char *sink)
-{
-    unsigned char a = 0; for (size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x; i < npg; i += (size_t)gridDim.x * blockDim.x) a ^= p[i << 12];
-    if (a == 0xFE && threadIdx.x == 0x7FFFFFFF) *sink = a;   /* keeps the loads */
-}
-static inline double xshmem_cray_gpu_pretouch(const void *p, size_t n)
-{
-    const char *e = getenv("XSHMEM_CRAY_GPU_PRETOUCH"); if (!e || atoi(e) <= 0) return 0;
-    double t0 = xshmem_cray_now(); int ngpu = 0, prev = 0; const char *l = getenv("SLURM_LOCALID"), *g = getenv("XSHMEM_PES_PER_GPU");
-    if (hipGetDeviceCount(&ngpu) != hipSuccess || ngpu < 1) { (void)hipGetLastError(); return 0; }
-    int ppg = g && atoi(g) > 0 ? atoi(g) : 1, dev = ngpu == 1 ? 0 : ((l ? atoi(l) : 0) / ppg) % ngpu;
-    (void)hipGetDevice(&prev); (void)hipSetDevice(dev);
-    unsigned char *sink = NULL; if (hipMalloc((void **)&sink, 1) != hipSuccess) { (void)hipGetLastError(); (void)hipSetDevice(prev); return 0; }
-    size_t npg = n >> 12; hipLaunchKernelGGL(xshmem_cray_touch_k, dim3(4096), dim3(256), 0, 0, (const volatile unsigned char *)p, npg, sink);
-    hipError_t he = hipGetLastError(); if (he == hipSuccess) he = hipDeviceSynchronize(); (void)hipFree(sink); (void)hipSetDevice(prev); (void)hipGetLastError();
-    double t = xshmem_cray_now() - t0; fprintf(stderr, "xshmem_cray: pe %d: XSHMEM_CRAY_GPU_PRETOUCH: device %d touched %zu pages in %.2f s (%s)\n", shmem_my_pe(), dev, npg, t, he == hipSuccess ? "ok" : "ERROR");
-    return t;
-}
-#ifdef __cplusplus
-}
-#endif
-#else
-static inline double xshmem_cray_gpu_pretouch(const void *p, size_t n) { (void)p; (void)n; return 0; }   /* not compiled in this translation unit */
-#endif
-
 static inline void *xshmem_heap_alloc(size_t bytes, int space)
 {
-    xshmem_cfg_t cfg; void *p; int host; double th0 = xshmem_cray_now(), th1, th2, th3 = 0, th4;
+    xshmem_cfg_t cfg; void *p; int host;
     size_t n = (bytes + (2u << 20) - 1) & ~(size_t)((2u << 20) - 1);
     xshmem_cfg_load(&cfg);
     if (xshmem_cray_st.base[space]) { fprintf(stderr, "xshmem_cray: second heap allocation in space %d while one is registered (single-slot bookkeeping assumes K=1)\n", space); shmem_global_exit(1); }
@@ -171,14 +109,12 @@ static inline void *xshmem_heap_alloc(size_t bytes, int space)
     else p = NULL;
 #endif
     if (!p) { fprintf(stderr, "xshmem: heap_alloc(%zu, space %d) failed\n", n, space); shmem_global_exit(1); }
-    th1 = xshmem_cray_now();
     int thp = (host && space == XSHMEM_SPACE_DATA) ? xshmem_cray_thp_mode() : 0;
     if (thp == 1) { uintptr_t a = (uintptr_t)p & ~(uintptr_t)4095; if (madvise((void *)a, n + ((uintptr_t)p - a), MADV_HUGEPAGE)) fprintf(stderr, "xshmem_cray: pe %d: MADV_HUGEPAGE failed: errno %d\n", shmem_my_pe(), errno); }
 #if XSHMEM_CRAY_HEAP == 1 || XSHMEM_CRAY_HEAP == 3
     if (!host) hipMemset(p, 0, n); else
 #endif
-    { const char *nm = getenv("XSHMEM_CRAY_NOMEMSET"); if (!(host && space == XSHMEM_SPACE_DATA && nm && atoi(nm) > 0)) memset(p, 0, n); }   /* NOMEMSET=1 (diagnosis): the heap is a fresh zero mapping, skip our touch */
-    th2 = xshmem_cray_now();
+    memset(p, 0, n);
     if (thp) {
         if (thp == 1) { const uintptr_t H = 2u << 20; uintptr_t a = ((uintptr_t)p + H - 1) & ~(H - 1), e = ((uintptr_t)p + n) & ~(H - 1); int err = 0; for (uintptr_t o = a; o < e; o += (256u << 20)) { size_t l = e - o < (256u << 20) ? e - o : (256u << 20); if (madvise((void *)o, l, MADV_COLLAPSE) && !err) err = errno; } if (err) fprintf(stderr, "xshmem_cray: pe %d: MADV_COLLAPSE: errno %d\n", shmem_my_pe(), err); }
         xshmem_cray_thp_report(p, n, thp == 1 ? "after MADV_HUGEPAGE+memset+COLLAPSE" : "after memset");
@@ -198,14 +134,8 @@ static inline void *xshmem_heap_alloc(size_t bytes, int space)
         }
     }
 #endif
-#if defined(USE_HIP) && XSHMEM_CRAY_HOSTREG
-    if (host && space == XSHMEM_SPACE_DATA) (void)xshmem_cray_gpu_pretouch(p, n);
-#endif
-    th3 = xshmem_cray_now();
     xshmem_cray_st.base[space] = (char *)p; xshmem_cray_st.size[space] = n;
     shmem_barrier_all();
-    th4 = xshmem_cray_now();
-    { const char *tr = getenv("XSHMEM_LANE_TRACE"); if (tr && atof(tr) > 0) fprintf(stderr, "xshmem_cray: pe %d: heap space %d %zu MiB: shmem_malloc %.2f s, zero %.2f s, hipHostRegister %.2f s, barrier %.2f s\n", shmem_my_pe(), space, n >> 20, th1 - th0, th2 - th1, th3 - th2, th4 - th3); }
     return p;
 }
 static inline void xshmem_heap_free(void *base)
@@ -232,16 +162,7 @@ static inline void *xshmem_at(ptrdiff_t off)
     return (off & XSHMEM_OFF_CTRL) ? (void *)(xshmem_cray_st.base[1] + (off & ~XSHMEM_OFF_CTRL)) : (void *)(xshmem_cray_st.base[0] + off);
 }
 
-static inline void xshmem_ctx_signal_set(xshmem_ctx_t ctx, uint64_t *sig, uint64_t val, int pe)
-{
-    int m = xshmem_cray_st.rt_sigset >= 0 ? xshmem_cray_st.rt_sigset : XSHMEM_CRAY_SIGSET;
-    if (m == 0) shmemx_ctx_signal_set((shmem_ctx_t)ctx, sig, val, pe);
-#if XSHMEM_CRAY_SIGSET == 1
-    else if (m == 1) shmem_ctx_signal_set((shmem_ctx_t)ctx, sig, val, pe);   /* 12.1 name: compiled in only with -DXSHMEM_CRAY_SIGSET=1 */
-#endif
-    else if (m == 2) shmem_ctx_uint64_p((shmem_ctx_t)ctx, (uint64_t *)sig, val, pe);
-    else shmem_ctx_putmem_signal_nbi((shmem_ctx_t)ctx, (void *)sig, (const void *)sig, 0, sig, val, SHMEM_SIGNAL_SET, pe);
-}
+static inline void xshmem_ctx_signal_set(xshmem_ctx_t ctx, uint64_t *sig, uint64_t val, int pe) { shmemx_ctx_signal_set((shmem_ctx_t)ctx, sig, val, pe); }
 static inline void xshmem_ctx_putmem_nbi(xshmem_ctx_t ctx, void *dest, const void *src, size_t n, int pe)
 { shmem_ctx_putmem_nbi((shmem_ctx_t)ctx, dest, src, n, pe); }
 static inline void xshmem_ctx_quiet(xshmem_ctx_t ctx) { shmem_ctx_quiet((shmem_ctx_t)ctx); }
@@ -249,11 +170,7 @@ static inline void xshmem_ctx_fence(xshmem_ctx_t ctx) { shmem_ctx_fence((shmem_c
 static inline void xshmem_ctx_putmem_signal_nbi(xshmem_ctx_t ctx, void *dest, const void *src, size_t n, uint64_t *sig, uint64_t val, int sig_op, int pe)
 {
     (void)sig_op;                                  /* XSHMEM_SIGNAL_SET only */
-    if (xshmem_cray_st.rt_split >= 0 ? xshmem_cray_st.rt_split : XSHMEM_CRAY_PUTSIG_SPLIT) {
-        xshmem_ctx_putmem_nbi(ctx, dest, src, n, pe);
-        xshmem_ctx_fence(ctx);
-        xshmem_ctx_signal_set(ctx, sig, val, pe);
-    } else shmem_ctx_putmem_signal_nbi((shmem_ctx_t)ctx, dest, src, n, sig, val, SHMEM_SIGNAL_SET, pe);
+    shmem_ctx_putmem_signal_nbi((shmem_ctx_t)ctx, dest, src, n, sig, val, SHMEM_SIGNAL_SET, pe);
 }
 
 static inline uint64_t xshmem_signal_wait_until(uint64_t *sig, int cmp, uint64_t v)
@@ -269,8 +186,7 @@ static inline uint64_t xshmem_signal_wait_until(uint64_t *sig, int cmp, uint64_t
 static inline int xshmem_signal_test(const uint64_t *sig, int cmp, uint64_t v)
 {
     (void)cmp;
-    if ((xshmem_cray_st.rt_test >= 0 ? xshmem_cray_st.rt_test : XSHMEM_CRAY_TEST) == 0) return shmem_signal_fetch(sig) >= v;
-    return shmem_uint64_test((uint64_t *)sig, SHMEM_CMP_GE, v);
+    return shmem_signal_fetch(sig) >= v;
 }
 
 static inline int xshmem_ctx_create(long opt, xshmem_ctx_t *c) {
