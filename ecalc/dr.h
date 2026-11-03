@@ -30,7 +30,6 @@ void dr_init_from_env(void);                   /* parse the environment again (t
 /* ---- fault injection: ECALC_DR_TEST=<kind>, _K = the k-th occurrence (default 1), _PE = one PE (default 0; -1 = every PE), _N = consecutive attempts (default 1; 2 = persistent), _M = consecutive products from the K-th (default 1) ---- */
 enum { DR_FLAG, DR_DELIVER, DR_STORE, DR_XQL, DR_CYC, DR_LEAF, DR_NKINDS };
 #define DR_SLOTS 16                            /* latches: one per local worker thread */
-const char *dr_kind_name(int kind);
 int dr_test_kind(void);                        /* the kind, or -1 */
 int dr_test_k(void);
 int dr_test_pe(void);

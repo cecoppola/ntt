@@ -11,11 +11,11 @@
 #include "ntt_dist.h"
 #include "modarith.h"
 #include "mem.h"
-#include "memsample.h"                                /* Phase 14 S1 (E1) */
+#include "memsample.h"                                
 #include "vpe.h"                                        /* PE identity (ECALC_PE_PER_GPU) */
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define NA 4
-static int g_rank, g_size = 1; static comm *g_cm[NA];   /* off path: this node and the nodes; under ECALC_PE_PER_GPU g_rank / g_size stay the NODE values -- the PE view is mn_rank() / mn_size() */
+static int g_rank, g_size = 1; static comm *g_cm[NA];   /* off path: this node and the nodes; under ECALC_PE_PER_GPU g_rank / g_size stay the NODE values -- the PE view is mn_rank / mn_size */
 /* this PE's state (one PE per process): the flat communicator over all PEs, the cached sub-communicators, the tree's groups */
 typedef struct { int g0, g, slot, id; comm *c; } subent;
 typedef struct { subent e[64]; int n; } sublist;
@@ -84,7 +84,7 @@ static comm *cm0(void) { return vpe_on() ? flat : g_cm[0]; }
 /* the PE communicators (vpe.h).  The flat one is made by mn_init; sub-communicators are made on first use by every member PE (local creation, no message) and
  * cached per lane.  The id is a function of (g0, g, slot) alone, so the members agree without an exchange: an aligned power-of-two run (g0 % g == 0)
  * 1 + log2 g + 16 slot (slot < 16, g < 2^15: ids < 256); any other run with g < 64 256 + 64 slot + g (slot < 4: ids 259..511); any other run with g >= 64
- * (a 3-way level of the tree at 192, 384, 768 PEs ...; a cut top group of mn_group_at) 512 + slot (slot < 31: ids 512..542; only when vpe_big_ids(), which sizes the control block 544; callers pass the schedule
+ * (a 3-way level of the tree at 192, 384, 768 PEs ...; a cut top group of mn_group_at) 512 + slot (slot < 31: ids 512..542; only when vpe_big_ids, which sizes the control block 544; callers pass the schedule
  * level so two sizes on one PE differ, mn_group_at level l: slot l (< 16), mn_group_span level l: 15 + l (16..30); id 543 is the t_vpe hs burst block, 511 too when the block is 512 ids).  The map is injective over that domain, so two runs share
  * an id only if they have the same (g, slot) class -- and then sharing a PE is a fatal naming both runs (vpe_sub_slot checks its own table first; the engine's
  * "id used twice" is the backstop; use another slot).  Outside the domain: fatal.  (2026-10-27, A5: the g >= 64 class was a fatal "supports g < 64" before,
@@ -129,7 +129,7 @@ comm *vpe_sub(int g0, int g) { return vpe_sub_slot(g0, g, 0); }
 /* the id slot of an engine group: 0 as always, except a run of >= 64 PEs that is not an aligned power of two (and not the whole machine = the flat communicator), which takes `base` */
 static int big_slot(int g0, int g, int base) { return g >= 64 && (((g & (g - 1)) | (g0 % g)) != 0) && !(g0 == 0 && g == vpe_npe()) ? base : 0; }
 int mn_transport_shmem(void) { return g_xshmem; }
-/* S2a (ECALC_PE_PER_GPU=1): one process per PE (srun, ppn tasks per node, block distribution); xshmem with K = 1.  COMM_RANK / COMM_SIZE stay the node index / count (mnrun.sh), g_rank / g_size
+/* ECALC_PE_PER_GPU=1: one process per PE (srun, ppn tasks per node, block distribution); xshmem with K = 1.  COMM_RANK / COMM_SIZE stay the node index / count (mnrun.sh), g_rank / g_size
  * the same; the PE is the engine's PE.  Identity cross-check (fatal): engine PE and PE count against the launch (SLURM_LOCALID, SLURM_NTASKS_PER_NODE, COMM_RANK, COMM_SIZE), so a wrong
  * --distribution cannot silently cross the GPU and NIC maps.  The device, NUMA node and cpus are pe_geo's (engine topology); only that device is touched. */
 #ifdef XSHMEM_ENGINE
@@ -161,7 +161,7 @@ static int mn_init_ppg(void)
     return npe;
 }
 #endif
-static int mn_init_vpe(void)                              /* ECALC_PE_PER_GPU=1 (vpe_on() without it is a unit-test view: no launch, no engine) */
+static int mn_init_vpe(void)                              /* ECALC_PE_PER_GPU=1 (vpe_on without it is a unit-test view: no launch, no engine) */
 {
     const char *et = getenv("COMM_TRANSPORT");
 #ifndef XSHMEM_ENGINE
@@ -332,9 +332,9 @@ mn_group *mn_group_at(int level)
     mn_group *G = (mn_group *)calloc(1, sizeof *G);
     int k = mn_rank() >> level; G->g0 = k << level; G->g = (1 << level) < mn_size() - G->g0 ? (1 << level) : mn_size() - G->g0;
     G->me = mn_rank() - G->g0; G->lvl = level;
-    if (vpe_on()) {                                      /* S1a: the group of 2^level PEs; all[0] = its PE communicator (the other fields stay unused; S1b's mn_group.pe) */
+    if (vpe_on()) {                                      /* the group of 2^level PEs; all[0] = its PE communicator (the other fields stay unused) */
         if (G->g > 1) G->all[0] = vpe_sub_slot(G->g0, G->g, big_slot(G->g0, G->g, level));
-        if (vpe_on()) G->pe = G->all[0];   /* S1b: the PE communicator (all[0] == pe; NULL for one PE) */
+        G->pe = G->all[0];   /* (NULL for one PE) */
     } else
     if (G->g > 1) {
         double t0 = mem_now();
@@ -368,7 +368,7 @@ mn_group *mn_group_span(int l, int g0, int g)
     if (g_sched[l]) { if (g_sched[l]->g0 != g0 || g_sched[l]->g != g) { ec_fatal(EC_RC_FATAL, "mn_group_span: level %d group changed\n", l); } return g_sched[l]; }
     mn_group *G = (mn_group *)calloc(1, sizeof *G);
     G->g0 = g0; G->g = g; G->me = mn_rank() - g0; G->lvl = l; G->sched = 1;
-    if (vpe_on()) { G->all[0] = G->pe = vpe_sub_slot(g0, g, big_slot(g0, g, 15 + l)); g_sched[l] = G; return G; }   /* S1a: the general map over PEs; all[0] = the PE run's communicator */
+    if (vpe_on()) { G->all[0] = G->pe = vpe_sub_slot(g0, g, big_slot(g0, g, 15 + l)); g_sched[l] = G; return G; }   /* the general map over PEs; all[0] = the PE run's communicator */
     double t0 = mem_now();
 #pragma omp parallel for num_threads(NA) schedule(static)
     for (int d = 0; d < NA; d++) {
@@ -489,7 +489,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
     memset(P, 0, sizeof *P); memset(Q, 0, sizeof *Q);
     P->sh = *Pleaf; P->n = P->N = Pleaf->n; P->g0 = mn_rank(); P->g = 1; memset(Pleaf, 0, sizeof *Pleaf);
     Q->sh = *Qleaf; Q->n = Q->N = Qleaf->n; Q->g0 = mn_rank(); Q->g = 1; memset(Qleaf, 0, sizeof *Qleaf);
-    dm_switches(); if (mn_rank() == 0) printf("mn: MN_TREE_EARLY_FREE: the tree levels free P_i, P_run between their two products\n");   /* Phase 14 T1 (E10a) */
+    dm_switches(); if (mn_rank() == 0) printf("mn: MN_TREE_EARLY_FREE: the tree levels free P_i, P_run between their two products\n");   
     int gs[MN_MAXL]; int L = mn_groups_parse(mn_size(), gs, MN_MAXL - 1);   /* the level -> group-size schedule (MN_GROUPS; default 2, 4, ..., size: the binary tree as before) */
     int ck = bs_ckpt_dir && mn_ckpt_bg_mode > 0;            /* the top-level set (ECALC_CKPT_TOP) after the top level */
     if (ck) bs_ckpt_tree_clear(0);                           /* this node's tree sets of an earlier run in the directory go (a set at another level would outlive this run's) */

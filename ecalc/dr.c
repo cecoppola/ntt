@@ -9,7 +9,6 @@ typedef unsigned __int128 u128;
 /* ---- switches ---- */
 static struct { int init, level, total, kind, k, pe, n, m, slow; } g = { 0, 0, 8, -1, 1, 0, 1, 1, 0 };
 static const char *const KN[DR_NKINDS] = { "flag", "deliver", "store", "xql", "cyc", "leaf" };
-const char *dr_kind_name(int kind) { return kind >= 0 && kind < DR_NKINDS ? KN[kind] : "none"; }
 static long atol_d(const char *e, long d) { return e && *e ? atol(e) : d; }
 void dr_init_from_env(void)
 {
