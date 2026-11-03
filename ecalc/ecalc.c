@@ -29,24 +29,24 @@
 #include "dbig.h"
 static long ec_map_count(long *limit);   /* ECALC_INIT_TL=1: lines of /proc/self/maps (defined below) */
 #include "mn.h"
-#include "dr.h"                                     /* C3: ECALC_DR >= 2 (the leaf check hook) */
+#include "dr.h"
 #include "mn_out.h"
-#include "mn_plan.h"                                 /* MN_PLAN_ONLY */
-#include "memsample.h"                               /* E1, E12 */
-#include "spill.h"                                   /* E3 (the output file under ECALC_ODIRECT) */
+#include "mn_plan.h"
+#include "memsample.h"
+#include "spill.h"
 #include "fatal.h"                                   /* ec_quit, EC_RC_BUDGET */
-#include "omp_team.h"                              /* A1: ECALC_OMP_TEAM */
-#include "vpe.h"                                   /* PE identity (ECALC_PE_PER_GPU=1, off by default) */
+#include "omp_team.h"
+#include "vpe.h"
 #include "mapd.h"
-#include "segv_trace.h"                               /* s18w task 2: ECALC_SEGV_TRACE=1 (default 0) */
-extern "C" size_t comm_layered_vbytes(int dev);      /* B7ACCT (comm_layered.c) */
+#include "segv_trace.h"
+extern "C" size_t comm_layered_vbytes(int dev);
 #include <pthread.h>
 #include <sys/stat.h>                                /* the recheck's .top directory test in process mode */
 #include <semaphore.h>
 #include <omp.h>
 #include "ntt.h"
-#include "config_line.h"   /* L5: the print-only `config:` line */
-#include "count_arg.h"       /* ec_parse_count: the digit count argument */
+#include "config_line.h"
+#include "count_arg.h"
 #include <math.h>
 
 static void meta_line(const char *bench)
@@ -57,8 +57,7 @@ static void meta_line(const char *bench)
 }
 #define RESULT(name, unit, v) printf("RESULT ecalc %s %s %.6g\n", name, unit, (double)(v))
 
-/* ---- overlap of disjoint work (RESULTS.md 68: 128.8 vs 112.1 s against sequential).  Background CPU work runs in pthreads with a bounded OpenMP team while the GPUs run the tiers; each
- * joins where its result is first needed. ---- */
+/* ---- background CPU work runs in pthreads with a bounded OpenMP team while the GPUs run the tiers; each joins where its result is first needed ---- */
 static int g_bg_threads = 48;
 struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started, joined, done; double t; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
 static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); ec_team_set(g_bg_threads);
@@ -68,7 +67,7 @@ static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0
     return 0; }
 static int pq_bg_poll(void *a, uint64_t *p, uint64_t *q)   /* C3 (ECALC_DR >= 2): the leaf check reads the recurrence's residues modulo t1_q[0] once it is done (mn.c) */
 { struct pq_bg *b = (struct pq_bg *)a; if (__atomic_load_n(&b->done, __ATOMIC_ACQUIRE)) { *p = b->p[0]; *q = b->qq[0]; return 1; } return __atomic_load_n(&b->started, __ATOMIC_ACQUIRE) ? 0 : -1; }
-static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->started) return; pthread_create(&b->th, 0, pq_bg_run, b); __atomic_store_n(&b->started, 1, __ATOMIC_RELEASE); }   /* O2: after the seeds */
+static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->started) return; pthread_create(&b->th, 0, pq_bg_run, b); __atomic_store_n(&b->started, 1, __ATOMIC_RELEASE); }   /* after the seeds */
 
 /* X's residues and the digits -- formatted in chunks and written as they are formatted
  * (mn_out.c), no whole digit string on the host -- in the background during the low product, from the hook that
@@ -550,7 +549,7 @@ int main(int argc, char **argv)
     const double tl_age = ec_proc_age_s();                   /* ECALC_INIT_TL=1: the process's age at main (read before anything else runs) */
     if (argc > 1 && !strcmp(argv[1], "--settings")) { cfg_settings(); return 0; }
     if (cfg_guard()) return 2;                        /* an unregistered ECALC_/XSHMEM_/... name: a typo would silently do nothing */
-    cfg_snapshot();                                   /* L5: record the registered switches set in the environment, before ecalc sets any itself (print-only) */
+    cfg_snapshot();                                   /* the registered switches set in the environment, before ecalc sets any itself */
     /* MN_PLAN_ONLY=<total digits>:<g> -- the plan of a run of that size on g node-processes (mn_plan.c): every
      * large product's grid, pieces and planes from the code's own decisions, no device, no communicator; exits after the knobs
      * below are set (the plane-cap switch, the pools' sizes), before rns_init.  The digits (4.4e13 or 44000000000000) replace
