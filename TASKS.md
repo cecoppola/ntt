@@ -23,7 +23,7 @@ Class 1
 
 Class 4
 8. Exchange rounds sized by active pairs (zero peers skipped).
-9. Shifts point-to-point instead of a group all-to-all; lazy shift (design).
+9. Shifts point-to-point instead of a group all-to-all; lazy shift: F-in (reciprocal Q_t as a view, `NEWTON_MN_LAZY`) built on branch lazy, not merged, gates PASS (`results/DIVISION.md` §LAZY); F-out (design) parked behind the target measurement.
 10. Larger rounds for large all-to-alls, re-evaluated with the recalibrated model.
 11. Two exchanges in flight per communicator (design, after rows 8-10).
 12. Start-up: per-device allocator processes (arenas and the per-prime plane pools, `ECALC_MAPD`, user decision 2026-11-01), seed-thread pool wait, self-test time visible, pool fragmentation (S4, 2026-11-02: the 2-node 6e10 gather fallback is not the cache slots, `results/MEMORY.md` §S4; the 576-node remaps are not reproduced, open).

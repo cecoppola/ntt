@@ -212,6 +212,8 @@ precision j → 2j in the **correction form**, with Q_t the top `take` = min(2j 
     corr = (r · d) / B^j           (a high product, pieces below j − guard skipped)
     r' = (r · B^j) ± corr
 
+With `NEWTON_MN_LAZY=1` Q_t is not cut out: when the step runs on the full group, the product reads it as a window view of Q (`mdb_view`, `rns_mul_dist_mn_cut_v`; the same limbs, so the same digits) and no copy is allocated; steps on a subgroup keep the copy.
+
 Two products per doubling. If the correction is larger than expected the step repeats at the same precision; an overshoot
 (r' ≤ 0) shrinks r by 1/16 and retries. The chain of targets is **anchored from the top** (`newton_chain_next`: k, ⌈k/2⌉,
 ⌈k/4⌉, … read downward), so the last doubling lands exactly on k with no wasted precision. The seed is a schoolbook
@@ -381,6 +383,9 @@ everything is allocated once, up front, and sized by a model that the C layout r
   free extent is met by remapping free chunks, not by copying. The arena's tail is reserved for the division's largest
   block (the "hole", `dm_layout`) plus a room of `BS_ARENA_ROOM` (0.14) × the hole. The reciprocal's scratch is reserved once at the last
   doubling's sizes and inputs are freed as consumed (`DM_TIGHT`), which keeps the free space contiguous.
+  With `ECALC_MAPD=1` (experiment, default off; `mapd.c`) the chunks of the plane pools (`rns_init`, one VA range per pool over 2 GiB chunks) and then of the arena
+  are created by one helper process per APU and imported by the main process (POSIX fd handles); the main process still maps and sets access (the arena
+  under its mapper lock; `results/MAPBENCH.md`).
 - **Window rounds.** A grid piece's temporary window is processed in rounds of `MN_T_CHUNK_MB` per APU (code default 1024,
   launch lines 2048); `mdb_shift` slabs are bounded by `MDB_SHIFT_CHUNK_MB`.
 - **Exchange memory.** Staging for xshmem and the general map's v-slots are counted in the node budget

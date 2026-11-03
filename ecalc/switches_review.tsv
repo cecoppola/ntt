@@ -100,3 +100,6 @@ ECALC_DR_TEST_K	diagnostic	diagnostics (TESTING.md)	2027-05-01	diagnostic or fau
 ECALC_DR_TEST_PE	diagnostic	diagnostics (TESTING.md)	2027-05-01	diagnostic or fault-injection setting; changes no digit
 ECALC_DR_TEST_N	diagnostic	diagnostics (TESTING.md)	2027-05-01	diagnostic or fault-injection setting; changes no digit
 ECALC_DR_TEST_M	diagnostic	diagnostics (TESTING.md)	2027-05-01	diagnostic or fault-injection setting; changes no digit
+NEWTON_MN_LAZY	experiment	lazy shift (F-in)	2026-11-30	Q_t as a view in the reciprocal; adopt or drop after the target division-line shift time
+ECALC_MAPD	experiment	coordinator (TASKS S1)	2026-11-30	off by default; adopt or remove at review (results/MAPBENCH.md)
+ECALC_MAPD_TEST_DIE	test	coordinator (TASKS S1)	2026-11-30	helper fault injection for ECALC_MAPD; changes no digit
