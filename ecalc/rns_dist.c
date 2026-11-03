@@ -2344,14 +2344,20 @@ static void add_window(const mdb *C, int r, size_t k, size_t nX, size_t *lo, siz
     *lo = a; *hi = b;
 }
 static void x_part(const mdb *X, int r, size_t *lo, size_t *hi) { mdb_share(X, r, lo, hi); if (*lo > X->n) *lo = X->n; if (*hi > X->n) *hi = X->n; }
-#define MDB_ADD_CHUNK ((size_t)1 << 26)
-/* Phase 13a M (TASKS 1.3, MN_T_CHUNK_MB): the same add with T bounded -- round c covers every node's chunk c = [lo + c W, +W)
- * of its window (C's coordinates), APU d serving the quarter d of each chunk, so T holds one chunk (W limbs per node, a
- * quarter per APU: the dbig's own quarters) and is added into C's share after each round.  X's limbs are normalised, so the
- * chunks' adds carry out of the share at most once in all (C + X's window << off < 2 B^cn): one scan at the end, as before. */
-static void mdb_add_shifted_rounds(mdb *C, const mdb *X, size_t k, mn_group *G, size_t W, int K)
+/* C += X << k on the share windows, in rounds (MN_T_CHUNK_MB): round c covers every node's chunk c = [lo + c W, +W) of its window
+ * (C's coordinates), APU d serving the quarter d of each chunk, so T holds one chunk (a quarter per APU: the dbig's own quarters) and
+ * is added into C's share after each round.  X's limbs are normalised, so the chunks' adds carry out of the share at most once in all
+ * (C + X's window << off < 2 B^cn): one scan at the end.  W = 0 (MN_T_CHUNK_MB=0): one round. */
+void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
 {
     int g = G->g, node = g_node_of(G); size_t nX = X->n;
+    double t0 = mem_now();
+    ranks_ready();
+    if (nX && k + nX > C->N) { ec_fatal(EC_RC_FATAL, "mdb_add_shifted: %zu limbs at %zu exceed the basis %zu\n", nX, k, C->N); }
+    size_t W = mn_t_chunk_limbs(), mx = 0;
+    for (int r = 0; r < g; r++) { size_t lo, hi; add_window(C, G->g0 + r, k, nX, &lo, &hi); if (hi - lo > mx) mx = hi - lo; }
+    if (!W || mx < W) W = mx ? mx : 1;
+    int K = (int)((mx + W - 1) / W);
     size_t clo, chi; mdb_share(C, node, &clo, &chi); size_t cn = chi - clo;
     size_t tlo, thi; add_window(C, node, k, nX, &tlo, &thi); size_t tn = thi - tlo, tcap = tn < W ? tn : W;
     size_t xlo, xhi; x_part(X, node, &xlo, &xhi);
@@ -2400,73 +2406,5 @@ static void mdb_add_shifted_rounds(mdb *C, const mdb *X, size_t k, mn_group *G, 
     { size_t b = T.cap * 8 + add_rb / (K ? K : 1); if (b > rns_dist_tscratch_max) rns_dist_tscratch_max = b; }
     share_carry_fix(G, &C->sh, cn, kc, pr);
     db_free(&T);
-}
-void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
-{
-    int g = G->g, node = g_node_of(G); size_t nX = X->n;
-    double t0 = mem_now();
-    ranks_ready();
-    if (nX && k + nX > C->N) { ec_fatal(EC_RC_FATAL, "mdb_add_shifted: %zu limbs at %zu exceed the basis %zu\n", nX, k, C->N); }
-    { size_t W = mn_t_chunk_limbs(), mx = 0; if (W) { for (int r = 0; r < g; r++) { size_t lo, hi; add_window(C, G->g0 + r, k, nX, &lo, &hi); if (hi - lo > mx) mx = hi - lo; }
-      if (mx > W) { int K = (int)((mx + W - 1) / W); mdb_add_shifted_rounds(C, X, k, G, W, K);
-                    if (getenv("RNS_VERBOSE")) printf("mdb_add_shifted node %d: %zu limbs at %zu into a basis of %zu, %d rounds of %zu limbs (T bounded): %.3f s\n", node, nX, k, C->N, K, W, mem_now() - t0);
-                    return; } } }
-    size_t clo, chi; mdb_share(C, node, &clo, &chi); size_t cn = chi - clo;
-    size_t tlo, thi; add_window(C, node, k, nX, &tlo, &thi); size_t tn = thi - tlo;
-    size_t maxq = 0; for (int r = 0; r < g; r++) { size_t lo, hi; add_window(C, G->g0 + r, k, nX, &lo, &hi);   /* (Phase 12 G: was add_window(C, r, ...) -- the local member index as a global node: on a group with g0 > 0 the windows came out empty, 0 rounds, X never added; the tree's P = P_A Q_B + P_B on a gridded level over [2, 4) was wrong) */ size_t qq = (hi - lo + NL() - 1) / NL(); if (qq > maxq) maxq = qq; }
-    size_t S = maxq < MDB_ADD_CHUNK ? maxq : MDB_ADD_CHUNK; S = (S + 15) / 16 * 16; int rounds = maxq ? (int)((maxq + S - 1) / S) : 0;
-    dbig T; db_init(&T); if (tn) db_zero_fill(&T, tn);
-    size_t xlo, xhi; x_part(X, node, &xlo, &xhi);
-    size_t stot_max[NR] = {0}, rtot_max[NR] = {0}, add_rb = 0;
-    if (rounds) {
-#pragma omp parallel num_threads(NL())
-    {
-        int d = omp_get_thread_num(), dv = LD(d); hipStream_t s = RS[dv].s;
-        HIP_CHECK(hipSetDevice(dv));
-        /* the tables of every round first (both sides' cuts from the descriptors), then the buffers at the largest round */
-        struct rng *hs = (struct rng *)malloc((size_t)2 * rounds * g * sizeof *hs), *hr = hs + (size_t)rounds * g;
-        size_t *cnt = (size_t *)malloc((size_t)4 * rounds * g * sizeof *cnt), smax = 0, rmax = 0;
-        for (int c = 0; c < rounds; c++) {
-            struct rng *ht = hs + (size_t)c * g, *hu = hr + (size_t)c * g; size_t *scnt = cnt + (size_t)4 * c * g, *sdsp = scnt + g, *rcnt = sdsp + g, *rdsp = rcnt + g, o = 0;
-            for (int r = 0; r < g; r++) {                      /* pack: for every receiver r, its quarter d, chunk c (in C's coordinates) -> X's [a, b) cut to my part */
-                size_t lo, hi; add_window(C, G->g0 + r, k, nX, &lo, &hi); size_t wn = hi - lo;
-                size_t qlo = lo + wn * d / NL() + (size_t)c * S, qhi = lo + wn * (d + 1) / NL(); if (qlo + S < qhi) qhi = qlo + S; if (qhi < qlo) qhi = qlo;
-                size_t a = qlo - k, b = qhi - k; if (a < xlo) a = xlo; if (b > xhi) b = xhi; if (b < a) b = a;   /* qlo >= k: the window starts at k or above */
-                ht[r].a = a; ht[r].b = b; ht[r].src = a - xlo; ht[r].off = o; scnt[r] = (b - a) * 8; sdsp[r] = o * 8; o += b - a;
-            }
-            if (o > smax) smax = o; o = 0;
-            size_t qlo = tlo + tn * d / NL() + (size_t)c * S, qhi = tlo + tn * (d + 1) / NL(); if (qlo + S < qhi) qhi = qlo + S; if (qhi < qlo) qhi = qlo;
-            for (int r = 0; r < g; r++) {                      /* unpack: sender r's slab holds X's [a, b) = its part cut to my quarter chunk -> T at a + k - tlo */
-                size_t plo, phi; x_part(X, G->g0 + r, &plo, &phi);
-                size_t a = qlo - k, b = qhi - k; if (a < plo) a = plo; if (b > phi) b = phi; if (b < a) b = a;
-                hu[r].a = a; hu[r].b = b; hu[r].src = a + k - tlo; hu[r].off = o; rcnt[r] = (b - a) * 8; rdsp[r] = o * 8; o += b - a;
-            }
-            if (o > rmax) rmax = o;
-        }
-        stot_max[d] = smax; rtot_max[d] = rmax;
-        uint64_t *sb = db_pool_alloc(dv, (smax + 16) * 8), *rb = db_pool_alloc(dv, (rmax + 16) * 8);
-#pragma omp atomic
-        add_rb += (rmax + 16) * 8;
-        struct rng *dt = (struct rng *)db_pool_alloc(dv, g * sizeof *dt + 64);
-        struct acc src = acc_db(&X->sh, 0, xhi > xlo ? xhi - xlo : 0), dst = acc_db(&T, 0, tn);
-        for (int c = 0; c < rounds; c++) {
-            struct rng *ht = hs + (size_t)c * g, *hu = hr + (size_t)c * g; size_t *scnt = cnt + (size_t)4 * c * g, *sdsp = scnt + g, *rcnt = sdsp + g, *rdsp = rcnt + g;
-            HIP_CHECK(hipMemcpyAsync(dt, ht, g * sizeof *ht, hipMemcpyHostToDevice, s));
-            if (xhi > xlo) k_pack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(sb, src, dt, g, S);
-            HIP_SYNC(s);
-            { int xk_ = comm_xtag_set(XK_ADDSH); comm_alltoallv(G->all[d], sb, scnt, sdsp, rb, rcnt, rdsp, s); comm_xtag_set(xk_); } comm_wait(G->all[d]);
-            HIP_CHECK(hipMemcpyAsync(dt, hu, g * sizeof *hu, hipMemcpyHostToDevice, s));
-            if (tn) k_unpack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(dst, rb, dt, g, S);
-            HIP_SYNC(s);
-        }
-        db_pool_free(dv, sb); db_pool_free(dv, rb); db_pool_free(dv, (uint64_t *)dt); free(hs); free(cnt);
-    }
-    HIP_CHECK(hipSetDevice(LD(0)));
-    }
-    { size_t b = T.cap * 8 + add_rb; if (b > rns_dist_tscratch_max) rns_dist_tscratch_max = b; }
-    int co = 0, pr = cn == 0;
-    if (tn) db_share_add_shifted(&C->sh, cn, &T, tlo - clo, &co, &pr);
-    share_carry_fix(G, &C->sh, cn, co, pr);
-    db_free(&T);
-    if (getenv("RNS_VERBOSE")) printf("mdb_add_shifted node %d: %zu limbs at %zu into a basis of %zu (my window [%zu, %zu), %d rounds of %zu; slabs %zu + %zu limbs per APU 0): %.3f s\n", node, nX, k, C->N, tlo, thi, rounds, S, stot_max[0], rtot_max[0], mem_now() - t0);
+    if (getenv("RNS_VERBOSE")) printf("mdb_add_shifted node %d: %zu limbs at %zu into a basis of %zu, %d rounds of %zu limbs: %.3f s\n", node, nX, k, C->N, K, W, mem_now() - t0);
 }
