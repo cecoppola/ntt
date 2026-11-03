@@ -16,7 +16,7 @@ Scope: the t_mn_grid "hangs", the multi-node segfault and hang track (ROCr vs li
   - Fixed defects: garbage leaf length (A114, `maxidx` race, per-thread buffer), batch-tier odd-node copy race (R, `mem_dev_copy_on` now waits), `mdb_add_shifted` round sizing (T23: the "65 corrections" of `DIST_LOGN_TEST=23` at 4 nodes was this, fixed in 9a746c8).
 - **Not defects.** The t_mn_grid 2-node "hang" (A01, T13) was the TCP mesh over 1 GbE Ethernet; the mnaccept `HANG` item was the queue item's own `timeout 1500` (unit step needs about 1500 s). TCP transport no longer exists (W2B B4), so neither can recur; `t_mn_grid` now runs over xshmem.
 - **Closed 2026-10-25.** E1 (7.7e10 start-up hang, 1 in 31, single sighting; the 2026-10-24/25 soaks on current code saw 0 hangs in 301 runs at 7.7e10 (95 % bound 1.0 %) and 0 in 1127 at 1e9, §A114; not reproduced, excluded at its old 3.2 %); reopen rule: a hang caught with `ECALC_INIT_TL=1` plus `eu-stack` reopens it.
-- **Open.** S30's 20 s stall of node 1 (host vs rank, cause of the draw unknown, see `results/NODE_SLOWMODE.md`); G2 soak lost (superseded, §G2); the 1 % segfault is still unproven fixed.
+- **Open.** S30's 20 s stall of node 1 (host vs rank, cause of the draw unknown, see `results/TRANSPORT.md`); G2 soak lost (superseded, §G2); the 1 % segfault is still unproven fixed.
 - **Superseded.** T13's lock-order suspicion for the t_mn_grid hang (refuted by A01); G12's attribution of "65 corrections" to the sharded division (refuted by T23).
 
 ### §HANG — t_mn_grid "hang" inside mnaccept --only unit,e9 (2026-10-13)
@@ -92,8 +92,6 @@ Scope: checkpoint and restart of the binary-splitting phase (per-node checkpoint
 
 ### V — verification and cleanup (Phase 11, PLAN.md §26 row V: D5, ECALC_RECHECK, E1 (c), E2)
 
-Branch `v11` from `main` 72aa2e9. Files: `verify.c`, `mn_out.c/.h`, the residue kernel of `dbig.c`, the output tail of `ecalc.c`, `t_dist.c`, deletions in `ntt_dist.c` and `binsplit.c`, `.gitignore`, README; minimal touches in `newton_db.c`, `mem.c` (`MEM_DPOOL_FILL` test knob), `binsplit.c` (`bs_res_check` per level).
-
 ##### D5 — the intermittent size > 1 verification failure
 **The checker's signature was a composite-moduli artefact.** Three failures (A-mem x2, T's d5b) printed `P BAD, Q BAD, T(P+Q) == XQ+R BAD` at q0, q1, q3, q4, q5, q7 and ok at q2, q6, with wrong digits each time. PLAN §23-6 read this as "the residue path's fault, not a wrong number": wrong. **Seven of the eight "primes" in `verify.c` were composite** (2^62 + {135, 179, 183, 247, 315, 319, 349, 397}; only 2^62 + 135 prime). q2 = 2^62 + 183 and q6 = 2^62 + 349 have all factors below 2.5 x 10^7, so every node's Q(a, b) (a product of >= 2.9 x 10^8 consecutive integers) is 0 mod q2 and q6; there T1 is blind (0 == 0, X drops out, P sees only the top node's range). So a wrong P or Q from any node below the top is caught at the six other moduli and passes at q2, q6: exactly the observed pattern, i.e. a genuinely wrong bs result correctly flagged.
 **Fix (verify.c, commit 66ee599):** `t1_q` is now the true first eight primes above 2^62 (2^62 + 135 ... 277). T1 numbers, `RES` logs and `.t1` sidecar residues change; digits do not (10^9 and 4 x 10^10 identical). A wrong P now shows BAD at all eight.
@@ -151,8 +149,6 @@ Setup names: 2p = `t_mn_grid 1 28` on 2 processes; 4p = 1 node, 4 PEs (`ECALC_PE
 
 ### RESUME
 
-Branch `c3check`; steps 1 and 2 done and gated (above). Step 3 done and gated (Measured, step 3). Step 4 done and gated (Measured, step 4). Steps 5 and 6 done (Measured, steps 5 and 6). Open: the follow-ups in TASKS "Proposed".
-
 ### Review fixes and the cap test (aac7, 2026-11-01, commit e22efde; item 70_drfix; all counts measured)
 
 Fixes in `dr_piece_decide`: (1) the `who[640]` text is clamped after every append (a long PE list used to push `sizeof who - k` below zero); (2) the `ECALC_DR_TOTAL` decision is collective: the first `grp_max` now carries the verdict (bit 32) and the process's count of failed pieces (low 32 bits), so every PE of the group adopts the group's maximum count and takes the same branch; no collective is added, and with `ECALC_DR` unset nothing changes. New injection setting `ECALC_DR_TEST_M` (default 1): corrupt M consecutive P24 products from the K-th (each product has its own latch), so two distinct products fail in one run.
@@ -176,4 +172,3 @@ ABBA: one warm-up pair discarded, then 4 rounds A B B A; A = `ECALC_DR` unset, B
 ### Measured, step 6 repeat: paired timing in the aac7 campaign (M6, 2026-11-02 00:33-00:48 ET, main d7c7f28, item 64_m6_dr; 2 nodes, 6.441e10 digits, measured)
 
 ABBA, 6 pairs, A = `ECALC_DR` unset, B = `ECALC_DR=3`, all runs rc 0 and VERIFY OK. Mean A 65.18 s, mean B 64.62 s: **B - A = -0.56 s, 95 % interval [-3.52, +2.40] s** (-0.9 %, interval -5.4 % to +3.7 %). Together with the step-6 table above (+0.48 s, 4 round differences, 128.82e9 digits), the overhead of `ECALC_DR=3` is not distinguishable from zero at 2 nodes at either size; the interval is about 3 s wide, so a cost of 0.1-0.2 % (modeled) is far below what aac7 can resolve, and the 576-node figure stays modeled.
-

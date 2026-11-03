@@ -152,7 +152,9 @@ def main():
         for i, l in enumerate(lines(f) or [], 1):
             for m in sec.finditer(l):
                 fn, t = m.groups()
-                if fn in heads and not any(re.search(r"(?<![A-Za-z0-9_])" + re.escape(t) + r"(?![A-Za-z0-9_])", h) for h in heads[fn]):
+                if fn not in heads:
+                    bad("section", f, i, f"results/{fn} does not exist (topic files: {', '.join(sorted(heads))})")
+                elif not any(re.search(r"(?<![A-Za-z0-9_])" + re.escape(t) + r"(?![A-Za-z0-9_])", h) for h in heads[fn]):
                     bad("section", f, i, f"results/{fn} has no heading with §{t}")
 
     total = 0
