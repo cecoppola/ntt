@@ -303,12 +303,11 @@ budget).
 
 | file | transport |
 |---|---|
-| `tests/comm_local.c` | test-only: one rank (size 1), no-ops and copies (used by `t_dist`) |
+| `tests/t_dist.c` | test-only communicators inside the test: one rank (size 1, no-ops and copies) and a synthetic four-rank layout in one APU's memory |
 | `comm_xgmi.c` | the node's four APUs: peer copies over the xGMI mesh, driven by four host threads |
 | `comm_xshmem.c` | `COMM_TRANSPORT=xshmem` (the only multi-node transport; built by default where libfabric is found, `XSHMEM=0` omits it): the inter-node meshes over `xshmem.h`, the 1:1 mapping of the Cray SHMEM 12.1 calls (libfabric backend `xshmem_ofi.c` on aac7, `xshmem_cray.h` on the target); one node-process hosts one loopback PE per APU thread; the receiver publishes offsets, a worker thread (every layout, Q96) puts and signals, rounds (`XSHMEM_ROUND_MB`, default 128); `results/TRANSPORT.md` |
 | `xshmem.h`, `xshmem_ofi.c`, `xshmem_boot.c`, `xshmem_cray.h`, `pe_geo.c` | the API (the 1:1 mapping of the Cray SHMEM 12.1 calls) and its two backends: libfabric cxi with PMI2 bootstrap (`XSHMEM=ofi`, path 1) and Cray SHMEM (`XSHMEM=cray`, static inline, path 2); `pe_geo.c` reports each PE's GPU, NUMA node and NICs. `vpe.c` holds the PE identity of the one-process-per-GPU layout |
 | `comm_layered.c` | the layered composition of an intra (xGMI) and an inter (xshmem) communicator, §6.3 |
-| `tests/comm_sim4.c` | test-only: a synthetic four-rank layout in one APU's memory (used by `t_dist`) |
 | `comm_util.c` | shared helpers, and the GPU copy kernel for copies that touch a host-registered pool (called from `comm_xshmem.c`'s `COPY`) |
 
 Builds: the default build (`XSHMEM=ofi`, where libfabric and the PMI2 header are found) runs `COMM_TRANSPORT=xshmem` multi-node; `XSHMEM=cray` builds path 2 (`PLAN.md` section 3). The transport is xshmem on both paths. The transport, the meshes and the

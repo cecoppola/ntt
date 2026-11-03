@@ -5,7 +5,7 @@
  * operation below acts within one prime's plane.  Implementations:
  *   comm_xshmem  the multi-node transport (comm_xshmem.c, on xshmem.h)
  *   comm_layered the node-process layers over it (comm_layered.c)
- *   tests/comm_local.c, tests/comm_sim4.c: one rank / four synthetic ranks in one APU, test-only (t_dist)
+ *   tests/t_dist.c: one rank / four synthetic ranks in one APU, test-only
  *
  * Distributed numbers are limb arrays sharded by rank: rank r holds limbs
  * [r n/size, (r+1) n/size).  A distributed transform (four-step) uses the
