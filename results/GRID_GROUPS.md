@@ -1,6 +1,6 @@
 # GRID_GROUPS — the grid of piece products over shares and node groups
 
-Scope: the grid of piece products over shares and node groups: layout at any group size, MN_GROUPS schedules, v-slot release, the 576-node layout checks. Owner of the items below; each section condenses the former `results/<ID>.md` (old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers are in `archive:results_raw_2026-10-19/`. Labels: **m** measured, **mod** modelled, **a** assumed. Times Eastern.
+Scope: the grid of piece products over shares and node groups: layout at any group size, MN_GROUPS schedules, v-slot release, the 576-node layout checks. Owner of the items below; each section condenses the former `results/<ID>.md` (old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers are in `archive:results_raw_2026-10-19/`. Labels: **m** measured, **mod** modeled, **a** assumed. Times Eastern.
 
 Sections moved to `archive:results_merged_2026-10-24/GRID_GROUPS.md` (2026-10-24 cleanup): A-grid; M3; L; G; G12; C09; c09_groups; C215.
 
@@ -18,7 +18,7 @@ Current state (main; cross-checked against `ecalc/README.md`):
 Live conclusions:
 - Memory is the limit at 576 nodes, not time: the real v-slot term (B7ACCT, 6.707 GB per APU before sharing) broke the device bar; SHARE (-5.79 GB per node, mod, S36/S45) and RELEASE (the transport pool 4352 -> 2304 MiB per APU (then comm_ofi's), C06) bring it back. Largest safe size at 576 is 3.82e13 (§S52, mod); above it the plan adds pieces (+20 s at 3.83e13).
 - The cut-group pool-offset asymmetry (G5) does not bite (§C06); uneven last groups work (digits identical, §B06) but give no speed gain (§B06, §O1: `[6]` vs `[2,6]` at 6 nodes inconclusive, raw +2.4 s, CI [-3.9, +8.7]).
-- The §C09 tables are modelled; the model-best uneven tops are unmeasured extrapolations.
+- The §C09 tables are modeled; the model-best uneven tops are unmeasured extrapolations.
 - A bug found by forcing tree grids (`mdb_add_shifted` windows of the wrong nodes for g0 > 0, §G12 2b) was fixed before any run could reach it.
 - §C215: the piece-cost grid (`RNS_AUTO_PIECE_COST`, C2) gains -31 s (-13 %) of `total` at 1e11 on one node; neutral at the 576 target (0.0 s, mod).
 
@@ -35,7 +35,7 @@ Login-node work only (aac7, `BS_LAYOUT_ONLY` / `MN_PLAN_ONLY`; C-binary prints a
 
 #### 2. The code
 
-`rns_dist.c` `vslot_shape` / `rns_mul_dist_mn_vslot(na, nb, g)` (one product's v-slots per APU, 2 MiB rounding, conservative; 0 for power-of-two g without `DIST_GEN`); `binsplit.c` `binsplit_vslot_bytes` (resident sum from §1, uses `mn_groups_parse`, `tree_need_dev`'s products, `dm_nq_of`); switch **`ECALC_VSLOT_BUDGET`** (default 0): adds 4 x v-slots to `binsplit_node_bytes` (the budget check's modelled peak, `RNS_DIST_CACHE_FIT` room, `ECALC_PLANE_CAP=fit`, `as_room_fits`); arena request and every allocation unchanged. Always-on reporting: `BS_LAYOUT_ONLY` prints a `vslot:` line, `MN_PLAN_ONLY` a `plan vslot` line (every other line byte-identical to main), `MEM_REPORT_DEVS=1` adds "outside the layout" fields from `comm_layered_vbytes(dev)` (a relaxed atomic counter; built, not run on a GPU node at the time). `mem_model.py` mirrors it (`mem_per_node` adds 4 x tree_top to `dev_bs`, 4 x per_apu to `dev_dm`; default `depth` is 2); `--check-c` compares vslot, tree top, device + vslots, node + vslots. A flip test found a bug in the check's room loop (used 480 instead of `ECALC_NODE_GB`), fixed.
+`rns_dist.c` `vslot_shape` / `rns_mul_dist_mn_vslot(na, nb, g)` (one product's v-slots per APU, 2 MiB rounding, conservative; 0 for power-of-two g without `DIST_GEN`); `binsplit.c` `binsplit_vslot_bytes` (resident sum from §1, uses `mn_groups_parse`, `tree_need_dev`'s products, `dm_nq_of`); switch **`ECALC_VSLOT_BUDGET`** (default 0): adds 4 x v-slots to `binsplit_node_bytes` (the budget check's modeled peak, `RNS_DIST_CACHE_FIT` room, `ECALC_PLANE_CAP=fit`, `as_room_fits`); arena request and every allocation unchanged. Always-on reporting: `BS_LAYOUT_ONLY` prints a `vslot:` line, `MN_PLAN_ONLY` a `plan vslot` line (every other line byte-identical to main), `MEM_REPORT_DEVS=1` adds "outside the layout" fields from `comm_layered_vbytes(dev)` (a relaxed atomic counter; built, not run on a GPU node at the time). `mem_model.py` mirrors it (`mem_per_node` adds 4 x tree_top to `dev_bs`, 4 x per_apu to `dev_dm`; default `depth` is 2); `--check-c` compares vslot, tree top, device + vslots, node + vslots. A flip test found a bug in the check's room loop (used 480 instead of `ECALC_NODE_GB`), fixed.
 
 #### 3. Tests (m, aac7 login node, no GPU)
 
@@ -64,11 +64,11 @@ The v-slots are hipMalloc'd device memory, so they count against the device edge
 
 #### 6. Stale sizes (task 2)
 
-`e16_headline.sh`: per-node share 7.0834e10 (ceil(2,266,666,666,671 / 576) = 3,935,185,186 limbs). Re-measured with the plan/layout printers (m): g = 10 -> `E16_DIGITS` **708,340,000,000**, 96 products, 101 pieces, node 386.30 -> 400.08 GB with v-slots, device 345.29 -> 359.06, `E16_BELOW` 687,000,000,000 (step at 6.87 -> 6.88e11: 97 -> 101 pieces), modelled walls `--bw 25` 212.0 s no write / 500.7 s write (`--write-bw 0.1`), `--bw 3.7` 719.5 / 926.7 s; g = 12 -> **850,008,000,000**, 100 products, 130 pieces, node 369.12 -> 380.60, device 328.11 -> 339.59, `E16_BELOW` 840,000,000,000, walls 234.4 / 523.9 s (`--bw 25`), 821.7 / 1032.4 s (`--bw 3.7`).
+`e16_headline.sh`: per-node share 7.0834e10 (ceil(2,266,666,666,671 / 576) = 3,935,185,186 limbs). Re-measured with the plan/layout printers (m): g = 10 -> `E16_DIGITS` **708,340,000,000**, 96 products, 101 pieces, node 386.30 -> 400.08 GB with v-slots, device 345.29 -> 359.06, `E16_BELOW` 687,000,000,000 (step at 6.87 -> 6.88e11: 97 -> 101 pieces), modeled walls `--bw 25` 212.0 s no write / 500.7 s write (`--write-bw 0.1`), `--bw 3.7` 719.5 / 926.7 s; g = 12 -> **850,008,000,000**, 100 products, 130 pieces, node 369.12 -> 380.60, device 328.11 -> 339.59, `E16_BELOW` 840,000,000,000, walls 234.4 / 523.9 s (`--bw 25`), 821.7 / 1032.4 s (`--bw 3.7`).
 
 `mem_model.py` `TARGET_BELOW` is now **3.99e13** (was 4.74e13). Sweep at 576 (TGT17's line): 4.0-4.08e13: 117-119 / 133 pieces, arena 214.75 GB; 3.96-3.997e13: **115 / 131**; 3.9-3.95e13: 111 / 127; <= 3.85e13: 109 / <= 123 with arena **210.45 GB**. The nearest lower tier on the critical path is the step at 3.997 -> 4.0e13. `mn_model.py estimate --target` (mod): 4.08e13 pieces 133, 223.8 s without the write; 3.99e13 pieces 131, 218.2 s.
 
-Labels: measured = the layout/plan prints, STD17's readings, A6's 373 GB edge; modelled = the v-slot term (exact exchange arithmetic, not yet read back from a run), the per-APU comparison, the §5 options, estimate.py walls; assumed = runtime 0.4-0.5 GB per APU, 2 MiB granularity, the fabric rates in the e16 walls.
+Labels: measured = the layout/plan prints, STD17's readings, A6's 373 GB edge; modeled = the v-slot term (exact exchange arithmetic, not yet read back from a run), the per-APU comparison, the §5 options, estimate.py walls; assumed = runtime 0.4-0.5 GB per APU, 2 MiB granularity, the fabric rates in the e16 walls.
 
 #### 8. Open items
 1. Hardware check needed: a standard 10-node run with `MEM_REPORT_DEVS=1` should show `v-slots hipMalloc'd now` = 3.44 GB per APU after the tree top and `driver - that` about 0.4-0.6 GB; run the GPU gates before merging.
@@ -126,7 +126,7 @@ Correctness (m, 3 nodes, aac7 line, digits compared with `ecalc/digcmp.sh`): 1e9
 
 Timing (m, 3.2205e11 digits = 6.441e10 per node, no digit write, one run per schedule, NOT paired ABBA so no CI) vs model (`estimate.py`, aac7_s48 fabric):
 
-| nodes | schedule | measured `total` | modelled |
+| nodes | schedule | measured `total` | modeled |
 |---|---|---|---|
 | 3 | default | 210.2 s | 237.2 |
 | 5 | default | 213.15 | 297.9 |
@@ -135,7 +135,7 @@ Timing (m, 3.2205e11 digits = 6.441e10 per node, no digit write, one run per sch
 
 The model overpredicts the absolute time by 40 % (default) and gets the ordering wrong (it says uneven is 8 % / 17 % faster; measured: uneven slower by 6-9 %). Rate check: all three 5-node runs were in the NIC slow mode (mean all-to-all rate per APU thread 10.25 / 9.61 / 9.57 GB/s, slow < 11.95) and carry the single-node-chain flag, so no clean fit row; if the total scaled as 1/rate, the gaps (13, 19 s) are within what the rate difference alone could explain.
 
-**Verdict:** correctness of uneven groups at 3 and 5 nodes is shown (VERIFY OK; digits identical at 1e9 / 1e10). A speed gain is NOT shown and the modelled 8-17 % gain is not reproduced at one run each: do not use explicit uneven groups for speed on this evidence; for "exclude a node" they cost at most about 9 % (m, single run, partly rate noise). A paired ABBA (default vs `2,5`, 3 rounds, about 25 min per round) would be needed for any claim either way. Fallback policy if never measured: round down to a friendly count (576 stays; a bad node -> 575 is the poor case, default modelled +34 %), or use explicit groups and accept the modelled estimate. Not shown: speed at real size beyond the above, and a 5-node case with two uneven levels.
+**Verdict:** correctness of uneven groups at 3 and 5 nodes is shown (VERIFY OK; digits identical at 1e9 / 1e10). A speed gain is NOT shown and the modeled 8-17 % gain is not reproduced at one run each: do not use explicit uneven groups for speed on this evidence; for "exclude a node" they cost at most about 9 % (m, single run, partly rate noise). A paired ABBA (default vs `2,5`, 3 rounds, about 25 min per round) would be needed for any claim either way. Fallback policy if never measured: round down to a friendly count (576 stays; a bad node -> 575 is the poor case, default modeled +34 %), or use explicit groups and accept the modeled estimate. Not shown: speed at real size beyond the above, and a 5-node case with two uneven levels.
 
 ## O1 — overnight 6-node paired ABBA, MN_GROUPS `2,6` (default) vs single level `6` (TASKS 42)
 

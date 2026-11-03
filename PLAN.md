@@ -125,7 +125,7 @@ P3 and P4 the record staircase 1.8 × 10¹³, 3.6 × 10¹³, 5.4 × 10¹³ on 57
 
 **The 2026-10-26 target session** (an agent team on the target; entry `target/RESTART.md`; kept as reference, the older staged kit is
 `target/kit/target_kit.sh -h`):
-1. Install the rules (`target/governance/install.sh`), probe the system (`target/probe/probe.sh`, login then one node; about
+1. Probe the system (`target/probe/probe.sh`, login then one node; about
    30 s on aac7, m) and generate `target/config/target.conf` (`target/probe/gen_conf.py`).
 2. Build path 1 and path 2 (bench items `bld01`, `bld02`; about 25 s each on aac7, m).
 3. Bench (`target/bench/run.sh`, one worker per allocation, 59 items run once each in priority order; questions and the

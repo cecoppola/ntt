@@ -1,6 +1,6 @@
 # AAC7_PORT — the aac7 port (Phase 16)
 
-Scope: the aac7 port (Phase 16): bring-up at 2 to 10 nodes, the A/Bs, the scaled headline, the fastest software stack. Each section below condenses the former `results/<ID>.md` (old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`; the unabridged text: `archive:results_merged_2026-10-19/`. Times Eastern; every number is **measured** unless marked modelled (mod) or assumed (a).
+Scope: the aac7 port (Phase 16): bring-up at 2 to 10 nodes, the A/Bs, the scaled headline, the fastest software stack. Each section below condenses the former `results/<ID>.md` (old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`; the unabridged text: `archive:results_merged_2026-10-19/`. Times Eastern; every number is **measured** unless marked modeled (mod) or assumed (a).
 
 Sections moved to `archive:results_merged_2026-10-24/AAC7_PORT.md` (2026-10-24 cleanup): §A16; §B16.
 
@@ -15,7 +15,7 @@ Sections moved to `archive:results_merged_2026-10-24/AAC7_PORT.md` (2026-10-24 c
 - **Walls and noise.** Same configuration spans +-25 % job to job at 4 nodes; 8 nodes showed within-allocation drift (ranks 0-3, 2-10x slower), 10 nodes did not; a later 10-node run saw level 2 5-7x slower than 80 min earlier (shared fabric / NFS, cause unmeasured). NFS (about 0.1 GB/s per writer) puts the part-file write inside `total` on aac7 unless parts go to RAM `/tmp` or `ECALC_CHECKPOINT=0`.
 - **Open / dropped.** Open: intermittent `shmem_init_thread` segfault of task 1 at 2 nodes x 10^10 (3 in 23 launches, §A16; 0 in 12 / 12 launches at 4-10 nodes); wrap launches in `timeout` and retry. Dropped: RCCL all-to-all (0.24x the push kernel), `COMM_SHMEM_SERIAL=1` (unstable), `RNS_DIST_CACHE_PARTIAL=0` (does not fit memory at 4 x 10^10 per node), FI_CXI / NIC-policy tuning (no gain >5 %), 4 PEs per node at 2 nodes (memory guard without `ECALC_PLANE_CAP`).
 - **Headline limit.** The target share 9.16 x 10^10 digits per node does not fit aac7 now: each rebooted node copies a 77 GB model cache into RAM (MemAvailable about 435-445 GB against a 454 GB layout); 12 nodes are never free (10 usable). E ran at 8.4 x 10^10 per node (§D16).
-- **Superseded numbers.** The 12-node modelled column and §5 "memory delta 0" for the full cache are superseded by §D16 s2; A16's 1-node 10^11 (206.7 s at ROCm 7.0.3) is superseded by the 7.2.4 figure 168.5 s quoted from C16 in §V16.
+- **Superseded numbers.** The 12-node modeled column and §5 "memory delta 0" for the full cache are superseded by §D16 s2; A16's 1-node 10^11 (206.7 s at ROCm 7.0.3) is superseded by the 7.2.4 figure 168.5 s quoted from C16 in §V16.
 
 
 The per-item sections (tables, drivers, run lists) were moved to `archive:repo_cl6_2026-10-25/results/AAC7_PORT.md` (2026-10-25); section anchors that cited them now point to this summary.

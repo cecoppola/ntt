@@ -2,7 +2,7 @@
 
 > **Which workflow governs.** The target session is copy-and-paste only (the user unpacks a ZIP, no git, no agent on the target; a browser agent reads GitHub and gives command
 > blocks): `remote/AGENT.md` and `remote/ROUTE.md` govern and need nothing from this file. This file is background (the mission, the project as understood, the bench and ladder
-> descriptions) for a development-side session; its Claude-Code-on-target workflow (§0 `git clone`, §2 the install of rules, LOG.md) is not used, and the files it names are not in the copy.
+> descriptions) for a development-side session; its Claude-Code-on-target workflow (§0 `git clone`, §2, LOG.md) is not used, and the files it names are not in the copy.
 
 Scope: everything an agent needs to start work on the target system at once: the mission, the rules and how to install
 them, the project as we understand it, and steps 1-4 with exact commands. Written 2026-10-25 (Eastern time) by the
@@ -13,7 +13,7 @@ coordinator on the development side, which has no access to the target. Conventi
 1. `git clone` this repository (or `git pull` the existing clone) on the target login node; `cd` into it.
    `APU=$(dirname "$PWD")` — the work root (the parent of the clone; it plays the role of the development side's work root).
    The rules call the clone `ntt/`; if yours has another name, nothing breaks (only prose).
-2. Install the rules and memory (§2: `bash target/governance/install.sh`). Restart Claude Code in the clone so the hooks load.
+2. Read the rules (§2).
 3. Read this file to the end, then `target/FORMATS.md`; `target/README.md` is the one-page run order.
 4. Start a log: `mkdir -p target/results; echo "$(date '+%F %T %Z') session start" >> target/results/LOG.md` (dated lines, time zone).
 5. Run step 1 (§5) now; it takes minutes and everything else depends on it. Nothing else needs a decision from the user first.
@@ -51,50 +51,26 @@ The user's decisions on this project (2026-10-25):
 | id | decision |
 |---|---|
 | Q112 | raw target data is committed to `target/results/` as measured (the no-identifying-data rule is relaxed for this folder) |
-| Q113 | the governing files are copied verbatim into `target/governance/` |
+| Q113 | the governing files are copied verbatim (now archived, no longer in the repository) |
 | Q114 | ladder sizes fixed: 1, 8, 64, 576 nodes (4 / 32 / 256 / 2304 APUs), each group on physically adjacent nodes |
 | Q115 | session length unknown: order everything by priority, so any stopping point leaves the most important answers |
 | Q116 | ignore the leak guard for target work; never post passwords, keys or tokens under any circumstances |
 | Q117 | `docs/` is untracked and stays so; this file carries what the target agent needs from it |
-| Q118 | the governance copies are exact; the user overrode the development side's commit guard for them ("My instructions supersede everything else") |
+| Q118 | the governance copies are exact (archived since 2026-11-03) |
 | Q119 | `MN_NONPOW2_CAP=0` on the target launch line (the 3.82e13 headline fits on 576 nodes only with it off) + a bench A/B of the setting (`prm08`) |
 | Q120 | first make every code path work on 576 nodes at a small size (8e9 digits per node); raise the digits only after those runs succeed |
 | Q121 | L3 is a staircase on 576 nodes: 4.608e12 on both paths → 1e13 (path 1; path 2 does not fit) → 3.82e13 on path 1, each step after the previous passed |
 | Q122 | plane pools: no launch setting (2026-10-25 (c)); the code default `ECALC_PLANE_CAP=run` picks 2^30 at the 8e9 share and 2^31 above about 9.6e9 per node (s2/s3); bench `prm09`/`prm10` measure 2^30 against 2^31 on the target (ADJUST rule 12) |
 
-## 2. Install the rules (do this first)
+## 2. Rules on the target
 
-`target/governance/` holds the development side's rule files. Install them with
-`bash target/governance/install.sh` from the clone's root (existing files are kept and the copy is put next to them as
-`<name>.from-dev`; `--force` overwrites). It places:
-
-| file in `target/governance/` | installed as |
-|---|---|
-| `apucode_CLAUDE.md` | `$APU/CLAUDE.md` (project rules; Claude Code reads it for every session under `$APU`) |
-| `home_claude/CLAUDE.md` | `~/.claude/CLAUDE.md` (the user's global agent rules) |
-| `home_claude/COORDINATOR.md` | `~/.claude/COORDINATOR.md` (injected into the main session by a hook) |
-| `home_claude/settings.json` | `~/.claude/settings.json` (hooks, model settings, env; merge by hand if the target has its own) |
-| `home_claude/hooks/*` | `~/.claude/hooks/` (executable) |
-| `home_claude/agents/*.md` | `~/.claude/agents/` (the four agent types: haiku-scout, haiku-worker, sonnet-developer, sonnet-reviewer) |
-| `memory/*.md` | `~/.claude/projects/<key>/memory/`, `<key>` = the clone's absolute path with every `/` replaced by `-` |
-| `project_claude/settings.local.json` | `<clone>/.claude/settings.local.json` |
-
-The copies are exact. They name the development side's work root (`/home/machinus/apucode`); the script rewrites it to
-the target's work root `$APU` in the installed project rules and memory.
-Restart Claude Code after installing so the hooks load.
-
-How the rules apply on the target (they were written for the development side):
-- **Target rules win** where they differ: this file and the Q112-Q118 decisions above.
-- Rules about the development cluster `aac7` (its queue tool `aac7q`, `qadd`, `bin/c7`, `bin/cp7`, session holds,
-  the 6-node packing limit, the NIC-loss workarounds, the password file) do not apply on the target; their intent does:
-  pack work so no allocated node idles, use long allocations and run many items inside them, drivers with done-markers
-  for long waits, never touch other users' jobs, kill only by single PID.
-- Where the rules point at the private `docs/` folder, use the repository's `README.md` (doc map) and this file instead. On the target the
-  coordinator keeps its live state in `target/results/LOG.md` and decisions in `target/results/DECISIONS.md` (create both).
-- The local leak-guard git hooks are not part of the clone; on the target nothing blocks a commit, so the coordinator
-  itself makes sure no password, key or token is ever committed (Q116). Raw data (host names, paths, versions) is fine (Q112).
-- Correctness first, labels m / mod / a, gates before merging code changes (`TESTING.md`), priorities, parallel work:
-  all apply unchanged.
+The development side's rule files are not part of this repository. On the target:
+- Target rules win: this file and the Q112-Q118 decisions above.
+- Rules about the development cluster (queue tools, session holds, the 6-node packing limit, NIC-loss workarounds) do not apply; their intent does:
+  pack work so no allocated node idles, use long allocations, drivers with done-markers for long waits, never touch other users' jobs, kill only by single PID.
+- The coordinator keeps its live state in `target/results/LOG.md` and decisions in `target/results/DECISIONS.md` (create both).
+- Nothing blocks a commit on the target, so the coordinator itself makes sure no password, key or token is ever committed (Q116).
+- Correctness first, labels m / mod / a, gates before merging code changes (`TESTING.md`), priorities, parallel work: all apply unchanged.
 
 ## 3. The project as we understand it
 
@@ -148,7 +124,7 @@ Q119; with the code default 407.41 GB, refused; mod, planner). The largest size 
 (`MNRUN_EXCLUDE_HOSTS`, mode `drop`), never replaced by spares (user decision 2026-10-11).
 
 **What the development side cannot know and the session must bring back:** the fabric (injection per APU with 1 and 2
-NICs, all-to-all scaling with node count, latency, the dragonfly group size), Cray SHMEM 12.1 behaviour and start-up
+NICs, all-to-all scaling with node count, latency, the dragonfly group size), Cray SHMEM 12.1 behavior and start-up
 cost, ROCm 7.14 speed against 7.2.4, the file-system write rate of ecalc's own writer, node-to-node variation, the queue
 rules, and every model constant listed in `bench/QUESTIONS.md`. Post-access development uses only what is committed in
 `target/results/`, so record raw output, not just conclusions.
@@ -239,9 +215,8 @@ to `results/bench/_old/`). A failed path-2 build does not block anything: path-2
 items: `aggregate.py`, commit `target/results/` (coordinator). Read `ANSWERS.md` as it fills: answers in band 0-99 can
 change the ladder's settings (ADJUST.md) before L1.
 
-Two questions have no bench script and are run by hand after the ladder's L0 passes (the rows say how): TQ83 (kit stages
-`s2chk` and `nodechk`: `target/kit/target_kit.sh --jobid J --out DIR --only build,s2chk` and `--only build,nodechk`; the kit is
-older and optional) and TQ84 (path 2 with `DIST_CHUNKS=2|4`, the digits of K=1,2,4 at 3 nodes (12 PEs: `SLURM_JOB_ID=J mnrun.sh 3 env ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 DIST_CHUNKS=K ./ecalc 1e10`, `VERIFY OK`, equal digit hash with a path 1 run of the same digits; `tools/gate.sh` is the aac7 form of that gate). Record both in `results/LOG.md`.
+Two questions have no bench script and are run by hand after the ladder's L0 passes (the rows say how): TQ83 (the archived bring-up script's stages
+`s2chk` and `nodechk`; no longer in the repository) and TQ84 (path 2 with `DIST_CHUNKS=2|4`, the digits of K=1,2,4 at 3 nodes (12 PEs: `SLURM_JOB_ID=J mnrun.sh 3 env ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 DIST_CHUNKS=K ./ecalc 1e10`, `VERIFY OK`, equal digit hash with a path 1 run of the same digits; `tools/gate.sh` is the aac7 form of that gate). Record both in `results/LOG.md`.
 
 ## 8. Step 4 — the ladder (1, 8, 64, 576 nodes)
 
@@ -311,7 +286,7 @@ machine, so schedule it when the bench prio < 200 items are done or the session 
 | APUs invisible inside a job step | `--gpus-per-node=4` in the job (the ladder's default sbatch options) and `--gpu-bind=none` on the step (`mnrun.sh` adds it; probe: `PROBE_SRUN_EXTRA`); both only where `scontrol show node` lists a gpu GRES (`MNRUN_GRES=auto|on|off`; a site with `Gres=(null)` rejects them: leave them out, `../remote/FACTS.md` Known problems) |
 | `locality: no node with an xname` / ladder `no group` | `scontrol show node` carries no HPE xname: write a host → xname map (one `host xname` per line, e.g. from `/etc/cray/xname` on each node), `python3 target/ladder/locality.py nodes --map MAP --save`, then `ladder.sh ... --nodes-from target/results/probe/topology.tsv` (its node states are those of the save: re-save before each level) |
 | ladder `plan check of path N FAILED (rc 2, not a memory refusal)` | the planner could not run (module load, binary, `target.conf`); the plan file it names has the first error. A memory refusal is rc 1: that path is dropped and the level runs on the other |
-| one node slow (a replica 5-10 % behind) or a NIC missing | `tools/nodescreen.sh` / kit stage `nodechk`; add the host to `results/ladder/exclude.txt` (`MNRUN_EXCLUDE_HOSTS`, mode drop); no spares |
+| one node slow (a replica 5-10 % behind) or a NIC missing | `tools/nodescreen.sh`; add the host to `results/ladder/exclude.txt` (`MNRUN_EXCLUDE_HOSTS`, mode drop); no spares |
 | NICs lost after jobs end (aac7: needs_reboot after our jobs) | use long allocations and run many items inside them; check `fi_info -p cxi` counts at the start of each allocation |
 | the first run on a fresh allocation is slow | cold start: on aac7 the first run took 154.9 s, later runs on the same node 76.9-85.5 s (m, 2026-10-25); time from run 2 on (ADJUST rule 11). `ECALC_VERBOSE=2` costs at most a few seconds (+2.0 s mean over 4 pairs, not resolved, m) |
 | run-to-run spread | aac7 is bimodal (one run in three 5-8 % slower); measure arms at the same time on different nodes instead of repeating |

@@ -13,7 +13,7 @@
 | `t_nodemem` | 5 checks, 0 failed |
 | unit tests (`NodeHealth`), registry, doccheck | OK, 0 problems |
 | 1e10, 1 node: `device_hwm_apu_gb` | 41.48 (apu 3); per APU 41.09, 40.96, 38.19, 41.48; VERIFY OK, total 24.1 s |
-| same run, planner | 41.38 GB per APU (modelled, `memory fit:`); block-pool peak-live 3.89-5.0 GB per APU (measured; the block pool is only a small part of the APU's demand, so the 61.4 GB of DIAG is not comparable with it) |
+| same run, planner | 41.38 GB per APU (modeled, `memory fit:`); block-pool peak-live 3.89-5.0 GB per APU (measured; the block pool is only a small part of the APU's demand, so the 61.4 GB of DIAG is not comparable with it) |
 | guard mock tree, MemFree 5.12 GB, guard 10 | rc 9, "APU 0 (NUMA node 0) MemFree 5.12 GB is below it" |
 | guard mock tree, guard 1 | rc 0, VERIFY OK |
 | guard real tree, guard 1000 | rc 9, names APU 0 |
@@ -36,7 +36,7 @@
 | same run, `device_hwm_apu_memfree_gb` (old: MemFree only) | 53.43 (apu 0); per APU 53.43, 40.49, 38.63, 40.35 |
 | start free per APU (new / MemFree only), GB | 112.15, 113.62, 113.66, 113.08 / 96.50, 112.80, 111.71, 41.01 (APU 3 held 70 GB of file cache this time) |
 | lowest free per APU (new / MemFree only), GB | 58.72, 73.14, 75.03, 72.16 / 43.07, 72.31, 73.08, 0.67 (MemFree alone showed APU 3 nearly empty; with the file cache it never fell below 72 GB) |
-| planner, same run (modelled) | mean 41.38 GB per APU (`memory fit:`); busiest APU (`dev_apu_max`) 51.05 GB; the measured 53.43 GB on APU 0 is 2.4 GB above the busiest-APU figure |
+| planner, same run (modeled) | mean 41.38 GB per APU (`memory fit:`); busiest APU (`dev_apu_max`) 51.05 GB; the measured 53.43 GB on APU 0 is 2.4 GB above the busiest-APU figure |
 | GPU memory as file pages | no: over the run MemFree fell by 52.2, 39.5, 37.7, 39.4 GB (nodes 0-3) while Active(file) + Inactive(file) did not rise (0.00 GB on every node; node 3's 70 GB file cache fell by 1.0 GB); Unevictable 0.00 GB and Mapped <= 0.1 GB throughout; Active + Inactive (anon) rose only 3.7, 3.7, 1.8, 4.1 GB. So the HBM allocations (hipMalloc, VMM) are on no LRU list; the file cache is only what files left behind |
 | start-up check on, 1e10 | `fit apu check: ok: free memory (MemFree + file cache) APU 0 112.2, APU 1 113.6, APU 2 113.7, APU 3 113.1 GB vs the plan's busiest-APU peak 51.05 + margin 5.00 = 56.05 GB`; run proceeds, VERIFY OK |
 | start-up check on, margin 1000 GB, 1e8 | rc 8, before any init line: `ecalc: FIT APU CHECK FAILED (ECALC_FIT_APU_CHECK=1) on rank 0: APU 0 has 112.69 GB free (MemFree 97.04 + file cache 15.65) but the plan needs 1018.83 GB (planner's busiest-APU peak 18.83 + margin 1000.00): short by 906.14 GB; stopping before any GPU work, rc 8`; 0 init / VERIFY lines |

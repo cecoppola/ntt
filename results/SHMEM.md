@@ -4,7 +4,7 @@ Scope: what is established about the plain OpenSHMEM transport (`COMM_TRANSPORT=
 the transport is xshmem on both paths, `results/XSHMEM.md`; `README.md` describes the two paths): the symmetric pool and its sizing law (§P214, §V114), the Cray SHMEM phase on aac7
 (closing record), and the checklist for node-wide stalls. The proxy-mode records and the stall investigation (items 37-99, 97a-97t) are in `archive:results_merged_2026-10-23/`
 (`SHMEM_full.md`, `SHMEM_ITEMS_full.md`, `SHMEM_STALLS.md`); §S, §S12 and §SHM of the former SHMEM_ITEMS are in `archive:results_merged_2026-10-24/SHMEM_ITEMS.md`. Old IDs resolve
-through `archive:results_merged_2026-10-24/INDEX.md`. Labels: (m) measured, (mod) modelled, (a) assumed.
+through `archive:results_merged_2026-10-24/INDEX.md`. Labels: (m) measured, (mod) modeled, (a) assumed.
 
 ## Summary (what the records establish)
 

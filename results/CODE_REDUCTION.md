@@ -1,6 +1,6 @@
 # CODE_REDUCTION — shrinking the code
 
-Scope: audits, shrink passes, settings-removal waves, validation of the reduction, the limb-format study (decimal vs binary) and the host product tier removal. Old item IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`; raw data and drivers are in `archive:results_raw_2026-10-19/`. Labels: m measured, mod modelled, a assumed.
+Scope: audits, shrink passes, settings-removal waves, validation of the reduction, the limb-format study (decimal vs binary) and the host product tier removal. Old item IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`; raw data and drivers are in `archive:results_raw_2026-10-19/`. Labels: m measured, mod modeled, a assumed.
 
 Sections moved to `archive:results_merged_2026-10-24/CODE_REDUCTION.md` (2026-10-24 cleanup): §AUD2; §SHR2; §H1; §H2; §H5; to `archive:results_merged_2026-10-25/CODE_REDUCTION_removed.md` (2026-10-25): §L2; §O8; the done part of §AUD3.
 
@@ -150,7 +150,7 @@ Branch `h4` off main 0298fe2 (the user decides the merge after measured results)
 
 **The reference (`ecalc/tests/tref.h`).**
 - Exact up to 2^21 product limbs: GMP, with decimal-limb conversions as a product tree (parallel halves). SH3 assumed the old 18-digit string bridge was quadratic above 2^20 limbs; it is not (GMP's `mpz_set_str`/`mpz_get_str` are subquadratic): single-threaded tree and string form take the same time (2^20 limbs: 2.2 s in, 4.5 s out on a 4-core workstation, m); the tree's gain is the parallel halves (1.5x on 4 cores, m). The string forms stay as its check (`t_mul` §0).
-- Residue form, any size: (1) every limb < B and the normalised length na + nb or na + nb - 1; (2) c = a b modulo three 62-bit primes (`t1_q[0..2]`, `vf_limbs_mods`, O(n), parallel); (3) the low 64 limbs exactly; (4) the top limbs: floor(c / B^(ka+kb)) in [Ah Bh, Ah Bh + Ah + Bh] (exact bounds). One wrong limb changes c by d B^k, 0 < |d| < B, never a multiple of a prime > B, so (2) alone catches it.
+- Residue form, any size: (1) every limb < B and the normalized length na + nb or na + nb - 1; (2) c = a b modulo three 62-bit primes (`t1_q[0..2]`, `vf_limbs_mods`, O(n), parallel); (3) the low 64 limbs exactly; (4) the top limbs: floor(c / B^(ka+kb)) in [Ah Bh, Ah Bh + Ah + Bh] (exact bounds). One wrong limb changes c by d B^k, 0 < |d| < B, never a multiple of a prime > B, so (2) alone catches it.
 - `tref_mul` (a reference value for `t_newton`, `t_mn_grid`, `t_dbig`): GMP up to 2^21 limbs, else the one-node device product (`rns_mul_dist_db`) at the default plane (the tests' grids run under `DIST_LOGN_TEST`, so a different plane size), checked by the residue form. `tref_faults` tests the reference itself.
 
 **Method.** aac7 queue items (2 nodes): proof with the old tier present (`t_mul 20 tref`: `tref_mul` value == `rns_mul` value, old and new checks accept both, one-limb faults at low end, middle and top must fail both); before/after `t_mul 20` on one node at main b80ee2e and the branch; new tests (`t_mul 20`, `t_dbig 24 prod`, `t_primes gpu 26`); gates (`tools/gate.sh --build --nodes 2`, `--nodes 1`, `mnaccept --only unit`).

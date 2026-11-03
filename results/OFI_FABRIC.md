@@ -2,7 +2,7 @@
 
 Condensed 2026-10-19 (task 8b) from the merged per-item reports; originals in `archive:results_merged_2026-10-19/`, raw data and
 drivers in `archive:results_raw_2026-10-19/`. Old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`. Labels: **m** measured, **d** derived
-from measured numbers, **mod** modelled, **a** assumed. Times Eastern.
+from measured numbers, **mod** modeled, **a** assumed. Times Eastern.
 
 ## Topic summary
 

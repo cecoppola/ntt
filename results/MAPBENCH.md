@@ -65,7 +65,7 @@ Load changes nothing beyond the spread (D 3.82 -> 3.87; A 15.87 -> 15.77).
 - Memory: helper RSS (4 HIP runtimes) not measured here. The main process maps what the helpers created, one extra copy of nothing.
 - 3 repetitions; the spread is under 4 % for D, up to 14 % for A under load.
 
-Raw lines: `ssh <cluster> 'cat ~/mapbench/all.txt'` (RESULT lines, one per run).
+Raw lines: `ssh <cluster> 'cat mapbench/all.txt'` (RESULT lines, one per run).
 
 **RESUME.** Branch mapd: program and result committed, not merged. Next (decision for the coordinator): integrate behind
 `ECALC_MAPD=1` (design §3 step 2), or take only the NUMA pinning (arm C, 1.29x) which needs no helper.

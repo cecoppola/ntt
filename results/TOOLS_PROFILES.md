@@ -1,6 +1,6 @@
 # TOOLS_PROFILES — tools and the parameter system
 
-Scope: tools and the parameter system: profiles, the switch registry, calibration, the target kit, mnaccept, environment probe. Condensed from the per-item reports (originals in `archive:results_merged_2026-10-19/`; old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`. Labels: m = measured, mod = modelled, a = assumed.
+Scope: tools and the parameter system: profiles, the switch registry, calibration, the target kit, mnaccept, environment probe. Condensed from the per-item reports (originals in `archive:results_merged_2026-10-19/`; old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`). Raw data and drivers: `archive:results_raw_2026-10-19/`. Labels: m = measured, mod = modeled, a = assumed.
 
 Sections moved to `archive:results_merged_2026-10-24/TOOLS_PROFILES.md` (2026-10-24 cleanup): L5; C04; S18M; B05; A04; S18KIT; S18KITFIX.
 
@@ -23,7 +23,7 @@ Current state (cross-checked against ecalc/README.md and RESULTS.md; the README 
 
 Agent c01, 2026-10-11, branch `c01` (from main bc80001). CPU only; read-only login-node commands. New files only, nothing reads them yet.
 Built: `profiles/README.md` (format, precedence plan defaults < profile < overrides, evidence citation rule); `profiles/aac7.conf` (33 keys), `archive:scripts_2026-10-23/aac6.conf` (5 keys + commented CPX keys), `profiles/target.conf.template` (38 keys, 13 `__FILL__`, each with a "how to determine"); `tools/profile_check.sh` (read-only; sources a profile in `env -i`, compares to the e16 LINE and the aac7env exports, flags UNFILLED, UNKNOWN, REMOVAL-SLATED). A private draft of the target profile exists outside git.
-Verdict: templates delivered with no behaviour change. Next step was the loader (O3).
+Verdict: templates delivered with no behavior change. Next step was the loader (O3).
 
 (Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/TOOLS_PROFILES.md`.)
 
@@ -59,7 +59,7 @@ Gates (m, aac7 2 nodes, 2026-10-12, commit 569b486): `gate.sh --build --nodes 2`
 
 Part B review classes: experiment 9 (coordinator, review 2026-11-11); fallback 10 (the six D1e switches, three CAND switches, `ECALC_OUT_PACKED`; review 2026-11-11); diagnostic 47 (2027-04-12); test 27 (2027-04-12). Checks (m): clean tree 0 problems 0 warnings; `--today 2026-11-12` gives 19 warnings, exit 0; each negative case gives one WARN, exit 0.
 
-Verdict: both parts built; one entry point for size-dependent values, equal to hand values at every tested size, and it found the runbook's pool/heap stale. Open: the target runbook (private) still types stale values; `MN_GROUPS` at 576 - k nodes is not computed (the structured form cuts the top group, which user decision D4 "no uneven groups for now" leaves open; default schedule modelled +34 s at 575 nodes, 245.4 vs 211.3 s, archive:results_merged_2026-10-24/NODE_SLOWMODE.md §B04 and C09); the aac7 1-node line goes through mnrun's SHMEM fallback (pool 8192, heap 8704M, harmless); a removed switch's review row prints a "gone" warning until deleted from `switches_review.tsv`.
+Verdict: both parts built; one entry point for size-dependent values, equal to hand values at every tested size, and it found the runbook's pool/heap stale. Open: the target runbook (private) still types stale values; `MN_GROUPS` at 576 - k nodes is not computed (the structured form cuts the top group, which user decision D4 "no uneven groups for now" leaves open; default schedule modeled +34 s at 575 nodes, 245.4 vs 211.3 s, archive:results_merged_2026-10-24/NODE_SLOWMODE.md §B04 and C09); the aac7 1-node line goes through mnrun's SHMEM fallback (pool 8192, heap 8704M, harmless); a removed switch's review row prints a "gone" warning until deleted from `switches_review.tsv`.
 
 Decisions (user): (1) target launch block: options (a) `eval "$(tools/plan_values.py --profile target --exports <digits> <nodes>)"` (recommended: always the plan's values), (b) launch through `mnrun.sh` (same path as every aac7 run, different form than the runbook srun), (c) keep typing 2304 / 2816M (goes stale again). (2) `MN_GROUPS` with excluded nodes: (a) leave as is (recommended until an exclusion is expected), (b) a default-off switch cutting the full machine's schedule at N (C change, gates needed, about 34 s at 575 nodes mod).
 
@@ -76,7 +76,7 @@ Files: `ecalc/calib_table.py` (new, about 400 lines, stdlib), `ecalc/README.md` 
 Branch a06 (from main 6d80ef1). Files: `ecalc/target_kit.sh`, `ecalc/README.md` (3 rows), `tools/initchk.py` (unchanged from branch a03). Rehearsal numbers are m on aac7, 2 nodes (`--site aac7`).
 
 Added:
-| item | behaviour |
+| item | behavior |
 |---|---|
 | `--exclude-hosts LIST` | `MNRUN_EXCLUDE_HOSTS` + `MNRUN_EXCLUDE_MODE=drop` for every mnrun.sh launch, `srun -x` for nodechk; excluded hosts are subtracted from the allocation size when deciding whether a node count fits. Default from the environment. |
 | `--spares N` | summary prints "request max node count + N"; nodechk writes `flagged_hosts.txt` (later stages drop those hosts) and prints `SPARES: STOP` if flagged > N. Default off. |

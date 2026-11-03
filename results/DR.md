@@ -1,6 +1,6 @@
 # DR — detect and retry (C3): a faulty product repeats itself instead of ending the run
 
-## Summary (final, 2026-11-01; branch `c3check`, tested commit 9129ac52; all numbers measured on aac7 unless marked modelled)
+## Summary (final, 2026-11-01; branch `c3check`, tested commit 9129ac52; all numbers measured on aac7 unless marked modeled)
 
 `ECALC_DR` (default 0 = off, the unchanged code paths) selects what is checked inside the run; a failed check repeats only the faulty piece or product, once, inside the product call (no extra memory beyond the first attempt's peak, no change of digits):
 
@@ -12,7 +12,7 @@
 
 `ECALC_DR_TOTAL` (default 8) caps the failures per run; a second failure at the same place is fatal with the location. Exit line per process: `DR: <checks> checks, <injected> injected, <failures> failures, <recovered> recovered (...), <fatal> fatal`. At size 1 (one PE group) the checks are inactive (no DR lines).
 
-Results at 9129ac52 (step 5, below): `mnaccept --only unit,e9,mn,grid,corr` with `ECALC_DR=3`: 28 passed, 0 failed; 1, 2 nodes and path 2: gates and 1e11 digits identical, all injected faults of the kinds above recovered or fatal as designed. Cost (step 6, 2 nodes, 128.82e9 digits, ABBA): B (`ECALC_DR=3`) minus A (unset) = +0.48 s on 121.18 s (+0.40 %), 95 % CI -2.53 ... +3.49 s: not distinguishable from zero at 2 nodes. The design model for 576 nodes is 0.1-0.2 % (modelled; not extrapolated from the 2-node figure).
+Results at 9129ac52 (step 5, below): `mnaccept --only unit,e9,mn,grid,corr` with `ECALC_DR=3`: 28 passed, 0 failed; 1, 2 nodes and path 2: gates and 1e11 digits identical, all injected faults of the kinds above recovered or fatal as designed. Cost (step 6, 2 nodes, 128.82e9 digits, ABBA): B (`ECALC_DR=3`) minus A (unset) = +0.48 s on 121.18 s (+0.40 %), 95 % CI -2.53 ... +3.49 s: not distinguishable from zero at 2 nodes. The design model for 576 nodes is 0.1-0.2 % (modeled; not extrapolated from the 2-node figure).
 
 Known limitations and deviations: the wrap check is exact and fatal (inputs are consumed in place); the persistent case prints the exit summary twice; the D' modulus B-1 is weak for operands divisible by 10^18-1; retries free the bad result and re-allocate instead of zeroing in place.
 
@@ -39,7 +39,7 @@ Retry rules: every retry runs inside the product call (inputs are freed right af
 
 Injection: `ECALC_DR_TEST=<kind>`, `_K` (k-th P24 product of the process), `_PE` (-1 = all), `_N` (consecutive attempts; 2 = persistent). Kinds: flag (step 2), deliver, store, xql, cyc, leaf (steps 3-4).
 
-Cost model (modelled, 3.8e13 digits, 576 nodes): A 0.05-0.2 s, B about 60 ms, C about 5 ms, D about 12 ms, D' 0.1-0.15 s; total 0.25-0.4 s = 0.1-0.2 % of a 200 s run.
+Cost model (modeled, 3.8e13 digits, 576 nodes): A 0.05-0.2 s, B about 60 ms, C about 5 ms, D about 12 ms, D' 0.1-0.15 s; total 0.25-0.4 s = 0.1-0.2 % of a 200 s run.
 
 ## Counting rule (step 2)
 
@@ -107,7 +107,7 @@ Fixes in `dr_piece_decide`: (1) the `who[640]` text is clamped after every appen
 | persistent, `_N=2`, 2 processes | rc 3, location printed, as before |
 
 
-## Measured, step 3 (aac7, 2026-11-01, 13:17-13:39 PST = 16:17-16:39 ET; items 81_drb_t1, 82_drb_n2, 83_drb_n1; commits 583b647 and 1d26619; all counts measured)
+## Measured, step 3 (aac7, 2026-11-01, 16:17-16:39 ET; items 81_drb_t1, 82_drb_n2, 83_drb_n1; commits 583b647 and 1d26619; all counts measured)
 
 `t_mn_grid 1 28`, `ECALC_DR=2` (shapes: product, product + x, subgroups, mixed). Setup 4p = 1 node, 4 PEs (`ECALC_PE_PER_GPU=1 COMM_TRANSPORT=xshmem XSHMEM_LOOPBACK_PES=1 ECALC_NP=4`).
 
@@ -216,7 +216,7 @@ ABBA: one warm-up pair discarded, then 4 rounds A B B A; A = `ECALC_DR` unset, B
 | B - A over the 8 pairs | +0.48 s, 95 % CI -1.35 ... +2.31 s |
 | injected `flag` K=1 PE=0 with `ECALC_DR=3`, one run | 120.43 s; 1 injected = 1 failure = 1 recovered (pieces) |
 
-The cost is not distinguishable from zero at 2 nodes (the CI includes zero and is wider than the modelled 0.1-0.2 %). The injected-retry run is a single run and shows no retry cost above the run-to-run spread. The model figure for 576 nodes (0.1-0.2 %) stays modelled.
+The cost is not distinguishable from zero at 2 nodes (the CI includes zero and is wider than the modeled 0.1-0.2 %). The injected-retry run is a single run and shows no retry cost above the run-to-run spread. The model figure for 576 nodes (0.1-0.2 %) stays modeled.
 
 M1 soak (aac7 campaign, 2026-11-02, main d7c7f28; measured): DR was active in 16 clean runs of 36 (10 layout P at 1 node 6.6e10, 6 at 2 nodes 1e11; `ECALC_DR=3`, forced remaps, diagnostic words, tiny rounds): 0 fatal, 0 rc != 0, 0 digit differences; the false-positive count (failures without injection) is not known because the harness deletes the logs that hold the `DR:` exit lines (results/STRESS.md §M1).
 
