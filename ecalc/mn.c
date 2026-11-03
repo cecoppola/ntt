@@ -457,6 +457,7 @@ void mn_dr_division_check(const uint64_t *qs, const uint64_t *pres, const uint64
 static mdb_trk trk_from(uint64_t r, const mdb_trk *mine, int held) { mdb_trk t; memset(&t, 0, sizeof t); t.r = r; if (held && mine) { t.held = mine->held; memcpy(t.part, mine->part, sizeof t.part); } return t; }
 static int g_lv_tab[4 * 64], g_lv_on;                  /* MN_LEVEL_UNIFORM: this level's largest grid per product (mn_plan.c mn_level_grids), the same on every PE */
 static void lv_force(int pi) { if (g_lv_on) rns_dist_mn_force(g_lv_tab[2 * pi], g_lv_tab[2 * pi + 1]); }
+static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, mdb_trk *tp, mdb_trk *tq);
 /* the top tree set in the background (mn_ckpt_bg_mode, set by ecalc.c: 0 = none, 1 = complete, the division
  * waits for P's part before S = P + Q if it must; 2 = budgeted, dropped when the measured disk rate cannot finish a part within
  * mn_ckpt_slack seconds of its release).  The writer reads the shares while the reciprocal and the division run; the hook in
