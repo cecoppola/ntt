@@ -118,7 +118,7 @@ RNS_DIST_CACHE_MARGIN_GB	float	24	24		built-in default	-	TC15.md+M13.md	Y	ecalc	
 RNS_POOL1_GB	float	unset	unset		built-in default	-	R.md+T.md	Y	ecalc	mn_plan.c,rns_mul.c	4	-	-	
 RNS_POOL_GROW	int	0	0		test-only	-	B16.md+R.md	Y	ecalc	binsplit.c,rns_mul.c	6	diagnostics (TESTING.md)	2027-04-12	
 RNS_STRATEGY	bool	derived	derived	0|1	built-in default	-	B13b.md+G13d.md	Y	ecalc	rns_dist.c	1	-	-	
-RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	31	-	-	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
+RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	30	-	-	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
 XSHMEM_COLL	str	flat	unset	flat|tree	experiment	-	-	Y	ecalc	comm_xshmem.c	1	comm	2026-12-31	comm_xshmem.c; barrier / allreduce_max / allgather_host
 XSHMEM_CRAY_HEAP_THP	int	0	0	0|1|2	experiment	-	-	Y	ecalc	xshmem_cray.h	1	craylane	2026-12-31	xshmem_cray.h; XSHMEM_CRAY=cray DATA heap: 1 = MADV_HUGEPAGE before zeroing + MADV_COLLAPSE after, 2 = only report the backing (smaps line per PE)
 XSHMEM_CRAY_NUMA	int	0	derived	0|1	experiment	-	-	Y	ecalc	comm_xshmem.c,xshmem_cray.h	2	craylane	2026-12-31	comm_xshmem.c; Cray backend: pin the process to its NUMA node's cpus before libsma init (pe_geo; the Cray topo has no cpu list otherwise)
