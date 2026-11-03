@@ -31,3 +31,32 @@ NIC delta (Q140 item 3; the kit's `rl_nicdiff` of `remote/run/lib.sh` on `nodesn
 **Open issues.** (1) The hardware lead (two target nodes with uncorrectable HBM errors) is untouched by this work. (2) The knob raises the run time 5-6 times at 2 nodes; a cheaper variant (fewer chunks moved per event) would allow more repetitions. (3) No repetition 2 at 2 nodes; no 6-node arm (aac7 has 2 usable NIC nodes).
 
 **RESUME.** Branch `stress` on origin, merged with main at the last step; the gate items and stress items are finished and no job is left. Remaining: the user's adoption decision on the knob (default off; review 2026-11-30). To repeat: `tools/stress/stress.sh --nodes 2 --digits 2e10 --reps 2 --nic --force-n 1 --chunk-gb 0.015625 --round-mb 2` inside a 2-node hold after a build.
+
+## M1 — corruption soak at the record per-node load (aac7 campaign, 2026-11-01 22:00 to 2026-11-02 20:08 ET; main d7c7f28; all counts measured)
+
+**Question.** At the per-node load of the record run (6.6e10 digits per node = 3.8e13 / 576) and at 2 nodes with 1e11 digits, does any run show a VERIFY failure, a CRT or P24 flag, a digit difference against the reference hash, or a false detection by detect-and-retry (`ECALC_DR=3`, results/DR.md), with forced pool remaps on and off, tiny exchange rounds and the diagnostic words (`tools/stress/stress.sh`; arm letters in its header)? Every run had `ECALC_DR=3`; the reference hashes are the cached first-D-digit hashes of the 1e11 reference (6.6e10: c356733c88cae1a0..., 1e11: e19c27c362478b18...).
+
+| group | items (nodes) | arms | runs | clean | forced remaps (all remaps) |
+|---|---|---|---|---|---|
+| 1 node, 6.6e10, layout D (one node-process: DR inactive) | 61_m1_b1, 61_m1_b2, 71_m1_b3 to b6 (lane-B nodes s4b0, s3b1, s6b0, s4b1) | k0/k1 x s0/s1 x d0/d1 (b1, b2 four arms, b3-b6 three) | 20 | 20 | 1,584 (1,632) |
+| 1 node, 6.6e10, layout P (`ECALC_PE_PER_GPU=1`, four node-processes: DR active) | 71_m1_p1 (s1b0), 71_m1_p3 (s5b0) | k0s0d0r0 (3 + 3 runs), k1s0d1r0 (2 + 2) | 10 | 10 | 11,836 (12,048) |
+| 2 nodes, 1e11, layout D (two node-processes: DR active) | 62_m1_a1, 72_m1_a2 (s1b0 + s5b0) | k1s0d1r0, k1s1d1r1, k0s0d1r1 | 6 | 6 | 19,424 (19,424) |
+| 1 node, layout P, failed start | 71_m1_p2 (s5b0) | k0s0d0r0, k1s0d1r0 | 2 | 0 (rc 255) | 0 |
+| total | | | 38 | 36 | 32,844 (33,104) |
+
+- **Result.** 36 of 36 runs that started the computation were clean: rc 0, VERIFY OK, 0 CRT flags, 0 P24 flags, 0 digit differences against the reference hash (36 comparisons, all identical). The soak found no corruption and no fault of the pool-remap path: 32,844 forced remaps (measured, summed from `runs.tsv`; 33,104 including the 260 remaps caused by memory pressure without forcing: 16 per unforced layout-P run, 29 per forced layout-P run, 4 per forced layout-D 1-node run).
+- **The two failed runs (71_m1_p2, flagged).** Both arms stopped at start-up on s5b0 within 13 s: the libfabric provider call returned -61 on all four node-processes (no data available), before any computation, rc 255. The identical item rerun later on the same node (71_m1_p3) passed all 5 runs. A transient node or NIC fault of the fabric stack; nothing in ecalc. The two logs are the only ones kept (the harness keeps full logs only for anomalies).
+- **Cost of the forced remaps (measured, wall seconds per run).** 1 node layout D: arms without forcing 310-328 s, with forcing 331-390 s (`DB_FREE_SYNC=1` and diagnostic words not separable in these single runs); layout P: 309-313 s without, 413-485 s with (mean 445 and 449 s, two runs each); 2 nodes: 298 s (k0s0d1r1, one run) against 584-701 s with forcing. Stress wall times include writing the digits for the hash comparison and are not comparable to the plain-run times of M4.
+- **DR false positives.** Not measurable from the retained data. A false detection that caused a retry would show only in the exit line `DR: <checks> checks, <injected> injected, <failures> failures, <recovered> recovered ..., <fatal> fatal` of each process, and the harness deletes the logs of clean runs. What is established: no run ended fatal or with rc != 0 from DR (0 of 36 clean-start runs), and no digit difference. DR was active in 16 of the 36 runs (10 layout P, 6 at 2 nodes) and inactive in the 20 layout-D 1-node runs. The count of silent recoveries without injection (failures with 0 injected) stays unknown; to get it the harness must save the `DR:` lines of every run (a three-line change in `tools/stress/stress.sh`, not made here).
+
+## M5 — switches combined (aac7 campaign, 2026-11-02 05:41 to 11:52 ET; main d7c7f28; measured)
+
+`ECALC_DR=3` and `XSHMEM_ROUND_ACTIVE=1` together, gated against the reference hashes at the three sizes the switch-combination rule uses (`tools/stress/stress.sh`, one run per arm; arms as in M1):
+
+| item | size | arms | rc | VERIFY | CRT / P24 flags | digits vs reference | wall s (ecalc total s) |
+|---|---|---|---|---|---|---|---|
+| 64_m5_a2r | 2 nodes, 1e11 | k0s0d0r0, k0s0d1r0 | 0, 0 | OK, OK | 0 / 0 | identical (e19c27c362478b18...) | 442 (428.9), 330 (318.8) |
+| 77_m5_a3 | 3 nodes, 1e10 | k0s0d0r0, k0s0d1r0, k1s1d1r1 | 0, 0, 0 | OK x3 | 0 / 0 | identical (25ead685ef76d83c...) | 34 (30.6), 34 (29.5), 192 (187.1; 4,980 forced remaps) |
+| 77_m5_b1 | 1 node, 6.6e10 (lane B, s3b1) | k0s0d0r0, k1s1d1r0 | 0, 0 | OK, OK | 0 / 0 | identical (c356733c88cae1a0...) | 330 (203.7), 375 (250.0; 132 forced remaps) |
+
+7 of 7 runs pass: 0 digit differences, 0 flags. The planned fourth item (the variant with `ECALC_MAPD=1`, once the S4 fix is merged) did not run; re-run the three sizes after every merge. Notes: the two 2-node runs differ by 111 s (442 vs 330 s) for the same size; the faster one is the arm with the diagnostic words on, so they do not explain it; run-to-run time modes are described in results/NODE_SLOWMODE.md (single runs, cause not established here). At 1 node the DR checks are inactive, so that run gates the round switch only.

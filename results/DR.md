@@ -217,3 +217,5 @@ ABBA: one warm-up pair discarded, then 4 rounds A B B A; A = `ECALC_DR` unset, B
 | injected `flag` K=1 PE=0 with `ECALC_DR=3`, one run | 120.43 s; 1 injected = 1 failure = 1 recovered (pieces) |
 
 The cost is not distinguishable from zero at 2 nodes (the CI includes zero and is wider than the modelled 0.1-0.2 %). The injected-retry run is a single run and shows no retry cost above the run-to-run spread. The model figure for 576 nodes (0.1-0.2 %) stays modelled.
+
+M1 soak (aac7 campaign, 2026-11-02, main d7c7f28; measured): DR was active in 16 clean runs of 36 (10 layout P at 1 node 6.6e10, 6 at 2 nodes 1e11; `ECALC_DR=3`, forced remaps, diagnostic words, tiny rounds): 0 fatal, 0 rc != 0, 0 digit differences; the false-positive count (failures without injection) is not known because the harness deletes the logs that hold the `DR:` exit lines (results/STRESS.md §M1).
