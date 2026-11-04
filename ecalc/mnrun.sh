@@ -1,33 +1,18 @@
 #!/bin/bash
-# mnrun.sh - run <procs> node-processes of ecalc (or any command) connected by the inter-node
-# communicator (COMM_TRANSPORT=xshmem, the only multi-node transport: libfabric backend `make XSHMEM=ofi`, or the Cray SHMEM backend `make XSHMEM=cray`).  The
-# processes are spread over the nodes of the allocation, several per node when there are
-# fewer nodes (they share the node's four APUs); the node count used is the largest that divides
-# <procs> (Slurm places tasks by blocks otherwise), listed explicitly.
-#   mnrun.sh <procs> <command...>          e.g.  SLURM_JOB_ID=<id> ./mnrun.sh 2 ./ecalc 1000000000 /tmp/e.txt
-# Launched by plain srun (Cray's PMI), rank = PE.  COMM_SHMEM_POOL_MB is the planner's pool figure (unset: the run's modelled need from MN_PLAN_ONLY for
-# ecalc, else 8192); it sizes XSHMEM_HEAP_MB, and for the Cray backend the heap SHMEM_SYMMETRIC_SIZE = XT_SYMMETRIC_HEAP_SIZE (host hugepages).  A
-# COMM_SHMEM_POOL_MB word of the command wins over the plan.  MNRUN_MODULES is the module line of every
-# wrapper (default `rocm`; `cray-dsmml cray-openshmemx rocm` where /opt/cray/pe/sma exists); MNRUN_CPUS_PER_TASK sets srun -c
-# (unset = `auto`: the node's CPUs / tasks per node, since 2026-10-27 -- srun confines a task to 1-2 CPUs otherwise, m aac7 and the target;
-# an explicitly empty value `MNRUN_CPUS_PER_TASK=` passes no -c, the old line; a number is passed as -c <n>);
-# ECALC_LOG_CLOCKS=1 runs aac7env.sh --log (rocm-smi clocks, the APU / NIC NUMA map) on every node before the command.
-# Phase 16 D: MNRUN_UNLOAD=<modules> (unset by default) is unloaded before MNRUN_MODULES in every wrapper and the plan call -- a versioned
-# rocm module (rocm/7.2.4) conflicts with the default rocm/7.0.3 of the login shell (aac7env.sh sets both from AAC7_ROCM).
-# Phase 16 P (results/TRANSPORT.md): MNRUN_NODES=<n> (unset by default) uses at most the first n nodes of the allocation -- 4 PEs on one node
-# (`MNRUN_NODES=1 mnrun.sh 4`) or a 2-node A/B inside a 4-node job.
-# T27 (results/CODE_TOOLS.md §T27): MNRUN_PRINT_ENV=1 (default 0) computes everything as for a launch -- the plan's pool, the heap, the libfabric
-# defaults -- but prints the computed variables as `export K=V` lines on stdout and exits 0 instead of
-# calling srun (no allocation needed; mnrun's own messages go to stderr).  tools/plan_values.py uses it, so the size-dependent
-# launch values have one source.  Unset, nothing changes.
-# N6: MNRUN_TOPO_CHECK=0 (default 1) skips the report-only switch-group check (ecalc/topo_check.py; settings TOPO_GROUP_SIZE, TOPO_TOPOLOGY_FILE).
-# FIT (D26, results/MODEL.md §FIT): before srun, the planner's memory fit of the command's ecalc run is printed and a run that does not fit
-# (device over ECALC_DEVICE_GB, node over ECALC_NODE_GB) is refused with exit 4; MNRUN_FIT=0 skips it (see the FIT block below).
-# S2a (TARGET12, ECALC_PE_PER_GPU=1, exported or a VAR=value word of the command; default off = this script is unchanged): ONE PROCESS PER GPU.  <procs> is the node count (one
-# group per node); each node runs PPN tasks (MNRUN_PPG_PPN; default the node's GPU count from scontrol Gres, else 4), --distribution=block, every task keeps its stdout, COMM_RANK / COMM_SIZE
-# count nodes (as for PPN), srun --kill-on-bad-exit=1 even on one node.  Needs COMM_TRANSPORT=xshmem (make XSHMEM=ofi); XSHMEM_LOOPBACK_PES=1 (K = 1; the engine refuses another value).
-# Launch arms (the S2a probe decides the default): MNRUN_PPG_GPUBIND=none (default: --gpus-per-node=4 --gpu-bind=none, the PE's device = pe_geo's: its local id) | task (--gpus-per-task=1, one
-# visible device 0); MNRUN_PPG_CPUBIND=none (default: --cpu-bind=none, the process restricts itself to its NUMA node's cpus, vpe_pe_affinity) | ldom (--cpu-bind=map_ldom:0..PPN-1 --mem-bind=local).
+# mnrun.sh <procs> <command...> - run <procs> node-processes of ecalc (or any command) joined by the inter-node communicator (COMM_TRANSPORT=xshmem; `make XSHMEM=ofi` or `XSHMEM=cray`).
+#   e.g.  SLURM_JOB_ID=<id> ./mnrun.sh 2 ./ecalc 1000000000 /tmp/e.txt
+# Plain srun (Cray PMI), rank = PE; processes spread over the allocation's nodes (several per node when there are fewer), on the largest node count that divides <procs>.
+# COMM_SHMEM_POOL_MB = the planner's pool figure (unset: the modelled need from MN_PLAN_ONLY for ecalc, else 8192; a VAR=value word of the command wins); it sizes XSHMEM_HEAP_MB
+#   and, for the Cray backend, SHMEM_SYMMETRIC_SIZE = XT_SYMMETRIC_HEAP_SIZE.
+# MNRUN_MODULES: module line of every wrapper (default `rocm`; `cray-dsmml cray-openshmemx rocm` where /opt/cray/pe/sma exists); MNRUN_UNLOAD: unloaded first (rocm/7.0.3 on aac7).
+# MNRUN_CPUS_PER_TASK: srun -c (unset = auto: the node's CPUs / tasks per node; empty = no -c; a number is passed as is).
+# MNRUN_NODES=<n>: at most the first n nodes; MNRUN_NODELIST: exactly these nodes; ECALC_LOG_CLOCKS=1: aac7env.sh --log on every node before the command.
+# MNRUN_PRINT_ENV=1: compute everything as for a launch, print the variables as `export K=V` lines on stdout and exit 0 without srun (tools/plan_values.py uses it).
+# MNRUN_TOPO_CHECK=0 skips the report-only switch-group check (ecalc/topo_check.py). MNRUN_FIT=0 skips the memory-fit refusal (exit 4 when the run does not fit
+#   ECALC_DEVICE_GB / ECALC_NODE_GB).
+# ECALC_PE_PER_GPU=1 (exported or a word of the command): one process per GPU; <procs> is then the node count, each node runs MNRUN_PPG_PPN tasks (default its GPU count),
+#   COMM_RANK / COMM_SIZE count nodes, XSHMEM_LOOPBACK_PES=1, srun --kill-on-bad-exit=1. MNRUN_PPG_GPUBIND=none|task (gpu-bind / --gpus-per-task=1),
+#   MNRUN_PPG_CPUBIND=none|ldom (cpu-bind / map_ldom + --mem-bind=local).
 set -e
 P=$1; shift
 PRINT_ENV=${MNRUN_PRINT_ENV:-0}
