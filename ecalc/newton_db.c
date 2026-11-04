@@ -40,7 +40,7 @@ static void shrink_db(dbig *r)
 /* is any limb of a below index e nonzero? (a - B^e test when a has e+1 limbs with top 1) */
 static int maxidx_below(const dbig *a, size_t e) { dbig v = db_view(a, 0, e); v.n = e; db_norm(&v); return v.n != 0; }
 /* (a << j) <= b, both with the same limb count (rare path: an explicit shift).  plus1: (a << j) <= b + 1 -- under the
- * cut, corr may be one below the exact value, so the overshoot test contains every exact overshoot (results/DIVISION.md §R114 1.4) */
+ * cut, corr may be one below the exact value, so the overshoot test contains every exact overshoot (results/COMPUTE.md §R114 1.4) */
 static int shifted_cmp_le(const dbig *a, size_t j, const dbig *b, int plus1)
 {
     dbig t; db_init(&t); db_shl_limbs(&t, a, j); int c = db_cmp(&t, b), le = c <= 0;
@@ -55,7 +55,7 @@ static int shifted_cmp_le(const dbig *a, size_t j, const dbig *b, int plus1)
 static int recip_guard = 1, guard_read = 0;
 static void cut_init(void) { if (!guard_read) { guard_read = 1; const char *e = getenv("NEWTON_RECIP_GUARD"); if (e) recip_guard = atoi(e); if (recip_guard < 0) recip_guard = 0; } }
 size_t newton_recip_cut(size_t v) { cut_init(); return v > (size_t)recip_guard ? v - (size_t)recip_guard : 0; }
-/* Phase 15 R4: Q_t r is formed as a middle product -- the grid with the
+/* Q_t r is formed as a middle product -- the grid with the
  * pieces at or above w = take + MID_HI skipped too (mul_grid's / mn_grid's high cut), the result taken mod B^w.  The step reads
  * u = t1 >> v (v = take - j) only through e = u - B^(2j); when the previous round of the chain bounds |e| < B^(j+3) (mid_ok), u is
  * fixed by u mod B^(j+4) = t1's limbs [v, take + 4), and the reconstructed u equals the cut path's u exactly (the same bits).  The
@@ -98,7 +98,7 @@ size_t newton_mn_chain_start(size_t k)
     return kp;
 }
 static void recip_db(dbig *mu, const dbig *Qd, const bigint *Q, size_t k) { recip_db2(mu, Qd, Q, k, 0); }
-/* Phase 15 R4: C = A B mod B^w with the low cut (w = (size_t)-1: the whole product, rns_mul_high_db as before) */
+/* C = A B mod B^w with the low cut (w = (size_t)-1: the whole product, rns_mul_high_db as before) */
 static void mul_band_db(dbig *C, const dbig *A, const dbig *B, size_t lowcut, size_t w)
 {
     if (vpe_on()) { rns_mul_local(C, A, B, lowcut, w); return; }   /* S1c: the chain on the PE's own device (form S; the same products and cuts) */
@@ -121,7 +121,7 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
     dm_switches(); int tight = dm_tight > 0;
     if (!tight) { db_reserve(&r, k + 4); db_reserve(&r2, k + 4); db_reserve(&t1, tcap); }
     seed_db(&r, Q, Qd, nq_seed, &j);
-    int mid_ok = 0;                                              /* Phase 15 R4: the seed's error is not bounded -- its first round forms the whole product */
+    int mid_ok = 0;                                              /* the seed's error is not bounded -- its first round forms the whole product */
     /* Phase 14 L1 (E2, second form, after job 21132): the three blocks reserved ONCE at the last doubling's sizes, now, while the pool holds
      * only P and Q -- r at jl + 4 (r has j + 2 limbs, measured), r2 at 2 jl + 4, t1 at Q_t r's size at jl (the hole of dm_layout) -- and
      * never swapped: r' is copied from r2 into r's block at every doubling but the last (about n_Q limbs of device copies in all), so the
@@ -137,7 +137,7 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
             size_t take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
             dbig qt = db_view(Qd, nq - take, take);                  /* top limbs of Q */
             size_t c1 = j <= take ? newton_recip_cut(take - j) : 0, f0 = rns_dist_st.n_formed, s0 = rns_dist_st.n_skipped;   /* Phase 14 R1 (E7): the low cut under the band read */
-            size_t hw = mid_ok ? newton_recip_mid(j, take) : (size_t)-1;   /* Phase 15 R4: the high cut (the middle product) when the previous round bounds |e| */
+            size_t hw = mid_ok ? newton_recip_mid(j, take) : (size_t)-1;   /* the high cut (the middle product) when the previous round bounds |e| */
             mul_band_db(&t1, &qt, &r, c1, hw);                 /* Q_t r (the pieces below the cut skipped; c1 = 0: whole, as before; R4: mod B^hw) */
             dbig u; int neg;                                        /* u ~ B^(2j): t1 >> (take - j) as a view, or << (j - take) (rare) */
             if (hw != (size_t)-1) {                                 /* R4: u from u mod B^(j+4) */
@@ -779,8 +779,8 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
         if (!member) { j = jn; NST(newton_st.iters++); continue; }
         for (;;) {
             double s0 = mem_now();
-            size_t c1 = j <= take ? newton_recip_cut(take - j) : 0;   /* Phase 14 R1 (E7): the same cut over shares (results/DIVISION.md §R114 1.7) */
-            size_t hw = mid_ok ? newton_recip_mid(j, take) : (size_t)-1;   /* Phase 15 R4: the middle product -- the result in basis hw */
+            size_t c1 = j <= take ? newton_recip_cut(take - j) : 0;   /* Phase 14 R1 (E7): the same cut over shares (results/COMPUTE.md §R114 1.7) */
+            size_t hw = mid_ok ? newton_recip_mid(j, take) : (size_t)-1;   /* the middle product -- the result in basis hw */
             if (qlazy) { mdbv rv = mdb_view(&r, 0, r.n, Gs); double tp = mem_now(); rns_mul_dist_mn_cut_v(&t, &qv, &rv, Gs, c1, hw); mn_st.t_prod += mem_now() - tp; }   /* the same product on the same limbs (cut_v clips at hw as cut does) */
             else if (take == nq && Gs == G) mn_prod_cut(&t, Q, &r, Gs, c1, hw);
             else mn_prod_cut(&t, &qt, &r, Gs, c1, hw);                 /* Q_t r */
