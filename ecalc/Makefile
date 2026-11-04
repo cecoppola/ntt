@@ -60,9 +60,9 @@ LINK_TESTS = tests/t_arith tests/t_p24 tests/t_p24crt tests/t_crtk tests/t_dbig 
 $(LINK_TESTS): %: %.c $(OBJS) $(HDRS) tests/harness.h tests/tref.h tests/sha256.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) -lm $(XSHMEM_LIBS)
 
-# t_dist drives the test-only communicators (tests/comm_local.c, tests/comm_sim4.c: one rank / four synthetic ranks in one APU)
-tests/t_dist: tests/t_dist.c tests/comm_local.c tests/comm_sim4.c $(OBJS) $(HDRS) tests/harness.h
-	$(HIPC) -fopenmp $< tests/comm_local.c tests/comm_sim4.c -x none $(OBJS) -o $@ $(GMP_LIBS) -lm $(XSHMEM_LIBS)
+# t_dist carries its own test-only communicators (one rank / four synthetic ranks in one APU)
+tests/t_dist: tests/t_dist.c $(OBJS) $(HDRS) tests/harness.h
+	$(HIPC) -fopenmp $< -x none $(OBJS) -o $@ $(GMP_LIBS) -lm $(XSHMEM_LIBS)
 
 # tests with fewer objects: the plane cap (host only), the CRT, the transforms, the allocator
 tests/t_cap: tests/t_cap.c tests/harness.h

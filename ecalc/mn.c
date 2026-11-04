@@ -11,11 +11,11 @@
 #include "ntt_dist.h"
 #include "modarith.h"
 #include "mem.h"
-#include "memsample.h"                                /* Phase 14 S1 (E1) */
+#include "memsample.h"                                
 #include "vpe.h"                                        /* PE identity (ECALC_PE_PER_GPU) */
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define NA 4
-static int g_rank, g_size = 1; static comm *g_cm[NA];   /* off path: this node and the nodes; under ECALC_PE_PER_GPU g_rank / g_size stay the NODE values -- the PE view is mn_rank() / mn_size() */
+static int g_rank, g_size = 1; static comm *g_cm[NA];   /* off path: this node and the nodes; under ECALC_PE_PER_GPU g_rank / g_size stay the NODE values -- the PE view is mn_rank / mn_size */
 /* this PE's state (one PE per process): the flat communicator over all PEs, the cached sub-communicators, the tree's groups */
 typedef struct { int g0, g, slot, id; comm *c; } subent;
 typedef struct { subent e[64]; int n; } sublist;
@@ -84,7 +84,7 @@ static comm *cm0(void) { return vpe_on() ? flat : g_cm[0]; }
 /* the PE communicators (vpe.h).  The flat one is made by mn_init; sub-communicators are made on first use by every member PE (local creation, no message) and
  * cached per lane.  The id is a function of (g0, g, slot) alone, so the members agree without an exchange: an aligned power-of-two run (g0 % g == 0)
  * 1 + log2 g + 16 slot (slot < 16, g < 2^15: ids < 256); any other run with g < 64 256 + 64 slot + g (slot < 4: ids 259..511); any other run with g >= 64
- * (a 3-way level of the tree at 192, 384, 768 PEs ...; a cut top group of mn_group_at) 512 + slot (slot < 31: ids 512..542; only when vpe_big_ids(), which sizes the control block 544; callers pass the schedule
+ * (a 3-way level of the tree at 192, 384, 768 PEs ...; a cut top group of mn_group_at) 512 + slot (slot < 31: ids 512..542; only when vpe_big_ids, which sizes the control block 544; callers pass the schedule
  * level so two sizes on one PE differ, mn_group_at level l: slot l (< 16), mn_group_span level l: 15 + l (16..30); id 543 is the t_vpe hs burst block, 511 too when the block is 512 ids).  The map is injective over that domain, so two runs share
  * an id only if they have the same (g, slot) class -- and then sharing a PE is a fatal naming both runs (vpe_sub_slot checks its own table first; the engine's
  * "id used twice" is the backstop; use another slot).  Outside the domain: fatal.  (2026-10-27, A5: the g >= 64 class was a fatal "supports g < 64" before,
@@ -129,7 +129,7 @@ comm *vpe_sub(int g0, int g) { return vpe_sub_slot(g0, g, 0); }
 /* the id slot of an engine group: 0 as always, except a run of >= 64 PEs that is not an aligned power of two (and not the whole machine = the flat communicator), which takes `base` */
 static int big_slot(int g0, int g, int base) { return g >= 64 && (((g & (g - 1)) | (g0 % g)) != 0) && !(g0 == 0 && g == vpe_npe()) ? base : 0; }
 int mn_transport_shmem(void) { return g_xshmem; }
-/* S2a (ECALC_PE_PER_GPU=1): one process per PE (srun, ppn tasks per node, block distribution); xshmem with K = 1.  COMM_RANK / COMM_SIZE stay the node index / count (mnrun.sh), g_rank / g_size
+/* ECALC_PE_PER_GPU=1: one process per PE (srun, ppn tasks per node, block distribution); xshmem with K = 1.  COMM_RANK / COMM_SIZE stay the node index / count (mnrun.sh), g_rank / g_size
  * the same; the PE is the engine's PE.  Identity cross-check (fatal): engine PE and PE count against the launch (SLURM_LOCALID, SLURM_NTASKS_PER_NODE, COMM_RANK, COMM_SIZE), so a wrong
  * --distribution cannot silently cross the GPU and NIC maps.  The device, NUMA node and cpus are pe_geo's (engine topology); only that device is touched. */
 #ifdef XSHMEM_ENGINE
@@ -161,7 +161,7 @@ static int mn_init_ppg(void)
     return npe;
 }
 #endif
-static int mn_init_vpe(void)                              /* ECALC_PE_PER_GPU=1 (vpe_on() without it is a unit-test view: no launch, no engine) */
+static int mn_init_vpe(void)                              /* ECALC_PE_PER_GPU=1 (vpe_on without it is a unit-test view: no launch, no engine) */
 {
     const char *et = getenv("COMM_TRANSPORT");
 #ifndef XSHMEM_ENGINE
@@ -234,14 +234,17 @@ void mn_finalize(void)
     if (g_size > 1 && g_xshmem) { comm_xshmem_finalize(); return; }
 #endif
 }
-/* the self-tests over PE communicators -- every PE (process) is one rank of one communicator (the flat one, or the first 2^k PEs for the
- * layered test, k the largest with 2^k <= #PE), one plane of one prime, its rows against the one-rank engine; no omp.  The 12-PE case (not a power of two)
- * is covered by the 8 PEs of vpe_sub(0, 8); the R / ranks >= 32 growth of the loops below is kept as it is.  Called from the flow's thread of the process. */
-static uint64_t xs(uint64_t *s);
-static int selftest_pe_core(comm *cm, int prime, int logR, int logC, int verbose)
+/* Self-tests: a random cyclic convolution of 2^(logR+logC) points through the distributed fwd/pw/inv of communicator cm (one plane of one
+ * prime; rank r holds rows [r R/nr, (r+1) R/nr), row i, column j <-> point i + R j) against the one-rank engine on the same rows.  a2a also
+ * checks the layered all-to-all pattern; want_rank >= 0 checks the communicator's rank and size.  Runs on the calling thread's device. */
+static int pow2_floor(int g) { int p = 1; while (2 * p <= g) p *= 2; return p; }
+static uint64_t xs(uint64_t *s) { *s ^= *s << 13; *s ^= *s >> 7; *s ^= *s << 17; return *s; }
+static int selftest_core(comm *cm, int prime, int want_rank, int want_size, int logR, int logC, int verbose, int a2a)
 {
     int r = comm_rank(cm), nr = comm_size(cm), ok = 1;
-    while (((size_t)1 << logR) / (size_t)nr < 32) logR++;
+    if (logR < NTT_LOGN_MIN) logR = NTT_LOGN_MIN;
+    while (((size_t)1 << logR) / (size_t)nr < 32) logR++;        /* R / ranks >= 32 (k_twpack_r's grid is rk/32 blocks) */
+    if (want_rank >= 0 && (r != want_rank || nr != want_size)) ec_fatal(EC_RC_FATAL, "mn selftest: rank %d/%d, expected %d/%d\n", r, nr, want_rank, want_size);
     int logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
     uint64_t p = ec_P[prime], seed = 0x9E3779B97F4A7C15ull + prime;
     uint64_t *hx = (uint64_t *)malloc(n * 8), *hy = (uint64_t *)malloc(n * 8), *ref = (uint64_t *)malloc(n * 8), *tmp = (uint64_t *)malloc(rows * 8);
@@ -253,6 +256,16 @@ static int selftest_pe_core(comm *cm, int prime, int logR, int logC, int verbose
     HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(ref, dx, n * 8, hipMemcpyDeviceToHost));
     dist_plan pl; dist_plan_create(&pl, cm, ctx, prime, logR, logC);
     uint64_t *rx, *ry; HIP_CHECK(hipMalloc(&rx, rows * 8)); HIP_CHECK(hipMalloc(&ry, rows * 8));
+    if (a2a) {   /* slab sigma of rank rho tagged (rho, sigma, i) must arrive as slab rho of rank sigma */
+        size_t sl = rows / nr, bad = 0; uint64_t *pat = (uint64_t *)malloc(rows * 8);
+        for (int sg = 0; sg < nr; sg++) for (size_t i = 0; i < sl; i++) pat[sg * sl + i] = ((uint64_t)r << 40) | ((uint64_t)sg << 32) | i;
+        HIP_CHECK(hipMemcpy(rx, pat, rows * 8, hipMemcpyHostToDevice));
+        comm_alltoall(cm, rx, ry, sl * 8, s); comm_wait(cm);
+        HIP_CHECK(hipMemcpy(pat, ry, rows * 8, hipMemcpyDeviceToHost));
+        for (int src = 0; src < nr; src++) for (size_t i = 0; i < sl; i++) { uint64_t want = ((uint64_t)src << 40) | ((uint64_t)r << 32) | i; if (pat[src * sl + i] != want) { if (!bad) printf("%smn: %s %d rank %d: slab %d word %zu = (rank %llu, slab %llu, %llu), want (%d, %d, %zu)\n", ec_log_prefix(), mn_who(), mn_rank(), r, src, i, (unsigned long long)(pat[src * sl + i] >> 40), (unsigned long long)((pat[src * sl + i] >> 32) & 255), (unsigned long long)(pat[src * sl + i] & 0xffffffff), src, r, i); bad++; } }
+        if (bad) { printf("%smn: %s %d rank %d: layered all-to-all pattern: %zu of %zu words wrong\n", ec_log_prefix(), mn_who(), mn_rank(), r, bad, rows); ok = 0; }
+        free(pat);
+    }
     for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hx[(r * rr + il) + R * j];
     HIP_CHECK(hipMemcpy(rx, tmp, rows * 8, hipMemcpyHostToDevice));
     for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hy[(r * rr + il) + R * j];
@@ -261,12 +274,13 @@ static int selftest_pe_core(comm *cm, int prime, int logR, int logC, int verbose
     HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(tmp, rx, rows * 8, hipMemcpyDeviceToHost));
     size_t bad = 0;
     for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) if (tmp[il * C + j] != ref[(r * rr + il) + R * j]) bad++;
-    if (bad || verbose) printf("%smn: PE rank %d of %d, 2^%d points: %zu of %zu differ\n", ec_log_prefix(), r, nr, logn, bad, rows);
+    if (bad || verbose) printf("%smn: %s %d prime %d rank %d of %d, 2^%d points: %zu of %zu differ\n", ec_log_prefix(), mn_who(), mn_rank(), prime, r, nr, logn, bad, rows);
     if (bad) ok = 0;
     dist_plan_free(&pl); HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy)); HIP_CHECK(hipStreamDestroy(s)); ntt_ctx_free(ctx);
     free(hx); free(hy); free(ref); free(tmp);
     return ok;
 }
+/* PE layout: every PE is one rank of the flat communicator, or of the first 2^k PEs for the layered test (2^k <= #PE) */
 static int selftest_pe(int logR, int logC, int verbose, int layered)
 {
     int npe = vpe_npe(); comm *cm; double t0 = mem_now();
@@ -274,61 +288,26 @@ static int selftest_pe(int logR, int logC, int verbose, int layered)
         if (npe & (npe - 1)) { if (vpe_root()) printf("mn: self-test over the plain meshes skipped (%d PEs is not a power of two; the layered self-test covers the transform PEs)\n", npe); return 1; }
         cm = flat;
     } else {
-        int gt = 1; while (2 * gt <= npe) gt *= 2;
-        cm = vpe_sub(0, gt); if (!cm) return 1;
+        cm = vpe_sub(0, pow2_floor(npe)); if (!cm) return 1;
     }
-    int ok = selftest_pe_core(cm, (logR + logC) & 3, logR, logC, verbose);
+    int ok = selftest_core(cm, (logR + logC) & 3, -1, 0, logR, logC, verbose, 0);
     if (vpe_root()) printf("mn: %sself-test over %d PEs at 2^%d+ points: %s (%.2f s)\n", layered ? "layered " : "", comm_size(cm), logR + logC, ok ? "ok" : "FAILED", mem_now() - t0);
     return ok;
 }
-static int selftest_pe_entry(int logR, int logC, int verbose, int layered) { return selftest_pe(logR, logC, verbose, layered); }
-/* self-test: on every APU thread, prime d, a random cyclic convolution of 2^(logR+logC) points from a seed all
- * nodes share; the distributed fwd/pw/inv over mesh d's `size` ranks must equal the one-rank engine on this
- * rank's block-cyclic rows (rank r holds rows [r R/nr, (r+1) R/nr); row i, column j <-> point i + R j) */
-static uint64_t xs(uint64_t *s) { *s ^= *s << 13; *s ^= *s >> 7; *s ^= *s << 17; return *s; }
+/* node layout, on every APU thread d: prime d over mesh d's `size` ranks */
 int mn_selftest(int logR, int logC, int verbose)
 {
     if (mn_size() <= 1) return 1;
-    if (vpe_on()) return selftest_pe_entry(logR, logC, verbose, 0);
+    if (vpe_on()) return selftest_pe(logR, logC, verbose, 0);
     if (mn_size() & (mn_size() - 1)) { printf("mn: self-test over the plain meshes skipped (size %d is not a power of two; the layered self-test covers the transform nodes)\n", mn_size()); return 1; }
-    int nr = mn_size();
-    if (logR < NTT_LOGN_MIN) logR = NTT_LOGN_MIN;   /* the column pass is ntt_fwd(..., p->logR, ...): logR itself must be a valid transform size */
-    /* (results/TRANSPORT.md's growth pattern) the fixed 2^11 rows give R/ranks < 32 from 128
-     * ranks on (k_twpack_r's grid is rk/32 blocks, 0 at R/ranks = 16: a silent no-op, not a HIP error).  Grow logR until
-     * R/ranks >= 32, as the layered test does; below 128 ranks R/ranks is already >= 32 (2048/64
-     * = 32) so the loop never fires and behavior is unchanged. */
-    while (((size_t)1 << logR) / (size_t)nr < 32) logR++;
-    int ok = 1, logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
-    if (rr < 32) { fprintf(stderr, "mn_selftest: R / ranks < 32\n"); return 0; }
-    double t0 = mem_now();
+    int ok = 1; double t0 = mem_now();
 #pragma omp parallel for num_threads(NA) schedule(static) reduction(&&:ok)
     for (int d = 0; d < NA; d++) {
         HIP_CHECK(hipSetDevice(d));
-        int prime = d, r = mn_rank(); uint64_t p = ec_P[prime], seed = 0x9E3779B97F4A7C15ull + prime;
-        uint64_t *hx = (uint64_t *)malloc(n * 8), *hy = (uint64_t *)malloc(n * 8), *ref = (uint64_t *)malloc(n * 8), *tmp = (uint64_t *)malloc(rows * 8);
-        for (size_t i = 0; i < n; i++) { hx[i] = xs(&seed) % p; hy[i] = xs(&seed) % p; }
-        ntt_ctx *ctx = ntt_ctx_create(prime); hipStream_t s; HIP_CHECK(hipStreamCreate(&s));
-        uint64_t *dx, *dy; HIP_CHECK(hipMalloc(&dx, n * 8)); HIP_CHECK(hipMalloc(&dy, n * 8));
-        HIP_CHECK(hipMemcpy(dx, hx, n * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dy, hy, n * 8, hipMemcpyHostToDevice));
-        ntt_fwd(ctx, dx, logn, 1, s); ntt_fwd(ctx, dy, logn, 1, s); ntt_pw(ctx, dx, dy, n, s); ntt_inv(ctx, dx, logn, 1, s);
-        HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(ref, dx, n * 8, hipMemcpyDeviceToHost));
-        dist_plan pl; dist_plan_create(&pl, g_cm[d], ctx, prime, logR, logC);
-        uint64_t *rx, *ry; HIP_CHECK(hipMalloc(&rx, rows * 8)); HIP_CHECK(hipMalloc(&ry, rows * 8));
-        for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hx[(r * rr + il) + R * j];
-        HIP_CHECK(hipMemcpy(rx, tmp, rows * 8, hipMemcpyHostToDevice));
-        for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hy[(r * rr + il) + R * j];
-        HIP_CHECK(hipMemcpy(ry, tmp, rows * 8, hipMemcpyHostToDevice));
-        dist_fwd(&pl, rx, s); dist_fwd(&pl, ry, s); dist_pw(&pl, rx, ry, s); dist_inv(&pl, rx, s);
-        HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(tmp, rx, rows * 8, hipMemcpyDeviceToHost));
-        size_t bad = 0;
-        for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) if (tmp[il * C + j] != ref[(r * rr + il) + R * j]) bad++;
-        if (bad || verbose) printf("mn: node %d mesh %d 2^%d points: %zu of %zu differ\n", r, d, logn, bad, rows);
-        if (bad) ok = 0;
-        dist_plan_free(&pl); HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy)); HIP_CHECK(hipStreamDestroy(s)); ntt_ctx_free(ctx);
-        free(hx); free(hy); free(ref); free(tmp);
+        ok = selftest_core(g_cm[d], d, -1, 0, logR, logC, verbose, 0) && ok;
     }
     HIP_CHECK(hipSetDevice(0));
-    printf("mn: self-test, four meshes over %d nodes at 2^%d points: %s (%.2f s)\n", nr, logn, ok ? "ok" : "FAILED", mem_now() - t0);
+    printf("mn: self-test, four meshes over %d nodes at 2^%d+ points: %s (%.2f s)\n", mn_size(), logR + logC, ok ? "ok" : "FAILED", mem_now() - t0);
     return ok;
 }
 
@@ -343,7 +322,6 @@ static comm *sub_mesh(int g0, int g, int slot, int d)
     if (g0 == 0 && g == mn_size()) return g_cm[d];
     comm *r = mesh_create(g0, 1, g, NA + NA * slot + d); return r;   /* S: the PE set [g0, g0+g); id unique per (slot, d) -- the base meshes hold ids 0..3 */
 }
-static int pow2_floor(int g) { int p = 1; while (2 * p <= g) p *= 2; return p; }
 /* this node's group at level l >= 1: the nodes [k 2^l, min((k+1) 2^l, size)), k = rank >> l; its meshes are
  * created on first use by all its members together (a singleton group has none) */
 mn_group *mn_group_at(int level)
@@ -352,10 +330,10 @@ mn_group *mn_group_at(int level)
     if (g_groups[level]) return g_groups[level];
     mn_group *G = (mn_group *)calloc(1, sizeof *G);
     int k = mn_rank() >> level; G->g0 = k << level; G->g = (1 << level) < mn_size() - G->g0 ? (1 << level) : mn_size() - G->g0;
-    G->gt = pow2_floor(G->g); G->me = mn_rank() - G->g0; G->lvl = level;
-    if (vpe_on()) {                                      /* S1a: the group of 2^level PEs; all[0] = its PE communicator (the other fields stay unused; S1b's mn_group.pe) */
+    G->me = mn_rank() - G->g0; G->lvl = level;
+    if (vpe_on()) {                                      /* the group of 2^level PEs; all[0] = its PE communicator (the other fields stay unused) */
         if (G->g > 1) G->all[0] = vpe_sub_slot(G->g0, G->g, big_slot(G->g0, G->g, level));
-        if (vpe_on()) G->pe = G->all[0];   /* S1b: the PE communicator (all[0] == pe; NULL for one PE) */
+        G->pe = G->all[0];   /* (NULL for one PE) */
     } else
     if (G->g > 1) {
         double t0 = mem_now();
@@ -363,10 +341,10 @@ mn_group *mn_group_at(int level)
         for (int d = 0; d < NA; d++) {
             HIP_CHECK(hipSetDevice(d));
             G->all[d] = sub_mesh(G->g0, G->g, 2 * level - 1, d);
-            G->tr[d] = G->gt == G->g ? G->all[d] : (G->me < G->gt ? sub_mesh(G->g0, G->gt, 2 * level, d) : 0);
+            G->tr[d] = pow2_floor(G->g) == G->g ? G->all[d] : (G->me < pow2_floor(G->g) ? sub_mesh(G->g0, pow2_floor(G->g), 2 * level, d) : 0);
         }
         HIP_CHECK(hipSetDevice(0));
-        printf("%smn: %s %d: level %d group [%d, %d) (transform nodes %d): meshes connected in %.2f s\n", ec_log_prefix(), mn_who(), mn_rank(), level, G->g0, G->g0 + G->g, G->gt, mem_now() - t0);
+        printf("%smn: %s %d: level %d group [%d, %d) (transform nodes %d): meshes connected in %.2f s\n", ec_log_prefix(), mn_who(), mn_rank(), level, G->g0, G->g0 + G->g, pow2_floor(G->g), mem_now() - t0);
     }
     g_groups[level] = G;
     return G;
@@ -388,12 +366,12 @@ mn_group *mn_group_span(int l, int g0, int g)
     }
     if (g_sched[l]) { if (g_sched[l]->g0 != g0 || g_sched[l]->g != g) { ec_fatal(EC_RC_FATAL, "mn_group_span: level %d group changed\n", l); } return g_sched[l]; }
     mn_group *G = (mn_group *)calloc(1, sizeof *G);
-    G->g0 = g0; G->g = g; G->gt = pow2_floor(g); G->me = mn_rank() - g0; G->lvl = l; G->sched = 1;
-    if (vpe_on()) { G->all[0] = G->pe = vpe_sub_slot(g0, g, big_slot(g0, g, 15 + l)); g_sched[l] = G; return G; }   /* S1a: the general map over PEs; all[0] = the PE run's communicator */
+    G->g0 = g0; G->g = g; G->me = mn_rank() - g0; G->lvl = l; G->sched = 1;
+    if (vpe_on()) { G->all[0] = G->pe = vpe_sub_slot(g0, g, big_slot(g0, g, 15 + l)); g_sched[l] = G; return G; }   /* the general map over PEs; all[0] = the PE run's communicator */
     double t0 = mem_now();
 #pragma omp parallel for num_threads(NA) schedule(static)
     for (int d = 0; d < NA; d++) {
-        HIP_CHECK(hipSetDevice(d)); G->tr[d] = 0;
+        HIP_CHECK(hipSetDevice(d));
         /* a PE-set id of its own (NA + NA (2 MN_MAXL + l) + d) */
         G->all[d] = mesh_create(g0, 1, g, NA + NA * (2 * MN_MAXL + l) + d);
     }
@@ -404,64 +382,25 @@ mn_group *mn_group_span(int l, int g0, int g)
 }
 /* all-gather of k u64 per node over a mesh: the transport's host all-gather (M7, A-comm; was a point-to-point loop) */
 void mn_allgather(comm *c, const uint64_t *v, int k, uint64_t *out) { comm_allgather_host(c, v, out, (size_t)k * 8); }
-/* the layered communicator's self-test (the mn_selftest pattern over 4 gt ranks, gt = the largest power of two <= size,
- * rank rho = gt d + node): one plane of one prime spread over all 4 gt ranks (the four APUs of a node hold rows of the
- * same plane, as in the product tier), each rank's distributed convolution against the one-rank engine on its rows */
+/* the layered communicator over 4 x gt ranks (gt = the largest power of two <= size, rank rho = gt d + node): one plane of one prime
+ * spread over all 4 gt ranks, as in the product tier */
 int mn_selftest_layered(int logR, int logC, int verbose)
 {
     if (mn_size() <= 1) return 1;
-    if (vpe_on()) return selftest_pe_entry(logR, logC, verbose, 1);
+    if (vpe_on()) return selftest_pe(logR, logC, verbose, 1);
     int L = 0; while ((1 << L) < mn_size()) L++;
-    mn_group *G = mn_group_at(L); int gt = G->gt;
+    mn_group *G = mn_group_at(L); int gt = pow2_floor(G->g);
     if (mn_rank() >= gt) return 1;
-    /* logR grows until R / ranks >= 32 -- the fixed 2^11 rows refuse from 32 PEs on
-     * (4 x 32 = 128 ranks, R / ranks = 16), so the rows grow with the rank count */
-    while (((size_t)1 << logR) / ((size_t)NA * gt) < 32) logR++;
-    int ok = 1, nr = NA * gt, logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
-    if (rr < 32) { fprintf(stderr, "mn_selftest_layered: R / ranks < 32\n"); return 0; }
-    double t0 = mem_now();
+    int ok = 1; double t0 = mem_now();
 #pragma omp parallel for num_threads(NA) schedule(static) reduction(&&:ok)
     for (int d = 0; d < NA; d++) {
         HIP_CHECK(hipSetDevice(d));
-        int prime = (logR + logC) & 3, r = gt * d + mn_rank(); uint64_t p = ec_P[prime], seed = 0x9E3779B97F4A7C15ull + prime;   /* one plane (one prime) over all 4 gt ranks, as the product tier runs it */
-        uint64_t *hx = (uint64_t *)malloc(n * 8), *hy = (uint64_t *)malloc(n * 8), *ref = (uint64_t *)malloc(n * 8), *tmp = (uint64_t *)malloc(rows * 8);
-        for (size_t i = 0; i < n; i++) { hx[i] = xs(&seed) % p; hy[i] = xs(&seed) % p; }
-        ntt_ctx *ctx = ntt_ctx_create(prime); hipStream_t s; HIP_CHECK(hipStreamCreate(&s));
-        uint64_t *dx, *dy; HIP_CHECK(hipMalloc(&dx, n * 8)); HIP_CHECK(hipMalloc(&dy, n * 8));
-        HIP_CHECK(hipMemcpy(dx, hx, n * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dy, hy, n * 8, hipMemcpyHostToDevice));
-        ntt_fwd(ctx, dx, logn, 1, s); ntt_fwd(ctx, dy, logn, 1, s); ntt_pw(ctx, dx, dy, n, s); ntt_inv(ctx, dx, logn, 1, s);
-        HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(ref, dx, n * 8, hipMemcpyDeviceToHost));
         comm *xg = comm_xgmi_create(d), *cm = comm_layered_create(xg, G->tr[d], d);
-        if (comm_rank(cm) != r || comm_size(cm) != nr) { ec_fatal(EC_RC_FATAL, "mn_selftest_layered: rank %d/%d, expected %d/%d\n", comm_rank(cm), comm_size(cm), r, nr); }
-        dist_plan pl; dist_plan_create(&pl, cm, ctx, prime, logR, logC);
-        uint64_t *rx, *ry; HIP_CHECK(hipMalloc(&rx, rows * 8)); HIP_CHECK(hipMalloc(&ry, rows * 8));
-        {   /* the all-to-all alone: slab sigma of rank rho tagged (rho, sigma, i) must arrive as slab rho of rank sigma */
-            size_t sl = rows / nr; uint64_t *pat = (uint64_t *)malloc(rows * 8);
-            for (int sg = 0; sg < nr; sg++) for (size_t i = 0; i < sl; i++) pat[sg * sl + i] = ((uint64_t)r << 40) | ((uint64_t)sg << 32) | i;
-            HIP_CHECK(hipMemcpy(rx, pat, rows * 8, hipMemcpyHostToDevice));
-            comm_alltoall(cm, rx, ry, sl * 8, s); comm_wait(cm);
-            HIP_CHECK(hipMemcpy(pat, ry, rows * 8, hipMemcpyDeviceToHost));
-            size_t bad = 0;
-            for (int src = 0; src < nr; src++) for (size_t i = 0; i < sl; i++) { uint64_t want = ((uint64_t)src << 40) | ((uint64_t)r << 32) | i; if (pat[src * sl + i] != want) { if (!bad) printf("%smn: %s %d rank %d: slab %d word %zu = (rank %llu, slab %llu, %llu), want (%d, %d, %zu)\n", ec_log_prefix(), mn_who(), mn_rank(), r, src, i, (unsigned long long)(pat[src * sl + i] >> 40), (unsigned long long)((pat[src * sl + i] >> 32) & 255), (unsigned long long)(pat[src * sl + i] & 0xffffffff), src, r, i); bad++; } }
-            if (bad) { printf("%smn: %s %d rank %d: layered all-to-all pattern: %zu of %zu words wrong\n", ec_log_prefix(), mn_who(), mn_rank(), r, bad, rows); ok = 0; }
-            free(pat);
-        }
-        for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hx[(r * rr + il) + R * j];
-        HIP_CHECK(hipMemcpy(rx, tmp, rows * 8, hipMemcpyHostToDevice));
-        for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hy[(r * rr + il) + R * j];
-        HIP_CHECK(hipMemcpy(ry, tmp, rows * 8, hipMemcpyHostToDevice));
-        dist_fwd(&pl, rx, s); dist_fwd(&pl, ry, s); dist_pw(&pl, rx, ry, s); dist_inv(&pl, rx, s);
-        HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(tmp, rx, rows * 8, hipMemcpyDeviceToHost));
-        size_t bad = 0;
-        for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) if (tmp[il * C + j] != ref[(r * rr + il) + R * j]) bad++;
-        if (bad || verbose) printf("%smn: %s %d layered rank %d of %d, 2^%d points: %zu of %zu differ\n", ec_log_prefix(), mn_who(), mn_rank(), r, nr, logn, bad, rows);
-        if (bad) ok = 0;
-        dist_plan_free(&pl); comm_destroy(cm); comm_destroy(xg);
-        HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy)); HIP_CHECK(hipStreamDestroy(s)); ntt_ctx_free(ctx);
-        free(hx); free(hy); free(ref); free(tmp);
+        ok = selftest_core(cm, (logR + logC) & 3, gt * d + mn_rank(), NA * gt, logR, logC, verbose, 1) && ok;
+        comm_destroy(cm); comm_destroy(xg);
     }
     HIP_CHECK(hipSetDevice(0));
-    printf("mn: layered self-test, %d x 4 ranks at 2^%d points: %s (%.2f s)\n", gt, logn, ok ? "ok" : "FAILED", mem_now() - t0);
+    printf("mn: layered self-test, %d x 4 ranks at 2^%d+ points: %s (%.2f s)\n", gt, logR + logC, ok ? "ok" : "FAILED", mem_now() - t0);
     return ok;
 }
 /* the top log2(size) levels of the binary-splitting tree as distributed products: level l pairs the groups A (lower
@@ -475,7 +414,6 @@ int mn_selftest_layered(int logR, int logC, int verbose)
 #include "dr.h"                                       /* C3 (ECALC_DR >= 2): the tracked residues of the tree, the leaf check */
 #include "verify.h"                                   /* t1_q */
 #include <unistd.h>
-static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half, mdb_trk *tp, mdb_trk *tq);
 /* ---- C3 step 3 (ECALC_DR >= 2; results/CORRECTNESS.md): the tree's tracked residues (B) and the leaf check (C) ----------------------------------------------------------
  * tp / tq: R(P), R(Q) (mod DR_Q = t1_q[0]) of the node's current P, Q (the common value of its child group, held in an explicit variable here, never in the mdb) and this node's share parts.
  * Seeded from the leaf at the start of the tree (db_mod_qs: the only extra pass), carried through the levels by the descriptor all-gather (11 words) and the checked products.
@@ -518,7 +456,7 @@ void mn_dr_division_check(const uint64_t *qs, const uint64_t *pres, const uint64
 static mdb_trk trk_from(uint64_t r, const mdb_trk *mine, int held) { mdb_trk t; memset(&t, 0, sizeof t); t.r = r; if (held && mine) { t.held = mine->held; memcpy(t.part, mine->part, sizeof t.part); } return t; }
 static int g_lv_tab[4 * 64], g_lv_on;                  /* MN_LEVEL_UNIFORM: this level's largest grid per product (mn_plan.c mn_level_grids), the same on every PE */
 static void lv_force(int pi) { if (g_lv_on) rns_dist_mn_force(g_lv_tab[2 * pi], g_lv_tab[2 * pi + 1]); }
-static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, mdb_trk *tp, mdb_trk *tq);
+static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, mdb_trk *tp, mdb_trk *tq);
 /* the top tree set in the background (mn_ckpt_bg_mode, set by ecalc.c: 0 = none, 1 = complete, the division
  * waits for P's part before S = P + Q if it must; 2 = budgeted, dropped when the measured disk rate cannot finish a part within
  * mn_ckpt_slack seconds of its release).  The writer reads the shares while the reciprocal and the division run; the hook in
@@ -551,7 +489,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
     memset(P, 0, sizeof *P); memset(Q, 0, sizeof *Q);
     P->sh = *Pleaf; P->n = P->N = Pleaf->n; P->g0 = mn_rank(); P->g = 1; memset(Pleaf, 0, sizeof *Pleaf);
     Q->sh = *Qleaf; Q->n = Q->N = Qleaf->n; Q->g0 = mn_rank(); Q->g = 1; memset(Qleaf, 0, sizeof *Qleaf);
-    dm_switches(); if (mn_rank() == 0) printf("mn: MN_TREE_EARLY_FREE: the tree levels free P_i, P_run between their two products\n");   /* Phase 14 T1 (E10a) */
+    dm_switches(); if (mn_rank() == 0) printf("mn: MN_TREE_EARLY_FREE: the tree levels free P_i, P_run between their two products\n");   
     int gs[MN_MAXL]; int L = mn_groups_parse(mn_size(), gs, MN_MAXL - 1);   /* the level -> group-size schedule (MN_GROUPS; default 2, 4, ..., size: the binary tree as before) */
     int ck = bs_ckpt_dir && mn_ckpt_bg_mode > 0;            /* the top-level set (ECALC_CKPT_TOP) after the top level */
     if (ck) bs_ckpt_tree_clear(0);                           /* this node's tree sets of an earlier run in the directory go (a set at another level would outlive this run's) */
@@ -570,9 +508,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
         int Gl = gs[l - 1], Gp = l > 1 ? gs[l - 2] : 1;       /* this level's group size and the children's (the previous level's) */
         int k = mn_rank() / Gl, g0 = k * Gl, g = Gl < mn_size() - g0 ? Gl : mn_size() - g0, nch = (g + Gp - 1) / Gp;
         g_lv_on = mn_level_uniform() && nch >= 2 && mn_level_grids(bs_N, mn_size(), Gl, Gp, g_lv_tab, 64) > 0;   /* every group of the level at the level's largest grid (a floor: no communication) */
-        if (nch == 2) tree_level(P, Q, l, g0, g, Gp, &tp, &tq);        /* two children: the pair of products as before (the default schedule: bit for bit, the same groups) */
-        else if (nch > 2) tree_level_k(P, Q, l, g0, g, Gp, nch, &tp, &tq);   /* a k-way level (nch children of Gp nodes): k - 1 combines over the level's group */
-        /* (one child: no sibling group, carried up unchanged) */
+        if (nch >= 2) tree_level(P, Q, l, g0, g, Gp, nch, &tp, &tq);   /* nch children of Gp nodes: nch - 1 combines over the level's group (one child: carried up unchanged) */
         if (g_lv_on) { g_lv_on = 0; rns_dist_mn_force(0, 0); }
         dr_leaf_check(0);                                    /* C: the recurrence may be done by now (non-blocking) */
         if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d", mn_rank(), l); mem_live_line(w); }   /* the pool's live bytes per level */
@@ -587,46 +523,13 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
     if (captest) rns_dist_cap_test(0);
     if (g_dr.on) { g_dr.top_valid = 1; g_dr.top_p = tp.r; g_dr.top_q = tq.r; }
 }
-/* one tree level: the product over the group [g0, g0+g) whose halves A = [g0, g0+half), B = the rest hold the operands */
-static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half, mdb_trk *tp, mdb_trk *tq)
-{
-    double t0 = mem_now();
-    mn_group *G = mn_group_span(l, g0, g);                   /* (= mn_group_at(l) for the binary schedule) */
-    const int chk = g_dr.on, nw = chk ? 11 : 8;              /* ECALC_DR >= 2: the descriptor carries R(P), R(Q) and the tracking flag */
-    uint64_t v[11] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g, chk ? tp->r : 0, chk ? tq->r : 0, (uint64_t)chk }, *all = (uint64_t *)malloc((size_t)g * nw * 8);
-    mn_allgather(G->all[0], v, nw, all);
-    int inA = G->me < half; const uint64_t *da = all, *dbb = all + (size_t)half * nw;   /* member 0 describes A, member `half` describes B */
-    mdb PA, QA, PB, QB; memset(&PA, 0, sizeof PA); memset(&QA, 0, sizeof QA); memset(&PB, 0, sizeof PB); memset(&QB, 0, sizeof QB);
-    PA.n = da[0]; PA.N = da[1]; PA.g0 = (int)da[2]; PA.g = (int)da[3]; QA.n = da[4]; QA.N = da[5]; QA.g0 = (int)da[6]; QA.g = (int)da[7];
-    PB.n = dbb[0]; PB.N = dbb[1]; PB.g0 = (int)dbb[2]; PB.g = (int)dbb[3]; QB.n = dbb[4]; QB.N = dbb[5]; QB.g0 = (int)dbb[6]; QB.g = (int)dbb[7];
-    const int use = chk && da[10] && dbb[10];
-    mdb_trk tPA, tQA, tPB, tQB, tPn, tQn;
-    if (use) { tPA = trk_from(da[8], tp, inA); tQA = trk_from(da[9], tq, inA); tPB = trk_from(dbb[8], tp, !inA); tQB = trk_from(dbb[9], tq, !inA); }
-    if (inA) { PA.sh = P->sh; QA.sh = Q->sh; } else { PB.sh = P->sh; QB.sh = Q->sh; }
-    free(all);
-    mdb Pn, Qn; memset(&Pn, 0, sizeof Pn); memset(&Qn, 0, sizeof Qn);
-    lv_force(0);
-    if (use) rns_mul_dist_mn_chk(&Pn, &PA, &QB, &PB, G, &tPA, &tQB, &tPB, &tPn); else rns_mul_dist_mn(&Pn, &PA, &QB, &PB, G);
-    db_free(&P->sh);                                       /* my child's P (PA or PB) is dead once P_n is formed */
-    if (use) mdb_dr_store_inject(Q, mn_rank());           /* ECALC_DR_TEST=store: my child's Q wrong at rest after the first product */
-    if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d mul1", mn_rank(), l); mem_live_line(w); }   /* the first product's window; the level's line then covers the second */
-    lv_force(1);
-    if (use) rns_mul_dist_mn_chk(&Qn, &QA, &QB, 0, G, &tQA, &tQB, 0, &tQn); else rns_mul_dist_mn(&Qn, &QA, &QB, 0, G);
-    db_free(&P->sh); db_free(&Q->sh); *P = Pn; *Q = Qn;
-    if (use) { *tp = tPn; *tq = tQn; } else if (chk) g_dr.on = 0;   /* (a node without tracking disables the checks of the rest: never in practice) */
-    size_t lo, hi; mdb_share(P, mn_rank(), &lo, &hi);
-    printf("%smn: %s %d level %d [%d, %d): P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", ec_log_prefix(), mn_who(), mn_rank(), l, g0, g0 + g, P->n, Q->n, lo, hi, mem_now() - t0);
-    { char w[48]; snprintf(w, sizeof w, "tree level %d", l); mn_comm_mark(w); }
-}
-/* a k-way level (MN_GROUPS: the 9-way top step at 576, 3-way steps ...): the group [g0, g0+g) has nch children of gp
+/* one tree level (MN_GROUPS: a binary level, the 9-way top step at 576, 3-way steps ...): the group [g0, g0+g) has nch children of gp
  * nodes each (the last one cut), child i = the members [i gp, min((i+1) gp, g)) holding P_i, Q_i sharded over them.  The
  * combine is Horner's from the top child down (a 3-way level = 4 products):
  *   (P, Q) = (P_{k-1}, Q_{k-1});  for i = k-2 .. 0:  P = P_i Q + P,  Q = Q_i Q
- * -- k - 1 combines of two products each, every product balanced over all g nodes by the block-cyclic map (the operands
- * sharded over the children's subgroups or over the group), the running P, Q sharded over the group; a child's shares are
- * freed right after its combine, so a node holds at most its child's P, Q, the running pair and the new pair: O(share).
- * For nch = 2 this is tree_level's pair of products with the same operands in the same order. */
-static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, mdb_trk *tp, mdb_trk *tq)
+ * -- k - 1 combines of two products each, every product balanced over all g nodes by the block-cyclic map; a child's shares are
+ * freed right after its combine, so a node holds at most its child's P, Q, the running pair and the new pair: O(share). */
+static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, mdb_trk *tp, mdb_trk *tq)
 {
     double t0 = mem_now();
     mn_group *G = mn_group_span(l, g0, g);
@@ -655,8 +558,8 @@ static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, 
             if (own) db_free(&Pr.sh); else memset(&Pr.sh, 0, sizeof Pr.sh);
             memset(&PA.sh, 0, sizeof PA.sh);
         }
-        if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul1", mn_rank(), l, nch - 1 - i); mem_live_line(w); }   /* the first product's window */
-        if (use) mdb_dr_store_inject(&Qr, mn_rank());   /* every node calls (the occurrence count must agree; a node outside Qr's holders has an empty share) -- ECALC_DR_TEST=store: the running Q wrong at rest after the first product of the combine */
+        if (mem_live_on()) { char w[64]; if (nch == 2) snprintf(w, sizeof w, "mn node %d tree level %d mul1", mn_rank(), l); else snprintf(w, sizeof w, "mn node %d tree level %d c%d mul1", mn_rank(), l, nch - 1 - i); mem_live_line(w); }   /* the first product's window */
+        if (use) mdb_dr_store_inject(nch == 2 ? Q : &Qr, mn_rank());   /* ECALC_DR_TEST=store, every node calls (the occurrence count must agree): at nch = 2 my child's Q, else the running Q, wrong at rest after the first product */
         lv_force(2 * (nch - 2 - i) + 1);
         if (use) rns_mul_dist_mn_chk(&Qn, &QA, &Qr, 0, G, &tQA, &tQr, 0, &tQn); else rns_mul_dist_mn(&Qn, &QA, &Qr, 0, G);
         if (mem_live_on() && i > 0) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul2", mn_rank(), l, nch - 1 - i); mem_live_line(w); }   /* (the last combine's: the level's line) */
@@ -664,14 +567,15 @@ static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, 
         if (own) { db_free(&Pr.sh); db_free(&Qr.sh); }
         Pr = Pn; Qr = Qn; own = 1;
         if (use) { tPr = tPn; tQr = tQn; }
-        if (getenv("ECALC_VERBOSE")) printf("%smn: %s %d level %d [%d, %d): combine %d of %d: P %zu limbs, Q %zu limbs (%.2f s)\n", ec_log_prefix(), mn_who(), mn_rank(), l, g0, g0 + g, nch - 1 - i, nch - 1, Pr.n, Qr.n, mem_now() - t0);
+        if (nch > 2 && getenv("ECALC_VERBOSE")) printf("%smn: %s %d level %d [%d, %d): combine %d of %d: P %zu limbs, Q %zu limbs (%.2f s)\n", ec_log_prefix(), mn_who(), mn_rank(), l, g0, g0 + g, nch - 1 - i, nch - 1, Pr.n, Qr.n, mem_now() - t0);
     }
     free(all);
     if (P->sh.cap) db_free(&P->sh); if (Q->sh.cap) db_free(&Q->sh);
     *P = Pr; *Q = Qr;
     if (use) { *tp = tPr; *tq = tQr; } else if (chk) g_dr.on = 0;
     size_t lo, hi; mdb_share(P, mn_rank(), &lo, &hi);
-    printf("%smn: %s %d level %d [%d, %d) (%d children of %d): P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", ec_log_prefix(), mn_who(), mn_rank(), l, g0, g0 + g, nch, gp, P->n, Q->n, lo, hi, mem_now() - t0);
+    char kw[48] = ""; if (nch > 2) snprintf(kw, sizeof kw, " (%d children of %d)", nch, gp);
+    printf("%smn: %s %d level %d [%d, %d)%s: P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", ec_log_prefix(), mn_who(), mn_rank(), l, g0, g0 + g, kw, P->n, Q->n, lo, hi, mem_now() - t0);
     { char w[48]; snprintf(w, sizeof w, "tree level %d", l); mn_comm_mark(w); }
 }
 static void groups_finalize(void)

@@ -581,9 +581,9 @@ def _product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tr
             else:                                                     # Phase 15 CX: the hit saves CACHE_HIT_F of the modelled saving (PC: hit_cost, the
                 c.add(hit_cost(fab, pts, g, la, lb, form))            # same term; a slot of k < np primes saves k / np of the transforms, no redistribution)
             first = False
-    if with_x:                                                        # mdb_add_shifted: rounds of 2^26 limbs per APU
+    if with_x:                                                        # mdb_add_shifted: rounds of at most 2^26 limbs per APU (W = MN_T_CHUNK_MB chunks above that)
         t1, nic1, glob1, msgs1 = fab.a2a(8 * nc / (4 * g), g, 1)
-        if DZ is not None and DZ.t_mb:                                # Phase 13b D: mdb_add_shifted_rounds (MN_T_CHUNK_MB)
+        if DZ is not None and DZ.t_mb:                                # mdb_add_shifted rounds beyond the chunk (MN_T_CHUNK_MB)
             W = mem_model.t_chunk_limbs(DZ.t_mb); t1 += max(0, -(-(nc // g) // W) - 1) * round_cost(fab, g)
         c.t += t1 + fab.coll(g); c.t_exposed += t1 + fab.coll(g); c.nic += nic1; c.glob += glob1; c.msgs += msgs1; c.xfers += 1
     return c
@@ -807,7 +807,7 @@ def tree_cost(fab, nq_node, g, groups=None, form="grid", T=None, which='crit'):
             tops = tree_cost(fab, nq_node, g, groups, form, T, 'top'); fulls = tree_cost(fab, nq_node, g, groups, form, T, 'lastfull')   # the last FULL group, not the clipped top one
             return [b if b[2].t > a[2].t else a for a, b in zip(tops, fulls)]
         for S, Sg, ch in level_top_group(g, groups, 'top' if which == 'crit' else which):
-            # mn.c tree_level (2 children: A = the lower, B = the upper) and tree_level_k (Horner from the top child: the running
+            # mn.c tree_level (2 children: A = the lower, B = the upper; Horner from the top child for more: the running
             # pair starts as child k-1's, then P = P_i Q + P, Q = Q_i Q for i = k-2 .. 0 -- A = child i, B = the running Q)
             c = Cost(); run_ = int(range_limbs(T, g, ch[-1][0], ch[-1][1]))
             for (r0, r1) in reversed(ch[:-1]):

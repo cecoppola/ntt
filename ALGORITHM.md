@@ -303,12 +303,11 @@ budget).
 
 | file | transport |
 |---|---|
-| `tests/comm_local.c` | test-only: one rank (size 1), no-ops and copies (used by `t_dist`) |
+| `tests/t_dist.c` | test-only communicators inside the test: one rank (size 1, no-ops and copies) and a synthetic four-rank layout in one APU's memory |
 | `comm_xgmi.c` | the node's four APUs: peer copies over the xGMI mesh, driven by four host threads |
 | `comm_xshmem.c` | `COMM_TRANSPORT=xshmem` (the only multi-node transport; built by default where libfabric is found, `XSHMEM=0` omits it): the inter-node meshes over `xshmem.h`, the 1:1 mapping of the Cray SHMEM 12.1 calls (libfabric backend `xshmem_ofi.c` on aac7, `xshmem_cray.h` on the target); one node-process hosts one loopback PE per APU thread; the receiver publishes offsets, a worker thread (every layout, Q96) puts and signals, rounds (`XSHMEM_ROUND_MB`, default 128); `results/TRANSPORT.md` |
 | `xshmem.h`, `xshmem_ofi.c`, `xshmem_boot.c`, `xshmem_cray.h`, `pe_geo.c` | the API (the 1:1 mapping of the Cray SHMEM 12.1 calls) and its two backends: libfabric cxi with PMI2 bootstrap (`XSHMEM=ofi`, path 1) and Cray SHMEM (`XSHMEM=cray`, static inline, path 2); `pe_geo.c` reports each PE's GPU, NUMA node and NICs. `vpe.c` holds the PE identity of the one-process-per-GPU layout |
 | `comm_layered.c` | the layered composition of an intra (xGMI) and an inter (xshmem) communicator, §6.3 |
-| `tests/comm_sim4.c` | test-only: a synthetic four-rank layout in one APU's memory (used by `t_dist`) |
 | `comm_util.c` | shared helpers, and the GPU copy kernel for copies that touch a host-registered pool (called from `comm_xshmem.c`'s `COPY`) |
 
 Builds: the default build (`XSHMEM=ofi`, where libfabric and the PMI2 header are found) runs `COMM_TRANSPORT=xshmem` multi-node; `XSHMEM=cray` builds path 2 (`PLAN.md` section 3). The transport is xshmem on both paths. The transport, the meshes and the
@@ -323,7 +322,7 @@ that divide the size, then the odd part's prime factors in ascending order; at 5
 576 (two 3-way steps at the top). The children of level l are the groups of level l − 1.
 
 - A **2-way level** (`tree_level`): P = P_A·Q_B + P_B and Q = Q_A·Q_B, two products over the whole group.
-- A **k-way level** (`tree_level_k`): Horner from the top child down, (P, Q) = (P_{k−1}, Q_{k−1}); for i = k−2 … 0:
+- A **k-way level** (`tree_level`, `nch` > 2): Horner from the top child down, (P, Q) = (P_{k−1}, Q_{k−1}); for i = k−2 … 0:
   P = P_i·Q + P, Q = Q_i·Q: 2(k−1) products in sequence, each balanced over all g nodes.
 - Each product runs `rns_mul_dist_mn` → `mn_grid` → `mn_core` over the group. Dead shares are freed between a level's two
   products, so a node holds its child's P, Q, the running pair and the new pair.

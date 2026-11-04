@@ -180,7 +180,7 @@ static void plan_leaf(unsigned long a0, unsigned long b1)
     if (!g_quiet) printf("plan leaf   terms [%lu, %lu): %lu spans of %lu, %d levels below the device tier (batch/school: no grids), %d device (mdev) levels\n", a0, b1, nspan, S, nbatch, lvl);
 }
 
-/* ---- the distributed tree (mn.c mn_tree / tree_level / tree_level_k) --------------------------------------------------------- */
+/* ---- the distributed tree (mn.c mn_tree / tree_level) --------------------------------------------------------- */
 struct lvl_sum { long pieces0, pmin, pmax; int gmax0; };
 static void level_force(const int *tab, int i) { if (tab) rns_dist_mn_force(tab[2 * i], tab[2 * i + 1]); }
 static long plan_group(int l, unsigned long N, int size, int g0, int g, int gp, int print, const int *tab)
@@ -190,7 +190,7 @@ static long plan_group(int l, unsigned long N, int size, int g0, int g, int gp, 
     long cnt = 0; struct rns_grid_plan p;
     #define CH(i) pq_of(term0(N, g0 + (i) * gp, size), term0(N, (g0 + ((i) + 1) * gp < g0 + g ? g0 + ((i) + 1) * gp : g0 + g), size))
     struct pq run = CH(nch - 1);
-    for (int i = nch - 2; i >= 0; i--) {                          /* Horner from the top child (tree_level: nch = 2, the same pair) */
+    for (int i = nch - 2; i >= 0; i--) {                          /* Horner from the top child (nch = 2: the pair of products) */
         struct pq c = CH(i); char w[96];
         snprintf(w, sizeof w, "level %d [%d, %d) combine %d of %d P", l, g0, g0 + g, nch - 1 - i, nch - 1);
         level_force(tab, 2 * (nch - 2 - i)); show_mn(ph, w, c.pn, run.qn, g, 1, 0, (size_t)-1, print, &p); cnt += p.formed;

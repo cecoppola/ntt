@@ -10,10 +10,117 @@
 #include "../mn.h"
 #include "../dbig.h"
 #include "../rns_mul.h"
-comm *comm_local_create(void);                 /* tests/comm_local.c: one rank (size 1) */
-comm *comm_sim4_create(int rank_of_this_apu);  /* tests/comm_sim4.c: four synthetic ranks sharing one APU (created four times, one per simulated rank) */
 #include "../vpe.h"
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+#include "../fatal.h"
+/* the test-only communicators: one rank (size 1; no-ops and copies; the copy runs on the caller's stream, wait() synchronizes it), and four
+ * synthetic ranks inside one APU (the rank objects share a table; alltoall posts (send, recv) and wait() performs the slab copies once every
+ * rank has posted; ranks are driven sequentially by one host thread; the all-gathers complete when the fourth rank has called, inflight 0) */
+static int l_rank(comm *c) { (void)c; return 0; }
+static int l_size(comm *c) { (void)c; return 1; }
+/* the copy runs on the caller's stream; wait() synchronises that stream (M7: the slab pipeline posts on a
+ * transfer stream and consumes on the compute stream, so the wait must be real) */
+static void l_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
+{ c->priv = (void *)s; if (sb != rb) HIP_CHECK(hipMemcpyAsync(rb, sb, bytes, hipMemcpyDeviceToDevice, s)); }
+static void l_wait(comm *c) { HIP_CHECK(hipStreamSynchronize((hipStream_t)c->priv)); }
+static void l_barrier(comm *c) { (void)c; }
+static uint64_t l_allreduce_modq(comm *c, uint64_t v, uint64_t q, uint64_t w) { (void)c; (void)q; (void)w; return v; }
+static size_t l_allreduce_max(comm *c, size_t v) { (void)c; return v; }
+static void l_destroy(comm *c) { free(c); }
+static void l_allgather(comm *c, const void *sb, void *rb, size_t bytes) { (void)c; if (sb != rb) HIP_CHECK(hipMemcpy(rb, sb, bytes, hipMemcpyDeviceToDevice)); }
+static void l_allgather_host(comm *c, const void *sb, void *rb, size_t bytes) { (void)c; if (sb != rb) memcpy(rb, sb, bytes); }
+static void l_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
+{
+    if (scnt[0] != rcnt[0]) { ec_fatal(EC_RC_FATAL, "comm_local: alltoallv count mismatch (%zu sent, %zu expected)\n", scnt[0], rcnt[0]); }
+    c->priv = (void *)s;
+    if (scnt[0] && (const char *)sb + sdsp[0] != (char *)rb + rdsp[0]) HIP_CHECK(hipMemcpyAsync((char *)rb + rdsp[0], (const char *)sb + sdsp[0], scnt[0], hipMemcpyDeviceToDevice, s));
+}
+static void l_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)
+{
+    (void)c; if (scnt[0] != rcnt[0]) { ec_fatal(EC_RC_FATAL, "comm_local: alltoallv count mismatch\n"); }
+    if (scnt[0]) memmove((char *)rb + rdsp[0], (const char *)sb + sdsp[0], scnt[0]);
+}
+static const struct comm_ops local_ops = { l_rank, l_size, l_alltoall, l_wait, l_barrier, l_allreduce_modq, l_allreduce_max, l_destroy, 0, 0, l_allgather, l_allgather_host, l_alltoallv, l_alltoallv_host };
+static comm *comm_local_create(void)
+{
+    comm *c = (comm *)calloc(1, sizeof *c);
+    c->ops = &local_ops; c->rank = 0; c->size = 1; c->inflight = 1;
+    return c;
+}
+#define SIM_NR 4
+static struct { const void *sb[SIM_NR]; void *rb[SIM_NR]; size_t bytes; int posted, done[SIM_NR]; hipStream_t s[SIM_NR];
+                const void *ag_sb[SIM_NR]; void *ag_rb[SIM_NR]; int ag_posted;
+                const size_t *scnt[SIM_NR], *sdsp[SIM_NR], *rcnt[SIM_NR], *rdsp[SIM_NR]; int v; } sim;   /* v: the posted exchange is an alltoallv */
+static int s_rank(comm *c) { return c->rank; }
+static int s_size(comm *c) { (void)c; return SIM_NR; }
+static void s_post(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s, int v)
+{
+    if (sim.posted == SIM_NR) { sim.posted = 0; memset(sim.done, 0, sizeof sim.done); }
+    if (sim.posted && sim.v != v) { ec_fatal(EC_RC_FATAL, "comm_sim4: alltoall and alltoallv posted in one exchange\n"); }
+    sim.sb[c->rank] = sb; sim.rb[c->rank] = rb; sim.bytes = bytes; sim.s[c->rank] = s; sim.v = v; sim.posted++;
+}
+static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s) { s_post(c, sb, rb, bytes, s, 0); }
+static void s_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
+{
+    sim.scnt[c->rank] = scnt; sim.sdsp[c->rank] = sdsp; sim.rcnt[c->rank] = rcnt; sim.rdsp[c->rank] = rdsp;
+    s_post(c, sb, rb, 0, s, 1);
+}
+static void s_wait(comm *c)
+{
+    if (sim.posted != SIM_NR) { ec_fatal(EC_RC_FATAL, "comm_sim4: wait before all ranks posted\n"); }
+    if (sim.done[c->rank]) return;
+    HIP_CHECK(hipDeviceSynchronize());   /* the four ranks' packs ran on their own streams (M7: non-blocking transfer streams) */
+    int me = c->rank;
+    for (int r = 0; r < SIM_NR; r++) {     /* my slab r comes from rank r's slab c->rank */
+        const char *src; char *dst; size_t n;
+        if (sim.v) {
+            n = sim.scnt[r][me];
+            if (n != sim.rcnt[me][r]) { ec_fatal(EC_RC_FATAL, "comm_sim4: alltoallv count mismatch: rank %d sends %zu to rank %d, which expects %zu\n", r, n, me, sim.rcnt[me][r]); }
+            src = (const char *)sim.sb[r] + sim.sdsp[r][me]; dst = (char *)sim.rb[me] + sim.rdsp[me][r];
+        } else { n = sim.bytes; src = (const char *)sim.sb[r] + (size_t)me * n; dst = (char *)sim.rb[me] + (size_t)r * n; }
+        if (n) HIP_CHECK(hipMemcpyAsync(dst, src, n, hipMemcpyDeviceToDevice, sim.s[me]));
+    }
+    HIP_CHECK(hipStreamSynchronize(sim.s[me]));
+    sim.done[me] = 1;
+}
+/* the host variant: complete when the fourth rank has called (as the all-gathers) */
+static void s_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)
+{
+    static const void *hsb[SIM_NR]; static void *hrb[SIM_NR]; static const size_t *sc[SIM_NR], *sd[SIM_NR], *rc[SIM_NR], *rd[SIM_NR]; static int posted;
+    int me = c->rank; hsb[me] = sb; hrb[me] = rb; sc[me] = scnt; sd[me] = sdsp; rc[me] = rcnt; rd[me] = rdsp;
+    if (++posted < SIM_NR) return;
+    posted = 0;
+    for (int t = 0; t < SIM_NR; t++) for (int r = 0; r < SIM_NR; r++) {
+        size_t n = sc[r][t];
+        if (n != rc[t][r]) { ec_fatal(EC_RC_FATAL, "comm_sim4: alltoallv_host count mismatch (%d -> %d: %zu vs %zu)\n", r, t, n, rc[t][r]); }
+        if (n) memmove((char *)hrb[t] + rd[t][r], (const char *)hsb[r] + sd[r][t], n);
+    }
+}
+static void s_barrier(comm *c) { (void)c; }
+static uint64_t s_modq(comm *c, uint64_t v, uint64_t q, uint64_t w) { (void)c; (void)q; (void)w; return v; }
+static size_t s_max(comm *c, size_t v) { (void)c; return v; }
+static void s_destroy(comm *c) { free(c); }
+/* all-gather: the fourth caller performs every rank's copies (device or host) */
+static void s_allgather_any(comm *c, const void *sb, void *rb, size_t bytes, int host)
+{
+    sim.ag_sb[c->rank] = sb; sim.ag_rb[c->rank] = rb;
+    if (++sim.ag_posted < SIM_NR) return;
+    sim.ag_posted = 0;
+    for (int me = 0; me < SIM_NR; me++) for (int r = 0; r < SIM_NR; r++) {
+        void *dst = (char *)sim.ag_rb[me] + (size_t)r * bytes; const void *src = sim.ag_sb[r];
+        if (dst == src) continue;
+        if (host) memcpy(dst, src, bytes); else HIP_CHECK(hipMemcpy(dst, src, bytes, hipMemcpyDeviceToDevice));
+    }
+}
+static void s_allgather(comm *c, const void *sb, void *rb, size_t bytes) { s_allgather_any(c, sb, rb, bytes, 0); }
+static void s_allgather_host(comm *c, const void *sb, void *rb, size_t bytes) { s_allgather_any(c, sb, rb, bytes, 1); }
+static const struct comm_ops sim4_ops = { s_rank, s_size, s_alltoall, s_wait, s_barrier, s_modq, s_max, s_destroy, 0, 0, s_allgather, s_allgather_host, s_alltoallv, s_alltoallv_host };
+static comm *comm_sim4_create(int rank)
+{
+    comm *c = (comm *)calloc(1, sizeof *c);
+    c->ops = &sim4_ops; c->rank = rank; c->size = SIM_NR; c->inflight = 0;
+    return c;
+}
 static rng_t rg = { 12345 };
 static int xgmi;             /* DIST_XGMI=1: four real APUs, four host threads */
 static int tinv;             /* DIST_TINV=1: the transposed inverse (result in contiguous ownership) */
@@ -366,7 +473,7 @@ static void h4_bench(void)
 static void layered_bench(int logn, int reps)
 {
     int sz = mn_size(), L = 0; while ((1 << L) < sz) L++;
-    mn_group *G = mn_group_at(L); int gt = G->gt;
+    mn_group *G = mn_group_at(L); int gt = 1; while (2 * gt <= G->g) gt *= 2;
     if (mn_rank() >= gt) return;
     int logR = logn / 2, logC = logn - logR; size_t n = (size_t)1 << logn, rows = n / (4 * (size_t)gt);
     double tp[4] = { 0, 0, 0, 0 };
@@ -482,7 +589,7 @@ int main(int argc, char **argv)
         if (logmax >= 26) VERIFY(mn_selftest_layered(13, 13, 0), "layered conv 2^26");
         {   /* M7: the layered communicator's all-gathers (4 gt ranks, rank gt d + node) and the mesh's */
             int L = 0; while ((1 << L) < sz) L++; mn_group *G = mn_group_at(L); int ok = 1;
-            if (mn_rank() < G->gt && G->tr[0]) {
+            if (G->tr[0]) {
 #pragma omp parallel for num_threads(4) schedule(static) reduction(&&:ok)
                 for (int d = 0; d < 4; d++) {
                     HIP_CHECK(hipSetDevice(d));

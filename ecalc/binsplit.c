@@ -422,7 +422,7 @@ static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_
      * tree) and every level's products are piece grids over the group's plane cap (rns_dist.c mn_grid) -- their scratch per
      * device is rns_mul_dist_mn_scratch's, O(share) whatever the group size (the plane pools stay at their init size, the spills
      * are exchanged exactly).  A level of nch children of gp nodes (each holding P, Q of nq_leaf x gp limbs over gp nodes) is
-     * combined by Horner from the top child (mn.c tree_level_k): the largest product is P_0 x Q_run with Q_run of (nch - 1) gp
+     * combined by Horner from the top child (mn.c tree_level): the largest product is P_0 x Q_run with Q_run of (nch - 1) gp
      * nq_leaf limbs; the live shares are the child's pair, the running pair (nch > 2) and the new pair, a quarter each + 1/8 */
     size_t best = 0; if (top_scratch) *top_scratch = 0;
     dm_switches();
@@ -710,7 +710,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
             size_t nqc = nq_leaf * (size_t)prev + 8, na = nqc, nb = nqc * (size_t)(nch - 1), nc = na + nb;
             size_t st = rns_mul_dist_mn_stage(na, nb, S, nq_leaf + 8, (nb + S - 1) / S, (nc + S - 1) / S, &q); if (q > qmax) qmax = q;
             if (st > best) { best = st; snprintf(lvl, sizeof lvl, "tree level of %d", S); who = lvl; }
-            if (xsh_on()) {   /* the level's operand exchanges (mn.c tree_level / tree_level_k -> comm_xshmem.c xex_post).  A whole exchange (no rounds: one process per GPU,
+            if (xsh_on()) {   /* the level's operand exchanges (mn.c tree_level -> comm_xshmem.c xex_post).  A whole exchange (no rounds: one process per GPU,
                  * XSHMEM_ROUND_MB 0) stages both sides outside the heap at once: sst = the PE's part of the operand, rst = its part of the operand's sequence.
                  * A child's P (prev nodes) is cut over its prev x NL PEs: a sending PE stages s = (the child's limbs) / (prev NL); the product's group has S nodes x NL PEs, so the
                  * operand's sequence is cut over S NL and a receiver stages (the child's limbs) / (S NL).  The child's limbs are the largest child's (the last one: terms grow, node shares are not

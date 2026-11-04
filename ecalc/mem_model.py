@@ -446,7 +446,7 @@ def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0, form='grid', pool_
     level's scratch alone (the sharded division's products carry the same), [1] = its per-rank plane q.
     form 'flat': the arena formula of the code before Phase 12 (tree_need_dev_flat above; kept for the before/after tables).
     form 'grid' (Phase 12 agent G: binsplit.c tree_need_dev as merged): the levels follow mn_groups (MN_GROUPS); a level
-    of nch children of P nodes is combined by Horner from the top child (mn.c tree_level_k: (P, Q) <- (P_i Q + P, Q_i Q)
+    of nch children of P nodes is combined by Horner from the top child (mn.c tree_level: (P, Q) <- (P_i Q + P, Q_i Q)
     for i = nch - 2 .. 0), its largest product P_0 x Q_run = P leaf shares x (nch - 1) P; the product's scratch is
     mn_scratch (the code's rns_mul_dist_mn_scratch: the pieces at the cap, the exact spills -- O(share) + O(q), no g-term);
     the live shares are the child's pair, the running pair (nch > 2) and the new pair, a quarter each + 1/8.
