@@ -31,7 +31,7 @@ OFI_LIBS   = -L$(LIBFABRIC_LIB) -lfabric -Wl,-rpath,$(LIBFABRIC_LIB)
 endif
 
 TESTS = tests/t_args tests/t_arith tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_strategy tests/t_cap tests/t_residue tests/t_seed tests/t_patch tests/t_p24 tests/t_p24crt tests/t_crtk tests/t_vpe tests/t_dr tests/t_hosttl
-OBJS  = ntt.o ntt3.o mem.o crt.o comm_xgmi.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o rns_local.o dbig.o newton_db.o newton.o binsplit.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o config_line.o vpe.o dr.o mapd.o
+OBJS  = ntt.o mem.o crt.o comm_xgmi.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o config_line.o vpe.o dr.o mapd.o
 REF   = ref/gen_e
 HDRS  = $(wildcard *.h)                 # every object and test depends on every header (one rule instead of a dependency line per file)
 
@@ -45,7 +45,7 @@ ecalc: ecalc.c $(OBJS) $(HDRS)
 	$(HIPC) $< -x none $(OBJS) -o $@ $(XSHMEM_LIBS)
 
 # objects by compile line: hipcc -x hip with -o first / -o last, and the host-C objects
-OBJ_HIP1 = mapd.o config_line.o ntt.o ntt3.o rns_mul.o rns_local.o rns_dist.o p24_crt.o mn_plan.o dbig.o spill.o fatal.o segv_trace.o newton_db.o mem.o vpe.o
+OBJ_HIP1 = mapd.o config_line.o ntt.o rns_mul.o rns_dist.o p24_crt.o mn_plan.o dbig.o spill.o fatal.o segv_trace.o newton_db.o mem.o vpe.o
 OBJ_HIP2 = comm_layered.o mn.o mn_out.o comm_util.o comm_xgmi.o ntt_dist.o
 OBJ_C = memsample.o crt.o verify.o binsplit.o newton.o bigint.o dr.o
 $(OBJ_HIP1): %.o: %.c $(HDRS)
@@ -77,10 +77,10 @@ tests/t_dr: tests/t_dr.c dr.c dr.h tests/harness.h bigint.h     # host only: the
 	gcc $(CFLAGS) -o $@ tests/t_dr.c dr.c $(GMP_LIBS) -lm
 tests/t_crt: tests/t_crt.c crt.o mem.o bigint.o fatal.o $(HDRS) tests/harness.h
 	$(HIPC) $< -x none crt.o mem.o bigint.o fatal.o -o $@ $(GMP_LIBS)
-tests/t_ntt: tests/t_ntt.c ntt.o ntt3.o bigint.o fatal.o $(HDRS) tests/harness.h
-	$(HIPC) $< -x none ntt.o ntt3.o bigint.o fatal.o -o $@ $(GMP_LIBS)
-tests/t_alloc: tests/t_alloc.c ntt.o ntt3.o bigint.o mem.o fatal.o $(HDRS) tests/harness.h
-	$(HIPC) $< -x none ntt.o ntt3.o bigint.o mem.o fatal.o -o $@ $(GMP_LIBS) -lpthread
+tests/t_ntt: tests/t_ntt.c ntt.o bigint.o fatal.o $(HDRS) tests/harness.h
+	$(HIPC) $< -x none ntt.o bigint.o fatal.o -o $@ $(GMP_LIBS)
+tests/t_alloc: tests/t_alloc.c ntt.o bigint.o mem.o fatal.o $(HDRS) tests/harness.h
+	$(HIPC) $< -x none ntt.o bigint.o mem.o fatal.o -o $@ $(GMP_LIBS) -lpthread
 
 # built on demand (tools/nodescreen.sh, remote/run/s2_build.sh), not in TESTS
 tests/t_edge: tests/t_edge.c     # the memory-edge probe

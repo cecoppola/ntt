@@ -18,7 +18,7 @@ static int same(const dbig *x, const bigint *a, const char *what)
     if (!ok) printf("  %s: n %zu vs %zu\n", what, t.n, a->n);
     bi_free(&t); return ok;
 }
-/* ---- --vpe (the PE view forced, no network, one PE = lane 0): the device bigint of ONE quarter on the PE's device, and form S (rns_local.c) ---- */
+/* ---- --vpe (the PE view forced, no network, one PE = lane 0): the device bigint of ONE quarter on the PE's device, and form S (rns_mul.c) ---- */
 static void vpe_part(int logmax);
 static int run(int logmax, int argc, char **argv);
 int main(int argc, char **argv)

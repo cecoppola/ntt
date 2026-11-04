@@ -59,7 +59,7 @@ void db_copy_h2d_async(int dev, void *dst, const void *src, size_t bytes)
     HIP_CHECK(hipSetDevice(cur));
 }
 void db_copy_h2d_wait(int dev) { if (g_h2d_init[dev]) HIP_CHECK(hipStreamSynchronize(g_h2d_s[dev])); }
-/* K8b (archive:results_merged_2026-10-24/MEMORY.md §K8b): the seeds' host -> device copies without a HIP runtime call inside init's mapping window.
+/* K8b: the seeds' host -> device copies without a HIP runtime call inside init's mapping window.
  * K8 measured the seed thread blocked 3.1 s at 6.441e10 inside db_copy_h2d_async (its launch and hipSetDevice queue behind the
  * background mappers' hipMemCreate / hipMemMap / hipMemSetAccess, 0.24 s with no mapper).  Here one persistent kernel per APU
  * (k_pull, 456 blocks, launched by db_pull_start_all from binsplit_seeds_begin once the region pools exist and before the
@@ -585,7 +585,7 @@ static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT])
 }
 size_t db_pool_free_bytes(int d) { size_t s = 0; for (int i = 0; i < g_ext[d].n; i++) s += g_ext[d].e[i].bytes; return s; }
 int db_pool_extents(int d) { return g_ext[d].n; }
-/* (archive:results_merged_2026-10-24/CACHE.md §PC15; partial transform-cache slots, rns_dist.c cache_pc_take): how many blocks of `bytes` the free extents hold as
+/*: how many blocks of `bytes` the free extents hold as
  * they are -- no remap, no growth (each block within one extent) */
 size_t db_pool_fit_count(int d, size_t bytes) { size_t al = (size_t)DB_ALIGN * 8, b = (bytes + al - 1) / al * al, c = 0; if (!b) return 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ext[d].n; i++) c += g_ext[d].e[i].bytes / b; pthread_mutex_unlock(&g_pool_mx); return c; }
 size_t db_pool_hipmalloc_bytes(int d) { size_t s = 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ndonated; i++) if (g_donated[i].dev == d && g_donated[i].kind == 2) s += g_donated[i].bytes; pthread_mutex_unlock(&g_pool_mx); return s; }
@@ -1187,20 +1187,7 @@ void db_set_base_pow(dbig *r, size_t k)
     uint64_t one = 1; size_t d = hq(r, k); mem_dev_copy_on(dv_((int)d), r->q[d] + (k - d * r->qc), &one, 8);
     r->n = k + 1;
 }
-/* r = (the low m limbs of a) B^k, as an n-limb number: zeros plus a small copy (I3: the division's remainder window) */
 __global__ void k_fill0(uint64_t *p, size_t n) { size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x; for (; i < n; i += st) p[i] = 0; }
-void db_set_shifted_low(dbig *r, const dbig *a, size_t m, size_t k, size_t n)
-{
-    db_reserve(r, n);
-#pragma omp parallel for num_threads(nq_())
-    for (int d = 0; d < nq_(); d++) { int dv = dv_(d); size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(dv));
-#pragma omp critical
-        k_fill0<<<228 * 8, 256>>>(r->q[d], hi - lo);                  /* (hipMemset runs at ~10 GB/s here) */
-        HIP_CHECK(hipStreamSynchronize(0)); } }
-    if (m > a->n) m = a->n;
-    for (size_t i = 0; i < m && k + i < n; i++) { uint64_t v = db_limb(a, i); size_t g = k + i, d = hq(r, g); mem_dev_copy_on(dv_((int)d), r->q[d] + (g - d * r->qc), &v, 8); }
-    r->n = n; db_norm(r);
-}
 /* M3: r = n zero limbs (r->n = n, not normalised: a share to be filled by a scatter) */
 void db_zero_fill(dbig *r, size_t n)
 {

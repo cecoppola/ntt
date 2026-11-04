@@ -39,7 +39,7 @@ static void shrink_db(dbig *r)
 }
 /* is any limb of a below index e nonzero? (a - B^e test when a has e+1 limbs with top 1) */
 static int maxidx_below(const dbig *a, size_t e) { dbig v = db_view(a, 0, e); v.n = e; db_norm(&v); return v.n != 0; }
-/* (a << j) <= b, both with the same limb count (rare path: an explicit shift).  plus1 (Phase 14 R1, E7): (a << j) <= b + 1 -- under the
+/* (a << j) <= b, both with the same limb count (rare path: an explicit shift).  plus1: (a << j) <= b + 1 -- under the
  * cut, corr may be one below the exact value, so the overshoot test contains every exact overshoot (results/COMPUTE.md §R114 1.4) */
 static int shifted_cmp_le(const dbig *a, size_t j, const dbig *b, int plus1)
 {
@@ -55,7 +55,7 @@ static int shifted_cmp_le(const dbig *a, size_t j, const dbig *b, int plus1)
 static int recip_guard = 1, guard_read = 0;
 static void cut_init(void) { if (!guard_read) { guard_read = 1; const char *e = getenv("NEWTON_RECIP_GUARD"); if (e) recip_guard = atoi(e); if (recip_guard < 0) recip_guard = 0; } }
 size_t newton_recip_cut(size_t v) { cut_init(); return v > (size_t)recip_guard ? v - (size_t)recip_guard : 0; }
-/* Phase 15 R4 (V3 item 4 = archive:PLAN §33 B2, archive:results_merged_2026-10-24/DIVISION.md §R415 1): Q_t r is formed as a middle product -- the grid with the
+/* Q_t r is formed as a middle product -- the grid with the
  * pieces at or above w = take + MID_HI skipped too (mul_grid's / mn_grid's high cut), the result taken mod B^w.  The step reads
  * u = t1 >> v (v = take - j) only through e = u - B^(2j); when the previous round of the chain bounds |e| < B^(j+3) (mid_ok), u is
  * fixed by u mod B^(j+4) = t1's limbs [v, take + 4), and the reconstructed u equals the cut path's u exactly (the same bits).  The
@@ -65,7 +65,7 @@ size_t newton_recip_cut(size_t v) { cut_init(); return v > (size_t)recip_guard ?
 size_t newton_recip_mid(size_t j, size_t take) { return j <= take && j >= MID_HI ? take + MID_HI : (size_t)-1; }   /* Q_t r's high cut ((size_t)-1: none; j >= MID_HI: w < take + j + 1, the top has something to skip) */
 struct newton_mid_stats newton_mid_st;
 /* u from its low j + 4 limbs ul (u mod B^(j+4), normalised), given |u - B^(2j)| < B^(j+3): e = ul when ul < B^(j+3), e = ul - B^(j+4)
- * when ul > B^(j+4) - B^(j+3); d = |e| -> r2; returns neg (e > 0, i.e. u > B^(2j)).  Anything else means the bound failed: fatal (archive:results_merged_2026-10-24/DIVISION.md §R415 1.4) */
+ * when ul > B^(j+4) - B^(j+3); d = |e| -> r2; returns neg (e > 0, i.e. u > B^(2j)).  Anything else means the bound failed: fatal */
 static int mid_d(dbig *r2, const dbig *ul, size_t j)
 {
     int neg;
@@ -98,7 +98,7 @@ size_t newton_mn_chain_start(size_t k)
     return kp;
 }
 static void recip_db(dbig *mu, const dbig *Qd, const bigint *Q, size_t k) { recip_db2(mu, Qd, Q, k, 0); }
-/* Phase 15 R4: C = A B mod B^w with the low cut (w = (size_t)-1: the whole product, rns_mul_high_db as before) */
+/* C = A B mod B^w with the low cut (w = (size_t)-1: the whole product, rns_mul_high_db as before) */
 static void mul_band_db(dbig *C, const dbig *A, const dbig *B, size_t lowcut, size_t w)
 {
     if (vpe_on()) { rns_mul_local(C, A, B, lowcut, w); return; }   /* S1c: the chain on the PE's own device (form S; the same products and cuts) */
@@ -121,7 +121,7 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
     dm_switches(); int tight = dm_tight > 0;
     if (!tight) { db_reserve(&r, k + 4); db_reserve(&r2, k + 4); db_reserve(&t1, tcap); }
     seed_db(&r, Q, Qd, nq_seed, &j);
-    int mid_ok = 0;                                              /* Phase 15 R4: the seed's error is not bounded -- its first round forms the whole product */
+    int mid_ok = 0;                                              /* the seed's error is not bounded -- its first round forms the whole product */
     /* Phase 14 L1 (E2, second form, after job 21132): the three blocks reserved ONCE at the last doubling's sizes, now, while the pool holds
      * only P and Q -- r at jl + 4 (r has j + 2 limbs, measured), r2 at 2 jl + 4, t1 at Q_t r's size at jl (the hole of dm_layout) -- and
      * never swapped: r' is copied from r2 into r's block at every doubling but the last (about n_Q limbs of device copies in all), so the
@@ -137,10 +137,10 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
             size_t take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
             dbig qt = db_view(Qd, nq - take, take);                  /* top limbs of Q */
             size_t c1 = j <= take ? newton_recip_cut(take - j) : 0, f0 = rns_dist_st.n_formed, s0 = rns_dist_st.n_skipped;   /* Phase 14 R1 (E7): the low cut under the band read */
-            size_t hw = mid_ok ? newton_recip_mid(j, take) : (size_t)-1;   /* Phase 15 R4: the high cut (the middle product) when the previous round bounds |e| */
+            size_t hw = mid_ok ? newton_recip_mid(j, take) : (size_t)-1;   /* the high cut (the middle product) when the previous round bounds |e| */
             mul_band_db(&t1, &qt, &r, c1, hw);                 /* Q_t r (the pieces below the cut skipped; c1 = 0: whole, as before; R4: mod B^hw) */
             dbig u; int neg;                                        /* u ~ B^(2j): t1 >> (take - j) as a view, or << (j - take) (rare) */
-            if (hw != (size_t)-1) {                                 /* R4: u from u mod B^(j+4) (archive:results_merged_2026-10-24/DIVISION.md §R415 1.2) */
+            if (hw != (size_t)-1) {                                 /* R4: u from u mod B^(j+4) */
                 u = db_view(&t1, take - j, t1.n > take - j ? t1.n - (take - j) : 0); db_norm(&u);
                 neg = mid_d(&r2, &u, j); newton_mid_st.mid++;
             } else {
@@ -151,7 +151,7 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
                 newton_mid_st.whole++;
             }
             size_t dn = r2.n;
-            mid_ok = dn <= j + 1;                                   /* R4: |e| < B^(j+1) here bounds the next round's |e| < B^(j'+3) (archive:results_merged_2026-10-24/DIVISION.md §R415 1.3); an overshoot clears it */
+            mid_ok = dn <= j + 1;                                   /* R4: |e| < B^(j+1) here bounds the next round's |e| < B^(j'+3); an overshoot clears it */
             rns_mul_high_db(&t1, &r, &r2, newton_recip_cut(j));    /* r |d| -> t1 (u is consumed); E7: the pieces below j - guard skipped */
             dbig corr = db_view(&t1, j, t1.n > j ? t1.n - j : 0); db_norm(&corr);   /* |corr| = t1 >> j */
             int converged = corr.n <= j + 1;
@@ -248,7 +248,7 @@ static void dkm_est_db(dbig *Xd, const dbig *S, size_t dl, size_t nq, size_t k, 
     rns_mul_high_db(&t, &Ah, mu, k + 1);
     db_shr_limbs(Xd, &t, k + 1); db_free(&t);
 }
-/* A mod B^w for A = S B^dl: (S mod B^(w - dl)) B^dl by a device shift (db_set_shifted_low copies limb by limb: a few limbs only) */
+/* A mod B^w for A = S B^dl: (S mod B^(w - dl)) B^dl by a device shift */
 static void dkm_window_db(dbig *Aw, const dbig *S, size_t dl, size_t w)
 {
     size_t m = w > dl ? w - dl : 0; if (m > S->n) m = S->n;
@@ -376,22 +376,14 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
 }
 
 
-/* ==== Phase 9 M4 (A-div, archive:PLAN §17/19): the reciprocal and the division over sharded numbers ====================
- * After the tree P and Q are mdb over the whole machine (the top-level group G).  Every big product is
- * rns_mul_dist_mn over G; everything else is one of a few share-level primitives:
- *   mdb_shift    Y = X >> s (s < 0: <<) in a chosen basis N2 -- one all-to-all per APU thread of the pieces
- *                (a piece = one source share x one target share; APU d carries its quarter of each piece),
- *                truncating to N2 limbs when asked (the window, low(X Q));
- *   mdb_addsub   Y = A +/- B in one basis: the fixed-length share add with the (carry, propagate) scan over
- *                the nodes (the pattern of the product's spill add), a second pass on the nodes receiving one;
- *   mdb_add_val  +/- a small value at one limb (the corrections of X);
- *   mdb_cmp, mdb_norm, mdb_limb, mdb_mod_qs   all-gathers / max-reductions of per-share values.
- * The reciprocal: the anchored doubling chain from k is followed on every node identically with the
- * single-node recip_db on the top limbs of Q up to the largest target <= NEWTON_MN_SPLIT limbs (the iterates
- * depend only on Q's top 2j + 2 limbs, so they are the single-node ones); each node then takes its share of
- * r, and the remaining steps run the correction-form step of recip_db over shares.  The division mirrors
- * newton_db_divmod_shifted: S = P + Q, X = ((S >> (nq - 1 - dl)) mu) >> (k + 1), the window and the +/-Q
- * corrections on shares, R's residues by the sharded kernel scaled by B^lo per node and reduced over G. */
+/* ==== the reciprocal and the division over sharded numbers ====================
+ * After the tree P and Q are mdb over the whole machine (group G).  Every big product is rns_mul_dist_mn over G; the rest are share-level primitives:
+ *   mdb_shift Y = X >> s (s < 0: <<) in a chosen basis (one all-to-all per APU thread), truncating to N2 limbs when asked;
+ *   mdb_addsub Y = A +/- B in one basis (share add with a (carry, propagate) scan over the nodes);
+ *   mdb_add_val +/- a small value at one limb;  mdb_cmp, mdb_norm, mdb_limb, mdb_mod_qs: all-gathers / max-reductions of per-share values.
+ * The reciprocal: the doubling chain is followed on every node identically with the single-node recip_db on the top limbs of Q up to the
+ * largest target <= NEWTON_MN_SPLIT limbs; each node then takes its share of r and the remaining steps run the correction-form step over shares.
+ * The division mirrors newton_db_divmod_shifted with the window and the +/-Q corrections on shares. */
 #include <omp.h>
 #include <time.h>
 #include "mdb.h"
@@ -400,7 +392,7 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
 struct sacc { uint64_t *q[4]; size_t qc, off; };                     /* a dbig's limbs by index (any quarter: peer access) */
 __device__ static inline uint64_t *sacc_p(const struct sacc a, size_t i) { size_t g = a.off + i, d = (g >= a.qc) + (g >= 2 * a.qc) + (g >= 3 * a.qc); return a.q[d] + (g - d * a.qc); }
 static struct sacc sacc_of(const dbig *x) { struct sacc a; for (int d = 0; d < 4; d++) a.q[d] = x->q[d]; a.qc = x->qc; a.off = x->off; return a; }
-struct piece { size_t a, len, off; };                                /* target indices [a, a + len) of one (source, target) piece's part on this APU, at limb off of the slab buffer (Phase 11 L, B7: exact slabs) */
+struct piece { size_t a, len, off; };                                /* target indices [a, a + len) of one (source, target) piece's part on this APU, at limb off of the slab buffer */
 __global__ void k_mn_pack(uint64_t *sb, struct sacc src, long off, const struct piece *pc, int g, size_t SL)   /* sb[pc[r'].off + k] = src[a + k + off] */
 {
     size_t total = (size_t)g * SL, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
@@ -427,7 +419,7 @@ static void ms_init(void)
 }
 typedef struct { size_t n_shift, n_addsub, n_small; double t_shift, t_addsub, t_small, t_prod; size_t shift_max; } mn_st_t;   /* shift_max: Phase 13a M, the largest sb + rb of one mdb_shift (bytes per node-process, measured) */
 static mn_st_t mn_st;
-extern size_t rns_dist_tscratch_max;                                 /* rns_dist.c (Phase 13a M): the largest T + rbO of a product or shifted add */
+extern size_t rns_dist_tscratch_max;                                 /* rns_dist.c: the largest T + rbO of a product or shifted add */
 static void mfree(mdb *x) { if (x->sh.cap) db_free(&x->sh); memset(x, 0, sizeof *x); }
 static size_t mshare_max(const mdb *x) { return x->g ? (x->N + x->g - 1) / x->g : 0; }
 /* the piece (source node r, target node rt): target indices [a, b); APU d's quarter of it */
@@ -661,16 +653,10 @@ static void mdb_from_bi(mdb *Y, const bigint *h, size_t N2, mn_group *G) { dbig 
  * below k + 1 (B3 over shares), the low product X Q mod B^w without the pieces above w and delivered in basis w */
 static void mn_prod_cut(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t lowcut, size_t highcut) { double t0 = mem_now(); rns_mul_dist_mn_cut(C, A, B, G, lowcut, highcut); mn_st.t_prod += mem_now() - t0; }
 
-/* Phase 11 X1 (agent X; archive:results_merged_2026-10-24/TIME_MODEL.md §X, mn_model.py): the group a product runs on.  A product of a few million limbs over
- * hundreds of nodes is latency-bound (15 all-to-alls of g - 1 messages per APU, a plane of at least 2^(2 (7 + log2 g))
- * points), so the reciprocal's early doublings run on the smallest subgroup [0, 2^L) of the full group (mn_group_at(L):
- * the tree's groups, created by mn_tree on every node) whose modelled cost is least; the operands are re-sharded onto it
- * by mdb_shift_g.  The cost per candidate group g' (the model of mn_model.py in three constants): the pieces at the group's
- * plane cap, each T_PIECE x (points per APU / 2^29) of local work times the APU sharing, plus 15 exchanges of
- * 8 q (g' - 1) / g' bytes at X1_BW GB/s per APU with K (g' - 1) messages of X1_LAT seconds per exchange
- * (constants: the target fabric, 100 GB/s, 2 us; no fixed cost per exchange, no APU sharing factor).
- * NEWTON_MN_GROUPS=0 keeps every product on the full group.  The digits do not depend on the choice (every operation
- * is exact); size 1 never comes here. */
+/* The group a product runs on: a product of a few million limbs over hundreds of nodes is latency-bound, so the reciprocal's early doublings
+ * run on the smallest subgroup [0, 2^L) (mn_group_at(L)) whose modelled cost (mn_model.py: local work per piece at the group's plane cap plus
+ * 15 exchanges of 8 q (g' - 1) / g' bytes at X1_BW per APU, K (g' - 1) messages of X1_LAT each) is least; the operands are re-sharded by
+ * mdb_shift_g.  NEWTON_MN_GROUPS=0 keeps every product on the full group.  The digits do not depend on the choice; size 1 never comes here. */
 static const double X1_BW = 100.0, X1_LAT = 2e-6;
 static double x1_cost(size_t na, size_t nb, int gp, size_t reshard_limbs)
 {
@@ -794,7 +780,7 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
         for (;;) {
             double s0 = mem_now();
             size_t c1 = j <= take ? newton_recip_cut(take - j) : 0;   /* Phase 14 R1 (E7): the same cut over shares (results/COMPUTE.md §R114 1.7) */
-            size_t hw = mid_ok ? newton_recip_mid(j, take) : (size_t)-1;   /* Phase 15 R4: the middle product (archive:results_merged_2026-10-24/DIVISION.md §R415 1.6) -- the result in basis hw */
+            size_t hw = mid_ok ? newton_recip_mid(j, take) : (size_t)-1;   /* the middle product -- the result in basis hw */
             if (qlazy) { mdbv rv = mdb_view(&r, 0, r.n, Gs); double tp = mem_now(); rns_mul_dist_mn_cut_v(&t, &qv, &rv, Gs, c1, hw); mn_st.t_prod += mem_now() - tp; }   /* the same product on the same limbs (cut_v clips at hw as cut does) */
             else if (take == nq && Gs == G) mn_prod_cut(&t, Q, &r, Gs, c1, hw);
             else mn_prod_cut(&t, &qt, &r, Gs, c1, hw);                 /* Q_t r */

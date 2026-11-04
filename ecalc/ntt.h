@@ -34,7 +34,7 @@ typedef struct ntt_ctx ntt_ctx;
 extern int ntt_stg;        /* stages per b16 pass, 3..7 (7; the tests' pass-split check sets it) */
 extern int ntt_pw_fuse;    /* fuse pointwise into inverse for logn >= this (14; tests set it) */
 /* The kernel choice is fixed: the register-blocked 7-stage body, the reduced-correction Barrett, the
- * register-blocked b1 pass (2^3 points per thread), the per-logn plan; the radix-3 stage stays its own pass (ntt3.c). */
+ * register-blocked b1 pass (2^3 points per thread), the per-logn plan; the radix-3 stage stays its own pass (ntt.c). */
 
 /* layout of the pointwise operand y relative to x (a batch of transforms of L points each):
  *   NTT_Y_FULL   y[i] against x[i]                                (one y per x transform)
@@ -57,7 +57,7 @@ void ntt_inv_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int log
 void ntt_load(ntt_ctx *c, uint64_t *dst, const uint64_t *src, size_t nlimbs, size_t npoints, hipStream_t s);
 
 /* pass structure for a given logn (for tests and timing) */
-/* WP8: length 3 * 2^logk (ntt3.c); same conventions as above, output order: third r holds X[3 t' + r] */
+/* WP8: length 3 * 2^logk (ntt.c); same conventions as above, output order: third r holds X[3 t' + r] */
 void ntt_fwd3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s);
 void ntt_inv3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s);
 void ntt_inv3_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logk, size_t batch, hipStream_t s);
@@ -65,7 +65,7 @@ void ntt_inv3_pw_bcast(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logk, siz
 void ntt_inv3_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, hipStream_t s);
 /* the pointwise product alone with a y layout (r3: transforms of 3 2^logk points) */
 void ntt_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int r3, int logk, size_t batch, hipStream_t s);
-/* ntt3.c's use: the 2^logk inverse of the 3 batch thirds with the pointwise product fused (Lt = 3 2^logk) */
+/* ntt.c's use: the 2^logk inverse of the 3 batch thirds with the pointwise product fused (Lt = 3 2^logk) */
 void ntt_inv3_core_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, hipStream_t s);
 int ntt_npass(int logn);                      /* b16 passes + 1 */
 
