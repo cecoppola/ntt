@@ -52,6 +52,9 @@ class SettingsGuard(unittest.TestCase):
             r = subprocess.run([exe], env=dict(env, ECALC_FOO="1"), stderr=subprocess.PIPE, universal_newlines=True)
             self.assertEqual(r.returncode, 2)
             self.assertIn("ECALC_FOO", r.stderr)
+            for ok in ({"MN_MODEL_PROFILE": "x"}, {"MN_MODEL_ROUND_SYNC": "1"}, {"COMM_LAYER_VSLOT_MB_3": "1"}, {"COMM_ALLTOALLV_DEPTH": "2"}):
+                self.assertEqual(subprocess.call([exe], env=dict(env, **ok)), 0, ok)      # tool names, a built name
+            self.assertEqual(subprocess.call([exe], env=dict(env, COMM_OFI="1")), 2)      # a row with no reader is refused
             r = subprocess.run([exe, "s"], env=dict(env, ECALC_NP="3"), stdout=subprocess.PIPE, universal_newlines=True)
             self.assertRegex(r.stdout, r"ECALC_NP\s+\S+\s+3\n")
         finally:

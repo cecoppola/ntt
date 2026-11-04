@@ -66,7 +66,7 @@ At start-up `ecalc` exits with rc 2 and names the variable when the environment 
 (read by the code, by a test, or named in a launcher script): a typo would otherwise do nothing. `ecalc --settings` prints each registered
 setting, its default and the value in force.
 
-Every environment variable the code reads (`grep -ho 'getenv("[A-Z0-9_]*")\|env_int("[A-Z0-9_]*"' *.c *.h`), one row each: the
+Every environment variable the code reads (`grep -ho 'getenv("[A-Z0-9_]*")\|ec_env_int_ne("[A-Z0-9_]*"' *.c *.h`), one row each: the
 default, the scope (launch-line, built-in default, experiment, test-only, unclassified), one sentence and the `results/` evidence.
 The digits never depend on any of them: everything is bit-identical by construction and checked so by the regression (the
 GMP reference digits up to 10¹¹ and T1/T2/digit residues, `../TESTING.md` §3, §5). The table is generated: the values are

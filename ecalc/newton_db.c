@@ -1173,7 +1173,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     double te = mem_now();
     if (!Pw) dx = mn_dkm_corr(&Rd, &Aw, &xql, &Qw, G, "step 2");
     if (dx < 0) NST(newton_st.down_corr += (size_t)(-dx)); else NST(newton_st.up_corr += (size_t)dx);
-    if (dx && newton_x_defer) NST(newton_x_dx = dx);                     
+    if (dx && newton_x_defer) NST(newton_x_dx = dx);
     else if (dx) mdb_add_val(&Xn, 0, (uint64_t)(dx < 0 ? -dx : dx), dx < 0, G);
     mfree(&Qw); mfree(&Qpp);
     double tf = mem_now();
