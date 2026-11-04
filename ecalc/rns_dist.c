@@ -2342,10 +2342,11 @@ static void add_window(const mdb *C, int r, size_t k, size_t nX, size_t *lo, siz
     *lo = a; *hi = b;
 }
 static void x_part(const mdb *X, int r, size_t *lo, size_t *hi) { mdb_share(X, r, lo, hi); if (*lo > X->n) *lo = X->n; if (*hi > X->n) *hi = X->n; }
+#define MDB_ADD_CHUNK ((size_t)1 << 26)
 /* C += X << k on the share windows, in rounds (MN_T_CHUNK_MB): round c covers every node's chunk c = [lo + c W, +W) of its window
  * (C's coordinates), APU d serving the quarter d of each chunk, so T holds one chunk (a quarter per APU: the dbig's own quarters) and
  * is added into C's share after each round.  X's limbs are normalised, so the chunks' adds carry out of the share at most once in all
- * (C + X's window << off < 2 B^cn): one scan at the end.  W = 0 (MN_T_CHUNK_MB=0): one round. */
+ * (C + X's window << off < 2 B^cn): one scan at the end.  When the window fits one chunk (or MN_T_CHUNK_MB=0) the round is 2^26 limbs per APU. */
 void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
 {
     int g = G->g, node = g_node_of(G); size_t nX = X->n;
@@ -2354,7 +2355,7 @@ void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
     if (nX && k + nX > C->N) { ec_fatal(EC_RC_FATAL, "mdb_add_shifted: %zu limbs at %zu exceed the basis %zu\n", nX, k, C->N); }
     size_t W = mn_t_chunk_limbs(), mx = 0;
     for (int r = 0; r < g; r++) { size_t lo, hi; add_window(C, G->g0 + r, k, nX, &lo, &hi); if (hi - lo > mx) mx = hi - lo; }
-    if (!W || mx < W) W = mx ? mx : 1;
+    if (!W || mx <= W) { W = (size_t)NL() * MDB_ADD_CHUNK; if (mx < W) W = mx ? mx : 1; }   /* the window fits one chunk of MN_T_CHUNK_MB: rounds of at most 2^26 limbs per APU, as before */
     int K = (int)((mx + W - 1) / W);
     size_t clo, chi; mdb_share(C, node, &clo, &chi); size_t cn = chi - clo;
     size_t tlo, thi; add_window(C, node, k, nX, &tlo, &thi); size_t tn = thi - tlo, tcap = tn < W ? tn : W;

@@ -322,7 +322,7 @@ that divide the size, then the odd part's prime factors in ascending order; at 5
 576 (two 3-way steps at the top). The children of level l are the groups of level l − 1.
 
 - A **2-way level** (`tree_level`): P = P_A·Q_B + P_B and Q = Q_A·Q_B, two products over the whole group.
-- A **k-way level** (`tree_level_k`): Horner from the top child down, (P, Q) = (P_{k−1}, Q_{k−1}); for i = k−2 … 0:
+- A **k-way level** (`tree_level`, `nch` > 2): Horner from the top child down, (P, Q) = (P_{k−1}, Q_{k−1}); for i = k−2 … 0:
   P = P_i·Q + P, Q = Q_i·Q: 2(k−1) products in sequence, each balanced over all g nodes.
 - Each product runs `rns_mul_dist_mn` → `mn_grid` → `mn_core` over the group. Dead shares are freed between a level's two
   products, so a node holds its child's P, Q, the running pair and the new pair.

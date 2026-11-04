@@ -236,16 +236,15 @@ void mn_finalize(void)
 }
 /* Self-tests: a random cyclic convolution of 2^(logR+logC) points through the distributed fwd/pw/inv of communicator cm (one plane of one
  * prime; rank r holds rows [r R/nr, (r+1) R/nr), row i, column j <-> point i + R j) against the one-rank engine on the same rows.  a2a also
- * checks the layered all-to-all pattern; want_rank >= 0 checks the communicator's rank.  Runs on the calling thread's device. */
+ * checks the layered all-to-all pattern; want_rank >= 0 checks the communicator's rank and size.  Runs on the calling thread's device. */
 static int pow2_floor(int g) { int p = 1; while (2 * p <= g) p *= 2; return p; }
 static uint64_t xs(uint64_t *s) { *s ^= *s << 13; *s ^= *s >> 7; *s ^= *s << 17; return *s; }
-static int selftest_core(comm *cm, int prime, int want_rank, int logR, int logC, int verbose, int a2a)
+static int selftest_core(comm *cm, int prime, int want_rank, int want_size, int logR, int logC, int verbose, int a2a)
 {
     int r = comm_rank(cm), nr = comm_size(cm), ok = 1;
     if (logR < NTT_LOGN_MIN) logR = NTT_LOGN_MIN;
     while (((size_t)1 << logR) / (size_t)nr < 32) logR++;        /* R / ranks >= 32 (k_twpack_r's grid is rk/32 blocks) */
-    if (want_rank >= 0 && r != want_rank) ec_fatal(EC_RC_FATAL, "mn selftest: rank %d, expected %d\n", r, want_rank);
-    if (prime < 0) prime = (logR + logC) & 3;
+    if (want_rank >= 0 && (r != want_rank || nr != want_size)) ec_fatal(EC_RC_FATAL, "mn selftest: rank %d/%d, expected %d/%d\n", r, nr, want_rank, want_size);
     int logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
     uint64_t p = ec_P[prime], seed = 0x9E3779B97F4A7C15ull + prime;
     uint64_t *hx = (uint64_t *)malloc(n * 8), *hy = (uint64_t *)malloc(n * 8), *ref = (uint64_t *)malloc(n * 8), *tmp = (uint64_t *)malloc(rows * 8);
@@ -263,7 +262,7 @@ static int selftest_core(comm *cm, int prime, int want_rank, int logR, int logC,
         HIP_CHECK(hipMemcpy(rx, pat, rows * 8, hipMemcpyHostToDevice));
         comm_alltoall(cm, rx, ry, sl * 8, s); comm_wait(cm);
         HIP_CHECK(hipMemcpy(pat, ry, rows * 8, hipMemcpyDeviceToHost));
-        for (int src = 0; src < nr; src++) for (size_t i = 0; i < sl; i++) bad += pat[src * sl + i] != (((uint64_t)src << 40) | ((uint64_t)r << 32) | i);
+        for (int src = 0; src < nr; src++) for (size_t i = 0; i < sl; i++) { uint64_t want = ((uint64_t)src << 40) | ((uint64_t)r << 32) | i; if (pat[src * sl + i] != want) { if (!bad) printf("%smn: %s %d rank %d: slab %d word %zu = (rank %llu, slab %llu, %llu), want (%d, %d, %zu)\n", ec_log_prefix(), mn_who(), mn_rank(), r, src, i, (unsigned long long)(pat[src * sl + i] >> 40), (unsigned long long)((pat[src * sl + i] >> 32) & 255), (unsigned long long)(pat[src * sl + i] & 0xffffffff), src, r, i); bad++; } }
         if (bad) { printf("%smn: %s %d rank %d: layered all-to-all pattern: %zu of %zu words wrong\n", ec_log_prefix(), mn_who(), mn_rank(), r, bad, rows); ok = 0; }
         free(pat);
     }
@@ -291,7 +290,7 @@ static int selftest_pe(int logR, int logC, int verbose, int layered)
     } else {
         cm = vpe_sub(0, pow2_floor(npe)); if (!cm) return 1;
     }
-    int ok = selftest_core(cm, -1, -1, logR, logC, verbose, 0);
+    int ok = selftest_core(cm, (logR + logC) & 3, -1, 0, logR, logC, verbose, 0);
     if (vpe_root()) printf("mn: %sself-test over %d PEs at 2^%d+ points: %s (%.2f s)\n", layered ? "layered " : "", comm_size(cm), logR + logC, ok ? "ok" : "FAILED", mem_now() - t0);
     return ok;
 }
@@ -305,7 +304,7 @@ int mn_selftest(int logR, int logC, int verbose)
 #pragma omp parallel for num_threads(NA) schedule(static) reduction(&&:ok)
     for (int d = 0; d < NA; d++) {
         HIP_CHECK(hipSetDevice(d));
-        ok = selftest_core(g_cm[d], d, -1, logR, logC, verbose, 0) && ok;
+        ok = selftest_core(g_cm[d], d, -1, 0, logR, logC, verbose, 0) && ok;
     }
     HIP_CHECK(hipSetDevice(0));
     printf("mn: self-test, four meshes over %d nodes at 2^%d+ points: %s (%.2f s)\n", mn_size(), logR + logC, ok ? "ok" : "FAILED", mem_now() - t0);
@@ -397,7 +396,7 @@ int mn_selftest_layered(int logR, int logC, int verbose)
     for (int d = 0; d < NA; d++) {
         HIP_CHECK(hipSetDevice(d));
         comm *xg = comm_xgmi_create(d), *cm = comm_layered_create(xg, G->tr[d], d);
-        ok = selftest_core(cm, -1, gt * d + mn_rank(), logR, logC, verbose, 1) && ok;
+        ok = selftest_core(cm, (logR + logC) & 3, gt * d + mn_rank(), NA * gt, logR, logC, verbose, 1) && ok;
         comm_destroy(cm); comm_destroy(xg);
     }
     HIP_CHECK(hipSetDevice(0));
@@ -559,7 +558,7 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, md
             if (own) db_free(&Pr.sh); else memset(&Pr.sh, 0, sizeof Pr.sh);
             memset(&PA.sh, 0, sizeof PA.sh);
         }
-        if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul1", mn_rank(), l, nch - 1 - i); mem_live_line(w); }   /* the first product's window */
+        if (mem_live_on()) { char w[64]; if (nch == 2) snprintf(w, sizeof w, "mn node %d tree level %d mul1", mn_rank(), l); else snprintf(w, sizeof w, "mn node %d tree level %d c%d mul1", mn_rank(), l, nch - 1 - i); mem_live_line(w); }   /* the first product's window */
         if (use) mdb_dr_store_inject(nch == 2 ? Q : &Qr, mn_rank());   /* ECALC_DR_TEST=store, every node calls (the occurrence count must agree): at nch = 2 my child's Q, else the running Q, wrong at rest after the first product */
         lv_force(2 * (nch - 2 - i) + 1);
         if (use) rns_mul_dist_mn_chk(&Qn, &QA, &Qr, 0, G, &tQA, &tQr, 0, &tQn); else rns_mul_dist_mn(&Qn, &QA, &Qr, 0, G);
