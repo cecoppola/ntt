@@ -81,7 +81,7 @@ class DocCheck(unittest.TestCase):
 
 
 class NodeHealth(unittest.TestCase):
-    """C4: tools/nodehealth.sh reads EDAC from a fake sysfs root; nodescreen_tab.py warns on ue > 0 and refuses (EXCLUDE) with --refuse-ue"""
+    """C4: tools/nodescreen.sh --health reads EDAC from a fake sysfs root; nodescreen_tab.py warns on ue > 0 and refuses (EXCLUDE) with --refuse-ue"""
     def fake(self, ue0, ce0, ue1, ce1):
         tmp = tempfile.mkdtemp(); self.addCleanup(shutil.rmtree, tmp, True)
         for i, (u, c) in enumerate(((ue0, ce0), (ue1, ce1))):
@@ -91,7 +91,7 @@ class NodeHealth(unittest.TestCase):
 
     def health(self, root):
         env = dict(os.environ, NODEHEALTH_SYSFS_ROOT=root)
-        return subprocess.run(["bash", os.path.join(ROOT, "tools/nodehealth.sh")], capture_output=True, text=True, env=env).stdout
+        return subprocess.run(["bash", os.path.join(ROOT, "tools/nodescreen.sh"), "--health"], capture_output=True, text=True, env=env).stdout
 
     def test_sums(self):
         l = self.health(self.fake(3, 5, 0, 2)); self.assertIn("ue=3 ce=7", l); self.assertIn("mc=mc0:3/5,mc1:0/2", l); self.assertIn("boot=", l)

@@ -7,7 +7,7 @@
  *     -r  read the file back afterwards (O_DIRECT for direct, else buffered + DONTNEED), and report its rate
  *     -k  keep the file (default: removed)
  * One line: mode, threads, chunk, GB, seconds, GB/s (write, then read), MemAvailable / Cached before and after (the page
- * cache is HBM on the APU).  The data is digit-like ASCII.  Build: make -C tools. */
+ * cache is HBM on the APU).  The data is digit-like ASCII.  Build: make -C ecalc tools. */
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>

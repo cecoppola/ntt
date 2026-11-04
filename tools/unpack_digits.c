@@ -25,7 +25,7 @@
  * in the header (the run's own "digits == X mod q" values) -- it checks this program's formatting and the file's bytes.
  *
  * Exit: 0 ok (and identical with --cmp); 1 a difference or a residue mismatch; 2 usage, I/O or format error.
- * Build: make -C tools (gcc -O3 -fopenmp -pthread). */
+ * Build: make -C ecalc tools (gcc -O3 -fopenmp -pthread). */
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>

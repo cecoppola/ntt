@@ -21,10 +21,25 @@
 #   --want-nics N        flag a node whose runtime sees fewer than N cxi NICs (fi_info -p cxi domains; a node with 1 NIC aborts a SHMEM launch with
 #                        SHMEM_OFI_NUM_NICS=4, results/TRANSPORT.md §NIC); default $SHMEM_OFI_NUM_NICS, 0 = report only
 #   --refuse-ue          a node with EDAC uncorrectable memory errors (ue > 0 since boot) is put on EXCLUDE; without it only a WARN in the table and a
-#                        "health:" line (the table always shows ue, ce and the boot time of every node; NODEHEALTH_SYSFS_ROOT=<dir> is the test hook, tools/nodehealth.sh)
+#                        "health:" line (the table always shows ue, ce and the boot time of every node; see --health)
 #   --min-avail-gb G     also flag MemAvailable < G GB (default 0 = off: a low MemAvailable alone was not a stall, archive:results_merged_2026-10-24/NODE_SLOWMODE.md §S49)
 # Runs inside an existing hold (srun --overlap, no -w, --mem=0 -c1 as the session rules say); kills only its own srun PIDs; never cancels a job.
 # No credentials or target values in this file.
+# --health: one line "NS health host=.. ue=.. ce=.. boot=.. boot_at=.. up_s=.. mc=mcN:ue/ce,.." for THIS node (EDAC totals since boot, NA without EDAC; used by remote/run/nodesnap.sh and the local stage;
+#   NODEHEALTH_SYSFS_ROOT=<dir> reads <dir>/sys/devices/system/edac/mc/... instead of /sys: the test hook)
+if [ "${1:-}" = --health ]; then
+  ue=0 ce=0 n=0 mcs=
+  for m in "${NODEHEALTH_SYSFS_ROOT:-}"/sys/devices/system/edac/mc/mc[0-9]*; do
+    [ -r "$m/ue_count" ] || continue
+    u=$(cat "$m/ue_count" 2>/dev/null); c=$(cat "$m/ce_count" 2>/dev/null)
+    case $u$c in *[!0-9]*|'') continue;; esac
+    ue=$((ue + u)); ce=$((ce + c)); n=$((n + 1)); mcs="$mcs${mcs:+,}${m##*/}:$u/$c"
+  done
+  [ "$n" = 0 ] && { ue=NA; ce=NA; mcs=NA; }
+  up=$(cut -d' ' -f1 /proc/uptime 2>/dev/null); up=${up%%.*}; up=${up:-0}; boot=$(($(date +%s) - up))
+  echo "NS health host=$(hostname -s) ue=$ue ce=$ce boot=$boot boot_at=$(date -u -d "@$boot" +%FT%TZ) up_s=$up mc=$mcs"
+  exit 0
+fi
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); ROOT=$(cd "$HERE/.." && pwd); E=${NS_ECALC_DIR:-$ROOT/ecalc}
 . "$ROOT/ecalc/gres.sh"   # MNRUN_GRES: GPU options only where the nodes list a gpu GRES
 HOLD=${SLURM_JOB_ID:-} OUT= COLD=4 LDIG=1e8 MDIG=1e8 DO_MN=1 DO_LOCAL=1 TMO_L=120 TMO_M=240 THR=3 MINEX=2 MINAV=0 EXCL= FLAGF= REFUSE= WANT=${SHMEM_OFI_NUM_NICS:-0}
@@ -68,7 +83,7 @@ ED=$1; COLD=$2; DIG=$3; TMO=$4; H=$(hostname -s)
 [ -n "${NS_UNLOAD:-}" ] && module unload $NS_UNLOAD >/dev/null 2>&1; module load $NS_MODULES >/dev/null 2>&1
 now() { date +%s.%N; }
 echo "NS host $H"
-bash "$NS_HERE/nodehealth.sh" 2>&1 | grep -a '^NS health'   # EDAC ue/ce totals and boot time (C4)
+bash "$NS_HERE/nodescreen.sh" --health 2>&1 | grep -a '^NS health'   # EDAC ue/ce totals and boot time (C4)
 echo "NS nics have=$(fi_info -p cxi 2>/dev/null | awk '$1=="domain:"{print $2}' | sort -u | grep -c .) want=${NS_WANT_NICS:-0}"
 a=$(now); timeout "$TMO" "$ED/tests/t_nodechk" 1 3 "$COLD" 2>&1 | grep -a '^NODECHK'; rc=${PIPESTATUS[0]}; b=$(now)
 echo "NS step nodechk rc=$rc wall=$(awk -v a=$a -v b=$b 'BEGIN{printf "%.2f", b-a}')"
