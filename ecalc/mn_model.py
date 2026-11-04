@@ -905,7 +905,7 @@ class Design:
         self.out_overlap = out_overlap if out_overlap is not None else ('none' if p15 else 'half')
         # Phase 15 (agent DOC): p15b = the user's decisions of 2026-09-27 on top of p15 -- BS_SEED_FILL=128 (FILL_BS, the regions' bytes in mem_model),
         # BI_MUL1_FAST=1 (SEED15B: no slow path above 2^33), NEWTON_RECIP_MID=1 (the middle product in recip_cost at size > 1), DIST_TWREC=1 (TWREC_F on the
-        # pieces' local passes), RNS_AUTO_PIECE_COST=1 (C2: one-node grids only, 0 at the target -- archive:results_merged_2026-10-24/GRID_GROUPS.md §C215), ECALC_CORR_PATCH=2 (no rewrite, no T1 wait),
+        # pieces' local passes), RNS_AUTO_PIECE_COST=1 (C2: one-node grids only, 0 at the target -- archive:results_merged_2026-10-24/GRID_GROUPS.md §C215), deferred corrections (no rewrite, no T1 wait),
         # size 1 recip / div by the measured ratios (P15B_RECIP1, P15B_DIV1); packed = ECALC_OUT_PACKED=1 (8 bytes per 18 digits); early = MN_OUT_EARLY=1
         # (size > 1: the part file from the hook before the low product, overlapping OVL1 x the division as at size 1); EXIT_S on both walls.
         # np_mn: ECALC_NP at size > 1 (the target's launch line: 4, the user's decision 1); None = np.
@@ -964,7 +964,7 @@ class Design:
 
 def DEFAULT15B(**kw):
     """Phase 15 (agent DOC): the code's defaults of 2026-09-27 (the user's decisions: BS_SEED_FILL=128, BI_MUL1_FAST, NEWTON_RECIP_MID, DIST_TWREC,
-    RNS_AUTO_PIECE_COST, ECALC_CORR_PATCH=2, ECALC_OUT_PACKED, MN_OUT_EARLY, ECALC_ODIRECT=auto) on the target's launch line (XSHMEM_ROUND_MB=1024,
+    RNS_AUTO_PIECE_COST, ECALC_OUT_PACKED, MN_OUT_EARLY, ECALC_ODIRECT=auto) on the target's launch line (XSHMEM_ROUND_MB=1024,
     ECALC_NP=4 at size > 1; three primes, the code's default, at size 1)"""
     o = dict(np=3, np_mn=4, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1, p15=True, p15b=True); o.update(kw)   # (np_mn 4: B1's launch line; TARGET_NP is 'auto' since 2026-09-28)
     return Design(**o)
@@ -1682,7 +1682,7 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
     if p15 and dc_exposed is None:                     # Phase 15 (D3): the two walls, the part file as the code writes it
         if g == 1:                                     # size 1: the writer starts at the hook (before the low product) and overlaps OVL1 x the division; a
             O = ovl_div(dc, 1); fmt = DC_FMT1 * D / 1e9   # correction after the hook makes T1 wait for it (inside `total`) and then redoes the digits and rewrites
-            if corrections and not p15b:               # the file after `total` (V2's finding, archive:results_merged_2026-10-24/SINGLE_NODE.md §V214); ECALC_CORR_PATCH (p15b): no wait, no rewrite
+            if corrections and not p15b:               # the file after `total` (V2's finding, archive:results_merged_2026-10-24/SINGLE_NODE.md §V214); deferred corrections (p15b): no wait, no rewrite
                 t1_wait = max(0.0, out_write - O); dc_file = out_write + DC_FIX; dc_nofile = fmt
             else:
                 dc_file = early_exposed(out_write, dc, 1); dc_nofile = 0.0   # (Phase 15 EW: MN_OUT_DKM_HI's pipeline; else max(0, W - O))
@@ -2031,7 +2031,7 @@ computed and verified) and with it, the part file at --write-bw GB/s per node (t
 target, the aggregate at 576 nodes is assumed; --target prints the file system ceiling, 5.0, 3.4 and 1.0).  mn_model.py estimate --target is the standing estimate.
 
 Phase 15 (agent DOC, the user's decisions of 2026-09-27): the default is mn_model.DEFAULT15B -- the code's defaults of 2026-09-27 (BS_SEED_FILL=128,
-BI_MUL1_FAST, NEWTON_RECIP_MID, DIST_TWREC, RNS_AUTO_PIECE_COST, ECALC_CORR_PATCH=2, ECALC_OUT_PACKED, MN_OUT_EARLY, ECALC_ODIRECT=auto) on the target's
+BI_MUL1_FAST, NEWTON_RECIP_MID, DIST_TWREC, RNS_AUTO_PIECE_COST, ECALC_OUT_PACKED, MN_OUT_EARLY, ECALC_ODIRECT=auto) on the target's
 launch line (ECALC_NP=4 at size > 1: --np-mn; XSHMEM_ROUND_MB=1024): the part file packed (0.444 B/digit; --ascii for 1 B/digit) and, at size > 1,
 started at the division's hook (MN_OUT_EARLY: it overlaps the low product as the size-1 writer does).
 

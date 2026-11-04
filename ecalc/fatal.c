@@ -27,12 +27,11 @@ void ec_fatal_phase(const char *name) { if (name) snprintf(g_phase, sizeof g_pha
 
 static long tid_now(void) { return (long)syscall(SYS_gettid); }
 
+#define FATAL_WAIT_S 60                           /* seconds the first caller may take to report before the watchdog exits */
 static void leave(int code) __attribute__((noreturn));
 static void leave(int code)
 {
     fflush(stdout); fflush(stderr);
-    const char *a = getenv("ECALC_FATAL_ABORT");
-    if (a && atoi(a)) abort();
     _exit(code);
 }
 
@@ -40,9 +39,9 @@ void ec_quit(int code) { leave(code); }
 
 static void *watchdog(void *arg)
 {
-    const char *e = getenv("ECALC_FATAL_WAIT"); int s = e ? atoi(e) : 60; if (s < 1) s = 1;
+    const int s = FATAL_WAIT_S;
     sleep((unsigned)s);
-    fprintf(stderr, "ecalc: FATAL: the report did not finish in %d s (ECALC_FATAL_WAIT); exiting with rc %d\n", s, (int)(long)arg);
+    fprintf(stderr, "ecalc: FATAL: the report did not finish in %d s ); exiting with rc %d\n", s, (int)(long)arg);
     leave((int)(long)arg);
     return 0;
 }

@@ -160,13 +160,13 @@ static void boundaries_ex(mn_out *o, const mn_out_src *src, comm *c, const char 
 
 /* ---- the writer thread: one job at a time (a chunk of the part file), the formatter blocks only when both
  * buffers are in flight ----
- * the write mode (ECALC_OUT_MODE: direct / buffered / sync / drop / auto; unset = the rule below) and
+ * the write mode (out_mode) and
  * the number of pwrite threads per chunk (MN_OUT_THREADS, 8).  W2: the packed form (ECALC_OUT_PACKED, packed_fmt.h).
  * W5: the stripe layout (MN_OUT_STRIPE).  Functions: out_mode, out_stripe, out_open,
  * direct_job, writer_run, out_packed, packed_mods, packed_digits, packed_hdr_*, out_run_one, mn_out_run,
  * mn_out_finish. */
-enum { OUT_BUFFERED = 0, OUT_DIRECT, OUT_SYNC, OUT_DROP };
-static const char *out_mode_name[] = { "buffered", "O_DIRECT", "buffered + fsync + DONTNEED at close", "buffered + fdatasync + DONTNEED per chunk" };
+enum { OUT_BUFFERED = 0, OUT_DIRECT, OUT_SYNC };
+static const char *out_mode_name[] = { "buffered", "O_DIRECT", "buffered + fsync + DONTNEED at close" };
 struct wjob { const char *data; size_t len; size_t off; int prefix, newline, buf; char first; };   /* prefix: "<first>." before the data (digit 0 and the point) */
 struct writer {
     int fd; pthread_t th; sem_t job_ready, job_taken, buf_free[2]; struct wjob job; int stop; double t_write; size_t bytes; int err;
@@ -178,21 +178,10 @@ static void pwrite_all(int fd, const char *p, size_t n, size_t off, int *err)
 {
     while (n) { ssize_t w = pwrite(fd, p, n, (off_t)off); if (w < 0) { if (errno == EINTR) continue; *err = errno; return; } p += w; n -= (size_t)w; off += (size_t)w; }
 }
-/* the write mode of a part file.  ECALC_OUT_MODE=direct|buffered|sync|drop sets it; =auto takes the file
- * system's rule (spill.c sp_direct_by_fs: O_DIRECT on local disks and Lustre [assumed], else sync); unset: the same rule
- * (O_DIRECT when ECALC_ODIRECT is on [ECALC_ODIRECT=auto: by the file system] and ECALC_OUT_ODIRECT is not 0, else buffered;
- * with ECALC_ODIRECT=auto the buffered form is sync) */
+/* the write mode of a part file: O_DIRECT when ECALC_ODIRECT is on [=auto: by the file system] and ECALC_OUT_ODIRECT is not 0,
+ * else buffered (with ECALC_ODIRECT=auto the buffered form is sync) */
 static int out_mode(const char *name)
 {
-    const char *m = getenv("ECALC_OUT_MODE");
-    if (m && *m) {
-        if (!strcmp(m, "direct")) return OUT_DIRECT;
-        if (!strcmp(m, "buffered")) return OUT_BUFFERED;
-        if (!strcmp(m, "sync")) return OUT_SYNC;
-        if (!strcmp(m, "drop")) return OUT_DROP;
-        if (!strcmp(m, "auto")) return sp_direct_by_fs(name) ? OUT_DIRECT : OUT_SYNC;
-        fprintf(stderr, "mn_out: ECALC_OUT_MODE=%s: one of direct, buffered, sync, drop, auto (the default rule is used)\n", m);
-    }
     if (sp_direct_for(name) && (!getenv("ECALC_OUT_ODIRECT") || atoi(getenv("ECALC_OUT_ODIRECT")))) return OUT_DIRECT;
     return sp_odirect_auto() ? OUT_SYNC : OUT_BUFFERED;
 }
@@ -255,7 +244,7 @@ static void *writer_run(void *a)
         if (w->stop) break;
         struct wjob j = w->job; sem_post(&w->job_taken);
         if (w->direct) { double t0 = mem_now(); direct_job(w, &j); w->t_write += mem_now() - t0; sem_post(&w->buf_free[j.buf]); continue; }
-        double t0 = mem_now(); size_t off = j.off, off0 = off;
+        double t0 = mem_now(); size_t off = j.off;
         if (j.prefix) { char pf[2] = { j.first, '.' }; pwrite_all(w->fd, pf, 2, off, &w->err); off += 2; w->bytes += 2; }
         if (j.len) {
             const int NT = w->nt; size_t seg = (j.len + NT - 1) / NT; seg = (seg + 4095) & ~(size_t)4095;
@@ -264,10 +253,6 @@ static void *writer_run(void *a)
             off += j.len; w->bytes += j.len;
         }
         if (j.newline) { pwrite_all(w->fd, "\n", 1, off, &w->err); w->bytes++; off++; }
-        if (w->mode == OUT_DROP && !w->err) {            /* the chunk on the server, then out of the page cache (HBM on the APU) */
-            if (fdatasync(w->fd) != 0) w->err = errno;
-            posix_fadvise(w->fd, (off_t)off0, (off_t)(off - off0), POSIX_FADV_DONTNEED);
-        }
         w->t_write += mem_now() - t0;
         sem_post(&w->buf_free[j.buf]);
     }
@@ -342,7 +327,7 @@ static void out_open(struct writer *w, const mn_out *o)
     }
     if (w->fd < 0) w->fd = open(name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (w->fd < 0) { printf("mn_out: cannot open %s: %s\n", name, strerror(errno)); return; }
-    if ((o->verbose || getenv("ECALC_OUT_MODE") || getenv("MN_OUT_THREADS") || w->packed || sp_odirect_auto()) && (o->rank == 0 || o->verbose))
+    if ((o->verbose || getenv("MN_OUT_THREADS") || w->packed || sp_odirect_auto()) && (o->rank == 0 || o->verbose))
         printf("mn_out: %s: %s, %s form, %d write threads, file system %s\n", name, out_mode_name[w->mode], w->packed == 2 ? "60-bit packed" : w->packed ? "packed" : "ASCII", w->nt, sp_fs_name(sp_fs_kind(name)));
 }
 static int out_run_one(mn_out *o, const mn_out_src *src)
@@ -471,7 +456,7 @@ void mn_out_finish(mn_out *o)
         ecp_hdr *h = (ecp_hdr *)w->hdr; h->complete = 1; for (int i = 0; i < T1_NQ; i++) h->dres[i] = o->dres[i];
         pwrite_all(w->fd, w->hdr, ECP_HDR_BYTES, 0, &w->err);
     }
-    if (w->fd >= 0 && (w->direct || w->mode == OUT_SYNC || w->mode == OUT_DROP)) {   /* on the server; the buffered forms: out of the page cache */
+    if (w->fd >= 0 && (w->direct || w->mode == OUT_SYNC)) {   /* on the server; the buffered forms: out of the page cache */
         double t0 = mem_now();
         if (!w->err && fsync(w->fd) != 0) w->err = errno;
         if (!w->direct) posix_fadvise(w->fd, 0, 0, POSIX_FADV_DONTNEED);
@@ -542,7 +527,7 @@ mn_out_early *mn_out_early_start(const struct mdb_s *X, unsigned long d, unsigne
     size_t lo, hi; mdb_share(X, rank, &lo, &hi);
     e->src.dev = &e->sh; e->src.lo = lo; e->src.cnt = hi > lo ? hi - lo : 0; if (e->src.cnt > e->sh.n) e->src.cnt = e->sh.n;
     e->o.d = d; e->o.d_out = d_out; e->o.outfile = outfile; e->o.rank = rank; e->o.size = size; e->o.verbose = verbose;
-    e->o.t2_defer = t2_defer;                           /* K's deferred windows (ECALC_CORR_PATCH=2), set before the writer starts */
+    e->o.t2_defer = t2_defer;                           /* the deferred windows, set before the writer starts */
     mn_out_boundaries(&e->o, &e->src, c);             /* collective: every rank is at the hook */
     sp_dev_sync_all();                                 /* X complete on every APU before the writer's copies on its own streams */
     if (pthread_create(&e->th, 0, early_run, e) == 0) e->started = 1; else early_run(e);
@@ -586,7 +571,7 @@ static uint64_t sub_mod(uint64_t a, uint64_t b, uint64_t q) { return vf_add_mod(
  * whole 4 KiB blocks read, changed and written, the file cut back to its size if the last block went past it */
 static int patch_bytes(const char *name, size_t off, const char *old, const char *nw, size_t len, int verbose)
 {
-    int direct = out_mode(name) == OUT_DIRECT, fd = -1, bad = 0;   /* the writer's own rule (out_mode: ECALC_OUT_MODE, else ECALC_ODIRECT / ECALC_OUT_ODIRECT as before) */
+    int direct = out_mode(name) == OUT_DIRECT, fd = -1, bad = 0;   /* the writer's own rule (out_mode) */
     if (direct) fd = open(name, O_RDWR | O_DIRECT);
     if (fd < 0) { direct = 0; fd = open(name, O_RDWR); }
     if (fd < 0) { printf("mn_out: patch: cannot open %s: %s\n", name, strerror(errno)); return 1; }

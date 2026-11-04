@@ -201,7 +201,7 @@ static void db_add_small(dbig *x, long dx)           /* x +/- |dx| in place (H, 
     if (co) { ec_fatal(EC_RC_FATAL, "newton_db: X %s out of its top limb\n", dx < 0 ? "borrows" : "carries"); }
     if (dx < 0) db_norm(x);
 }
-int newton_x_defer = 0; long newton_x_dx = 0;          /* Phase 15 K (ECALC_CORR_PATCH): newton.h */
+int newton_x_defer = 0; long newton_x_dx = 0;          /* newton.h */
 int (*newton_db_xhi_hook)(dbig *Xh, size_t s, void *arg) = 0; int (*newton_db_xlo_hook)(dbig *Xl, size_t s, int carry, void *arg) = 0;   /* Phase 15 EW (MN_OUT_DKM_HI): newton.h */
 long newton_test_corr(void)                          /* Phase 15 K: ECALC_TEST_CORR=<k>, the forced-correction test hook (0: off) */
 {
@@ -1173,7 +1173,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     double te = mem_now();
     if (!Pw) dx = mn_dkm_corr(&Rd, &Aw, &xql, &Qw, G, "step 2");
     if (dx < 0) NST(newton_st.down_corr += (size_t)(-dx)); else NST(newton_st.up_corr += (size_t)dx);
-    if (dx && newton_x_defer) NST(newton_x_dx = dx);                       /* Phase 15 K (ECALC_CORR_PATCH=2) */
+    if (dx && newton_x_defer) NST(newton_x_dx = dx);
     else if (dx) mdb_add_val(&Xn, 0, (uint64_t)(dx < 0 ? -dx : dx), dx < 0, G);
     mfree(&Qw); mfree(&Qpp);
     double tf = mem_now();
