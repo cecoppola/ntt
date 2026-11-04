@@ -474,9 +474,10 @@ size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *b
     return all;
 }
 /* X2 (results/TRANSPORT.md item 2): the v-slots come from the comm pool (comm_sym_alloc), so the pool rule counts them and the hipMalloc'd budget does not */
-/* S31: each v-slot is allocated once at the model's per-slot maximum of its group size g (env COMM_LAYER_VSLOT_MB_<g>, MiB; comm_layered.c need_vslot),
+/* S31: each v-slot is allocated once at the model's per-slot maximum of its group size g (comm_layered_vslot_min; comm_layered.c need_vslot),
  * not regrown with every larger product -- a slot regrown in the comm pool (free, then allocate) strands holes between the short-lived staging blocks (S28: 10 nodes,
- * COMM_OFI_POOL_MB 4096 "too small" with 1432 MiB free but no 1023 MiB hole).  A hand-set COMM_LAYER_VSLOT_MB or COMM_LAYER_VSLOT_MB_<g> wins.  Called by the pool rule on every rank. */
+ * COMM_OFI_POOL_MB 4096 "too small" with 1432 MiB free but no 1023 MiB hole).   Called by the pool rule on every rank. */
+void comm_layered_vslot_min(int g, size_t bytes);
 static void vslot_prealloc_env(unsigned long N, int size)
 {
     if (size < 2) return;
@@ -492,8 +493,8 @@ static void vslot_prealloc_env(unsigned long N, int size)
     }
     { size_t a = rns_mul_dist_mn_vslot(nq, nq, size), b = rns_mul_dist_mn_vslot(nq, nq / 2 + 1, size); if (a || b) VS_NOTE(size, a > b ? a : b); }
     { size_t m = 0; for (int k = 0; k < n; k++) if (mx[k] > m) m = mx[k]; for (int k = 0; k < n; k++) mx[k] = m; }   /* S36: the pair is shared, allocated once at the overall maximum (every group size the same) */
-    for (int k = 0; k < n; k++) { char nm[48], v[32]; snprintf(nm, sizeof nm, "COMM_LAYER_VSLOT_MB_%d", gg[k]); snprintf(v, sizeof v, "%zu", (mx[k] >> 20) + 1); if (!getenv(nm)) bs_setenv(nm, v, 1);
-        { const char *er = getenv("COMM_RANK"), *ve = getenv("ECALC_VERBOSE"); if (getenv("MN_PLAN_ONLY") || ((!er || atoi(er) == 0) && ve && atoi(ve) >= 2)) printf("plan vslot-prealloc  %s=%s MiB per slot (S31: each v-slot of a %d-node group allocated once)\n", nm, getenv(nm), gg[k]); } }
+    for (int k = 0; k < n; k++) { size_t mib = (mx[k] >> 20) + 1; comm_layered_vslot_min(gg[k], mib << 20);
+        { const char *er = getenv("COMM_RANK"), *ve = getenv("ECALC_VERBOSE"); if (getenv("MN_PLAN_ONLY") || ((!er || atoi(er) == 0) && ve && atoi(ve) >= 2)) printf("plan vslot-prealloc  COMM_LAYER_VSLOT_MB_%d=%zu MiB per slot (S31: each v-slot of a %d-node group allocated once)\n", gg[k], mib, gg[k]); } }
 #undef VS_NOTE
 }
 int binsplit_vslot_budget_on(void) { return 1; }   /* always 1; kept for the `vslot:` line's budget field */

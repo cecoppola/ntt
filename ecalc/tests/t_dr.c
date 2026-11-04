@@ -149,9 +149,23 @@ static void t_inject(void)
     VERIFY(dr_test_kind() == DR_CYC && dr_inject(DR_CYC, 1, 0, 0, 0), "cyc");
     T(NULL); setenv("ECALC_DR", "0", 1); dr_init_from_env();
 }
+static void t_validate(void)                         /* ECALC_TEST: the whitelist, the grammar, the list values */
+{
+    char m[220]; long v[8];
+    const char *ok[] = { "", "dr=flag,dr_k=3,dr_pe=-1", "dr=leaf+leafslow", "p24=2,p24_k=3", "lbench=26+28+30", "strat_budget_gb=1.5", "mapd_die=x" };
+    for (unsigned i = 0; i < sizeof ok / sizeof *ok; i++) VERIFY(!ec_test_problem(ok[i], m, sizeof m), "accepted: %s (%s)", ok[i], m);
+    VERIFY(!ec_test_problem(NULL, m, sizeof m), "unset");
+    const char *bad[] = { "bogus=1", "dr=flag,dr=flag", "dr_k=x", "dr_k=1 ", "dr_k", "dr_k=", "=1", "dr=flag+deliver", "dr=nope", "lbench=26,28", "lbench=26+x", "dr_k=1,,dr_n=1", "p24=1,p24=2" };
+    for (unsigned i = 0; i < sizeof bad / sizeof *bad; i++) { m[0] = 0; VERIFY(ec_test_problem(bad[i], m, sizeof m) && m[0], "rejected: %s", bad[i]); }
+    ec_test_problem("bogus=1", m, sizeof m); VERIFY(strstr(m, "bogus"), "the message names the key: %s", m);
+    ec_test_problem("dr_k=x", m, sizeof m); VERIFY(strstr(m, "dr_k"), "the message names the key: %s", m);
+    T("lbench=26+28+30"); VERIFY(ec_test_list("lbench", v, 8) == 3 && v[0] == 26 && v[1] == 28 && v[2] == 30, "list parse");
+    T("lbench=26"); VERIFY(ec_test_list("lbench", v, 8) == 1 && v[0] == 26, "list of one");
+    T(NULL); VERIFY(ec_test_list("lbench", v, 8) == 0, "list unset"); T(NULL);
+}
 int main(void)
 {
     rng_t r = { 20261101 };
-    t_prime(); t_arith(&r); t_limbs(&r); t_m(&r); t_cyc(&r); t_inject();
+    t_prime(); t_arith(&r); t_limbs(&r); t_m(&r); t_cyc(&r); t_inject(); t_validate();
     return verify_done("t_dr");
 }

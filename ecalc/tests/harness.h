@@ -224,6 +224,7 @@ static void bi_random(bigint *a, size_t n, int kind, rng_t *r)
 static const char *hv_bench = "?";
 static void harness_meta(const char *bench)
 {
+    ec_test_validate();
     char host[128] = "?"; char date[64];
     time_t t = time(0);
     hv_bench = bench;

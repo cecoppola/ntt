@@ -568,10 +568,9 @@ int main(int argc, char **argv)
     }
     if (ec_test_long("big", 0)) {                       /* ECALC_TEST=big=34[,big_primes=0+2,big_k=64] -- above 2^33, four APUs */
         int lg = (int)ec_test_long("big", 0), K = (int)ec_test_long("big_k", 64);
-        char pb_[48]; char *dup = strdup(ec_test_str("big_primes", pb_, sizeof pb_) ? pb_ : "0+2");
-        char *sv = 0;                                   /* strtok_r: the transforms below call strtok (the first run had only the first prime) */
-        for (char *t = strtok_r(dup, "+", &sv); t; t = strtok_r(NULL, ",", &sv)) VERIFY(big_xgmi(atoi(t), lg, K), "big 2^%d prime %s: identity and the sparse square", lg, t);
-        free(dup); return verify_done("t_dist");
+        long pr[8] = { 0, 2 }; int np = ec_test_list("big_primes", pr, 8); if (np > 8) np = 8; if (!np) np = 2;
+        for (int i = 0; i < np; i++) VERIFY(big_xgmi((int)pr[i], lg, K), "big 2^%d prime %ld: identity and the sparse square", lg, pr[i]);
+        return verify_done("t_dist");
     }
     xgmi = ec_test_long("xgmi", 0) != 0;
     tinv = ec_test_long("tinv", 0) != 0;
@@ -579,12 +578,11 @@ int main(int argc, char **argv)
     if (xgmi) printf("t_dist: four real APUs over xGMI\n");
     if (ec_test_long("layered", 0)) {   /* M3: the layered communicator, one node-process per COMM_RANK driving four APUs (mnrun.sh) */
         int sz = mn_init(); printf("t_dist: layered communicator, node %d of %d\n", mn_rank(), sz);
-        char lb_[64];
-        if (ec_test_str("lbench", lb_, sizeof lb_)) {   /* E9 part 1: the timed layered transforms only (lbench=<logn>+<logn>.., lreps) */
+        long lb_[16]; int nlb = ec_test_list("lbench", lb_, 16); if (nlb > 16) nlb = 16;
+        if (nlb) {   /* E9 part 1: the timed layered transforms only (lbench=<logn>+<logn>.., lreps) */
             int reps = (int)ec_test_long("lreps", 3);
-            char *dup = strdup(lb_);
-            for (char *t = strtok(dup, "+"); t; t = strtok(NULL, ",")) { layered_bench(atoi(t), reps); mn_barrier(); }
-            free(dup); mn_barrier(); mn_finalize(); return 0;
+            for (int i = 0; i < nlb; i++) { layered_bench((int)lb_[i], reps); mn_barrier(); }
+            mn_barrier(); mn_finalize(); return 0;
         }
         for (int logR = 10; logR <= 12; logR++) for (int logC = 10; logC <= 12; logC++) if (logR + logC <= logmax) VERIFY(mn_selftest_layered(logR, logC, 0), "layered conv %dx%d", logR, logC);
         if (logmax >= 26) VERIFY(mn_selftest_layered(13, 13, 0), "layered conv 2^26");

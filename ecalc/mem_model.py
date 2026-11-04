@@ -12,7 +12,7 @@ archive:results_merged_2026-10-24/MEMORY.md §M, archive:results_merged_2026-10-
     python3 mem_model.py --check-c FILE [POOL_LOG [MN_T_CHUNK_MB [BS_SEED_FILL [BS_ARENA_ROOM [ECALC_NP [RNS_POOL1_4Q]]]]]]   the C layout (BS_LAYOUT_ONLY) against this port (MN_T_CHUNK_MB 1024, BS_SEED_FILL 128, BS_ARENA_ROOM 0.16 (the default since 2026-09-28),
                                           ECALC_NP 3 / 4 / auto as the run's (auto read from the file's plan lines) (the `planes:` lines: the plane pools at every cap, Phase 15 PS), RNS_POOL1_4Q 1)
 
-mem_per_node's defaults (DEFAULTS) are the code's: DM_TIGHT, MN_TREE_EARLY_FREE, MN_T_CHUNK_MB and MDB_SHIFT_CHUNK_MB 1024, the SHMEM pool from the plan,
+mem_per_node's defaults (DEFAULTS) are the code's: dm_tight, MN_TREE_EARLY_FREE, MN_T_CHUNK_MB and mdb_shift_chunk_mb 1024, the SHMEM pool from the plan,
 DB_POOL_VMM's host and bs terms, ECALC_PLANE_CAP 2^31 (the C default is now `run`: 2^30 up to about 9.6e9 digits per node; the model does not pick it, pass cap explicitly -- every explicit cap is unaffected), BS_SEED_FILL=128, MN_OUT_EARLY, BS_ARENA_ROOM, NEWTON_DKM.  TARGET_LAUNCH is the target's launch line
 (round_mb 0 = rounds off; the code's own default is XSHMEM_ROUND_MB=128, TARGET_LAUNCH); the pre-Phase-14 forms (OLD13), the Phase 14 / 15 defaults B0 / B1 and the historical tables are in the archive
 (archive:scripts_2026-10-25/mem_model_legacy.py).  --check-c is exact against BS_LAYOUT_ONLY at 4e10, 1e11 and the target's share.
@@ -196,7 +196,7 @@ def wrap_bytes(nq, k, g, pool_log=31, wrap=None):
 
 def dm_layout(N, g, pool_log=31, decimal=True, tight=False, anchor=True, room=0.0, dkm=False, mdev_logl=30, lean=False, wrap=None):
     """binsplit.c dm_layout: n_Q, k_mu, t1, the hole (t1's quarter), the dm need per device (bytes).
-    Phase 14 L1 (APUMULT_STUDY E2): tight = DM_TIGHT (the reciprocal's r2 at 2 jl + 4 and t1 at Q_t r's size at the last doubling
+    Phase 14 L1 (APUMULT_STUDY E2): tight = dm_tight (the reciprocal's r2 at 2 jl + 4 and t1 at Q_t r's size at the last doubling
     jl = ceil(k/2), the top level's pairs freed as consumed);
     the division's own set (S, Q, mu + t or X + xq, a piece) is a term of v2 in every variant (it never
     binds in the default one).  Returns v2 / v3 / div per device beside the need.
@@ -496,9 +496,9 @@ def vslot_shape(logR, logC, g, depth=2, chunks=4):
     return 2 * need if depth >= 2 else need
 
 def vslot_env():
-    """the switches the C function reads: COMM_ALLTOALLV_DEPTH (2), DIST_CHUNKS (8), DIST_GEN (0)"""
+    """the switches the C function reads: COMM_ALLTOALLV_DEPTH (2), DIST_CHUNKS (8)"""
     e = os.environ
-    return int(e.get('COMM_ALLTOALLV_DEPTH', '2') or 2), int(e.get('DIST_CHUNKS', '8') or 8), e.get('DIST_GEN', '0') not in ('', '0')
+    return int(e.get('COMM_ALLTOALLV_DEPTH', '2') or 2), int(e.get('DIST_CHUNKS', '8') or 8), False
 
 def mn_vslot(na, nb, g, pool_log=31, p24=None, depth=None, chunks=None, gen_forced=None):
     """rns_dist.c rns_mul_dist_mn_vslot: one product's v-slots per APU thread (bytes); 0 for a power-of-two g (ntt_dist's transform)"""
@@ -549,7 +549,7 @@ NP3_MAX_TERMS = 58424467928              # crt.c ec_np3_max_terms: floor((p0 p1 
 def np_planes(np, g=1, pool_log=31, auto_terms=NP3_MAX_TERMS):
     """Phase 15 NP (crt.c ec_np_planes, rns_mul.c rns_pool0_np): the planes plane pool 0 is made for under ECALC_NP=np -- np itself, or for
     'auto' (the prime count per product): D18 (the default since 2026-10-12) 4 at every g > 1 (every multi-node product in P24); at size 1
-    4 when 2^(min(31, pool_log)) points exceed the switch-over (ECALC_NP_AUTO_TERMS, default the three-prime bound), else 3.
+    4 when 2^(min(31, pool_log)) points exceed the switch-over (np_auto_terms, default the three-prime bound), else 3.
     The three-prime multi-node rule (ECALC_NP_MN3) was removed 2026-10-19 (D56)"""
     if np != 'auto': return np
     if g > 1: return 4
@@ -647,8 +647,8 @@ def host_size1(D):
     the calibration lists 1e10 as the exception; no ceiling is decided there)"""
     return int((12.1 + 0.031 * max(0.0, D / 1e9 - 40.0)) * GB)
 
-# ---------------------------------------------------------------- the defaults of the code (ecalc/README.md): DB_POOL_VMM=1 (the arena a VMM range), DM_TIGHT
-# following it, MN_TREE_EARLY_FREE=1, MN_T_CHUNK_MB=1024, MDB_SHIFT_CHUNK_MB=1024, the pool rule (the pool raised to the need) with the pool taken from MN_PLAN_ONLY's
+# ---------------------------------------------------------------- the defaults of the code (ecalc/README.md): DB_POOL_VMM=1 (the arena a VMM range), dm_tight
+# following it, MN_TREE_EARLY_FREE=1, MN_T_CHUNK_MB=1024, mdb_shift_chunk_mb=1024, the pool rule (the pool raised to the need) with the pool taken from MN_PLAN_ONLY's
 # `plan pool` line (mnrun.sh: the pool = the need rounded up to 256 MiB, the device heap exactly the pool), BS_SEED_FILL=128, MN_OUT_EARLY=1,
 # BS_ARENA_ROOM=ARENA_ROOM (binsplit.c bs_arena_room: the arenas in whole VMM chunks + that fraction of the hole in the dm need), NEWTON_DKM=1 with
 # dm_layout following it (MN_P24=2 is the tree's scratch: opts p24; mn_model passes it) and the lean mn division.  exchange rounds (round_mb; the code's XSHMEM_ROUND_MB) are off in the
@@ -724,7 +724,7 @@ def pool_mb_of(need, pool, pool_mb=8192):
 def exchange_scratch(nq_total, g, alltoallv, shift_chunk_mb=0):
     """the sharded division's exchange scratch per APU (rns_dist.c mdb_shift / mdb_add_shifted; archive:PLAN §23-4):
     before B7 the padded g x share / 4 limbs per APU (mdb_shift) + g x 512 MB (mdb_add_shifted); after: the counts' own sizes.
-    Phase 13a M (TASKS 1.2): MDB_SHIFT_CHUNK_MB=m -- mdb_shift in K rounds (newton_db.c), sb and rb about m MB each per APU"""
+    Phase 13a M (TASKS 1.2): mdb_shift_chunk_mb=m -- mdb_shift in K rounds (newton_db.c), sb and rb about m MB each per APU"""
     if g == 1: return 0
     share = (nq_total + g - 1) // g
     if alltoallv:
@@ -826,7 +826,7 @@ def round256_mb(b): mb = -(-b // (1 << 20)); return -(-mb // 256) * 256
 def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_mb=1024, sym_slabs=False, ring=SHMEM_RING, detail=None, round_mb=0, ofi=False, vslot=0):
     """Phase 14 P2: the symmetric pool a run of g node-processes needs, bytes per node-process (the measured law; P214 section 2):
       staging  = NR x 8 x the largest mn_stage over the run's products (and the division's mdb_shift of t (2 nq) to X (nq): a quarter of
-                 my share of each, each at most MDB_SHIFT_CHUNK_MB)
+                 my share of each, each at most mdb_shift_chunk_mb)
       control  = 4 communicators per level of size S (the level's G->all[d]; the top level's are mn.c's meshes of g), each
                  8 words x S + S x the ring: 4 x (g + sum of the lower levels' S) x (ring + 64 B)  (measured 2 MiB at 2, 6 at 4)
       mailbox  = MAXID x g x 8 B;  + the self-tests' 128 MiB at init (not concurrent with the staging) and a margin.
@@ -924,7 +924,7 @@ def _mem_per_node(D, g=1, opts=None):
           and the staging the transport needs (shmem_staging: staging = 'cached' (the code) | 'per_exchange' | 'resident'),
           in the node's HBM whether host-registered or a device heap).  Returns a dict with the parts and the peaks."""
     o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='grid', groups=None, transport='tcp', pool_mb=8192, staging='code', planes_3q30=None,
-             np=EC_NP, strategy='C', cap=None, depth=2, host_fit=True, arena_room=0.0, dkm=False, ofi=None); o.update(DEFAULTS); o.update(opts or {})   # early_free: Phase 14 T1 (MN_TREE_EARLY_FREE); form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before; tight: Phase 14 L1 (DM_TIGHT)
+             np=EC_NP, strategy='C', cap=None, depth=2, host_fit=True, arena_room=0.0, dkm=False, ofi=None); o.update(DEFAULTS); o.update(opts or {})   # early_free: Phase 14 T1 (MN_TREE_EARLY_FREE); form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before; tight: Phase 14 L1 (dm_tight)
     # Phase 15 (agent MD): the defaults are the code's since Phase 14 (DEFAULTS: tight, early_free, t_chunk_mb 1024, shift_chunk_mb 1024,
     # pool 'plan', vmm); the forms before Phase 14 are in the archive.  vmm (DB_POOL_VMM): the host's seed buffers 2 x 8 GiB, the size-1 host fitted anew
     # (host_size1_vmm), the bs phase's measured growth (VMM_BS_GROW) on the device peak.  pool: POOLS.
@@ -1089,7 +1089,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         pool_b = 0; ofi_b = 0
         if g > 1 and env.get('COMM_TRANSPORT') == 'xshmem':                       # (binsplit.c xsh_on) the device pools beside the SHMEM pool; rounds from XSHMEM_ROUND_MB
             pd_ = {}; ofi = 1                                       # Phase 17 OFIMEM: the device pools beside the SHMEM pool
-            nd = shmem_pool(dm_layout(N, g, pool_log, True, tight)['nq'], g, None, pool_log, t_chunk_mb, int(env.get('MDB_SHIFT_CHUNK_MB', '1024')), False, round_mb=int(float(env.get('XSHMEM_ROUND_MB', '0') or 0)), detail=pd_, ofi=ofi,
+            nd = shmem_pool(dm_layout(N, g, pool_log, True, tight)['nq'], g, None, pool_log, t_chunk_mb, 1024, False, round_mb=int(float(env.get('XSHMEM_ROUND_MB', '0') or 0)), detail=pd_, ofi=ofi,
                             vslot=(vslot_resident(dm_layout(N, g, pool_log, True, tight)['nq'], g, os.environ.get('MN_GROUPS') or None, pool_log, ((int(os.environ.get('MN_P24', '2') or 0), np_mode if np_mode is not None else EC_NP, g) if int(os.environ.get('MN_P24', '2') or 0) else None))['per_apu']))
             mb = -(-nd // (1 << 20)); mb = -(-mb // 256) * 256; have = int(env.get('COMM_SHMEM_POOL_MB', str(mb) if ofi else '8192'))
             pool_b = (mb if mb > have else have) << 20   # (the pool rule always raises the pool)

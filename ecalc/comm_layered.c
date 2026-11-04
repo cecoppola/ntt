@@ -268,6 +268,12 @@ static void complete_v(comm *c)
  * Only where the buffers live and when they are reused: the exchanges, their order and the data are the same.  The pair is freed with the last communicator. */
 static struct vshare { char *vx[2]; size_t cap[2]; comm *owner; int refs; } g_vsh[16];
 static void need_vslot(comm *c, int k, size_t bytes);
+static struct { int g; size_t bytes; } g_vslot_min[40]; static int g_vslot_min_n;   /* the planned per-slot size of each group size (binsplit.c vslot_prealloc_env) */
+void comm_layered_vslot_min(int g, size_t bytes)
+{
+    for (int i = 0; i < g_vslot_min_n; i++) if (g_vslot_min[i].g == g) { g_vslot_min[i].bytes = bytes; return; }
+    if (g_vslot_min_n < 40) { g_vslot_min[g_vslot_min_n].g = g; g_vslot_min[g_vslot_min_n++].bytes = bytes; }
+}
 static void complete_v(comm *c);
 static void vslot_attach(lay_priv *p) { if (p->dev < 0 || p->dev >= 16) ec_fatal(EC_RC_FATAL, "comm_layered: device %d outside 0..15\n", p->dev); g_vsh[p->dev].refs++; }
 static void need_vslot(comm *c, int k, size_t bytes)
@@ -277,7 +283,8 @@ static void need_vslot(comm *c, int k, size_t bytes)
     S->owner = c;
     if (S->cap[k] < bytes) {
         HIP_CHECK(hipSetDevice(p->dev));
-        size_t want = bytes > 1 ? bytes : 1;
+        size_t minb = 1; for (int i = 0; i < g_vslot_min_n; i++) if (g_vslot_min[i].g == comm_size(p->inter)) minb = g_vslot_min[i].bytes;   /* (the pool rule sets every group size to the overall maximum) */
+        size_t want = bytes > minb ? bytes : minb;
         if (S->vx[k]) { comm_sym_free(p->inter, S->vx[k]); S->vx[k] = 0; S->cap[k] = 0; }
         S->vx[k] = (char *)comm_sym_alloc(p->inter, want);
         if (!S->vx[k]) ec_fatal(EC_RC_FATAL, "comm_layered: the inter transport has no symmetric pool (%zu B v-slot)\n", want);

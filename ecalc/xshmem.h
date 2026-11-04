@@ -39,7 +39,7 @@
  *   (aac7 1 per PE, target 2 expected).  XSHMEM_CTX_DEFAULT is the ctx0 used for control words.
  * Heap: xshmem_heap_alloc(bytes, XSHMEM_SPACE_DATA) is the payload heap (the engine's sub-allocator works inside it);
  *   xshmem_heap_alloc(bytes, XSHMEM_SPACE_CTRL) is the control area (8 B words: ROFF, SIG, VAL, VSEQ; polled by the host).  A backend may
- *   place both in one allocation (XSHMEM_CTRL=heap, default) or CTRL in host memory (XSHMEM_CTRL=host, design 1.3 b).  Size is bytes,
+ *   place both in one allocation.  Size is bytes,
  *   2 MiB aligned by the backend.  Memory is zeroed.  Payload/signal pointers passed to put and signal calls must lie inside a heap,
  *   except a put source when caps.src_any = 1.
  * Offsets: xshmem_off(p) = byte offset of p inside the heap of its space; offsets of CTRL pointers carry XSHMEM_OFF_CTRL (bit 62), so
@@ -126,7 +126,6 @@ typedef struct xshmem_topo {
 typedef struct xshmem_cfg {
     int lanes;        /* XSHMEM_LANES     lanes per PE, default 1 (same literal as pe_geo.c) */
     long heap_mb;     /* XSHMEM_HEAP_MB   0 = backend / planner default */
-    int ctrl_host;    /* XSHMEM_CTRL      heap|host               (default heap) */
     int loopback_pes; /* XSHMEM_LOOPBACK_PES  PEs hosted by one process (ofi backend; default 1 = one PE per process) */
     int peer;         /* XSHMEM_PEER      0|1  node-local PEs exchange payload by device copies through hipIpc-mapped heaps, not the NIC (ofi backend + engine; unset = -1 = on with one PE per process (Q100), off with loopback PEs; inert on the Cray backend) */
 } xshmem_cfg_t;
@@ -137,7 +136,6 @@ static inline void xshmem_cfg_load(xshmem_cfg_t *c)
     memset(c, 0, sizeof *c);
     e = getenv("XSHMEM_LANES");    c->lanes = e ? atoi(e) : 1;
     e = getenv("XSHMEM_HEAP_MB");  c->heap_mb = e ? atol(e) : 0;
-    c->ctrl_host = 0;
     e = getenv("XSHMEM_LOOPBACK_PES"); c->loopback_pes = e ? atoi(e) : 1;
     e = getenv("XSHMEM_PEER");     c->peer = e ? atoi(e) : -1;
 }

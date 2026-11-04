@@ -94,7 +94,7 @@ static void x_bg_hook(bigint *X, void *a) { struct x_bg *b = (struct x_bg *)a; b
 /* ---- the writer on X_hi after DKM's step 1.  The division forms no X0: X_hi (final after step 1:
  * X's limbs >= s) comes to the X_hi hook, which starts the size-1 writer on it -- one file in two ranges (mn_out's split): the limbs >= s from
  * X_hi, then, at the gate, the limbs < s from X_lo (the division's device X, newton_db_x_dev).  The X_lo hook opens the gate before step 2's low
- * product unless X_lo0 >= B^s (or ECALC_TEST dkm_carry=1=1): then the division adds the corrections to X_lo in place and main opens it after
+ * product unless X_lo0 >= B^s (or ECALC_TEST dkm_carry=1): then the division adds the corrections to X_lo in place and main opens it after
  * the division.  At size > 1 the same with two part files per rank (mn_out_early_hi_start / mn_out_early_lo_release) ---- */
 static int dkm_hi_test_carry(void) { return ec_test_long("dkm_carry", 0) != 0; }
 struct x_hi { int on, released; size_t s; dbig Xh; mn_out_src src_lo, src_hi; sem_t go; uint64_t res_hi[T1_NQ]; double t_gate, t_hi; };
@@ -549,6 +549,7 @@ int main(int argc, char **argv)
     if (mapd_is_helper(argc, argv)) return mapd_helper_main(argc, argv);   /* ECALC_MAPD=1: this executable as an APU's chunk-creating helper (mapd.c) */
     const double tl_age = ec_proc_age_s();                   /* ECALC_INIT_TL=1: the process's age at main (read before anything else runs) */
     if (argc > 1 && !strcmp(argv[1], "--settings")) { cfg_settings(); return 0; }
+    ec_test_validate();                               /* a malformed ECALC_TEST: rc 2 naming the key */
     if (cfg_guard()) return 2;                        /* an unregistered ECALC_/XSHMEM_/... name: a typo would silently do nothing */
     cfg_snapshot();                                   /* the registered switches set in the environment, before ecalc sets any itself */
     /* MN_PLAN_ONLY=<total digits>:<g> -- the plan of a run of that size on g node-processes (mn_plan.c): every

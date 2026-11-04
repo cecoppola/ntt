@@ -3,7 +3,7 @@
  * What this is: the aac7 stand-in for Cray SHMEM 12.1.  One PE per process (boot: xshmem_boot.h PMI2, topology: pe_geo.h), one libfabric
  * domain per NIC in use, per domain one AV; per PE 1 default endpoint + N lane endpoints (+2 spares for xshmem_ctx_create), every endpoint with its
  * own CQ (selective completion, only errors surface) and write counter.  Two heaps (DATA, CTRL), each one collective allocation (device, fine-grained,
- * or CTRL in pinned host memory with XSHMEM_CTRL=host), each registered once per domain (FI_HMEM_ROCR / SYSTEM).
+ *), each registered once per domain (FI_HMEM_ROCR / SYSTEM).
  * Copied from the removed comm_ofi.c (archive:code_2026-10-25/): the NIC choice (pe_geo does it), getinfo hints, fi_mr_regattr of fine-grained memory, the lock discipline.
  * Facts copied from libsma 11.8 (RB 8): mr_mode ALLOCATED|ENDPOINT(+HMEM) with client keys and offset addressing (the
  * default; the mode actually in force is the one the provider returns, logged once: VIRT_ADDR / PROV_KEY in it switch to base+key addressing, the
@@ -86,7 +86,7 @@ typedef struct pe_s {
     size_t inject, maxmsg;
     pthread_mutex_t lock;
     dom_t dom[MAXD]; lane_t lane[MAXEP];
-    char *hbase[2]; size_t hlen[2]; int hhost[2];
+    char *hbase[2]; size_t hlen[2];
     hblob_t *peer[2];                          /* [space][pe] */
     char **pmap;                               /* XSHMEM_PEER: [pe] the node-local peer's DATA heap mapped here by hipIpc (NULL: not mapped, use the NIC) */
     xshmem_ofi_cnt_t cnt;
@@ -406,7 +406,7 @@ int xshmem_init_thread(int req, int *prov)
         fprintf(stderr, "xshmem_ofi: %d PEs (%d nodes), sig dc, mrmode requested libsma, in force mr_mode %#x (%s%s), inject %zu B, max_msg %zu, lanes %d + default + %d spare, NICs/PE %d (cxi%d..), "
                 "ctrl %s, quiet deadline %.0f s, caps dev_heap 1 host_pollable 1 src_any 0 ptr 0\n",
                 g->npes, g->nnodes, (unsigned)i0->domain_attr->mr_mode, g->vaddr ? "VIRT_ADDR " : "offset ", g->pkey ? "PROV_KEY" : "client keys",
-                g->inject, g->maxmsg, nl, SPARE, g->nics, g->dom[0].cxi, g->cfg.ctrl_host ? "host" : "heap", g->quiet_s);
+                g->inject, g->maxmsg, nl, SPARE, g->nics, g->dom[0].cxi, "heap", g->quiet_s);
         if (K > 1) fprintf(stderr, "xshmem_ofi: loopback: %d PEs per process (XSHMEM_LOOPBACK_PES), %d processes\n", K, P);
     }
     return 0;
@@ -445,15 +445,10 @@ void *xshmem_heap_alloc(size_t bytes, int space)
     if (W.nalloc[space] != l) xfatal("heap_alloc: loopback PEs allocate in order 0..%d from one thread: got PE %d, expected %d", K - 1, l, W.nalloc[space]);
     if (space == XSHMEM_SPACE_DATA && g->cfg.heap_mb > 0) bytes = (size_t)g->cfg.heap_mb << 20;
     bytes = (bytes + HALIGN - 1) & ~(HALIGN - 1); if (!bytes) bytes = HALIGN;
-    size_t user = bytes; int host = space == XSHMEM_SPACE_CTRL && g->cfg.ctrl_host; void *p = 0;
+    size_t user = bytes; void *p = 0;
     if (K > 1) (void)hipGetDevice(&dev_prev);
     { int d = g->topo.gpu < 0 ? 0 : g->topo.gpu; if (hipSetDevice(d) != hipSuccess) xfatal("hipSetDevice(%d)", d); }
-    if (host) {
-        p = mmap(0, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        if (p == MAP_FAILED) xfatal("mmap of the %zu MiB host CTRL heap failed", bytes >> 20);
-        memset(p, 0, bytes);
-        if (hipHostRegister(p, bytes, hipHostRegisterPortable) != hipSuccess) xfatal("hipHostRegister of the CTRL heap");
-    } else {
+    {
         hipError_t he = hipExtMallocWithFlags(&p, bytes, hipDeviceMallocFinegrained);
         if (he != hipSuccess) xfatal("the %s heap (%zu MiB, XSHMEM_HEAP_MB): %s", space ? "CTRL" : "DATA", bytes >> 20, hipGetErrorString(he));
         he = hipMemset(p, 0, bytes); if (he == hipSuccess) he = hipDeviceSynchronize();
@@ -461,7 +456,7 @@ void *xshmem_heap_alloc(size_t bytes, int space)
     }
     if ((uintptr_t)p & (HALIGN - 1)) fprintf(stderr, "xshmem_ofi: pe %d: heap %d base %p is not 2 MiB aligned\n", g->mype, space, p);
     hblob_t mine; memset(&mine, 0, sizeof mine); mine.base = (uint64_t)(uintptr_t)p; mine.len = user;
-    if (space == XSHMEM_SPACE_DATA && K == 1 && g->cfg.peer && !host) {
+    if (space == XSHMEM_SPACE_DATA && K == 1 && g->cfg.peer) {
         hipError_t ie = hipIpcGetMemHandle(&mine.ipc, p);
         if (ie == hipSuccess) mine.has_ipc = 1; else { (void)hipGetLastError(); fprintf(stderr, "xshmem_ofi: pe %d: hipIpcGetMemHandle of the DATA heap: %s: XSHMEM_PEER off for this PE\n", g->mype, hipGetErrorString(ie)); }
     }
@@ -469,7 +464,7 @@ void *xshmem_heap_alloc(size_t bytes, int space)
         lane_t *L = &g->lane[e]; dom_t *D = &g->dom[L->slot];
         struct iovec iov = { p, bytes }; struct fi_mr_attr ma; memset(&ma, 0, sizeof ma);
         ma.mr_iov = &iov; ma.iov_count = 1; ma.access = FI_READ | FI_WRITE | FI_REMOTE_READ | FI_REMOTE_WRITE;
-        ma.iface = host ? FI_HMEM_SYSTEM : FI_HMEM_ROCR; ma.device.reserved = host ? 0 : (g->topo.gpu < 0 ? 0 : g->topo.gpu);
+        ma.iface = FI_HMEM_ROCR; ma.device.reserved = g->topo.gpu < 0 ? 0 : g->topo.gpu;
         int rc = 0;
         for (int attempt = 0; attempt < (K > 1 ? 3 : 2); attempt++) {   /* same client key on every endpoint first (as libsma), else distinct keys (loopback: also per PE) */
             ma.requested_key = (uint64_t)(2 + space + (attempt ? 4 * e : 0) + (attempt > 1 ? 64 * l : 0));
@@ -484,7 +479,7 @@ void *xshmem_heap_alloc(size_t bytes, int space)
         L->desc[space] = fi_mr_desc(L->mr[space]); L->key[space] = fi_mr_key(L->mr[space]);
         mine.key[e] = L->key[space];
     }
-    g->hbase[space] = (char *)p; g->hlen[space] = user; g->hhost[space] = host;
+    g->hbase[space] = (char *)p; g->hlen[space] = user;
     if (!l) W.mine[space] = (hblob_t *)calloc((size_t)K, sizeof(hblob_t));
     W.mine[space][l] = mine;
     if (K > 1) (void)hipSetDevice(dev_prev);
@@ -498,7 +493,7 @@ void *xshmem_heap_alloc(size_t bytes, int space)
         h->peer[space] = (hblob_t *)malloc((size_t)h->npes * sizeof(hblob_t)); memcpy(h->peer[space], all, (size_t)h->npes * sizeof(hblob_t));
         for (int r = 0; r < h->npes; r++) if (all[r].len != user) xfatal("heap %d: pe %d has %llu B, I have %zu B (same size on every PE)", space, r, (unsigned long long)all[r].len, user);
     }
-    if (space == XSHMEM_SPACE_DATA && K == 1 && g->cfg.peer && !host) {        /* open the node-local peers' DATA heaps on my device */
+    if (space == XSHMEM_SPACE_DATA && K == 1 && g->cfg.peer) {        /* open the node-local peers' DATA heaps on my device */
         g->pmap = (char **)calloc((size_t)g->npes, sizeof(char *)); int nmap = 0, ppn = g->topo.pes_per_node;
         int d = g->topo.gpu < 0 ? 0 : g->topo.gpu; if (hipSetDevice(d) != hipSuccess) xfatal("hipSetDevice(%d)", d);
         for (int r = 0; r < g->npes; r++) if (r != g->mype && r / ppn == g->topo.node && all[r].has_ipc) {
@@ -509,7 +504,7 @@ void *xshmem_heap_alloc(size_t bytes, int space)
         if (g->mype == 0) fprintf(stderr, "xshmem_ofi: XSHMEM_PEER: pe 0 mapped %d node-local peer DATA heap(s) by hipIpc\n", nmap);
     }
     free(all); free(W.mine[space]); W.mine[space] = 0;
-    if (G[0].mype == 0) fprintf(stderr, "xshmem_ofi: heap %s %zu MiB (%s) registered per endpoint on %d domain(s)%s, key %s\n", space ? "CTRL" : "DATA", user >> 20, host ? "pinned host" : "fine-grained device", nopen, K > 1 ? " of PE 0 (per PE: its own heap on its own GPU)" : "", g->pkey ? "provider" : "client");
+    if (G[0].mype == 0) fprintf(stderr, "xshmem_ofi: heap %s %zu MiB (%s) registered per endpoint on %d domain(s)%s, key %s\n", space ? "CTRL" : "DATA", user >> 20, "fine-grained device", nopen, K > 1 ? " of PE 0 (per PE: its own heap on its own GPU)" : "", g->pkey ? "provider" : "client");
     return p;
 }
 static void heap_release(pe_t *g, int space)
@@ -517,7 +512,7 @@ static void heap_release(pe_t *g, int space)
     if (!g->hbase[space]) return;
     if (space == XSHMEM_SPACE_DATA && g->pmap) { for (int r = 0; r < g->npes; r++) if (g->pmap[r]) (void)hipIpcCloseMemHandle(g->pmap[r]); free(g->pmap); g->pmap = 0; }
     for (int e = 0; e < g->nep; e++) if (g->lane[e].mr[space]) { fi_close(&g->lane[e].mr[space]->fid); g->lane[e].mr[space] = 0; }
-    if (g->hhost[space]) { (void)hipHostUnregister(g->hbase[space]); munmap(g->hbase[space], g->hlen[space]); } else (void)hipFree(g->hbase[space]);
+    (void)hipFree(g->hbase[space]);
     free(g->peer[space]); g->peer[space] = 0; g->hbase[space] = 0; g->hlen[space] = 0;
 }
 static void quiet_all(void)
