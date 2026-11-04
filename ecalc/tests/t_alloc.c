@@ -23,7 +23,7 @@
  * storing into device memory, as binsplit's seed thread does) -- with all cores, with 4 cores left free, and with the
  * computing alone (no device stores); and the seeds' rate under the mapping.
  *
- * Usage: t_alloc [GB per APU (50)] [forms...]     T_ALLOC_NTT=0 skips the transform, T_ALLOC_SEED=0 the contention part
+ * Usage: t_alloc [GB per APU (50)] [forms...]     ECALC_TEST=alloc_ntt=0 skips the transform, alloc_seed=0 the contention part
  */
 #include "harness.h"
 #include "../ntt.h"
@@ -139,7 +139,7 @@ int main(int argc, char **argv)
     double gb = argc > 1 ? atof(argv[1]) : 50.0;
     int nd = 0; HIP_CHECK(hipGetDeviceCount(&nd)); if (nd > 4) nd = 4;
     size_t bytes = ((size_t)(gb * 1e9) + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
-    int do_ntt = getenv("T_ALLOC_NTT") ? atoi(getenv("T_ALLOC_NTT")) : 1, do_seed = getenv("T_ALLOC_SEED") ? atoi(getenv("T_ALLOC_SEED")) : 1;
+    int do_ntt = (int)ec_test_long("alloc_ntt", 1), do_seed = (int)ec_test_long("alloc_seed", 1);
     int sel[F_N] = {0}, nsel = 0;
     for (int i = 2; i < argc; i++) { if (!strcmp(argv[i], "none")) nsel = -1; for (int f = 0; f < F_N; f++) if (!strcmp(argv[i], fname[f])) { sel[f] = 1; nsel++; } }   /* "none": only the probe (a fresh process's first allocation) */
     if (!nsel) for (int f = 0; f < F_N; f++) sel[f] = f != F_ASYNC;   /* async only when asked: its warm re-allocation faulted (illegal access in the fill) on ROCm 6.x -- run it last, alone */
@@ -227,7 +227,7 @@ int main(int argc, char **argv)
         char nm[48]; snprintf(nm, sizeof nm, "alloc_%s_s_per_GB", fname[f]); harness_result(nm, "s/GB", tmax(ta, nd) / (nd * bytes / 1e9));
         if (f == F_ASYNC) for (int d = 0; d < nd; d++) if (b[d].pool) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemPoolDestroy(b[d].pool)); }
     }
-    if (getenv("T_ALLOC_PROBE") ? atoi(getenv("T_ALLOC_PROBE")) : 1) {
+    if (ec_test_long("alloc_probe", 1)) {
         /* where the time goes: the allocating thread's CPU time (user / system) against the wall -- kernel page work in the
          * caller, or waiting on a lock; 4 threads vs 1 thread vs 4 processes (a per-process lock would let processes run in parallel) */
         printf("\n-- probe: hipMalloc %.1f GB per APU: the allocating threads' CPU time, and 1 thread / 4 threads / 4 processes --\n", bytes / 1e9);

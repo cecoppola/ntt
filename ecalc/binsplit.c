@@ -1,6 +1,7 @@
 #define _GNU_SOURCE   /* sched_getaffinity, CPU_COUNT (BS_SEED_THREADS=auto); binsplit.c is compiled as C */
 /* binsplit.c - see binsplit.h */
 #include <stdio.h>
+#include "test_inject.h"
 #include "fatal.h"
 #include "xshmem_round.h"
 #include <stdlib.h>
@@ -40,7 +41,7 @@ static int bs_unsetenv(const char *n) { pthread_mutex_lock(&g_env_mx); int r = u
 /* the per-process state of binsplit.h (bs_N, bs_st, bs_seed_terms, bs_a0, bs_b1, the hook, the device P and Q)*/
 unsigned long bs_N;                       /* M6: the run's N, for the tree sets written by mn.c */
 bs_stats bs_st;
-int bs_seed_terms = 256;   /* BS_SEED_TERMS: seed span; 256 measured best in both bases (RESULTS.md 58), 512 was the earlier value */
+int bs_seed_terms = 256;   /* seed span; 256 measured best in both bases (RESULTS.md 58), 512 was the earlier value */
 int bs_verbose = 0;
 const char *bs_ckpt_dir = 0;                         /* BS_CKPT_DIR: the directory of the top-level set (ECALC_CKPT_TOP); 0 = none */
 
@@ -173,7 +174,7 @@ static int region_of(size_t i, size_t n) { size_t r = i * NR / n; return (int)(r
  * predict which region gets the extra node and had to size every region for the largest share (4 x a level at
  * a two-node level).  Any placement is correct: the batch tier computes a product on the device that owns the
  * result and reads the operands where they are (rns_mul_batch_local). */
-int bs_balance_n = 16;                               /* BS_BALANCE_N: levels with at most this many nodes are balanced; 0 = never */
+int bs_balance_n = 16;                               /* levels with at most this many nodes are balanced; 0 = never */
 static int place_node(size_t i, size_t n, const size_t *offr, int ra, int rb)
 {
     (void)offr; (void)ra; (void)rb;
@@ -278,13 +279,13 @@ static int g_fill_auto = -1;
 long bs_seed_fill(void)
 {
     const char *e = getenv("BS_SEED_FILL"); if (e) return atol(e);
-    if (g_fill_auto < 0) g_fill_auto = !getenv("BS_SEED_TERMS") && bs_seed_terms == 256;
+    if (g_fill_auto < 0) g_fill_auto = bs_seed_terms == 256;
     return g_fill_auto ? 128 : 0;
 }
 unsigned long bs_seed_terms_for(unsigned long bend)
 {
     long fill = bs_seed_fill();
-    if (fill <= 0 || bend < 3) return getenv("BS_SEED_TERMS") ? (unsigned long)atol(getenv("BS_SEED_TERMS")) : (unsigned long)bs_seed_terms;
+    if (fill <= 0 || bend < 3) return (unsigned long)bs_seed_terms;
     long double dpl = 18.0L, l10 = logl(10.0L), lb = lgammal((long double)bend);
 #define SEED_FILL_LIMBS(S) ((long)floorl((lb - lgammal((long double)(bend - (S)))) / l10 / dpl) + 1)
     unsigned long S = (unsigned long)(fill * dpl / log10l((long double)bend)); if (S < 1) S = 1; if (S > bend - 2) S = bend - 2;
@@ -295,7 +296,6 @@ unsigned long bs_seed_terms_for(unsigned long bend)
 }
 static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_out)
 {
-    if (getenv("BS_SEED_TERMS")) bs_seed_terms = atoi(getenv("BS_SEED_TERMS"));
     if (bs_seed_fill() > 0) bs_seed_terms = (int)bs_seed_terms_for(bs_b1 ? bs_b1 : N + 1);
     if (getenv("BS_MDEV_LOGL")) bs_mdev_logl = atoi(getenv("BS_MDEV_LOGL"));
     unsigned long S = bs_seed_terms, nterms = bs_b1 ? bs_b1 - bs_a0 : N, nspan = (nterms + S - 1) / S;
@@ -415,7 +415,7 @@ static size_t quarter_bytes(size_t limbs) { size_t q = (size_t)bs_nrn(); return 
  * its content is dead) and t1 per doubling at Q_t (take) + r (j + 1) + 8, and the device tier's top levels free each input pair as it is
  * consumed; dm_layout's v2 / v3 follow (E2: -1 n_Q of arena).  */
 int dm_tight = -1;
-void dm_switches(void) { if (dm_tight < 0) { dm_tight = getenv("DM_TIGHT") ? atoi(getenv("DM_TIGHT")) : db_pool_vmm_on();   /* default: on with the VMM pool (it places DM_TIGHT's blocks) */ } }
+void dm_switches(void) { if (dm_tight < 0) { dm_tight = db_pool_vmm_on();   /* default: on with the VMM pool (it places DM_TIGHT's blocks) */ } }
 static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_scratch)
 {
     /* the tree's levels follow the MN_GROUPS schedule (mn_groups_parse; default the binary
@@ -440,7 +440,7 @@ static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_
     (void)pool_log;
     return best + best / 16;
 }
-/* The general map's v-exchange slots, resident per APU thread (bytes): every general-map group (g not a power of two, or DIST_GEN) owns a layered
+/* The general map's v-exchange slots, resident per APU thread (bytes): every general-map group (g not a power of two, or ECALC_TEST dist_gen) owns a layered
  * communicator per APU thread whose v-slots grow to its largest product's exchange and stay until groups_finalize, outside the arena, plane pools
  * and comm pools.  Returns the resident sum from the dm phase on (the run's largest); *tree_top: the sum during the tree's top level; by: per-level terms.
  * A level whose last group is cut by the size counts the larger of the two group shapes.  The node budget counts it (binsplit_node_bytes, as_room_fits,
@@ -727,7 +727,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     size_t sh = (nq + size - 1) / size;
     { size_t st = rns_mul_dist_mn_stage(nq, nq, size, sh, sh, (2 * nq + size - 1) / size, &q); if (q > qmax) qmax = q; if (st > best) { best = st; who = "the division's A_h mu"; } }
     { size_t st = rns_mul_dist_mn_stage(nq, nq / 2 + 1, size, sh, (nq / 2 + size - 1) / size, (3 * nq / 2 + size - 1) / size, &q); if (q > qmax) qmax = q; if (st > best) { best = st; who = "the reciprocal's Q_t r"; } }
-    { const char *e = getenv("MDB_SHIFT_CHUNK_MB"); size_t ch = (size_t)((e ? atof(e) : 1024.0) * 1048576.0 / 8), so = (2 * nq + size - 1) / size / 4, si = sh / 4;   /* the division's mdb_shift: t (2 nq) >> (k + 1) -> X (nq) */
+    { size_t ch = (size_t)(MDB_SHIFT_CHUNK_MB * 1048576.0 / 8), so = (2 * nq + size - 1) / size / 4, si = sh / 4;   /* the division's mdb_shift: t (2 nq) >> (k + 1) -> X (nq) */
       size_t sl = so < si ? so : si, K = ch && sl > ch ? (sl + ch - 1) / ch : 1, st = (so + si + K - 1) / K;   /* newton_db.c: K rounds from the shorter side's part */
       const char *er = (xsh_on() ? xshmem_round_env() : NULL); size_t Rl = er && atof(er) > 0 ? (size_t)(atof(er) * 1048576.0) / 8 : 0;   /* the transport's rounds bound each side */
       if (Rl) { size_t a = (so + K - 1) / K / size * (size - 1), b = (si + K - 1) / K / size * (size - 1); st = (a > Rl ? Rl : a) + (b > Rl ? Rl : b); }   /* (the peers' part: no self slab) */
@@ -812,6 +812,7 @@ static size_t layout_arena(unsigned long N, int g, size_t *bs2_)
  * Device = plane pools at the prime count + arena + 0.61 GB of transform contexts; host = runtime, staging, transport and SHMEM pool
  * as as_room_fits's size > 1 term (+ the larger VMM seed buffer or the writer + MN_OUT_EARLY); size 1 uses as_room_fits's own measured formula, not mirrored. */
 const char *const bs_cap_name[2] = { "2^30", "2^31" };   /* the cap index c = pool_log - 30 */
+int bs_plane_cap_idx = -1;
 #define BS_TABLES_BYTES ((size_t)610000000)
 #define BS_HOST_INIT_BYTES ((size_t)7000000000 + ((size_t)8 << 30))
 /* the device pools of the node (bytes; as_shmem_pool's ofi term): allocated by the transport at init, so ecalc.c budget_check counts them as already taken (plq2) */
@@ -1003,7 +1004,7 @@ static void binsplit_layout_only(const char *spec)
         /* the plane pools at this run's prime count and the node totals at each plane cap (GB); '*' = the cap this
          * run's settings give (POOL_LOG, ECALC_PLANE_CAP) */
         { int pl = rns_pool_log(), cur = pl >= 31 ? 1 : 0;
-          if (getenv("ECALC_PLANE_CAP_IDX")) cur = atoi(getenv("ECALC_PLANE_CAP_IDX"));
+          if (bs_plane_cap_idx >= 0) cur = bs_plane_cap_idx;
           printf("planes: D %.4g g %d np %d |", D, g, np);
           for (int c = 0; c < 2; c++) {
               if (rns_ndev() && c != cur) continue;                      /* after rns_init: the run's own cap only */
@@ -1032,14 +1033,9 @@ void binsplit_pregrow(unsigned long N)
 {
     static __thread unsigned long done_N; if (done_N == N) return; done_N = N;   /* once per run -- binsplit_seeds_begin calls it inside rns_init (the seeds stream into the regions), the driver again after */
     if (getenv("BS_LAYOUT_ONLY")) { binsplit_layout_only(getenv("BS_LAYOUT_ONLY")); exit(0); }   /* the arena request without the arena */
-    if (getenv("BS_BALANCE_N")) bs_balance_n = atoi(getenv("BS_BALANCE_N"));
     double t_pg = mem_now();
     size_t need[NRMAX] = {0}; region_need(N, need);   /* C4: regions from the simulated layout */
-    /* the arena also serves the dm phase as the block pool (the regions are donated to it); its size is the bs need alone
-     *.
-     * ECALC_ARENA_GB sets the arena per APU outright. */
-    { size_t half = getenv("ECALC_ARENA_GB") ? (size_t)(atof(getenv("ECALC_ARENA_GB")) * 1e9 / 2) / 8 : 0;
-      if (half) for (int r = 0; r < NR; r++) if (half > need[r] + need[r] / 8) need[r] = half - half / 9 - 4096; }
+    /* the arena also serves the dm phase as the block pool (the regions are donated to it); its size is the bs need alone */
     if (bs_verbose) printf("bs: regions from the level layouts: %.2f / %.2f / %.2f / %.2f GB (+1/8)%s\n", need[0] * 8e-9, need[1] * 8e-9, need[2] * 8e-9, need[3] * 8e-9, ", one arena per device for both parities");
     if (mem_device_count() > 0 && !g_arena[0].base && !g_pool[0][0]) {
         double ta = mem_now();
@@ -1329,8 +1325,8 @@ struct bs_ckpt_bg *bs_ckpt_bg_start(int level, unsigned long N, const uint64_t d
     if (sp_odirect()) sp_dev_sync_all();               /* P and Q complete before the writer's DMA on its own streams */
     struct bs_ckpt_bg *b = (struct bs_ckpt_bg *)calloc(1, sizeof *b);
     b->level = level; b->N = N; memcpy(b->desc, desc, sizeof b->desc); b->P = *P; b->Q = *Q; b->budget = budget; b->slack = slack;
-    const char *e = getenv("BS_CKPT_BG_CHUNK_MB"); b->io.chunk = (size_t)(e ? atoi(e) : 256) << 20; if (b->io.chunk < ((size_t)1 << 20)) b->io.chunk = (size_t)1 << 20;
-    e = getenv("BS_CKPT_BG_MBS"); b->io.mbs = e ? atof(e) : 0;   /* test: emulate a disk of this many MB/s (the four files together) */
+    b->io.chunk = (size_t)256 << 20;
+    const char *e = getenv("BS_CKPT_BG_MBS"); b->io.mbs = e ? atof(e) : 0;   /* test: emulate a disk of this many MB/s (the four files together) */
     b->tot_p = P->n * 8; b->tot = (P->n + Q->n) * 8;
     b->t0 = mem_now();
     if (pthread_create(&b->th, 0, bg_run, b)) { fprintf(stderr, "bs: checkpoint: cannot start the background writer\n"); free(b); return 0; }
@@ -1598,11 +1594,11 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     if (bs_after_seeds_hook) bs_after_seeds_hook(bs_hook_arg);   /* the CPU is free from here until the top level */
 
     mem_pool_guard = 1;                              /* from here nothing may grow (the reciprocal and the division keep it set) */
-    if (getenv("ECALC_FATAL_TEST") && atoi(getenv("ECALC_FATAL_TEST")) == 1) {   /* the four APU threads fail at once, as the in-phase guards do */
+    if (ec_test_long("fatal", 0) == 1) {   /* the four APU threads fail at once, as the in-phase guards do */
 #pragma omp parallel num_threads(NR)
         {
 #pragma omp barrier
-            ec_fatal(EC_RC_FATAL, "ECALC_FATAL_TEST=1: a forced failure in bs's worker %d of %d (all at once, after the seeds)", omp_get_thread_num(), NR);
+            ec_fatal(EC_RC_FATAL, "ECALC_TEST fatal=1: a forced failure in bs's worker %d of %d (all at once, after the seeds)", omp_get_thread_num(), NR);
         }
     }
     /* N3 (rns_mul.c; the fallback BS_BATCH_PIPE=0 removed 2026-10-23, Q87): the level's host passes over its nodes in parallel -- the max_nl scan, the layout

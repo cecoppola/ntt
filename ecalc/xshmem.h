@@ -137,7 +137,7 @@ static inline void xshmem_cfg_load(xshmem_cfg_t *c)
     memset(c, 0, sizeof *c);
     e = getenv("XSHMEM_LANES");    c->lanes = e ? atoi(e) : 1;
     e = getenv("XSHMEM_HEAP_MB");  c->heap_mb = e ? atol(e) : 0;
-    e = getenv("XSHMEM_CTRL");     c->ctrl_host = (e && !strcmp(e, "host")) ? 1 : 0;
+    c->ctrl_host = 0;
     e = getenv("XSHMEM_LOOPBACK_PES"); c->loopback_pes = e ? atoi(e) : 1;
     e = getenv("XSHMEM_PEER");     c->peer = e ? atoi(e) : -1;
 }

@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include "test_inject.h"
 #include "mn_plan.h"
 #include "mdb.h"
 #include "bigint.h"
@@ -231,7 +232,7 @@ int mn_level_grids(unsigned long N, int size, int Gl, int Gp, int *tab, int maxc
 static void plan_tree(unsigned long N, int size, long *level_max_total)
 {
     int gs[64]; int L = mn_groups_parse(size, gs, 63);
-    int captest = getenv("MN_TREE_LOGN_TEST") ? atoi(getenv("MN_TREE_LOGN_TEST")) : 0;
+    int captest = (int)ec_test_long("tree_logn", 0);
     if (captest) rns_dist_plan_cap_test(captest);
     *level_max_total = 0;
     for (int l = 1; l <= L; l++) {

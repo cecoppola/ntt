@@ -277,9 +277,7 @@ static void need_vslot(comm *c, int k, size_t bytes)
     S->owner = c;
     if (S->cap[k] < bytes) {
         HIP_CHECK(hipSetDevice(p->dev));
-        size_t minb = 1; { const char *e = getenv("COMM_LAYER_VSLOT_MB"); char nm[48]; snprintf(nm, sizeof nm, "COMM_LAYER_VSLOT_MB_%d", comm_size(p->inter));
-                          if (!e) e = getenv(nm); if (e) minb = (size_t)(atof(e) * 1048576.0); }   /* (the pool rule sets every group size to the overall maximum under SHARE) */
-        size_t want = bytes > minb ? bytes : minb;
+        size_t want = bytes > 1 ? bytes : 1;
         if (S->vx[k]) { comm_sym_free(p->inter, S->vx[k]); S->vx[k] = 0; S->cap[k] = 0; }
         S->vx[k] = (char *)comm_sym_alloc(p->inter, want);
         if (!S->vx[k]) ec_fatal(EC_RC_FATAL, "comm_layered: the inter transport has no symmetric pool (%zu B v-slot)\n", want);

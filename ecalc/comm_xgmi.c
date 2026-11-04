@@ -42,7 +42,7 @@ template <typename T> __global__ void k_push3(struct push3 a)
 }
 /* the same push with each block's start and end stamped (wall_clock64, 100 MHz), so the time
  * each link (= each peer's blocks) is active can be read back.  map 0: block b serves peer b % 3 (the push's own order);
- * map 1: contiguous thirds of the grid (the H4 ordering variant).  Used by the H4 bench (comm_xgmi_h4, DIST_H4=1) only. */
+ * map 1: contiguous thirds of the grid (the H4 ordering variant).  Used by the H4 bench (comm_xgmi_h4, ECALC_TEST h4=1) only. */
 template <typename T> __global__ void k_push3_ts(struct push3 a, unsigned long long *ts, int map)
 {
     size_t nb = gridDim.x / 3; int peer = map ? (int)(blockIdx.x / nb) : blockIdx.x % 3; size_t b = map ? blockIdx.x % nb : blockIdx.x / 3, n = a.n[peer];

@@ -23,6 +23,7 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include "test_inject.h"
 #include "mapd.h"
 extern char **environ;
 
@@ -75,7 +76,7 @@ int mapd_helper_main(int argc, char **argv)             /* argv: --mapd-helper <
     int dev = atoi(argv[2]), sock = MAPD_FD0 + dev; pid_t pp = argc >= 4 ? (pid_t)atoi(argv[3]) : 0;
     prctl(PR_SET_PDEATHSIG, SIGKILL); if (pp > 0 && getppid() != pp) return 1;   /* (the parent died before the prctl; with ecalc as PID 1 the original pid is 1 and the check holds) */
     signal(SIGPIPE, SIG_IGN);
-    int die_dev = -1, die_k = -1; char die_kind = 'a'; const char *td = getenv("ECALC_MAPD_TEST_DIE");   /* test knob "<dev>:<k>[:p]": that helper exits (status 7) after sending k arena chunks (":p": k pool chunks) */
+    int die_dev = -1, die_k = -1; char die_kind = 'a'; char tdb[48]; const char *td = ec_test_str("mapd_die", tdb, sizeof tdb);   /* test knob "<dev>:<k>[:p]": that helper exits (status 7) after sending k arena chunks (":p": k pool chunks) */
     if (td) { char kc = 0; int nf = sscanf(td, "%d:%d:%c", &die_dev, &die_k, &kc); if (nf == 3 && kc == 'p') die_kind = 'p'; }
     if (hipSetDevice(dev) != hipSuccess || hipFree(0) != hipSuccess) { (void)send_fd(sock, -1, 'F'); return 2; }
     pin_node(numa_of(dev));

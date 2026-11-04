@@ -27,6 +27,7 @@
 #include <omp.h>
 #include <pthread.h>
 #endif
+#include "../test_inject.h"
 #include "../bigint.h"
 #pragma GCC diagnostic ignored "-Wunused-function"   /* each test uses a subset of these helpers */
 

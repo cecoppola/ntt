@@ -23,8 +23,8 @@ extern "C" {
 typedef struct { size_t iters, overshoots, repeats, down_corr, up_corr; double t_recip, t_div; size_t dkm_corr; } newton_stats;   /* dkm_corr: the DKM division's step-1 corrections (not in down/up) */
 /* DKM (newton_db.c; the only division since SIMP) -- the division in two quotient halves with a half-length reciprocal
  * (GMP mu_div): mu to h = floor(k/2) + 1 limbs; step 1 = the shifted division of A >> s (s = min(floor(k/2), dl); s = 0 at k = 1) by Q, exact (its own
- * corrections, applied to X_hi); step 2 = the shifted division of R1 B^s; X = X_hi B^s + X_lo.  The hook, ECALC_TEST_CORR and the
- * deferred corrections act at step 2 as they do today.  NEWTON_DKM_TEST_HI=<k> (a test hook, |k| <= 60) moves X_hi by -k before
+ * corrections, applied to X_hi); step 2 = the shifted division of R1 B^s; X = X_hi B^s + X_lo.  The hook, ECALC_TEST corr and the
+ * deferred corrections act at step 2 as they do today.  ECALC_TEST dkm_hi=<k> (a test hook, |k| <= 60) moves X_hi by -k before
  * step 1's corrections.  Size 1: newton_db_divmod_shifted (and newton_db_recip when newton_db_Qd is set: the device flow's prewarm);
  * size > 1: newton_mn_divmod */
 int newton_dm_wrap(void);   /* D22: DM_MN_WRAP's effective value (default 1 since D22; 0 = off) */
@@ -48,7 +48,7 @@ extern void (*newton_db_x_hook)(bigint *X, void *arg); extern void *newton_db_x_
 extern struct dbig_s *newton_db_x_dev;               /* when set, X stays on the device and is returned here (corrected in place); no host X */
 /* newton_x_defer = 1 -- the division's +/-1 corrections are NOT applied to X once the hook has
  * started the writer on it (size 1) / at all (newton_mn_divmod, size > 1): their sum comes back in newton_x_dx and the output
- * stage patches the written digits' tail instead (mn_out_tail_fix).  newton_test_corr(): ECALC_TEST_CORR=<k> (a test hook,
+ * stage patches the written digits' tail instead (mn_out_tail_fix).  newton_test_corr(): ECALC_TEST corr=<k> (a test hook,
  * |k| <= 60) moves the division's X by -k before the corrections, which then make k more up- (k > 0) or down- (k < 0) corrections */
 extern int newton_x_defer; extern long newton_x_dx;
 long newton_test_corr(void);

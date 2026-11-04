@@ -50,6 +50,7 @@ size_t bs_ckpt_bg_join(bs_ckpt_bg *b, const char *who, const char *dir, double *
 
 /* DM_TIGHT (the reciprocal's scratch reserved per doubling, the top levels' pairs freed as consumed).  Read once by dm_switches(); -1 before */
 extern int dm_tight;
+#define MDB_SHIFT_CHUNK_MB 1024.0   /* mdb_shift exchange round, MB per node-process (0 = one round) */
 /* mn.c's tree levels free the dead P_i / P_run shares between a level's two products and
  * tree_need_dev counts max(2c + 2r + n, c + r + 2n) */
 void dm_switches(void);
@@ -64,6 +65,7 @@ int binsplit_ppn_proc(void);                       /* S2c: processes per node th
 size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *planes, size_t *arena, size_t *host);
 size_t binsplit_comm_resident_bytes(unsigned long N, int g);   /* the node's device pool bytes, allocated at init (ecalc.c budget_check: already taken) */
 extern const char *const bs_cap_name[2];
+extern int bs_plane_cap_idx;   /* the plane cap ECALC_PLANE_CAP chose (0: 2^30, 1: 2^31), -1 = not chosen */
 size_t binsplit_div_product_limbs(unsigned long N);   /* the run's largest single product (the division's t = A_h mu: 2 k + 8 limbs, dm_layout's non-DKM tcap); ECALC_PLANE_CAP=run asks whether it fits one plane of the cap */
 void binsplit_seeds_begin(unsigned long N);
 void binsplit_free_pools(void);

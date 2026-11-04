@@ -20,6 +20,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include "test_inject.h"
 #include "bigint.h"
 #include "rns_mul.h"
 #include "newton.h"
@@ -61,7 +62,7 @@ static void meta_line(const char *bench)
 static int g_bg_threads = 48;
 struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started, joined, done; double t; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
 static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); ec_team_set(g_bg_threads);
-    if (dr_level() >= 2 && dr_test_leafslow()) { for (int i = 0; i < 120000 && !mn_dr_division_seen(); i++) usleep(1000); }   /* ECALC_DR_TEST=leafslow (test only): the recurrence starts when the division does (at most 120 s): the leaf check's deferred path */
+    if (dr_level() >= 2 && dr_test_leafslow()) { for (int i = 0; i < 120000 && !mn_dr_division_seen(); i++) usleep(1000); }   /* ECALC_TEST dr=leafslow (test only): the recurrence starts when the division does (at most 120 s): the leaf check's deferred path */
     for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(b->a0, b->b1, t1_q[i], &b->p[i], &b->qq[i]); b->t = mem_now() - t0;
     __atomic_store_n(&b->done, 1, __ATOMIC_RELEASE);
     return 0; }
@@ -93,9 +94,9 @@ static void x_bg_hook(bigint *X, void *a) { struct x_bg *b = (struct x_bg *)a; b
 /* ---- the writer on X_hi after DKM's step 1.  The division forms no X0: X_hi (final after step 1:
  * X's limbs >= s) comes to the X_hi hook, which starts the size-1 writer on it -- one file in two ranges (mn_out's split): the limbs >= s from
  * X_hi, then, at the gate, the limbs < s from X_lo (the division's device X, newton_db_x_dev).  The X_lo hook opens the gate before step 2's low
- * product unless X_lo0 >= B^s (or MN_OUT_DKM_HI_TEST_CARRY=1): then the division adds the corrections to X_lo in place and main opens it after
+ * product unless X_lo0 >= B^s (or ECALC_TEST dkm_carry=1=1): then the division adds the corrections to X_lo in place and main opens it after
  * the division.  At size > 1 the same with two part files per rank (mn_out_early_hi_start / mn_out_early_lo_release) ---- */
-static int dkm_hi_test_carry(void) { const char *e = getenv("MN_OUT_DKM_HI_TEST_CARRY"); return e && atoi(e) != 0; }
+static int dkm_hi_test_carry(void) { return ec_test_long("dkm_carry", 0) != 0; }
 struct x_hi { int on, released; size_t s; dbig Xh; mn_out_src src_lo, src_hi; sem_t go; uint64_t res_hi[T1_NQ]; double t_gate, t_hi; };
 static struct x_hi g_xhi;
 static void x_bg_gate(void *a, mn_out *o)             /* the writer at s: X_hi's range is formatted and handed off; X_lo's after the release */
@@ -137,7 +138,7 @@ static void x_hi_release(struct x_bg *b)
 static int x_lo_hook(dbig *Xl, size_t s, int carry, void *a)   /* newton_db_xlo_hook: X_lo0 in *b->Xd (= Xl); released unless X_lo0 >= B^s */
 {
     struct x_bg *b = (struct x_bg *)a; (void)Xl; (void)s;
-    if (carry || dkm_hi_test_carry()) { printf("      MN_OUT_DKM_HI: X_lo0 %s: the corrections go into X_lo first, its digits after the division\n", carry ? ">= B^s" : "treated as >= B^s (MN_OUT_DKM_HI_TEST_CARRY)"); return 0; }
+    if (carry || dkm_hi_test_carry()) { printf("      MN_OUT_DKM_HI: X_lo0 %s: the corrections go into X_lo first, its digits after the division\n", carry ? ">= B^s" : "treated as >= B^s (ECALC_TEST dkm_carry=1)"); return 0; }
     x_hi_release(b); return 1;
 }
 
@@ -184,7 +185,7 @@ static int mn_early_hi_hook(mdb *Xh, size_t s, void *a)
 static int mn_early_lo_hook(mdb *Xl, size_t s, int carry, void *a)
 {
     struct out_ctx *c = oc_of(a); (void)s;
-    if (carry || dkm_hi_test_carry()) { if (c->rank == 0) printf("mn: MN_OUT_DKM_HI: X_lo0 %s: the corrections go into X_lo first, its part files after the division\n", carry ? ">= B^s" : "treated as >= B^s (MN_OUT_DKM_HI_TEST_CARRY)"); return 0; }
+    if (carry || dkm_hi_test_carry()) { if (c->rank == 0) printf("mn: MN_OUT_DKM_HI: X_lo0 %s: the corrections go into X_lo first, its part files after the division\n", carry ? ">= B^s" : "treated as >= B^s (ECALC_TEST dkm_carry=1)"); return 0; }
     mn_out_early_lo_release(c->early, Xl, mn_comm(0)); c->hi_rel = 1; return 1;
 }
 static int out_stage(struct out_ctx *c)
@@ -441,7 +442,7 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
             if (o && *o && strcmp(o, "auto") && atoi(o) != atoi(pl)) { fprintf(stderr, "ECALC_PLANE_CAP=%s sets %s=%s; the environment has %s=%s\n", e, knob[k], pl, knob[k], o); exit(2); }
             setenv(knob[k], pl, 1);
         }
-        { char ci[4]; snprintf(ci, sizeof ci, "%d", c); setenv("ECALC_PLANE_CAP_IDX", ci, 1); }
+        bs_plane_cap_idx = c;
         pool_log = 30 + c;
         if (verbose) printf("ECALC_PLANE_CAP: %s points (POOL_LOG=%s DIST_LOGN_TEST=%s)\n", bs_cap_name[c], pl, pl);
     }
@@ -593,7 +594,7 @@ int main(int argc, char **argv)
     if (!plan && !fit.fits && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0))
         fprintf(stderr, "ecalc: WARNING: this run does not fit the modelled memory (device %.2f / %.2f GB, node %.2f / %.0f GB); launchers refuse it (mnrun.sh, tools/plan_values.py --fit)\n",
                 fit.device * 1e-9, fit.limit * 1e-9, fit.node * 1e-9, fit.budget * 1e-9);
-    { char eff[360]; const char *np = getenv("ECALC_NP"), *pc = getenv("ECALC_PLANE_CAP_IDX"), *cs = getenv("COMM_SIZE");   /* L5: the resolved values (print-only) */
+    { char eff[360], pcb[2]; const char *np = getenv("ECALC_NP"), *pc = bs_plane_cap_idx >= 0 ? (pcb[0] = (char)('0' + bs_plane_cap_idx), pcb[1] = 0, pcb) : NULL, *cs = getenv("COMM_SIZE");   /* L5: the resolved values (print-only) */
       snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,plane_cap:%s,comm_size:%s,dm_mn_wrap:%d(%s)", pool_log, np ? np : "-", "10^18", verbose, pc ? pc : "-", cs ? cs : "1", newton_dm_wrap(), binsplit_dm_wrap_src());
       cfg_print(eff); }
     { /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them.
@@ -739,8 +740,8 @@ static void flow_run(void *a)
 
     comm_wst_set_phase(WST_BS);   /* D3: MN_WAIT_STATS phase */
     t = mem_now(); binsplit_e(&P, &Q, N); double t_bs = mem_now() - t;
-    if (getenv("ECALC_TEST_DIE_PE") && atoi(getenv("ECALC_TEST_DIE_PE")) == vpe_pe() && vpe_on())   /* test hook (S2 kill test; off unless set): this PE dies at a fixed phase, after bs, with its peers about to enter the tree's collectives */
-        ec_fatal(EC_RC_FATAL, "ecalc: ECALC_TEST_DIE_PE=%d: this PE stops here on purpose (kill test)\n", vpe_pe());
+    if (ec_test_long("die_pe", -1) == vpe_pe() && vpe_on())   /* test hook (S2 kill test; off unless set): this PE dies at a fixed phase, after bs, with its peers about to enter the tree's collectives */
+        ec_fatal(EC_RC_FATAL, "ecalc: ECALC_TEST die_pe=%d: this PE stops here on purpose (kill test)\n", vpe_pe());
     /* the top-level P, Q on disk for ECALC_RECHECK -- default on above 10^10 digits with an outfile
      * (ECALC_CKPT_TOP=0: off; =1: on at any size), into BS_CKPT_DIR or, unset, <outfile>.top.  Size 1: the level-0 tree set,
      * written in the background by bs_ckpt_bg_* (binsplit.c); size > 1: mn_tree's top tree set.  No other checkpoint exists

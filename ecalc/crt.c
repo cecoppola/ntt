@@ -53,12 +53,6 @@ int ec_np_init(void)
     const char *e = getenv("ECALC_NP");
     if (e && !strcmp(e, "auto")) {                  /* per product */
         ec_np = 3; ec_np_auto = 1;
-        const char *t = getenv("ECALC_NP_AUTO_TERMS");   /* the test knob: a lower bound, so both counts occur at small sizes */
-        if (t && ec_np_auto) {
-            size_t v = (size_t)strtoull(t, 0, 10);
-            if (v < 1 || v > ec_np3_max_terms) { ec_fatal(EC_RC_FATAL, "ECALC_NP_AUTO_TERMS=%s: must be in [1, %zu] (the three-prime bound)\n", t, ec_np3_max_terms); }
-            ec_np_auto_terms = v;
-        }
     } else if (e) {
         int v = atoi(e);
         if (v != 3 && v != 4) { ec_fatal(EC_RC_FATAL, "ECALC_NP=%s: the prime count must be 3, 4 or auto\n", e); }

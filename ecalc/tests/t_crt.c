@@ -74,7 +74,7 @@ int main(int argc, char **argv)
     harness_meta("t_crt");
     crt_gmp_init();
     printf("   %d primes, decimal limbs\n", ec_np);
-    /* 0. ECALC_NP=auto (ECALC_NP_AUTO_TERMS lowers the switch-over) -- the per-product count
+    /* 0. ECALC_NP=auto -- the per-product count
      *    and pool 0's planes, and the two CRTs agree on every value three primes hold: v = k (B-1)^2 + random < p0 p1 p2 for k up
      *    to the bound gives garner3(v mod p0..p2) == garner4(v mod p0..p3) == v, and at the bound + 1 garner3 wraps (the bound is exact) */
     if (ec_np_auto) {

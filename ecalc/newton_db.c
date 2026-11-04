@@ -5,6 +5,7 @@
  * copied to device once, mu / X / R come back once. */
 #include <stdio.h>
 #include <unistd.h>
+#include "test_inject.h"
 #include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
@@ -52,9 +53,7 @@ static int shifted_cmp_le(const dbig *a, size_t j, const dbig *b, int plus1)
  * below the band kept: the band is then off by at most one unit (in practice identical), the same kind of error as the floor the
  * step already makes; healed by the next doubling, absorbed by the division's corrections at the last.  Always on (the NEWTON_RECIP_CUT
  * switch and its whole-product form were removed 2026-10-11) */
-static int recip_guard = 1, guard_read = 0;
-static void cut_init(void) { if (!guard_read) { guard_read = 1; const char *e = getenv("NEWTON_RECIP_GUARD"); if (e) recip_guard = atoi(e); if (recip_guard < 0) recip_guard = 0; } }
-size_t newton_recip_cut(size_t v) { cut_init(); return v > (size_t)recip_guard ? v - (size_t)recip_guard : 0; }
+size_t newton_recip_cut(size_t v) { return v > 1 ? v - 1 : 0; }
 /* Q_t r is formed as a middle product -- the grid with the
  * pieces at or above w = take + MID_HI skipped too (mul_grid's / mn_grid's high cut), the result taken mod B^w.  The step reads
  * u = t1 >> v (v = take - j) only through e = u - B^(2j); when the previous round of the chain bounds |e| < B^(j+3) (mid_ok), u is
@@ -92,7 +91,7 @@ size_t newton_chain_next(size_t j, size_t k)
 /* recip_mn: the single-node part ends at the largest target <= split (NEWTON_MN_SPLIT, 2^16), or the seed's 2 */
 size_t newton_mn_chain_start(size_t k)
 {
-    size_t split = getenv("NEWTON_MN_SPLIT") ? strtoull(getenv("NEWTON_MN_SPLIT"), 0, 10) : ((size_t)1 << 16), kp = k;
+    size_t split = (size_t)1 << 16, kp = k;
     while (kp > split && chain_g(kp) > 2 && chain_g(kp) < kp) kp = chain_g(kp);
     if (kp > split) kp = 2;
     return kp;
@@ -203,10 +202,10 @@ static void db_add_small(dbig *x, long dx)           /* x +/- |dx| in place (H, 
 }
 int newton_x_defer = 0; long newton_x_dx = 0;          /* newton.h */
 int (*newton_db_xhi_hook)(dbig *Xh, size_t s, void *arg) = 0; int (*newton_db_xlo_hook)(dbig *Xl, size_t s, int carry, void *arg) = 0;   /* Phase 15 EW (MN_OUT_DKM_HI): newton.h */
-long newton_test_corr(void)                          /* Phase 15 K: ECALC_TEST_CORR=<k>, the forced-correction test hook (0: off) */
+long newton_test_corr(void)                          /* Phase 15 K: ECALC_TEST corr=<k>, the forced-correction test hook (0: off) */
 {
-    const char *e = getenv("ECALC_TEST_CORR"); long k = e ? atol(e) : 0;
-    if (k > 60 || k < -60) { ec_fatal(EC_RC_FATAL, "ECALC_TEST_CORR=%ld: |k| <= 60 (the division stops at 64 corrections)\n", k); }
+    long k = ec_test_long("corr", 0);
+    if (k > 60 || k < -60) { ec_fatal(EC_RC_FATAL, "ECALC_TEST corr=%ld: |k| <= 60 (the division stops at 64 corrections)\n", k); }
     return k;
 }
 /* Phase 15 DKM (newton.h): the reciprocal's length (DKM is the only division since SIMP, results/CODE_TOOLS.md §SIMP) */
@@ -215,10 +214,10 @@ size_t newton_dkm_h(size_t k) { return k / 2 + 1; }         /* max(k - s, s + 1)
  * their dead copies -- recip_mn frees t once u (then corr) is formed; mn_divmod_dkm takes A_h and mu's top as VIEWS of S / R1 and mu
  * (mdb_view) instead of mdb_shift copies, and Q in basis w (Qw) replaces Q once the window is formed.  Value-identical (the same
  * products on the same limbs); the layout (binsplit.c dm_layout, mem_model.dm_layout) counts the lean division set at size > 1 */
-static long dkm_test_hi(void)                               /* NEWTON_DKM_TEST_HI=<k>: X_hi - k before step 1's corrections (a test hook) */
+static long dkm_test_hi(void)                               /* ECALC_TEST dkm_hi=<k>: X_hi - k before step 1's corrections (a test hook) */
 {
-    const char *e = getenv("NEWTON_DKM_TEST_HI"); long k = e ? atol(e) : 0;
-    if (k > 60 || k < -60) { ec_fatal(EC_RC_FATAL, "NEWTON_DKM_TEST_HI=%ld: |k| <= 60\n", k); }
+    long k = ec_test_long("dkm_hi", 0);
+    if (k > 60 || k < -60) { ec_fatal(EC_RC_FATAL, "ECALC_TEST dkm_hi=%ld: |k| <= 60\n", k); }
     return k;
 }
 void newton_db_recip(bigint *mu, const bigint *Q, size_t k)
@@ -260,7 +259,7 @@ static void dkm_add_small(dbig *x, long dx)
 {
     if (!dx) return;
     if (!x->n && dx > 0) db_set_u64(x, (uint64_t)dx);
-    else if (dx > 0) { dbig v; db_init(&v); db_set_u64(&v, (uint64_t)dx); db_add(x, x, &v); db_free(&v); }   /* Phase 15 EW: may grow a limb (ECALC_TEST_CORR < 0 on an X_lo0 near B^s: t_newton 7) */
+    else if (dx > 0) { dbig v; db_init(&v); db_set_u64(&v, (uint64_t)dx); db_add(x, x, &v); db_free(&v); }   /* Phase 15 EW: may grow a limb (ECALC_TEST corr < 0 on an X_lo0 near B^s: t_newton 7) */
     else db_add_small(x, dx);
 }
 /* R = A - X Q from the window Aw and xq = X Q mod B^w (both consumed): the corrections of newton_db_divmod_shifted, R >= 0 < Q in *Rd;
@@ -281,7 +280,7 @@ static long dkm_corr_db(dbig *Rd, dbig *Aw, dbig *xq, const dbig *Qd, const char
     return dx;
 }
 /* A = S B^dl; s = min(floor(k/2), dl) (s = 0 at k = 1: step 1 is the whole division, X_lo = 0).  Step 1: X_hi, R1 = floor / remainder of A >> s = S B^(dl - s) by Q, exact;
- * step 2: X_lo, R of R1 B^s; X = X_hi B^s + X_lo.  The hook, x_dev, the deferral and ECALC_TEST_CORR at step 2 as in newton_db_divmod_shifted */
+ * step 2: X_lo, R of R1 B^s; X = X_hi B^s + X_lo.  The hook, x_dev, the deferral and ECALC_TEST corr at step 2 as in newton_db_divmod_shifted */
 static void divmod_shifted_dkm(bigint *X, const dbig *S, size_t dl, const dbig *Qd, const uint64_t *qs, int nres, uint64_t *rres, size_t s)
 {
     double t0 = mem_now();
@@ -294,7 +293,7 @@ static void divmod_shifted_dkm(bigint *X, const dbig *S, size_t dl, const dbig *
     double ta = mem_now();
     /* step 1: the high half.  mu's top k1 + 1 limbs as a view */
     { dbig m1 = db_view(&mu, mu.n - (k1 + 1), k1 + 1); dkm_est_db(&Xh, S, dl - s, nq, k1, &m1); }
-    { long th = dkm_test_hi(); if (th) { if (th > 0 && (!Xh.n || (Xh.n == 1 && db_limb(&Xh, 0) < (uint64_t)th))) { ec_fatal(EC_RC_FATAL, "NEWTON_DKM_TEST_HI=%ld: X_hi is below it\n", th); } dkm_add_small(&Xh, -th); } }
+    { long th = dkm_test_hi(); if (th) { if (th > 0 && (!Xh.n || (Xh.n == 1 && db_limb(&Xh, 0) < (uint64_t)th))) { ec_fatal(EC_RC_FATAL, "ECALC_TEST dkm_hi=%ld: X_hi is below it\n", th); } dkm_add_small(&Xh, -th); } }
     dkm_window_db(&Aw, S, dl - s, w);
     dm_switches(); if (dm_tight > 0) db_free((dbig *)S);              /* (as newton_db_divmod_shifted under DM_TIGHT: S's only reader was the window) */
     double tb = mem_now();
@@ -313,8 +312,8 @@ static void divmod_shifted_dkm(bigint *X, const dbig *S, size_t dl, const dbig *
     else db_set_zero(&Xl);                                            /* A2 < Q: X_lo = 0 */
     db_free(&mu);
     dkm_window_db(&Aw, &R1, s, w); db_free(&R1);
-    { long tk = newton_test_corr();                                    /* Phase 15 K: ECALC_TEST_CORR on X_lo (X - k) */
-      if (tk) { if (tk > 0 && (!Xl.n || (Xl.n == 1 && db_limb(&Xl, 0) < (uint64_t)tk))) { ec_fatal(EC_RC_FATAL, "ECALC_TEST_CORR=%ld under the DKM division: X_lo is below it\n", tk); } dkm_add_small(&Xl, -tk); } }
+    { long tk = newton_test_corr();                                    /* Phase 15 K: ECALC_TEST corr on X_lo (X - k) */
+      if (tk) { if (tk > 0 && (!Xl.n || (Xl.n == 1 && db_limb(&Xl, 0) < (uint64_t)tk))) { ec_fatal(EC_RC_FATAL, "ECALC_TEST corr=%ld under the DKM division: X_lo is below it\n", tk); } dkm_add_small(&Xl, -tk); } }
     if (xhi) {   /* Phase 15 EW -- the X_lo hook: X_lo0 to the caller's device X; the hook releases the writer onto it unless X_lo0 >= B^s (then
                   * the corrections go into X_lo0 in place, archive:results_merged_2026-10-24/DIVISION.md §EW15 1.2 item 3); X = X_hi B^s + X_lo is never formed */
         double td = mem_now();
@@ -498,7 +497,7 @@ static void mdb_shift_gt(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, i
      * instead of my share / 4 (71 GB per node at 576 x 8e10).  K = ceil(SL / chunk) from the group's share bound, the same
      * on every node (one alltoallv per round on every mesh).  The limbs moved are the same: the result is bit-identical.
      * 0 (the default): one round, as before. */
-    static long shift_chunk = -1; if (shift_chunk < 0) { const char *e = getenv("MDB_SHIFT_CHUNK_MB"); shift_chunk = (long)((e ? atof(e) : 1024.0) * 1048576.0 / 8);   /* default 1024 MB since Phase 13c; =0 exchanges in one round */ if (shift_chunk < 0) shift_chunk = 0; }
+    static long shift_chunk = -1; if (shift_chunk < 0) { shift_chunk = (long)(MDB_SHIFT_CHUNK_MB * 1048576.0 / 8); if (shift_chunk < 0) shift_chunk = 0; }
     int K = shift_chunk > 0 && SL > (size_t)shift_chunk ? (int)((SL + shift_chunk - 1) / shift_chunk) : 1;
     size_t SLk = K > 1 ? ((SL + K - 1) / K + 1 + 15) / 16 * 16 : SL;
     struct shift_ctx C = { X, &Yn, s, n2, lo1, lo2, cn, SL, SLk, K, g, node, NLANES(), G, 0 };
@@ -676,12 +675,8 @@ static double x1_cost(size_t na, size_t nb, int gp, size_t reshard_limbs)
  * x1_level below is the run's call, for node groups that start at node 0 */
 int newton_mn_x1_level(size_t na, size_t nb, int g, int size, size_t reshard_limbs)
 {
-    static int on = -1;
-    if (on < 0) {
-        on = getenv("NEWTON_MN_GROUPS") ? atoi(getenv("NEWTON_MN_GROUPS")) : 1;
-        (void)size;
-    }
-    if (!on || g <= 2) return 0;
+    (void)size;
+    if (g <= 2) return 0;
     int best = 0; double bc = x1_cost(na, nb, g, reshard_limbs);
     for (int L = 1; (1 << L) < g; L++) { double c = x1_cost(na, nb, 1 << L, reshard_limbs); if (c < bc) { bc = c; best = L; } }
     return best;
@@ -838,7 +833,6 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     if (mu->sh.cap) db_free(&mu->sh);
     *mu = r;
     NST(newton_st.t_recip += mem_now() - t0);
-    mn_comm_mark("reciprocal");   /* Phase 16 D */
     if (verbose && me == 0) printf("recip(mn) %.2f s: single-node part %.2f, products %.2f, shifts %zu/%.2f, addsub %zu/%.2f, small %zu/%.2f\n", mem_now() - t0, t1 - t0, mn_st.t_prod, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub, mn_st.n_small, mn_st.t_small);
 }
 /* X = floor((P + Q) B^dl / Q) over G (P, Q consumed); pres/qres/rres: residues mod qs[nres] of P, Q and R = A - X Q;
@@ -887,7 +881,7 @@ static void mn_dkm_low(mdb *xql, const mdb *Xn, mdb *Q, size_t w, mn_group *G)
 /* ---- C3 step 4, D (ECALC_DR >= 3; results/CORRECTNESS.md): the division's low products are checked against the exact identity A' = X Q + R ----------------------------------------------
  * A' = S B^e (S = P + Q; step 2: S = R1, e = s) is cut to the window Aw = A' mod B^w, and xql = X Q mod B^w, so A' - X Q = (Aw - xql) + m B^w with m in {-1, 0, 1} (|A' - X Q| < 65 Q < B^w).
  * With the residues modulo DR_Q (t1_q[0]): E = (R(S) B^e - R(X) R(Q)) - (R(Aw) - R(xql)) must be 0 or +-R(B^w).  R(S) = R(P) + R(Q) are the division's T1 residues (taken at its start), R(X) is
- * taken from the X the product gets (after the test perturbations ECALC_TEST_CORR and NEWTON_DKM_TEST_HI).  Each residue is an all-gather (mdb_trk_make) summed alike on every node, so the verdict is
+ * taken from the X the product gets (after the test perturbations ECALC_TEST corr and ECALC_TEST dkm_hi).  Each residue is an all-gather (mdb_trk_make) summed alike on every node, so the verdict is
  * the same everywhere.  A mismatch frees xql and recomputes it once (Xh / Xl, Qw and Aw are alive until mn_dkm_corr); a second failure is fatal with the location.  The wrap (mn_wrap_step) checks
  * Rc instead (mn_dd_wrap): there the result is a CRT of several products and has no operand to repeat from, so a mismatch is fatal (U has D' in rns_mul_dist_mn_cyc_v). */
 static struct { int on; uint64_t rS, rQ, rR1, rA; int step; size_t occ; } g_dd;
@@ -900,7 +894,7 @@ static void mn_dkm_low_d(mdb *xql, const mdb *Xn, mdb *Q, size_t w, mn_group *G,
     const uint64_t rX = dd_res(Xn, G), rAw = dd_res(Aw, G), rBw = dr_powB(w);
     for (int att = 0;; att++) {
         mn_dkm_low(xql, Xn, Q, w, G);
-        mdb_dr_inject(xql, node, DR_XQL, occ, att);                 /* ECALC_DR_TEST=xql: one limb of xql wrong (K = the low product's number: 1 step 1, 2 step 2) */
+        mdb_dr_inject(xql, node, DR_XQL, occ, att);                 /* ECALC_TEST dr=xql: one limb of xql wrong (K = the low product's number: 1 step 1, 2 step 2) */
         const uint64_t rx = dd_res(xql, G);
         const uint64_t e = dr_submod(dr_submod(g_dd.rA, dr_mulmod(rX, g_dd.rQ)), dr_submod(rAw, rx));
         dr_count(DR_C_DIV, 1);
@@ -1083,7 +1077,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     dd_step(1, dl - s, G);                                             /* C3 D: step 1's context, so A mu is labelled like X_hi Q */
     mn_dkm_est_lean(&Xh, &S, dl - s, nq, k1, &mu, k1 + 1, G);          /* int15k (lean): views instead of copies, Qw in place of Q */
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 1 A mu");   /* int15k: the division's moments (ECALC_VERBOSE >= 2) */
-    { long th = dkm_test_hi(); if (th) mn_dkm_add(&Xh, -th, G); }     /* NEWTON_DKM_TEST_HI (a borrow out of X_hi is fatal in mdb_add_val) */
+    { long th = dkm_test_hi(); if (th) mn_dkm_add(&Xh, -th, G); }     /* ECALC_TEST dkm_hi (a borrow out of X_hi is fatal in mdb_add_val) */
     const size_t Pw = Xh.n ? mn_wrap_plane(nq, w, Xh.n, G) : 0;      /* P1 (DM_MN_WRAP): the low products as L + one cyclic plane */
     mdb Qpp, Ah, T1; memset(&Qpp, 0, sizeof Qpp); memset(&Ah, 0, sizeof Ah); memset(&T1, 0, sizeof T1);
     if (Pw) mn_wrap_a(&Ah, &T1, &S, dl - s, Pw, w, G);                 /* (S's last use) */
@@ -1123,7 +1117,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 2 A mu");
     if (Pw) mn_wrap_a(&Ah, &T1, &R1, s, Pw, w, G);                    /* P1: A2 = R1 B^s's parts (R1's last use) */
     else { mdb_shift(&Aw, &R1, -(long)s, w, G); mfree(&R1); }
-    { long tk = newton_test_corr(); if (tk) mn_dkm_add(&Xl, -tk, G); }  /* Phase 15 K: ECALC_TEST_CORR on X_lo (X - k; a borrow out of X_lo is fatal) */
+    { long tk = newton_test_corr(); if (tk) mn_dkm_add(&Xl, -tk, G); }  /* Phase 15 K: ECALC_TEST corr on X_lo (X - k; a borrow out of X_lo is fatal) */
     if (xhi) {   /* Phase 15 EW -- the X_lo hook (every rank; carry = X_lo0 >= B^s is the group's): released onto X_lo0 unless carry, then the
                   * corrections deferred as today; else added to X_lo0 in place.  X_lo is kept (the division's result) */
         int carry = Xl.n > s;
@@ -1148,7 +1142,6 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
         *X = Xl;
         NST(newton_st.t_div += mem_now() - ta);
         if (g_dd.on) { dr_ctx_clear(); g_dd.on = 0; }   /* C3 D: the division is over; later products carry their own location */
-        mn_comm_mark("division (after the reciprocal)");   /* Phase 16 D */
         if (me == 0) printf("divmod(mn, DKM, X_hi writer) %.2f s: k %zu = %zu + %zu (s), h %zu; reciprocal %.2f (products %.2f), S = P + Q %.2f, step 1 (A mu, X_hi Q, corrections %ld) %.2f, step 2 A mu %.2f, X_lo Q %.2f, corrections %.2f (%ld, %s), R residues %.2f; X_lo0 %s B^s; division products %.2f s; shifts %zu/%.2f s, addsub %zu/%.2f s\n",
                             mem_now() - t0, k, k1, s, h, ta - t0, p_rec, tb - ta, dx1, tc - tb, td - tc, te - td, tf - te, dx, rel ? "deferred" : "in place", mem_now() - tf, carry ? ">=" : "<", mn_st.t_prod - p_rec, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub);
         return;
@@ -1184,11 +1177,10 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     *X = Xn;
     NST(newton_st.t_div += mem_now() - ta);
     if (g_dd.on) { dr_ctx_clear(); g_dd.on = 0; }   /* C3 D: the division is over; later products carry their own location */
-    mn_comm_mark("division (after the reciprocal)");   /* Phase 16 D */
     if (me == 0) printf("divmod(mn, DKM) %.2f s: k %zu = %zu + %zu (s), h %zu; reciprocal %.2f (products %.2f), S = P + Q %.2f, step 1 (A mu, X_hi Q, corrections %ld) %.2f, step 2 A mu + assembly %.2f, X_lo Q %.2f, corrections %.2f (%ld), R residues %.2f; division products %.2f s; shifts %zu/%.2f s, addsub %zu/%.2f s\n",
                         mem_now() - t0, k, k1, s, h, ta - t0, p_rec, tb - ta, dx1, tc - tb, td - tc, te - td, tf - te, dx, mem_now() - tf, mn_st.t_prod - p_rec, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub);
-    if (me == 0) printf("scratch(mn): mdb_shift slabs %.3f GB per node-process at most (MDB_SHIFT_CHUNK_MB=%s), window temporaries T + rbO %.3f GB (MN_T_CHUNK_MB=%s)\n",
-                        mn_st.shift_max * 1e-9, getenv("MDB_SHIFT_CHUNK_MB") ? getenv("MDB_SHIFT_CHUNK_MB") : "1024", rns_dist_tscratch_max * 1e-9, getenv("MN_T_CHUNK_MB") ? getenv("MN_T_CHUNK_MB") : "1024");
+    if (me == 0) printf("scratch(mn): mdb_shift slabs %.3f GB per node-process at most (MDB_SHIFT_CHUNK_MB=%.0f), window temporaries T + rbO %.3f GB (MN_T_CHUNK_MB=%s)\n",
+                        mn_st.shift_max * 1e-9, MDB_SHIFT_CHUNK_MB, rns_dist_tscratch_max * 1e-9, getenv("MN_T_CHUNK_MB") ? getenv("MN_T_CHUNK_MB") : "1024");
 }
 void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, const uint64_t *qs, int nres, uint64_t *pres, uint64_t *qres, uint64_t *rres, double *t_recip)
 {

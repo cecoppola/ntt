@@ -1,6 +1,7 @@
 /* mn.c - the multi-node layer: environment, one mesh per APU thread (xshmem PE sets, COMM_TRANSPORT=xshmem);
  * the start-up self-test */
 #include <stdio.h>
+#include "test_inject.h"
 #include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
@@ -37,23 +38,6 @@ static comm *mesh_create(int pe_start, int pe_stride, int n, int id)   /* every 
 #endif
 }
 int mn_rank(void) { return vpe_on() ? vpe_pe() : g_rank; }   /* the PE rank in process mode, else this node */
-/* MN_COMM_MARK=1 (default 0: off) -- at the end of each tree level, of the reciprocal and of the division, node 0 prints
- * this PE's all-to-all traffic since the previous mark: exchanges, GB received, post-to-completion s summed over the APU threads,
- * GB/s per APU thread, and the wall since the mark -- the per-phase fabric rate (E's step-below run: the step's cost vs the
- * fabric's run-to-run variance).  Reads counters only: no collective, no change to the computation. */
-void mn_comm_mark(const char *what)
-{
-    static int on = -1; static double t0, b0, w0; static long n0;
-    if (on < 0) { const char *e = getenv("MN_COMM_MARK"); on = e && atoi(e) > 0; w0 = mem_now(); }
-    if (!on || !mn_transport_shmem()) return;   /* (one set of counters per process; process mode: every process is its own) */
-    double t = 0, b = 0, w = mem_now(); long n = 0;
-#ifdef XSHMEM_ENGINE
-    comm_xshmem_counters(&t, &n, &b);
-#endif
-    if (mn_rank() == 0) printf("comm-mark %s: %ld exchanges, %.2f GB received, %.2f s post to completion (summed over the APU threads) = %.2f GB/s per APU thread; wall %.2f s\n",
-                            what, n - n0, (b - b0) / 1e9, t - t0, t > t0 ? (b - b0) / 1e9 / (t - t0) : 0, w - w0);
-    t0 = t; b0 = b; n0 = n; w0 = w;
-}
 /* D3: MN_WAIT_STATS=1 (default off; comm.h) -- the time this node blocks in the barrier and in comm_wait, per phase: bs, dm,
  * recip (the reciprocal inside dm) and other.  One line per node, summed over the APU threads; then node 0's max and min
  * over the nodes (a collective on mesh 0, run by every node when on).  Reads counters only: the computation is unchanged. */
@@ -157,7 +141,6 @@ static int mn_init_ppg(void)
     printf("mn: pe %d of %d (node %d of %d, local %d of %d): device %d of %d visible, numa %d, cxi%d (%d NIC%s), one flat communicator over %d PEs over xshmem (one process per PE): created in %.2f s\n",
            pe, npe, node, nn, local, ppn, v[4], ndev, v[5], v[7], v[6], v[6] == 1 ? "" : "s", npe, mem_now() - tx);
     { const char *tl = getenv("ECALC_INIT_TL"); if (tl && atoi(tl) > 0 && pe == 0) printf("tl          mn_init: transport init + identity checks + the flat communicator %.2f s (pe 0; the engine's own lines are `tl ... xshmem:`)\n", mem_now() - tx); }   /* ECALC_INIT_TL=1 (print only) */
-    mn_comm_mark("start (the meshes created)");
     return npe;
 }
 #endif
@@ -194,7 +177,6 @@ int mn_init(void)
         HIP_CHECK(hipSetDevice(0));
         printf("mn: node %d of %d, four meshes of %d PEs over xshmem: created in %.2f s\n", g_rank, g_size, g_size, mem_now() - tx);
         { const char *tl = getenv("ECALC_INIT_TL"); if (tl && atoi(tl) > 0 && g_rank == 0) printf("tl          mn_init: transport init %.2f s, four meshes created %.2f s (node 0; the engine's own lines are `tl ... xshmem:`)\n", t_eng, mem_now() - tx - t_eng); }   /* ECALC_INIT_TL=1 (print only) */
-        mn_comm_mark("start (the meshes created)");   /* the marks' origin */
         return g_size;
     }
 #endif
@@ -497,12 +479,12 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
     memset(&g_dr, 0, sizeof g_dr);
     if (dr_level() >= 2 && mn_size() > 1) {                 /* C3 step 3: seed the tracked residues from the leaf (after the leaf injection) */
         if (t1_q[0] != DR_Q) ec_fatal(EC_RC_FATAL, "mn_tree: DR: t1_q[0] = %llu is not DR_Q\n", (unsigned long long)t1_q[0]);
-        if (P->sh.n && dr_inject(DR_LEAF, 1, mn_rank(), 0, 0)) { uint64_t v = db_limb(&P->sh, P->sh.n / 2); db_set_limb(&P->sh, P->sh.n / 2, v ? v - 1 : 1); }   /* ECALC_DR_TEST=leaf: one limb of P_r wrong */
+        if (P->sh.n && dr_inject(DR_LEAF, 1, mn_rank(), 0, 0)) { uint64_t v = db_limb(&P->sh, P->sh.n / 2); db_set_limb(&P->sh, P->sh.n / 2, v ? v - 1 : 1); }   /* ECALC_TEST dr=leaf: one limb of P_r wrong */
         mdb_trk_make(P, 0, &tp); mdb_trk_make(Q, 0, &tq);
         g_dr.on = 1; g_dr.seed_p = tp.r; g_dr.seed_q = tq.r; dr_arm();
         dr_leaf_check(0);
     }
-    int captest = getenv("MN_TREE_LOGN_TEST") ? atoi(getenv("MN_TREE_LOGN_TEST")) : 0;   /* the tree's levels at a lowered plane cap (grids at 10^10 on one node), the division at its own */
+    int captest = (int)ec_test_long("tree_logn", 0);   /* the tree's levels at a lowered plane cap (grids at 10^10 on one node), the division at its own */
     if (captest) rns_dist_cap_test(captest);
     for (int l = 1; l <= L; l++) {
         int Gl = gs[l - 1], Gp = l > 1 ? gs[l - 2] : 1;       /* this level's group size and the children's (the previous level's) */
@@ -559,7 +541,7 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, md
             memset(&PA.sh, 0, sizeof PA.sh);
         }
         if (mem_live_on()) { char w[64]; if (nch == 2) snprintf(w, sizeof w, "mn node %d tree level %d mul1", mn_rank(), l); else snprintf(w, sizeof w, "mn node %d tree level %d c%d mul1", mn_rank(), l, nch - 1 - i); mem_live_line(w); }   /* the first product's window */
-        if (use) mdb_dr_store_inject(nch == 2 ? Q : &Qr, mn_rank());   /* ECALC_DR_TEST=store, every node calls (the occurrence count must agree): at nch = 2 my child's Q, else the running Q, wrong at rest after the first product */
+        if (use) mdb_dr_store_inject(nch == 2 ? Q : &Qr, mn_rank());   /* ECALC_TEST dr=store, every node calls (the occurrence count must agree): at nch = 2 my child's Q, else the running Q, wrong at rest after the first product */
         lv_force(2 * (nch - 2 - i) + 1);
         if (use) rns_mul_dist_mn_chk(&Qn, &QA, &Qr, 0, G, &tQA, &tQr, 0, &tQn); else rns_mul_dist_mn(&Qn, &QA, &Qr, 0, G);
         if (mem_live_on() && i > 0) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul2", mn_rank(), l, nch - 1 - i); mem_live_line(w); }   /* (the last combine's: the level's line) */
@@ -576,7 +558,6 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, md
     size_t lo, hi; mdb_share(P, mn_rank(), &lo, &hi);
     char kw[48] = ""; if (nch > 2) snprintf(kw, sizeof kw, " (%d children of %d)", nch, gp);
     printf("%smn: %s %d level %d [%d, %d)%s: P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", ec_log_prefix(), mn_who(), mn_rank(), l, g0, g0 + g, kw, P->n, Q->n, lo, hi, mem_now() - t0);
-    { char w[48]; snprintf(w, sizeof w, "tree level %d", l); mn_comm_mark(w); }
 }
 static void groups_finalize(void)
 {

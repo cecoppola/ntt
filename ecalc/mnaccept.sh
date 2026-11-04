@@ -18,8 +18,8 @@
 #          digit flipped (RECHECK FAILED)
 #   corr   Phase 15 KP: forced division corrections on the defaults (packed output, MN_OUT_EARLY=1), at sizes
 #          where e's digits end in a run of 0s / 9s, so the deferred correction's patch rewrites digits inside the file (not only
-#          past d_out): 511461828 at size 1 with ECALC_TEST_CORR=14 (digits [511461818, 511461828]), then ECALC_RECHECK=1 on the
-#          patched file; 108388422 at sizes 2 and 4 with ECALC_TEST_CORR=36 (digits [108388413, 108388422], node 0's part).
+#          past d_out): 511461828 at size 1 with ECALC_TEST=corr=14 (digits [511461818, 511461828]), then ECALC_RECHECK=1 on the
+#          patched file; 108388422 at sizes 2 and 4 with ECALC_TEST=corr=36 (digits [108388413, 108388422], node 0's part).
 #          Each: VERIFY OK on every node, a patch line with bytes rewritten and none FAILED, the digits identical to the first
 #          d + 2 bytes of the 10^9 reference + a newline
 #   full   the standard size at size 1 (--full only; ECALC_STD_DIGITS, default 10^11 since Phase 14, ~5 min; 4 x 10^10 before): the reference evicted from the page
@@ -206,11 +206,11 @@ if want recheck; then
 fi
 
 # ---- Phase 15 KP: forced corrections on the defaults, patching file bytes (results/MEMORY_IO.md §KP15) ------------------------------------
-# corr_check <tag> <procs> <digits> <k> [recheck]: the run with ECALC_TEST_CORR=<k>, the patch lines, the digits against the reference prefix
-corr_check() { local tag=$1 p=$2 d=$3 k=$4 rk=$5 log=$OUT/$1.log f=$TMP/$1.txt rf=$TMP/ref_$3.txt name="corr d=$3 size $2 TEST_CORR=$4" rc c np nb nf
+# corr_check <tag> <procs> <digits> <k> [recheck]: the run with ECALC_TEST=corr=<k>, the patch lines, the digits against the reference prefix
+corr_check() { local tag=$1 p=$2 d=$3 k=$4 rk=$5 log=$OUT/$1.log f=$TMP/$1.txt rf=$TMP/ref_$3.txt name="corr d=$3 size $2 corr=$4" rc c np nb nf
   N "head -c $(( d + 2 )) $REF/e_1000000000.txt > $rf; echo >> $rf"
-  if [ "$p" = 1 ]; then R 600 "env POOL_LOG=29 ECALC_TEST_CORR=$k ./ecalc $d $f" > "$log" 2>&1; rc=$?
-  else M 600 "$p" POOL_LOG=27 ECALC_TEST_CORR=$k ./ecalc "$d" "$f" > "$log" 2>&1; rc=$?; fi
+  if [ "$p" = 1 ]; then R 600 "env POOL_LOG=29 ECALC_TEST=corr=$k ./ecalc $d $f" > "$log" 2>&1; rc=$?
+  else M 600 "$p" POOL_LOG=27 ECALC_TEST=corr=$k ./ecalc "$d" "$f" > "$log" 2>&1; rc=$?; fi
   c=$(N "$PWD/digcmp.sh $f $rf")
   np=$(grep -ac 'patch: X [+-]' "$log"); nf=$(grep -a 'patch: X [+-]\|mn_out: patch' "$log" | grep -ac 'FAILED\|holds\|does not\|cannot\|not this run')
   nb=$(grep -a 'patch: digits' "$log" | grep -ao '[0-9]* bytes in [1-9]' | head -1)

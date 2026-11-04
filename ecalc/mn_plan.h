@@ -36,7 +36,7 @@ int mn_level_uniform(void);
 int mn_level_grids(unsigned long N, int size, int Gl, int Gp, int *tab, int maxc);
 /* the plane pools' bytes per APU that b_fits / b_place read (0, 0: the real pools again) */
 void rns_dist_plan_pools(size_t pool0_bytes, size_t pool1_bytes);
-/* MN_TREE_LOGN_TEST's cap for the plan (rns_dist_cap_test without releasing the transform cache, which needs a device) */
+/* ECALC_TEST tree_logn's cap for the plan (rns_dist_cap_test without releasing the transform cache, which needs a device) */
 void rns_dist_plan_cap_test(int logn);
 /* the plan's `plan cache` line (the mn transform cache: where first wanted, the default's slots, RNS_DIST_CACHE_FIT's) */
 void rns_dist_cache_plan(int size, int pool_log, int np0, long grids_tree, long grids_recip, long grids_div, double node_bytes);

@@ -109,9 +109,10 @@ static void t_cyc(rng_t *r)                         /* U = A B mod (B^P - 1): U 
     }
     mpz_clears(A, Bz, U, T, M, B, NULL);
 }
+static void T(const char *v) { if (v) setenv("ECALC_TEST", v, 1); else unsetenv("ECALC_TEST"); }
 static void t_inject(void)
 {
-    setenv("ECALC_DR", "1", 1); setenv("ECALC_DR_TEST", "flag", 1); setenv("ECALC_DR_TEST_K", "3", 1); setenv("ECALC_DR_TEST_PE", "-1", 1); setenv("ECALC_DR_TEST_N", "2", 1);
+    setenv("ECALC_DR", "1", 1); T("dr=flag,dr_k=3,dr_pe=-1,dr_n=2");
     dr_init_from_env();
     VERIFY(dr_level() == 1 && dr_on() && dr_test_kind() == DR_FLAG && dr_test_k() == 3 && dr_test_pe() == -1 && dr_test_n() == 2, "parse");
     VERIFY(!dr_inject(DR_FLAG, 2, 0, 0, 0), "wrong occurrence");
@@ -123,15 +124,14 @@ static void t_inject(void)
     VERIFY(!dr_inject(DR_FLAG, 3, 5, 0, 0), "a later piece after N attempts");
     VERIFY(dr_inject(DR_FLAG, 3, 6, 1, 0), "another thread slot has its own latch");
     VERIFY(dr_counter(DR_C_INJECTED) == 3, "injected counter %zu", dr_counter(DR_C_INJECTED));
-    setenv("ECALC_DR_TEST_PE", "2", 1); setenv("ECALC_DR_TEST_N", "1", 1); dr_init_from_env();
+    T("dr=flag,dr_k=3,dr_pe=2,dr_n=1"); dr_init_from_env();
     VERIFY(!dr_inject(DR_FLAG, 3, 1, 2, 0), "other PE");
     VERIFY(dr_inject(DR_FLAG, 3, 2, 2, 0), "this PE");
     VERIFY(!dr_inject(DR_FLAG, 3, 2, 2, 1), "N = 1: no second attempt");
-    setenv("ECALC_DR_TEST_PE", "-1", 1); setenv("ECALC_DR_TEST_M", "2", 1); dr_init_from_env();
+    T("dr=flag,dr_k=3,dr_pe=-1,dr_n=1,dr_m=2"); dr_init_from_env();
     VERIFY(dr_test_m() == 2 && dr_inject(DR_FLAG, 3, 0, 4, 0) && !dr_inject(DR_FLAG, 3, 0, 4, 0), "M = 2: first product, one latch");
     VERIFY(dr_inject(DR_FLAG, 4, 0, 4, 0) && !dr_inject(DR_FLAG, 5, 0, 4, 0) && !dr_inject(DR_FLAG, 2, 0, 5, 0), "M = 2: the second product fires again, the third and the one before do not");
-    unsetenv("ECALC_DR_TEST_M");
-    setenv("ECALC_DR", "0", 1); unsetenv("ECALC_DR_TEST"); dr_init_from_env();
+    setenv("ECALC_DR", "0", 1); T(NULL); dr_init_from_env();
     VERIFY(!dr_on() && dr_test_kind() == -1 && !dr_inject(DR_FLAG, 3, 2, 3, 0), "off");
     dr_count(DR_C_CHECK, 4); dr_count(DR_C_FAIL, 1); VERIFY(dr_counter(DR_C_CHECK) == 4 && dr_counter(DR_C_FAIL) == 1, "counters");
     char w[160]; dr_ctx_set("tree", 3, 0, 4, 2, 1, -1); dr_where(w, sizeof w);
@@ -139,15 +139,15 @@ static void t_inject(void)
     dr_ctx_clear(); VERIFY(dr_where(w, sizeof w) == 0 && !w[0], "where cleared");
     VERIFY(dr_total_cap() == 8, "default total cap"); setenv("ECALC_DR_TOTAL", "3", 1); dr_init_from_env(); VERIFY(dr_total_cap() == 3, "total cap");
     unsetenv("ECALC_DR_TOTAL"); dr_init_from_env();
-    setenv("ECALC_DR", "3", 1); setenv("ECALC_DR_TEST", "leaf,leafslow", 1); dr_init_from_env();
+    setenv("ECALC_DR", "3", 1); T("dr=leaf+leafslow"); dr_init_from_env();
     VERIFY(dr_test_kind() == DR_LEAF && dr_test_leafslow(), "kind list: leaf + leafslow");
-    setenv("ECALC_DR_TEST", "leafslow", 1); dr_init_from_env();
+    T("dr=leafslow"); dr_init_from_env();
     VERIFY(dr_test_kind() == -1 && dr_test_leafslow() && !dr_inject(DR_LEAF, 1, 0, 0, 0), "leafslow alone injects nothing");
-    setenv("ECALC_DR_TEST", "xql", 1); setenv("ECALC_DR_TEST_K", "2", 1); dr_init_from_env();
+    T("dr=xql,dr_k=2"); dr_init_from_env();
     VERIFY(dr_test_kind() == DR_XQL && !dr_test_leafslow() && !dr_inject(DR_XQL, 1, 0, 0, 0) && dr_inject(DR_XQL, 2, 0, 0, 0), "xql, K = 2");
-    setenv("ECALC_DR_TEST", "cyc", 1); unsetenv("ECALC_DR_TEST_K"); dr_init_from_env();
+    T("dr=cyc"); dr_init_from_env();
     VERIFY(dr_test_kind() == DR_CYC && dr_inject(DR_CYC, 1, 0, 0, 0), "cyc");
-    unsetenv("ECALC_DR_TEST"); setenv("ECALC_DR", "0", 1); dr_init_from_env();
+    T(NULL); setenv("ECALC_DR", "0", 1); dr_init_from_env();
 }
 int main(void)
 {

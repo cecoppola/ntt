@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "dr.h"
+#include "test_inject.h"
 
 typedef unsigned __int128 u128;
 
@@ -17,22 +18,22 @@ void dr_init_from_env(void)
     g.level = (int)lv;
     long tot = atol_d(getenv("ECALC_DR_TOTAL"), 8); g.total = tot < 1 ? 1 : (int)tot;
     g.kind = -1; g.k = 1; g.pe = 0; g.n = 1; g.m = 1;
-    const char *t = getenv("ECALC_DR_TEST");
+    char tb[96]; const char *t = ec_test_str("dr", tb, sizeof tb);
     g.slow = 0;
-    if (t && *t && strcmp(t, "0")) {   /* a comma list: one kind, and the modifier leafslow */
+    if (t && *t && strcmp(t, "0")) {   /* one kind, and the modifier leafslow, joined by + */
         char buf[96]; snprintf(buf, sizeof buf, "%s", t);
-        for (char *sp = 0, *tok = strtok_r(buf, ",", &sp); tok; tok = strtok_r(0, ",", &sp)) {
+        for (char *sp = 0, *tok = strtok_r(buf, "+", &sp); tok; tok = strtok_r(0, ",", &sp)) {
             if (!strcmp(tok, "leafslow")) { g.slow = 1; continue; }
             int f = -1;
             for (int i = 0; i < DR_NKINDS; i++) if (!strcmp(tok, KN[i])) f = i;
-            if (f < 0 || g.kind >= 0) { fprintf(stderr, "ECALC_DR_TEST=%s: unknown kind or two kinds (flag, deliver, store, xql, cyc, leaf; the modifier leafslow)\n", t); exit(2); }
+            if (f < 0 || g.kind >= 0) { fprintf(stderr, "ECALC_TEST dr=%s: unknown kind or two kinds (flag, deliver, store, xql, cyc, leaf; the modifier leafslow)\n", t); exit(2); }
             g.kind = f;
         }
         if (g.kind >= 0) {
-            long k = atol_d(getenv("ECALC_DR_TEST_K"), 1); g.k = k < 1 ? 1 : (int)k;
-            long pe = atol_d(getenv("ECALC_DR_TEST_PE"), 0); g.pe = pe < 0 ? -1 : (int)pe;
-            long n = atol_d(getenv("ECALC_DR_TEST_N"), 1); g.n = n < 1 ? 1 : (int)n;
-            long m = atol_d(getenv("ECALC_DR_TEST_M"), 1); g.m = m < 1 ? 1 : (int)m;
+            long k = ec_test_long("dr_k", 1); g.k = k < 1 ? 1 : (int)k;
+            long pe = ec_test_long("dr_pe", 0); g.pe = pe < 0 ? -1 : (int)pe;
+            long n = ec_test_long("dr_n", 1); g.n = n < 1 ? 1 : (int)n;
+            long m = ec_test_long("dr_m", 1); g.m = m < 1 ? 1 : (int)m;
         }
     }
     g.init = 1;

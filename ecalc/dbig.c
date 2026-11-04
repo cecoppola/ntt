@@ -377,8 +377,7 @@ void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of 
 {
     struct vmm *v = &g_vmm[dev]; double t0 = mem_now();
     size_t C = db_pool_vmm_chunk();
-    const char *e = getenv("DB_POOL_VMM_RESERVE"); double rf = e ? atof(e) : 3.0; if (rf < 1.0) rf = 1.0;
-    int m0 = (int)((bytes + C - 1) / C), nslot = (int)(m0 * rf) + 1; if (nslot < m0 + 1) nslot = m0 + 1;
+    int m0 = (int)((bytes + C - 1) / C), nslot = m0 * 3 + 1; if (nslot < m0 + 1) nslot = m0 + 1;
     int nd; HIP_CHECK(hipGetDeviceCount(&nd)); if (nd > DB_NQ) nd = DB_NQ;
     mapd_request(dev, 1, m0, C, 1);                               /* ECALC_MAPD=1: the helper of this APU starts creating the m0 chunks, then exits (no-op otherwise) */
     v->chunk = C; v->nslot = nslot; v->nd = nd; v->reserved = (size_t)nslot * C; v->h = (hipMemGenericAllocationHandle_t *)calloc(nslot, sizeof *v->h);
@@ -386,7 +385,6 @@ void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of 
     size_t gran = 0; if (hipMemGetAllocationGranularity(&gran, &prop, hipMemAllocationGranularityRecommended) != hipSuccess || !gran) gran = (size_t)2 << 20;
     if (hipMemAddressReserve((void **)&v->base, v->reserved, gran, 0, 0) != hipSuccess) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: APU %d: cannot reserve %.1f GB of VA\n", dev, v->reserved / 1e9); }
     int m1 = (int)((first + C - 1) / C); if (m1 > m0 || first == 0) m1 = m0;
-    { const char *eb = getenv("ECALC_VMM_BG"); if (eb && atoi(eb) == 0) m1 = m0; }   /* s34: ECALC_VMM_BG=0 maps every chunk here, in the calling thread, and starts no background mapper (the rc139 crash is hipMemMap inside vmm_bg_map); default 1 = unchanged */
     v->m0 = m0; v->bytes = bytes; v->mapped = 0; v->bg_on = 0;
     v->mark_m = first ? (int)((2 * first + C - 1) / C) : m0; if (v->mark_m > m0) v->mark_m = m0;   /* binsplit.c's arena_get passes the parity half as `first`; level 1 waits for 2 first */
     double tm = mem_now(); db_tl("APU%d arena: mapping chunks 0..%d of %d (the parity-0 half)", dev, m1 - 1, m0);

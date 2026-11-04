@@ -3,7 +3,7 @@
  *
  *   switch   ECALC_DR = 0 (default: off, the code paths are the unchanged ones), 1 = the CRT flag of a P24 piece in mn_core is a
  *            collective retry (step 2), 2 = + the residue identity of the tree products (step 3), 3 = + the division checks (step 4).
- *            ECALC_DR_TOTAL (default 8) = the most failures a run survives; ECALC_DR_TEST[_K|_PE|_N|_M] = fault injection (below).
+ *            ECALC_DR_TOTAL (default 8) = the most failures a run survives; ECALC_TEST dr[_k|_pe|_n|_m] = fault injection (below).
  *   context  dr_ctx_set / dr_where: the phase a product runs in, for the location in a failure line (set on the main thread).
  *   counters the exit summary line (dr_summary).
  *   residues the host helpers of the tracked-residue checks: arithmetic modulo the 62-bit prime DR_Q (= t1_q[0] of verify.c), B^e,
@@ -27,7 +27,7 @@ static inline int dr_on(void) { return dr_level() > 0; }
 int dr_total_cap(void);                        /* ECALC_DR_TOTAL (default 8): failures per run before the run stops */
 void dr_init_from_env(void);                   /* parse the environment again (tests); the first use of any function does it once */
 
-/* ---- fault injection: ECALC_DR_TEST=<kind>, _K = the k-th occurrence (default 1), _PE = one PE (default 0; -1 = every PE), _N = consecutive attempts (default 1; 2 = persistent), _M = consecutive products from the K-th (default 1) ---- */
+/* ---- fault injection: ECALC_TEST dr=<kind>, _K = the k-th occurrence (default 1), _PE = one PE (default 0; -1 = every PE), _N = consecutive attempts (default 1; 2 = persistent), _M = consecutive products from the K-th (default 1) ---- */
 enum { DR_FLAG, DR_DELIVER, DR_STORE, DR_XQL, DR_CYC, DR_LEAF, DR_NKINDS };
 #define DR_SLOTS 16                            /* latches: one per local worker thread */
 int dr_test_kind(void);                        /* the kind, or -1 */
@@ -35,7 +35,7 @@ int dr_test_k(void);
 int dr_test_pe(void);
 int dr_test_n(void);
 int dr_test_m(void);
-int dr_test_leafslow(void);                    /* ECALC_DR_TEST=...,leafslow (a modifier, alone or beside a kind): the T1 recurrence of the leaf waits for the division's start (test only: the leaf check's deferred path) */
+int dr_test_leafslow(void);                    /* ECALC_TEST dr=...,leafslow (a modifier, alone or beside a kind): the T1 recurrence of the leaf waits for the division's start (test only: the leaf check's deferred path) */
 /* 1 if this site injects now: kind matches, occurrence occ == K, pe == _PE (or _PE = -1), and this is the attempt the latch of `slot` is on (< N attempts in a row,
  * starting at the first matching site).  Counts the injection. */
 int dr_inject(int kind, size_t occ, int pe, int slot, int attempt);
