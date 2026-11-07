@@ -19,11 +19,10 @@ Validation errors (exit 1): a key that is not a registered switch (ecalc/switche
 closest name; a value still `__FILL__`; a line that is not KEY=value; a duplicate key; a profile that cannot be sourced.
 Nothing is launched (except CMD with --run) and no file is written.
 """
-import os, re, sys, glob, shlex, subprocess, difflib, locale
+import os, re, sys, glob, shlex, subprocess, difflib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXTERNAL = re.compile(r"^(SLURM_|PMI_|SHMEM_|FI_|OMPI_|XT_|HIP_|ROC|HSA_|OMP_|MPICH_|CRAY_|LD_)")
-UNSET_MARK = "__UNSET__"
 # profile keys that describe the profile or the site (read by people, by no script): accepted, never exported
 META_KEYS = ("LAUNCH_LINE_KEYS", "TARGET_PARTITION", "TARGET_NODES", "ECALC_OUT_DIR")
 
@@ -129,22 +128,6 @@ CHECK_DOC = """profile_load.py PROFILE --check [-q] [--strict]   (read-only drif
     UNFILLED        the value is __FILL__
     UNKNOWN         a name found nowhere in ecalc/*.c|*.h|*.sh, ecalc/Makefile, tools/ (FI_* SHMEM_* XT_* OMPI_* SLURM_* are EXTERNAL)"""
 CHECK_EXT = ("FI_", "SHMEM_", "XT_", "OMPI_", "SLURM_")
-
-
-def _lsort(lines):
-    """sort -u in the caller's locale (the order the shell version printed)"""
-    try:
-        locale.setlocale(locale.LC_COLLATE, "")
-        key = locale.strxfrm
-    except locale.Error:
-        key = None
-    return sorted(set(lines), key=key)
-
-
-def _bash(script, *args, env_i=False):
-    env = {"HOME": os.environ.get("HOME", ""), "PATH": os.environ.get("PATH", "")} if env_i else None
-    r = subprocess.run(["bash", "-c", script, "_"] + list(args), stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
-    return r.returncode, r.stdout.decode(errors="replace"), r.stderr.decode(errors="replace")
 
 
 def launch_line(path):

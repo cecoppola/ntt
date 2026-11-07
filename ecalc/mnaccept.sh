@@ -1,40 +1,11 @@
 #!/bin/bash
-# mnaccept.sh <jobid> [--full] [--only <step,...>] - the standing regression of ecalc (archive:PLAN §21 D3:
-# the integrator's verify*.sh scripts made permanent).  Run on the login node from the ecalc/ of any
-# clone against a one-node allocation (sbatch ... --wrap "sleep 2700"); everything runs on the node
-# through srun / mnrun.sh, the digits go to the node's local /tmp, the logs to results/mnaccept/<jobid>/.
-# One pass/fail line per step as it completes, a summary at the end, exit status = number of failures.
-#
-# Steps (--only picks a subset; --full adds the last):
-#   unit   t_ntt 24, t_mul 20, t_bs, t_dbig 0, t_newton 20, t_verify, t_out, t_patch (Phase 15 KP), t_arith (modarith, roots, primes gpu), t_crt, t_p24, t_p24crt, t_crtk, t_strategy 20, t_seed, t_dist, t_mn_grid at 2 node-processes
-#   e9     10^9 at size 1 (decimal limbs; the binary-limb run was archived with archive:PLAN §28.5), cmp'd against the reference
-#   mn     10^8 at sizes 2, 3, 4 and 10^9 at sizes 2, 4 on one node (the part files concatenated and cmp'd)
-#   ckpt   the top-level set (the only checkpoint; no restart inside a run, decision D11) at 10^8, size 2, in BS_CKPT_DIR:
-#          ECALC_CKPT_TOP=1 writes one tree set per node (no other set) and ECALC_RECHECK=1 reads P, Q from it (RECHECK OK);
-#          ECALC_CKPT_TOP=2 with an emulated 1 MB/s disk (BS_CKPT_BG_MBS=1) drops the set (ABANDONED, no header left);
-#          BS_CKPT_DIR alone writes nothing.  Every run VERIFY OK on both nodes and identical to the reference
-#   recheck 10^9 at size 1 and 10^8 at size 2 with the top-level P, Q set (ECALC_CKPT_TOP=1, the default <outfile>.top), then
-#          ECALC_RECHECK=1 on their files (RECHECK OK on every node, P and Q from the checkpoint) and on a copy with one
-#          digit flipped (RECHECK FAILED)
-#   corr   Phase 15 KP: forced division corrections on the defaults (packed output, MN_OUT_EARLY=1), at sizes
-#          where e's digits end in a run of 0s / 9s, so the deferred correction's patch rewrites digits inside the file (not only
-#          past d_out): 511461828 at size 1 with ECALC_TEST_CORR=14 (digits [511461818, 511461828]), then ECALC_RECHECK=1 on the
-#          patched file; 108388422 at sizes 2 and 4 with ECALC_TEST_CORR=36 (digits [108388413, 108388422], node 0's part).
-#          Each: VERIFY OK on every node, a patch line with bytes rewritten and none FAILED, the digits identical to the first
-#          d + 2 bytes of the 10^9 reference + a newline
-#   full   the standard size at size 1 (--full only; ECALC_STD_DIGITS, default 10^11 since Phase 14, ~5 min; 4 x 10^10 before): the reference evicted from the page
-#          cache first, the wall printed, digits cmp'd against results/e_4e10.out; then ECALC_RECHECK=1 on its files
-#          (the top-level set the run wrote by default into <outfile>.top) -- a second PASS/FAIL line with its time
-#   stress 10 runs of 10^9 at size 4 with a plane pool forced to grow inside bs (--stress only, ~ 10 min; Phase 12 R):
-#          RNS_POOL_GROW=1 POOL_LOG=27 RNS_POOL1_GB=0.4 RNS_BATCH_LOCAL_MIN=2 MEM_DPOOL_FILL=1 -- pool 1 at 381 MiB
-#          against the batch-local tiles' 512 MiB of B planes (EC_NP x L x 8 at the pool-0-capped tile), so the tier
-#          grows it inside bs (the growth is logged and required in every run) and the grown pool is filled with 0xA5;
-#          every run must be identical with all 4 nodes VERIFY OK
-# References: ref/e_<digits>.txt of this clone or, when absent, ECALC_REF (default ~/ntt/ecalc/ref);
-# the 4e10 file ECALC_REF_4E10 (default ~/ntt/ecalc/results/e_4e10.out).
-# Phase 16 A (archive:results_merged_2026-10-24/AAC7_PORT.md §A16): MNRUN_MODULES (the module line of R(); mnrun.sh's default), MNRUN_CPUS_PER_TASK (srun -c for R();
-# `auto` = the node's CPUs: aac7 confines a task to 2 CPUs otherwise), MNACCEPT_TMP (the digits' directory on the node; default
-# /tmp/mnaccept_<jobid> -- aac7's /tmp is RAM, so a directory under $HOME there).
+# mnaccept.sh <jobid> [--full] [--stress] [--skip-grid] [--only <step,...>] - the standing regression of ecalc against a one-node hold; run it on the login node from ecalc/.
+# Runs on the node through srun / mnrun.sh, digits in the node's TMP, logs in results/mnaccept/<jobid>/; one PASS/FAIL line per step, exit status = number of failures.
+# Steps: unit (the t_* tests, t_mn_grid at 2 procs), e9 (1e9 at size 1 vs the reference), mn (1e8 at sizes 2,3,4; 1e9 at 2,4), ckpt (top-level set written, rechecked,
+#   dropped under budget, absent without ECALC_CKPT_TOP), recheck (ECALC_RECHECK on a run's files and on a copy with one digit flipped), corr (forced division corrections
+#   whose patch rewrites digits inside the file), full (--full: ECALC_STD_DIGITS, default 1e11, + recheck), stress (--stress: 10 runs of 1e9 at size 4 with forced pool growth).
+# References: ref/e_<digits>.txt of this clone, else ECALC_REF (the directory), else $HOME/ref; the standard-size file ECALC_REF_STD.
+# MNRUN_MODULES, MNRUN_CPUS_PER_TASK (srun -c for R(); auto = the node's CPUs), MNACCEPT_TMP (digit directory; default /tmp/mnaccept_<jobid>, a shared one on multi-node holds).
 J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--stress] [--skip-grid] [--only unit,grid,e9,mn,ckpt,recheck,corr,full,stress]"; exit 2; }
 FULL=0; STRESS=0; ONLY=""; NOGRID=${MNACCEPT_SKIP_GRID:-0}
 while [ $# -gt 0 ]; do case $1 in --full) FULL=1;; --stress) STRESS=1;; --only) ONLY=$2; shift;; --skip-grid) NOGRID=1;; *) echo "unknown option $1"; exit 2;; esac; shift; done

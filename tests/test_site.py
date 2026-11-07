@@ -3,7 +3,7 @@
 
     python3 -m unittest discover -s tests          # from the repository root
 """
-import os, re, subprocess, sys, tempfile, shutil, stat, unittest, importlib.util
+import os, re, subprocess, sys, tempfile, shutil, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

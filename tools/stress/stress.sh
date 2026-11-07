@@ -12,7 +12,7 @@
 #   --ref auto: the sha256 of the first D digits of the 1e11 reference (up to 1e11 digits; computed once, cached in the stress folder) against the sha256 of each run's unpacked digits;
 #   none: no digit file is written (VERIFY and flags only); FILE: a file holding the expected sha256.
 #   --nic: around the first run, node snapshots before and after (remote/run/nodesnap.sh) and the kit's NIC delta (rl_nicdiff of remote/run/lib.sh) -> OUT/nic.txt.
-#   Writes OUT/summary.md (tools/stress/summarize.py) and the marker OUT/DONE (always, last); removes the digit files.  STOP file in OUT = stop after the current run.
+#   Writes OUT/summary.md (`summarize` below) and the marker OUT/DONE (always, last); removes the digit files.  STOP file in OUT = stop after the current run.
 #   Environment overrides: STRESS_CACHE = folder of the cached reference hashes (default: the folder `stress` in the home directory); ECALC_REF = the reference digits
 #   file, ASCII "2." + digits, at least D + 3 bytes (default: the file `ref/e_1e11.out` in the home directory).
 # Never put credentials or host names in this file.
@@ -32,9 +32,29 @@ DIG=$(awk -v d="$DIGITS" 'BEGIN { printf "%.0f", d }'); [ "$DIG" -gt 0 ] 2>/dev/
 mkdir -p "$OUT/keep" || exit 2; OUT=$(cd "$OUT" && pwd); rm -f "$OUT/DONE"; T0=$(date +%s)
 [ -n "$ARMS" ] || ARMS=$(for k in 0 1; do for s in 0 1; do for d in 0 1; do for r in 0 1; do echo "k${k}s${s}d${d}r${r}"; done; done; done; done)
 say() { echo "$(date +%T) stress: $*" | tee -a "$OUT/log.txt"; }
+# the arms table of runs.tsv as markdown: runs, clean, rc!=0, VERIFY missing, CRT flags, P24 flags, digit diffs, remaps (forced), mean wall
+summarize() { python3 -I - "$OUT" <<'PY'
+import csv, os, sys
+d = sys.argv[1]; p = os.path.join(d, "runs.tsv")
+if not os.path.exists(p): sys.exit("no runs.tsv")
+K = "runs ok rc vf crt p24 dd rem frc".split(); arms = {}
+for r in csv.DictReader(open(p), delimiter="\t"):
+    a = arms.setdefault(r["arm"], dict.fromkeys(K, 0)); a.setdefault("wall", []).append(float(r["wall_s"]))
+    clean = r["rc"] == "0" and r["verify"] == "OK" and r["crtflag"] == "0" and r["p24flags"] == "0" and r["digits"] in ("identical", "nofile")
+    for k, v in zip(K, (1, clean, r["rc"] != "0", r["verify"] != "OK" and r["rc"] == "0", r["crtflag"] != "0", int(r["p24flags"]), r["digits"] == "DIFFERS", int(r["remaps"]), int(r["forced"]))): a[k] += v
+print("| arm | runs | clean | rc!=0 | VERIFY missing/failed | CRT flags | P24 flags | digit diffs | remaps (forced) | mean wall s |\n|---|---|---|---|---|---|---|---|---|---|")
+T = dict.fromkeys(K, 0)
+for k in sorted(arms):
+    a = arms[k]; print("| %s | %d | %d | %d | %d | %d | %d | %d | %d (%d) | %.1f |" % ((k,) + tuple(a[x] for x in "runs ok rc vf crt p24 dd rem frc".split()) + (sum(a["wall"]) / len(a["wall"]),)))
+    for f in K: T[f] += a[f]
+print("| total | %d | %d | %d | %d | %d | %d | %d | %d (%d) | |" % tuple(T[x] for x in K))
+kp = os.path.join(d, "keep")
+if os.path.isdir(kp) and os.listdir(kp): print("\nlogs kept (anomalies): " + ", ".join(sorted(os.listdir(kp))))
+PY
+}
 finish() {
   rm -f "$OUT"/e.out "$OUT"/e.out.* 2>/dev/null
-  python3 -I "$HERE/summarize.py" "$OUT" > "$OUT/summary.md" 2>&1; cat "$OUT/summary.md" | tee -a "$OUT/log.txt" | head -60
+  summarize > "$OUT/summary.md" 2>&1; cat "$OUT/summary.md" | tee -a "$OUT/log.txt" | head -60
   squeue -s -j "$HOLD" 2>/dev/null | tail -n +2 > "$OUT/steps_left.txt"
   echo "done $(date +%T) elapsed $(( $(date +%s) - T0 )) s" > "$OUT/DONE"
 }

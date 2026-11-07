@@ -3,7 +3,7 @@
 #   nodesnap.sh [static]       static adds the once-per-run facts (kernel, numastat, amd-smi static, cxi_stat); every call: time, uptime, /proc/meminfo,
 #                              amd-smi metric (rocm-smi when there is no amd-smi), "## nic" = the Slingshot NIC counters, one "nic <cxiN> <name> <value>" line per
 #                              NONZERO counter of /sys/class/cxi/*/device/telemetry (that file's "value@time" read).  Every tool is optional; a missing one is skipped.
-#                              "## health" = tools/nodehealth.sh: EDAC uncorrectable / correctable totals and the boot time (the kit reads before / after: per-run deltas, a reboot
+#                              "## health" = tools/nodescreen.sh --health: EDAC uncorrectable / correctable totals and the boot time (the kit reads before / after: per-run deltas, a reboot
 #                              in between; NIC error classes are in "## nic": hni_pcs_* FEC, hni_pause_*, hni_*_paused_*, hni_*stall*, hni_llr_*, drops).
 #   nodesnap.sh nic-sel        only the traffic / pause counters read by monitor.sh (about 55 per NIC, ~0.5 s for 8 NICs)
 t() { timeout 20 "$@" 2>&1; }
@@ -25,7 +25,7 @@ case ${1:-} in
 esac
 echo "## time"; date +%s.%N; date '+%F %T %Z'
 echo "## host"; hostname; uptime
-echo "## health"; bash "$(dirname "${BASH_SOURCE[0]}")/../../tools/nodehealth.sh" 2>&1 | head -3   # EDAC ue/ce totals + boot time (C4)
+echo "## health"; bash "$(dirname "${BASH_SOURCE[0]}")/../../tools/nodescreen.sh" --health 2>&1 | head -3   # EDAC ue/ce totals + boot time (C4)
 if [ "${1:-}" = static ]; then
     echo "## kernel"; uname -a; head -4 /etc/os-release 2>/dev/null
     echo "## cmdline"; cat /proc/cmdline 2>/dev/null

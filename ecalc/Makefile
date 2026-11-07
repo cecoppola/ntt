@@ -37,9 +37,12 @@ HDRS  = $(wildcard *.h)                 # every object and test depends on every
 
 all: $(REF) $(OBJS) $(TESTS) ecalc tools
 
-# the packed digit converter / checker (default output) is part of every build
-tools:
-	$(MAKE) -s -C ../tools
+# the packed digit converter / checker (default output) and the writer benchmark; no -march=native (built on a login node, run on compute nodes)
+TOOLS = ../tools/unpack_digits ../tools/wbench
+tools: $(TOOLS)
+$(TOOLS): ../tools/%: ../tools/%.c
+	$(CC) -O3 -Wall -fopenmp -pthread -o $@ $<
+../tools/unpack_digits: packed_fmt.h
 
 ecalc: ecalc.c $(OBJS) $(HDRS)
 	$(HIPC) $< -x none $(OBJS) -o $@ $(XSHMEM_LIBS)
@@ -97,7 +100,7 @@ ref/gen_e: ref/gen_e.c tests/sha256.h
 	gcc $(CFLAGS) -o $@ $< $(GMP_LIBS) -lm
 
 clean:
-	rm -f $(REF) $(TESTS) $(OBJS) ecalc
+	rm -f $(REF) $(TESTS) $(OBJS) ecalc $(TOOLS)
 
 .PHONY: all clean tools
 

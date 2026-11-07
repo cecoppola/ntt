@@ -263,7 +263,7 @@ ab_main() {   # SHAPE NODES DIGITS "ORDER" BASE TQ : the common A/B item (arms i
 
 # ------------------------------------------------------------------------------------------------------------ wbench (io items)
 wb_bin() { local w; w=$(tool 1 tools/wbench); if [ "$w" = 0 ]; then
-        _ec_path 1 >/dev/null 2>&1; bash -lc "cd '$EC_DIR/../tools' && make wbench unpack_digits" > "$OUT/raw/make_tools.log" 2>&1; w=$(tool 1 tools/wbench); fi; echo "$w"; }
+        _ec_path 1 >/dev/null 2>&1; bash -lc "make -C '$EC_DIR' tools" > "$OUT/raw/make_tools.log" 2>&1; w=$(tool 1 tools/wbench); fi; echo "$w"; }
 wb_dir() { local d=${TGT_SCRATCH:-${ECALC_OUT_DIR:-$TGT_ROOT/build/scratch}}/${ID:-io}-$$; mkdir -p "$d" && echo "$d"; }
 wb_kv() {     # LOG PREFIX : wbench lines (one per rank) -> nodes, write/read GB/s aggregate (sum), mean, min, max per node
     _cat "$1" | grep -a '^wbench ' > "$OUT/raw/$2.wb" || true

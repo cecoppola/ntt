@@ -3,7 +3,6 @@ Run: python3 -m unittest discover -s tests   (from the repository root), or pyth
 import importlib.util
 import io
 import os
-import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout, redirect_stderr

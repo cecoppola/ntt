@@ -16,6 +16,6 @@ results/*
 __pycache__/
 *.pyc
 
-# built by tools/Makefile
+# built by `make tools` in ecalc
 tools/unpack_digits
 tools/wbench

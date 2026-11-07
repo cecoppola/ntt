@@ -49,34 +49,20 @@ NODE_GB_MARGIN = 480.0          # the safe budget (DECISIONS2 7: 480 GB)
 LIMB_DIGITS = 18                # decimal limbs (RESULTS 67)
 EC_NP = 4
 K_CHUNKS = 8                    # the slab pipeline (M7; DIST_CHUNKS)
-CACHE_MN_SLOTS = int(os.environ.get('MN_MODEL_CACHE_SLOTS', '2'))   # RNS_DIST_CACHE_MN default over shares (archive:results_merged_2026-10-24/GRID_GROUPS.md §G); Phase 15 CX: MN_MODEL_CACHE_SLOTS=n prices n
-                                # slots (0: the cache off -- what the 480 GB budget allows at the target, results/TRANSPORT.md, CX15.md)
-CACHE_MODEL = os.environ.get('MN_MODEL_CACHE', 'code')   # Phase 15 CX (results/TRANSPORT.md): 'code' = the hits as the code takes them (cache_pieces: the slots'
-                                # designation, the cuts' skips, the planes' q) x CACHE_HIT_F; 'old' = the term before CX (at >= 2 slots every piece after
-                                # the first with one operand cached; nothing at 1 slot)
-CACHE_HIT_F = 0.96              # Phase 15 CX: a hit's saving as a fraction of its piece, measured over modelled (piece_cost fwd=2 - fwd=1 over fwd=2 on the aac6
-                                # fabric, the same pieces) -- FITTED on aac6, results/TRANSPORT.md: tests/cx_grid (the target's 9 grid shapes at cap 2^27, cache
-                                # 0/1/2 interleaved; 489 hit pieces) 1.043 at 2 node-processes, 0.976 at 4; ecalc 1e10 end to end (the hit pieces against
-                                # themselves in the cache-off run) 0.965 at 2 (4 runs), 0.840 at 4 (4 runs); mean 0.956.  The model's structure (1 of the 3
-                                # transforms per prime, one redistribution) holds within -16..+4 %; ASSUMED to carry to the target's fabric
-# Phase 15 CX proposals (archive:repo_cl6_2026-10-25/results/CACHE.md section 3; off unless set): CACHE_PRIMES = k -> a slot holds k of the piece's primes (k / np of a hit's transform
-# saving, no redistribution saved); CACHE_LOOP = 'long' -> mn_grid's loop along the grid's longer axis (the slots follow); CACHE_SLOTS_PHASE =
-# {'tree': n, 'dm': n} -> the slots per phase (the tree's arena slack, the division's room); cache_slots_now() is what _product_cost prices
+CACHE_MN_SLOTS = int(os.environ.get('MN_MODEL_CACHE_SLOTS', '2'))   # RNS_DIST_CACHE_MN slots (0 = cache off; results/TRANSPORT.md)
+CACHE_MODEL = os.environ.get('MN_MODEL_CACHE', 'code')   # 'code' = hits as the code takes them (cache_pieces) x CACHE_HIT_F; 'old' = the pre-CX term
+CACHE_HIT_F = 0.96              # a hit's saving as a fraction of its piece, FITTED on aac6 (results/TRANSPORT.md), ASSUMED to carry to the target
+# proposals, off unless set: CACHE_PRIMES = k (a slot holds k primes), CACHE_LOOP = 'long' (loop along the longer grid axis), CACHE_SLOTS_PHASE = {'tree': n, 'dm': n}
 CACHE_PRIMES = None
 CACHE_LOOP = 'code'
 CACHE_SLOTS_PHASE = None
 CACHE_PHASE_NOW = None
-# Phase 15 DOC2 (the user's decision 2 of 2026-09-28: RNS_DIST_CACHE_FIT=1 on the launch line): a design with cache_fit prices the slots FIT allows
-# (run() sets CACHE_RUN_SLOTS = min(CACHE_MN_SLOTS, mem_model's cache_fit_slots) for the run: 0 at the target); CACHE_FORCE = n prices n slots
-# whatever FIT allows (mn_model.py estimate --cache-slots n: what a slot would be worth; its bytes are added to the node and it is labelled "does not fit")
+# CACHE_RUN_SLOTS = min(CACHE_MN_SLOTS, mem_model's cache_fit_slots), set by run(); CACHE_FORCE = n prices n slots whatever FIT allows (--cache-slots n)
 CACHE_RUN_SLOTS = None
 CACHE_FORCE = None
-# Phase 15 Batch 3 PC (archive:results_merged_2026-10-24/CACHE.md §PC15; RNS_DIST_CACHE_PARTIAL=1): CACHE_P24 -> the P24 products (MN_P24) use the cache too (PC builds it: the slot's
-# key carries the 24-digit form); CACHE_PRIMES_PHASE = {'tree': k, 'dm': k} -> the primes a slot holds per phase (PC: the slot's planes drawn per grid
-# product from the block pool's free bytes -- the arena's slack at the tree, DKM's unused hole in the division; cache_partial() derives k per phase)
+# CACHE_P24: P24 products use the cache too; CACHE_PRIMES_PHASE = {'tree': k, 'dm': k}: primes a slot holds per phase (partial hits)
 CACHE_P24 = os.environ.get('MN_MODEL_CACHE_P24', '0') == '1'
-CACHE_PART_F = float(os.environ.get('MN_MODEL_CACHE_PART_F', '1.08'))   # PC: a partial hit's measured saving over hit_cost's k / np term -- FITTED on aac6
-                                # (archive:results_merged_2026-10-24/CACHE.md §PC15 2.1: cx_grid at 2 procs, k = 1 / 2, 18- and 24-digit: 1.069, 1.093, 1.075, 1.087; the full hits 1.017 / 1.039)
+CACHE_PART_F = float(os.environ.get('MN_MODEL_CACHE_PART_F', '1.08'))   # a partial hit's saving over the k / np term, FITTED on aac6
 CACHE_PRIMES_PHASE = None
 def cache_primes_now():
     if CACHE_PRIMES_PHASE is not None and CACHE_PHASE_NOW in CACHE_PRIMES_PHASE: return CACHE_PRIMES_PHASE[CACHE_PHASE_NOW]

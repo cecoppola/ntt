@@ -20,7 +20,6 @@ RL_T0=$SECONDS; RL_FINISHED=0; RUN=; STAGE=; RL_ERRFILES=()
 
 # ---- help / usage ---------------------------------------------------------------------------------------------------
 rl_help() { sed -n '2,/^[^#]/p' "$1" | grep '^#' | sed 's/^# \{0,1\}//'; }   # header comment of the calling script
-rl_usage() { echo "$(basename "$0"): $*" >&2; RL_FINISHED=1; exit 2; }
 
 # ---- run dir, logging -------------------------------------------------------------------------------------------------
 rl_init() {     # STAGE
@@ -95,7 +94,6 @@ rl_tlim_secs() {    # SLURM TIME -> seconds: MM | MM:SS | HH:MM:SS | D-HH | D-HH
         else if (n == 1) s = f[1] * 60; else if (n == 2) s = f[1] * 60 + f[2]; else s = f[1] * 3600 + f[2] * 60 + f[3]
         print s }'
 }
-rl_fmt() { awk -v x="$1" 'BEGIN { printf "%.4g", x }'; }
 rl_user() { id -un 2>/dev/null || echo "${USER:-user}"; }
 rl_have() { command -v "$1" >/dev/null 2>&1; }
 rl_module_init() {
@@ -252,7 +250,6 @@ rl_ecrun() {        # TAG PATH NODES DIGITS [VAR=VALUE ...] -> E_* (see _ecalc.s
     local tag=$1 p=$2 n=$3 d=$4; shift 4
     rl_nou ecalc_run "$tag" "$(rl_shape "$p")" "$n" "$d" "$@"
 }
-rl_ecfield() { eval "echo \${$1:-}"; }
 rl_digits_tail() {  # LOG -> last digits printed by the process that holds the END of the result (one string; empty if none)
     # lines: "digits: 2718...5103..." (one process) | "mn: pe|node N: digits: HEAD...TAIL (this node's range)"; ranks without a TAIL are skipped,
     # of several with a tail the highest pe/node index wins (the last range ends the result), ties: the last line

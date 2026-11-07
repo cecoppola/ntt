@@ -22,7 +22,6 @@ fi
 rl_init alloc
 PART=${PART:-${REMOTE_PARTITION:-}}; ACCT=${ACCT:-${REMOTE_ACCOUNT:-}}
 NEXT_HINT="$HERE/alloc.sh --status"
-rl_unused() { :; }
 
 case $MODE in
 status)
