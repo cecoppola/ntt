@@ -9,14 +9,12 @@
 #include "verify.h"
 #include "bigint.h"
 #include "omp_team.h"
-#include "residue_shoup.h"                   /* B3a: ECALC_RESIDUE=shoup */
+#include "residue_shoup.h"  /* ECALC_RESIDUE=shoup */
 
 typedef unsigned __int128 u128;
-/* the first eight primes above 2^62 (RESULTS.md, "proposed tier-1 primes": 2^62 + 135, 169, 177, 187, 189, 193, 253, 277).
- * They must be prime: composite moduli with small factors (e.g. 2^62 + 183 = 11 x 1847 x 41641 x 41813 x 130367, 2^62 + 349 = 1187 x 3911 x 40583 x
- * 24478063) have every factor below 2.5 x 10^7, so Q = N! and every node's Q(a, b) are 0 modulo them: at such moduli
- * T1 checks nothing about Q or X (T (P + Q) == X Q + R reduces to T P == R) and P only through the top node's term range
- * (P = P_A Q_B + P_B with Q_B == 0). */
+/* the first eight primes above 2^62 (2^62 + 135, 169, 177, 187, 189, 193, 253, 277). They must be prime: composite
+ * moduli with small factors (e.g. 2^62 + 183, 2^62 + 349) have every factor below 2.5 x 10^7, so Q = N! and every
+ * node's Q(a, b) are 0 modulo them, and T1 would check nothing about Q or X. */
 const uint64_t t1_q[T1_NQ] = {4611686018427388039ULL, 4611686018427388073ULL, 4611686018427388081ULL,
                               4611686018427388091ULL, 4611686018427388093ULL, 4611686018427388097ULL,
                               4611686018427388157ULL, 4611686018427388181ULL};
@@ -133,7 +131,7 @@ void vf_digits_mods(const char *s, size_t n, const uint64_t *qs, int nq, uint64_
         size_t k0 = n * t / T, k1 = n * (t + 1) / T;
         uint64_t v[16], p18[16]; for (int j = 0; j < nq; j++) { v[j] = 0; p18[j] = 1000000000000000000ULL % qs[j]; }
         size_t k = k0;
-        if (ec_residue_shoup()) {                           /* B3a: the Shoup step (residue_shoup.h), the same values */
+        if (ec_residue_shoup()) {  /* the Shoup step (residue_shoup.h), the same values */
             uint64_t w18[16], w10[16]; for (int j = 0; j < nq; j++) { w18[j] = rs_w(p18[j], qs[j]); w10[j] = rs_w(10 % qs[j], qs[j]); }
             for (; k + 18 <= k1; k += 18) {
                 uint64_t c = 0;
@@ -160,7 +158,8 @@ void vf_digits_mods(const char *s, size_t n, const uint64_t *qs, int nq, uint64_
 
 int tier1_res(unsigned long N, unsigned long d, const uint64_t *Pres, const uint64_t *Qres, const bigint *X, const bigint *R, int verbose)
 { return tier1_res_pq(N, d, Pres, Qres, X, R, 0, 0, 0, 0, verbose); }
-/* pq_pre / qq_pre: the term recurrence's P, Q mod q already computed (in the background during bs); xres_pre: X mod q likewise */
+/* pq_pre / qq_pre: the term recurrence's P, Q mod q already computed (in the background during bs); xres_pre: X mod q
+ * likewise */
 int tier1_res_pq(unsigned long N, unsigned long d, const uint64_t *Pres, const uint64_t *Qres, const bigint *X, const bigint *R, const uint64_t *pq_pre, const uint64_t *qq_pre, const uint64_t *xres_pre, const uint64_t *rres_pre, int verbose)
 {
     int bad = 0;
@@ -205,7 +204,7 @@ static const struct { unsigned long off; const char *w; } windows[] = {
  * (lines "offset 50digits", 1-based fractional offset) */
 struct win { unsigned long off; char w[51]; int from_file; };
 static struct win *g_win; static int g_nwin = -1, g_nwin_file; static const char *g_win_file;
-static int g_win_ready; static pthread_mutex_t g_win_mx = PTHREAD_MUTEX_INITIALIZER;   /* S1e (PE layout): concurrent writers may call tier2_range at once: the table is loaded once, published when complete */
+static int g_win_ready; static pthread_mutex_t g_win_mx = PTHREAD_MUTEX_INITIALIZER;  /* concurrent writers may call tier2_range at once: the table is loaded once, published when complete */
 void tier2_windows_reset(void) { free(g_win); g_win = 0; g_nwin = -1; g_nwin_file = 0; __atomic_store_n(&g_win_ready, 0, __ATOMIC_RELEASE); }
 static void win_load_i(void);
 static void win_load(void)

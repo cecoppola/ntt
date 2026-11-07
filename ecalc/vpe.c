@@ -1,5 +1,5 @@
-/* vpe.c - PE identity, launcher, state index, logging (see vpe.h).  Process mode only (ECALC_PE_PER_GPU=1): the thread mode (ECALC_VPE) was removed 2026-10-23 (Q86; code on branch vpe-int).
- * The PE communicators (vpe_comm, vpe_sub) are in mn.c, the NUMA lookup in mem.c. */
+/* vpe.c - PE identity, launcher, state index, logging (see vpe.h). Process mode only (ECALC_PE_PER_GPU=1). The PE
+ * communicators (vpe_comm, vpe_sub) are in mn.c, the NUMA lookup in mem.c. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,11 +15,12 @@
 int vpe_g_idx = -1;
 static __thread int t_in_run = 0;
 static int g_forced = 0, g_lanes = 0, g_node = -1, g_nnodes = -1;
-static int g_ppg, g_ppg_local = -1, g_dev = -1;       /* S2: process mode; SLURM_LOCALID; pe_geo's device */
+static int g_ppg, g_ppg_local = -1, g_dev = -1;  /* process mode; SLURM_LOCALID; pe_geo's device */
 static void (*g_hook)(int);
 
-/* S2: ECALC_PE_PER_GPU and SLURM_LOCALID, read at process start (a constructor: nothing else runs, nothing is printed or fatal here) so that vpe_idx() is right
- * on every thread from the first line of main; the checks are in vpe_lanes() / mn_init */
+/* ECALC_PE_PER_GPU and SLURM_LOCALID, read at process start (a constructor: nothing else runs, nothing is printed or
+ * fatal here) so vpe_idx() is right on every thread from the first line of main; the checks are in vpe_lanes() /
+ * mn_init */
 void vpe_ppg_init(void)
 {
     const char *e = getenv("ECALC_PE_PER_GPU"), *l = getenv("SLURM_LOCALID");
@@ -29,8 +30,9 @@ void vpe_ppg_init(void)
 }
 static int g_early_dev = -1;
 int vpe_early_device(void) { return g_early_dev; }
-/* S2: a process-per-PE launch makes this process's device current at process start (before any rns_init / pool of a harness or the flow runs on the main thread): its local id with all
- * GPUs visible (--gpu-bind=none), device 0 with one visible.  mn_init_ppg checks it against the engine's (pe_geo) device: a mismatch is fatal. */
+/* a process-per-PE launch makes this process's device current at process start (before any rns_init / pool runs on
+ * the main thread): its local id with all GPUs visible (--gpu-bind=none), device 0 with one visible. mn_init_ppg
+ * checks it against the engine's (pe_geo) device: a mismatch is fatal. */
 __attribute__((constructor)) static void vpe_ctor(void)
 {
     vpe_ppg_init();
@@ -50,7 +52,8 @@ void vpe_set_device(int dev) { g_dev = dev; }
 int vpe_device(void) { return g_ppg && g_dev >= 0 ? g_dev : vpe_idx(); }
 int vpe_on(void) { return g_forced || g_ppg; }
 void vpe_set_forced(int mask) { g_forced = mask; if (mask) mem_set_numa_pci(1); }
-/* PEs per node of a process-per-PE launch: SLURM_NTASKS_PER_NODE (srun --ntasks-per-node), else a plain SLURM_STEP_TASKS_PER_NODE ("4" or "4(x3)"); 0 = unknown */
+/* PEs per node of a process-per-PE launch: SLURM_NTASKS_PER_NODE (srun --ntasks-per-node), else a plain
+ * SLURM_STEP_TASKS_PER_NODE ("4" or "4(x3)"); 0 = unknown */
 static int slurm_ppn(void)
 {
     const char *e = getenv("SLURM_NTASKS_PER_NODE"); if (e && *e) return atoi(e);
@@ -63,7 +66,7 @@ int vpe_lanes(void)
     if (!vpe_on()) return 1;
     if (!g_lanes) {
         const char *e = getenv("ECALC_VPE_LANES"); int l;
-        if (g_ppg) {                                     /* S2: PEs per node = the launch's tasks per node (never a literal); ECALC_VPE_LANES, if set, must agree */
+        if (g_ppg) {  /* PEs per node = the launch's tasks per node (never a literal); ECALC_VPE_LANES, if set, must agree */
             int sp = slurm_ppn(); l = sp > 0 ? sp : (e && *e ? atoi(e) : 0);
             if (l < 1) ec_fatal(EC_RC_FATAL, "ECALC_PE_PER_GPU=1: the PEs per node are unknown (srun --ntasks-per-node sets SLURM_NTASKS_PER_NODE)\n");
             if (sp > 0 && e && *e && atoi(e) != sp) ec_fatal(EC_RC_FATAL, "ECALC_PE_PER_GPU=1: ECALC_VPE_LANES=%s but the launch has %d tasks per node\n", e, sp);
@@ -124,9 +127,10 @@ int vpe_root(void) { return vpe_pe() == 0; }
 int vpe_node_leader(void) { return !vpe_on() || vpe_idx() == 0; }
 int vpe_proc_leader(void) { return !vpe_on() || g_ppg || vpe_idx() == 0; }   /* (every PE is its own process) */
 
-/* S2: this process (all its threads, the existing ones now, the later ones by inheritance) onto the cpus of its PE's NUMA node: pe_geo's cpulist ("0-47,96-143") intersected with
- * the launch mask; an empty intersection leaves the mask alone (a launch that binds differently is the user's: warning).  The default memory policy then places first-touch pages on
- * that node.  One line per process. */
+/* this process (all its threads, existing and later) onto the cpus of its PE's NUMA node: pe_geo's cpulist
+ * ("0-47,96-143") intersected with the launch mask; an empty intersection leaves the mask alone (a launch that binds
+ * differently is the user's: warning). The default memory policy then places first-touch pages on that node. One line
+ * per process. */
 void vpe_pe_affinity(const char *cpulist)
 {
     cpu_set_t cur, want, set; CPU_ZERO(&want);

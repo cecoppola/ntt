@@ -15,18 +15,20 @@
 #include <unistd.h>
 #include <hip/hip_runtime.h>
 #include "mem.h"
-/* hooks set by rns_init under ECALC_MAPD=1 (no weak symbols: the small test programs link mem.o without mapd.o / dbig.o) */
+/* hooks set by rns_init under ECALC_MAPD=1 (no weak symbols: the small test programs link mem.o without mapd.o /
+ * dbig.o) */
 void *(*mem_vmm_pool_alloc)(int dev, size_t bytes) = 0;   /* a plane pool as a VA range over helper-created chunks, or NULL */
 int (*mem_vmm_pool_free)(int dev, void *p) = 0;           /* 1 if p was such a pool (released) */
-#include "omp_team.h"                                     /* A1: ECALC_OMP_TEAM */
+#include "omp_team.h"                                     /* ECALC_OMP_TEAM */
 
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 
 double mem_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 
-/* with ECALC_PE_PER_GPU the device's NUMA node comes from its PCI function (hipDeviceGetPCIBusId, sysfs numa_node: the pe_geo.c chain), so a
- * PE's pinning follows its GPU wherever the node numbers it; off: node == device (unchanged).  Unknown (no sysfs value): the device index. */
+/* with ECALC_PE_PER_GPU the device's NUMA node comes from its PCI function (hipDeviceGetPCIBusId, sysfs numa_node:
+ * the pe_geo.c chain), so a PE's pinning follows its GPU; off: node == device. Unknown (no sysfs value): the device
+ * index. */
 static int g_numa_pci = -1;                      /* -1: not decided yet (decided from ECALC_PE_PER_GPU here, so no pinning can run before it is set) */
 void mem_set_numa_pci(int on) { g_numa_pci = on; }
 static int (*g_own_fn)(void);
@@ -95,7 +97,7 @@ int mem_region_threads(int *rank)                    /* this thread's rank and c
 }
 
 /* registry of registered blocks (dev = -1) and device pools (dev >= 0: hipMalloc, CPU-accessible) */
-static struct { void *p; size_t bytes; int dev; int stage; } *reg;   /* stage: a pinned NUMA-local staging block (M9 accounting) */
+static struct { void *p; size_t bytes; int dev; int stage; } *reg;  /* stage: a pinned NUMA-local staging block */
 static int nreg = 0, reg_cap = 0;
 static void reg_grow(void) { if (nreg >= reg_cap) { reg_cap = reg_cap ? 2 * reg_cap : 256; reg = (typeof(reg))realloc(reg, reg_cap * sizeof *reg); } }
 int mem_par_init = 0;                                 /* init runs per device in parallel; touch teams sized to the node */
@@ -129,7 +131,7 @@ int mem_dev_of(const void *p)
 void *mem_dev_malloc(int dev, size_t bytes)
 {
     void *p = 0; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
-    if (hipMalloc(&p, bytes) != hipSuccess) p = 0;   /* plain hipMalloc only (archive:results_merged_2026-10-24/MEMORY.md §I) */
+    if (hipMalloc(&p, bytes) != hipSuccess) p = 0;
     HIP_CHECK(hipSetDevice(cur));
     return p;
 }
@@ -177,17 +179,16 @@ void mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes)   /* DMA
     int cur; HIP_CHECK(hipGetDevice(&cur));
     HIP_CHECK(hipSetDevice(dev));
     HIP_CHECK(hipMemcpy(dst, src, bytes, hipMemcpyDefault));
-    /* a device-to-device hipMemcpy returns before the copy is done (it is only queued on this device's null
-     * stream; measured on aac7, results/CORRECTNESS.md), and the other devices' streams are not ordered against that null stream:
-     * the level loop's odd-node copy was read by the next level's scatter kernels on the other three APUs, and its source
-     * overwritten by their CRT, while it was still in flight (archive:results_merged_2026-10-24/CRASHES_HANGS.md §R).  Every caller assumes the copy is complete
-     * when this returns, so wait for it here. */
+    /* a device-to-device hipMemcpy returns before the copy is done (it is only queued on this device's null stream)
+     * and the other devices' streams are not ordered against that null stream: the level loop's odd-node copy was
+     * read by the next level's scatter kernels on the other APUs, and its source overwritten by their CRT, while
+     * still in flight. Every caller assumes the copy is complete when this returns, so wait for it here. */
     HIP_CHECK(hipStreamSynchronize(0));
     HIP_CHECK(hipSetDevice(cur));
 }
-/* an asynchronous copy on a non-blocking stream of device dev (pinned host memory), and the wait for
- * every copy issued on it -- the seeds' chunks go to the regions while init's hipMemset of the plane pools runs on the
- * same devices' null streams (a hipMemcpy there queues behind them: 4 GB/s measured) */
+/* an asynchronous copy on a non-blocking stream of device dev (pinned host memory), and the wait for every copy
+ * issued on it. The seeds' chunks go to the regions while init's hipMemset of the plane pools runs on the same
+ * devices' null streams (a hipMemcpy would queue behind them). */
 static hipStream_t g_cs[MEM_MAX_DEV]; static int g_cs_init[MEM_MAX_DEV];
 void mem_dev_copy_async(int dev, void *dst, const void *src, size_t bytes)
 {
@@ -276,9 +277,9 @@ static void *dpool_malloc(dpool *d, int dev, size_t cap)   /* hipMalloc, or (d->
     return mem_dev_malloc(dev, cap);
 }
 
-/* MEM_DPOOL_FILL=1 fills a plane pool with 0xA5 bytes when it is grown inside a phase, =2 at
- * every allocation -- a tier that relied on fresh device memory being zero would fail deterministically instead of once in
- * twenty runs (the grown pool may be recycled, dirty memory) */
+/* MEM_DPOOL_FILL=1 fills a plane pool with 0xA5 bytes when it is grown inside a phase, =2 at every allocation: a tier
+ * that relied on fresh device memory being zero then fails deterministically instead of intermittently (a grown pool
+ * may be recycled, dirty memory) */
 static void dpool_fill(dpool *d, int grew)
 {
     static int fill = -1; if (fill < 0) fill = getenv("MEM_DPOOL_FILL") ? atoi(getenv("MEM_DPOOL_FILL")) : 0;
@@ -342,8 +343,8 @@ void mem_report_host_item(int cat, size_t bytes) { if (cat >= 0 && cat < MEM_HOS
 size_t mem_report_dev_total(void) { return g_last_dev_total; }
 static size_t g_out_vslot, g_out_ofi; static size_t (*g_out_live)(int dev); static int g_out_set;   /* B7ACCT */
 void mem_report_outside(size_t vslot_apu, size_t ofi_apu, size_t (*live)(int dev)) { g_out_vslot = vslot_apu; g_out_ofi = ofi_apu; g_out_live = live; g_out_set = 1; }
-/* device bytes in use per category: the sum of what the providers report; "in use" = planes + regions +
- * pool regions (donated, borrowed, hipMalloc) + tables + other -- live/free/peak are views inside the pool */
+/* device bytes in use per category: the sum of what the providers report; "in use" = planes + regions + pool regions
+ * (donated, borrowed, hipMalloc) + tables + other; live/free/peak are views inside the pool */
 static size_t dev_in_use(const size_t *c) { return c[MEM_DEV_PLANES] + c[MEM_DEV_REGIONS] + c[MEM_DEV_POOL_DONATED] + c[MEM_DEV_POOL_BORROWED] + c[MEM_DEV_POOL_HIPMALLOC] + c[MEM_DEV_TABLES] + c[MEM_DEV_OTHER]; }
 static const char *dev_cat_name[MEM_DEV_NCAT] = { "planes", "regions", "pool:donated", "pool:borrowed", "pool:hipMalloc", "pool:live", "pool:free", "pool:peak-live", "tables", "other" };
 static void gather(size_t dev[][MEM_DEV_NCAT], int ndev, size_t host[MEM_HOST_NCAT])
@@ -355,9 +356,8 @@ static void gather(size_t dev[][MEM_DEV_NCAT], int ndev, size_t host[MEM_HOST_NC
         if (reg[i].dev >= 0 && reg[i].dev < ndev) { dev[reg[i].dev][MEM_DEV_REGIONS] += reg[i].bytes; if (reg[i].stage == 2 && reg[i].dev < 64) noted[reg[i].dev] += reg[i].bytes; }
         else if (reg[i].dev < 0) host[reg[i].stage ? MEM_HOST_STAGING : MEM_HOST_REGISTERED] += reg[i].bytes;
     }
-    /* a VMM arena (DB_POOL_VMM) stays in the registry while the pool borrows parts of it; count those bytes once
-     * (as pool:borrowed / donated), not also as regions -- the budget check and the mem tables read this total (it had double-counted:
-     * 488 GB "in use" at 1e11 against ~363 real) */
+    /* a VMM arena (DB_POOL_VMM) stays in the registry while the pool borrows parts of it; count those bytes once (as
+     * pool:borrowed / donated), not also as regions (the budget check and the mem tables read this total) */
     for (int d = 0; d < ndev && d < 64; d++) if (noted[d]) { size_t pooled = dev[d][MEM_DEV_POOL_BORROWED] + dev[d][MEM_DEV_POOL_DONATED], sub = pooled < noted[d] ? pooled : noted[d]; dev[d][MEM_DEV_REGIONS] -= sub; }   /* under VMM every pool byte is the arena's */
     host[MEM_HOST_X] = g_host_item[MEM_HOST_X]; host[MEM_HOST_DIGITS] = g_host_item[MEM_HOST_DIGITS]; host[MEM_HOST_NAMED] = g_host_item[MEM_HOST_NAMED];
     host[MEM_HOST_RSS] = mem_vmrss(); host[MEM_HOST_HWM] = mem_vmhwm();
@@ -386,9 +386,9 @@ void mem_report(const char *phase)
     if (getenv("MEM_REPORT_DEVS")) for (int d = 0; d < ndev; d++) {
         printf("%s[%s]   APU%d: in use %.1f GB:", pf, phase, d, dev_in_use(dev[d]) / 1e9);
         for (int c = 0; c < MEM_DEV_NCAT; c++) if (dev[d][c]) printf(" %s %.2f", dev_cat_name[c], dev[d][c] / 1e9);
-        size_t f = 0, t = 0; int cur; if ((mem_own_device() < 0 || d == mem_own_device()) && hipGetDevice(&cur) == hipSuccess && hipSetDevice(d) == hipSuccess)   /* S2: process mode: no context on a foreign GPU (that line then has no driver figure) */ { if (hipMemGetInfo(&f, &t) != hipSuccess) f = t = 0; (void)hipSetDevice(cur); }
+        size_t f = 0, t = 0; int cur; if ((mem_own_device() < 0 || d == mem_own_device()) && hipGetDevice(&cur) == hipSuccess && hipSetDevice(d) == hipSuccess)  /* process mode: no context on a foreign GPU (that line then has no driver figure) */ { if (hipMemGetInfo(&f, &t) != hipSuccess) f = t = 0; (void)hipSetDevice(cur); }
         if (t) printf("  (driver: %.1f of %.1f GB used)", (t - f) / 1e9, t / 1e9);
-        if (g_out_set) {                          /* B7ACCT: driver used ~ in use + v-slots + comm pool + the runtime (~0.4 GB, STD17 4) */
+        if (g_out_set) {  /* driver used ~ in use + v-slots + comm pool + the runtime (~0.4 GB) */
             size_t lv = g_out_live ? g_out_live(d) : 0, u = dev_in_use(dev[d]);
             printf(" | outside the layout: v-slots layout %.2f GB, hipMalloc'd now %.2f; comm pool %.2f GB -> in use + v-slots now + comm pool %.2f GB",
                    g_out_vslot / 1e9, lv / 1e9, g_out_ofi / 1e9, (u + lv + g_out_ofi) / 1e9);

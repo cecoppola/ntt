@@ -1,24 +1,13 @@
-/* segv_trace.c - ECALC_SEGV_TRACE=1 (default 0, segv_trace.h has the rules).  Built like fatal.c (hipcc -x hip; see
- * the Makefile's segv_trace.o rule) so a C++ exception thrown through a HIP translation unit still links; nothing
- * here needs C++, it is plain C compiled under that front end.
+/* segv_trace.c - ECALC_SEGV_TRACE=1 (default 0; rules in segv_trace.h). Built like fatal.c (hipcc -x hip) so a C++
+ * exception thrown through a HIP translation unit still links; the code is plain C. Not -rdynamic (link-line risk):
+ * backtrace_symbols_fd() resolves what the dynamic symbol table carries, and the raw addresses plus the
+ * /proc/self/maps line of ecalc's own text mapping suffice for an offline `addr2line -e ecalc <addr - load base>`.
  *
- * Why not -rdynamic: it only widens the dynamic symbol table (every global symbol gets a .dynsym entry instead of
- * just the ones something outside the binary already needs), which does not touch codegen, floating point or
- * memory layout -- but ecalc's Makefile links through hipcc with HIP device code and vendor runtimes already on
- * the link line, and this task does not need to take that risk to get a usable trace offline: backtrace_symbols_fd()
- * still resolves whatever the normal dynamic symbol table carries (library frames typically resolve by name; this
- * binary's own non-exported static functions would not, with or without -rdynamic, unless the function happens to
- * be externally visible already), and the raw addresses plus the /proc/self/maps line for ecalc's own text mapping
- * (printed below) are enough for an offline `addr2line -e ecalc <addr - load base>` pass with the project's own
- * -g (HIPFLAGS already has it).  So: no Makefile change, no link-line risk, maps line + raw addresses instead.
- *
- * Async-signal-safety inside the handler: only write(2), read(2) on /proc/self/maps, close(2), sigaction(2),
- * raise(2) and backtrace()/backtrace_symbols_fd() (glibc document backtrace_symbols_fd as fork/signal safe -- it
- * writes directly to the fd, no malloc -- unlike backtrace_symbols(), which does malloc and is NOT used here).
- * backtrace() itself can lazily dlopen/malloc on its very first call in the process, so ec_segv_trace_install()
- * below makes one throwaway call before anything can fault, to force that lazy init outside the handler.  No
- * printf/snprintf/getenv/gethostname/strstr/readlink inside the handler: those run once at install time instead
- * and are cached into static buffers the handler only reads. */
+ * Async-signal safety inside the handler: only write(2), read(2) on /proc/self/maps, close(2), sigaction(2), raise(2)
+ * and backtrace()/backtrace_symbols_fd() (the latter writes to the fd without malloc, unlike backtrace_symbols(),
+ * which is not used). backtrace() can lazily dlopen/malloc on its first call, so ec_segv_trace_install() makes one
+ * throwaway call before anything can fault. No printf/snprintf/getenv/gethostname/strstr/readlink inside the handler:
+ * those run once at install time and are cached in static buffers. */
 #include <signal.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -34,13 +23,10 @@
 static char g_host[64];
 static char g_rank[16];
 static char g_size[16];
-static char g_exe[EC_EXE_MAX];      /* /proc/self/exe's target, cached at install time (readlink is not on the
-                                        standard async-signal-safe list; calling it once outside the handler avoids
-                                        the question entirely) */
+static char g_exe[EC_EXE_MAX];  /* /proc/self/exe's target, cached at install time (readlink is not async-signal-safe) */
 static int g_exe_len;
 static void *g_warm[1];             /* the install-time throwaway backtrace() call's frame buffer */
 
-/* ---- async-signal-safe output helpers (write(2) only, no buffering, no malloc) ---- */
 
 static void wr(int fd, const char *s)
 {
@@ -93,8 +79,7 @@ static void maps_dump(int fd)
             if (c == '\n' || lp == sizeof line - 1) {
                 line[lp] = 0;
                 if (lp >= (size_t)g_exe_len) {
-                    /* crude substring search, no strstr (not on the strict async-signal-safe list; this one only
-                       touches the fixed local buffer, no shared state, so it is kept, but written out longhand) */
+                    /* substring search written out longhand (strstr is not on the async-signal-safe list) */
                     int found = 0;
                     for (size_t off = 0; off + (size_t)g_exe_len <= lp && !found; off++) {
                         if (memcmp(line + off, g_exe, (size_t)g_exe_len) == 0) found = 1;
@@ -124,8 +109,7 @@ static void handler(int sig, siginfo_t *info, void *uctx)
 
     maps_dump(fd);
 
-    /* restore the signal's default disposition and re-raise it: the process dies exactly as it would with
-     * ECALC_SEGV_TRACE=0 (same exit status / core-file behaviour) -- this handler only adds the printing above */
+    /* restore the signal's default disposition and re-raise it: the process dies exactly as with ECALC_SEGV_TRACE=0 */
     struct sigaction def; memset(&def, 0, sizeof def);
     def.sa_handler = SIG_DFL;
     sigemptyset(&def.sa_mask);

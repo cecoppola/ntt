@@ -1,21 +1,14 @@
-/* fatal.h - one exit path for errors inside the run.
- *
- * A check that fails inside a phase must not call exit(1) (or abort()) from whichever thread found it.  The four APU worker
- * threads (OpenMP) often find the same condition together (the in-phase pool guards, an allocation that fails on every APU);
- * several exit() calls at once run the atexit handlers and the C++ destructors of the HIP runtime concurrently with each other
- * and with the threads still computing, and the process died with SIGSEGV (rc 139) instead of the message (G13d §(c),
- * results/MEMORY_IO.md §L114 batch 6).
- *
- * Every such site calls ec_fatal() (or ec_fatal_begin() ... ec_fatal_end() when it prints more, e.g. the memory report):
- *   - the FIRST caller in the process prints one line "ecalc: FATAL [rank r/n host h, APU d, thread t, after <phase>, rc c]:
- *     <what failed, with the sizes>", runs its extra reporting, flushes stdout and stderr and leaves with _exit(code): no
- *     atexit handler, no destructor, no race;
- *   - every LATER caller (another worker thread that found the same, or any thread after the first) blocks for good and prints
- *     nothing; the process is gone within the first caller's reporting time;
- *   - a watchdog started by the first caller _exit()s after 60 seconds in case its reporting
- *     blocks (a lock held by a thread that is itself parked in ec_fatal);
- *   - a re-entry from the first caller's own thread (a failure inside its reporting) _exit()s at once with the same code.
- *
+/* fatal.h - one exit path for errors inside the run. A failing check must not call exit(1)/abort() from whichever
+ * thread found it: the four APU worker threads often find the same condition together, and concurrent exit() runs the
+ * atexit handlers and HIP runtime destructors against each other and against threads still computing (SIGSEGV, rc
+ * 139, instead of the message). Every such site calls ec_fatal() (or ec_fatal_begin() ... ec_fatal_end() when it
+ * prints more, e.g. the memory report):
+ * - the FIRST caller prints one line "ecalc: FATAL [rank r/n host h, APU d, thread t, after <phase>, rc c]: <what
+ * failed, with the sizes>", runs its extra reporting, flushes, and leaves with _exit(code): no atexit handler, no
+ * destructor, no race;
+ * - every LATER caller blocks for good and prints nothing;
+ * - a watchdog started by the first caller _exit()s after 60 seconds in case its reporting blocks;
+ * - a re-entry from the first caller's own thread (failure inside its reporting) _exit()s at once with the same code.
  * Exit codes (distinct from a signal's 128 + n and from the usage errors' 2): */
 #ifndef EC_FATAL_H
 #define EC_FATAL_H
@@ -28,13 +21,13 @@ extern "C" {
 #define EC_RC_BUDGET 8   /* ECALC_BUDGET_CHECK=1: a node's modelled peak exceeds its budget; every rank stops before compute */
 
 void ec_fatal(int code, const char *fmt, ...) __attribute__((noreturn, format(printf, 2, 3)));
-/* the two-part form: ec_fatal_begin prints the header line and the message (and blocks a later caller), the caller then prints
- * what it wants (mem_report ...) and calls ec_fatal_end, which flushes and exits */
+/* two-part form: ec_fatal_begin prints the header and the message (and blocks a later caller); the caller then prints
+ * what it wants and calls ec_fatal_end, which flushes and exits */
 void ec_fatal_begin(int code, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 void ec_fatal_end(int code) __attribute__((noreturn));
-/* the phase the header names: mem_report() records its boundary here ("after init" ...); anything may set it */
+/* the phase the header names (mem_report() records its boundary here); anything may set it */
 void ec_fatal_phase(const char *name);
-/* a clean stop of every rank (the budget check): flush, _exit(code), no atexit handler */
+/* clean stop of every rank (the budget check): flush, _exit(code), no atexit handler */
 void ec_quit(int code) __attribute__((noreturn));
 
 #ifdef __cplusplus

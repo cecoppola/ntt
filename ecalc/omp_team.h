@@ -1,8 +1,8 @@
-/* omp_team.h - the size of an OpenMP team for the host-side passes (A1, ECALC_OMP_TEAM).
- * omp_get_max_threads() is latched when the OpenMP runtime starts, from the launch CPU mask: a launch that gives the task one core (srun without -c,
+/* omp_team.h - the size of an OpenMP team for the host-side passes (ECALC_OMP_TEAM). omp_get_max_threads() is latched
+ * when the OpenMP runtime starts, from the launch CPU mask: a launch that gives the task one core (srun without -c,
  * SLURM_HINT=nomultithread) leaves it at 1-2 while ecalc widens its own mask later (mem_unpin -> sched_setaffinity).
- * ECALC_OMP_TEAM=omp (default): ec_team() = omp_get_max_threads(), as before.  =mask: ec_team() = the CPUs the calling thread may run on right now
- * (its affinity mask; fallback omp_get_num_procs()).  The team is then named with num_threads() where it is used. */
+ * ECALC_OMP_TEAM=omp (default): ec_team() = omp_get_max_threads(). =mask: ec_team() = the CPUs the calling thread may
+ * run on right now (fallback omp_get_num_procs()); the team is then named with num_threads() where it is used. */
 #ifndef EC_OMP_TEAM_H
 #define EC_OMP_TEAM_H
 #ifndef _GNU_SOURCE
@@ -19,10 +19,11 @@ static inline int ec_team_mask_count(void)      /* the affinity mask of the call
     return n < 1 ? omp_get_num_procs() : n;
 }
 static inline int ec_team_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_OMP_TEAM"); v = (e && !strcmp(e, "mask")) ? 1 : 0; } return v; }
-/* a background thread keeps its explicit team: ec_team_set(n) = omp_set_num_threads(n) plus a thread-local override that ec_team() returns with the switch on
- * (the mask team would otherwise ignore ECALC_BG_THREADS and compete with the foreground).  The variables live in fatal.c.
- * Rules with =mask, first that applies: the thread's override; an explicit OMP_NUM_THREADS (the launcher's choice wins: omp_get_max_threads()); the PE share
- * (ec_team_share = PEs sharing the node's CPUs, set by the PE-per-GPU flow: mask / share); else the mask count. */
+/* a background thread keeps its explicit team: ec_team_set(n) = omp_set_num_threads(n) plus a thread-local override
+ * that ec_team() returns with the switch on (the mask team would otherwise ignore ECALC_BG_THREADS and compete with
+ * the foreground). The variables live in fatal.c. Rules with =mask, first that applies: the thread's override; an
+ * explicit OMP_NUM_THREADS (the launcher's choice wins); the PE share (ec_team_share = PEs sharing the node's CPUs,
+ * set by the PE-per-GPU flow: mask / share); else the mask count. */
 extern __thread int ec_team_override;
 extern int ec_team_share;
 static inline void ec_team_set(int n) { omp_set_num_threads(n); ec_team_override = n; }

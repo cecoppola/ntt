@@ -1,7 +1,8 @@
-/* residue_shoup.h - the digit residues' Horner step v = (v b + x) mod q by a Shoup precomputed-quotient multiply (B3a, ECALC_RESIDUE=shoup).
- * For a constant b < q < 2^63: w = floor(b 2^64 / q); for any v < 2^64 the value r = v b - hi64(v w) q (mod 2^64) is in [0, 2q), so one
- * conditional subtract gives v b mod q; x < q is added with one more.  Bit-identical to ((u128) v b + x) % q for v < q, x < q: no 128-bit
- * division per step (the % of the default form runs ~13 ns on the target CPUs).  The default (ECALC_RESIDUE unset / anything else) keeps the % form. */
+/* residue_shoup.h - the digit residues' Horner step v = (v b + x) mod q by a Shoup precomputed-quotient multiply
+ * (ECALC_RESIDUE=shoup). For a constant b < q < 2^63: w = floor(b 2^64 / q); for any v < 2^64, r = v b - hi64(v w) q
+ * (mod 2^64) is in [0, 2q), so one conditional subtract gives v b mod q; x < q is added with one more. Bit-identical
+ * to ((u128) v b + x) % q for v < q, x < q, without a 128-bit division per step. The default (ECALC_RESIDUE unset /
+ * anything else) keeps the % form. */
 #ifndef EC_RESIDUE_SHOUP_H
 #define EC_RESIDUE_SHOUP_H
 #include <stdint.h>

@@ -1,19 +1,11 @@
-/* ntt.h - the tiled single-transform NTT as library code (ALGORITHM.md
- * §4.2).  One context per (device, prime); the caller selects the device.
- *
- *   ntt_fwd      natural order, canonical in  -> bit-reversed, canonical out
- *   ntt_inv      bit-reversed, lazy [0,2p) in -> natural, canonical, x n^-1
- *   ntt_pw       x[i] = x[i] y[i]              (both canonical)
- *   ntt_inv_pw   ntt_pw fused into the first inverse pass (from 2^14 on: ntt_pw_fuse)
- *   ntt_load     canon64 of nlimbs limbs (device or registered host memory)
- *                into a plane of npoints, zero-extended
- *
- * Forward: b16 passes of 7 stages (tile 128; a partial pass of fewer) and one b1
- * pass on 2^10..2^12-point blocks, as the per-logn plan places them (ntt.c).  Inverse: the transposed (DIT) stages in the opposite order with the
- * inverse roots.  All kernels: 2048 elements per block, integer add/sub, one
- * lazy operand per modmul, twiddles from two-level tables (rules 1-3b).
- * logn from 10 to 33.
- */
+/* ntt.h - the tiled single-transform NTT as library code (ALGORITHM.md §4.2). One context per (device, prime); the
+ * caller selects the device. ntt_fwd: natural order, canonical in -> bit-reversed, canonical out. ntt_inv:
+ * bit-reversed, lazy [0,2p) in -> natural, canonical, x n^-1. ntt_pw: x[i] = x[i] y[i] (both canonical). ntt_inv_pw:
+ * ntt_pw fused into the first inverse pass (from 2^14 on: ntt_pw_fuse). ntt_load: canon64 of nlimbs limbs (device or
+ * registered host memory) into a plane of npoints, zero-extended. Forward: b16 passes of 7 stages (tile 128; a
+ * partial pass of fewer) and one b1 pass on 2^10..2^12-point blocks, as the per-logn plan places them (ntt.c).
+ * Inverse: the transposed (DIT) stages in the opposite order with the inverse roots. All kernels: 2048 elements per
+ * block, integer add/sub, one lazy operand per modmul, twiddles from two-level tables. logn from 10 to 33. */
 #ifndef EC_NTT_H
 #define EC_NTT_H
 #include <stdint.h>
@@ -33,8 +25,8 @@ typedef struct ntt_ctx ntt_ctx;
 
 extern int ntt_stg;        /* stages per b16 pass, 3..7 (7; the tests' pass-split check sets it) */
 extern int ntt_pw_fuse;    /* fuse pointwise into inverse for logn >= this (14; tests set it) */
-/* The kernel choice is fixed: the register-blocked 7-stage body, the reduced-correction Barrett, the
- * register-blocked b1 pass (2^3 points per thread), the per-logn plan; the radix-3 stage stays its own pass (ntt.c). */
+/* fixed kernel choice: register-blocked 7-stage body, reduced-correction Barrett, register-blocked b1 pass (2^3
+ * points per thread), per-logn plan; the radix-3 stage stays its own pass (ntt.c) */
 
 /* layout of the pointwise operand y relative to x (a batch of transforms of L points each):
  *   NTT_Y_FULL   y[i] against x[i]                                (one y per x transform)
@@ -57,7 +49,7 @@ void ntt_inv_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int log
 void ntt_load(ntt_ctx *c, uint64_t *dst, const uint64_t *src, size_t nlimbs, size_t npoints, hipStream_t s);
 
 /* pass structure for a given logn (for tests and timing) */
-/* WP8: length 3 * 2^logk (ntt.c); same conventions as above, output order: third r holds X[3 t' + r] */
+/* length 3 * 2^logk (ntt.c); same conventions as above, output order: third r holds X[3 t' + r] */
 void ntt_fwd3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s);
 void ntt_inv3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s);
 void ntt_inv3_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logk, size_t batch, hipStream_t s);

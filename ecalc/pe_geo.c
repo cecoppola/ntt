@@ -1,4 +1,4 @@
-/* pe_geo.c -- per-PE topology (see pe_geo.h).  NIC logic was copied from the removed comm_ofi.c (dev_numa/nic_list; see archive:code_2026-10-25/). */
+/* pe_geo.c -- per-PE topology (see pe_geo.h). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,7 +46,8 @@ int pe_geo_from(pe_topo *t, int pe, int npes, int local, int ppn, int ngpu, cons
     t->gpu = ngpu >= 1 ? (ngpu == 1 ? 0 : t->gpu_node % ngpu) : -1;
     t->nlanes = ec_env_int_ne("XSHMEM_LANES", 1); if (t->nlanes < 1) FAIL("XSHMEM_LANES < 1");
 
-    /* NUMA node of the GPU: PCI function's numa_node, else gpu_node modulo the NUMA nodes present (comm_ofi dev_numa fallback) */
+    /* NUMA node of the GPU: PCI function's numa_node, else gpu_node modulo the NUMA nodes present (comm_ofi dev_numa
+     * fallback) */
     t->numa = -1;
     if (busid && *busid) { snprintf(path, sizeof path, "%s/sys/bus/pci/devices/%s/numa_node", root(), busid); t->numa = read_int(path, -1); }
     if (t->numa < 0) t->numa = t->gpu_node % numa_count();

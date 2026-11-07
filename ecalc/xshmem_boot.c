@@ -1,6 +1,5 @@
-/* xshmem_boot.c -- bootstrap for the xshmem libfabric backend (XSHMEM=ofi only; see xshmem_boot.h).
- * BOOT=pmi2 (default): Cray PMI2 key/value space, KVS values hex-encoded and chunked at 900 characters.
- * (the pmix variant was a stub and is removed). */
+/* xshmem_boot.c -- bootstrap for the xshmem libfabric backend (XSHMEM=ofi only; see xshmem_boot.h). BOOT=pmi2: Cray
+ * PMI2 key/value space, KVS values hex-encoded and chunked at 900 characters. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,8 +28,8 @@ static int boot_up_flag(void) { return B.up; }
 int boot_init(int *rank, int *size)
 {
     if (!B.up) {
-        /* Cray PMI2 keeps the KVS in a fixed shared segment (default far too small: 30 entries aborted 8 PEs).  Every allgather puts
-         * ceil(len/450) keys per PE and keys are never freed (about 5 allgathers per job), so size it from the task count: 16 per task + 256. */
+        /* Cray PMI2 keeps the KVS in a fixed shared segment whose default is far too small. Every allgather puts
+         * ceil(len/450) keys per PE and keys are never freed, so size it from the task count: 16 per task + 256. */
         if (!getenv("PMI_MAX_KVS_ENTRIES")) { char v[32]; int nt = ec_env_int_ne("SLURM_NTASKS", 64); snprintf(v, sizeof v, "%d", 16 * nt + 256); setenv("PMI_MAX_KVS_ENTRIES", v, 0); }
         int spawned = 0, appnum = 0, rc = PMI2_Init(&spawned, &B.size, &B.rank, &appnum);
         if (rc != PMI2_SUCCESS) bdie("PMI2_Init failed (run under plain srun, no --mpi)", rc);

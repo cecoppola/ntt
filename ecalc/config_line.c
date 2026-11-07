@@ -1,4 +1,4 @@
-/* config_line.c -- see config_line.h.  Reads the environment only; changes nothing. */
+/* config_line.c -- see config_line.h. Reads the environment only. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

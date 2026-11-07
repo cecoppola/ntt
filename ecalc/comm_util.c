@@ -1,7 +1,6 @@
-/* comm_util.c - operations built on the transports' ops.
- * comm_allgather: the transport's allgather (every transport has one since M7); otherwise an all-to-all of `size`
- * copies of the block (a device temporary of size x bytes).  comm_allgather_host: the transport's host op, else
- * the device op through temporaries. */
+/* comm_util.c - operations built on the transports' ops. comm_allgather: the transport's allgather, else an
+ * all-to-all of `size` copies of the block (a device temporary of size x bytes). comm_allgather_host: the transport's
+ * host op, else the device op through temporaries. */
 #include <stdio.h>
 #include "fatal.h"
 #include <stdlib.h>
@@ -10,8 +9,8 @@
 #include <pthread.h>
 #include "comm.h"
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
-/* D3: MN_WAIT_STATS=1 -- see comm.h.  Waits are timed on the outermost call only (a layered communicator's inner calls
- * run inside the outer one); the sums are per phase, integer nanoseconds, atomic across the APU threads. */
+/* MN_WAIT_STATS=1, see comm.h. Waits are timed on the outermost call only (a layered communicator's inner calls run
+ * inside the outer one); sums are per phase, integer nanoseconds, atomic across the APU threads. */
 #include <time.h>
 #include <stdlib.h>
 int comm_wst_on = -1;
@@ -38,8 +37,9 @@ void comm_wst_barrier(comm *c)
     if (!comm_wst_enabled() || wst_depth) { c->ops->barrier(c); return; }
     wst_depth++; double t0 = wst_now(); c->ops->barrier(c); wst_add(0, t0); wst_depth--;
 }
-/* S22: 'ready' = the peer-ready mailbox/flag waits inside the xshmem transport (signal waits); a subset of the wait/barrier time, so skew
- * (a peer not yet there) can be told from transfer.  comm_wst_t0() is 0 when off; comm_wst_ready_end(t0) adds the elapsed time. */
+/* 'ready' = the peer-ready mailbox/flag waits inside the xshmem transport; a subset of the wait/barrier time, so skew
+ * (a peer not yet there) can be told from transfer. comm_wst_t0() is 0 when off; comm_wst_ready_end(t0) adds the
+ * elapsed time. */
 double comm_wst_t0(void) { return comm_wst_enabled() ? wst_now() : 0; }
 void comm_wst_ready_end(double t0) { if (t0 != 0) wst_add(2, t0); }
 void comm_wst_totals(uint64_t ns[WST_NP][3], uint64_t n[WST_NP][3])
@@ -69,8 +69,8 @@ void comm_allgather_host(comm *c, const void *sendbuf, void *recvbuf, size_t byt
     HIP_CHECK(hipMemcpy(recvbuf, dr, (size_t)n * bytes, hipMemcpyDeviceToHost));
     HIP_CHECK(hipFree(ds)); HIP_CHECK(hipFree(dr));
 }
-/* B7: the unequal all-to-all.  Every transport has the device op; the host variant is the transport's, else the
- * device op through temporaries (a mismatch of a receiver's rcnt with the sender's scnt is caught by the transport). */
+/* the unequal all-to-all. Every transport has the device op; the host variant is the transport's, else the device op
+ * through temporaries (a receiver's rcnt mismatching the sender's scnt is caught by the transport). */
 void comm_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
 {
     if (!c->ops->alltoallv) { ec_fatal(EC_RC_FATAL, "comm: alltoallv not provided by this transport\n"); }
@@ -88,7 +88,8 @@ void comm_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size
     HIP_CHECK(hipFree(ds)); HIP_CHECK(hipFree(dr));
 }
 
-/* GPU copy kernel for copies that touch a host-registered pool: hipMemcpyAsync there runs on the SDMA engine (about 21 GB/s on MI300A), a kernel at the memory's speed.  Used by comm_xshmem.c's COPY. */
+/* GPU copy kernel for copies that touch a host-registered pool: hipMemcpyAsync there runs on the SDMA engine, a
+ * kernel at the memory's speed. Used by comm_xshmem.c's COPY. */
 #define CC_THREADS 256
 #define CC_MAX_BLOCKS 456            /* two waves of the 228 CUs; the grid-stride loop covers the rest */
 template <typename T> __global__ void __launch_bounds__(CC_THREADS) k_ccopy(T *d, const T *s, size_t n)
@@ -103,7 +104,8 @@ template <typename T> static void launch(void *d, const void *s, size_t n, hipSt
     size_t blocks = (n + CC_THREADS - 1) / CC_THREADS; if (blocks > CC_MAX_BLOCKS) blocks = CC_MAX_BLOCKS;
     hipLaunchKernelGGL(k_ccopy<T>, dim3((unsigned)blocks), dim3(CC_THREADS), 0, st, (T *)d, (const T *)s, n);
 }
-/* d <- s, n bytes, on stream st; the same ordering as hipMemcpyAsync.  Misaligned (not 8 bytes) or tiny copies go to hipMemcpyAsync. */
+/* d <- s, n bytes, on stream st; the same ordering as hipMemcpyAsync.  Misaligned (not 8 bytes) or tiny copies go to
+ * hipMemcpyAsync. */
 hipError_t comm_copy_async(void *d, const void *s, size_t n, hipStream_t st)
 {
     uintptr_t a = (uintptr_t)d | (uintptr_t)s;

@@ -1,5 +1,5 @@
-/* fatal.c - one exit path for errors inside the run (fatal.h has the rules).
- * Built with hipcc (the APU of the calling thread from hipGetDevice); -DEC_FATAL_NO_HIP for the host-only transport test. */
+/* fatal.c - one exit path for errors inside the run (rules in fatal.h). Built with hipcc; -DEC_FATAL_NO_HIP for the
+ * host-only transport test. */
 #include "fatal.h"
 #include "omp_team.h"
 int ec_team_share = 1;   /* omp_team.h: the PEs sharing the node's CPUs (PE-per-GPU flow, ECALC_OMP_TEAM=mask) */

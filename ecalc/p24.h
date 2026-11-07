@@ -1,17 +1,18 @@
-/* p24.h - (results/COMPUTE.md §P2415): four primes at 24 digits per transform point in the mn tier (always on in multi-node products).
- * The index maps, host and device (rns_dist.c's P24 paths and kernels, dbig.c's spill decode and tests/t_p24.c use them).
+/* p24.h - four primes at 24 digits per transform point in the mn tier (always on in multi-node products). The index
+ * maps, host and device (rns_dist.c's P24 paths and kernels, dbig.c's spill decode, tests/t_p24.c).
  *
- * Point x of an operand view holds the view's digits [24 x, 24 x + 24): the digits [s, 18) of limb L(x) = floor(4 x / 3), s = s(x) =
- * 6 (x mod 3), and the digits [0, 6 + s) of limb L(x) + 1 -- 4 limbs of 18 digits = 3 points of 24.  A view of n limbs has
- * ceil(3 n / 4) points.  A product's coefficient c_x (weight 10^(24 x)) is c_x 10^s(x) at limb L(x): its four base-10^18 digits,
- * shifted by s digits, land on the limbs L(x) .. L(x) + 3 (at most three points meet a limb).
+ * Point x of an operand view holds the view's digits [24 x, 24 x + 24): the digits [s, 18) of limb L(x) = floor(4 x /
+ * 3), s = s(x) = 6 (x mod 3), and the digits [0, 6 + s) of limb L(x) + 1 (4 limbs of 18 digits = 3 points of 24). A
+ * view of n limbs has ceil(3 n / 4) points. A product's coefficient c_x (weight 10^(24 x)) is c_x 10^s(x) at limb
+ * L(x): its four base-10^18 digits, shifted by s digits, land on the limbs L(x) .. L(x) + 3 (at most three points
+ * meet a limb).
  *
- * Rank rho of the plane (rows [a, a + r) of R, R a power of two >= 2^10, r >= 32) holds in column j the points [x0, x1) =
- * [R j + a, R j + a + r).  Their limbs are its RUN in column j: the in-run [L(x0), L(x1) + 1) (the operand side: the last point's
- * high part is at most limb L(x1)), the out-run [L(x0), L(x1)) (the result side: the out-runs of all ranks and columns tile the
- * limbs).  A rank's SEQUENCE is its runs in column order (as today's is its rows in column order).  The run lengths are periodic in j
- * with period 3 (L(R j + c) = R j + c + floor((R j + c) / 3) and R = 1 or 2 mod 3), so the prefix S(j) and both directions of the
- * map (limb -> first sequence index at or above it; sequence index -> limb) are O(1). */
+ * Rank rho of the plane (rows [a, a + r) of R, R a power of two >= 2^10, r >= 32) holds in column j the points [x0,
+ * x1) = [R j + a, R j + a + r). Their limbs are its RUN in column j: the in-run [L(x0), L(x1) + 1) (operand side) and
+ * the out-run [L(x0), L(x1)) (result side: the out-runs of all ranks and columns tile the limbs). A rank's SEQUENCE
+ * is its runs in column order. The run lengths are periodic in j with period 3 (L(R j + c) = R j + c + floor((R j +
+ * c) / 3), R = 1 or 2 mod 3), so the prefix S(j) and both directions of the map (limb -> first sequence index at or
+ * above it; sequence index -> limb) are O(1). */
 #ifndef EC_P24_H
 #define EC_P24_H
 #include <stdint.h>
@@ -33,7 +34,8 @@ P24_HD static inline size_t p24_pts(size_t n) { return (3 * n + 3) / 4; }       
 P24_HD static inline size_t p24_xfl(size_t l) { return (3 * l + 2) / 4; }              /* the largest point x with L(x) <= l */
 P24_HD static inline size_t p24_xceil(size_t v) { return v ? p24_xfl(v - 1) + 1 : 0; }  /* the smallest point x with L(x) >= v */
 
-/* one rank's runs: R, C the plane, a its first row, r its rows, ex 1 (in-runs) or 0 (out-runs); len[e] the run of column j = 3 w + e */
+/* one rank's runs: R, C the plane, a its first row, r its rows, ex 1 (in-runs) or 0 (out-runs); len[e] the run of
+ * column j = 3 w + e */
 struct p24_run { size_t R, C, a, r, len[3], P3; int ex; };
 P24_HD static inline struct p24_run p24_run_make(size_t R, size_t C, size_t a, size_t r, int ex)
 {
@@ -103,8 +105,8 @@ P24_HD static inline void p24_parts(uint64_t lo, uint64_t hi, int s, uint64_t *p
     default: *plo = lo / 1000000000000ULL; *phi = hi; break;
     }
 }
-/* the CRT side: coefficient c = d[0] + d[1] B + d[2] B^2 + d[3] B^3 (B = 10^18, the digits < B) times 10^s, s in {0, 6, 12}, as the
- * digits e[0..3] (+ e4, which the bound makes 0): e_k = (d_k mod 10^(18-s)) 10^s + floor(d_(k-1) / 10^(18-s)) < B */
+/* CRT side: coefficient c = d[0] + d[1] B + d[2] B^2 + d[3] B^3 (B = 10^18, digits < B) times 10^s, s in {0, 6, 12},
+ * as digits e[0..3] (+ e4, which the bound makes 0): e_k = (d_k mod 10^(18-s)) 10^s + floor(d_(k-1) / 10^(18-s)) < B */
 P24_HD static inline uint64_t p24_shift_digits(const uint64_t d[4], int s, uint64_t e[4])
 {
     if (s == 0) { e[0] = d[0]; e[1] = d[1]; e[2] = d[2]; e[3] = d[3]; return 0; }
@@ -124,9 +126,9 @@ P24_HD static inline uint64_t p24_point_mod(uint64_t lo, uint64_t hi, int s, ec_
 /* 10^(18 - s) mod p for s = 0, 6, 12 (c[s / 6]) */
 static inline void p24_c18(int prime, uint64_t c[3]) { for (int i = 0; i < 3; i++) c[i] = p24_p10(18 - 6 * i) % ec_P[prime]; }
 #if defined(__HIPCC__) || defined(__HIP__)
-/* p24_crt.c: the CRT of a rank's plane at four primes into its out-runs (the sequence of p24_run_make(R, C, a, rows, 0)) and one
- * 4-limb spill per column at L(R j + a + rows); planes p0..p3 hold the rank's points column after column (index j rows + k, as
- * k_crt_batch reads them after mn_core's transpose); gc from rns_gconst (np 4) */
+/* p24_crt.c: CRT of a rank's plane at four primes into its out-runs (the sequence of p24_run_make(R, C, a, rows, 0))
+ * and one 4-limb spill per column at L(R j + a + rows); planes p0..p3 hold the rank's points column after column
+ * (index j rows + k, as k_crt_batch reads them after mn_core's transpose); gc from rns_gconst (np 4) */
 struct gconst;
 void p24_crt_launch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const uint64_t *p3, const struct gconst *gc,
                     size_t R, size_t C, size_t a, size_t rows, uint64_t *out, uint64_t *spill, hipStream_t s);

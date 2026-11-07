@@ -1,8 +1,8 @@
-/* vpe.h - PE identity and the PE communicators for the one-process-per-GPU layout (ECALC_PE_PER_GPU=1: one process per PE, 4 per node).
- * The thread mode (ECALC_VPE: one process driving the PEs as threads) was removed 2026-10-23 (Q86); its code is on branch vpe-int.
- * Off (ECALC_PE_PER_GPU unset or 0): vpe_on() = 0, every function below returns the node view (lanes 1, PE = node, idx 0), vpe_run calls fn once on the caller; nothing else changes.
- * vpe_comm / vpe_sub / vpe_sub_slot are implemented in mn.c (it owns the transport meshes); the rest in vpe.c.
- * A helper thread of the PE's process calls vpe_adopt before it uses a communicator. */
+/* vpe.h - PE identity and the PE communicators for the one-process-per-GPU layout (ECALC_PE_PER_GPU=1: one process
+ * per PE, 4 per node). Off (unset or 0): vpe_on() = 0, every function below returns the node view (lanes 1, PE =
+ * node, idx 0), vpe_run calls fn once on the caller. vpe_comm / vpe_sub / vpe_sub_slot are implemented in mn.c (it
+ * owns the transport meshes); the rest in vpe.c. A helper thread of the PE's process calls vpe_adopt before it uses a
+ * communicator. */
 #ifndef EC_VPE_H
 #define EC_VPE_H
 #include "comm.h"
@@ -18,9 +18,10 @@ extern int vpe_g_idx;                                   /* the process's PE inde
 static inline int vpe_idx(void) { return vpe_g_idx >= 0 ? vpe_g_idx : 0; }   /* 0..L-1: the process's PE index on its node (process-global) */
 int  vpe_lane(void);                                    /* the lane of this vPE (= vpe_idx) */
 int  vpe_device(void);                                  /* the HIP device ordinal of this vPE: pe_geo's device (the lane with --gpu-bind=none, 0 with one visible device) */
-/* ECALC_PE_PER_GPU=1 (off by default): ONE PROCESS PER PE, 4 per node (srun --ntasks-per-node = vpe_lanes(), block distribution, local id =
- * SLURM_LOCALID), xshmem K = 1.  COMM_RANK / COMM_SIZE stay the NODE index / count (mnrun.sh sets them as for PPN).  vpe_lanes() = PEs per node (ppn: SLURM_NTASKS_PER_NODE,
- * ECALC_VPE_LANES must agree if set); vpe_run = vpe_adopt + fn on the caller, no threads. */
+/* ECALC_PE_PER_GPU=1 (off by default): ONE PROCESS PER PE, 4 per node (srun --ntasks-per-node = vpe_lanes(), block
+ * distribution, local id = SLURM_LOCALID), xshmem K = 1. COMM_RANK / COMM_SIZE stay the NODE index / count.
+ * vpe_lanes() = PEs per node (SLURM_NTASKS_PER_NODE; ECALC_VPE_LANES must agree if set); vpe_run = vpe_adopt + fn on
+ * the caller, no threads. */
 int  vpe_ppg(void);                                     /* ECALC_PE_PER_GPU=1 (or vpe_set_ppg) */
 int  vpe_proc_leader(void);                             /* the PE that acts for the PROCESS's shared resources: every PE (its own process); off: 1 */
 void vpe_ppg_init(void);                                /* re-reads ECALC_PE_PER_GPU / SLURM_LOCALID (done at process start; tests call it after setenv) */
@@ -40,24 +41,25 @@ int  vpe_in_run(void);
 void vpe_adopt(void);                                   /* a helper thread of this process's PE: sets its device and engine PE (process mode only; off: nothing) */
 void vpe_set_thread_hook(void (*fn)(int lpe));          /* fn(0) runs in vpe_adopt (the engine registers "select my PE"; K = 1: its only loopback PE) */
 
-/* Process mode: fn(arg) on the caller with vpe_in_run() = 1 (this process is the one PE: no threads).  Off: fn(arg) once on the caller. */
+/* Process mode: fn(arg) on the caller with vpe_in_run() = 1 (this process is the one PE: no threads).  Off: fn(arg)
+ * once on the caller. */
 void vpe_run(void (*fn)(void *), void *arg);
 void vpe_node_barrier(void);                            /* barrier over the PEs of this node: the node group over the NIC (collective over the node's 4 processes); off: nothing */
 
-/* the PE communicators (mn.c; collective over their members, creation is local: no message).  vpe_comm: all PEs, rank = PE, created by mn_init.
- * vpe_sub(g0, g): the PEs [g0, g0 + g) (PE units), NULL for a PE outside; cached per process; the whole run returns vpe_comm().  Aligned power-of-two runs
- * (g0 % g == 0) and any contiguous run (3, 6, 12 ...) work.  The id of a run follows from (g0, g): one id per size per PE, so two different runs of
- * the same size that share a PE need vpe_sub_slot (slot 1..15 = another id), or the creation is a fatal "id used twice".  Runs that are not an aligned
- * power of two support slot < 4 (g < 64) or slot < 32 (g >= 64: the engine passes the schedule level; fatal otherwise; ids are collision-free over the domain; two runs of one
- * PE with the same id are a fatal that names both).  Destruction (mn_finalize) is collective and goes by
- * descending id.
- */
+/* the PE communicators (mn.c; collective over their members, creation is local: no message). vpe_comm: all PEs, rank
+ * = PE, created by mn_init. vpe_sub(g0, g): the PEs [g0, g0 + g) (PE units), NULL for a PE outside; cached per
+ * process; the whole run returns vpe_comm(). Aligned power-of-two runs (g0 % g == 0) and any contiguous run (3, 6, 12
+ * ...) work. The id of a run follows from (g0, g): one id per size per PE, so two different runs of the same size
+ * that share a PE need vpe_sub_slot (slot 1..15 = another id), or creation is a fatal "id used twice" (naming both).
+ * Runs that are not an aligned power of two support slot < 4 (g < 64) or slot < 32 (g >= 64: the engine passes the
+ * schedule level; fatal otherwise). Destruction (mn_finalize) is collective and goes by descending id. */
 comm *vpe_comm(void);
 comm *vpe_sub(int g0, int g);
 comm *vpe_sub_slot(int g0, int g, int slot);
 
-/* logging: ec_log_prefix() = "" when off, else "pe N (node n lane d): " -- put it in front of every line a PE prints.
- * Global lines come from vpe_root() (off: node 0, on: PE 0), node-level lines from vpe_node_leader() (off: always 1, on: lane 0). */
+/* logging: ec_log_prefix() = "" when off, else "pe N (node n lane d): " in front of every line a PE prints. Global
+ * lines come from vpe_root() (off: node 0, on: PE 0), node-level lines from vpe_node_leader() (off: always 1, on:
+ * lane 0). */
 const char *ec_log_prefix(void);
 int  vpe_root(void);
 int  vpe_node_leader(void);

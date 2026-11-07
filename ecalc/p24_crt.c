@@ -1,13 +1,13 @@
-/* p24_crt.c - (results/COMPUTE.md §P2415): the CRT of a P24 plane (four primes, 24 digits per point) into
- * base-10^18 limbs.  One block per column j of the rank's plane: its points [x0, x0 + rows), x0 = R j + a, in chunks of 256 --
- * thread k does Garner for point x0 + k0 + k (dgarner4, rns_int.h), its four base-10^18 digits and their
- * shift by s(x) = 6 (x mod 3) digits into E[x] = e[0..3] at limbs L(x) .. L(x) + 3 (p24.h); then the chunk's limbs
- * [L(x0 + k0), L(x0 + k0 + n)) sum the E of the (at most three) points that meet them -- the last three points of the previous chunk
- * kept as the tails -- the carry chain is a carry-lookahead over
- * wave ballot masks (as k_crt_batch; K4c, results/COMPUTE.md §K4c; the serial chain was removed 2026-10-23, Q87), and the limbs go to the column's out-run.  The
- * contributions past the column's last own limb L(x0 + rows) - 1 form its 4-limb spill at L(x0 + rows) (the next out-run's first
- * limbs), added by the caller like k_crt_batch's.  Bound (results/COMPUTE.md §P2415 1.1): min(Pa, Pb) <= 10^12 points gives c < 10^60, so c 10^s < 10^72
- * (four limbs, e4 = 0) and the spill's top limb holds the final carry; the device flag says otherwise (1: e4 != 0, 2: a spill carry). */
+/* p24_crt.c - the CRT of a P24 plane (four primes, 24 digits per point) into base-10^18 limbs. One block per column j
+ * of the rank's plane: its points [x0, x0 + rows), x0 = R j + a, in chunks of 256. Thread k does Garner for point x0
+ * + k0 + k (dgarner4, rns_int.h), its four base-10^18 digits and their shift by s(x) = 6 (x mod 3) digits into E[x] =
+ * e[0..3] at limbs L(x) .. L(x) + 3 (p24.h); then the chunk's limbs [L(x0 + k0), L(x0 + k0 + n)) sum the E of the (at
+ * most three) points that meet them (the last three points of the previous chunk kept as tails). The carry chain is a
+ * carry-lookahead over wave ballot masks (as k_crt_batch), and the limbs go to the column's out-run. The
+ * contributions past the column's last own limb L(x0 + rows) - 1 form its 4-limb spill at L(x0 + rows) (the next
+ * out-run's first limbs), added by the caller like k_crt_batch's. Bound: min(Pa, Pb) <= 10^12 points gives c < 10^60,
+ * so c 10^s < 10^72 (four limbs, e4 = 0) and the spill's top limb holds the final carry; the device flag says
+ * otherwise (1: e4 != 0, 2: a spill carry). */
 #include <hip/hip_runtime.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,9 +28,9 @@ void k_crt24(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const u
     __shared__ uint64_t E[3 + P24_T][4];                  /* E[3 + k]: this chunk's point k; E[0..2]: the previous chunk's last three */
     __shared__ uint64_t V[2 * P24_T], CY[2 * P24_T];      /* a chunk's limbs: at most L(x + 256) - L(x) <= 342 */
     __shared__ uint64_t carry;
-    __shared__ uint64_t GM[2 * P24_T / 64], PM[2 * P24_T / 64];   /* K4c: the generate / propagate masks of limbs [64 t, 64 t + 64) */
-    if (warpSize != 64) __builtin_trap();                 /* the carry-lookahead needs wave64 masks (the serial chain was removed 2026-10-23, Q87) */
-    uint64_t cyr = 0;                                     /* K4c: the carry into the chunk, uniform over the block */
+    __shared__ uint64_t GM[2 * P24_T / 64], PM[2 * P24_T / 64];  /* generate / propagate masks of limbs [64 t, 64 t + 64) */
+    if (warpSize != 64) __builtin_trap();  /* the carry-lookahead needs wave64 masks */
+    uint64_t cyr = 0;  /* the carry into the chunk, uniform over the block */
     const size_t j = blockIdx.x, rows = om.r, x0 = om.R * j + om.a, base = j * rows, A0 = p24_L(x0), ob = p24_run_S(&om, j);
     const int tid = threadIdx.x;
     if (tid < 3) { E[tid][0] = E[tid][1] = E[tid][2] = E[tid][3] = 0; }
@@ -58,17 +58,15 @@ void k_crt24(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const u
             uint64_t q = sm / BB; V[li] = sm - q * BB; CY[li] = q;
         }
         __syncthreads();
-        {   /* K4c: the chain as a carry-lookahead over ballot masks (as K4b's k_crt_batch, results/COMPUTE.md §K4c).
-                       * Serial form: sm_i = V_i + CY_{i-1} + o_{i-1} (CY_{-1} = the chunk's carry-in, o_{-1} = 0), o_i = sm_i >= B.  A limb
-                       * sums at most three points' digits (< 3B), so CY <= 2, the carry-in <= 3 and w_i = V_i + CY_{i-1} <= B + 2:
-                       * o_i = gen_i | (prop_i & o_{i-1}), gen = w >= B, prop = w == B - 1.  nl <= 342: thread t owns limbs t and t + 256 */
+        {  /* the chain as a carry-lookahead over ballot masks. Serial form: sm_i = V_i + CY_{i-1} + o_{i-1} (CY_{-1} = the chunk's carry-in, o_{-1} = 0), o_i = sm_i >= B. A limb sums at most three points' digits (< 3B), so CY <= 2, the carry-in <= 3 and w_i = V_i + CY_{i-1} <= B + 2: o_i = gen_i | (prop_i & o_{i-1}), gen = w >= B, prop = w == B - 1. nl <= 342: thread t owns limbs t and t + 256 */
             const int in0 = (size_t)tid < nl, in1 = (size_t)tid + P24_T < nl;
             const uint64_t w0 = in0 ? V[tid] + (tid ? CY[tid - 1] : cyr) : 0, w1 = in1 ? V[tid + P24_T] + CY[tid + P24_T - 1] : 0;
             const uint64_t g0 = __ballot(in0 && w0 >= BB), q0 = __ballot(in0 && w0 == BB - 1);
             const uint64_t g1 = __ballot(in1 && w1 >= BB), q1 = __ballot(in1 && w1 == BB - 1);
             if ((tid & 63) == 0) { GM[tid >> 6] = g0; PM[tid >> 6] = q0; GM[P24_T / 64 + (tid >> 6)] = g1; PM[P24_T / 64 + (tid >> 6)] = q1; }
             __syncthreads();
-            /* o_{i-1} = bit i of (A + G) ^ A ^ G over the chunk's limbs (A = G | P): the carry into bit i of the sum A + G */
+            /* o_{i-1} = bit i of (A + G) ^ A ^ G over the chunk's limbs (A = G | P): the carry into bit i of the sum
+             * A + G */
             const int nw = (int)(nl >> 6) + 1;                                       /* the words up to bit nl (nl < 512) */
             uint64_t ci = 0, m0 = 0, m1 = 0, top = 0;
             for (int t = 0; t < nw; t++) {

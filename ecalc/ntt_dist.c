@@ -64,8 +64,8 @@ static void plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int log
         if (p->sbuf && p->rbuf) p->own_slabs = 2;
         else { if (p->sbuf) comm_sym_free(cm, p->sbuf); HIP_CHECK(hipMalloc(&p->sbuf, bytes)); HIP_CHECK(hipMalloc(&p->rbuf, bytes)); }
     }
-    /* M7: K chunks of rows/K >= 32 rows (a power of two; DIST_CHUNKS, default 8); 1 over the synthetic communicator */
-    int K = getenv("DIST_CHUNKS") ? atoi(getenv("DIST_CHUNKS")) : vpe_on() ? 1 : 8;   /* S1b: vPE (flat xshmem communicator, one exchange at a time, 64 KiB messages at 8 chunks) = one exchange per transform unless DIST_CHUNKS says otherwise */
+    /* K chunks of rows/K >= 32 rows (a power of two; DIST_CHUNKS, default 8); 1 over the synthetic communicator */
+    int K = getenv("DIST_CHUNKS") ? atoi(getenv("DIST_CHUNKS")) : vpe_on() ? 1 : 8;  /* vPE (flat xshmem communicator, one exchange at a time) = one exchange per transform unless DIST_CHUNKS says otherwise */
     if (K < 1 || cm->inflight == 0) K = 1;
     while (K > 1 && (K & (K - 1))) K--;
     while (K > 1 && p->rows / K < 32) K >>= 1;
@@ -94,9 +94,9 @@ static unsigned nblocks(size_t total) { size_t b = (total + 255) / 256; return (
 struct dist_stats dist_st;
 static pthread_mutex_t st_mx = PTHREAD_MUTEX_INITIALIZER;
 static double tnow(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
-/* C5: the parts are timed by events on the stream they run on (the compute stream s, the transfer stream ts): a
- * begin/end pair per part; st_flush at the end of a transform synchronises the events and sums the pairs.  Kinds:
- * 0 rows, 1 cols, 2 pack/unpack, 3 exchange; bit 4 = end. */
+/* the parts are timed by events on the stream they run on (compute stream s, transfer stream ts): a begin/end pair
+ * per part; st_flush at the end of a transform synchronizes the events and sums the pairs. Kinds: 0 rows, 1 cols, 2
+ * pack/unpack, 3 exchange; bit 4 = end. */
 enum { ST_ROWS, ST_COLS, ST_PACK, ST_XFER, ST_END = 16 };
 static void st_mark(dist_plan *p, hipStream_t on, int kind)
 {
@@ -128,12 +128,11 @@ static void st_flush(dist_plan *p)
 }
 static void st_host(double dt) { if (!dist_st.on) return; pthread_mutex_lock(&st_mx); dist_st.t_a2a += dt; pthread_mutex_unlock(&st_mx); }
 #define TS(kind, stmt) do { st_mark(p, s, kind); stmt; st_mark(p, s, (kind) | ST_END); } while (0)
-/* ---- the twiddled pack/unpack with the twiddle by a row recurrence.  A plain form would
- * gather twr and twc for every point (w_n^(i j) = twr[i j >> logC] twc[i j mod C]; j = brev(jb) scatters the gathers over the
- * tables: 64 cache lines per 32-point tile row) and run at 1.2-1.5 TB/s against a 3 TB/s copy (measured).  Here a thread's four
- * rows i, i + 8, i + 16, i + 24 of column j take w_n^(i j) from the tables once and step by w_n^(8 j) (one per column, in LDS):
- * two gathers per four points instead of eight (block 32 x 8).  ec_mm returns canonical residues, so w_n^(i j) w_n^(8 j) = w_n^((i + 8) j)
- * exactly: bit-identical to the plain forms. */
+/* the twiddled pack/unpack with the twiddle by a row recurrence. A plain form would gather twr and twc for every
+ * point (j = brev(jb) scatters the gathers over the tables) and run well below copy speed. Here a thread's four rows
+ * i, i + 8, i + 16, i + 24 of column j take w_n^(i j) from the tables once and step by w_n^(8 j) (one per column, in
+ * LDS): two gathers per four points instead of eight (block 32 x 8). ec_mm returns canonical residues, so w_n^(i j)
+ * w_n^(8 j) = w_n^((i + 8) j) exactly: bit-identical to the plain forms. */
 __device__ static inline double tw_base(size_t e, int logC, const uint64_t *twr, const uint64_t *twc, ec_mod m)
 {
     return ec_mm((double)twr[e >> logC], (double)twc[e & (((size_t)1 << logC) - 1)], m.p, m.pinv);
@@ -183,7 +182,6 @@ template <int BY> __global__ void k_unpacktw_r(const uint64_t *rb, uint64_t *x, 
 }
 /* tiled unpack: slab r (my cols x rank r's rows, column-major per column) -> my columns of R points: reads
  * coalesced along il, writes coalesced along i = r rows + il -- both contiguous, no tile needed */
-/* ---- the chunk pipeline (M7) ---- */
 #define TSK(kind, stmt) TS(kind, stmt)
 /* DIST_STATS=1 (diagnostic, off by default): host time per phase of the dist transforms with the compute stream drained around each
  * phase (so it distorts overlap, never digits); per thread, printed and zeroed by dist_phase_dump (mn_core, RNS_VERBOSE) */
@@ -221,16 +219,16 @@ static void chunk_wait_(dist_plan *p, hipStream_t s)
     if (dist_st.on) st_host(tnow() - t0);
     HIP_CHECK(hipEventRecord(p->evt, p->ts)); HIP_CHECK(hipStreamWaitEvent(s, p->evt, 0));
 }
-/* a transport that PUSHES into the receivers' slab buffers (comm_xgmi: a kernel on the
- * sender's device stores into rbuf on the receiver's device as soon as every rank has entered the exchange) writes rbuf while
- * the receiver's compute stream may still hold the previous transform's unpacks of the same chunk: nothing on the GPU orders
- * the sender's transfer stream after the receiver's compute stream, and the exchange's barrier orders only the host threads.
- * The xshmem transport synchronises the caller's stream before it publishes / receives (comm_xshmem.c), the
- * layered one pushes only into its own scratch (or synchronises first, minor); comm_xgmi did not.  So before the first post of
- * a transform the host waits for evr -- recorded on s at the transform's start, i.e. every earlier read of rbuf on this rank --
- * and the exchange's barrier then holds every sender until every receiver has passed that point.  The later posts of the same
- * transform need nothing (each chunk has its own region of rbuf, written once per transform).  The wait is for work queued
- * before the row pass that follows it, so the GPU never idles on it; digits identical (an ordering, no arithmetic). */
+/* a transport that PUSHES into the receivers' slab buffers (a kernel on the sender's device stores into rbuf on the
+ * receiver's device once every rank has entered the exchange) writes rbuf while the receiver's compute stream may
+ * still hold the previous transform's unpacks of the same chunk: nothing on the GPU orders the sender's transfer
+ * stream after the receiver's compute stream, and the exchange's barrier orders only host threads. The xshmem
+ * transport synchronizes the caller's stream before it publishes / receives, the layered one pushes only into its own
+ * scratch. So before the first post of a transform the host waits for evr (recorded on s at the transform's start,
+ * i.e. after every earlier read of rbuf on this rank), and the exchange's barrier then holds every sender until every
+ * receiver has passed that point. Later posts of the same transform need nothing (each chunk has its own region of
+ * rbuf, written once per transform). The wait is for work queued before the row pass that follows, so the GPU never
+ * idles on it. */
 static void rb_free_wait_(dist_plan *p) { HIP_CHECK(hipEventSynchronize(p->evr)); }
 static void chunk_post(dist_plan *p, int k) { PH(1, p->ts, chunk_post_(p, k)); }
 static void chunk_wait(dist_plan *p, hipStream_t s) { PH(2, s, chunk_wait_(p, s)); }
@@ -245,7 +243,7 @@ static void fwd_prod(dist_plan *p, uint64_t *x, int k, hipStream_t s)
     TSK(ST_ROWS, ntt_fwd(p->ctx, x + i0 * C, p->logC, rk, s));                    /* rows: length-C, bit-reversed columns */
     dim3 grid((unsigned)(C / 32), (unsigned)(rk / 32)), blk(32, 8);
     TSK(ST_PACK, (k_twpack_r<8><<<grid, blk, 0, s>>>(x + i0 * C, chunk_sb(p, k), rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr, p->twc, m)));
-    HIP_CHECK(hipGetLastError());   /* B8: a bad grid (rk or C/32 rounding to 0 blocks) launches silently -- no HIP error, just no work -- so a launch check alone would not have caught it; mn.c's logR growth is the real fix, this catches any other mis-sized launch */
+    HIP_CHECK(hipGetLastError());  /* a bad grid (rk or C/32 rounding to 0 blocks) launches silently, with no HIP error and no work, so a launch check alone would not catch it; this catches any mis-sized launch */
     HIP_CHECK(hipEventRecord(p->ev, s));
 }
 static void fwd_cons(dist_plan *p, uint64_t *x, int k, hipStream_t s)
@@ -259,7 +257,7 @@ void dist_fwd_pre(dist_plan *p, uint64_t *x, hipStream_t s)
 {
     int K = p->K, D = depth(p);
     dph_dir = 0;
-    HIP_CHECK(hipEventRecord(p->evr, s));                /* WM15 H1: the previous transform's reads of rbuf */
+    HIP_CHECK(hipEventRecord(p->evr, s));  /* the previous transform's reads of rbuf */
     PH(0, s, fwd_prod(p, x, 0, s)); rb_free_wait(p); chunk_post(p, 0);
     for (int k = 1; k < K; k++) { PH(0, s, fwd_prod(p, x, k, s)); if (D < 2) chunk_wait(p, s); chunk_post(p, k); }
     for (int k = 0; k < K - 1; k++) { if (D >= 2) chunk_wait(p, s); PH(3, s, fwd_cons(p, x, k, s)); }
@@ -312,7 +310,7 @@ static void inv_pre_y(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t 
     int size = comm_size(p->cm), K = p->K, D = depth(p);
     size_t rk = chunk_rows(p);
     dph_dir = 1;
-    HIP_CHECK(hipEventRecord(p->evr, s));                /* WM15 H1: the previous transform's reads of rbuf */
+    HIP_CHECK(hipEventRecord(p->evr, s));  /* the previous transform's reads of rbuf */
     if (y) PH(6, s, TS(ST_COLS, ntt_inv_pw_y(p->ctx, x, y, NTT_Y_FULL, p->logR, p->cols, s)));   /* columns: pointwise + length-R inverse, x R^-1, natural */
     else PH(6, s, TS(ST_COLS, ntt_inv(p->ctx, x, p->logR, p->cols, s)));                         /* columns: length-R inverse, x R^-1, natural */
     for (int k = 0; k < K; k++) PH(7, s, inv_prod(p, x, k, s));
@@ -326,16 +324,14 @@ static void inv_pre_y(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t 
 void dist_inv_pre(dist_plan *p, uint64_t *x, hipStream_t s) { inv_pre_y(p, x, 0, s); }
 void dist_inv_post(dist_plan *p, uint64_t *x, hipStream_t s) { inv_loop(p, x, s, p->K); st_flush(p); }
 void dist_inv(dist_plan *p, uint64_t *x, hipStream_t s) { dist_inv_pre(p, x, s); dist_inv_post(p, x, s); }
-void dist_inv_pw(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s) { inv_pre_y(p, x, y, s); dist_inv_post(p, x, s); }   /* A6: = dist_pw + dist_inv */
-/* The transposed inverse: the column layout (cols columns of R points, bit-reversed within) is the row
- * layout of the C x R problem, so the same algorithm as the forward -- local pass on the contiguous index
- * first -- with inverse roots computes the inverse DFT and lands in the column layout of the C x R
- * problem: R/size "columns" of C contiguous points each, i.e. this rank holds the contiguous point range
- * [r n/size, (r+1) n/size) in natural order.  Steps: ntt_inv on the cols columns (length R, bit-reversed
- * in, natural out, x R^-1) -> twiddle w_n^(-k1 k2), k1 = position (natural), k2 = brev(column) ->
- * pack/all-to-all/unpack into rows of length C: row k1 of this rank holds, for every k2 in stored
- * (bit-reversed) order, one value -> ntt_inv on the rows (length C, bit-reversed in, natural out,
- * x C^-1).  Output: rows x C, row k1 (global) = points [C k1, C k1 + C). */
+void dist_inv_pw(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s) { inv_pre_y(p, x, y, s); dist_inv_post(p, x, s); }   /* = dist_pw + dist_inv */
+/* The transposed inverse: the column layout (cols columns of R points, bit-reversed within) is the row layout of the
+ * C x R problem, so the forward algorithm (local pass on the contiguous index first) with inverse roots computes the
+ * inverse DFT and lands in the column layout of the C x R problem: this rank holds the contiguous point range [r
+ * n/size, (r+1) n/size) in natural order. Steps: ntt_inv on the cols columns (length R, bit-reversed in, natural out,
+ * x R^-1) -> twiddle w_n^(-k1 k2), k1 = position (natural), k2 = brev(column) -> pack/all-to-all/unpack into rows of
+ * length C -> ntt_inv on the rows (length C, bit-reversed in, natural out, x C^-1). Output: rows x C, row k1 (global)
+ * = points [C k1, C k1 + C). */
 __global__ void k_twiddle_t(uint64_t *x, size_t cols, size_t col0, int logR, int logC, const uint64_t *twr, const uint64_t *twc, ec_mod m)
 {
     size_t R = (size_t)1 << logR, total = cols * R;

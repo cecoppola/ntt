@@ -1,7 +1,8 @@
-/* nodemem.h - one NUMA node's MemFree (and file cache) from /sys/devices/system/node/node<k>/meminfo (C5, results/MEMORY_IO.md).  On an MI300A node each APU's HBM is its own
- * NUMA node (node k = APU k), so this is the APU's own free memory; /proc/meminfo's MemAvailable is the sum over the four.
- * nodemem_read gives MemFree and the reclaimable file cache (Active(file) + Inactive(file)); the APU's usable free memory is their sum (MEMFIT, results/MEMORY_IO.md).
- * root = a path prefix of "/sys" (test hook ECALC_MEMSAMPLE_SYSFS_ROOT: a mock tree; "" = the real /sys).  Header-only, host only (tests/t_nodemem.c). */
+/* nodemem.h - one NUMA node's MemFree (and file cache) from /sys/devices/system/node/node<k>/meminfo. On an MI300A
+ * node each APU's HBM is its own NUMA node (k = APU k), so this is the APU's own free memory; /proc/meminfo's
+ * MemAvailable is the sum over the four. nodemem_read gives MemFree and the reclaimable file cache (Active(file) +
+ * Inactive(file)); the usable free memory is their sum. root = a path prefix of "/sys" (test hook
+ * ECALC_MEMSAMPLE_SYSFS_ROOT: a mock tree; "" = the real /sys). Header-only, host only (tests/t_nodemem.c). */
 #ifndef EC_NODEMEM_H
 #define EC_NODEMEM_H
 #include <stdio.h>

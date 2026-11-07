@@ -1,32 +1,29 @@
-/* packed_fmt.h - the packed digit file (ECALC_OUT_PACKED, the default; version 2 below; the version-1 8-byte writer was removed 2026-10-23, its files are still read), shared by the writer (mn_out.c) and the
- * converter / checker (tools/unpack_digits.c).
+/* packed_fmt.h - the packed digit file (ECALC_OUT_PACKED, default; version 2 below; version-1 files are still read),
+ * shared by the writer (mn_out.c) and the converter / checker (tools/unpack_digits.c). A packed file is a 4096-byte
+ * header followed by the base-10^18 limbs of X as the run holds them: 8 bytes per limb, little-endian, THE MOST
+ * SIGNIFICANT LIMB FIRST (the order the writer streams them), so 18 digits cost 8 bytes. One file per node-process:
+ * the name is the ASCII writer's (<outfile> at size 1, <outfile>.part<k> at size > 1, k = size-1-rank: part 0 holds
+ * the top limbs).
  *
- * A packed file is a 4096-byte header followed by the base-10^18 limbs of X exactly as the run holds them: 8 bytes per
- * limb, little-endian, THE MOST SIGNIFICANT LIMB FIRST (the order the writer streams them and the order the digits are
- * read), so 18 digits cost 8 bytes (0.444 B/digit against 1 B/digit for ASCII).  One file per node-process: the name is
- * the ASCII writer's (<outfile> at size 1, <outfile>.part<k> at size > 1, k = size-1-rank: part 0 holds the top limbs).
+ * The digit string of X (the ASCII writer's convention, mn_out.h): X < 10^(d+1) has nl = ceil((d+1)/18) limbs;
+ * written from the top limb, 18 digits each, it begins with pad = 18 nl - (d+1) zero characters that are dropped;
+ * digit k (0 = the "2", 1..d the fraction) is character pad + k. The ASCII file is "2." + digits 1..d_out + "\n": a
+ * packed part holding the limbs [lo, hi) holds the digits [k0, k1) (header), and the converter emits the ones <=
+ * d_out, the "." after digit 0 and the newline after digit d_out. The digits d_out+1..d (fewer than 18, in the lowest
+ * limb) are in the file and not in the ASCII output.
  *
- * The digit string of X (the ASCII writer's convention, mn_out.h): X < 10^(d+1) has nl = ceil((d+1)/18) limbs; written
- * from the top limb, 18 digits each, it begins with pad = 18 nl - (d+1) zero characters that are dropped; digit k
- * (0 = the "2", 1..d the fraction) is character pad + k.  The ASCII file is "2." + digits 1..d_out + "\n": a packed part
- * holding the limbs [lo, hi) holds the digits [k0, k1) (header), and the converter emits the ones <= d_out, the "." after
- * digit 0 and the newline after digit d_out.  The digits d_out+1..d (fewer than 18, in the lowest limb) are in the file
- * and not in the ASCII output.
- *
- * The header is written when the file is opened (complete = 0) and rewritten when the run closes it (complete = 1, the
- * residues): dres[i] = the part's digits [k0, k1) as a decimal number mod q[i] -- computed by the run from the bytes it
- * wrote, the same values its T1 "digits == X mod q" check used -- so a converter can check its own output against them.
- * a division correction deferred past the writer is patched in place after the close: the
- * limbs it changes are rewritten at their offsets and dres is moved by the same change (mn_out.c packed_patch), so the header
- * stays the residues of the limbs the file holds.
- */
+ * The header is written when the file is opened (complete = 0) and rewritten when the run closes it (complete = 1,
+ * the residues): dres[i] = the part's digits [k0, k1) as a decimal number mod q[i], computed from the bytes written,
+ * so a converter can check its output against them. A division correction deferred past the writer is patched in
+ * place after the close: the limbs it changes are rewritten at their offsets and dres is moved by the same change
+ * (mn_out.c packed_patch). */
 #ifndef EC_PACKED_FMT_H
 #define EC_PACKED_FMT_H
 #include <stdint.h>
 
 #define ECP_MAGIC      "ECPACK18"
 #define ECP_VERSION    1u
-#define ECP_VERSION60  2u            /* M5 (c05): ECALC_OUT_PACKED=2, the 60-bit form below; reserved0 = 60 (the bits per limb) */
+#define ECP_VERSION60  2u  /* ECALC_OUT_PACKED=2, the 60-bit form below; reserved0 = 60 (the bits per limb) */
 #define ECP_HDR_BYTES  4096u
 #define ECP_ENDIAN     0x01020304u   /* as the writer's host stores it: 04 03 02 01 on a little-endian host */
 #define ECP_NQ         8
@@ -50,12 +47,11 @@ typedef struct {
     uint64_t dres[ECP_NQ];           /* the digits [k0, k1) as a decimal number mod q[i] */
 } ecp_hdr;                           /* (the rest of the 4096 bytes: zero, and the text at ECP_TEXT_OFF) */
 
-/* M5 (c05): version 2, the 60-bit packed form (ECALC_OUT_PACKED=2).  A limb of base 10^18 is < 2^60, so the file holds the
- * limbs in file order (the most significant first, index j = 0 .. hi-lo-1) as a little-endian bit stream, limb j in the bits
- * [60 j, 60 j + 60): two limbs a (j even) and b take 15 bytes, the low 8 of  a | b << 60  and then the 7 bytes of  b >> 4;
- * a last odd limb takes 8 bytes (its 60 bits, zero-extended).  A part of n limbs is ecp60_bytes(n) = 15 (n/2) + 8 (n&1)
- * bytes after the header (7.5 B per limb = 0.4167 B/digit against 0.444 for version 1: -6.25 %).  Everything else (header
- * fields, residues, part ranges) is version 1's. */
+/* version 2, the 60-bit packed form (ECALC_OUT_PACKED=2). A limb of base 10^18 is < 2^60, so the file holds the limbs
+ * in file order (most significant first, index j = 0 .. hi-lo-1) as a little-endian bit stream, limb j in the bits
+ * [60 j, 60 j + 60): two limbs a (j even) and b take 15 bytes, the low 8 of  a | b << 60  and then the 7 bytes of  b
+ * >> 4; a last odd limb takes 8 bytes (zero-extended). A part of n limbs is ecp60_bytes(n) = 15 (n/2) + 8 (n&1) bytes
+ * after the header. Everything else (header fields, residues, part ranges) is version 1's. */
 #define ECP60_BITS 60
 static inline uint64_t ecp60_bytes(uint64_t n) { return 15 * (n / 2) + 8 * (n & 1); }
 /* the pair at out[0..15) from limbs a, b (< 2^60) */

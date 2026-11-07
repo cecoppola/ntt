@@ -1,10 +1,7 @@
-/* dbig.h - a big integer resident in device memory (WP5 step 3): the limbs
- * [0, n) live in four quarters, quarter d on APU d, each qc = cap/4 limbs
- * (qc = 2^lq or 3 2^lq, quarter of limb i = (i >> lq) [/ 3]).  Every
- * operation runs as one kernel per APU over that APU's quarter of the result,
- * reading the operands wherever they are (peer access); carries across chunks
- * and quarters are resolved by a scan on the host (n / 4096 chunk flags).
- * Decimal limbs (base 10^18).  Normalised: n == 0 or limb n-1 != 0. */
+/* dbig.h - a big integer resident in device memory: limbs [0, n) live in four quarters, quarter d on APU d, each qc =
+ * cap/4 limbs (qc = 2^lq or 3 2^lq, quarter of limb i = (i >> lq) [/ 3]). Each operation runs as one kernel per APU
+ * over its quarter of the result, reading operands wherever they are (peer access); carries across chunks and
+ * quarters are resolved by a host scan (n / 4096 chunk flags). Base 10^18 limbs. Normalized: n == 0 or limb n-1 != 0. */
 #ifndef EC_DBIG_H
 #define EC_DBIG_H
 #include <stdint.h>
@@ -15,7 +12,8 @@ extern "C" {
 #endif
 #define DB_NQ 4
 typedef struct dbig_s { uint64_t *q[DB_NQ]; size_t n, cap, qc, off; } dbig;   /* qc: limbs per quarter (exact, a multiple of 4096); off: a view's first limb (cap 0: not owning) */
-/* S1b (PE layout): with ECALC_PE_PER_GPU=1 a dbig is ONE quarter, q[0] on this PE's device vpe_lane(), qc = cap; q[1..3] are NULL. */
+/* PE layout (ECALC_PE_PER_GPU=1): a dbig is ONE quarter, q[0] on this PE's device vpe_lane(), qc = cap; q[1..3] are
+ * NULL. */
 void db_init(dbig *x);
 void db_free(dbig *x);
 struct db_stats { size_t n_shift, n_addsub, n_maxidx, n_reserve; double t_shift, t_addsub, t_maxidx, t_reserve; };
@@ -34,7 +32,7 @@ size_t db_pool_hipmalloc_bytes(int dev);             /* bytes the pool mapped it
 void db_pool_set_tail(int dev, void *p, size_t bytes, size_t thresh);   /* the last `bytes` of a donated region are the reserved tail: requests >= thresh are carved from its back, smaller ones avoid it while anything else fits */
 void db_pool_pack_large(int on);
 void db_pool_pin_tail(int on);                         /* while on, requests are carved from the back of the tail's free part (r right below t1) */                       /* requests >= the tail's thresh carved from the back of the highest-ending free extent that fits (the big blocks stack at the top) */
-int db_pool_vmm_on(void);                            /* DB_POOL_VMM=1 -- the arena as a VMM range whose free chunks are remapped contiguously on demand (results/COMPUTE.md §R114 5) */
+int db_pool_vmm_on(void);  /* DB_POOL_VMM=1: the arena is a VMM range whose free chunks are remapped contiguously on demand */
 size_t db_pool_vmm_chunk(void);                      /* the VMM arena's chunk in bytes (DB_POOL_VMM_CHUNK_GB, default 2 GiB) */
 void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first);   /* the arena's VA (a borrowed region of the pool; the seed thread must not store into it directly); the first `first` bytes mapped now, the rest by a thread */
 void db_vmm_arena_wait(int dev, size_t bytes);
@@ -75,16 +73,17 @@ uint64_t db_limb(const dbig *a, size_t i);
 void db_set_limb(dbig *a, size_t i, uint64_t v);      /* one limb (fault injection, dr.h) */
 uint64_t db_powmod_h(uint64_t b, uint64_t e, uint64_t q);   /* b^e mod q (host, 128-bit; the Montgomery-free helper of the host references) */
 uint64_t db_mod_q(const dbig *x, uint64_t q);
-void db_mod_qs_parts(const dbig *x, const uint64_t *qs, int nq, uint64_t *res, uint64_t *parts);   /* + the DB_NQ quarters' parts (parts[d * nq + j]; they sum to res): C3 */
+void db_mod_qs_parts(const dbig *x, const uint64_t *qs, int nq, uint64_t *res, uint64_t *parts);  /* + the DB_NQ quarters' parts (parts[d * nq + j]; they sum to res) */
 void db_mod_qs(const dbig *x, const uint64_t *qs, int nq, uint64_t *res);   /* several primes (<= 16) in one pass */
-/* M3 (the multi-node product, rns_dist.c): a node's share of a sharded number */
+/* a node's share of a sharded number (multi-node product) */
 uint64_t *db_pool_alloc(int dev, size_t bytes);      /* per-APU scratch from the block pool */
 void db_pool_free(int dev, uint64_t *p);
 void db_zero_fill(dbig *r, size_t n);                 /* r = n zero limbs (n kept, not normalised) */
 void db_share_add_spills_x24(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], const size_t *const tab[4], size_t R, size_t C, int gt, int *cout, int *prop);   /* a P24 product's spills (p24.h) */
 void db_share_add_spills_x(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], const size_t *const tab[4], size_t R, size_t rows, size_t C, int gt, int *cout, int *prop);   /* the compact spill buffers (per source node the columns [tab[3r], tab[3r+1]) at block tab[3r+2]) */
 void db_share_add_one(dbig *r, size_t n, int *cout);  /* r += 1 (fixed n limbs) */
-/* M4 (A-div): fixed-length share add/sub of two shares in one basis, and +/- a limb value at a position (carry/borrow out, propagate) */
+/* fixed-length share add/sub of two shares in one basis, and +/- a limb value at a position (carry/borrow out,
+ * propagate) */
 void db_share_addsub(dbig *r, const dbig *a, const dbig *b, size_t n, int sub, int *cout, int *prop);
 void db_share_add_val(dbig *r, size_t n, size_t pos, uint64_t val, int sub, int *cout, int *prop);
 void db_share_add_shifted(dbig *r, size_t n, const dbig *a, size_t k, int *cout, int *prop);   /* r += a << k (fixed n limbs; */

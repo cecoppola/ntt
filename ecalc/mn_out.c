@@ -12,9 +12,9 @@
 #include <hip/hip_runtime.h>
 #include "mn_out.h"
 #include "mem.h"
-#include "residue_shoup.h"                                  /* B3a: ECALC_RESIDUE=shoup */
-#include "omp_team.h"                                     /* A1: ECALC_OMP_TEAM */
-#include "vpe.h"                                        /* S1e: PE layout (ECALC_PE_PER_GPU) -- rank = PE, the PE's own device */
+#include "residue_shoup.h"                                  /* ECALC_RESIDUE=shoup */
+#include "omp_team.h"                                     /* ECALC_OMP_TEAM */
+#include "vpe.h"                                        /* PE layout (ECALC_PE_PER_GPU) -- rank = PE, the PE's own device */
 #include "spill.h"                                    /* ECALC_ODIRECT */
 #include <sys/stat.h>                                 /* the patch (fstat) */
 #include "packed_fmt.h"                               /* ECALC_OUT_PACKED */
@@ -24,7 +24,7 @@
 void mn_out_allgather_u64(comm *c, const uint64_t *v, int k, uint64_t *out)
 {
     if (!c || comm_size(c) == 1) { memcpy(out, v, (size_t)k * 8); return; }
-    int n = comm_size(c), dev0; HIP_CHECK(hipGetDevice(&dev0)); HIP_CHECK(hipSetDevice(vpe_on() ? vpe_device() : 0));   /* vPE (S1e): the PE's own device (S2: pe_geo's ordinal) */
+    int n = comm_size(c), dev0; HIP_CHECK(hipGetDevice(&dev0)); HIP_CHECK(hipSetDevice(vpe_on() ? vpe_device() : 0));   /* vPE (S1e): the PE's own device (pe_geo's ordinal) */
     uint64_t *ds, *dr; HIP_CHECK(hipMalloc(&ds, (size_t)k * 8)); HIP_CHECK(hipMalloc(&dr, (size_t)n * k * 8));
     HIP_CHECK(hipMemcpy(ds, v, (size_t)k * 8, hipMemcpyHostToDevice));
     comm_allgather(c, ds, dr, (size_t)k * 8);
@@ -85,17 +85,17 @@ static void fmt_limbs(char *dst, const uint64_t *l, size_t cnt)
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < cnt; i++) fmt18(dst + (cnt - 1 - i) * 18, l[i]);
 }
-/* limbs [a, a+cnt) of a device number (a relative to it; views honoured) into a pinned host buffer.  the
- * writer reads X on the device while the low product runs on the GPUs -- the copies go on a non-blocking stream per APU
- * (a null-stream hipMemcpy would serialise with every kernel of the product) */
+/* limbs [a, a+cnt) of a device number (a relative to it; views honored) into a pinned host buffer. The writer reads X
+ * on the device while the low product runs on the GPUs, so the copies go on a non-blocking stream per APU (a
+ * null-stream hipMemcpy would serialize with every kernel of the product) */
 static hipStream_t g_fs[DB_NQ]; static pthread_once_t g_fs_once = PTHREAD_ONCE_INIT;
-static void fs_init(void)   /* (S2, ECALC_PE_PER_GPU: ONLY this PE's device gets a stream: a HIP context on another GPU would cost memory in every process) */
+static void fs_init(void)  /* only this PE's device gets a stream under ECALC_PE_PER_GPU (a HIP context on another GPU would cost memory in every process) */
 { int dev0; HIP_CHECK(hipGetDevice(&dev0)); for (int d = 0; d < DB_NQ; d++) { if (vpe_ppg() && d != vpe_device()) continue; HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipStreamCreateWithFlags(&g_fs[d], hipStreamNonBlocking)); } HIP_CHECK(hipSetDevice(dev0)); }
 static void dev_fetch(const dbig *x, size_t a, size_t cnt, uint64_t *host)
 {
     size_t g = x->off + a, ge = g + cnt; int dev0; HIP_CHECK(hipGetDevice(&dev0));
     pthread_once(&g_fs_once, fs_init);
-    const int nq = vpe_on() ? 1 : DB_NQ;                   /* S1e: under ECALC_PE_PER_GPU a dbig is ONE quarter, q[0] on the PE's own device (dbig.h) */
+    const int nq = vpe_on() ? 1 : DB_NQ;                   /* under ECALC_PE_PER_GPU a dbig is ONE quarter, q[0] on the PE's own device (dbig.h) */
     for (int d = 0; d < nq; d++) {
         size_t q0 = (size_t)d * x->qc, q1 = q0 + x->qc, s = g > q0 ? g : q0, e = ge < q1 ? ge : q1;
         int dv = vpe_on() ? vpe_device() : d;
@@ -158,13 +158,9 @@ static void boundaries_ex(mn_out *o, const mn_out_src *src, comm *c, const char 
     free(all);
 }
 
-/* ---- the writer thread: one job at a time (a chunk of the part file), the formatter blocks only when both
- * buffers are in flight ----
- * the write mode (out_mode) and
- * the number of pwrite threads per chunk (MN_OUT_THREADS, 8).  W2: the packed form (ECALC_OUT_PACKED, packed_fmt.h).
- * W5: the stripe layout (MN_OUT_STRIPE).  Functions: out_mode, out_stripe, out_open,
- * direct_job, writer_run, out_packed, packed_mods, packed_digits, packed_hdr_*, out_run_one, mn_out_run,
- * mn_out_finish. */
+/* the writer thread: one job at a time (a chunk of the part file); the formatter blocks only when both buffers are in
+ * flight. Write mode (out_mode), pwrite threads per chunk (MN_OUT_THREADS, 8), packed form (ECALC_OUT_PACKED,
+ * packed_fmt.h), stripe layout (MN_OUT_STRIPE). */
 enum { OUT_BUFFERED = 0, OUT_DIRECT, OUT_SYNC };
 static const char *out_mode_name[] = { "buffered", "O_DIRECT", "buffered + fsync + DONTNEED at close" };
 struct wjob { const char *data; size_t len; size_t off; int prefix, newline, buf; char first; };   /* prefix: "<first>." before the data (digit 0 and the point) */
@@ -259,10 +255,11 @@ static void *writer_run(void *a)
     return 0;
 }
 /* ---- the packed form (packed_fmt.h) ---- */
-static int out_packed(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_OUT_PACKED"); v = e ? atoi(e) : 2; v = v > 0 ? 2 : 0; } return v; }   /* 2 = the 60-bit form (ECP_VERSION60), the default; 0 = ASCII; the 64-bit form (=1) was removed 2026-10-23, Q87 (the readers still take version-1 files) */   /* packed since Phase 15 (the user's decision: packed on disk, converted off the clock by tools/unpack_digits) */
+static int out_packed(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_OUT_PACKED"); v = e ? atoi(e) : 2; v = v > 0 ? 2 : 0; } return v; }  /* 2 = the 60-bit form (ECP_VERSION60), the default; 0 = ASCII (the readers still take version-1 files) */
 static uint64_t mulmod_u(uint64_t a, uint64_t b, uint64_t q) { return (uint64_t)(((unsigned __int128)a * b) % q); }
 static uint64_t powmod_u(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1 % q; b %= q; while (e) { if (e & 1) r = mulmod_u(r, b, q); b = mulmod_u(b, b, q); e >>= 1; } return r; }
-/* the value of n limbs stored most significant first (base 10^18) mod the T1 primes, from the bytes the writer is handed */
+/* the value of n limbs stored most significant first (base 10^18) mod the T1 primes, from the bytes the writer is
+ * handed */
 static void packed_mods(const uint64_t *l, size_t n, uint64_t *out)
 {
     const uint64_t B = 1000000000000000000ULL;
@@ -274,7 +271,7 @@ static void packed_mods(const uint64_t *l, size_t n, uint64_t *out)
     for (int t = 0; t < T; t++) {
         size_t a = n * t / T, e = n * (t + 1) / T; uint64_t v[T1_NQ], b[T1_NQ];
         for (int j = 0; j < T1_NQ; j++) { v[j] = 0; b[j] = B % t1_q[j]; }
-        if (ec_residue_shoup()) {                                   /* B3a: the Shoup step (residue_shoup.h), the same values */
+        if (ec_residue_shoup()) {                                   /* the Shoup step (residue_shoup.h), the same values */
             uint64_t w[T1_NQ]; for (int j = 0; j < T1_NQ; j++) w[j] = rs_w(b[j], t1_q[j]);
             for (size_t i = a; i < e; i++) for (int j = 0; j < T1_NQ; j++) v[j] = rs_step(v[j], b[j], w[j], t1_q[j], l[i]);
         } else
@@ -382,7 +379,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
             for (size_t i = 0; i < cnt; i++) pk[i] = l[cnt - 1 - i];
             double t3 = mem_now(); o->t_fmt += t3 - t2;
             uint8_t *ob = (uint8_t *)pk; size_t nb = cnt * 8;      /* the bytes to write: the limbs (version 1) */
-            if (w->packed == 2) {                          /* M5 (c05): the 60-bit stream, after the reversed limbs; an odd last limb waits for the next chunk */
+            if (w->packed == 2) {                          /* the 60-bit stream, after the reversed limbs; an odd last limb waits for the next chunk */
                 ob = (uint8_t *)w->buf[b] + ((cnt * 8 + 4095) & ~(size_t)4095); nb = 0;
                 nb = ecp60_stream_chunk(pk, cnt, a <= lo, &w->has_pend, &w->pend, ob);
             }
@@ -390,7 +387,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
             for (int i = 0; i < T1_NQ; i++) o->dres[i] = vf_digits_join(o->dres[i], len, v[i], t1_q[i]);
             o->ndig += len;
             double t4 = mem_now(); o->t_res += t4 - t3;
-            /* T2: the windows that end in this chunk (as tier2_range picks them), from the digits they cover and the head */
+            /* the windows that end in this chunk (as tier2_range picks them), from the digits they cover and the head */
             size_t ndig = o->d_out + 1 - (o->t2_defer < o->d_out + 1 ? o->t2_defer : o->d_out + 1), x = (size_t)-1, y = 0;   /* (K's deferred windows -- the last t2_defer digits' -- are mn_out_tail_fix's, as in the ASCII form) */
             for (int i = 0; i < nwo; i++) { size_t e = woff[i] + 50; if (e > ndig || e <= ck0 || e > ck1 || woff[i] + nhead < ck0) continue; if (woff[i] < x) x = woff[i]; if (e > y) y = e; }
             if (y) {
@@ -471,17 +468,17 @@ void mn_out_finish(mn_out *o)
     sem_destroy(&w->job_ready); sem_destroy(&w->job_taken); sem_destroy(&w->buf_free[0]); sem_destroy(&w->buf_free[1]);
     free(w); o->priv = 0;
 }
-/* ---- MN_OUT_EARLY (mn_out.h) -- functions mn_out_early_start, early_run, mn_out_early_join, mn_out_early_free ---- */
 #include "mdb.h"
-static int g_bgt;                                      /* S1e: the background team of the writer threads (mn_out_bg_threads); 0 = ECALC_BG_THREADS, else 48 */
+static int g_bgt;                                      /* the background team of the writer threads (mn_out_bg_threads); 0 = ECALC_BG_THREADS, else 48 */
 void mn_out_bg_threads(int n) { g_bgt = n; }
 struct mn_out_early { mn_out o; mn_out_src src; dbig sh; pthread_t th; int started; double t_run;
-                      /* the X_hi part (o_hi over src_hi / sh_hi), the gate, the X_hi layer's last digits (the low layer's top head) */
+                      /* the X_hi part (o_hi over src_hi / sh_hi), the gate, the X_hi layer's last digits (the low
+                       * layer's top head) */
                       int two; mn_out o_hi; mn_out_src src_hi; dbig sh_hi; sem_t go; char above[64]; size_t nabove; double t_hi, t_gate; };
 static void *early_run(void *a)
 {
     struct mn_out_early *e = (struct mn_out_early *)a;
-    vpe_adopt();                                       /* S1e: a helper thread of this PE (device, engine PE; a no-op with the switch off) */
+    vpe_adopt();                                       /* a helper thread of this PE (device, engine PE; a no-op with the switch off) */
     ec_team_set(g_bgt > 0 ? g_bgt : getenv("ECALC_BG_THREADS") ? atoi(getenv("ECALC_BG_THREADS")) : 48);   /* the background team, as the one-node writer's (vPE: the PE's CPUsADS per PE, ecalc.c) */
     double t0 = mem_now();
     if (e->two) {                                      /* the X_hi part now (finished here), then the X_lo part once released */
@@ -614,7 +611,7 @@ static int packed_patch(mn_out *o, const char *name, const uint64_t *low, const 
     size_t n = ph - lo; uint64_t *bo = (uint64_t *)malloc(n * 8), *bn = (uint64_t *)malloc(n * 8);
     for (size_t j = 0; j < n; j++) { bo[j] = low[ph - 1 - j]; bn[j] = nw[ph - 1 - j]; }   /* file order: limb ph-1 first */
     int bad = 0;
-    if (h.version == ECP_VERSION60) {                                   /* M5 (c05): the 60-bit stream -- the pairs that hold the changed limbs, read, checked, repacked */
+    if (h.version == ECP_VERSION60) {                                   /* the 60-bit stream -- the pairs that hold the changed limbs, read, checked, repacked */
         size_t j0 = hi - ph, ja = j0 & ~(size_t)1, jb = j0 + n, nf = hi - lo; if (jb & 1) jb = jb + 1 > nf ? nf : jb + 1;
         size_t nbytes = (size_t)ecp60_bytes(jb - ja); uint8_t *ro = (uint8_t *)malloc(nbytes), *rn = (uint8_t *)malloc(nbytes);
         uint64_t *L = (uint64_t *)malloc((jb - ja) * 8); int fd = open(name, O_RDONLY);
@@ -689,7 +686,7 @@ int mn_out_tail_core(mn_out *o, const uint64_t *low, size_t w, long dx, mn_out_f
         f->bytes += len; f->parts++;
         free(io); free(in);
     }
-    /* T2: the deferred windows (ending in [zs, dend)) on the new digits; windows ending in [kp, zs) were checked on the old ones:
+    /* the deferred windows (ending in [zs, dend)) on the new digits; windows ending in [kp, zs) were checked on the old ones:
      * their verdicts replaced (this node: the windows ending in its range, as the writer counts them) */
     int nwin0 = o->nwin;
     { size_t e0 = zs > o->k0 ? zs : o->k0, e1 = b; if (e0 < e1) { size_t s0 = e0 > 49 ? e0 - 49 : 0; o->bad2 += tier2_range(SN(s0), s0, e1, 0, 0, dend, o->verbose, &o->nwin); } }
@@ -776,7 +773,7 @@ static int recheck_packed_digits(const char *name, const ecp_hdr *h, size_t x, s
     size_t ia = h->nl - 1 - (x + h->pad) / 18, ib = h->nl - 1 - (y - 1 + h->pad) / 18;   /* the limbs, ia >= ib */
     size_t n = ia - ib + 1; uint64_t *l = (uint64_t *)malloc(n * 8);
     FILE *f = fopen(name, "rb"); int ok;
-    if (h->version == ECP_VERSION60) {                                           /* M5 (c05): from the even file index at or below the first limb */
+    if (h->version == ECP_VERSION60) {                                           /* from the even file index at or below the first limb */
         size_t j0 = h->hi - 1 - ia, ja = j0 & ~(size_t)1, jb = j0 + n, nf = h->hi - h->lo; if (jb & 1) jb = jb + 1 > nf ? nf : jb + 1;
         size_t nbytes = (size_t)ecp60_bytes(jb - ja); uint8_t *rb = (uint8_t *)malloc(nbytes); uint64_t *L = (uint64_t *)malloc((jb - ja) * 8);
         ok = f && fseeko(f, (off_t)(ECP_HDR_BYTES + 15 * (ja / 2)), SEEK_SET) == 0 && fread(rb, 1, nbytes, f) == nbytes;
@@ -810,10 +807,10 @@ static int recheck_stat(const char *name, int first_part, int last_part, size_t 
     size_t k = e < 49 ? e : 49; memcpy(tail49, b + e - k, k); *ntail49 = k; *ndig = n;
     return 1;
 }
-/* one pass over this node's digit file in chunks: the residues (Horner), the T2 windows (the head carried: the node above's
- * tail first), the count of digit chars (the '.' and the newline are not digits); returns 0 when the file cannot be read.
- * A reader thread fills the other of two 256 MB buffers while a chunk is processed (the file is the recheck's time: 40 GB
- * at 4e10), and the non-digit scan runs over the OpenMP team. */
+/* one pass over this node's digit file in chunks: the residues (Horner), the T2 windows (the head carried: the node
+ * above's tail first), the count of digit chars (the '.' and the newline are not digits); returns 0 when the file
+ * cannot be read. A reader thread fills the other of two 256 MB buffers while a chunk is processed, and the non-digit
+ * scan runs over the OpenMP team. */
 struct recheck_rd { FILE *f; char *buf[2]; size_t have[2]; int last[2]; sem_t full[2], empty[2]; size_t CH; volatile int stop;
                     int packed; ecp_hdr h; uint64_t *lb; size_t pos; };   /* a packed part -- its header, a limb buffer, the next limb (file order) */
 /* the next chunk of a packed part as ASCII digits (those in [k0, min(k1, d_out + 1)): no pad, no tail) */
@@ -821,7 +818,7 @@ static void *recheck_rd_packed(struct recheck_rd *r)
 {
     const ecp_hdr *h = &r->h; size_t nlimbs = h->hi - h->lo, CHL = r->CH / 18, e = h->k1 < h->d_out + 1 ? h->k1 : h->d_out + 1;
     if (fseeko(r->f, ECP_HDR_BYTES, SEEK_SET) != 0) nlimbs = 0;
-    int v60 = h->version == ECP_VERSION60; uint8_t *rb = v60 ? (uint8_t *)malloc((size_t)ecp60_bytes(CHL + 1)) : 0;   /* M5 (c05): CHL is even, so every chunk starts on a pair */
+    int v60 = h->version == ECP_VERSION60; uint8_t *rb = v60 ? (uint8_t *)malloc((size_t)ecp60_bytes(CHL + 1)) : 0;   /* CHL is even, so every chunk starts on a pair */
     if (v60) CHL &= ~(size_t)1;
     for (int k = 0;; k ^= 1) {
         sem_wait(&r->empty[k]); if (r->stop) { free(rb); return 0; }
@@ -930,7 +927,8 @@ int mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const 
         if (!recheck_stat(name[j], pidx[j] == 0, pidx[j] == NP - 1, &o[j].ndig, t49, &nt49)) return 1;   /* the count and the tail from the file's size and end (no pass) */
         v[10 * j] = o[j].ndig; v[10 * j + 1] = nt49; memcpy(v + 10 * j + 2, t49, nt49);
     }
-    /* the digit counts and the tails over the parts: the global index of each part's first digit, its T2 head (the parts before it, nearest first) */
+    /* the digit counts and the tails over the parts: the global index of each part's first digit, its T2 head (the
+     * parts before it, nearest first) */
     uint64_t *all = (uint64_t *)malloc((size_t)size * 20 * 8); mn_out_allgather_u64(c, v, 20, all);
     #define PSLOT(p) (all + (size_t)(multi ? (size - 1 - (p) % size) : 0) * 20 + 10 * (size_t)((p) / size))   /* part p's slot: node size-1-(p mod size), layer p / size */
     size_t ndig_all = 0; for (int p = 0; p < NP; p++) ndig_all += PSLOT(p)[0];
@@ -943,7 +941,7 @@ int mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const 
     #undef PSLOT
     free(all);
     if (ndig_all != d_out + 1) { printf("recheck: node %d: the file holds %zu digits, d_out + 1 = %lu expected\n", rank, ndig_all, d_out + 1); fail = 1; }
-    /* 1 + 2. one pass over each part: the residues and the T2 windows (one read, not two -- 40 GB at 4e10) */
+    /* one pass over each part: the residues and the T2 windows (one read, not two) */
     int nwin = 0, bad2 = 0; size_t ndig_me = 0;
     for (int j = 0; j < J; j++) {
         int nw = 0, b2 = 0; size_t nread = 0;

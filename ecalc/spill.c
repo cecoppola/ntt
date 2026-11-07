@@ -53,8 +53,8 @@ int sp_direct_for(const char *path) { return sp_odirect_auto() ? sp_direct_by_fs
 int sp_direct_by_fs(const char *path)
 {
     switch (sp_fs_kind(path)) {
-    case SP_FS_NFS:    return 1;   /* W1 (results/MEMORY_IO.md §IO15 §3): on aac6's NFS O_DIRECT 0.64-0.96 GB/s vs buffered + fsync 0.36-0.48 (10 GbE), 0.113-0.116 vs 0.098-0.104 (1 GbE) */
-    case SP_FS_LUSTRE: return 1;   /* ASSUMED: large aligned direct writes are Lustre's fast path; measure on the target (TARGET_TASKS T1) */
+    case SP_FS_NFS:    return 1;  /* NFS: O_DIRECT beat buffered + fsync */
+    case SP_FS_LUSTRE: return 1;  /* ASSUMED: large aligned direct writes are Lustre's fast path; to be measured on the target */
     case SP_FS_TMPFS:  return 0;
     default:           return 1;   /* local disks and unknown file systems: O_DIRECT (ECALC_ODIRECT=0 turns all of it off) */
     }
@@ -63,14 +63,14 @@ void sp_drop_cache(int fd)
 {
     if (fd < 0) return;
     fsync(fd);
-    posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);     /* only clean pages go: hence the fsync first (results/COMPUTE.md) */
+    posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);     /* only clean pages go: hence the fsync first */
 }
 /* every device's queued work complete (the DMA of this file runs on its own non-blocking streams, which are not ordered
  * after the pipeline's null-stream work the way a hipMemcpy is); the calling thread's device kept */
 void sp_dev_sync_all(void)
 {
     int cur, n = 0; SP_HIP(hipGetDevice(&cur)); SP_HIP(hipGetDeviceCount(&n)); if (n > 8) n = 8;
-    for (int d = 0; d < n; d++) { if (mem_own_device() >= 0 && d != mem_own_device()) continue; SP_HIP(hipSetDevice(d));   /* S2: process mode syncs only the own device */ SP_HIP(hipDeviceSynchronize()); }
+    for (int d = 0; d < n; d++) { if (mem_own_device() >= 0 && d != mem_own_device()) continue; SP_HIP(hipSetDevice(d));  /* process mode syncs only the own device */ SP_HIP(hipDeviceSynchronize()); }
     SP_HIP(hipSetDevice(cur));
 }
 void sp_drop_cache_path(const char *path)
@@ -84,7 +84,7 @@ int spf_open(sp_file *f, const char *path, int write, int direct)
 {
     memset(f, 0, sizeof *f); f->fd = -1; f->write = write;
     int fl = write ? O_WRONLY | O_CREAT | O_TRUNC : O_RDONLY;
-    if (direct && sp_odirect_auto()) direct = sp_direct_for(path);   /* Phase 15 IO (W7) */
+    if (direct && sp_odirect_auto()) direct = sp_direct_for(path);
     if (direct) {
         f->fd = open(path, fl | O_DIRECT, 0644);
         if (f->fd >= 0) f->direct = 1;
@@ -119,15 +119,13 @@ static int pwrite_full(sp_file *f, const void *p, size_t n, uint64_t off)
     f->t_io += mem_now() - t;
     return 1;
 }
-/* reads until `need` bytes are in (the rest of `n` may be past the end of the file).  CKPT (results/CORRECTNESS.md §CKPT): the home
- * file system of the test cluster is NFS mounted `soft` on the compute nodes, so a read whose RPCs wait longer than the
- * mount's timeouts fails with EIO; four 512 MiB O_DIRECT reads per node on 6 nodes queued enough to fail 16 of 24 top-set
- * files.  So: (1) one pread asks for at most SP_READ_MAX bytes (64 MiB: 1.5 GiB in flight over 6 nodes, seconds of queue
- * at the server's ~0.3 GB/s against its 60 s timeout; 16 MiB read the set 1.7x slower at 2 nodes); (2) EIO / ETIMEDOUT /
- * EAGAIN / ENOMEM: the same read again after 1, 4, 16 s (a read is idempotent; said on stderr), 3 failures in a row fail
- * it; (3) O_DIRECT: a read that comes back short at a byte count that is not a whole block before `need` is read again
- * from that block (p and off are block-aligned, so p + got and off + got stay aligned); the same partial count twice in
- * a row is the end of the file. */
+/* reads until `need` bytes are in (the rest of `n` may be past the end of the file). The home file system of the test
+ * cluster is NFS mounted `soft`, so a read whose RPCs wait longer than the mount's timeouts fails with EIO. So: (1)
+ * one pread asks for at most SP_READ_MAX bytes (64 MiB); (2) EIO / ETIMEDOUT / EAGAIN / ENOMEM: the same read again
+ * after 1, 4, 16 s (a read is idempotent; said on stderr), 3 failures in a row fail it; (3) O_DIRECT: a read that
+ * comes back short at a byte count that is not a whole block before `need` is read again from that block (p and off
+ * are block-aligned, so p + got and off + got stay aligned); the same partial count twice in a row is the end of the
+ * file. */
 #define SP_READ_MAX ((size_t)64 << 20)
 static int pread_need(sp_file *f, void *p, size_t n, uint64_t off, size_t need)
 {

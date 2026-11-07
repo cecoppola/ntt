@@ -1,7 +1,7 @@
-/* xshmem_boot.h -- process bootstrap for the xshmem libfabric backend (built only with XSHMEM=ofi).
- * One file pair, xshmem_boot.c: BOOT=pmi2 (default, Cray PMI2, plain srun without --mpi) or BOOT=pmix (stub in P3: aborts).
- * Rank and size come from PMI2 and are cross-checked against SLURM_PROCID / SLURM_NTASKS when those are set (mismatch aborts).
- * Not thread safe: call from one thread (the init thread). All return 0 on success; failures abort with a message. */
+/* xshmem_boot.h -- process bootstrap for the xshmem libfabric backend (built only with XSHMEM=ofi). BOOT=pmi2
+ * (default, Cray PMI2, plain srun without --mpi) or BOOT=pmix (stub: aborts). Rank and size come from PMI2 and are
+ * cross-checked against SLURM_PROCID / SLURM_NTASKS when set (mismatch aborts). Not thread safe: call from the init
+ * thread. All return 0 on success; failures abort with a message. */
 #ifndef XSHMEM_BOOT_H
 #define XSHMEM_BOOT_H
 #include <stddef.h>

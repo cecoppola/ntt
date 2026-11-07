@@ -1,11 +1,5 @@
-/* bigint.h - little-endian limb arrays in base B = 10^18 (ALGORITHM.md §2; decimal limbs since WP1, the only base since
- * archive:PLAN §28.5: the binary 2^64 pipeline is archived under archive:binary_pipeline/, tag pre-28.5-binary).
- *
- * A bigint owns a limb buffer; n is the used length (no leading-zero limbs
- * after bi_norm), cap the allocation.  The heavy operations (shifts, add/sub,
- * repack, get_digit) are in bigint.c from step 3; this header holds what the
- * step-0 harness and step-1 tests need.
- */
+/* bigint.h - little-endian limb arrays in base B = 10^18 (ALGORITHM.md §2). n = used length (no leading-zero limbs
+ * after bi_norm), cap = allocation. */
 #ifndef EC_BIGINT_H
 #define EC_BIGINT_H
 #include <stdint.h>
@@ -15,13 +9,12 @@
 
 typedef struct { uint64_t *l; size_t n, cap; } bigint;
 
-/* Limb base (WP1, archive:PLAN §15): every limb is < BI_B10 = 10^18 (60 bits); shifts are by whole limbs (powers of B).
- * (The binary pipeline is archived: archive:PLAN §28.5.) */
+/* Every limb is < BI_B10 = 10^18 (60 bits); shifts are by whole limbs (powers of B). */
 #define BI_B10 1000000000000000000ULL
 #ifdef __cplusplus
 extern "C" {
 #endif
-uint64_t *bi_alloc_huge(uint64_t *old, size_t oldn, size_t cap);   /* >= 64 MiB: 2 MiB-aligned + MADV_HUGEPAGE (first-touch faults are the 10dP/T1 variance, RESULTS.md 62) */
+uint64_t *bi_alloc_huge(uint64_t *old, size_t oldn, size_t cap);  /* >= 64 MiB: 2 MiB-aligned + MADV_HUGEPAGE (avoids first-touch fault variance) */
 #ifdef __cplusplus
 }
 #endif
@@ -50,7 +43,6 @@ static inline int bi_cmp(const bigint *a, const bigint *b)
     return 0;
 }
 
-/* ---- limb-array primitives (bigint.c) ------------------------------------- */
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -75,14 +67,14 @@ size_t limb_norm(const uint64_t *a, size_t n);
 void bi_copy(bigint *r, const bigint *a);
 void bi_set_u64(bigint *r, uint64_t v);
 void bi_add(bigint *r, const bigint *a, const bigint *b);
-void bi_sub(bigint *r, const bigint *a, const bigint *b);           /* a >= b */
+void bi_sub(bigint *r, const bigint *a, const bigint *b);
 void bi_mul_school(bigint *r, const bigint *a, const bigint *b);
 void bi_mul_u64(bigint *r, const bigint *a, uint64_t m);
-/* mul_1 is by a precomputed reciprocal of 10^18 (any m < 10^18, canonical limbs); the fused seed step: */
+/* mul_1 uses a precomputed reciprocal of 10^18 (any m < 10^18, canonical limbs); fused seed step: */
 void bi_span_step(bigint *P, bigint *Q, uint64_t k);                /* P += Q; Q *= k in one pass (k < B; else the two calls) */
 void bi_add_u64(bigint *r, uint64_t v);
-uint64_t bi_divmod_u64(bigint *q, const bigint *a, uint64_t d);     /* returns remainder */
+uint64_t bi_divmod_u64(bigint *q, const bigint *a, uint64_t d);
 #ifdef __cplusplus
 }
 #endif
-#endif /* EC_BIGINT_H */
+#endif

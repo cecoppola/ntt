@@ -1,13 +1,11 @@
-/* hosttl.h - ECALC_HOST_TL=1: the host timeline of one PE at the exchange layer (header only; used by comm_xshmem.c).
- *
- * The wall time from the end of the last pending exchange of a PE to the next post is attributed to the phase tag (XK_*)
- * of that next post ("host", s): everything the PE's caller does between two exchanges, kernel launches and its own
- * stream syncs included.  The time the post itself waits for the caller's stream (hipStreamSynchronize before the publish:
- * GPU work queued since the last exchange that is still running) is "wait", s.  A post made while another exchange of the
- * PE is still pending has no gap (counted as "ovl"; npend counts exchanges of all threads and communicators of the PE,
- * so with several posting threads the gap goes to whichever posts first after an idle period).  busy = time with at least one exchange pending, so that
- * span (first post to last end) = busy + sum of the host column exactly; "tail" = last end to the report.
- * Only clock reads and a short per-PE lock; no GPU call, no sync, no allocation. */
+/* hosttl.h - ECALC_HOST_TL=1: host timeline of one PE at the exchange layer (header only; used by comm_xshmem.c).
+ * Wall time from the end of the last pending exchange to the next post is attributed to the XK_* tag of that post
+ * ("host", s), including kernel launches and stream syncs between exchanges. Time the post itself waits for the
+ * caller's stream (hipStreamSynchronize before the publish) is "wait". A post made while another exchange is pending
+ * has no gap ("ovl"; npend counts exchanges of all threads and communicators of the PE, so with several posting
+ * threads the gap goes to whichever posts first after an idle period). busy = time with at least one exchange
+ * pending, so span (first post to last end) = busy + sum of the host column; "tail" = last end to the report. Only
+ * clock reads and a short per-PE lock; no GPU call, no sync, no allocation. */
 #ifndef HOSTTL_H
 #define HOSTTL_H
 #include <pthread.h>

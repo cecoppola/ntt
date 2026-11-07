@@ -1,4 +1,4 @@
-/* memsample.c - see memsample.h (E1, E12) */
+/* memsample.c - see memsample.h */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,11 +52,10 @@ void mem_live_line(const char *what)
            what, l, p, c, tc ? 100.0 * tp / tc : 0, m.avail * 1e-9, m.cached * 1e-9);
 }
 
-/* ---- E12: the sampler ---- */
 static struct {
     pthread_t th; int on, stop, quiet; double period, t0, guard; FILE *out;   /* quiet = the guard alone (no lines); guard = ECALC_MEM_GUARD_GB in bytes */
     size_t min_avail, max_cached, max_dirty, max_rss, max_live[DB_NQ]; long n;
-    int napu, apu_ok, hwm_done, apu_id[DB_NQ], apu_node[DB_NQ]; size_t apu_start[DB_NQ], apu_min[DB_NQ], apu_mf_start[DB_NQ], apu_mf_min[DB_NQ]; double guard_apu;   /* C5: each APU's NUMA node free memory = MemFree + file cache (MEMFIT; *_mf_* = MemFree alone): at the first sample, the minimum since; guard_apu = ECALC_MEM_GUARD_APU_GB in bytes */
+    int napu, apu_ok, hwm_done, apu_id[DB_NQ], apu_node[DB_NQ]; size_t apu_start[DB_NQ], apu_min[DB_NQ], apu_mf_start[DB_NQ], apu_mf_min[DB_NQ]; double guard_apu;  /* each APU's NUMA node free memory = MemFree + file cache (*_mf_* = MemFree alone): at the first sample, the minimum since; guard_apu = ECALC_MEM_GUARD_APU_GB in bytes */
     pthread_mutex_t mx; pthread_cond_t cv;
 } S = { .mx = PTHREAD_MUTEX_INITIALIZER, .cv = PTHREAD_COND_INITIALIZER };
 static const char *apu_root(void) { const char *r = getenv("ECALC_MEMSAMPLE_SYSFS_ROOT"); return r ? r : ""; }
@@ -87,7 +86,7 @@ int mem_apu_free_now(int *ids, size_t *freeb, size_t *memfree)   /* MEMFIT: the 
     }
     return n;
 }
-static int apu_setup(void)    /* C5: the watch list, once known */
+static int apu_setup(void)  /* the watch list, once known */
 {
     if (S.napu) return S.napu > 0;
     int n = 0, r = apu_find(&n, S.apu_id, S.apu_node, 0);
@@ -187,7 +186,7 @@ void mem_sampler_start(void)
 {
     const char *e = getenv("ECALC_MEM_SAMPLE"), *g = getenv("ECALC_MEM_GUARD_GB");
     double guard = g ? atof(g) * 1e9 : 0;                /* the guard runs the sampler without its lines when ECALC_MEM_SAMPLE is unset */
-    const char *ga = getenv("ECALC_MEM_GUARD_APU_GB"); double guard_apu = ga ? atof(ga) * 1e9 : 0;   /* C5: per-APU guard, default off */
+    const char *ga = getenv("ECALC_MEM_GUARD_APU_GB"); double guard_apu = ga ? atof(ga) * 1e9 : 0;  /* per-APU guard, default off */
     if (S.on || ((!e || atof(e) <= 0) && guard <= 0 && guard_apu <= 0)) return;
     S.quiet = !e || atof(e) <= 0; S.guard = guard; S.guard_apu = guard_apu; S.napu = 0; S.apu_ok = 0; S.hwm_done = 0;
     S.period = S.quiet ? 1.0 : atof(e); if (S.period <= 0) S.period = 1.0;

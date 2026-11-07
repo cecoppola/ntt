@@ -1,7 +1,5 @@
 /* rns_mul.h - the batch product tiers of binary splitting, the GPU CRT and the plane pools (ALGORITHM.md §4.4); the
- * distributed tier (rns_dist.c) is declared here too.  The host product tier (rns_mul: mdev, Karatsuba split, schoolbook) was
- * removed by TREF (results/CODE_TOOLS.md §TREF): no production caller; the tests' reference product is tests/tref.h.
- */
+ * distributed tier (rns_dist.c) is declared here too. The tests' reference product is tests/tref.h. */
 #ifndef EC_RNS_MUL_H
 #define EC_RNS_MUL_H
 #include <stddef.h>
@@ -41,17 +39,14 @@ int  rns_pool_log(void);
 int  rns_ndev(void);
 void rns_shutdown(void);
 
-/* batch: N independent products a_i * b_i -> c_i (na_i + nb_i limbs each, not
- * normalised), all with na_i + nb_i <= L_sub = 2^logL, logL <= RNS_BATCH_LOGL_MAX.
- * Tiles of M = min(N, rns_batch_tile_bytes / (3 L_sub 8)) products: a
- * scatter_expand kernel reads the operands straight from registered host
- * memory (mem_hreg_alloc / mem_hstage_alloc) into the device planes, batched
- * transforms, then the GPU S-stripe CRT (every device peer-reads all four
- * planes, one block per product, results stored to host) when M >= rns_gpucrt_min,
- * else the CPU CRT.  Operands or results outside registered memory are staged
- * through the device staging buffers first (slower). */
-/* c = a b, or c = a b + x when x is given (nx <= na + nb; c then has na + nb + 1 limbs, the top one the
- * final carry) -- the binary-splitting P = P1 Q2 + P2 in one pass (WP3: no CPU add over the pools) */
+/* batch: N independent products a_i * b_i -> c_i (na_i + nb_i limbs each, not normalized), all with na_i + nb_i <=
+ * L_sub = 2^logL, logL <= RNS_BATCH_LOGL_MAX. Tiles of M = min(N, rns_batch_tile_bytes / (3 L_sub 8)) products: a
+ * scatter_expand kernel reads the operands straight from registered host memory (mem_hreg_alloc / mem_hstage_alloc)
+ * into the device planes, batched transforms, then the GPU S-stripe CRT (every device peer-reads all four planes, one
+ * block per product, results stored to host) when M >= rns_gpucrt_min, else the CPU CRT. Operands or results outside
+ * registered memory are staged through the device staging buffers first (slower). */
+/* c = a b, or c = a b + x when x is given (nx <= na + nb; c then has na + nb + 1 limbs, the top one the final carry):
+ * the binary-splitting P = P1 Q2 + P2 in one pass */
 typedef struct { const uint64_t *a; size_t na; const uint64_t *b; size_t nb; uint64_t *c; const uint64_t *x; size_t nx;
                  size_t ncn; /* out: normalised length of c when the device-local path ran (0: not computed) */ } rns_prod;
 #define RNS_BATCH_LOGL_MAX 30
@@ -66,16 +61,17 @@ size_t rns_batch_split_lmax(void);
 int rns_batch_split_shape(size_t na, size_t nb, int G, size_t Lp, int *ka, int *kb);
 void rns_mul_batch_split(rns_prod *P, size_t N);
 uint64_t *rns_hstage(int dev);
-/* WP5: the distributed product tier (rns_dist.c): C = A B over the four APUs' four-step transform (dbig operands) */
+/* the distributed product tier (rns_dist.c): C = A B over the four APUs' four-step transform (dbig operands) */
 struct dbig_s; void rns_mul_dist_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B);   /* dbig operands (dbig.h) */
 void rns_mul_low_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t w);        /* low w limbs of A B */
-/* the high product (only C >> cut used: the grid's pieces below the cut skipped) and the transform
- * cache of the grid's pieces (RNS_DIST_CACHE slots; hold(1) keeps the planes across products -- the reciprocal's last
- * doubling for the division's X Q -- and returns whether it holds; hold(0) empties them; release frees the planes) */
+/* the high product (only C >> cut used: the grid's pieces below the cut skipped) and the transform cache of the
+ * grid's pieces (RNS_DIST_CACHE slots; hold(1) keeps the planes across products and returns whether it holds; hold(0)
+ * empties them; release frees the planes) */
 void rns_mul_high_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t cut);
 void rns_mul_band_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t lowcut, size_t w);   /* both cuts -- A B mod B^w, the pieces at or above w and those ending at or below lowcut skipped */
-/* S1b (vPE, rns_mul.c): the one-PE product by form S (the np primes in turn on the PE's own device); the rns_mul_*_db entries go here when vpe_on().
- * band: C = (A B mod B^w) with the pieces ending at or below lowcut skipped; lowcut 0, w = SIZE_MAX: the full product */
+/* vPE (rns_mul.c): the one-PE product by form S (the np primes in turn on the PE's own device); the rns_mul_*_db
+ * entries go here when vpe_on(). band: C = (A B mod B^w) with the pieces ending at or below lowcut skipped; lowcut 0,
+ * w = SIZE_MAX: the full product */
 void rns_mul_local(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t lowcut, size_t w);
 void rns_local_core(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t nc);   /* form S, one plane (rns_mul.c): C = A B, nc >= na + nb limbs of room reserved, nc limbs written */
 size_t rns_local_pts(size_t nc, int *T, int *logk);   /* its transform length */
@@ -83,7 +79,7 @@ void rns_dist_cache_release(void);                     /* the cache's planes fre
 void rns_dist_cache_budget(double room_bytes, int ranks_on_node);   /* ECALC_BUDGET_CHECK's room for this rank and its node's rank count (the transform-cache fit rule) */
 void *rns_dpool(int dev, int which, size_t bytes);
 extern int rns_pool_grow;   /* RNS_POOL_GROW=1 lets a plane pool grow inside a phase (else abort) */
-size_t rns_dpool_donate_tail(int dev, int which, size_t used);   /* I3: the pool's unused tail to the dbig block pool */
+size_t rns_dpool_donate_tail(int dev, int which, size_t used);  /* the pool's unused tail to the dbig block pool */
 void rns_release_staging(void);
 struct rns_dist_stats { size_t n; double t_total, t_stage, t_load, t_ntt, t_crt, t_merge; size_t n_formed, n_skipped; };   /* n_formed / n_skipped: mul_grid's piece counts, summed (the reciprocal reports its cut) */
 extern struct rns_dist_stats rns_dist_st;                    /* device dev's pinned NUMA-local staging (2^pool_log limbs), free between products */

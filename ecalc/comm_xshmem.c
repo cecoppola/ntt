@@ -1,30 +1,35 @@
-/* comm_xshmem.c -- the exchanges of ecalc on xshmem.h (plan TARGET1 stage S3a; design TARGET12_DESIGN rev1 sections 3, 5, 6).
+/* comm_xshmem.c -- the exchanges of ecalc on xshmem.h. COMM_TRANSPORT=xshmem (make XSHMEM=ofi or XSHMEM=cray;
+ * compiled with -DXSHMEM_ENGINE); the only multi-node transport. It speaks ONLY xshmem.h (no fi_*, no shmem_*), so on
+ * the target the same file runs on Cray SHMEM behind xshmem_cray.h. Exchange prototype: tests/t_xshmem.c (xex_post /
+ * xex_progress / xex_rx / xex_wait), here behind struct comm_ops.
  *
- * COMM_TRANSPORT=xshmem (make XSHMEM=ofi or XSHMEM=cray; compiled with -DXSHMEM_ENGINE).  The only multi-node transport.  This file is the target-shaped
- * engine: it speaks ONLY xshmem.h (no fi_*, no shmem_*), so on the target the same file runs on Cray SHMEM 12.1 behind xshmem_cray.h.
- * It is the exchange prototype of tests/t_xshmem.c (xex_post / xex_progress / xex_rx / xex_wait) moved behind struct comm_ops.
+ * Model. One node-process hosts K loopback PEs (xshmem_ofi_loopback_pes(); K = 1 without loopback): PE = K * node +
+ * d; PE d owns GPU d, its NIC, its DATA heap (payload, sub-allocated here) and its CTRL heap (the control words). A
+ * mesh communicator (mn.c: node set {pe_start + pe_stride r}, one per APU thread d) is the PE set {K (pe_start +
+ * pe_stride r) + d}: each NIC carries an independent one-PE-per-node all-to-all. comm_create_at takes NODE indices.
  *
- * Model.  One node-process hosts K loopback PEs (xshmem_ofi_loopback_pes(); K = 1 on a backend without loopback): PE = K * node + d, the
- * PE d owns GPU d, its NIC, its DATA heap (payload, sub-allocated here) and its CTRL heap (the control words).  A mesh communicator
- * (mn.c: node set {pe_start + pe_stride r}, one per APU thread d) is the PE set {K (pe_start + pe_stride r) + d}: each NIC carries an
- * independent one-PE-per-node all-to-all.  comm_create_at takes NODE indices.
- *
- * Protocol (one writer per word, plain 8 B SET writes, no atomics; seq << 40 | v, seq < 2^22 per communicator, fatal beyond):
- *   post  : stage non-heap buffers into the PE's DATA heap, copy the self slab, stream sync, quiet ctx0 (older words), publish
- *           ROFF[me]@peer = (seq, offset of the slab's landing place in my heap) to every peer, hand the exchange to the PE's worker
- *   worker: (one thread per PE) per peer whose ROFF arrived putmem_nbi the
- *           slab to the offset; when every peer is posted ONE quiet of the lane, then SIG[me]@peer = (seq, bytes) per peer, a quiet, flushed = 1
- *   wait  : the APU thread tests SIG[peer] (+ progress) of every sender, checks seq and count (fatal on a mismatch),
- *           waits for flushed, copies staged receive slabs out on the stream and syncs.  One exchange per communicator in flight.
+ * Protocol (one writer per word, plain 8 B SET writes, no atomics; seq << 40 | v, seq < 2^22 per communicator, fatal
+ * beyond):
+ * post: stage non-heap buffers into the PE's DATA heap, copy the self slab, stream sync, quiet ctx0 (older words),
+ * publish ROFF[me]@peer = (seq, offset of the slab's landing place in my heap) to every peer, hand the exchange to
+ * the PE's worker
+ * worker (one thread per PE): per peer whose ROFF arrived putmem_nbi the slab to the offset; when every peer is
+ * posted ONE quiet of the lane, then SIG[me]@peer = (seq, bytes) per peer, a quiet, flushed = 1
+ * wait: the APU thread tests SIG[peer] (+ progress) of every sender, checks seq and count (fatal on a mismatch),
+ * waits for flushed, copies staged receive slabs out on the stream and syncs. One exchange per communicator in
+ * flight.
  * Peers are walked in rotated order (me + q) % n (no incast on member 0).
- * Small collectives (barrier, allreduce_max, allgather_host) are word protocols VAL[2][n] + VSEQ[2][n] on ctx0 (parity slots
- * tiny_exchange; XSHMEM_COLL=tree: dissemination, ceil(log2 n) rounds, partner (me + 2^k) % n, see tiny_tree).  send / recv / allreduce_modq / alltoallv_host / allgather (device) are 0: comm_util.c's fallbacks apply.
+ * Small collectives (barrier, allreduce_max, allgather_host) are word protocols VAL[2][n] + VSEQ[2][n] on ctx0
+ * (parity slots tiny_exchange; XSHMEM_COLL=tree: dissemination, ceil(log2 n) rounds, partner (me + 2^k) % n, see
+ * tiny_tree). send / recv / allreduce_modq / alltoallv_host / allgather (device) are 0: comm_util.c's fallbacks
+ * apply.
  *
  * CTRL layout (words, per communicator id < MAXID, a pure function of the id, so no exchange at create):
- *   ctrl + id * 7 * nw : ROFF[n] SIG[n] VAL0[n] VAL1[n] VSEQ0[n] VSEQ1[n] SOFF[n]   (9 * nw with COMM_SEQ_CHECK=1: + CHK0[n] CHK1[n]; n = nw: the largest member count = the nodes; with ECALC_PE_PER_GPU
- *   (S1a) the PEs, K * nodes, and only XS_MAXID_VPE ids)
- * Threads: mesh d is driven by APU thread d (device d current at create; the main thread is thread 0).  Every entry selects the loopback
- * PE of the comm (XSHMEM_SELECT); a debug flag catches two threads inside one comm. */
+ * ctrl + id * 7 * nw : ROFF[n] SIG[n] VAL0[n] VAL1[n] VSEQ0[n] VSEQ1[n] SOFF[n]   (9 * nw with COMM_SEQ_CHECK=1: +
+ * CHK0[n] CHK1[n]; n = nw: the largest member count = the nodes; with ECALC_PE_PER_GPU the PEs, K * nodes, and only
+ * XS_MAXID_VPE ids)
+ * Threads: mesh d is driven by APU thread d (device d current at create; the main thread is thread 0). Every entry
+ * selects the loopback PE of the comm (XSHMEM_SELECT); a debug flag catches two threads inside one comm. */
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -59,7 +64,7 @@ void xshmem_ofi_init_times(double *v, long *n_av);   /* xshmem_ofi.c: ECALC_INIT
 #define HSYNC(p, st) do { if ((p)->lp->htl.on) { double th_ = now_s(); SYNC(st); htl_wait(&(p)->lp->htl, (p)->phk, now_s() - th_); } else SYNC(st); } while (0)   /* the post's stream sync, timed under ECALC_HOST_TL */
 #define MAXID 1024                         /* communicator ids (control blocks) */
 #define MAXID_VPE 512                      /* (544 with vpe_big_ids(): MAXID_VPE_BIG) */
-#define MAXID_VPE_BIG 544                      /* ... with ECALC_PE_PER_GPU (flat PE communicators: the control block grows with the PE count; 512..543: the runs of >= 64 PEs that are not aligned powers of two, mn.c sub_id; +32 ids = 7 x nw x 8 B each, 129 KB per id at 2304 PEs) */
+#define MAXID_VPE_BIG 544  /* ... with ECALC_PE_PER_GPU (flat PE communicators: the control block grows with the PE count; 512..543: the runs of >= 64 PEs that are not aligned powers of two, mn.c sub_id; +32 ids = 7 x nw x 8 B each) */
 #define MAXL 4                             /* lane contexts per PE (XSHMEM_LANES) */
 #define MAXPST 8                           /* XSHMEM_PEER copy streams per PE (peer pe uses stream pe mod MAXPST) */
 #define PEERBIT (1u << 8)                  /* lane_put's mask: a same-node device copy is outstanding (lane_quiet syncs the copy streams) */
@@ -120,13 +125,13 @@ static int g_htl, g_htl_pe;                 /* ECALC_HOST_TL=1: the host timelin
 static int g_ctree;                        /* XSHMEM_COLL=tree: dissemination collectives (default 0 = flat, every member to every member) */
 static struct { int on, ncomm, nhs, nline; double t0, csum, cmax, hsum, hmax, hmaxi; } XT;   /* ECALC_INIT_TL=1: the start-up timeline of the engine (print only) */
 #define XTL(...) do { if (XT.on && X.q == 0) { printf("tl %7.2f  xshmem: ", now_s() - XT.t0); printf(__VA_ARGS__); printf("\n"); } } while (0)
-#define XTL_MAXLINES 12                    /* per-communicator / per-handshake lines before the summary only (a 576-node run must not print thousands) */
+#define XTL_MAXLINES 12  /* per-communicator / per-handshake lines before the summary only (a large run must not print thousands) */
 #define YIELD() do { if (X.yield) sched_yield(); } while (0)
 static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 static inline uint64_t rd64(const uint64_t *p) { return *(volatile const uint64_t *)p; }
 static inline int sigge(const uint64_t *p, uint64_t v) { return xshmem_signal_test(p, XSHMEM_CMP_GE, v); }
 
-/* ---- the DATA heap's sub-allocator: first fit, 256 B, symmetric buffers top-down (first written for the removed comm_ofi transport); a lock per PE ---- */
+/* the DATA heap's sub-allocator: first fit, 256 B, symmetric buffers top-down; a lock per PE */
 static size_t xalloc(xpe *lp, size_t len, int sym)
 {
     len = (len + ALIGN - 1) & ~(size_t)(ALIGN - 1); if (!len) len = ALIGN;
@@ -291,7 +296,7 @@ static void *worker(void *a)
         int prog = 0;
         for (int i = 0; i < na; i++) {
             xpriv *p = act[i];
-            if (!p->rounds && wdev_ != (unsigned)p->dev) { HIP_CHECK(hipSetDevice(p->dev)); wdev_ = (unsigned)p->dev; }   /* S1b: the worker works on its PE's device (it was device 0 for every PE: under vPE four workers on one device) */
+            if (!p->rounds && wdev_ != (unsigned)p->dev) { HIP_CHECK(hipSetDevice(p->dev)); wdev_ = (unsigned)p->dev; }   /* the worker works on its PE's device (it was device 0 for every PE: under vPE four workers on one device) */
             if (p->rounds ? xex_round(p) : xex_send(p)) { act[i] = act[--na]; i--; lp->busy = na; __atomic_store_n(&p->flushed, 1, __ATOMIC_RELEASE); prog = 1; }
         }
         if (prog) idle = 0;
@@ -434,7 +439,8 @@ static void xex_post_rounds(xpriv *p, const void *sb, void *rb, hipStream_t s)
     pthread_mutex_unlock(&lp->qm);
 }
 
-/* stage, copy the self slab, publish where every sender's slab lands, start the sender half; one exchange per communicator */
+/* stage, copy the self slab, publish where every sender's slab lands, start the sender half; one exchange per
+ * communicator */
 static void xex_post(xpriv *p, const void *sb, void *rb, hipStream_t s)
 {
     int n = p->n, me = p->me; xpe *lp = p->lp;
@@ -605,7 +611,8 @@ static void die_hang(const xpriv *p, const char *what, int r)
 {
     char m[160]; chk_hang_note(p, r); snprintf(m, sizeof m, "HANG (> %.0f s) in %s", g_hang_s, what); die(p, m);
 }
-/* the tiny exchange: every member's 8-byte value to every member (value, quiet, then the sequence word; slots alternate with the parity) */
+/* the tiny exchange: every member's 8-byte value to every member (value, quiet, then the sequence word; slots
+ * alternate with the parity) */
 static void tiny_exchange(xpriv *p, uint64_t v, uint64_t *all, int kind)
 {
     int n = p->n, me = p->me; uint64_t seq = ++p->tseq; int par = (int)(seq & 1);
@@ -817,7 +824,7 @@ int comm_xshmem_init(void)
     int prov = 0; if (xshmem_init_thread(XSHMEM_THREAD_MULTIPLE, &prov)) ec_fatal(EC_RC_FATAL, "comm_xshmem: xshmem_init_thread failed\n");
     tl_b = now_s();
     int K = XS_LPES(); if (K < 1 || K > MAXLPE) ec_fatal(EC_RC_FATAL, "comm_xshmem: %d loopback PEs per process (1..%d; XSHMEM_LOOPBACK_PES)\n", K, MAXLPE);
-    if (vpe_ppg() && K != 1) ec_fatal(EC_RC_FATAL, "comm_xshmem: ECALC_PE_PER_GPU=1 is one process per PE: XSHMEM_LOOPBACK_PES=%d, it must be 1\n", K);   /* S2a */
+    if (vpe_ppg() && K != 1) ec_fatal(EC_RC_FATAL, "comm_xshmem: ECALC_PE_PER_GPU=1 is one process per PE: XSHMEM_LOOPBACK_PES=%d, it must be 1\n", K);
     X.K = K; XSHMEM_SELECT(0);
     int np = xshmem_n_pes(); if (np % K) ec_fatal(EC_RC_FATAL, "comm_xshmem: %d PEs are not whole processes of %d loopback PEs\n", np, K);
     X.nodes = np / K; X.q = xshmem_my_pe() / K;
@@ -841,7 +848,7 @@ int comm_xshmem_init(void)
     size_t db = cfg.heap_mb > 0 ? (size_t)cfg.heap_mb << 20 : ((getenv("COMM_OFI_POOL_MB") ? (size_t)atol(getenv("COMM_OFI_POOL_MB")) : (getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : 8192) / 4 + 256) << 20);
     if (getenv("XSHMEM_HEAP_SLACK_MB")) db += (size_t)atol(getenv("XSHMEM_HEAP_SLACK_MB")) << 20;   /* (default off: the Cray backend takes the control and alignment out of the same heap: the plan's figure is exact, a few MiB more are needed there) */
     db = round_up(db); X.dbytes = db;
-    X.nw = vpe_on() ? K * X.nodes : X.nodes; X.maxid = vpe_on() ? (vpe_big_ids() ? MAXID_VPE_BIG : MAXID_VPE) : MAXID;   /* the 32 extra ids (129 KB each at 2304 PEs) only when a run can need them; the last id is the t_vpe hs burst block (mn.c sub_id never returns it) */
+    X.nw = vpe_on() ? K * X.nodes : X.nodes; X.maxid = vpe_on() ? (vpe_big_ids() ? MAXID_VPE_BIG : MAXID_VPE) : MAXID;  /* the 32 extra ids only when a run can need them; the last id is the hs burst block (mn.c sub_id never returns it) */
     size_t cb = (size_t)X.maxid * (size_t)g_wn * (size_t)X.nw * 8;
     for (int l = 0; l < K; l++) { XSHMEM_SELECT(l); X.pe[l].ctrl = (uint64_t *)xshmem_heap_alloc(cb, XSHMEM_SPACE_CTRL); }   /* one space at a time, PEs in order 0..K-1 (collective) */
     tl_d = now_s();
@@ -901,8 +908,9 @@ comm *comm_xshmem_create_at(int pe_start, int pe_stride, int n, int id)
     int dev = 0, lpe = cur_lpe(&dev);
     return make_comm(n, me, id, lpe, dev, pe_start, pe_stride, 0);
 }
-/* S1a (PE layout): the communicator over the contiguous PE run [pe_start, pe_start + n) in PE units (PE = K * node + loopback PE), rank = PE - pe_start.
- * Created by the calling PE (device = loopback PE) if it is a member; local, like create_at.  Ids as create_at's (< X.maxid). */
+/* the communicator over the contiguous PE run [pe_start, pe_start + n) in PE units (PE = K * node + loopback PE),
+ * rank = PE - pe_start. Created by the calling PE (device = loopback PE) if it is a member; local, like create_at.
+ * Ids as create_at's (< X.maxid). */
 comm *comm_xshmem_create_flat(int pe_start, int n, int id)
 {
     if (!X.inited) comm_xshmem_init();
@@ -926,7 +934,8 @@ int comm_xshmem_burst(int nsig, int batch, double *t_issue, double *t_quiet)
     return 0;
 }
 void comm_xshmem_select(int lpe) { if (X.inited && X.K == 1) return; XSHMEM_SELECT(lpe); }     /* the loopback-PE hook (vpe.h): the current loopback PE (K = 1: the only one) */
-/* S2a (ECALC_PE_PER_GPU): this process's place as the backend's topology (pe_geo) reports it: v = { pe, npes, local, pes per node, gpu, numa, nics, nic[0] }, cpus = the NUMA node's cpu list.  0 = ok */
+/* ECALC_PE_PER_GPU: this process's place as the backend's topology (pe_geo) reports it: v = { pe, npes, local, pes
+ * per node, gpu, numa, nics, nic[0] }, cpus = the NUMA node's cpu list. 0 = ok */
 int comm_xshmem_geo(int *v, char *cpus, int ncpus)
 {
     xshmem_topo_t tt; if (!X.inited || xshmem_topo(&tt)) return -1;

@@ -9,7 +9,6 @@ typedef unsigned __int128 u128;
 newton_stats newton_st;
 int newton_seed_perturb = 0;
 
-/* ---- Knuth algorithm D, base B = 10^18 (decimal limbs) ---------------------- */
 static void divmod_school_dec(bigint *X, bigint *R, const bigint *A, const bigint *Q)
 {
     const u128 B = BI_B10;
@@ -44,7 +43,6 @@ static void divmod_school_dec(bigint *X, bigint *R, const bigint *A, const bigin
     free(v); free(u);
 }
 
-/* ---- schoolbook division (Knuth D above) ------------------------------------ */
 void bi_divmod_school(bigint *X, bigint *R, const bigint *A, const bigint *Q)
 {
     if (!Q->n) { ec_fatal(EC_RC_FATAL, "divmod: Q = 0\n"); }
@@ -53,7 +51,6 @@ void bi_divmod_school(bigint *X, bigint *R, const bigint *A, const bigint *Q)
     divmod_school_dec(X, R, A, Q);
 }
 
-/* ---- reciprocal ------------------------------------------------------------ */
 /* seed: j = 2 limbs of precision by schoolbook on the top 4 limbs of Q */
 void newton_seed_host(bigint *r, const bigint *Q, size_t *j) { size_t top = Q->n < 4 ? Q->n : 4; newton_seed_top(r, Q->l + (Q->n - top), top, Q->n, j); }
 /* the seed from Q's top limbs only (Q may live on the device; top4 = its top `top` limbs, nq its length) */

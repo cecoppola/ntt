@@ -16,8 +16,6 @@ uint64_t *bi_alloc_huge(uint64_t *old, size_t oldn, size_t cap)
 
 typedef unsigned __int128 u128;
 #define B10 BI_B10
-/* archive:PLAN §28.5: the limbs are decimal (base 10^18) only; the binary 2^64 pipeline (todec) is archived under
- * archive:binary_pipeline/ (tag pre-28.5-binary). */
 
 static uint64_t add_serial(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, size_t nb, uint64_t cin)
 {
@@ -109,13 +107,12 @@ void limb_mul_school(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *
         free(w1);
     }
 }
-/* the decimal mul_1 by a precomputed reciprocal of 10^18, for any m < B and add <= B, limbs
- * canonical (< B).  mh = floor(m 2^64 / B) (< 2^64 because m < B).  For x = a[i] < 2^64 the true quotient Q = floor(x m / B)
- * satisfies qe = floor(x mh / 2^64) in {Q - 1, Q}: x mh <= x m 2^64 / B, and x mh > x m 2^64 / B - x > (x m / B - 1) 2^64.
- * So s = x m - qe B + c (mod 2^64; the true value is (x m mod B) + (Q - qe) B + c, in [0, 3B) < 2^64 while c <= B) needs at
- * most two corrections, each a compare against a constant (branch-free: clang made the one-at-a-time form branchy, 2x slower
- * on Zen 2).  The quotient does not depend on the incoming carry: the loop-carried chain is only s, c = qe + f + g
- * (<= m <= B - 1 since x < B).  The limbs are those of the exact product, hence identical to the serial form's. */
+/* decimal mul_1 by a precomputed reciprocal of 10^18, for any m < B and add <= B, limbs canonical (< B). mh = floor(m
+ * 2^64 / B) (< 2^64 because m < B). For x = a[i] < 2^64 the true quotient Q = floor(x m / B) satisfies qe = floor(x
+ * mh / 2^64) in {Q - 1, Q}, so s = x m - qe B + c (mod 2^64; the true value is in [0, 3B) < 2^64 while c <= B) needs
+ * at most two corrections, each a branch-free compare against a constant. The quotient does not depend on the
+ * incoming carry: the loop-carried chain is only s, c = qe + f + g (<= m <= B - 1 since x < B). The limbs are those
+ * of the exact product, hence identical to the serial form's. */
 /* floor(m 2^64 / 10^18) for m < 10^18 (a 64-bit value: kept out of line so that the loops see a 64-bit multiplier) */
 __attribute__((noinline)) static uint64_t recip_b10(uint64_t m) { return (uint64_t)(((u128)m << 64) / B10); }
 static inline uint64_t mul1_dec_fast(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint64_t c)
@@ -163,8 +160,8 @@ static uint64_t mul1_serial(uint64_t *r, const uint64_t *a, size_t na, uint64_t 
     if (m < B10 && add <= B10) return mul1_dec_fast(r, a, na, m, add);
     {                                              /* m < B: a[i] m + c < B^2 + B */
         if (m < ((uint64_t)1 << 33)) {
-            /* x = a[i] m + c < 2^93: q = floor(x / 10^18) by a 64-bit Barrett step -- q_est = ((x >> 30) mu) >> 64
-             * with mu = floor(2^94 / 10^18) < 2^35, then at most two corrections (WP4, RESULTS.md 58) */
+            /* x = a[i] m + c < 2^93: q = floor(x / 10^18) by a 64-bit Barrett step, q_est = ((x >> 30) mu) >> 64 with
+             * mu = floor(2^94 / 10^18) < 2^35, then at most two corrections */
             const uint64_t MU = 19807040628ULL;      /* floor(2^94 / 10^18) */
             for (size_t i = 0; i < na; i++) {
                 c += (u128)a[i] * m;
