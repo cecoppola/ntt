@@ -14,7 +14,7 @@ here. Entry point for a new session: `target/RESTART.md`.
 | `lib/common.sh` | shared shell functions (§3); every script sources it | here |
 | `probe/` | step 1: `probe.sh` (fast system facts), `probe_shmem.c`, `gen_conf.py` (facts → `config/target.conf`) | here |
 | `config/` | `target.conf.template`; `target.conf` (generated on the target, committed) | template here, conf on target |
-| `bench/` | step 3: `manifest.d/*.tsv`, `QUESTIONS.md` (question register), `run.sh` (claiming runner), `items/<id>.sh` | here |
+| `bench/` | step 3: `manifest.d/*.tsv`, `QUESTIONS.md` (question register), `run.sh` (claiming runner), `items/items.sh <id>` | here |
 | `ladder/` | step 4: `ladder.sh`, `locality.py`, `parse_run.py` (log parser, replica collect), `levels/L0..L3.conf`, `ADJUST.md` (rules for changes between runs); tests `tests/test_locality.py`, `tests/test_ladder_parse.py` | here |
 | `build/` | binaries built on the target by `bld01`/`bld02` (`build/<sha7>-p1|p2/`); git-ignored | target |
 | `results/` | everything measured on the target, committed raw (decision Q112) | target |
@@ -73,11 +73,11 @@ id	tier	prio	nodes	est_min	deps	questions	cmd
 | `est_min` | expected wall minutes including setup; the runner kills the item at 2 × `est_min` + 2 |
 | `deps` | comma list of ids that must be DONE with status PASS or PARTIAL, or `-` |
 | `questions` | comma list of register ids (`TQ<nn>`) the item answers, or `-` |
-| `cmd` | path below `bench/items/` plus fixed arguments, e.g. `net01.sh --sizes 4K,64K,4M` |
+| `cmd` | path below `bench/items/` plus fixed arguments, e.g. `items.sh net01` |
 
 Items are short and run once (no repeats unless the item itself needs n > 1 for a spread, then n is fixed in the item).
 
-## 5. Item contract — `bench/items/<id>.sh`
+## 5. Item contract — `bench/items/items.sh <id>`
 
 Called by `bench/run.sh` with the environment below; the current dir is `$OUT`.
 

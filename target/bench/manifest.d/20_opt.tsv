@@ -1,6 +1,6 @@
 # optimization items (prio 100-199): A/B arms, sweeps, init and IO; helpers items/_opt.sh, _ecalc.sh
 id	tier	prio	nodes	est_min	deps	questions	cmd
-io01	1	170	1	10	bld01	TQ54	io01.sh
-io02	2	171	64	15	io01	TQ55	io02.sh
-io03	2	172	8	15	io01	TQ56	io03.sh
-io04	1	175	1	8	bld01	TQ57	io04.sh
+io01	1	170	1	10	bld01	TQ54	items.sh io01
+io02	2	171	64	15	io01	TQ55	items.sh io02
+io03	2	172	8	15	io01	TQ56	items.sh io03
+io04	1	175	1	8	bld01	TQ57	items.sh io04

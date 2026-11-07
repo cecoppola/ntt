@@ -3,7 +3,7 @@
 # machine and to generate config/target.conf (probe/gen_conf.py).  Contracts: target/FORMATS.md (layout, summary.txt, lib/common.sh).
 #
 #   target/probe/probe.sh [--only login|node] [--jobid J] [--out DIR] [--dry-run]
-#                         [--want-rocm 7.14.0] [--want-sma 12.1] [--want-fi 2.3.1] [--no-shmem]
+#                         [--want-rocm 7.14.0] [--want-sma 12.1] [--no-shmem]
 #
 #   (no --only)   login part here; if a job is known (--jobid J, else $SLURM_JOB_ID) also the node part.
 #   --only login  login part: OS, modules, compilers, libraries, Slurm and queue rules, file systems, limits.  Budget 2 min.
@@ -53,10 +53,10 @@ HERE=$(dirname "$PROBE_SELF")
 tgt_init
 
 BUILD_ONLY=0; ONLY=; JOBID=${SLURM_JOB_ID:-}; OUT_ARG=; DRY=0; ONNODE=0; DO_SHMEM=1
-W_ROCM=7.14.0; W_SMA=12.1; W_FI=2.3.1
+W_ROCM=7.14.0; W_SMA=12.1
 while [ $# -gt 0 ]; do case $1 in
   --only) ONLY=$2; shift;; --jobid) JOBID=$2; shift;; --out) OUT_ARG=$2; shift;; --dry-run) DRY=1;; --build-only) BUILD_ONLY=1;; --on-node) ONNODE=1;;
-  --want-rocm) W_ROCM=$2; shift;; --want-sma) W_SMA=$2; shift;; --want-fi) W_FI=$2; shift;; --no-shmem) DO_SHMEM=0;;
+  --want-rocm) W_ROCM=$2; shift;; --want-sma) W_SMA=$2; shift;; --no-shmem) DO_SHMEM=0;;
   -h|--help) sed -n 2,/^# Exit/p "$0" | sed 's/^# \{0,1\}//'; exit 0;;
   *) echo "probe.sh: unknown option $1" >&2; exit 2;; esac; shift; done
 case "$ONLY" in ""|login|node) ;; *) echo "probe.sh: --only login|node" >&2; exit 2;; esac
@@ -67,27 +67,28 @@ EXTRA=${PROBE_SRUN_EXTRA:-}
 [ -f "$HERE/../../ecalc/gres.sh" ] && { . "$HERE/../../ecalc/gres.sh"; [ -z "$EXTRA" ] || EXTRA=$(mn_gres_strip "$EXTRA"); }   # MNRUN_GRES: GPU options dropped where the nodes list no GRES
 
 # ---- primitives -------------------------------------------------------------------------------------------------------------------
+# rec NAME CMD STATE SEC: one row of raw/_commands.tsv (CMD with tabs/newlines folded)
+rec() { printf '%s\t%s\t%s\t%s\n' "$1" "$(echo "$2" | tr '\n\t' '  ')" "$3" "$4" >> "$RAW/_commands.tsv"; }
 # cap NAME CMD...: run CMD (<= ${T:-10} s, no stdin) into raw/NAME.txt; records rc and seconds in raw/_commands.tsv
 cap() {
     local n=$1; shift
     if [ "$DRY" = 1 ]; then echo "[dry-run] ${T:-10}s  $n: $*" | cut -c1-200; return 0; fi
     local f=$RAW/$n.txt s=$SECONDS rc
     if [ $((SECONDS - T0)) -ge "$DEADLINE" ]; then
-        echo "skipped_deadline" > "$f"; printf '%s\t%s\tskipped\t0\n' "$n" "$(echo "$*" | tr '\n\t' '  ')" >> "$RAW/_commands.tsv"; return 99
+        echo "skipped_deadline" > "$f"; rec "$n" "$*" skipped 0; return 99
     fi
     if ! command -v "$1" >/dev/null 2>&1; then
-        echo "missing: $1" > "$f"; printf '%s\t%s\tmissing\t0\n' "$n" "$(echo "$*" | tr '\n\t' '  ')" >> "$RAW/_commands.tsv"; return 127
+        echo "missing: $1" > "$f"; rec "$n" "$*" missing 0; return 127
     fi
     timeout -k 2 "${T:-10}" "$@" > "$f" 2>&1 < /dev/null; rc=$?
-    printf '%s\t%s\t%s\t%s\n' "$n" "$(echo "$*" | tr '\n\t' '  ')" "$rc" $((SECONDS - s)) >> "$RAW/_commands.tsv"
-    return $rc
+    rec "$n" "$*" "$rc" $((SECONDS - s)); return $rc
 }
 # capsh NAME NEEDS SCRIPT: like cap for a shell snippet; NEEDS is the binary it depends on ("-" = none)
 capsh() {
     local n=$1 need=$2 sc=$3
     [ "$DRY" = 1 ] && { echo "[dry-run] ${T:-10}s  $n: ${sc%%$'\n'*}" | cut -c1-200; return 0; }
-    if [ "$need" != - ] && [ "$DRY" != 1 ] && ! command -v "$need" >/dev/null 2>&1; then
-        echo "missing: $need" > "$RAW/$n.txt"; printf '%s\t%s\tmissing\t0\n' "$n" "$(echo "$sc" | tr '\n\t' '  ')" >> "$RAW/_commands.tsv"; return 127
+    if [ "$need" != - ] && ! command -v "$need" >/dev/null 2>&1; then
+        echo "missing: $need" > "$RAW/$n.txt"; rec "$n" "$sc" missing 0; return 127
     fi
     cap "$n" bash -c "$sc"
 }
@@ -97,10 +98,10 @@ capmod() {   # NAME module-args...
     local n=$1; shift
     if [ "$DRY" = 1 ]; then echo "[dry-run] ${T:-10}s  $n: module $*"; return 0; fi
     local f=$RAW/$n.txt s=$SECONDS rc
-    [ "$HAVE_MODULE" = 1 ] || { echo "missing: module" > "$f"; printf '%s\tmodule %s\tmissing\t0\n' "$n" "$*" >> "$RAW/_commands.tsv"; return 127; }
-    if [ $((SECONDS - T0)) -ge "$DEADLINE" ]; then echo skipped_deadline > "$f"; printf '%s\tmodule %s\tskipped\t0\n' "$n" "$*" >> "$RAW/_commands.tsv"; return 99; fi
+    [ "$HAVE_MODULE" = 1 ] || { echo "missing: module" > "$f"; rec "$n" "module $*" missing 0; return 127; }
+    if [ $((SECONDS - T0)) -ge "$DEADLINE" ]; then echo skipped_deadline > "$f"; rec "$n" "module $*" skipped 0; return 99; fi
     modrun "$@" > "$f"; rc=$?
-    printf '%s\tmodule %s\t%s\t%s\n' "$n" "$*" "$rc" $((SECONDS - s)) >> "$RAW/_commands.tsv"; return $rc
+    rec "$n" "module $*" "$rc" $((SECONDS - s)); return $rc
 }
 fact() {     # KEY VALUE [SOURCE]
     [ "$DRY" = 1 ] && return 0
@@ -174,6 +175,19 @@ else: print(\"errno=%d\"%e.errno)"'
     fx uffd.madv_collapse madv 'head -1'
 }
 
+# pick_modules: the modules to load from raw/module_avail.txt (dsmml, sma, rocm matching --want-*) -> facts mod.pick_*, PICK_PM
+pick_modules() {
+    local av r s d q pm
+    av=$(sed 's/(default)//;s/(D)//;s/(L)//' "$RAW/module_avail.txt" 2>/dev/null | grep -E '^[A-Za-z0-9_.+-]+/[0-9]' | sort -u)
+    r=$(echo "$av" | grep -iE '^(rocm|amd)/' | grep -F "$W_ROCM" | grep -vE 'afar|therock|new' | head -1)
+    s=$(echo "$av" | grep -iE '^(cray-openshmemx|cray-shmem|cray-sma)' | grep -F "$W_SMA" | head -1)
+    d=$(echo "$av" | grep -iE '^cray-dsmml' | sort -V | tail -1)
+    pm=; [ -n "$r" ] && [ -n "$s" ] && [ -n "$d" ] && pm="$d $s $r"
+    case "$s" in cray-shmem*) q=$(echo "$av" | grep -E '^cray-pmi/' | sort -V | tail -1); [ -n "$q" ] && [ -n "$pm" ] && pm="$pm $q";; esac   # 12.1 style: cray-pmi gives the versioned PMI libs
+    fact mod.pick_rocm "${r:-none}" "match $W_ROCM"; fact mod.pick_sma "${s:-none}" "match $W_SMA"; fact mod.pick_dsmml "${d:-none}" "highest cray-dsmml"
+    fact mod.pick_modules "${pm:-none}" "dsmml sma rocm"; PICK_PM=$pm
+}
+
 # ---- login part -------------------------------------------------------------------------------------------------------------------------
 part_login() {
     part_common
@@ -204,15 +218,7 @@ part_login() {
     fx mod.avail_cce module_avail "$AV | grep -iE '^(cce|cray-cce)/' | paste -sd' '"
     fx mod.avail_gmp module_avail "$AV | grep -iE '^(gmp|cray-gmp)' | paste -sd' '"
     if [ "$DRY" != 1 ]; then
-        local av r s d pm q
-        av=$(sed 's/(default)//;s/(D)//;s/(L)//' "$RAW/module_avail.txt" 2>/dev/null | grep -E '^[A-Za-z0-9_.+-]+/[0-9]' | sort -u)
-        r=$(echo "$av" | grep -iE '^(rocm|amd)/' | grep -F "$W_ROCM" | grep -vE 'afar|therock|new' | head -1)
-        s=$(echo "$av" | grep -iE '^(cray-openshmemx|cray-shmem|cray-sma)' | grep -F "$W_SMA" | head -1)
-        d=$(echo "$av" | grep -iE '^cray-dsmml' | sort -V | tail -1)
-        pm=; [ -n "$r" ] && [ -n "$s" ] && [ -n "$d" ] && pm="$d $s $r"
-        case "$s" in cray-shmem*) q=$(echo "$av" | grep -E '^cray-pmi/' | sort -V | tail -1); [ -n "$q" ] && [ -n "$pm" ] && pm="$pm $q";; esac   # 12.1 style: cray-pmi gives the versioned PMI libs
-        fact mod.pick_rocm "${r:-none}" "match $W_ROCM"; fact mod.pick_sma "${s:-none}" "match $W_SMA"; fact mod.pick_dsmml "${d:-none}" "highest cray-dsmml"
-        fact mod.pick_modules "${pm:-none}" "dsmml sma rocm"
+        pick_modules
     fi
     # libraries (login view; node part repeats the fi_info facts)
     part_libs
@@ -393,13 +399,7 @@ part_shmem() {
         # login part not run in this dir: pick here
         if [ "$DRY" = 1 ]; then pm="<picked modules>"; else
             capmod module_avail -t avail
-            local av r s d q; av=$(sed 's/(default)//;s/(D)//;s/(L)//' "$RAW/module_avail.txt" 2>/dev/null | grep -E '^[A-Za-z0-9_.+-]+/[0-9]' | sort -u)
-            r=$(echo "$av" | grep -iE '^(rocm|amd)/' | grep -F "$W_ROCM" | grep -vE 'afar|therock|new' | head -1)
-            s=$(echo "$av" | grep -iE '^(cray-openshmemx|cray-shmem|cray-sma)' | grep -F "$W_SMA" | head -1)
-            d=$(echo "$av" | grep -iE '^cray-dsmml' | sort -V | tail -1)
-            pm=; [ -n "$r" ] && [ -n "$s" ] && [ -n "$d" ] && pm="$d $s $r"
-            case "$s" in cray-shmem*) q=$(echo "$av" | grep -E '^cray-pmi/' | sort -V | tail -1); [ -n "$q" ] && [ -n "$pm" ] && pm="$pm $q";; esac
-            fact mod.pick_modules "${pm:-none}" "dsmml sma rocm"
+            pick_modules; pm=$PICK_PM
         fi
     fi
     [ "$pm" != none ] && [ -n "$pm" ] || { fact shmem.build "no modules picked (rocm/sma/dsmml)" mod.pick_modules; return; }

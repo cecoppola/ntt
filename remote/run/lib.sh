@@ -254,7 +254,7 @@ rl_digits_tail() {  # LOG -> last digits printed by the process that holds the E
     # lines: "digits: 2718...5103..." (one process) | "mn: pe|node N: digits: HEAD...TAIL (this node's range)"; ranks without a TAIL are skipped,
     # of several with a tail the highest pe/node index wins (the last range ends the result), ties: the last line
     local f=$1; [ -f "$f" ] || f=$f.gz; [ -f "$f" ] || return 0
-    { case $f in *.gz) zcat "$f";; *) cat "$f";; esac; } | sed -E 's/^ *[0-9]+: //' | grep -a -E '^(mn: (pe|node) [0-9]+: )?digits: [0-9]*\.\.\.[0-9]+' \
+    rl_cat "$f" | sed -E 's/^ *[0-9]+: //' | grep -a -E '^(mn: (pe|node) [0-9]+: )?digits: [0-9]*\.\.\.[0-9]+' \
       | awk 'BEGIN { br = -2 } { r = -1; if (match($0, /^mn: (pe|node) [0-9]+: /)) { q = substr($0, 1, RLENGTH); gsub(/[^0-9]/, "", q); r = q + 0 }
                t = $0; sub(/^[^.]*\.\.\./, "", t); sub(/[^0-9].*/, "", t)
                if (r >= br) { br = r; bt = t } } END { if (bt != "") print bt }'
@@ -264,7 +264,7 @@ rl_runfacts() {     # LOG [PATH] -> RF_* from what ecalc printed (empty = not pr
     local f=$1 pth=${2:-}; RF_PES= RF_PERNODE= RF_NODES= RF_BG= RF_TEAMBS= RF_TEAMRES= RF_I=; RF_RN= RF_RS= RF_DN= RF_DS= RF_P24LINES= RF_P24PROD= RF_P24FL= RF_PLANAPU= RF_NOTE=
     [ -f "$f" ] || f=$f.gz; [ -f "$f" ] || return 0
     local tmp; tmp=$(mktemp "${TMPDIR:-/tmp}/rlf.XXXXXX")
-    { case $f in *.gz) zcat "$f";; *) cat "$f";; esac; } | sed -E 's/^ *[0-9]+: //' | grep -a -E '^(vpe: |omp team: |tl +[a-z]+ [0-9]+: init = |recip\(mn\) |divmod\(mn|P24_CHECK: [0-9]|memory fit: [0-9]|mn: (pe|node) [0-9]+ of [0-9]+)' > "$tmp"
+    rl_cat "$f" | sed -E 's/^ *[0-9]+: //' | grep -a -E '^(vpe: |omp team: |tl +[a-z]+ [0-9]+: init = |recip\(mn\) |divmod\(mn|P24_CHECK: [0-9]|memory fit: [0-9]|mn: (pe|node) [0-9]+ of [0-9]+)' > "$tmp"
     local l
     l=$(grep -a -m1 '^vpe: ' "$tmp" | sed -n 's/^vpe: \([0-9]*\) PEs = \([0-9]*\) per node x \([0-9]*\) node.*background team \([0-9]*\) threads per PE.*/\1 \2 \3 \4/p')
     if [ -n "$l" ]; then read -r RF_PES RF_PERNODE RF_NODES RF_BG <<< "$l"
@@ -288,6 +288,7 @@ rl_factlines() {    # NODES -> the KEY=VALUE summary lines of the last rl_runfac
 }
 
 # ---- planner ------------------------------------------------------------------------------------------------------------
+rl_fitline() { FIT_LINE=$(grep -a -E 'plan fit +(FITS|REFUSED)|plan REFUSED' "$1" | tail -1 | sed 's/^ *//' | cut -c1-200); }
 rl_fit() {          # PATH NODES DIGITS [words] -> rc 0 fits / 1 refused / 2 failed; output in $RUN/raw/fit_*.log; FIT_LINE
     local p=$1 n=$2 d=$3; shift 3
     local bin lf env=("$@")
@@ -296,14 +297,14 @@ rl_fit() {          # PATH NODES DIGITS [words] -> rc 0 fits / 1 refused / 2 fai
     local rc via=login
     MNRUN_MODULES=$(rl_mods "$p") MNRUN_UNLOAD=$(rl_unload) rl_tmo 300 python3 -I "$R/tools/plan_values.py" --fit --ecalc "$bin" --env "${env[*]-}" "$d" "$n" > "$lf" 2>&1 < /dev/null
     rc=$?
-    FIT_LINE=$(grep -a -E 'plan fit +(FITS|REFUSED)|plan REFUSED' "$lf" | tail -1 | sed 's/^ *//' | cut -c1-200)
+    rl_fitline "$lf"
     [ $rc = 1 ] && [ -z "$FIT_LINE" ] && grep -a -q -E 'Traceback|Error' "$lf" && rc=2    # a crash is not a refusal
     if [ $rc -ge 2 ] && [ -n "${JOB:-}" ] && [ "$(rl_job_state "$JOB")" = RUNNING ]; then   # planner could not run here: once more on a node of the allocation
         rl_log "fit p$p n$n d$d: planner failed on the login node (rc $rc); retry through srun on job $JOB"
         mv "$lf" "$lf.login"; via=srun
         MNRUN_MODULES=$(rl_mods "$p") MNRUN_UNLOAD=$(rl_unload) rl_tmo 330 srun --overlap --jobid "$JOB" -N1 -n1 --export=ALL python3 -I "$R/tools/plan_values.py" --fit --ecalc "$bin" --env "${env[*]-}" "$d" "$n" > "$lf" 2>&1 < /dev/null
         rc=$?
-        FIT_LINE=$(grep -a -E 'plan fit +(FITS|REFUSED)|plan REFUSED' "$lf" | tail -1 | sed 's/^ *//' | cut -c1-200)
+        rl_fitline "$lf"
         [ $rc = 1 ] && [ -z "$FIT_LINE" ] && rc=2    # srun's own failure looks like rc 1
     fi
     rl_log "fit p$p n$n d$d: planner via $via, rc $rc"
@@ -342,12 +343,8 @@ rl_ci() {           # d1 d2 ... (paired differences) -> "mean lo hi" 95 % t inte
 }
 
 # ---- full log: capture files, node snapshots, sampler (s5_run.sh --fulllog / --monitor; README "Logs for offline analysis") ----------------------------------------
-# Diagnostic switches of --fulllog: digit-neutral, one summary line per node (576 lines each at 576 nodes), no barrier or synchronisation on the hot path.
-# MN_WAIT_STATS=1 (barrier / wait seconds per phase, one extra allreduce at the end of bs), ECALC_INIT_TL=1 (init timeline, rank 0), NEWTON_MN_RECIP_TS=1
-# (the reciprocal's stage clocks, one line per node).  Left out on purpose: XSHMEM_ROUND_STATS (device-wide sync probe in the post path, lines per PE),
-# DIST_STATS (drains the compute stream around every part), DB_POOL_VERBOSE (lines per pool growth per PE), ECALC_MEM_SAMPLE (one line per PE per period;
-# the node sampler covers MemAvailable).  REMOTE_FULLLOG_WORDS replaces the list.
-# Everything logged must be PRINTED and pasted by the user (nothing leaves the target): per-node / per-PE summary lines only, no per-round per-rank lines.
+# --fulllog words: digit-neutral, one summary line per node, no sync on the hot path (REMOTE_FULLLOG_WORDS replaces the list; README "Logs for offline analysis").
+# Left out: XSHMEM_ROUND_STATS, DIST_STATS, DB_POOL_VERBOSE, ECALC_MEM_SAMPLE (per-PE or per-round lines or extra syncs).  Everything logged is printed and pasted by the user.
 RL_FULLLOG_WORDS=${REMOTE_FULLLOG_WORDS-"MN_WAIT_STATS=1 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=1"}
 MON_PID=
 rl_fl_words() {     # ENVWORDS -> the full-log words whose variable the caller did not set (the caller's words win)

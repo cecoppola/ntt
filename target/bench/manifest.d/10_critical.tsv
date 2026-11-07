@@ -1,6 +1,6 @@
 id	tier	prio	nodes	est_min	deps	questions	cmd
-mem01	1	10	1	10	bld01	TQ04,TQ05	mem01.sh
-cor01	1	11	1	8	bld01	TQ06	cor01.sh
-net02	2	22	2	20	bld01,cor01	TQ13,TQ14,TQ15	net02.sh
-net04	2	40	8	15	bld01,net02	TQ16	net04.sh
-net05	2	41	64	20	bld01,net02	TQ17	net05.sh
+mem01	1	10	1	10	bld01	TQ04,TQ05	items.sh mem01
+cor01	1	11	1	8	bld01	TQ06	items.sh cor01
+net02	2	22	2	20	bld01,cor01	TQ13,TQ14,TQ15	items.sh net02
+net04	2	40	8	15	bld01,net02	TQ16	items.sh net04
+net05	2	41	64	20	bld01,net02	TQ17	items.sh net05
