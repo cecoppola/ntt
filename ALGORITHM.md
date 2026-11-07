@@ -7,7 +7,7 @@ This document describes the code on `main`. Environment switches (names, default
 measured results are in `RESULTS.md`; objectives and status are in `PLAN.md`; open work is in `TASKS.md`; how to check a
 change is in `TESTING.md`.
 
-Source paths are relative to `ecalc/`. Numbers marked (m) are measured, (mod) modelled, (a) assumed.
+Source paths are relative to `ecalc/`. Numbers marked (m) are measured, (mod) modeled, (a) assumed.
 
 ## 1. Overview
 
@@ -170,9 +170,7 @@ Every product goes to the cheapest tier that can hold it:
 | **mn** | products over a group of g nodes (tree top, reciprocal, division) | four-step over 4g ranks, prime by prime, layered all-to-all (§6.3) | `mn_core`, `mn_grid` |
 
 `RNS_STRATEGY=auto` (default) picks B where its planes fit the plane pools sized at init, else C, and never allocates.
-The host product tier (`rns_mul`: one product per prime per APU from host operands, a Karatsuba split above the pool, a CPU
-schoolbook below 2¹⁰ points) had no production caller and was removed (TREF, `results/CODE_TOOLS.md §TREF`); the tests check products
-against `ecalc/tests/tref.h` instead.
+Tests check products against `ecalc/tests/tref.h` (`results/CODE_TOOLS.md §TREF`).
 With three primes form B transforms on three APUs and the fourth only takes part in the CRT.
 
 ### 4.5 Plane cap and grids
@@ -186,7 +184,7 @@ piece products:
   add with carry (`mn_round_add`, rounds of `MN_T_CHUNK_MB`);
 - the shape minimises the total transform points under a cost model that prices form B pieces at 0.70 (3·2^k
   form B lengths at 1.05 per point) and adds a per-piece pipeline cost (one search, `grid_search` in `rns_dist.c`, over a form per tier; one piece loop, `grid_loop`);
-- the shape jumps at some sizes (a "grid step", e.g. about +20 s of modelled wall above 3.82 × 10¹³, mod;
+- the shape jumps at some sizes (a "grid step", e.g. about +20 s of modeled wall above 3.82 × 10¹³, mod;
   `results/COMPUTE.md §S52`); the target size is chosen just below a step;
 - **cuts** skip pieces that cannot contribute: `grid_piece_skipped(oa, ob, la, lb, lowcut, w)` skips a piece that starts at
   or above w (low products, the band of the reciprocal) or ends at or below `lowcut` (high products whose low limbs are
@@ -219,9 +217,9 @@ Two products per doubling. If the correction is larger than expected the step re
 ⌈k/4⌉, … read downward), so the last doubling lands exactly on k with no wasted precision. The seed is a schoolbook
 reciprocal of Q's top limbs (`newton_seed_top`). Functions: `recip_db2` (one node, device), `recip_mn_body` (sharded).
 
-**Error.** μ's unit scales with M = B^n_Q/Q (1 … B: decimal limbs are not normalised). A doubling j → jn < 2j cuts its own
+**Error.** μ's unit scales with M = B^n_Q/Q (1 … B: decimal limbs are not normalized). A doubling j → jn < 2j cuts its own
 error (≤ 2M + 3 units at 2j) by ≥ 1 limb; a doubling with jn = 2j (the anchored chain does this whenever the target is even)
-keeps it, and a run of such doublings squares it (k = 2^m: up to two limbs lost, modelled). The division's corrections
+keeps it, and a run of such doublings squares it (k = 2^m: up to two limbs lost, modeled). The division's corrections
 absorb it unless the run is long and μ's top limbs are used uncut (DKM with h = k₁, i.e. an odd quotient length); then the
 step-1 estimate can be off by more than the 64-correction limit (fatal, never wrong digits). The chain guard (since D25) anchors the chain at k, ⌈k/2⌉ + 1, … so every doubling is cut: |error| ≤ 8 units at any M (results/COMPUTE.md §RECIP).
 
@@ -355,7 +353,7 @@ The T2 head tails (the 49 digits before each node's range) are all-gathered befo
 | 2 | pools | per APU: plane pools 0 and 1, then the region arena (HIP virtual memory, 2 GiB chunks) mapped in the background | nothing is allocated inside a later phase |
 | 3 | seeds | spans computed on the CPU and pulled into the arenas | hidden under the mapping |
 | 4 | self-tests | transport and layered-exchange self-tests (size > 1) | a broken transport fails in seconds |
-| 5 | budget check | modelled peak against `ECALC_NODE_GB` (480) and MemAvailable, all-gathered; rc 8 if over | one node dying mid-run would hang the others |
+| 5 | budget check | modeled peak against `ECALC_NODE_GB` (480) and MemAvailable, all-gathered; rc 8 if over | one node dying mid-run would hang the others |
 | 6 | leaf | level-synchronous binary splitting of the node's terms (§3) | |
 | 7 | tree | the `MN_GROUPS` levels as sharded products over node groups (§6.5) | P, Q stay sharded |
 | 8 | reciprocal | μ to h limbs (§5.1, §6.6) | |
@@ -395,7 +393,7 @@ everything is allocated once, up front, and sized by a model that the C layout r
   a run prints it (`memory fit:`), `BS_LAYOUT_ONLY` prints a `fit:` line that `mem_model.py --check-c` compares; the launchers
   refuse a run that does not fit. With `DM_MN_WRAP` unset the same function decides the division's cyclic-plane low product:
   on only when the device with its two extra numbers stays within `ECALC_DEVICE_GB` − `ECALC_DEVICE_MARGIN_GB` (5 GB).
-- **Budget and guard.** `budget_check` (before compute) compares the modelled peak with 480 GB and MemAvailable (rc 8); the still-to-take figure counts the transport's resident pools as already taken (they exist at init).
+- **Budget and guard.** `budget_check` (before compute) compares the modeled peak with 480 GB and MemAvailable (rc 8); the still-to-take figure counts the transport's resident pools as already taken (they exist at init).
   During the run `ECALC_MEM_GUARD_GB` stops with rc 9 when MemAvailable falls below it.
 - **Layout and models.** `binsplit.c` (`dm_layout`, `layout_arena`, `binsplit_node_bytes`, `tree_need_dev`) computes the
   layout; `BS_LAYOUT_ONLY` and `MN_PLAN_ONLY` print it without a device; `mem_model.py` mirrors it. Measured layouts agree

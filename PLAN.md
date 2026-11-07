@@ -8,12 +8,12 @@ switch with its default and evidence is in `ecalc/README.md`; open work is in `T
 evidence is in `RESULTS.md`; agent reports are in `results/`. The earlier phase-by-phase plan and status log is kept
 outside the repository as `archive:PLAN_HISTORY_2026-10-12.md` ("PLAN §n" citations in older notes point there).
 
-Labels: **m** measured, **mod** modelled, **a** assumed.
+Labels: **m** measured, **mod** modeled, **a** assumed.
 
 ## 1. Goal
 
 - Compute ⌊10^d · e⌋ in decimal, for d = **3.82 × 10¹³** digits, on **576 nodes** of four AMD MI300A APUs each (user
-  decision 2026-10-12). The target machine is never accessed from this project; the user runs the test kit there.
+  decision 2026-10-12). The target machine is never accessed from this project; the user runs the bench there.
 - First target campaign (user decision Q120, 2026-10-25): "reduce the number of digits until all the code paths work, and then
   plan to run those. We can always increase the number of digits later if the smaller runs succeed." It runs 8 × 10⁹ digits
   per node (4.608 × 10¹² on 576 nodes), where layout D, P and path 2 all fit at 1, 8, 64 and 576 nodes (mod, planner); the
@@ -32,13 +32,13 @@ Labels: **m** measured, **mod** modelled, **a** assumed.
   | SHMEM, compiler, libfabric | cray-shmem 12.1.0, CCE 21.0.0, libfabric 2.3.1 | OpenSHMEMX 11.8.0, CCE 21.0.0, libfabric 2.3.1 |
   | file system | ≈ 1 TB/s cumulative write into one file at 32 processes per node | — |
 
-  Still unknown: the measured injection rate per APU (kit A3), the per-message cost, the bandwidth at the group boundaries (the dragonfly group is 64 consecutive nodes, `remote/FACTS.md` Target site), the
+  Still unknown: the measured injection rate per APU (bench A3), the per-message cost, the bandwidth at the group boundaries (the dragonfly group is 64 consecutive nodes, `remote/FACTS.md` Target site), the
   write rate of ecalc's own writer with all 576 nodes writing at once (one node measured 3.4-5.0 GB/s with O_DIRECT and 8 threads; two part files per node, not the file system's 32-writer mode;
   OPPORTUNITIES N8). The host memory per node is about 490 GB available (`remote/FACTS.md` Machine).
 - The digits must be right without a reference: every run checks itself (`ALGORITHM.md` §10).
 - Where the project stands against this goal, with the standing estimate and the memory margin: section 2.
 
-## 2. Current status (2026-10-31)
+## 2. Current status
 
 **What works.** ecalc computes ⌊10^d·e⌋ with decimal limbs end to end (binary splitting, Newton reciprocal, two-half
 division, packed output) and verifies itself on every run (T1 residues, T2 windows; `ALGORITHM.md` §10). It runs at 1-6
@@ -53,19 +53,7 @@ exchange worker is the default in every layout (Q96: init -6.5 to -7.5 s, host m
 plain SHMEM transport, `COMM_TRACE`, the proxy mode and the virtual-PE thread mode are removed (Q103, Q78, Q86; list in `RESULTS.md`). `XSHMEM_PEER` is on by default under one process per GPU (Q100). aac7 run times are bimodal (about half the runs 5-8 % slower, both
 backends), so every A/B comparison is paired (`results/TRANSPORT.md §BM`).
 
-Timings (all m, current engine, after the 2026-10-21 default change Q73).
-
-| scale | measured time | source |
-|---|---|---|
-| 3 n, 1e11, path 1 | 81.2 to 83 s (D and P equal within noise) | `results/TRANSPORT.md` craylane |
-| 3 n, 1e11, path 2 | 85 to 93 s (fast mode 85-87, slow 90-94); layout D on Cray 194.6 s | `results/TRANSPORT.md` craylane |
-| 2 n, 1e11, path 2 (no digit file) | worker 137-158 s, poll-only 145-154 s (3 ABBA pairs, not resolved) | `results/TRANSPORT.md §XWLAT` |
-| 2 n, 1e10 | path 2 worker 32.0 s, poll-only 40.2 s; path 1 D 39.2 s (4 pairs each) | `results/TRANSPORT.md §XWLAT` |
-| 1 n, 3.3e10 | D 39.3 s, P 34.9 s with `XSHMEM_PEER` (51.5 s without) | `results/COMPUTE.md §PEER` |
-| 1 n, 6.6e10 (the target's share per node) | D 74.2 s, P 83.8 s (4 pairs): D is the fastest here | `results/MODEL.md §AAC7OPT` |
-| 2 n, 5e10 | P (path 1) 39.7 s, D 54.4 s, path 2 53.5 s (3 rounds); P fits 2 n only to 5e10 (node budget) | `results/MODEL.md §AAC7OPT` |
-
-Older figures (comm_ofi era, 1 n 1e11 129.3 s before the 2026-10-12 defaults, the 1 / 2 / 4 / 6 n scaling at 6.441e10 per node 67.6 / 119.4 / 172.2 / 204.6 s, 6 n 3.8646e11 190.7 to 202.1 s) are in `results/MODEL.md §M2a`, `§SCALE35` and `archive:results_merged_2026-10-23/NIGHT_RUNS.md`; the 4-6 node figures have not been re-measured on the current engine.
+Run times by scale (3 n 1e11 on both paths, 1 n 3.3e10 to 6.6e10, 2 n 1e10 to 1e11, 2 n 5e10 per layout) are measured and owned by `results/TRANSPORT.md` (§craylane, §XWLAT), `results/COMPUTE.md` §PEER and `results/MODEL.md` §AAC7OPT; older figures are in `results/MODEL.md` §M2a and §SCALE35.
 
 **On the target (2026-10-26, m; `remote/FACTS.md` "Measured runs on the target").** Path 1, layout D, ran 2 to 576 nodes at
 8 × 10⁹ digits per node, every run VERIFY OK; the best 576-node run, 4.608 × 10¹² digits, took 255.3 s, of which 111.0 s was
@@ -76,7 +64,7 @@ Proposed).
 
 **Not yet done.** No run above 4.608 × 10¹² digits has completed on the target. The 576-node layout is refused by the planner with the defaults (margin -33.97 GB; with `MN_NONPOW2_CAP=0` +14.48 GB; m, planner, 2026-10-25, `results/MODEL.md §FIT`); the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
 `results/MODEL.md §TGT`; at the user-supplied 100 GB/s injection peak per APU, assumed for the achieved rate); the write adds
-2.4 s of file write at ecalc's modelled 4.0 GB/s per node (1.9-2.8 s over the 5.0-3.4 GB/s one node measured; the rate with 576 nodes writing at once is assumed) and 1.0 s at the file system's 1 TB/s (mod).
+2.4 s of file write at ecalc's modeled 4.0 GB/s per node (1.9-2.8 s over the 5.0-3.4 GB/s one node measured; the rate with 576 nodes writing at once is assumed) and 1.0 s at the file system's 1 TB/s (mod).
 
 ## 3. Defaults and launch lines
 
@@ -110,7 +98,7 @@ asks for a pool of 2304 MiB and a heap of 2816 MiB (m, planner).
 **Memory fit before every launch (FIT, D26).** The planner (`MN_PLAN_ONLY`, the source of truth) reports for (digits,
 nodes, profile) the device peak per node and per APU against `ECALC_DEVICE_GB` (target 373.44 GB per node, m; aac7 444.0
 in `profiles/aac7.conf`), the node against `ECALC_NODE_GB`, the margins and the largest consumers;
-`tools/plan_values.py --fit`, `mnrun.sh`, `tools/gate.sh` and the kit's plan stage print it and refuse a run that does not
+`tools/plan_values.py --fit`, `mnrun.sh`, `tools/gate.sh` and the bench's plan stage print it and refuse a run that does not
 fit (`results/MODEL.md §FIT`, which owns the figures for the target and aac7 sizes; the 576-node result today is in section 2). Every setting that is not a plain
 default has an owner and a review date (`tools/switch_registry.py --check`).
 
@@ -123,27 +111,16 @@ writes command blocks; the user pastes them on the target and pastes each summar
 owns the steps, sizes and go / no-go rules: P1 check, build and gates; P2 node screen, 64-node A/B arms and 4.608 × 10¹² on 576 nodes;
 P3 and P4 the record staircase 1.8 × 10¹³, 3.6 × 10¹³, 5.4 × 10¹³ on 576 nodes, stopping at the first failure; P5 the report.
 
-**The 2026-10-26 target session** (an agent team on the target; entry `target/RESTART.md`; kept as reference):
-1. Probe the system (`target/probe/probe.sh`, login then one node; about
-   30 s on aac7, m) and generate `target/config/target.conf` (`target/probe/gen_conf.py`).
-2. Build path 1 and path 2 (bench items `bld01`, `bld02`; about 25 s each on aac7, m).
-3. Bench (`target/bench/run.sh`, one worker per allocation, 59 items run once each in priority order; questions and the
-   model constants they feed: `target/bench/QUESTIONS.md`): memory edge, correctness, fabric (injection, latency,
-   all-to-all at 2/8/64 nodes), paths, launch shape, init, write, `MN_NONPOW2_CAP` cost (`prm08`), calibration.
-4. Ladder (`target/ladder/ladder.sh`): 1, 8, 64, 576 nodes on physically adjacent nodes at 8e9 digits per node (Q120), both paths,
-   replicas in parallel at the lower levels, adjustments between runs by `target/ladder/ADJUST.md`; every run VERIFY OK.
-5. Larger sizes at 576 nodes as a staircase (user decision Q121; superseded by the staircase of the next session above): 1e13 then 3.82e13 on path 1 (layout D; path 2 fits to about 1.3e10 per node at 576, mod); the 576-node run with the write, RECHECK and `unpack_digits` off the clock, and a prefix compare against a reference;
-   raw results committed in `target/results/` for the offline work afterwards.
 
 **Risks.**
 
 | risk | handling |
 |---|---|
-| fabric rate at 576 nodes below the assumption | the kit measures it first; the size can drop to the next grid step |
+| fabric rate at 576 nodes below the assumption | the bench measures it first; the size can drop to the next grid step |
 | a slow or faulty node | node screen and `initchk.py` before the run; exclusion only (`MNRUN_EXCLUDE_HOSTS`), no spares; any 572-576 nodes pass the plan check |
 | device memory near the edge | budget check (rc 8) before compute; guard (rc 9) during; margins per `MN_NONPOW2_CAP` setting in `results/MODEL.md §FIT` |
 | hangs in the ROCr / libfabric memory registration | `FI_MR_CACHE_MONITOR=userfaultfd` (0/104 hangs against 22/105, m) |
 | crash without a trace | `ECALC_SEGV_TRACE=1` on the launch line |
 | wrong digits | T1/T2 in the run, RECHECK and `unpack_digits` after it |
-| the write short of the file system's 1 TB/s (one file, 32 writers per node; ecalc: 2 files per node, 8 threads) | `tools/wbench` at scale in the kit, `MN_OUT_THREADS=32`; a shared-file writer if needed (OPPORTUNITIES N8): 2.4 s file write at 4.0 GB/s per node, hidden under the division in the model (mod; the old 1.0 GB/s prior gave 12.8 s) |
+| the write short of the file system's 1 TB/s (one file, 32 writers per node; ecalc: 2 files per node, 8 threads) | `tools/wbench` at scale in the bench, `MN_OUT_THREADS=32`; a shared-file writer if needed (OPPORTUNITIES N8): 2.4 s file write at 4.0 GB/s per node, hidden under the division in the model (mod; the old 1.0 GB/s prior gave 12.8 s) |
 | Cray SHMEM 12.1 (`XSHMEM=cray`, path 2) untested on the target; the init gap (+8 s on aac7) may differ; neither machine has usable hugetlb pages (the target: 8 pages, 0 free; THP always), so the init gap is expected to persist | path 2 runs on aac7 against Cray SHMEM 11.8 (`results/TRANSPORT.md`, +7.5 % against path 1, digits identical); the kit's build, plan and t_xshmem checks and the day-one list T1-T8 (`results/TRANSPORT.md`, `TASKS.md`) on the target; path 1 stays as the fallback (Q85) |

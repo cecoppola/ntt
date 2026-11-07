@@ -1,7 +1,6 @@
 # RESULTS — what is in force, and the evidence for it
 
-Scope: an index of what is in force: current measured figures, adopted changes, launch-line settings, open measurement
-questions, each with the evidence file. | Maintained: updated in the same merge as any change to a default, a launch-line
+Scope: an index of what is in force: pointers to the current figures, adopted changes and launch-line settings, each with the evidence file. | Maintained: updated in the same merge as any change to a default, a launch-line
 setting or an adopted result.
 
 Reports in `results/` are dated records, frozen when written; where one differs from the code or the central docs, the
@@ -12,45 +11,16 @@ History is outside the repository: the old measurement logs (`archive:RESULTS_AR
 (`archive:results_merged_2026-10-19/`, `archive:results_merged_2026-10-23/`, `archive:results_merged_2026-10-24/`),
 raw data and drivers (`archive:results_raw_2026-10-19/`); per-item sections of SESSIONS, CACHE, AAC7_PORT, OFI_FABRIC, SHMEM (`archive:repo_cl6_2026-10-25/results/`).
 
-Labels: **m** measured, **mod** modelled, **a** assumed. Times are wall-clock seconds. Test machine: aac7 (MI300A nodes,
+Labels: **m** measured, **mod** modeled, **a** assumed. Times are wall-clock seconds. Test machine: aac7 (MI300A nodes,
 Slingshot; the only cluster in use).
 
 ## Current figures
 
-Run times at the current engine are in `PLAN.md` §2; this table holds the figures behind the defaults.
-
-| what | figure | label | evidence |
-|---|---|---|---|
-| path 1 (libfabric, layout D) vs path 2 (Cray SHMEM, one process per GPU, 2 lanes), 3 n 1e11, same hold, 11 interleaved pairs | 83.4 vs 89.6 s, +6.2 s, +7.5 % (CI +3.4 to +11.5 %); measured before Q96; 2 n after Q96 (same layout P, 4 ABBA pairs): 1e10 +0.32 s [-0.51, 1.15], 1e11 -9.69 s [-27.9, 8.5], parity (results/TRANSPORT.md, 9zz7); compute phases at parity, the gap is init (+8 s, aac7-specific: libsma heap NIC registration 6.2 s) | m | results/TRANSPORT.md craylane |
-| exchange worker default in every layout (Q96) | init -6.5 to -7.5 s in 5 of 5 runs at 2 n 1e11 (DATA heap 9408 -> 960 MiB per PE, host memory 16.6 -> 8.0 GB); 2 n 1e10 -8.2 s [-9.4, -7.0] (path 2); bs and dm neutral; at 1e11 the paired total is not resolved (+4.1 s poll minus worker, CI [-14.7, +22.9], n 3) | m | results/TRANSPORT.md §XWLAT |
-| digit identity at production size, main after Q96 | 2 n 1e11 on both paths: sha 578f5efb0ff2b9af (same as the xwconf3 reference) | m | results/TRANSPORT.md §XWLAT |
-| day-one checks T1-T8 on aac7, diagnostic arms | flush and `XSHMEM_LOCAL`/`XSHMEM_IPC` neutral; lanes 1 vs 2 neutral (aac7 has one NIC per PE); xshmem 11 % faster than `comm_ofi` at 2 n 1e10; Cray a2a bimodal 11 / 17 GB/s unexplained; T1, T2, T5, T6 (NIC map), T8 on a device heap need the target | m | results/TRANSPORT.md §XDIAG |
-| aac7 bimodal run times | about half of the 3 n 1e11 runs are 5-8 % slower in every compute phase, both backends; absent at 1 node without network (271 runs); needs the fabric; pair every A/B run | m | results/TRANSPORT.md §BM |
-| start-up hang E1 (7.7e10, one sighting in 31 on old code) | 0 hangs in 174 runs at 7.7e10 and 0 in 1127 at 1e9 on current code (95 % bound 1.7 % and 0.27 %); the old 3.2 % rate is excluded; watch item only | m | results/CORRECTNESS.md §A114 |
-| budget check with two PEs per GPU (plq2) | `budget_check` counted the transport's comm_ofi pools, already allocated at init, as still to come: the 2 n 1e10 Q2 run was refused (rc 8) though it fits; fixed (merged 3d39601), gate 9zx5 PASS; no unmodelled per-process host term (VmRSS 2.6-5.5 GB) | m | TASKS.md (item row); `ecalc.c` budget_check |
-| 4-node run-to-run modes (libfabric era, `comm_ofi`) | fast ≈ 181-185 s, slow ≈ 208-214 s: the inter-node all-to-all rate is set per launch | m | results/TRANSPORT.md §T05, §T09 |
-| 4-node calibration (libfabric era) | total ≈ 80.8 s + 1388 / r (r = all-to-all GB/s per APU thread), residual sd 1.6 s | m/mod | results/CODE_TOOLS.md §B07 |
-| seed thread wait for the region pools: the measured switch `ECALC_INIT_EARLY_POOLS=1` (hook before the plane pools; removed, not kept): init 2 n 13.20 -> 12.49 s at 16000000000 digits, 1 n 15.02 -> 16.61 s; layered self-test 0.16-0.30 s at 2 n (own line) | switch not kept | m | results/TRANSPORT.md |
-| exchange rounds per tag, 2 n 1.3264e11 layout D (`XSHMEM_ROUND_STATS=1`) | `layeq` 74 % of 27,107 rounds and 75 % of the bytes (20,132 rounds, 79.8 MB per round), `addsh` 11 %, `redist` 7 %, `result` 6 %; the round size follows the largest pair (268 MB for `layeq`), not the 128 MB cap; mapping count 1,562 after init, 3,344 at the end (limit 65,530) | m | results/TRANSPORT.md |
-| block-pool free / remap audit (`DB_FREE_SYNC`, default 0) | 21 free paths: 0 unsafe, 1 unclear (VMM remap unmap); gates 1 n and 2 n with the switch 0 / 1 / 2 PASS, digits identical; 0 VMM remaps in 26 forced-pressure runs (remap path untested); cost of `DB_FREE_SYNC=1` at 2 n 1.6e10: -0.30 s [-1.96, +1.37] (4 ABBA rounds, not resolved) | m | results/MEMORY_IO.md |
-| per-APU memory high-water (`device_hwm_apu_gb`, per-NUMA MemFree + file cache since memfit), 1 n | memfit 1e10: 53.43 / 40.49 / 38.63 / 40.92 GB (planner busiest APU 51.05, mod); MemFree alone showed APU 3 at 0.67 GB free (70 GB of file cache), with the cache never below 72 GB; earlier: 1e10: 41.48 GB on APU 3 (planner 41.38 per APU, mod); APU 0 starts about 65 GB lower in MemFree (41.8 vs 107-111 GB) and fell to 0.66 GB free, so its figure is a floor; 1e9: 22.52 GB | m | results/MEMORY_IO.md |
-| pool stress test (C2), 1 n and 2 n, 2e10 and 6e10 | 59 runs, 166,332 forced VMM remaps, `DB_FREE_SYNC` 0 / 1, diagnostic words on / off, tiny rounds: 0 P24 flags, 0 VERIFY failures, 0 digit differences (43 runs compared); forced remaps cost 21-45 s per APU per run (stress only) | m | results/MEMORY_IO.md |
-| corruption soak M1, `ECALC_DR=3`, record per-node load (6.6e10 digits, 1 n layouts D and P) and 2 n 1e11, forced remaps on / off, diagnostic words, tiny rounds | 38 runs, 36 clean (the 2 failed runs counted separately) (rc 0, VERIFY OK, 0 CRT / P24 flags, 0 digit differences), 32,844 forced remaps; 2 runs lost to a fabric init fault (rc 255, same node passed on rerun); DR false-positive count not recoverable (clean-run logs are deleted) | m | results/MEMORY_IO.md §M1 |
-| combined switches M5 (`ECALC_DR=3` with `XSHMEM_ROUND_ACTIVE=1`) | 7 of 7 runs pass at 2 n 1e11, 3 n 1e10, 1 n 6.6e10: rc 0, VERIFY OK, digits identical to the reference hash; the `ECALC_MAPD=1` variant not run | m | results/MEMORY_IO.md §M5 |
-| planner against measured memory M4 (1 n to the ceiling, 2 n) | 1 n 6.6e10: 71.0 GB per APU used vs 72.52 planned, pool peak 92 %; 1 n ceiling between 1e11 (passes, 166.3 s) and 1.15e11 (memory guard stop, MemAvailable 5.48 GB with Cached 82.95 GB); 2 n 1.5e11 passes (155.2 s); per-size high-water not retained for 11 of 12 runs | m | results/MEMORY_IO.md §M4 |
-| target: 576 nodes, 3.82 × 10¹³ digits | ≈ 182-185.5 s without the write (profile `target_l4`; fabric rate assumed; 182 s in results/MODEL.md §L4, `PLAN.md` §2 quotes 185.5 s; the two differ by the model version, not re-reconciled here) | mod | results/MODEL.md §L4, `PLAN.md` §2 |
-| time model on the 2e13 decomposition (`mn_model.py v12`, 576 nodes) | terms (m at 2e13; scaling with digits a, linear): init 36.6 s + 0.94 s per 1e12 (a); wire 184 GB/s per node (m ratio) x volume linear in digits (a); 0.355 ms mean engine time per round (m ratio) x 165,300 rounds, rounds modeled at other sizes; GPU 40.3 s and host 19.9 s scaled by digits (a); one fitted number, the piece penalty 0.34 at 3.6e13 (mod; its form is a). Residuals -11.6 % to +8.0 % over the series (rms 6.5 %); the old estimate gave 527.5 s and 6.72 TB for 206.27 s and 9.33 TB. Failure rate 1/11 at 4.6e12, 2/8 to 2.4e13, 3/7 at 3.6e13, 6/6 at 3.7e13-4e13 | m (decomposition, runs) / mod (fit) | results/MODEL.md §v12 |
-| per-round cost on aac7 (campaign M2, 136 runs, sweep of `XSHMEM_ROUND_MB` 0.056-128, 2 and 3 members) | run time = a + b x rounds: b = 54.0 +-1.1 us at 2 members, 38.3 +-1.0 us at 3 members (R^2 0.997 / 0.994); the model's 0.355 ms at 576 nodes is 6.6-9.3x that; the 575-peer cost is not measurable on aac7 | m | results/TRANSPORT.md §M2, results/MODEL.md §M2fit |
-| init growth with digits (campaign M3, 1-3 members) | `rns_init` 0.36-0.87 s per 1e9 digits per node (model: 0.54, from 0.94 s per 1e12 at 576 nodes; the model figure is a total-init slope across the 576-node series; the measured figures are the rns_init maximum over nodes at 1-3 nodes, not the same quantity); mapping plus seed wait 70-80 % of it | m | results/MODEL.md §M2fit |
-| paired timings (campaign M6, ABBA, 95 %) | `ECALC_DR=3` 2 n 6.441e10: -0.56 s [-3.52, +2.40]; `XSHMEM_ROUND_ACTIVE=1` 3 n 1e10: +0.33 s [-0.11, +0.77]; `XSHMEM_LANES=2` 2 n 6.441e10: -2.28 s [-8.68, +4.11] (+0.15 s [-1.58, +1.88] without the first pair); none distinguishable from zero (LANES=2: first pair dropped post hoc) | m | results/CORRECTNESS.md, results/TRANSPORT.md §M6 |
-| target device memory, rank 0, 3.82 × 10¹³ | device 407.41 GB per node vs the 373.44 GB edge: margin -33.97 GB, REFUSED with the defaults; `MN_NONPOW2_CAP=0` gives 358.96 GB, margin +14.48 GB (planner, 2026-10-25; consumers in the evidence file) | mod/m | results/MODEL.md §FIT |
-| piece boundaries and per-APU memory, 576 nodes, 2.6e13-4.4e13 (series settings, planner) | busiest APU 87.32 GB from 2.7e13 to 4.0e13 (region 0's arena; margin +6.04 GB to the 93.36 GB edge), 4.4e13 REFUSED (-0.41 GB per APU); with the 6.5 GB bar only 2.6e13 unbalanced, about 4.0e13 with `BS_MDEV_LOGL=28 DIST_CHUNKS=16` (2026-11-01) | mod | results/MODEL.md §PIECES |
-| time model's part-file write rate (target) | 4.0 GB/s per node (one node measured 3.4-5.0 GB/s; was 1.0 assumed); file write at 576 nodes 2.4 s (1.9-2.8 s over the range; modelled), aggregate assumed | m/a | ecalc/mn_model.py `TARGET_WRITE_BW`, PLAN.md §2 |
-| target device edge | 93.36 GB per APU = 373.44 GB per node (n = 5, 0 % spread) | m (target) | results/MODEL.md §TGTBENCH2 |
-| `BS_ARENA_TRIM_GB=8` (opt-in, default 0), 2 n 1.2882e11 | arena -34.4 GB per node (266.3 -> 231.9); 115.2 s (7 runs) vs 111.4 s (5 runs); 3 n 1.9323e11: 149.4 vs 149.6 s; 0 remaps | m | results/MEMORY_IO.md §ATRIM |
-| memory fit before every launch (D26): the planner refuses a run that does not fit | target 3.82e13:576: 407.41 GB device vs 373.44, refused (NPCAP auto); 358.96 with `MN_NONPOW2_CAP=0` (`DM_MN_WRAP` off; with it 384.73, refused); aac7 6 nodes 374.22 vs 444 | mod/m | results/MODEL.md §FIT |
-| node screen NIC check `tools/nodescreen.sh --want-nics N` | flags nodes whose runtime sees fewer cxi NICs; 4-node check: 4 seen, all flagged at want 8 (positive control) | m | results/TRANSPORT.md §NIC |
-| checkpoint recheck at scale | 6 n 3.8646e11: write 1473 s, VERIFY OK, RECHECK OK on all nodes; recheck 7380 s (model ≈ 1 h); "short read" was NFS EIO under 512 MiB reads, reads now ≤ 64 MiB with retries | m/mod | results/CORRECTNESS.md §CKPT |
+Measured figures live in the topic files, not here: run times by scale and path in `results/TRANSPORT.md` (§craylane, §XWLAT, §BM)
+and `results/MODEL.md` (§AAC7OPT, §M2a, §SCALE35); the target model, memory fit and piece boundaries in `results/MODEL.md` (§TGT, §FIT,
+§PIECES, §P2JUMP, §L4); the aac7 campaigns M1-M6 (stress, soak, planner against memory, round cost, init growth, paired timings) in
+`results/MEMORY_IO.md`, `results/TRANSPORT.md` and `results/CORRECTNESS.md`; the block-pool audit in `results/MEMORY_IO.md` §POOLRACE; the
+recheck at scale in `results/CORRECTNESS.md` §CKPT. The target's own runs are in `remote/FACTS.md`.
 
 ## Multi-node transport in force (Q73, Q85, Q96, Q100, Q103)
 
@@ -60,7 +30,7 @@ Run times at the current engine are in `PLAN.md` §2; this table holds the figur
 | Cray SHMEM backend `xshmem_cray.h` (`XSHMEM=cray`), zero engine changes | 2026-10-21 | 1e9 identical at 1, 2, 3 n; `t_xshmem` PASS; first-run failure (unregistered heap tail page) fixed | m | results/TRANSPORT.md §8 |
 | one process per GPU `ECALC_PE_PER_GPU=1` (path 2 layout; default layout stays D), `XSHMEM_LANES`, `RNS_BATCH_SPLIT` (automatic under `ECALC_PE_PER_GPU=1`, Q110, 2026-10-25) | 2026-10-23 | digits identical to D at 1, 2, 3 n on both backends; P faster at small sizes, equal at 3 n 1e11 (path 1) | m | results/TRANSPORT.md §PPG, §BSPLIT |
 | NUMA placement for Cray builds under P (`XSHMEM_CRAY_NUMA=1`, `MNRUN_PPG_CPUBIND=ldom`, set by `mnrun.sh`) | 2026-10-23 | cured the Cray stalls (40-107 s runs -> 35-38 s at 3 n 1e10); THP disable did not | m | results/TRANSPORT.md craylane |
-| exchange worker thread in every layout (`ECALC_XEX_THREAD` removed 2026-10-25, always on) | 2026-10-24 | see Current figures | m | results/TRANSPORT.md §XWLAT |
+| exchange worker thread in every layout (`ECALC_XEX_THREAD` removed 2026-10-25, always on) | 2026-10-24 | init -6.5 to -7.5 s at 2 n 1e11 (host memory halved) | m | results/TRANSPORT.md §XWLAT |
 | `XSHMEM_PEER` default on with one PE per process (Q100); `=0` restores the NIC path; layout D and the Cray backend unaffected | 2026-10-25 | same-node PEs exchange by hipIpc device copies: P at 1 n 3.3e10 51.6 -> 34.9 s, 2 n 6e10 69.7 -> 49.0 s; per-PE DATA heap peak 256 of 768 MiB | m | results/COMPUTE.md §PEER |
 | `COMM_LAYER_INTER2` removed: one exchange in flight is faster on both transports | 2026-10-21 | SHMEM 143.2 vs 149.9 s, libfabric 137.2 vs 140.2 s (3 n 1.9323e11) | m | results/TRANSPORT.md |
 | Cray SHMEM 11.8 tuning phase closed (2026-10-21): the 3 n gap of the plain SHMEM transport was the layered variable-count exchange (SHMEM 157.0 vs libfabric 143.0 s, 6 pairs); 21 environment settings, DEVHEAP2, DEVSRC, zero-copy and NUMA flush gave nothing | 2026-10-21 | proxy mode measured, then removed (Q78); the transport itself went in Q103 | m | results/TRANSPORT.md |
@@ -106,11 +76,3 @@ On both launch lines (`profiles/aac7.conf` `LAUNCH_LINE_KEYS`; `target/config/ta
 | X2: the pooled exchange slots (`COMM_LAYER_VSLOT_POOL`, now built in, no switch) | -31.7 s at 10 nodes (CI -55.7 .. -7.8) | m | results/CODE_TOOLS.md |
 | `ECALC_SEGV_TRACE=1` | crash-trace handler only | - | results/MODEL.md §B01 |
 | aac7 fastest settings (2026-10-25) | layout by size -- 1 n 6.6e10 the defaults (P +9.6 s), 2 n up to 5e10 `ECALC_PE_PER_GPU=1` on the default build (-14.7 s, -27 %), above that D; path 2 +13.9 s vs P; `ECALC_NP`, `BS_SEED_CHUNK_MB`, `ECALC_BG_THREADS`, `MN_T_CHUNK_MB`, `XSHMEM_ROUND_MB` within noise; `ECALC_NP=4` +7.5 s | m | results/MODEL.md §AAC7OPT |
-
-## Open measurement questions
-
-- Fabric injection rate per NIC on the target and its fall-off at 576 nodes (A3, A4): every target time above uses an
-  assumed rate. The bench items `net04`/`net05` of `target/bench/` measure both.
-- `MN_T_CHUNK_MB` 1024 vs 2048 on the target: not yet measured there (X2 is built in, no switch).
-- Path 2 on the target (Cray SHMEM 12.1): the init gap (+8 s on aac7), the day-one checks T1-T8 on a device heap (results/TRANSPORT.md §XDIAG), two real NICs per PE.
-- The cause of the aac7 slow modes (per-launch NIC group at 4 n; bimodal 3 n run times) is not established (results/TRANSPORT.md §A14, §BM).

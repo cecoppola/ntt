@@ -8,9 +8,9 @@ command needs a Slurm allocation it takes a job id `<hold>` of an allocation you
 
 ## 1. The rule
 
-New behaviour goes behind an environment switch, **off by default**, and the digits must stay byte-identical: `VERIFY OK`
+New behavior goes behind an environment switch, **off by default**, and the digits must stay byte-identical: `VERIFY OK`
 and a compare against reference digits. The user adopts a change on measured data. Every number you report is labelled
-measured, modelled or assumed.
+measured, modeled or assumed.
 
 ## 2. The gate (every change)
 
@@ -70,12 +70,9 @@ Durations on aac7 (measured 2026-10-13, results/CORRECTNESS.md §HANG): `--only 
 
 References are `ecalc/ref/e_<digits>.txt` of the clone, else `ECALC_REF`; make a missing one with `ref/gen_e` (GMP).
 
-A recheck of a large run is bound by the file system, not the node: it reads every part file and the top-level set
-again. On aac7 (NFS) that is ≈ 12.5 MB/s per node for the parts and ≈ 45 MB/s for the set (measured at 2 nodes,
-results/CORRECTNESS.md §CKPT): 281 s at 10¹⁰ and 527 s at 2 × 10¹⁰ on 2 nodes (measured), ≈ 1 h at 3.86 × 10¹¹ on 6 nodes (modelled),
-7380 s (2 h 3 min) there (measured, 2026-10-14).
-Give it a timeout of at least 3 h for the 6-node large run (the model is about half the measured time); a recheck killed at its timeout leaves the
-question open, and killed runs have been followed by nodes draining for a reboot.
+A recheck of a large run is bound by the file system, not the node: it reads every part file and the top-level set again
+(rates and times: `results/CORRECTNESS.md`, checkpoint topic). Give the 6-node large run a timeout of at least 3 h; a recheck killed at its
+timeout leaves the question open, and killed runs have been followed by nodes draining for a reboot.
 
 ## 4. Which checks for which change
 
@@ -141,9 +138,9 @@ A branch merges to `main` when:
 
 1. the gate passes: 1 node, and 2 nodes for multi-node code;
 2. the checks of section 4 for the touched area pass, digits identical to the reference;
-3. new behaviour is behind a switch, off by default, with its row in `ecalc/README.md` and the registry regenerated
+3. new behavior is behind a switch, off by default, with its row in `ecalc/README.md` and the registry regenerated
    (`tools/switch_registry.py`), unless the user has adopted it as a default;
-4. `results/<ID>.md` exists (section 8) and `RESULTS.md` has its short section (written by the coordinator unless the task
+4. the evidence is in the owning `results/<TOPIC>.md` (question, method, results with labels and CIs, verdict, open issues) and `RESULTS.md` has its short section (written by the coordinator unless the task
    says otherwise);
 5. the docs the change touches are updated in the same merge (`ALGORITHM.md` for the algorithm, `ecalc/README.md` for
    switches, `PLAN.md` for status, `TASKS.md` for open work);
@@ -151,21 +148,7 @@ A branch merges to `main` when:
    contents in tracked files); never bypass them;
 7. the session ends with the public remote, the local clone and the cluster clones on the same `main` commit.
 
-## 8. Report template (`results/<ID>.md`)
-
-    # <ID> — <title>
-    **Question.** What is being decided or checked, in one or two sentences.
-    **Change / branch.** Branch, commits, the switch name and default.
-    **Method.** Exact commands, sizes (digits, nodes), settings of each arm, number of rounds, reference used.
-    **Results.** A table: row per size or arm; columns with units; every number labelled (measured / modelled / assumed);
-    timings as mean difference B − A with the 95 % CI and the pair count; digits: identical / not; VERIFY lines.
-    **Verdict.** Adopt / do not adopt / needs more data, with the number that decides it.
-    **Open issues.** What was not tested or is unexplained.
-    **RESUME.** The state needed to continue: branch, last commit, what is done, the next command.
-
-Raw logs stay on the cluster or in the local archive; the report cites their names, not their contents.
-
-## 9. Documentation check
+## 8. Documentation check
 
 `tools/doccheck.py` (read-only, about 1 s) checks that the docs match the tree: the switch registry is current, the central
 docs have a `Scope:` line, every cited `results/`, `tools/`, `ecalc/`, `tests/`, `profiles/` path and markdown link exists,

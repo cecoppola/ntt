@@ -2,15 +2,14 @@
 
 Scope: every known opportunity to improve performance (time, memory, concurrency, algorithm), open or closed, with its evidence. | Maintained: updated when an idea is found, tried, adopted or rejected.
 
-Revised 2026-10-25: finished and removed ideas pruned (adopted changes live in `RESULTS.md`; the code is the status).
-Older sources: `archive:docs/OPPORTUNITIES.md` (2026-10-10..12), `archive:TASKS_HISTORY_2026-10-12.md`. Old IDs are kept (G = robustness,
-C = fabric/exchange, K = per-node kernels, M = memory/model/target levers, S-/A37- = idea sweeps); new IDs are N1, N2, ….
+Adopted changes live in `RESULTS.md`; the code is the status.
+Old IDs are kept (G = robustness, C = fabric/exchange, K = per-node kernels, M = memory/model/target levers, S-/A37- = idea sweeps); new IDs are N1, N2, …. Older sources: `archive:cleanup_1107/OPPORTUNITIES_before_1107.md`.
 
-Labels: **m** measured, **mod** modelled, **a** assumed. Scale: **1 n** one node at 6.441 × 10¹⁰ digits, **2–6 n** aac7
+Labels: **m** measured, **mod** modeled, **a** assumed. Scale: **1 n** one node at 6.441 × 10¹⁰ digits, **2–6 n** aac7
 at 6.441 × 10¹⁰ digits per node, **576 n** the target run (3.82 × 10¹³ digits). Effort: S < 1 day, M 1–3 days,
 L > 3 days. Needs: **local** (no GPU or any one node), **aac7** (≤ 6 nodes), **target** (only the target can show it).
 
-Where the time goes: `PLAN.md` section 2 (current status and scaling); at 6 nodes on the older libfabric engine the growth over 1 node was +172 s: division (dm) +94 s, binary splitting +60 s, reciprocal +22.5 s, init +14 s (m, `results/MODEL.md §M2a`).
+Where the time goes: `results/MODEL.md §SCALE35` and `§M2a` (scaling points); at 6 nodes on the older libfabric engine the growth over 1 node was +172 s: division (dm) +94 s, binary splitting +60 s, reciprocal +22.5 s, init +14 s (m, `results/MODEL.md §M2a`).
 
 Target facts: `PLAN.md` section 1.
 
@@ -20,7 +19,7 @@ Target facts: `PLAN.md` section 1.
 |---|---|---|---|---|---|---|
 | N1 | fabric/exchange | Distributed division multiply: find why dm grows +94 s from 1 to 6 nodes (wait vs volume vs skew) and cut it | the largest multi-node cost: +94 s at 6 n (m); 576 n share unknown | M | aac7 | `results/MODEL.md §M2a`; P1 `DM_MN_WRAP` (low product as low part + one cyclic plane): 2 n `total` −11.1 s [−19.1, −3.1] (m, `results/COMPUTE.md §P1`); 6 n with P24 dm −6.25 s [−11.47, −1.03], p 0.032, `total` −2.86 s [−8.92, +3.19] n.s., 4 rounds; +5.4 GB per APU at the division's peak (m, `results/MODEL.md §DEF`); adopted part: `DM_MN_WRAP=1` is the code default since the user decision D22, 2026-10-12 (`=0` fallback); the rest of N1 (the +94 s growth) stays open |
 | C7 | division | Division and reciprocal overlap (S-2): overlap the division's exchanges with its compute; gate = target wait-stats run shows > 30 s exposed wait per APU thread | 576 n ceiling 25–34 s (mod), realistic 6–17 s (a); 10-node ceiling 43 s (mod) | M | target (gate), aac7 (prototype) | `results/CODE_TOOLS.md`; kit stage `s2chk` |
-| M7c | fabric/exchange | Two NIC endpoints per APU on the target: confirmed hardware (2 × 400 Gb/s per APU, user-supplied). The NIC map (`pe_geo.c`) takes the cxi NICs of the APU's NUMA node when `COMM_OFI_NICS` is unset, and `XSHMEM_LANES=2` (the path 2 line, `README.md`) stripes each PE's puts over two of them (the automatic stripe of `comm_ofi` was removed 2026-10-25); the open part is to verify both NICs carry traffic and the striping reaches the peak (kit A3 one- vs two-NIC stage, not rehearsed on aac7) | the model's 100 GB/s per APU rests on it: with one effective NIC (50 GB/s) 222.7 against 185.5 s, +37.2 s at 576 n (mod, `target_l4`) | S | target | `results/MODEL.md §TGT`; `pe_geo.c`; target task list T8 (private) |
+| M7c | fabric/exchange | Two NIC endpoints per APU on the target: confirmed hardware (2 × 400 Gb/s per APU, user-supplied). The NIC map (`pe_geo.c`) takes the cxi NICs of the APU's NUMA node when `COMM_OFI_NICS` is unset, and `XSHMEM_LANES=2` (the path 2 line, `README.md`) stripes each PE's puts over two of them (the automatic stripe of `comm_ofi` was removed 2026-10-25); the open part is to verify both NICs carry traffic and the striping reaches the peak (bench A3 one- vs two-NIC stage, not rehearsed on aac7) | the model's 100 GB/s per APU rests on it: with one effective NIC (50 GB/s) 222.7 against 185.5 s, +37.2 s at 576 n (mod, `target_l4`) | S | target | `results/MODEL.md §TGT`; `pe_geo.c`; target task list T8 (private) |
 | M7d | build/target | ROCm upgrades on the target: it runs ROCm 7.14.0 (user-supplied; may be upgraded later). 7.14.0 builds ecalc (`make all` + tests with the then-current SHMEM build (`SHMEM_CRAY=1`, since replaced by `XSHMEM=cray`), aac7 login node, m 2026-10-12; the `-fPIC` link failure of `results/TRANSPORT.md` no longer reproduces); its speed against 7.2.4 is not measured: 7.14.0 is installed on aac7, so a 1 n gate and ABBA there gives it; re-measure at each target upgrade | unknown sign; the size a release can move: 7.0.3 was +22 % on the local passes, +46 s at 576 n (m, mod) | S | aac7 1 n (then target per upgrade) | `results/MODEL.md §TGT`, `results/TRANSPORT.md`, `archive:docs/OPPORTUNITIES.md` M7 |
 | M7a | fabric/exchange | 9-way top schedule `MN_GROUPS=…,64,576` instead of the 3·3 top `…,64,192,576` | −4.7 s at 576 n (mod, 5.276 × 10¹³ era) | S | target | `archive:docs/OPPORTUNITIES.md` M7; target task list T5 (private) |
 | M7b | output | Output file striping and write waves (`MN_OUT_STRIPE`; the `MN_OUT_WAVES` switch was removed 2026-10-20) tuned to the target's parallel file system; now part of N8's write test | see N8; packed write already −6.25 % bytes (m) | S | target | `results/MEMORY_IO.md §O4`; target task list T10 (private) |
@@ -56,16 +55,11 @@ Target facts: `PLAN.md` section 1.
 | O1 | `MN_GROUPS=6` instead of `2,6` at 6 n | +2.4 s [−3.9, +8.7], p 0.35 (m) | `results/COMPUTE.md §O1` |
 | B06 | Uneven node groups | correct, not faster (m) | `results/COMPUTE.md §B06` |
 | NTT3P | 3-pass 2^31 NTT (13/9/9) | 90.6 vs 89.9 ms (m); gate ≤ 80 ms; shelved | `results/COMPUTE.md §NTT3P`, `results/CODE_TOOLS.md` |
-| S-3 / S-6 | Barrett constant for decimal seeds; HIP graphs for small dispatches | dropped after measurement | `archive:results/S37.md` |
 | S-5 | Push-form broadcast for B | below 1 s (S38) | `results/COMPUTE.md §S38` |
 | A37-R2 | base-2^64 sub-range seed on the CPU | no one-thread gain (ratio 0.86–1.07, m) | `results/COMPUTE.md §S21` |
 | A37-R4 | `fmt18` two-digit formatting | packed output needs no formatting on the clock | `results/COMPUTE.md §S21` |
 | A37-R5 | Batch tile pipeline (two streams) | realistic −1.5 … −3 s, not worth it | `results/CODE_TOOLS.md` |
 | X1 / X3 / CHAIN_BCAST | Rotated start, OFI signalling, chain broadcast | null or rejected | `results/CODE_TOOLS.md`, `results/CORRECTNESS.md §S30` |
-| E9 | Karatsuba over the device grid | +68–89 GB memory; rejected | `archive:docs/OPPORTUNITIES.md` |
-| E6 | Transform lengths 5·2^k, 7·2^k | needs a prime change; dropped | `archive:docs/OPPORTUNITIES.md` |
-| E5 | Spills to the file system | file system at 0.6 GB/s; not pursued | `archive:docs/OPPORTUNITIES.md` |
-| 4PE | 4 processes per node (one per APU) | 3.7× slower at 8 n (m) | `archive:docs/OPPORTUNITIES.md` |
 | spill | `hipMallocManaged` host spill at the device edge | host 21 GB/s vs HBM 3.2–3.8 TB/s (m) | `results/MODEL.md §TGTBENCH2` |
 | CPX | CPX partition mode | 0.2–0.4 s gains (m); the target runs SPX | `results/COMPUTE.md §S44` |
 | A37CMP | apumult a37v1 choices rejected: skip the remainder check (T1 needs it), Stirling-balanced leaves, P/Q arenas split over dies, and the other items of its rejected list | verdicts item by item, each with its reason (m / mod as labelled there) | `results/COMPUTE.md §A37CMP` |

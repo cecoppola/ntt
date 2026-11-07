@@ -14,10 +14,10 @@ node and over node groups. The goal is 3.82 × 10¹³ digits on 576 nodes; the c
 |---|---|
 | `ALGORITHM.md` | how ecalc works: series, products, division, distribution, memory, output, verification |
 | `PLAN.md` | the goal, the current status, launch lines, the road to the target run |
-| `TESTING.md` | how to check a change: gate, regression, unit tests, timing method, merge criteria, report template |
+| `TESTING.md` | how to check a change: gate, regression, unit tests, timing method, merge criteria |
 | `ecalc/README.md` | every environment switch with its default and evidence; the files of `ecalc/` |
 | `RESULTS.md` | what is in force, with the evidence file of each adopted change |
-| `TASKS.md` | open work (by priority class), proposed items, decisions still acting, target-session items |
+| `TASKS.md` | open work (by priority class), proposed items, decisions still acting |
 | `OPPORTUNITIES.md` | every performance idea (time, memory, concurrency, algorithm), open or tried, with its evidence |
 | `results/` | measurement reports by topic, cited by the files above (index: `RESULTS.md`) |
 
@@ -34,7 +34,7 @@ History (the old plan, measurement logs, older reports, moved drivers) is kept o
 | `profiles/` | machine profiles: `aac7.conf` |
 | `remote/` | the target session driven by a browser agent through the user's pastes: `remote/README.md` (user), `remote/AGENT.md` (agent), stage scripts `remote/run/*.sh`; frozen copy on the `remote-v*` branch; packs `run/chain.sh --brief`, `run/stair.sh`, `run/report.sh`; route `remote/ROUTE.md` (5 pastes) |
 | `target/` | the remote session on the target system: probe, config generator and template (`target/config/target.conf.template`), conventions in `target/FORMATS.md` |
-| `tests/` | Python unit tests of the tools (`test_tools.py`) |
+| `tests/` | Python unit tests of the tools, the models and the launch checks (`python3 -m unittest discover -s tests`) |
 
 ## Build and run
 
@@ -52,7 +52,7 @@ Multi-node, one launch per allocation of `<nodes>` nodes (`SLURM_JOB_ID=<hold>` 
 **Two supported multi-node paths (user rule Q85, 2026-10-23): both stay working; a change to shared code must leave
 path 1 digit-identical and no slower.** Path 1 is libfabric (the default build, layout D); path 2 is Cray SHMEM (the
 target shape, one process per GPU). Their build and launch lines, the settings `mnrun.sh` adds and the defaults are
-owned by `PLAN.md` section 3; current figures are in `PLAN.md` section 2; `remote/ROUTE.md` describes the target
+owned by `PLAN.md` section 3; the status is in `PLAN.md` section 2; `remote/ROUTE.md` describes the target
 session. Cluster access is described in the private protocol.
 
 ## Test
