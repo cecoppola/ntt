@@ -56,7 +56,6 @@ void db_to_bi(bigint *r, const dbig *x);              /* DMA out */
 void db_copy(dbig *r, const dbig *a);
 void db_set_zero(dbig *r);
 void db_set_u64(dbig *r, uint64_t v);
-void db_set_base_pow(dbig *r, size_t k);              /* B^k */
 void db_norm(dbig *r);
 int  db_cmp(const dbig *a, const dbig *b);
 void db_add(dbig *r, const dbig *a, const dbig *b);

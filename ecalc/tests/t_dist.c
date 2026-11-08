@@ -123,7 +123,6 @@ static comm *comm_sim4_create(int rank)
 }
 static rng_t rg = { 12345 };
 static int xgmi;             /* ECALC_TEST xgmi=1: four real APUs, four host threads */
-static int tinv;             /* ECALC_TEST tinv=1: the transposed inverse (result in contiguous ownership) */
 static int one_xgmi(int prime, int logR, int logC);
 extern "C" int comm_layered_tbench(int g, size_t bytes, int reps);   /* comm_layered.c (13b X) */
 /* M7: the all-gathers of a communicator (device and host blocks; in place) against the pattern (rank, k); over the
@@ -137,8 +136,11 @@ static int check_allgather(comm *c, int host_only)
         size_t words = sizes[round] / 8, bytes = words * 8;
         uint64_t *hs = (uint64_t *)malloc(bytes), *hr = (uint64_t *)malloc(bytes * n);
         for (size_t k = 0; k < words; k++) hs[k] = agw(me, round, k);
+        const char *tr = getenv("COMM_TRANSPORT");   /* xshmem's allgather_host takes at most 4 KiB per member (GBLK, a fatal above it): the larger blocks run on the device op only */
+        if (!(tr && !strcmp(tr, "xshmem") && bytes > 4096)) {
         comm_allgather_host(c, hs, hr, bytes);
         for (int r = 0; r < n; r++) for (size_t k = 0; k < words; k++) if (hr[r * words + k] != agw(r, round, k)) bad++;
+        }
         if (!host_only) {
             uint64_t *ds, *dr; HIP_CHECK(hipMalloc(&ds, bytes)); HIP_CHECK(hipMalloc(&dr, bytes * n));
             HIP_CHECK(hipMemcpy(ds, hs, bytes, hipMemcpyHostToDevice));
@@ -292,8 +294,8 @@ static int one(int prime, int logR, int logC)
     for (int r = r0; r < r1; r++) dist_fwd_pre(&pl[r], ry[r], 0);
     for (int r = r0; r < r1; r++) dist_fwd_post(&pl[r], ry[r], 0);
     for (int r = r0; r < r1; r++) dist_pw(&pl[r], rx[r], ry[r], 0);
-    for (int r = r0; r < r1; r++) { if (tinv) dist_inv_t_pre(&pl[r], rx[r], 0); else dist_inv_pre(&pl[r], rx[r], 0); }
-    for (int r = r0; r < r1; r++) { if (tinv) dist_inv_t_post(&pl[r], rx[r], 0); else dist_inv_post(&pl[r], rx[r], 0); }
+    for (int r = r0; r < r1; r++) dist_inv_pre(&pl[r], rx[r], 0);
+    for (int r = r0; r < r1; r++) dist_inv_post(&pl[r], rx[r], 0);
     HIP_CHECK(hipDeviceSynchronize());
     }
     size_t bad = 0, first = n;
@@ -335,7 +337,7 @@ static int one_xgmi(int prime, int logR, int logC)
         double t0 = tnow(), t1, t2;
         dist_fwd(&pl, rx, s); HIP_CHECK(hipStreamSynchronize(s)); t1 = tnow();
         dist_fwd(&pl, ry, s); dist_pw(&pl, rx, ry, s);
-        if (tinv) dist_inv_t(&pl, rx, s); else dist_inv(&pl, rx, s);
+        dist_inv(&pl, rx, s);
         HIP_CHECK(hipStreamSynchronize(s)); t2 = tnow();
         if (logn >= 26 && r == 0) printf("  xgmi 2^%d (%d chunks): fwd %.4f s, fwd+fwd+pw+inv %.4f s%s\n", logn, pl.K, t1 - t0, t2 - t0, dist_st.on ? "" : " (DIST_STATS=1 for the breakdown)");
         comm_barrier(cm);
@@ -573,8 +575,6 @@ int main(int argc, char **argv)
         return verify_done("t_dist");
     }
     xgmi = ec_test_long("xgmi", 0) != 0;
-    tinv = ec_test_long("tinv", 0) != 0;
-    if (tinv) printf("t_dist: transposed inverse\n");
     if (xgmi) printf("t_dist: four real APUs over xGMI\n");
     if (ec_test_long("layered", 0)) {   /* M3: the layered communicator, one node-process per COMM_RANK driving four APUs (mnrun.sh) */
         int sz = mn_init(); printf("t_dist: layered communicator, node %d of %d\n", mn_rank(), sz);
@@ -587,8 +587,9 @@ int main(int argc, char **argv)
         for (int logR = 10; logR <= 12; logR++) for (int logC = 10; logC <= 12; logC++) if (logR + logC <= logmax) VERIFY(mn_selftest_layered(logR, logC, 0), "layered conv %dx%d", logR, logC);
         if (logmax >= 26) VERIFY(mn_selftest_layered(13, 13, 0), "layered conv 2^26");
         {   /* M7: the layered communicator's all-gathers (4 gt ranks, rank gt d + node) and the mesh's */
-            int L = 0; while ((1 << L) < sz) L++; mn_group *G = mn_group_at(L); int ok = 1;
-            if (G->tr[0]) {
+            int L = 0; while ((1 << L) < sz) L++; int ok = 1;
+            mn_group *G = sz > 1 ? mn_group_at(L) : NULL;   /* (mn_group_at needs level >= 1: one process has no layered communicator) */
+            if (G && G->tr[0]) {
 #pragma omp parallel for num_threads(4) schedule(static) reduction(&&:ok)
                 for (int d = 0; d < 4; d++) {
                     HIP_CHECK(hipSetDevice(d));
@@ -601,8 +602,10 @@ int main(int argc, char **argv)
                 HIP_CHECK(hipSetDevice(0));
             }
             VERIFY(ok, "layered allgather + alltoallv");
-            VERIFY(check_allgather(mn_comm(0), 0), "mesh allgather");
-            VERIFY(check_alltoallv(mn_comm(0)), "mesh alltoallv");
+            if (sz > 1) {
+                VERIFY(check_allgather(mn_comm(0), 0), "mesh allgather");
+                VERIFY(check_alltoallv(mn_comm(0)), "mesh alltoallv");
+            }
         }
         mn_barrier(); mn_finalize();
         return verify_done("t_dist");

@@ -52,7 +52,6 @@ static const struct { const char *name, *def; char kind; } cfg_reg[] = {
     {"ECALC_DEVICE_GB", "373.44", 'h'},
     {"ECALC_DEVICE_MARGIN_GB", "5", 'h'},
     {"ECALC_DIR", "-", 'l'},
-    {"ECALC_DM_POOL", "-", 'l'},
     {"ECALC_DR", "0", 'h'},
     {"ECALC_DR_TOTAL", "8", 'h'},
     {"ECALC_FIT_APU_CHECK", "unset", 'h'},
@@ -216,7 +215,7 @@ static const struct { const char *name, *def; char kind; } cfg_reg[] = {
     {"XSHMEM_ROUND_STATS", "0", 'h'},
     {"XSHMEM_SPARSE", "0", 'h'},
 };
-#define CFG_REG_N 212
+#define CFG_REG_N 211
 static const char *const cfg_prefixes[] = {
     "ECALC_",
     "XSHMEM_",

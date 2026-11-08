@@ -22,7 +22,7 @@ void dr_init_from_env(void)
     g.slow = 0;
     if (t && *t && strcmp(t, "0")) {   /* one kind, and the modifier leafslow, joined by + */
         char buf[96]; snprintf(buf, sizeof buf, "%s", t);
-        for (char *sp = 0, *tok = strtok_r(buf, "+", &sp); tok; tok = strtok_r(0, ",", &sp)) {
+        for (char *sp = 0, *tok = strtok_r(buf, "+", &sp); tok; tok = strtok_r(0, "+", &sp)) {
             if (!strcmp(tok, "leafslow")) { g.slow = 1; continue; }
             int f = -1;
             for (int i = 0; i < DR_NKINDS; i++) if (!strcmp(tok, KN[i])) f = i;
@@ -103,14 +103,6 @@ uint64_t dr_submod(uint64_t a, uint64_t b) { return a >= b ? a - b : a + DR_Q - 
 uint64_t dr_mulmod(uint64_t a, uint64_t b) { return (uint64_t)((u128)a * b % DR_Q); }
 uint64_t dr_powmod(uint64_t b, uint64_t e) { uint64_t r = 1, x = b % DR_Q; for (; e; e >>= 1) { if (e & 1) r = dr_mulmod(r, x); x = dr_mulmod(x, x); } return r; }
 uint64_t dr_powB(uint64_t e) { return dr_powmod(DR_B % DR_Q, e); }
-uint64_t dr_limbs_res(const uint64_t *l, size_t n)
-{
-    uint64_t r = 0, b = DR_B % DR_Q;
-    for (size_t i = n; i-- > 0;) r = (uint64_t)(((u128)r * b + l[i] % DR_Q) % DR_Q);
-    return r;
-}
-uint64_t dr_res_shift(uint64_t r, uint64_t e) { return dr_mulmod(r, dr_powB(e)); }
-void dr_res_part(uint64_t *total, uint64_t part, uint64_t off) { *total = dr_addmod(*total, dr_res_shift(part, off)); }
 int dr_match_m(uint64_t e_res, uint64_t rBw)
 {
     e_res %= DR_Q; rBw %= DR_Q;

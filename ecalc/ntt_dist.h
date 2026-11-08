@@ -59,12 +59,6 @@ void dist_inv(dist_plan *p, uint64_t *x, hipStream_t s);
 void dist_inv_pw(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s);   /* dist_pw + dist_inv with the pointwise fused into the column inverse (bit-identical) */
 /* the halves around the all-to-all (pre posts it, post waits for it): for slab pipelining, and for the synthetic
  * communicator, whose ranks are driven by one thread and must all post before any waits */
-/* the transposed inverse: the forward algorithm run backwards on the column layout. It ends in the SAME block-cyclic
- * row layout as dist_inv (row k1 holds a[k1 + R k2]); there is no single-all-to-all inverse to contiguous ownership.
- * Kept as an equivalent inverse. */
-void dist_inv_t(dist_plan *p, uint64_t *x, hipStream_t s);
-void dist_inv_t_pre(dist_plan *p, uint64_t *x, hipStream_t s);
-void dist_inv_t_post(dist_plan *p, uint64_t *x, hipStream_t s);
 void dist_fwd_pre(dist_plan *p, uint64_t *x, hipStream_t s);
 void dist_fwd_post(dist_plan *p, uint64_t *x, hipStream_t s);
 void dist_inv_pre(dist_plan *p, uint64_t *x, hipStream_t s);

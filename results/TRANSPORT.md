@@ -229,7 +229,7 @@ Current state (cross-checked with `ecalc/README.md` and `RESULTS.md`):
 ##### 1. What was built
 - `COMM_LAYER_STATS=1|2` (`comm_layered.c`; removed 2026-10-19, D56): per exchange host stamps for the xGMI stage, ready-for-fabric, fabric stage, complete. Mode 1 passive (upper bound of fabric completion), mode 2 exact (watcher thread; perturbs slightly: use 1 for timings). Report at exit: span, xGMI-busy, fabric-busy, both-busy, held (ready exchange waiting for the previous inter stage), fabric idle while held, NIC balance, node view. With `COMM_XGMI_STATS=1` also the link-active interval of each push kernel, giving **both-busy at link level**.
 - `COMM_XGMI_STATS=1` (`comm_xgmi.c`; removed 2026-10-19, D56, the `comm_xgmi_h4()` bench stays): `k_push3_ts` stamps each block; per sender-peer bytes and link-active time. `comm_xgmi_h4()` benchmark with nine modes.
-- Drivers: `DIST_H4=1 [DIST_H4_MB=256] ./tests/t_dist`; `DIST_LAYERED=1 DIST_LBENCH=24,26,28 [DIST_LREPS] mnrun.sh <g> ./tests/t_dist`.
+- Drivers: `ECALC_TEST=h4=1[,h4_mb=256] ./tests/t_dist`; `ECALC_TEST=layered=1,lbench=24+26+28[,lreps=N] mnrun.sh <g> ./tests/t_dist` (the former `DIST_*` variables were folded into `ECALC_TEST`).
 
 ##### 2. H4 — does the push saturate all three K4 links? (m, one node)
 256 MiB per (sender, peer), 10 reps:

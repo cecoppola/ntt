@@ -1167,14 +1167,6 @@ int db_cmp(const dbig *a, const dbig *b)
 }
 void db_set_zero(dbig *r) { r->n = 0; }
 void db_set_u64(dbig *r, uint64_t v) { db_reserve(r, 1); mem_dev_copy_on(dv_(0), r->q[0], &v, 8); r->n = v ? 1 : 0; }
-void db_set_base_pow(dbig *r, size_t k)
-{
-    db_reserve(r, k + 1);
-#pragma omp parallel for num_threads(nq_())
-    for (int d = 0; d < nq_(); d++) { int dv = dv_(d); size_t lo, hi; qrange(r, d, k + 1, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(dv)); HIP_CHECK(hipMemset(r->q[d], 0, (hi - lo) * 8)); HIP_CHECK(hipDeviceSynchronize()); } }
-    uint64_t one = 1; size_t d = hq(r, k); mem_dev_copy_on(dv_((int)d), r->q[d] + (k - d * r->qc), &one, 8);
-    r->n = k + 1;
-}
 __global__ void k_fill0(uint64_t *p, size_t n) { size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x; for (; i < n; i += st) p[i] = 0; }
 /* M3: r = n zero limbs (r->n = n, not normalised: a share to be filled by a scatter) */
 void db_zero_fill(dbig *r, size_t n)

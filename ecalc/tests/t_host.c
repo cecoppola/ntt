@@ -170,26 +170,6 @@ static void t_prime(void)
     mpz_init_set_ui(n, 1); mpz_mul_2exp(n, n, 62); mpz_nextprime(n, n); VERIFY(mpz_cmp(n, z) == 0, "DR_Q is the first prime above 2^62");
     mpz_clear(z); mpz_clear(n);
 }
-static void t_limbs(rng_t *r)                       /* a limb array, and the same cut into shifted parts (totals) */
-{
-    enum { MAXN = 200 }; uint64_t l[MAXN]; mpz_t z; mpz_init(z);
-    for (int it = 0; it < 300; it++) {
-        size_t n = 1 + rng_next(r) % MAXN; int mode = it % 4;
-        for (size_t i = 0; i < n; i++) l[i] = rlimb(r, mode == 3 ? 2 : mode);
-        limbs_to_mpz(z, l, n); uint64_t want = mpz_mod_u(z, DR_Q), got = dr_limbs_res(l, n);
-        VERIFY(got == want, "limbs_res n=%zu mode=%d", n, mode);
-        size_t cut1 = rng_next(r) % (n + 1), cut2 = cut1 + rng_next(r) % (n - cut1 + 1);   /* [0, cut1) [cut1, cut2) [cut2, n) */
-        uint64_t tot = 0;
-        dr_res_part(&tot, dr_limbs_res(l, cut1), 0); dr_res_part(&tot, dr_limbs_res(l + cut1, cut2 - cut1), cut1); dr_res_part(&tot, dr_limbs_res(l + cut2, n - cut2), cut2);
-        VERIFY(tot == want, "parts n=%zu cuts %zu %zu", n, cut1, cut2);
-        VERIFY(dr_res_shift(got, 7) == dr_mulmod(got, dr_powB(7)), "shift");
-    }
-    uint64_t big[3] = { ~0ULL, ~0ULL, 5 }; mpz_t m; mpz_init(m);   /* limbs >= B are accepted by the helper (reduced first): sum l_i B^i */
-    mpz_set_ui(z, 0); mpz_t b; mpz_init_set_ui(b, 1000000000UL); mpz_mul(b, b, b); mpz_t t; mpz_init(t);
-    for (int i = 2; i >= 0; i--) { mpz_mul(z, z, b); mpz_set_ui(t, 0); mpz_import(t, 1, -1, 8, 0, 0, &big[i]); mpz_add(z, z, t); }
-    VERIFY(dr_limbs_res(big, 3) == mpz_mod_u(z, DR_Q), "limbs >= B");
-    mpz_clear(m); mpz_clear(b); mpz_clear(t); mpz_clear(z);
-}
 static void t_m(rng_t *r)                           /* E = m B^w with m in {-1, 0, 1}: the D identity of a low product; a fault is not */
 {
     mpz_t X, Q, S, Aw, xql, E, B, Bw; mpz_inits(X, Q, S, Aw, xql, E, B, Bw, NULL); mpz_set_ui(B, 1000000000UL); mpz_mul(B, B, B);
@@ -289,7 +269,7 @@ static void t_validate(void)                         /* ECALC_TEST: the whitelis
 static void host_dr(void)
 {
     rng_t r = { 20261101 };
-    t_prime(); t_arith(&r); t_limbs(&r); t_m(&r); t_cyc(&r); t_inject(); t_validate();
+    t_prime(); t_arith(&r); t_m(&r); t_cyc(&r); t_inject(); t_validate();
 }
 
 int main(int argc, char **argv)

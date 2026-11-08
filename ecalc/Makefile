@@ -94,7 +94,7 @@ ref/gen_e: ref/gen_e.c tests/sha256.h
 clean:
 	rm -f $(REF) $(TESTS) $(OBJS) ecalc $(TOOLS)
 
-.PHONY: all clean tools
+.PHONY: all clean tools check-hip
 
 # ---- XSHMEM: the communication layer behind xshmem.h (the only multi-node transport).  On by default wherever libfabric (OFI=1) and the PMI2
 # header are found, else 0 (the build without the engine: it still builds, COMM_TRANSPORT=xshmem is then a fatal at start).
@@ -169,3 +169,7 @@ else
 tests/t_xshmem tests/t_pe_geo:
 	@echo "set XSHMEM=ofi or XSHMEM=cray (XSHMEM=0 here: libfabric or PMI2 not found)"; false
 endif
+
+# pre-merge compile check (needs hipcc, so aac7/aac6 only): rebuild every object without linking
+check-hip:
+	$(MAKE) -B $(OBJS)

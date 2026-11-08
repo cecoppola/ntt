@@ -22,6 +22,26 @@ and `results/MODEL.md` (§AAC7OPT, §M2a, §SCALE35); the target model, memory f
 `results/MEMORY_IO.md`, `results/TRANSPORT.md` and `results/CORRECTNESS.md`; the block-pool audit in `results/MEMORY_IO.md` §POOLRACE; the
 recheck at scale in `results/CORRECTNESS.md` §CKPT. The target's own runs are in `remote/FACTS.md`.
 
+## 2026-11 cleanup: size before and after (measured 2026-11-07, Eastern; counts by `git ls-files` and `wc -l`)
+
+| item | before | after | label |
+|---|---|---|---|
+| tracked files | 348 | 204 | m |
+| folders with tracked files | 29 | 20 | m |
+| settings registry rows (`ecalc/switches.tsv`) | 209 | 101 | m |
+| C sources, headers and tests (`ecalc/`, lines) | 29,112 | 27,942 | m |
+| test files (`.c`/`.h` under `tests/` and `ecalc/tests/`) | 33 | 27 | m |
+| Python lines | 8,092 | 7,695 | m |
+| shell lines | 7,437 | 5,418 | m |
+| Markdown | 7,570 lines, 80 files | 4,714 lines, 24 files | m |
+
+Removed: the unknown-name guard, `ECALC_TEST` folding (the former `DIST_*`
+and other test variables are keys of `ECALC_TEST`), one removed settings class, the archived `target/` material (now outside the repository) and
+consolidated `results/` (topic files). Digits unchanged.
+
+Speed check, pre-cleanup tag against the new main, 2 nodes, 6.441e10 digits, 8 alternating pairs: new minus old -1.55 s, 95% interval [-5.13, +2.02] s,
+which includes 0, so no change is detectable (m). 2 nodes, 1e11 digits: identical to the stored reference, 262.75 s total (m).
+
 ## Multi-node transport in force (Q73, Q85, Q96, Q100, Q103)
 
 | change | since | effect | label | evidence |

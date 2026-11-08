@@ -24,18 +24,6 @@ import mem_model
 # ------------------------------------------------------------------------------------------------------------
 # MEASURED INPUTS (one MI300A node, four APUs; the code of main @ 7aded87 unless noted)
 # ------------------------------------------------------------------------------------------------------------
-# single-node phases by digits (seconds): init, batch tier, top levels (device tier), reciprocal, division, wall.
-#   1e9, 1e10: X's calibration batch (job 20802, s24-26; archive:results_merged_2026-10-24/TIME_MODEL.md §X)
-#   4e10: archive:results_merged_2026-10-24/SINGLE_NODE.md §P gate (81.5 +- 1.4 s, phases 66.0);  7e10: archive:results_merged_2026-10-24/SINGLE_NODE.md §P (153.5 s, ECALC_DM_POOL on)
-#   8e10: archive:results_merged_2026-10-24/MEMORY.md §M11 v3/v4 (195.5 s, s24-16; zero hipMalloc)  1e11: archive:results_merged_2026-10-24/MEMORY.md §M11 v4 (262.9 s, s24-26)
-PHASES = {          #  init   batch   top    recip   div    wall
-    1e9:    dict(init=9.3,  batch=1.5,  top=0.1,  recip=2.76, div=0.38, wall=14.4),
-    1e10:   dict(init=10.8, batch=7.1,  top=1.1,  recip=4.78, div=2.98, wall=29.0),
-    4e10:   dict(init=15.5, batch=22.5, top=13.1, recip=15.2, div=15.1, wall=81.5),
-    7e10:   dict(init=18.4, batch=37.7, top=24.9, recip=32.3, div=35.4, wall=153.5),
-    8e10:   dict(init=20.7, batch=44.0, top=38.8, recip=37.9, div=45.2, wall=195.5),
-    1e11:   dict(init=25.9, batch=65.5, top=51.4, recip=52.9, div=66.9, wall=262.9),   # M11 v4 log: bs 117.0 (seeds 10.9 + batch 54.6 + mdev 51.4), dm 119.8
-}
 # the distributed piece product on one node (archive:results_merged_2026-10-24/GRID_GROUPS.md §G, RESULTS 75): a 2^31-point piece (4 primes, 2^29 points
 # per APU): load 0.33 + ntt 0.67 + crt/out 0.11 = 1.11 s; with the B operand's transform cached 0.72 s.
 T_PIECE_31 = 1.11
@@ -47,7 +35,6 @@ HIDDEN_XGMI = 0.84
 NODE_GB = 502.0
 NODE_GB_MARGIN = 480.0          # the safe budget (DECISIONS2 7: 480 GB)
 LIMB_DIGITS = 18                # decimal limbs (RESULTS 67)
-EC_NP = 4
 K_CHUNKS = 8                    # the slab pipeline (M7; DIST_CHUNKS)
 CACHE_MN_SLOTS = int(os.environ.get('MN_MODEL_CACHE_SLOTS', '2'))   # RNS_DIST_CACHE_MN slots (0 = cache off; results/TRANSPORT.md)
 CACHE_MODEL = os.environ.get('MN_MODEL_CACHE', 'code')   # 'code' = hits as the code takes them (cache_pieces) x CACHE_HIT_F; 'old' = the pre-CX term
@@ -401,12 +388,11 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     # the local part: the measured piece (its xGMI exchanges included, 84 % hidden), on shared APUs times the share
     dz = DZ
     npc = 4 if p24 else piece_np(dz, nc, na, nb)        # Phase 15 NP the piece's primes (ECALC_NP=auto: 4 over the three-prime bound); P24: four
-    if dz is None or dz.legacy: t31 = T_PIECE_31 if fwd == 2 else T_PIECE_31_BHIT
-    else: t31 = T_PIECE_31_NP[npc] * (1.0 if fwd == 2 else T_PIECE_31_BHIT / T_PIECE_31) * dz.f_mm() * NODE_SCALE   # Phase 13b D: S13's C at 2^31 (P = 3 / 4); Phase 16 C: x NODE_SCALE
+    t31 = T_PIECE_31_NP[npc] * (1.0 if fwd == 2 else T_PIECE_31_BHIT / T_PIECE_31) * dz.f_mm() * NODE_SCALE   # Phase 13b D: S13's C at 2^31 (P = 3 / 4); Phase 16 C: x NODE_SCALE
     t_loc = t31 * scale * (P24_F if p24 else 1.0) + 0.005             # P24 (Phase 15 Batch 3): the regroup / CRT kernels' surcharge (ASSUMED, P24_F)
-    if dz is not None and not dz.legacy and CAL13:                      # Phase 13d D2: the pipeline's pieces against the isolated ones
+    if CAL13:                      # Phase 13d D2: the pipeline's pieces against the isolated ones
         t_loc *= PIECE13; t_loc += GRID_ADD.get("C", 0.0) * scale * (1 if grid else 0)   # (per 2^31 points = 2^29 per APU; x gpu_share below; GRID_NC not here)
-    if dz is not None and not dz.legacy and dz.p15b:                    # Phase 15 (2026-09-27): DIST_TWREC=1 on the pack / unpack passes -- the equal path only
+    if dz.p15b:                    # Phase 15 (2026-09-27): DIST_TWREC=1 on the pack / unpack passes -- the equal path only
         gmap = not is_pow2(g) or dz.force_gen                           # (Phase 15 G5: the general map has its own kernels, GEN_TWPACK_F, DIST_TWREC_G)
         t_loc *= GEN_TWPACK_F[1 if TWREC_G else 0] if gmap else TWREC_F
     t_loc *= fab.gpu_share
@@ -414,14 +400,14 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     # runs under the fabric stage of the other (inflight 2 on the equal path; 1 on the general map: GEN_HIDE), so the
     # fabric's excess over the hidden xGMI stage is exposed
     t_x = T_XGMI_31 * scale
-    if dz is None or dz.legacy or not fab.target:
-        gen = GEN_HIDE if dz is None or dz.gen_hide is None else dz.gen_hide   # Phase 13b D: the depth check on aac6 sets it
-        pow2 = is_pow2(g) and not (dz is not None and dz.force_gen)             # dist_gen=1
+    if not fab.target:
+        gen = GEN_HIDE if dz.gen_hide is None else dz.gen_hide   # Phase 13b D: the depth check on aac6 sets it
+        pow2 = is_pow2(g) and not dz.force_gen             # dist_gen=1
         hide = (1.0 if fab.target else HIDDEN_XGMI) * (1.0 if pow2 else gen)
     else:                                                             # Phase 13b D: X13's measured overlap -- the equal path hides
         hide = HIDE_POW2 if is_pow2(g) else GEN_HIDE_DEPTH[min(dz.depth, 2)]   # 3/4 of its xGMI time, the general map 1.1 % (two deep: modelled 3/4)
-    n_tr = (EC_NP if dz is None or dz.legacy else npc) * (fwd + 1)
-    gen_x = not is_pow2(g) or (dz is not None and dz.force_gen)       # T06: the transform's exchange is the layv kind (comm_layered.c v_post) exactly when the general map runs
+    n_tr = npc * (fwd + 1)
+    gen_x = not is_pow2(g) or dz.force_gen       # T06: the transform's exchange is the layv kind (comm_layered.c v_post) exactly when the general map runs
     t_f, nic, glob, msgs = fab.a2a(8 * q, g, K_CHUNKS, v=gen_x)
     exposed_tr = max(0.0, t_f - hide * t_x)
     c.nic += n_tr * nic; c.glob += n_tr * glob; c.msgs += n_tr * msgs; c.xfers += n_tr
@@ -436,7 +422,7 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     else: t_s, nic_s, glob_s, msgs_s = fab.a2a(2 * C * 4 * 8, g, 1, other=True)
     c.nic += nic_s; c.glob += glob_s; c.msgs += msgs_s; c.xfers += 1
     t_small = 3 * fab.coll(g)
-    if dz is not None and dz.t_mb:                                    # Phase 13b D: MN_T_CHUNK_MB -- the result window in rounds of W
+    if dz.t_mb:                                                       # Phase 13b D: MN_T_CHUNK_MB -- the result window in rounds of W
         W = mem_model.t_chunk_limbs(dz.t_mb)                          # limbs per node: each extra round one alltoallv + the adds
         extra = max(0, -(-(nc // g) // W) - 1) if W else 0
         t_small += extra * round_cost(fab, g)
@@ -449,7 +435,6 @@ NP_STATS = dict(n3=0, n4=0)                # the pieces priced at three / four p
 def piece_np(dz, nc, na=None, nb=None):
     """Phase 15 NP (crt.c ec_np_for): a piece's prime count -- the design's np, or under np_auto four when nc = pa + pb exceeds the
     switch-over (mn_core / dist_core decide per product; the one-node tiers keep three)."""
-    if dz is None or dz.legacy: return EC_NP
     if getattr(dz, 'np_auto', False):
         k = 4 if nc > NP_AUTO_TERMS else 3; NP_STATS['n%d' % k] += 1; return k
     return dz.np
@@ -480,7 +465,7 @@ def p24_split(na, nb, cap, g):
 def p24_of(na, nb, g, cap):
     """rns_dist.c mn_p24_of: whether the product runs P24 (MN_P24 and, at 1, the 18-digit grid's largest piece at four primes)"""
     dz = DZ
-    if not P24 or dz is None or dz.legacy: return False
+    if not P24: return False
     if P24 >= 2: return True
     pa, pb = na, nb
     if na + nb > cap:
@@ -520,7 +505,7 @@ def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tru
     """memoised _product_cost (Phase 13b D: the design table evaluates the same products for many rows); the key is the fabric's
     parameters, the arguments and what of the design the product depends on"""
     dz = DZ
-    dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G, CACHE_MODEL, cache_slots_now(), CACHE_HIT_F, cache_primes_now(), CACHE_LOOP, P24, P24_F, CACHE_P24, CACHE_PART_F)
+    dk = (dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G, CACHE_MODEL, cache_slots_now(), CACHE_HIT_F, cache_primes_now(), CACHE_LOOP, P24, P24_F, CACHE_P24, CACHE_PART_F)
     k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target, fab.v_factor, fab.k_other,
          na, nb, g, lowcut, highcut, with_x, cache, form, dk)
     c = _PC.get(k)
@@ -532,7 +517,7 @@ def _product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tr
     """C = A B (+ X) over a group of g nodes: the grid of pieces at the group's cap (mn_logn_cap: 2^(31 + floor(log2 g))),
     the cuts, the transform cache over shares"""
     if g <= 1: raise ValueError("product over one node")
-    cap = 1 << mem_model.mn_cap_log(g, 31 if DZ is None or DZ.legacy else DZ.pool_log())
+    cap = 1 << mem_model.mn_cap_log(g, DZ.pool_log())
     if p24_of(na, nb, g, cap): return _product_cost_p24(fab, na, nb, g, cap, lowcut, highcut, with_x, form, cache)   # P24 (MN_P24)
     nc = na + nb
     c = Cost()
@@ -569,7 +554,7 @@ def _product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tr
             first = False
     if with_x:                                                        # mdb_add_shifted: rounds of at most 2^26 limbs per APU (W = MN_T_CHUNK_MB chunks above that)
         t1, nic1, glob1, msgs1 = fab.a2a(8 * nc / (4 * g), g, 1)
-        if DZ is not None and DZ.t_mb:                                # mdb_add_shifted rounds beyond the chunk (MN_T_CHUNK_MB)
+        if DZ.t_mb:                                                   # mdb_add_shifted rounds beyond the chunk (MN_T_CHUNK_MB)
             W = mem_model.t_chunk_limbs(DZ.t_mb); t1 += max(0, -(-(nc // g) // W) - 1) * round_cost(fab, g)
         c.t += t1 + fab.coll(g); c.t_exposed += t1 + fab.coll(g); c.nic += nic1; c.glob += glob1; c.msgs += msgs1; c.xfers += 1
     return c
@@ -816,25 +801,8 @@ def tree_cost(fab, nq_node, g, groups=None, form="grid", T=None, which='crit'):
     return rows
 
 # ------------------------------------------------------------------------------------------------------------
-# the single-node phases by digits (log-log interpolation of the measured table; extrapolated beyond it)
-# ------------------------------------------------------------------------------------------------------------
-def phase(name, D):
-    xs = sorted(PHASES)
-    if D <= xs[0]: a, b = xs[0], xs[1]
-    elif D >= xs[-1]: a, b = xs[-2], xs[-1]
-    else:
-        a = max(x for x in xs if x <= D); b = min(x for x in xs if x >= D)
-        if a == b: return PHASES[a][name]
-    ya, yb = PHASES[a][name], PHASES[b][name]
-    if ya <= 0 or yb <= 0: return ya + (yb - ya) * (D - a) / (b - a)
-    p = math.log(yb / ya) / math.log(b / a)
-    return ya * (D / a) ** p
-
-# ------------------------------------------------------------------------------------------------------------
 # Phase 13b agent D: the design -- prime count, product strategy, plane cap, chunking, exchange depth, modmul
 # ------------------------------------------------------------------------------------------------------------
-# The legacy path (design None: the constants above, four primes, the Phase 10/11 phase table) is what --calib and the
-# Phase 12 tables were computed with; everything the design table prints goes through Design (the code after step 0).
 T_PIECE_31_NP = {4: 1.078, 3: 0.827}   # MEASURED (archive:results_merged_2026-10-24/PRIMES_STRATEGY.md §S13, E0 decimal, s24-26): C at 2^31 over the four APUs, P = 4 / 3
 HIDE_POW2 = float(os.environ.get('MN_MODEL_HIDE_POW2', '0.75'))   # MEASURED (results/TRANSPORT.md §X13 3.2): the equal-slab path hides 74-76 % of its xGMI link time
                                        # (Phase 16 C: MN_MODEL_HIDE_POW2 / MN_MODEL_GEN_HIDE1 / MN_MODEL_GEN_HIDE2 / MN_MODEL_MAP_RATE override, as MN_MODEL_T_ROUND does)
@@ -874,11 +842,11 @@ class Design:
     """one row of the design space.  np: ECALC_NP; strategy: RNS_STRATEGY (C | B | B4 | auto); cap: the plane cap in points
     (None = the code's own rule: 3 2^30 below 5e10 digits of the run, else 2^31); chunk: 'off' | 'shift'
     (mdb_shift_chunk_mb) | 'both' (+ MN_T_CHUNK_MB), at chunk_mb; depth: the uneven (alltoallv) exchange's depth 1 | 2;
-    modmul: NTT_MODMUL (1 = the default since step 0); legacy: the pre-13b constants (four primes, Phase 10/11 phases)"""
-    def __init__(self, np=3, strategy='C', cap=None, chunk='off', depth=1, modmul=1, chunk_mb=CHUNK_MB, legacy=False, p15=False, tight=True, early_free=True,
+    modmul: NTT_MODMUL (1 = the default since step 0)"""
+    def __init__(self, np=3, strategy='C', cap=None, chunk='off', depth=1, modmul=1, chunk_mb=CHUNK_MB, p15=False, tight=True, early_free=True,
                  round_mb=128, pool='plan', vmm=True, recip_cut=True, out_overlap=None, p15b=False, np_mn=None, packed=None, early=None, np_auto=False,
                  p15c=False, arena_room=None, cache_fit=None):
-        self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb, self.legacy = np, strategy, cap, chunk, depth, modmul, chunk_mb, legacy
+        self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb = np, strategy, cap, chunk, depth, modmul, chunk_mb
         self.gen_hide = None; self.force_gen = False                      # the aac6 loopback depth check (design_table --calibrate)
         self.shift_mb = chunk_mb if chunk in ('shift', 'both') else 0
         self.t_mb = chunk_mb if chunk == 'both' else 0
@@ -912,7 +880,7 @@ class Design:
         """the design as a run of g node-processes uses it: np_mn at size > 1 (ECALC_NP=4 on the target's launch line)"""
         if g > 1 and self.np_mn and self.np_mn != self.np:
             auto = self.np_mn == 'auto'
-            d = Design(np=3 if auto else self.np_mn, np_auto=auto, strategy=self.strategy, cap=self.cap, chunk=self.chunk, depth=self.depth, modmul=self.modmul, chunk_mb=self.chunk_mb, legacy=self.legacy,
+            d = Design(np=3 if auto else self.np_mn, np_auto=auto, strategy=self.strategy, cap=self.cap, chunk=self.chunk, depth=self.depth, modmul=self.modmul, chunk_mb=self.chunk_mb,
                        p15=self.p15, tight=self.tight, early_free=self.early_free, round_mb=self.round_mb, pool=self.pool, vmm=self.vmm, recip_cut=self.recip_cut,
                        out_overlap=self.out_overlap, p15b=self.p15b, np_mn=None, packed=self.packed, early=self.early,
                        p15c=self.p15c, arena_room=self.arena_room, cache_fit=self.cache_fit)
@@ -929,7 +897,7 @@ class Design:
         if self.p15c: o['pool1_np'] = None                          # Phase 15 DOC2: RNS_POOL1_4Q=1 (PS, B2's default): pool 1 at the one-node primes (4 q under ECALC_NP=4); B1 and before: 3 q + 16 (OLD13's pool1_np 3)
         o.update(np='auto' if self.np_auto else self.np, strategy=self.strategy, cap=self.cap_at(digits), shift_chunk_mb=self.shift_mb, t_chunk_mb=self.t_mb, depth=self.depth)
         return o
-    def key(self): return (self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb, self.legacy,
+    def key(self): return (self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb,
                            self.p15, self.tight, self.early_free, self.round_mb, self.pool, self.vmm, self.recip_cut, self.out_overlap, self.p15b, self.np_mn, self.packed, self.early, self.np_auto,
                            self.p15c, self.arena_room, self.cache_fit)
     def name(self):
@@ -1415,7 +1383,7 @@ def node_phases(D, dz, g=1, exclude=None, pipe=False):
 # at 7.64e10 it ran 6.2 % optimistic (RESULTS 80) -- all of it in dm (the design table's leaf_scale, fitted at 4e10 where the
 # model's bs is 12 % high, also scaled bs down by 5 %).  The recalibration: per phase group (init, bs, dm) the ratio measured /
 # node_phases of the DEFAULT design at every measured one-node size of the 13c code, interpolated linearly in log D (flat
-# outside the measured range) and applied to every non-legacy design in run() (CAL13 = True).  K-off runs enter through the
+# outside the measured range) and applied to every design in run() (CAL13 = True).  K-off runs enter through the
 # measured K ratios.  At g > 1: bs's ratio at the top node's leaf; dm's ratio (the pipeline's big products against the
 # isolated t_strategy pieces: ~85 % of dm at >= 7e10) on the fabric pieces' local part (ASSUMED to carry over).
 CAL13 = True
@@ -1585,12 +1553,11 @@ def seed_wait15(Dt, g, T, init, fast=False):
 
 
 
-def memory(D, g, form="grid", groups=None, transport="xshmem", pool_log=31, staging="code", design=None):
+def memory(D, g, form="grid", groups=None, transport="xshmem", pool_log=31, staging="code", design=DEFAULT):
     """the per-node memory model (mem_model.mem_per_node): GB of device at the dm peak, host (with the SHMEM pool), the node peak"""
-    if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1
+    design = design.at_g(g)                                          # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1
     o = dict(_OLD13); o.update(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging)   # Phase 15: the old forms unless the design is p15
-    if design is not None and not design.legacy: o.update(design.mem_opts(D * g)); o.update(p24=P24, dkm=DKM)   # MS: MN_P24's scratch (mem_model's P24 branch); DL: dm_layout follows NEWTON_DKM (DKM)
-    elif design is None: o.update(np=4, host_fit=False)                                 # the legacy path: four primes (before step 0)
+    o.update(design.mem_opts(D * g)); o.update(p24=P24, dkm=DKM)   # MS: MN_P24's scratch (mem_model's P24 branch); DL: dm_layout follows NEWTON_DKM (DKM)
     r = mem_model.mem_per_node(int(D), g, o)
     gb = lambda k: r[k] / 1e9
     return dict(device=gb("dev_max"), host=gb("host_hwm"), node=gb("node_peak"), planes=gb("planes"), arena=gb("arena"),
@@ -1599,13 +1566,12 @@ def memory(D, g, form="grid", groups=None, transport="xshmem", pool_log=31, stag
                 cache_slot=gb("cache_slot"), cache_fit_slots=r["cache_fit_slots"], cache_fit_room=gb("cache_fit_room"), layout_node=gb("layout_node"))   # Phase 15 DOC2
 
 # ------------------------------------------------------------------------------------------------------------
-def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=None, dc_exposed=None, groups=None, form="grid", transport="xshmem", pool_log=31, staging="code", design=None, corrections=0):
-    """one run of g nodes at D digits per node.  design None: the legacy constants (four primes, the Phase 10/11 phase table;
-    --calib and the Phase 12 tables); a Design: the code after Phase 13b step 0 and the row's options (Phase 13b D)"""
+def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=None, dc_exposed=None, groups=None, form="grid", transport="xshmem", pool_log=31, staging="code", design=DEFAULT, corrections=0):
+    """one run of g nodes at D digits per node; design: the code after Phase 13b step 0 and the row's options (Phase 13b D)"""
     global DZ, CACHE_RUN_SLOTS
-    if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1 on the target's launch line
+    design = design.at_g(g)                                          # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1 on the target's launch line
     saved = DZ; DZ = design; saved_c = CACHE_RUN_SLOTS
-    if design is not None and getattr(design, 'cache_fit', False) and g > 1:   # Phase 15 DOC2: RNS_DIST_CACHE_FIT -- the slots the code's budget rule allows
+    if getattr(design, 'cache_fit', False) and g > 1:   # Phase 15 DOC2: RNS_DIST_CACHE_FIT -- the slots the code's budget rule allows
         o = dict(_OLD13); o.update(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging); o.update(design.mem_opts(D * g)); o.update(p24=P24, dkm=DKM)
         CACHE_RUN_SLOTS = min(CACHE_MN_SLOTS, mem_model.mem_per_node(int(D), g, o)['cache_fit_slots'])
     else: CACHE_RUN_SLOTS = None
@@ -1620,31 +1586,20 @@ def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=Non
 
 def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups, form, transport, pool_log, staging, design, corrections=0):
     nq = int(D / LIMB_DIGITS)                          # limbs of Q per node (the leaf's share)
-    ftop = 1.0
-    dl = nq
-    nq_tot, dl_tot, np_tot = nq * g, dl * g, nq * g
-    if design is None or design.legacy:
-        ph = dict(init=init_override if init_override is not None else phase("init", D),
-                  batch=phase("batch", D) * leaf_scale, top=phase("top", D) * leaf_scale, other=0.0)
-    else:
-        ftop = top_factor(D * g, g)                    # Phase 13d D2: the slowest leaf is the top node's (SHARES = 'terms')
-        npf = node_phases(D * ftop, design, g, pipe=CAL13)
-        fi = cal13(D * ftop, 'init')                   # Phase 13d D2: the 13c recalibration (1 without CAL13): the law on bs's rest
-        bs0 = npf["batch"] + npf["top"]; bs1 = cal13_apply(D * ftop, design, g, bs0, 0.0)[0] if CAL13 else bs0; fb = bs1 / bs0 if bs0 > 0 else 1.0
-        ph = dict(init=init_override if init_override is not None else npf["init"] * fi, batch=npf["batch"] * leaf_scale * fb, top=npf["top"] * leaf_scale * fb,
-                  other=npf["other"])
-    levels = tree_cost(fab, nq, g, groups, form, T=None if design is None or design.legacy else D * g) if g > 1 else []
+    ftop = top_factor(D * g, g)                    # Phase 13d D2: the slowest leaf is the top node's (SHARES = 'terms')
+    npf = node_phases(D * ftop, design, g, pipe=CAL13)
+    fi = cal13(D * ftop, 'init')                   # Phase 13d D2: the 13c recalibration (1 without CAL13): the law on bs's rest
+    bs0 = npf["batch"] + npf["top"]; bs1 = cal13_apply(D * ftop, design, g, bs0, 0.0)[0] if CAL13 else bs0; fb = bs1 / bs0 if bs0 > 0 else 1.0
+    ph = dict(init=init_override if init_override is not None else npf["init"] * fi, batch=npf["batch"] * leaf_scale * fb, top=npf["top"] * leaf_scale * fb,
+              other=npf["other"])
+    levels = tree_cost(fab, nq, g, groups, form, T=D * g) if g > 1 else []
     if g > 1:
-        if design is None or design.legacy: rc, dc, grp = division_cost(fab, nq_tot, dl_tot, np_tot, g, rule, form)
-        else:                                          # Phase 13d D2: the code's exact lengths (the cuts' skips are decided at a few limbs)
-            ex = exact_sizes(D * g); rc, dc, grp = division_cost(fab, ex['nq'], ex['dl'], ex['pn'], g, rule, form, sn=ex['sn'])
-    elif design is None or design.legacy:
-        rc = Cost(); rc.t = phase("recip", D); dc = Cost(); dc.t = phase("div", D); grp = []
+        ex = exact_sizes(D * g); rc, dc, grp = division_cost(fab, ex['nq'], ex['dl'], ex['pn'], g, rule, form, sn=ex['sn'])   # Phase 13d D2: the code's exact lengths (the cuts' skips are decided at a few limbs)
     else:
         dm0 = npf["recip"] + npf["div"]; fd = (cal13_apply(D, design, 1, 0.0, dm0)[1] / dm0 if dm0 > 0 else 1.0) if CAL13 else 1.0   # Phase 13d D2: the law on dm's rest
         rc = Cost(); rc.t = npf["recip"] * fd; dc = Cost(); dc.t = npf["div"] * fd; grp = []
     t_levels = sum(c.t for _, _, c in levels)
-    p15 = design is not None and not design.legacy and design.p15
+    p15 = design.p15
     p15b = p15 and design.p15b
     seed_wait = 0.0
     if p15 and CAL15 and init_override is None:          # Phase 15: the one-node compute refitted on the Phase 14 defaults (CAL15), the seed wait its own term
@@ -1720,21 +1675,13 @@ def print_run(fab, r, rule):
           % (r["form"], r["staging"], m["device"], m["planes"], m["arena"], m["regions"], m["dm_need"], m["tree_need"], m["top_scratch"], m["exchange"], m["host"], m["shmem_pool"], m["shmem_staging"], m["node"], NODE_GB,
              "" if m["node"] <= NODE_GB else "  ** DOES NOT FIT **"))
 
-def max_digits(g, node_gb, form="grid", groups=None, transport="xshmem", staging="code", design=None):
-    """the largest D per node (to 1e8) whose modelled node peak fits node_gb (design None: the legacy four-prime memory)"""
-    if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1
+def max_digits(g, node_gb, form="grid", groups=None, transport="xshmem", staging="code", design=DEFAULT):
+    """the largest D per node (to 1e8) whose modelled node peak fits node_gb"""
+    design = design.at_g(g)                                          # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1
     o = dict(_OLD13, form=form, groups=groups, transport=transport, staging=staging)   # Phase 15: a p15 design's mem_opts override the old forms
-    if design is None: o.update(np=4, host_fit=False)
-    elif not design.legacy:
-        o.update(design.mem_opts(1e12 * g))                     # the cap rule at the run's digits: 2^31 above 5e10 (every 576-node size)
-        if design.cap is None and g == 1: o.pop('cap')          # size 1: the code's rule follows D (3 2^30 below 5e10)
+    o.update(design.mem_opts(1e12 * g))                         # the cap rule at the run's digits: 2^31 above 5e10 (every 576-node size)
+    if design.cap is None and g == 1: o.pop('cap')              # size 1: the code's rule follows D (3 2^30 below 5e10)
     return mem_model.max_digits_per_node(node_gb * 1e9, g, o)
-
-
-# ------------------------------------------------------------------------------------------------------------
-# calibration: every recorded aac6 point -- g node-processes sharing one node over a loopback transport
-# (archive:results_merged_2026-10-24/TIME_MODEL.md §X job 20802/20815, L.md jobs 20808/20813, M11.md job 20814, S.md job 20817; the logs' "total" lines)
-# ------------------------------------------------------------------------------------------------------------
 
 
 def plan(g, T, design=None, groups=None, fab=None):
@@ -2045,7 +1992,7 @@ EST_LABELS = {
 
 def estimate(g, D, tree="grid", groups=None, fabric=None, rule="model", transport="xshmem", staging="code", verbose=False, design=DEFAULT, corrections=0):
     """the estimate for g nodes at D digits per node: a dict of the numbers (seconds, GB, bytes) and their labels.
-    design: an mn_model.Design (default: DEFAULT15, the code's defaults + the target's launch line); None = the legacy (Phase 12) model.
+    design: an mn_model.Design (default: DEFAULT15, the code's defaults + the target's launch line).
     Phase 15 (D3): wall_s = the wall with the part file written (at the fabric's write_bw), nowrite_s without it."""
     fab = fabric or TARGET
     r = run(fab, D, g, rule, verbose=verbose, groups=groups, form=tree, transport=transport, staging=staging, design=design, corrections=corrections)
@@ -2139,12 +2086,12 @@ def estimate_main(argv=None):
                     p15c=True, arena_room=a.room, cache_fit=not a.no_cache_fit)
     fab = Fabric(TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=a.write_bw, staging_bw=a.staging_copy, fall_off=a.fall_off, v_factor=a.layv_factor, k_other=prof.k_other)
     print("ecalc estimate -- %s; tree form %s, SHMEM staging %s, MN_GROUPS %s, fabric %.0f GB/s per APU, %.1f us per message, dragonfly group %d, %d layers, taper %.2f, part files %.2f GB/s per node%s"
-          % ("legacy (Phase 12: four primes)" if design is None else "design %s, ECALC_NP=%d%s, NTT_MODMUL=%d%s" % (design.name(), design.np,
+          % ("design %s, ECALC_NP=%d%s, NTT_MODMUL=%d%s" % (design.name(), design.np,
              " (%s at size > 1)" % design.np_mn if design.np_mn and design.np_mn != design.np else "", design.modmul,
              (", XSHMEM_ROUND_MB=%g, the part file %s" % (design.round_mb, "%s, from the division's hook (MN_OUT_EARLY)" % ("packed" if design.packed else "ASCII") if design.p15b else
               ("after T1" if design.out_overlap == 'none' else "under half the division"))) if design.p15 else " (the Phase 13/14 model)"),
              a.tree, a.staging, a.groups or "(default)", a.bw, a.lat * 1e6, a.group, a.layers, a.taper, a.write_bw,
-             "" if design is None or not design.p15b else "; BS_ARENA_ROOM %.2f, DIST_TWREC_G=%d, the mn cache %s" % (design.arena_room, TWREC_G,
+             "" if not design.p15b else "; BS_ARENA_ROOM %.2f, DIST_TWREC_G=%d, the mn cache %s" % (design.arena_room, TWREC_G,
                  ("%d slot(s) forced (--cache-slots)" % a.cache_slots) if a.cache_slots is not None else ("as RNS_DIST_CACHE_FIT=1 allows" if design.cache_fit else "the code's default 2 slots (no FIT)"))))
     if a.target:
         est_target(a, design); return

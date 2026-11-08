@@ -29,7 +29,7 @@ static inline const ec_test_key *ec_test_keys(void)
     {"dr", 'k'}, {"dr_k", 'n'}, {"dr_pe", 'n'}, {"dr_n", 'n'}, {"dr_m", 'n'}, {"p24", 'n'}, {"p24_k", 'n'}, {"p24_s", 'n'},
     {"corr", 'n'}, {"dkm_hi", 'n'}, {"dkm_carry", 'n'}, {"die_pe", 'n'}, {"fatal", 'n'}, {"mapd_die", 's'}, {"tree_logn", 'n'}, {"dist_gen", 'n'},
     {"alloc_ntt", 'n'}, {"alloc_seed", 'n'}, {"alloc_probe", 'n'}, {"h4", 'n'}, {"h4_mb", 'n'}, {"h4_reps", 'n'}, {"tbench", 'n'}, {"big", 'n'},
-    {"big_k", 'n'}, {"big_primes", 'l'}, {"xgmi", 'n'}, {"tinv", 'n'}, {"layered", 'n'}, {"lbench", 'l'}, {"lreps", 'n'},
+    {"big_k", 'n'}, {"big_primes", 'l'}, {"xgmi", 'n'}, {"layered", 'n'}, {"lbench", 'l'}, {"lreps", 'n'},
     {"patch_dir", 's'}, {"patch_unpack", 's'}, {"strat_budget_gb", 'f'}, {"strat_gmp", 'n'}, {NULL, 0} };
   return K;
 }

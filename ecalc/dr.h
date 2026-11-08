@@ -57,9 +57,6 @@ uint64_t dr_submod(uint64_t a, uint64_t b);
 uint64_t dr_mulmod(uint64_t a, uint64_t b);
 uint64_t dr_powmod(uint64_t b, uint64_t e);
 uint64_t dr_powB(uint64_t e);                  /* B^e mod DR_Q */
-uint64_t dr_limbs_res(const uint64_t *l, size_t n);                    /* sum l[i] B^i mod DR_Q (limbs < 2^64 allowed) */
-uint64_t dr_res_shift(uint64_t r, uint64_t e);                         /* r B^e */
-void dr_res_part(uint64_t *total, uint64_t part, uint64_t off);        /* *total += part B^off: the residue of a number held as shifted parts (shares, stripes) */
 /* The D identity of a low product (newton_db.c): E = (R(S) B^e - R(X) R(Q)) - (R(Aw) - R(xql)) must be 0 or +-B^w modulo DR_Q.
  * Returns m in {-1, 0, 1} with E = m B^w, or 2 when it is none of the three (a fault). */
 int dr_match_m(uint64_t e_res, uint64_t rBw);

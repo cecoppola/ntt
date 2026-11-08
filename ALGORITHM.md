@@ -291,8 +291,7 @@ boundaries are resolved by a scan over (carry, propagate) flags (`mn_core`, `db_
 Fabric bytes equal a flat all-to-all's; messages per APU fall from 4g − 1 to g − 1; the on-node quarter never touches a NIC.
 Two exchanges are in flight (depth 2), so one exchange's xGMI stage hides under the previous one's fabric stage.
 `alltoallv` has the same stages with per-peer counts (the node's send counts are all-gathered over the four APU threads).
-All-gather runs the inter stage first and the xGMI stage second, so the fabric moves 4× less. One inter stage is in flight at a time (two in flight was slower on both transports, `results/TRANSPORT.md`), and `COMM_LAYER_VSLOT_*` take
-the v-exchange slots from the communicator pool and share and release them between products (they are counted in the node
+All-gather runs the inter stage first and the xGMI stage second, so the fabric moves 4× less. One inter stage is in flight at a time (two in flight was slower on both transports, `results/TRANSPORT.md`), and the v-exchange slots come from the communicator pool, are shared and released between products (the former `COMM_LAYER_VSLOT_*` settings were removed; they are counted in the node
 budget).
 
 ### 6.4 Transports
