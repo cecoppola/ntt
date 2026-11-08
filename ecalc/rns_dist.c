@@ -564,7 +564,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
     rns_dist_st.n++; rns_dist_st.t_total += mem_now() - t0; g_bst.n[0]++; g_bst.t[0] += mem_now() - t0;
     double ml = 0, mf = 0, mc = 0; for (int r = 0; r < NR; r++) { if (tl[r] > ml) ml = tl[r]; if (tf[r] > mf) mf = tf[r]; if (tc[r] > mc) mc = tc[r]; }
     rns_dist_st.t_load += ml; rns_dist_st.t_ntt += mf; rns_dist_st.t_crt += mc;
-    if (getenv("RNS_VERBOSE")) printf("dist 2^%d = 2^%d x 2^%d (%zu limbs%s): load %.3f ntt %.3f crt %.3f spills %.3f total %.3f s%s%s\n", logn, logR, logC, nc, ec_np_auto ? (np == 4 ? ", 4 primes" : ", 3 primes") : "", ml, mf, mc, mem_now() - tsp, mem_now() - t0, ha >= 0 ? " [A hit]" : sa >= 0 ? " [A cached]" : "", hb >= 0 ? " [B hit]" : sb >= 0 ? " [B cached]" : "");
+    if (getenv("RNS_VERBOSE")) printf("dist 2^%d = 2^%d x 2^%d (%zu limbs%s): load %.3f ntt %.3f crt %.3f spills %.3f total %.3f s\n", logn, logR, logC, nc, ec_np_auto ? (np == 4 ? ", 4 primes" : ", 3 primes") : "", ml, mf, mc, mem_now() - tsp, mem_now() - t0);
     if (dist_st.on) { printf("   ntt parts (all ranks summed / 4): local rows %.3f cols %.3f pack+unpack %.3f all-to-all %.3f\n", dist_st.t_local1 / 4, dist_st.t_local2 / 4, dist_st.t_pack / 4, dist_st.t_a2a / 4);
                       dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_a2a = 0; }
 }
