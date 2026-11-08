@@ -126,9 +126,9 @@ static void md_fail(int d, const char *why)
 void mapd_early(void)
 {
     /* effective state: ECALC_MAPD=0 off, =1 on (explicit always wins); unset: on when COMM_SIZE > 1, off at size 1 and in the plan-only modes (MN_PLAN_ONLY, BS_LAYOUT_ONLY) */
-    const char *e = getenv("ECALC_MAPD"); int expl = e && *e;
-    if (expl) { if (atoi(e) == 0) return; }
-    else {
+    const char *e = getenv("ECALC_MAPD"); if (e && atoi(e) == 0) return;   /* an empty value counts as set and means off, as before */
+    const int expl = e != NULL;
+    if (!expl) {
         const char *cs = getenv("COMM_SIZE"); if (!cs || atoi(cs) <= 1) return;
         if (getenv("MN_PLAN_ONLY") || getenv("BS_LAYOUT_ONLY")) return;
     }
