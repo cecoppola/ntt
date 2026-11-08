@@ -25,7 +25,7 @@ Scope: audits, shrink passes, settings-removal waves, validation of the reductio
 **Open items** (lines net removed, mod time/memory):
 - **5** Size 1 through the sharded driver: about -310 net; memory is the risk (one-node peak laid out for the dbig flow; `mdb_shift` at g = 1 copies, 29 GB per copy of Q at 6.44e10); needs 1-node ABBA and `mem_report`.
 - **6** P24 as the only multi-node product form: about -50 (partly overtaken by D18: P24 is the multi-node default); +4 GiB per APU in pool 0 at 2-16 nodes.
-- **7** `tree_level` into `tree_level_k` (about -25); **8** one output-writer machinery (about -70); **9** `mdb_add_shifted` one body (about -50); **10** one transform cache (about -60; 1-node ABBA needed).
+- **7** `tree_level` into `tree_level_k`: moot, `mn.c` has the single `tree_level` (no `tree_level_k` in the tree). **8** one output-writer machinery: partly done (the dead 8-byte packed write path, one share-source helper `mn_out_share_src`, one `x_bg` output init; about -2 net); what is left is the size-1 (`x_bg`, `x_hi`) versus multi-node (`mn_out_early`) writer flows, which are different thread and gate structures and cannot be merged without GPU gates. **9** `mdb_add_shifted`: already one body (rns_dist.c); folding it into `mdb_shift_gt` would change its round and pool pattern (memory, timing), not done. **10** one transform cache (about -60; 1-node ABBA needed).
 - **13** (user decision) drop the SHMEM data path of device exchanges (about -120): kept until the target's A3 stage has run.
 - Smaller: `mn_group`'s transform-node subset (`gt`, `tr`) is a leftover of `MN_TOPO_GROUP`; `mn_prod_cut_x1` never triggers at target sizes; two start-up self-tests (`mn_selftest`, `mn_selftest_layered`) overlap.
 
