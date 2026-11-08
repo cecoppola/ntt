@@ -3,8 +3,7 @@
  *   XSHMEM_CRAY_HEAP     0 host heap shmem_malloc (default; MI300A host memory is the same HBM)
  *                        1 shmem_space_malloc(SHMEM_SPACE_DEVICE, n)  2 shmem_malloc_with_hints(n, XSHMEM_CRAY_HINT)  3 shmemg_malloc(n)   [12.1 names, UNVERIFIED]
  *   XSHMEM_CRAY_WAIT     0 shmem_signal_wait_until (default)  1 shmem_uint64_wait_until
- *   XSHMEM_CRAY_HOSTREG  1 (default): HEAP=0 registers the DATA heap with hipHostRegister (needs -DUSE_HIP); 0 = no
- * XSHMEM_CTRL=host puts the CTRL space in a second host shmem_malloc when HEAP is a device heap. */
+ *   XSHMEM_CRAY_HOSTREG  1 (default): HEAP=0 registers the DATA heap with hipHostRegister (needs -DUSE_HIP); 0 = no */
 #ifndef XSHMEM_CRAY_H
 #define XSHMEM_CRAY_H
 
@@ -97,7 +96,7 @@ static inline void *xshmem_heap_alloc(size_t bytes, int space)
     size_t n = (bytes + (2u << 20) - 1) & ~(size_t)((2u << 20) - 1);
     xshmem_cfg_load(&cfg);
     if (xshmem_cray_st.base[space]) { fprintf(stderr, "xshmem_cray: second heap allocation in space %d while one is registered (single-slot bookkeeping assumes K=1)\n", space); shmem_global_exit(1); }
-    host = (XSHMEM_CRAY_HEAP == 0) || (space == XSHMEM_SPACE_CTRL && cfg.ctrl_host);
+    host = (XSHMEM_CRAY_HEAP == 0);
     if (host) p = shmem_malloc(n);
 #if XSHMEM_CRAY_HEAP == 1
     else p = shmem_space_malloc(SHMEM_SPACE_DEVICE, n);
@@ -233,7 +232,7 @@ static inline void xshmem_caps_query(xshmem_caps_t *c)
     xshmem_cfg_t cfg; xshmem_cfg_load(&cfg);
     memset(c, 0, sizeof *c);
     c->dev_heap = XSHMEM_CRAY_HEAP != 0;
-    c->host_pollable = 1;      /* host heap: yes; device heap [A]: test T2 on the target, else XSHMEM_CTRL=host */
+    c->host_pollable = 1;      /* host heap: yes; device heap [A]: test T2 on the target */
     c->src_any = 0;                                                      /* 11.8 rejects out-of-heap sources [M] */
     c->ptr = 0;
     c->nlanes_ok = cfg.lanes > 0 ? cfg.lanes : 1;

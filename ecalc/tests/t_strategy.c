@@ -17,7 +17,7 @@
  *
  * Operands: na = nb = n/2 random limbs (top limb nonzero), device-resident as dbigs (quartered over the APUs, as in the
  * dm phase) for B and C, a flat copy on APU 0 for A.  Every strategy's result is compared with the first one computed
- * (all n limbs); TSTRAT_GMP=1 also checks it against GMP.
+ * (all n limbs); ECALC_TEST=strat_gmp=1 also checks it against GMP.
  *
  *   b  B with a 128-bit operand load (k_load4 here) instead of ntt_load's 64-bit one -- the broadcast's cost.
  *   V the library's B forms (rns_dist.c, RNS_STRATEGY): products of several shapes (2^k and 3 2^k
@@ -33,7 +33,7 @@
  *      Planes: 1.5 n points on every APU (12 n bytes, C's at P = 3); transforms 2.5 n on APUs 0-2 (B: 3 n), 1.5 n on 3.
  *
  * usage: t_strategy logn [reps=5] [strategies=ABC, any of ABCb4]
- * env:   TSTRAT_GMP=1, TSTRAT_BUDGET_GB (the per-APU plane budget reported
+ * env:   ECALC_TEST=strat_gmp=1, strat_budget_gb (the per-APU plane budget reported
  *        against; default = the production plane pools at POOL_LOG 31: 2^31 limbs + rns_pool1_default_bytes(31)),
  *        DIST_STATS=1 (C's transform parts)
  * One size per process: C's plane pools are made by rns_init(min(logn, 31)) at exactly the production layout
@@ -195,7 +195,7 @@ int main(int argc, char **argv)
     for (int d = 0; d < ND; d++) { HIP_CHECK(hipSetDevice(d)); for (int c = 0; c < ND; c++) if (c != d) { hipError_t e = hipDeviceEnablePeerAccess(c, 0); if (e != hipSuccess && e != hipErrorPeerAccessAlreadyEnabled) { fprintf(stderr, "peer %d->%d\n", d, c); return 1; } (void)hipGetLastError(); } }
     omp_set_max_active_levels(2);
     const size_t n = (size_t)1 << logn, na = n / 2, nb = n / 2;
-    const size_t budget = getenv("TSTRAT_BUDGET_GB") ? (size_t)(atof(getenv("TSTRAT_BUDGET_GB")) * GiB) : ((size_t)8 << 31) + rns_pool1_default_bytes(31);
+    char bg_[32]; const size_t budget = ec_test_str("strat_budget_gb", bg_, sizeof bg_) ? (size_t)(atof(bg_) * GiB) : ((size_t)8 << 31) + rns_pool1_default_bytes(31);
     const struct gconst G = rns_gconst();
     const int S = 912;                                           /* CRT stripes per segment (rns_gpucrt_blocks) */
     printf("t_strategy: n = 2^%d points, na = nb = %zu limbs, %s limbs, P = %d primes, %d reps after a warm-up, budget %.1f GiB/APU\n",
@@ -474,7 +474,7 @@ int main(int argc, char **argv)
         rns_dist_cache_release();
         rns_dist_strategy_set(0);
     }
-    if (ref && getenv("TSTRAT_GMP") && atoi(getenv("TSTRAT_GMP"))) {
+    if (ref && ec_test_long("strat_gmp", 0)) {
         mpz_t x, y, z, w; mpz_inits(x, y, z, w, NULL);
         mpz_from_limbs(x, ha, na); mpz_from_limbs(y, hb, nb); t0 = now(); mpz_mul(z, x, y);   /* (harness.h: decimal limbs through a string) */
         mpz_from_limbs(w, ref, n);

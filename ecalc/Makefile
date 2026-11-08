@@ -30,7 +30,7 @@ OFI_CFLAGS = -I$(LIBFABRIC)/include
 OFI_LIBS   = -L$(LIBFABRIC_LIB) -lfabric -Wl,-rpath,$(LIBFABRIC_LIB)
 endif
 
-TESTS = tests/t_args tests/t_arith tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_strategy tests/t_cap tests/t_residue tests/t_seed tests/t_patch tests/t_p24 tests/t_p24crt tests/t_crtk tests/t_vpe tests/t_dr tests/t_hosttl
+TESTS = tests/t_arith tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dist tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_strategy tests/t_cap tests/t_seed tests/t_patch tests/t_p24 tests/t_crtk tests/t_vpe tests/t_host
 OBJS  = ntt.o mem.o crt.o comm_xgmi.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o config_line.o vpe.o dr.o mapd.o
 REF   = ref/gen_e
 HDRS  = $(wildcard *.h)                 # every object and test depends on every header (one rule instead of a dependency line per file)
@@ -59,7 +59,7 @@ $(OBJ_C): %.o: %.c $(HDRS)
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
 
 # tests linked with OBJS (and the engine), one rule; the rest below
-LINK_TESTS = tests/t_arith tests/t_p24 tests/t_p24crt tests/t_crtk tests/t_dbig tests/t_out tests/t_patch tests/t_mn_grid tests/t_vpe tests/t_mul tests/t_newton tests/t_strategy tests/t_verify tests/t_seed tests/t_bs
+LINK_TESTS = tests/t_arith tests/t_p24 tests/t_crtk tests/t_dbig tests/t_out tests/t_patch tests/t_mn_grid tests/t_vpe tests/t_mul tests/t_newton tests/t_strategy tests/t_seed tests/t_bs
 $(LINK_TESTS): %: %.c $(OBJS) $(HDRS) tests/harness.h tests/tref.h tests/sha256.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) -lm $(XSHMEM_LIBS)
 
@@ -67,17 +67,11 @@ $(LINK_TESTS): %: %.c $(OBJS) $(HDRS) tests/harness.h tests/tref.h tests/sha256.
 tests/t_dist: tests/t_dist.c $(OBJS) $(HDRS) tests/harness.h
 	$(HIPC) -fopenmp $< -x none $(OBJS) -o $@ $(GMP_LIBS) -lm $(XSHMEM_LIBS)
 
-# tests with fewer objects: the plane cap (host only), the CRT, the transforms, the allocator
+# tests with fewer objects: the plane cap and t_host (host only), the CRT, the transforms, the allocator
+tests/t_host: tests/t_host.c dr.c dr.h count_arg.h residue_shoup.h nodemem.h hosttl.h tests/harness.h bigint.h     # host only: args residue nodemem hosttl dr
+	gcc $(CFLAGS) -o $@ tests/t_host.c dr.c $(GMP_LIBS) -lm -lpthread
 tests/t_cap: tests/t_cap.c tests/harness.h
 	gcc $(CFLAGS) -o $@ $< $(GMP_LIBS) -lm
-tests/t_hosttl: tests/t_hosttl.c hosttl.h tests/harness.h
-	gcc $(CFLAGS) -o $@ $< $(GMP_LIBS) -lm -lpthread
-tests/t_residue: tests/t_residue.c residue_shoup.h tests/harness.h bigint.h
-	gcc $(CFLAGS) -o $@ $< $(GMP_LIBS) -lm
-tests/t_args: tests/t_args.c count_arg.h     # host only: the digit count argument (count_arg.h)
-	$(CC) $(CFLAGS) -o $@ tests/t_args.c
-tests/t_dr: tests/t_dr.c dr.c dr.h tests/harness.h bigint.h     # host only: the C3 residue helpers and injection parser (dr.c) against GMP
-	gcc $(CFLAGS) -o $@ tests/t_dr.c dr.c $(GMP_LIBS) -lm
 tests/t_crt: tests/t_crt.c crt.o mem.o bigint.o fatal.o $(HDRS) tests/harness.h
 	$(HIPC) $< -x none crt.o mem.o bigint.o fatal.o -o $@ $(GMP_LIBS)
 tests/t_ntt: tests/t_ntt.c ntt.o bigint.o fatal.o $(HDRS) tests/harness.h
@@ -93,8 +87,6 @@ tests/t_nodechk: tests/t_nodechk.c     # tools/nodescreen.sh: per-node meminfo +
 
 tests/t_mapbench: tests/t_mapbench.c     # S1/E1 standalone mapping timing (results/MEMORY_IO.md), not in TESTS
 	$(HIPC) $< -o $@ -lpthread
-tests/t_nodemem: tests/t_nodemem.c nodemem.h     # host only: the per-NUMA-node MemFree reader of the memory sampler (C5)
-	gcc $(CFLAGS) -I. $< -o $@
 
 ref/gen_e: ref/gen_e.c tests/sha256.h
 	gcc $(CFLAGS) -o $@ $< $(GMP_LIBS) -lm

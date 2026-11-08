@@ -73,7 +73,7 @@ N "mkdir -p $TMP; rm -f $TMP/*"
 # ---- unit tests -------------------------------------------------------------------------------------------
 if want unit || want grid; then
   SKIPBS=; want unit && refneed "unit t_bs" ref/e_1000000.sha256 ref/e_10000000.sha256 || SKIPBS=1
-  for t in "t_ntt 24" "t_mul 20" "t_bs" "t_dbig 0" "t_newton 20" "t_verify" "t_out" "t_patch" "t_arith modarith" "t_arith roots" "t_arith primes gpu" "t_crt" "t_p24" "t_p24crt" "t_crtk" "t_strategy 20" "t_seed" "t_dist"; do   # (t_patch: Phase 15 KP -- the three output forms; the last nine: the Q104 gap tests, ~4 min together)
+  for t in "t_ntt 24" "t_mul 20" "t_bs" "t_dbig 0" "t_newton 20" "t_bs verify" "t_out" "t_patch" "t_arith modarith" "t_arith roots" "t_arith primes gpu" "t_crt" "t_p24" "t_crtk" "t_strategy 20" "t_seed" "t_dist" "t_host"; do   # (t_patch: Phase 15 KP -- the three output forms; the last nine: the Q104 gap tests, ~4 min together)
     n=${t// /_}; log=$OUT/unit_$n.log
     want unit || continue
     [ "$t" = t_bs ] && [ -n "$SKIPBS" ] && continue
@@ -177,11 +177,11 @@ if want recheck; then
 fi
 
 # ---- Phase 15 KP: forced corrections on the defaults, patching file bytes (results/MEMORY_IO.md §KP15) ------------------------------------
-# corr_check <tag> <procs> <digits> <k> [recheck]: the run with ECALC_TEST_CORR=<k>, the patch lines, the digits against the reference prefix
-corr_check() { local tag=$1 p=$2 d=$3 k=$4 rk=$5 log=$OUT/$1.log f=$TMP/$1.txt rf=$TMP/ref_$3.txt name="corr d=$3 size $2 TEST_CORR=$4" rc c np nb nf
+# corr_check <tag> <procs> <digits> <k> [recheck]: the run with ECALC_TEST=corr=<k>, the patch lines, the digits against the reference prefix
+corr_check() { local tag=$1 p=$2 d=$3 k=$4 rk=$5 log=$OUT/$1.log f=$TMP/$1.txt rf=$TMP/ref_$3.txt name="corr d=$3 size $2 corr=$4" rc c np nb nf
   N "head -c $(( d + 2 )) $REF/e_1000000000.txt > $rf; echo >> $rf"
-  if [ "$p" = 1 ]; then R 600 "env POOL_LOG=29 ECALC_TEST_CORR=$k ./ecalc $d $f" > "$log" 2>&1; rc=$?
-  else M 600 "$p" POOL_LOG=27 ECALC_TEST_CORR=$k ./ecalc "$d" "$f" > "$log" 2>&1; rc=$?; fi
+  if [ "$p" = 1 ]; then R 600 "env POOL_LOG=29 ECALC_TEST=corr=$k ./ecalc $d $f" > "$log" 2>&1; rc=$?
+  else M 600 "$p" POOL_LOG=27 ECALC_TEST=corr=$k ./ecalc "$d" "$f" > "$log" 2>&1; rc=$?; fi
   c=$(N "$PWD/digcmp.sh $f $rf")
   np=$(grep -ac 'patch: X [+-]' "$log"); nf=$(grep -a 'patch: X [+-]\|mn_out: patch' "$log" | grep -ac 'FAILED\|holds\|does not\|cannot\|not this run')
   nb=$(grep -a 'patch: digits' "$log" | grep -ao '[0-9]* bytes in [1-9]' | head -1)

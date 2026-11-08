@@ -4,7 +4,7 @@
  * sharded over subgroups (the tree's layout), and the shifted distributed add on its own.  DIST_LOGN_TEST=24 caps the
  * plane at 2^24 points per node, so the shapes are small multiples of the cap 2^(24 + floor(log2 g)).  Run under
  * mnrun.sh with any number of node-processes (2, 3, 5, 6, 9 -- a group of any size balances the transform
- * over all its nodes; DIST_GEN=1 forces the general map at a power-of-two size too):
+ * over all its nodes; ECALC_TEST=dist_gen=1 forces the general map at a power-of-two size too):
  * SLURM_JOB_ID=<id> ./mnrun.sh 3 ./tests/t_mn_grid [scale] [pool_log]  (scale: the shapes' unit as a fraction of the
  * cap, default 1; 0.25 for a quick run).  Every node checks its own share and the length. */
 #include "harness.h"
@@ -53,7 +53,7 @@ static void mulx(mdb *C, mdb *A, mdb *B, mdb *X, mn_group *G)
 {
     if (dr_level() < 2) { rns_mul_dist_mn(C, A, B, X, G); return; }
     mdb_trk ta, tb, tx, tc; mdb_trk_make(A, G, &ta); mdb_trk_make(B, G, &tb); if (X) mdb_trk_make(X, G, &tx);
-    mdb_dr_store_inject(B, g_me);                              /* ECALC_DR_TEST=store: one limb of B's share wrong at rest, after its residue was recorded */
+    mdb_dr_store_inject(B, g_me);                              /* ECALC_TEST dr=store: one limb of B's share wrong at rest, after its residue was recorded */
     rns_mul_dist_mn_chk(C, A, B, X, G, &ta, &tb, X ? &tx : 0, &tc);
 }
 static void body(void *unused)
@@ -65,7 +65,7 @@ static void body(void *unused)
     mn_group *G = mn_group_at(L);
     int logcap = rns_mul_dist_mn_logcap(G);
     size_t cap = (size_t)1 << logcap, u = (size_t)(cap * scale);
-    printf("t_mn_grid: node %d of %d, group [%d, %d) (%d x 4 ranks%s), plane cap 2^%d, unit %zu limbs\n", g_me, g_size, G->g0, G->g0 + G->g, G->g, (G->g & (G->g - 1)) || getenv("DIST_GEN") ? ", the general map" : "", logcap, u);
+    printf("t_mn_grid: node %d of %d, group [%d, %d) (%d x 4 ranks%s), plane cap 2^%d, unit %zu limbs\n", g_me, g_size, G->g0, G->g0 + G->g, G->g, (G->g & (G->g - 1)) || ec_test_long("dist_gen", 0) ? ", the general map" : "", logcap, u);
     bigint a, b, x, r, t, rl; bi_init(&a); bi_init(&b); bi_init(&x); bi_init(&r); bi_init(&t); bi_init(&rl);
     mdb A, B, X, C; memset(&A, 0, sizeof A); memset(&B, 0, sizeof B); memset(&X, 0, sizeof X); memset(&C, 0, sizeof C);
     /* shapes as fractions of the cap: one plane; 2 pieces; the 4e10 shape (2 x 3); 3 x 1; 2 x 2-ish */

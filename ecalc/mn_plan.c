@@ -1,29 +1,20 @@
-/* mn_plan.c - MN_PLAN_ONLY=<total digits>:<g> -- the large products of a run, as the code
- * would form them, printed without a device or a communicator (a login-node tool; ecalc.c calls mn_plan_run before rns_init,
- * after the plane-cap switch has set its knobs, and exits).
+/* mn_plan.c - MN_PLAN_ONLY=<total digits>:<g>: the large products of a run as the code would form them, printed without a
+ * device or a communicator (login-node tool; ecalc.c calls mn_plan_run before rns_init and exits).
  *
- * What decides is the code's own (mn_plan.h): mn_groups_parse (the tree's schedule), rns_dist_mn_plan / rns_dist_db_plan (mn_grid's
- * and mul_grid's choice of one plane or the grid, the grid search (grid_search, with b_fits), and the cuts' skip rule), newton_chain_next
- * and newton_mn_chain_start (the reciprocal's chain), newton_mn_x1_level (the group a reciprocal step runs on).  What the plan
- * predicts is the operand sizes, which a run only knows once it has the numbers:
- *   - Q(a, b) = a (a+1) ... (b-1) over the term range [a, b) (binsplit.c span): log10 = (lgamma(b) - lgamma(a)) / ln 10;
- *     P(a, b) = Q(a, b) f(a, b), f = sum_{m=a}^{b-1} 1 / (a (a+1) ... m) (the span's recurrence: P/Q = (1 + P'/Q') / a),
- *     so f(1, N+1) = e - 1 and f ~ 1/a above; limbs = floor(log10 / 18) + 1 (decimal limbs).  In long double: exact but for
- *     a value within ~1e-5 digits of a limb boundary.
- *   - the reciprocal's iterate r has j + 1 limbs at the step to target j (every step ends with r' shifted to jn + 1 limbs);
- *     d = |B^(2j) - Q_t r >> ...| has D_EST(j) limbs (the error of r at j + 1 limbs: about B^j -- data-dependent, see D_EST);
- *     every step converges without a repeat (a repeat, rare, forms the step's two products once more).
- *   - S = P + Q has the limbs of Q e; X = floor(S B^dl / Q) has dl + 1 limbs (X ~ e B^dl).
- * Output: one line per product, `plan <phase> ...: ` followed by the line the run prints for it under RNS_VERBOSE=1 (dist_mn
- * node 0 / dist_db, up to the timing fields), then the piece (limbs), its transform length and the planes a node holds; per tree
- * level the pieces of node 0's group (what node 0 prints) and the range over all the level's groups (the high term ranges have
- * larger P, Q: up to ~35 % more limbs per node at 576); a summary with the pieces per phase in mn_model.py's categories
- * (run(...)['pieces'] = the distributed tree levels + the reciprocal's sharded steps + the division's two products, every
- * product counted as its formed pieces, a one-plane product as 1). */
+ * The decisions are the code's own (mn_plan.h); the plan predicts the operand sizes a run only knows once it has the numbers:
+ *   - Q(a, b) = a (a+1) ... (b-1): log10 = (lgamma(b) - lgamma(a)) / ln 10; P(a, b) = Q(a, b) f(a, b), f = sum_{m=a}^{b-1} 1/(a ... m),
+ *     so f(1, N+1) = e - 1; limbs = floor(log10 / 18) + 1.  In long double: exact but within ~1e-5 digits of a limb boundary.
+ *   - the reciprocal iterate r has j + 1 limbs at the step to target j; d = |B^(2j) - Q_t r >> ...| has D_EST(j) limbs
+ *     (data-dependent); a repeat (rare) forms the step's two products once more.
+ *   - S = P + Q has the limbs of Q e; X = floor(S B^dl / Q) has dl + 1 limbs.
+ * Output: one line per product, `plan <phase> ...: ` + the RNS_VERBOSE=1 line the run prints for it, then the piece (limbs), its
+ * transform length and the planes a node holds; per tree level node 0's group and the range over all groups (high term ranges have
+ * up to ~35 % more limbs per node at 576); a summary of pieces per phase in mn_model.py's categories. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include "test_inject.h"
 #include "mn_plan.h"
 #include "mdb.h"
 #include "bigint.h"
@@ -45,9 +36,9 @@ struct pq { unsigned long a, b; size_t pn, qn; long double lq; };
 static struct pq pq_of(unsigned long a, unsigned long b) { struct pq x; x.a = a; x.b = b; x.lq = lg10_q(a, b); x.qn = limbs_of(x.lq); x.pn = limbs_of(x.lq + lg10_f(a, b)); return x; }
 /* node r's terms (ecalc.c: bs_a0 = 1 + N r / size) */
 static unsigned long term0(unsigned long N, int r, int size) { unsigned __int128 nn = N; return 1 + (unsigned long)(nn * (unsigned)r / (unsigned)size); }
-/* d = |B^(2j) - u| at the step to target j: r carries j + 1 limbs, so its error is about one unit of its last limb -- d ~ B^j.
- * The run's value is data-dependent (validated against real runs: archive:results_merged_2026-10-24/TARGET.md §L13d); it sets only the second product's
- * second operand, whose grid it can move only at a boundary */
+/* d = |B^(2j) - u| at the step to target j: r carries j + 1 limbs, so its error is about one unit of its last limb --
+ * d ~ B^j. The run's value is data-dependent (validated against real runs:); it sets only the second product's second
+ * operand, whose grid it can move only at a boundary */
 static size_t D_EST(size_t j) { return j > 1 ? j : 1; }
 
 /* ---- the products ------------------------------------------------------------------------------------------------------ */
@@ -57,13 +48,12 @@ static long g_pieces[PH_N], g_prods[PH_N], g_grids[PH_N], g_pieces4[PH_N];   /* 
 static long g_pieces24[PH_N];                                     /* the pieces at 24 digits per point */
 static int g_quiet;                                               /* silent: the summary lines only */
 static char g_lvl[1024];                                          /* per tree level: node 0's group / the level's largest, for the summary */
-/* ---- the plan-time check -- every planned product against the prime set's limits ------------------------
- * The run stops (loudly, after hours at the target) where a product exceeds what the primes allow: mn_core / dist_core call
- * ec_np_check(nc = pa + pb of the piece) -- with ECALC_NP=3 at most ec_np3_max_terms terms (p0 p1 p2 > nterms (10^18-1)^2), and
- * binary limbs refused -- and plan_create / form B's 3 2^k lengths take ec_root(prime, logn) / ec_root3, which exist only up to v2(p - 1)
- * (ec_logn_limit(np): 2^44 for the WP8 set; modarith.h stops the run beyond).  The plan checks both for every product it forms,
- * on every group of every tree level (not only node 0's), and prints the first that fails; mn_plan_run returns EC_RC_FATAL (3)
- * then, so `MN_PLAN_ONLY=<D>:<g> ./ecalc` (internal target task list T3) refuses the size on a login node.  BS_LAYOUT_ONLY runs the same
+/* ---- the plan-time check: every planned product against the prime set's limits ----
+ * The run would stop (after hours at the target) where a product exceeds what the primes allow: mn_core / dist_core call
+ * ec_np_check(nc = pa + pb of the piece) -- with ECALC_NP=3 at most ec_np3_max_terms terms -- and plan_create / form B's 3 2^k
+ * lengths take ec_root(prime, logn) / ec_root3, which exist only up to v2(p - 1) (ec_logn_limit(np): 2^44).  The plan checks both
+ * for every product on every group of every tree level (not only node 0's) and prints the first that fails; mn_plan_run then
+ * returns EC_RC_FATAL (3), so `MN_PLAN_ONLY=<D>:<g> ./ecalc` refuses the size on a login node.  BS_LAYOUT_ONLY runs the same
  * check (mn_plan_check). */
 static struct {
     int np, lim; size_t bound;       /* bound: the largest nc = pa + pb the primes hold (0: no bound, four primes) */
@@ -231,7 +221,7 @@ int mn_level_grids(unsigned long N, int size, int Gl, int Gp, int *tab, int maxc
 static void plan_tree(unsigned long N, int size, long *level_max_total)
 {
     int gs[64]; int L = mn_groups_parse(size, gs, 63);
-    int captest = getenv("MN_TREE_LOGN_TEST") ? atoi(getenv("MN_TREE_LOGN_TEST")) : 0;
+    int captest = (int)ec_test_long("tree_logn", 0);
     if (captest) rns_dist_plan_cap_test(captest);
     *level_max_total = 0;
     for (int l = 1; l <= L; l++) {
@@ -276,7 +266,7 @@ static void plan_recip_mn(size_t nq, size_t k, int size)
         size_t jn = newton_chain_next(j, k), take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
         int Ln = newton_mn_x1_level(take, j + 1, size, size, 0), gs = Ln ? 1 << Ln : size;
         snprintf(w, sizeof w, "j %zu -> %zu Q_t r", j, jn);
-        size_t c1 = j <= take ? newton_recip_cut(take - j) : 0, hw = gs == gprev ? newton_recip_mid(j, take) : (size_t)-1; gprev = gs;   /* Phase 14 R1 (E7); R4: the middle product from the second round on the same group */
+        size_t c1 = j <= take ? newton_recip_cut(take - j) : 0, hw = gs == gprev ? newton_recip_mid(j, take) : (size_t)-1; gprev = gs;   /* ; R4: the middle product from the second round on the same group */
         if (take == nq && gs == size) show_mn(PH_RECIP, w, nq, j + 1, gs, 0, c1, hw, 1, 0);   /* Q itself */
         else show_mn(PH_RECIP, w, take, j + 1, gs, 0, c1, hw, 1, 0);
         snprintf(w, sizeof w, "j %zu -> %zu r d", j, jn);
@@ -289,16 +279,15 @@ static void plan_recip_db(size_t nq, size_t k)
 {
     size_t j = 2; char w[96];
     while (j < k) { size_t jn = newton_chain_next(j, k), take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
-        snprintf(w, sizeof w, "j %zu -> %zu Q_t r", j, jn); show_db(PH_RECIP, w, take, j + 1, j <= take ? newton_recip_cut(take - j) : 0, j > 2 ? newton_recip_mid(j, take) : (size_t)-1);   /* Phase 14 R1 (E7); R4: the middle product from the second round */
+        snprintf(w, sizeof w, "j %zu -> %zu Q_t r", j, jn); show_db(PH_RECIP, w, take, j + 1, j <= take ? newton_recip_cut(take - j) : 0, j > 2 ? newton_recip_mid(j, take) : (size_t)-1);   /* ; R4: the middle product from the second round */
         snprintf(w, sizeof w, "j %zu -> %zu r d", j, jn); show_db(PH_RECIP, w, j + 1, D_EST(j), newton_recip_cut(j), (size_t)-1);
         j = jn; }
 }
 
-/* INT3: the DKM division (results/COMPUTE.md §DKM15 1.2) -- the reciprocal to h = floor(k_mu/2) + 1, then two shifted divisions:
- * s = min(floor(k/2), dl), k1 = k - s; step 1 A_h mu ((k1 + 1)-limb mu, cut below k1 + 1) and X_hi Q mod B^w; step 2 R1's top mu
- * (s + 1 x s + 2, cut below s + 2: R1 < Q, so k2 <= s + 1) and X_lo Q mod B^w.  The lengths are newton_db.c's (mn_divmod_dkm at size > 1,
- * divmod_shifted_dkm at size 1) at the predicted S; X_hi ~ k1 limbs, X_lo ~ s (upper bounds, as the default plan's xn = dl + 1).
- * The assembly and the corrections are not products.  (A kept mu shorter than h + 1 -- a fresh reciprocal -- is not planned.) */
+/* the DKM division -- the reciprocal to h = floor(k_mu/2) + 1, then two shifted divisions: s = min(floor(k/2), dl), k1 = k - s;
+ * step 1 A_h mu ((k1 + 1)-limb mu, cut below k1 + 1) and X_hi Q mod B^w; step 2 R1's top mu (s + 1 x s + 2, cut below s + 2: R1 < Q,
+ * so k2 <= s + 1) and X_lo Q mod B^w.  The lengths are newton_db.c's (mn_divmod_dkm at size > 1, divmod_shifted_dkm at size 1) at
+ * the predicted S; X_hi ~ k1 limbs, X_lo ~ s (upper bounds).  The assembly and the corrections are not products. */
 static void plan_div_dkm(size_t nq, size_t dl, size_t k_mu, long double lq, int size)
 {
     size_t h_mu = newton_dkm_h(k_mu), sn = limbs_of(lq + log10l(expl(1.0L)));
@@ -369,7 +358,7 @@ static int plan_run_in(unsigned long d, unsigned long N, int size, int pool_log,
         double nb = (double)binsplit_node_bytes(N, size, cap, np, 0, 0, 0);
         bs_a0 = a0; bs_b1 = b1; rns_preinit_pool_log(pool_log);
         rns_dist_cache_plan(size, pool_log, ec_np_planes(pool_log, size), g_grids[PH_TREE], g_grids[PH_RECIP], g_grids[PH_DIV], nb);
-        if (!silent) {                                            /* B7ACCT: the general map's v-exchange slots beside the layout (binsplit_vslot_bytes) */
+        if (!silent) {                                            /* the general map's v-exchange slots beside the layout (binsplit_vslot_bytes) */
             char by[512]; size_t tt = 0, v = binsplit_vslot_bytes(N, size, &tt, by, sizeof by); double n0 = nb;
             printf("plan vslot  the general map's v-exchange slots (comm_layered.c, hipMalloc'd outside the layout, alive to the run's end): %.3f GB per APU from the dm phase (%.3f during the tree's top level) = %.2f GB per node [%s]; the layout's node %.2f -> %.2f GB with them (ECALC_VSLOT_BUDGET=%d: %s)\n",
                    v * 1e-9, tt * 1e-9, binsplit_nrn() * v * 1e-9, by, n0 * 1e-9, (n0 + (double)binsplit_nrn() * v) * 1e-9, binsplit_vslot_budget_on(), binsplit_vslot_budget_on() ? "counted in the budget" : "reported only");

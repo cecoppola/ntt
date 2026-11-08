@@ -1,9 +1,9 @@
-/* xshmem.h -- the communication contract of the target-shaped engine (plan TARGET1, design TARGET12_DESIGN rev1; FROZEN by brief B1).
+/* xshmem.h -- the communication contract of the target-shaped engine (FROZEN).
  *
- * The engine (comm_xshmem.c, later) and the tests (tests/t_xshmem.c) include ONLY this header: never fi_* , shmem_* or pmi calls.
- * Two backends, chosen at build time (ecalc/Makefile, XSHMEM=ofi|cray; XSHMEM unset or 0 = nothing of this is built):
- *   XSHMEM=ofi   xshmem_ofi.c : libfabric cxi (aac7 development system); boot from xshmem_boot.h (PMI2), topology from pe_geo.h
- *   XSHMEM=cray  xshmem_cray.h: static inline, one forwarding line per call into Cray SHMEM (11.8 on aac7, 12.1 on the target)
+ * The engine (comm_xshmem.c) and the tests (tests/t_xshmem.c) include ONLY this header: never fi_*, shmem_* or pmi calls.
+ * Backends, chosen at build time (ecalc/Makefile, XSHMEM=ofi|cray; unset or 0 = nothing of this is built):
+ *   XSHMEM=ofi   xshmem_ofi.c: libfabric cxi; boot from xshmem_boot.h (PMI2), topology from pe_geo.h
+ *   XSHMEM=cray  xshmem_cray.h: static inline, one forwarding line per call into Cray SHMEM
  * Every call is xshmem_<name> where shmem_<name> is the OpenSHMEM/Cray name; the context argument is always explicit.
  *
  * ---- API table (tools/xshmem_api_check.py greps this block; keep one `XAPI <name>` line per function) ----
@@ -33,35 +33,23 @@
  * (config: static inline xshmem_cfg_load() below reads every XSHMEM_* switch in one place; backends and tests use the struct)
  *
  * ---- Contracts ----
- * Lane order (design 2.2): a lane is one context.  The engine creates its N lane contexts with xshmem_ctx_create IMMEDIATELY after
- *   xshmem_init_thread, in lane order 0..N-1, before any other context and before xshmem_heap_alloc.  The k-th created context is
- *   lane k = NIC k of the PE (ofi: by construction; Cray: an assumption to be tested on the target, T1).  N = xshmem_topo.nlanes
- *   (aac7 1 per PE, target 2 expected).  XSHMEM_CTX_DEFAULT is the ctx0 used for control words.
- * Heap: xshmem_heap_alloc(bytes, XSHMEM_SPACE_DATA) is the payload heap (the engine's sub-allocator works inside it);
- *   xshmem_heap_alloc(bytes, XSHMEM_SPACE_CTRL) is the control area (8 B words: ROFF, SIG, VAL, VSEQ; polled by the host).  A backend may
- *   place both in one allocation (XSHMEM_CTRL=heap, default) or CTRL in host memory (XSHMEM_CTRL=host, design 1.3 b).  Size is bytes,
- *   2 MiB aligned by the backend.  Memory is zeroed.  Payload/signal pointers passed to put and signal calls must lie inside a heap,
- *   except a put source when caps.src_any = 1.
- * Offsets: xshmem_off(p) = byte offset of p inside the heap of its space; offsets of CTRL pointers carry XSHMEM_OFF_CTRL (bit 62), so
- *   one ptrdiff_t names any heap byte.  Only offsets are ever published to peers (no raw pointer crosses PEs); a sender computes the
- *   remote dest as xshmem_at(off) on its OWN heap (symmetric layout, heap bases may differ).  xshmem_at never returns NULL for a
- *   valid offset.
- * Signals: a signal word is a uint64_t in a CTRL (or DATA) heap, written ONLY by plain 8 B SET writes (signal_set, or the signal of
- *   putmem_signal_nbi with XSHMEM_SIGNAL_SET), one writer per word.  Visibility rule the engine relies on: when the target sees the
- *   signal value, every putmem_nbi that the SAME context completed with xshmem_ctx_quiet BEFORE the signal_set is visible there.
- *   (putmem_signal_nbi: payload visible before the signal, by the backend's means.)  The comparison is on the full 64-bit word
- *   (XSHMEM_CMP_GE only); the engine packs seq<<40|v and owns wrap.
+ * Lane order: a lane is one context.  The engine creates its N lane contexts with xshmem_ctx_create IMMEDIATELY after
+ *   xshmem_init_thread, in lane order 0..N-1, before any other context and before xshmem_heap_alloc.  The k-th context is lane k
+ *   = NIC k of the PE.  N = xshmem_topo.nlanes.  XSHMEM_CTX_DEFAULT is the ctx0 used for control words.
+ * Heap: xshmem_heap_alloc(bytes, XSHMEM_SPACE_DATA) is the payload heap; XSHMEM_SPACE_CTRL the control area (8 B words: ROFF, SIG,
+ *   VAL, VSEQ; polled by the host).  A backend may place both in one allocation.  2 MiB aligned, zeroed.  Payload/signal pointers
+ *   must lie inside a heap, except a put source when caps.src_any = 1.
+ * Offsets: xshmem_off(p) = byte offset of p inside its space's heap; CTRL offsets carry XSHMEM_OFF_CTRL (bit 62).  Only offsets are
+ *   published to peers; a sender computes the remote dest as xshmem_at(off) on its OWN heap (symmetric layout, bases may differ).
+ * Signals: a uint64_t in a CTRL (or DATA) heap, written ONLY by plain 8 B SET writes, one writer per word.  When the target sees
+ *   the signal value, every putmem_nbi that the SAME context completed with xshmem_ctx_quiet BEFORE the signal_set is visible
+ *   there (putmem_signal_nbi: payload visible before the signal).  Comparison on the full 64-bit word (XSHMEM_CMP_GE only);
+ *   the engine packs seq<<40|v and owns wrap.
  * Completion: *_nbi calls return at once; xshmem_ctx_quiet(ctx) returns when all earlier puts and signal_sets of ctx are complete
  *   at their targets.  xshmem_ctx_fence = quiet.  Contexts complete independently.
- * Threads: init_thread returns the provided level.  Calls on one context from several threads need the engine's mutex unless prov is
- *   XSHMEM_THREAD_MULTIPLE.  xshmem_progress, _signal_test and _signal_wait_until may be called concurrently with one other caller.
- * Errors: fatal (abort with a message on stderr); only xshmem_ctx_create / xshmem_topo return codes.
- *
- * ---- Stubs implemented by other briefs (declared here, compiled only for XSHMEM=ofi) ----
- *   xshmem_ofi.c  (B2)  every XAPI above; plus xshmem_ofi_counters().  Boot via xshmem_boot.h (B3): boot_init/boot_allgather/boot_fence/boot_finalize.
- *   pe_geo.h/.c   (B3)  topology discovery behind xshmem_topo.
- * Until xshmem_ofi.c lands, xshmem_ofi_stub.c aborts with "not implemented" (the Makefile picks the real file when present; B2 deletes the stub).
- */
+ * Threads: init_thread returns the provided level.  Calls on one context from several threads need the engine's mutex unless prov
+ *   is XSHMEM_THREAD_MULTIPLE.  xshmem_progress, _signal_test and _signal_wait_until may run concurrently with one other caller.
+ * Errors: fatal (abort with a message on stderr); only xshmem_ctx_create / xshmem_topo return codes. */
 #ifndef XSHMEM_H
 #define XSHMEM_H
 
@@ -126,9 +114,8 @@ typedef struct xshmem_topo {
 typedef struct xshmem_cfg {
     int lanes;        /* XSHMEM_LANES     lanes per PE, default 1 (same literal as pe_geo.c) */
     long heap_mb;     /* XSHMEM_HEAP_MB   0 = backend / planner default */
-    int ctrl_host;    /* XSHMEM_CTRL      heap|host               (default heap) */
     int loopback_pes; /* XSHMEM_LOOPBACK_PES  PEs hosted by one process (ofi backend; default 1 = one PE per process) */
-    int peer;         /* XSHMEM_PEER      0|1  node-local PEs exchange payload by device copies through hipIpc-mapped heaps, not the NIC (ofi backend + engine; unset = -1 = on with one PE per process (Q100), off with loopback PEs; inert on the Cray backend) */
+    int peer;         /* XSHMEM_PEER      0|1  node-local PEs exchange payload by device copies through hipIpc-mapped heaps, not the NIC (ofi backend + engine; unset = -1 = on with one PE per process, off with loopback PEs; inert on the Cray backend) */
 } xshmem_cfg_t;
 
 static inline void xshmem_cfg_load(xshmem_cfg_t *c)
@@ -137,7 +124,6 @@ static inline void xshmem_cfg_load(xshmem_cfg_t *c)
     memset(c, 0, sizeof *c);
     e = getenv("XSHMEM_LANES");    c->lanes = e ? atoi(e) : 1;
     e = getenv("XSHMEM_HEAP_MB");  c->heap_mb = e ? atol(e) : 0;
-    e = getenv("XSHMEM_CTRL");     c->ctrl_host = (e && !strcmp(e, "host")) ? 1 : 0;
     e = getenv("XSHMEM_LOOPBACK_PES"); c->loopback_pes = e ? atoi(e) : 1;
     e = getenv("XSHMEM_PEER");     c->peer = e ? atoi(e) : -1;
 }
@@ -172,7 +158,7 @@ void      xshmem_progress(void);
 int       xshmem_topo(xshmem_topo_t *t);
 void      xshmem_caps_query(xshmem_caps_t *c);
 
-/* ofi-only diagnostics for the tests (B2): counters of the backend since init */
+/* ofi-only diagnostics for the tests: counters of the backend since init */
 typedef struct xshmem_ofi_cnt { uint64_t writes, flush_chains, quiets, wait_spins; } xshmem_ofi_cnt_t;
 void      xshmem_ofi_counters(xshmem_ofi_cnt_t *c);
 /* loopback PEs (XSHMEM_LOOPBACK_PES = K, default 1): one process hosts K PEs, PE = K*rank + l.  A thread selects the PE its context-less calls

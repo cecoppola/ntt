@@ -122,8 +122,8 @@ static comm *comm_sim4_create(int rank)
     return c;
 }
 static rng_t rg = { 12345 };
-static int xgmi;             /* DIST_XGMI=1: four real APUs, four host threads */
-static int tinv;             /* DIST_TINV=1: the transposed inverse (result in contiguous ownership) */
+static int xgmi;             /* ECALC_TEST xgmi=1: four real APUs, four host threads */
+static int tinv;             /* ECALC_TEST tinv=1: the transposed inverse (result in contiguous ownership) */
 static int one_xgmi(int prime, int logR, int logC);
 extern "C" int comm_layered_tbench(int g, size_t bytes, int reps);   /* comm_layered.c (13b X) */
 /* M7: the all-gathers of a communicator (device and host blocks; in place) against the pattern (rank, k); over the
@@ -359,7 +359,7 @@ static int one_xgmi(int prime, int logR, int logC)
     return bad == 0 && !bad_ag;
 }
 /* ---- one distributed transform above 2^33 points (the roots from the generator, modarith.h) ----------
- * DIST_BIG=<logn> [DIST_BIG_PRIMES=0,2] [DIST_BIG_K=64]: four real APUs over xGMI (ntt_dist.c plan_create: ec_root(prime, logn)), no
+ * ECALC_TEST=big=<logn>[,big_primes=0+2,big_k=64]: four real APUs over xGMI (ntt_dist.c plan_create: ec_root(prime, logn)), no
  * single-device reference (2^34 points = 128 GiB per plane).  Per prime: (1) forward + inverse of a dense plane x[m] = h(m) mod p
  * must give x back (the inverse scales by n^-1); (2) the square of a sparse plane (K random points, random values: fwd, pw(x, x),
  * inv) against its cyclic self-convolution computed directly on the host (K^2 terms, the slower path) at EVERY point.
@@ -432,13 +432,13 @@ static int big_xgmi(int prime, int logn, int K)
 }
 /* ---- the measurement drivers ---- */
 extern "C" void comm_xgmi_h4(int me, int mode, size_t bytes, int blocks, int reps, double *out);
-/* H4 (DIST_H4=1): the xGMI push's link concurrency, comm_xgmi_h4's modes at DIST_H4_MB per pair (default 256) */
+/* H4 (ECALC_TEST h4=1): the xGMI push's link concurrency, comm_xgmi_h4's modes at h4_mb per pair (default 256) */
 static void h4_bench(void)
 {
     static const char *name[] = { "all-to-all (the push, b%3)", "all-to-all, contiguous thirds", "fan-out: APU 0 -> 3 peers", "one link 0->1, 3x blocks",
                                   "one link 0->1, blocks", "one link both ways 0<->1", "all-to-all, 3 kernels / 3 streams", "all-to-all, hipMemcpyAsync / 3 streams",
                                   "all-to-all in 3 rounds (one link at a time)" };
-    size_t mb = getenv("DIST_H4_MB") ? atol(getenv("DIST_H4_MB")) : 256, bytes = mb << 20; int reps = getenv("DIST_H4_REPS") ? atoi(getenv("DIST_H4_REPS")) : 10;
+    size_t mb = (size_t)ec_test_long("h4_mb", 256), bytes = mb << 20; int reps = (int)ec_test_long("h4_reps", 10);
     int blist[] = { 19, 38, 76, 152, 304 };
     printf("H4: %zu MiB per (sender, peer), %d repetitions; per APU: wall GB/s = bytes sent / wall; per link = the stamped active time\n", mb, reps);
     double res[4][6];
@@ -467,8 +467,8 @@ static void h4_bench(void)
         comm_destroy(xg);
     }
 }
-/* E9 part 1 (DIST_LBENCH=26,28,30 under DIST_LAYERED): timed layered transforms of one plane over the transform nodes -- per size,
- * DIST_LREPS (3) products' worth of transforms (fwd x, fwd y, inverse with the pointwise fused) after one warm-up, then the
+/* E9 part 1 (ECALC_TEST lbench=26+28+30 under layered=1): timed layered transforms of one plane over the transform nodes -- per size,
+ * lreps (3) products' worth of transforms (fwd x, fwd y, inverse with the pointwise fused) after one warm-up, then the
  * DIST_STATS parts */
 static void layered_bench(int logn, int reps)
 {
@@ -559,31 +559,30 @@ int main(int argc, char **argv)
     int logmax = argc > 1 ? atoi(argv[1]) : 24;
     harness_meta("t_dist");
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--vpe")) { rns_init(31); vpe_dist_test(); return verify_done("t_dist --vpe"); }
-    if (getenv("DIST_H4") && atoi(getenv("DIST_H4"))) { h4_bench(); return 0; }
-    if (getenv("DIST_TBENCH")) {                        /* the layered exchange's block transpose, copies vs one kernel, one APU */
+    if (ec_test_long("h4", 0)) { h4_bench(); return 0; }
+    char tb_[16]; if (ec_test_str("tbench", tb_, sizeof tb_)) {                        /* the layered exchange's block transpose, copies vs one kernel, one APU */
 
         int gs[] = { 2, 3, 4, 16, 64, 192, 576 }; size_t bs[] = { 4096, 65536, 1 << 20 }; HIP_CHECK(hipSetDevice(0));
         for (int i = 0; i < 7; i++) for (int j = 0; j < 3; j++) VERIFY(comm_layered_tbench(gs[i], bs[j], 7) == 0, "tbench g %d, %zu B: identical", gs[i], bs[j]);
         return verify_done("t_dist");
     }
-    if (getenv("DIST_BIG")) {                           /* DIST_BIG=34 [DIST_BIG_PRIMES=0,2 DIST_BIG_K=64] -- above 2^33, four APUs */
-        int lg = atoi(getenv("DIST_BIG")), K = getenv("DIST_BIG_K") ? atoi(getenv("DIST_BIG_K")) : 64;
-        char *dup = strdup(getenv("DIST_BIG_PRIMES") ? getenv("DIST_BIG_PRIMES") : "0,2");
-        char *sv = 0;                                   /* strtok_r: the transforms below call strtok (the first run had only the first prime) */
-        for (char *t = strtok_r(dup, ",", &sv); t; t = strtok_r(NULL, ",", &sv)) VERIFY(big_xgmi(atoi(t), lg, K), "big 2^%d prime %s: identity and the sparse square", lg, t);
-        free(dup); return verify_done("t_dist");
+    if (ec_test_long("big", 0)) {                       /* ECALC_TEST=big=34[,big_primes=0+2,big_k=64] -- above 2^33, four APUs */
+        int lg = (int)ec_test_long("big", 0), K = (int)ec_test_long("big_k", 64);
+        long pr[8] = { 0, 2 }; int np = ec_test_list("big_primes", pr, 8); if (np > 8) np = 8; if (!np) np = 2;
+        for (int i = 0; i < np; i++) VERIFY(big_xgmi((int)pr[i], lg, K), "big 2^%d prime %ld: identity and the sparse square", lg, pr[i]);
+        return verify_done("t_dist");
     }
-    xgmi = getenv("DIST_XGMI") && atoi(getenv("DIST_XGMI"));
-    tinv = getenv("DIST_TINV") && atoi(getenv("DIST_TINV"));
+    xgmi = ec_test_long("xgmi", 0) != 0;
+    tinv = ec_test_long("tinv", 0) != 0;
     if (tinv) printf("t_dist: transposed inverse\n");
     if (xgmi) printf("t_dist: four real APUs over xGMI\n");
-    if (getenv("DIST_LAYERED") && atoi(getenv("DIST_LAYERED"))) {   /* M3: the layered communicator, one node-process per COMM_RANK driving four APUs (mnrun.sh) */
+    if (ec_test_long("layered", 0)) {   /* M3: the layered communicator, one node-process per COMM_RANK driving four APUs (mnrun.sh) */
         int sz = mn_init(); printf("t_dist: layered communicator, node %d of %d\n", mn_rank(), sz);
-        if (getenv("DIST_LBENCH")) {                    /* E9 part 1: the timed layered transforms only */
-            int reps = getenv("DIST_LREPS") ? atoi(getenv("DIST_LREPS")) : 3;
-            char *dup = strdup(getenv("DIST_LBENCH"));
-            for (char *t = strtok(dup, ","); t; t = strtok(NULL, ",")) { layered_bench(atoi(t), reps); mn_barrier(); }
-            free(dup); mn_barrier(); mn_finalize(); return 0;
+        long lb_[16]; int nlb = ec_test_list("lbench", lb_, 16); if (nlb > 16) nlb = 16;
+        if (nlb) {   /* E9 part 1: the timed layered transforms only (lbench=<logn>+<logn>.., lreps) */
+            int reps = (int)ec_test_long("lreps", 3);
+            for (int i = 0; i < nlb; i++) { layered_bench((int)lb_[i], reps); mn_barrier(); }
+            mn_barrier(); mn_finalize(); return 0;
         }
         for (int logR = 10; logR <= 12; logR++) for (int logC = 10; logC <= 12; logC++) if (logR + logC <= logmax) VERIFY(mn_selftest_layered(logR, logC, 0), "layered conv %dx%d", logR, logC);
         if (logmax >= 26) VERIFY(mn_selftest_layered(13, 13, 0), "layered conv 2^26");

@@ -1,25 +1,19 @@
 /* t_p24 - (results/COMPUTE.md §P2415): the P24 maps, the regroup (limbs -> 24-digit points -> residues) and the
  * ungroup (the 24-digit CRT's shifted digits, the stripes' carries and 4-limb spills) against slow references (GMP, brute force).
- *   host part (gcc on a login node, or the hipcc build):  gcc -O2 -I. tests/t_p24.c -o /tmp/t_p24 -lgmp -lm
- *   device part (the hipcc build, `make tests/t_p24`, on a node): k_crt24 (p24_crt.c) against the host model of the same stripe,
- *   random and boundary coefficients, and its bound guard (a coefficient past 10^60 at an s = 12 point raises the flag).
+ *   Host only: gcc -O2 -fopenmp -I. tests/t_p24.c -o /tmp/t_p24 -lgmp -lm (or `make tests/t_p24`).  The device kernel k_crt24 is tested by t_crtk col24
+ *   (every output limb and spill) and its flag by t_crtk flag (GMP).
  * VERIFY OK / FAILED as the other tests. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <gmp.h>
+#include "harness.h"
 #include "../p24.h"
-#if defined(__HIPCC__) || defined(__HIP__)
-#include "../rns_int.h"
-#define P24_DEVICE 1
-#else
+#if !defined(__HIPCC__) && !defined(__HIP__)   /* the plain-gcc build has no fatal.o */
 #include <stdarg.h>
 void ec_fatal(int code, const char *fmt, ...) { va_list a; va_start(a, fmt); vfprintf(stderr, fmt, a); va_end(a); exit(code); }
 #endif
 
-static int fails, checks;
-#define VERIFY(c, ...) do { checks++; if (!(c)) { if (fails++ < 30) { printf("  FAILED %s:%d  %s  ", __FILE__, __LINE__, #c); printf(__VA_ARGS__); printf("\n"); } } } while (0)
 static uint64_t rs = 0x243F6A8885A308D3ULL;
 static uint64_t rnd(void) { uint64_t z = (rs += 0x9E3779B97F4A7C15ULL); z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL; z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL; return z ^ (z >> 31); }
 static const uint64_t B = 1000000000000000000ULL;
@@ -208,52 +202,6 @@ static void test_product(size_t na, size_t nb, int kind, size_t R, int nr)
     free(pa); free(pb); free(c); free(a); free(b); free(limbs); mpz_clear(got); mpz_clear(ref); mpz_clear(t); mpz_clear(p);
 }
 
-#ifdef P24_DEVICE
-/* ---- D. k_crt24 on the device against the host model ----------------------------------------------------------------------- */
-#define HC(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { printf("HIP %s at %d\n", hipGetErrorString(e_), __LINE__); exit(3); } } while (0)
-static void test_kernel(size_t R, size_t C, int nr, int rho, int kind)
-{
-    size_t a = part0(R, nr, rho), rows = part0(R, nr, rho + 1) - a, N = R * C;
-    struct p24_run m = p24_run_make(R, C, a, rows, 0); size_t tot = p24_run_total(&m);
-    mpz_t *coef = (mpz_t *)malloc(N * sizeof(mpz_t)), bound; mpz_init(bound); mpz_ui_pow_ui(bound, 10, 60);
-    for (size_t x = 0; x < N; x++) {
-        mpz_init(coef[x]);
-        if (kind == 0) { mpz_set_ui(coef[x], rnd()); for (int k = 0; k < 3; k++) { mpz_mul_2exp(coef[x], coef[x], 64); mpz_add_ui(coef[x], coef[x], rnd()); } mpz_mod(coef[x], coef[x], bound); }
-        else if (kind == 1) mpz_sub_ui(coef[x], bound, 1);
-        else if (kind == 2) { if (rnd() % 2) mpz_sub_ui(coef[x], bound, 1 + rnd() % 3); else mpz_set_ui(coef[x], rnd() % 10); }
-        else if (kind == 3) { mpz_set_ui(coef[x], 0); }
-        else { mpz_sub_ui(coef[x], bound, 1); }                                              /* kind 4: + one coefficient past the bound (below) */
-    }
-    size_t bad_x = 0;
-    if (kind == 4) { for (size_t k = 0; k < rows; k++) { size_t x = a + k; if (p24_s(x) == 12) { mpz_ui_pow_ui(coef[x], 10, 61); bad_x = x; break; } } }
-    uint64_t *h[4], *d[4], *dout, *dsp, *hout = (uint64_t *)malloc((tot + 8) * 8), *hsp = (uint64_t *)malloc(C * 32);
-    for (int p = 0; p < 4; p++) {
-        h[p] = (uint64_t *)malloc(rows * C * 8);
-        for (size_t j = 0; j < C; j++) for (size_t k = 0; k < rows; k++) h[p][j * rows + k] = mpz_fdiv_ui(coef[R * j + a + k], ec_P[p]);
-        HC(hipMalloc(&d[p], rows * C * 8)); HC(hipMemcpy(d[p], h[p], rows * C * 8, hipMemcpyHostToDevice));
-    }
-    HC(hipMalloc(&dout, (tot + 8) * 8)); HC(hipMalloc(&dsp, C * 32)); HC(hipMemset(dout, 0xA5, (tot + 8) * 8));
-    struct gconst gc = rns_gconst(); gc.np = 4;
-    p24_crt_launch(d[0], d[1], d[2], d[3], &gc, R, C, a, rows, dout, dsp, 0);
-    HC(hipDeviceSynchronize());
-    unsigned flag = p24_crt_err(0);
-    HC(hipMemcpy(hout, dout, (tot + 8) * 8, hipMemcpyDeviceToHost)); HC(hipMemcpy(hsp, dsp, C * 32, hipMemcpyDeviceToHost));
-    size_t bad = 0; unsigned merr = 0;
-    for (size_t j = 0; j < C; j++) {
-        size_t len = m.len[j % 3], o = p24_run_S(&m, j); uint64_t *own = (uint64_t *)malloc(len * 8), sp[4];
-        merr |= model_stripe(coef, R, j, a, rows, own, sp);
-        for (size_t i = 0; i < len; i++) if (hout[o + i] != own[i]) bad++;
-        for (int u = 0; u < 4; u++) if (hsp[4 * j + u] != sp[u]) bad++;
-        free(own);
-    }
-    if (kind == 4) VERIFY(flag == 1 && (merr & 1), "k_crt24 guard: a coefficient 10^61 at the s = 12 point %zu: flag %u (model %u)", bad_x, flag, merr);
-    else VERIFY(bad == 0 && flag == 0 && merr == 0, "k_crt24 R %zu C %zu nr %d rho %d (rows %zu, a %zu) kind %d: %zu limbs differ from the model, flag %u", R, C, nr, rho, rows, a, kind, bad, flag);
-    for (int p = 0; p < 4; p++) { free(h[p]); HC(hipFree(d[p])); }
-    HC(hipFree(dout)); HC(hipFree(dsp)); free(hout); free(hsp);
-    for (size_t x = 0; x < N; x++) mpz_clear(coef[x]);
-    free(coef); mpz_clear(bound);
-}
-#endif
 
 int main(int argc, char **argv)
 {
@@ -270,12 +218,5 @@ int main(int argc, char **argv)
     printf("t_p24: products through the regroup, the model's stripes and the spills\n");
     { size_t sz[][2] = { {1, 1}, {4, 4}, {5, 3}, {17, 9}, {40, 40}, {61, 7}, {100, 33} };
       for (int i = 0; i < 7; i++) for (int kind = 0; kind < 2; kind++) { test_product(sz[i][0], sz[i][1], kind, 16, 4); test_product(sz[i][0], sz[i][1], kind, 24, 5); } }
-#ifdef P24_DEVICE
-    printf("t_p24: k_crt24 on the device\n");
-    { struct { size_t R, C; int nr; } cf[] = { {1024, 16, 8}, {1024, 16, 2}, {1024, 12, 3}, {2048, 9, 12}, {1024, 8, 1} };
-      for (int i = 0; i < 5; i++) for (int kind = 0; kind < 4; kind++) for (int rho = 0; rho < cf[i].nr; rho += (cf[i].nr > 3 ? cf[i].nr / 3 : 1)) test_kernel(cf[i].R, cf[i].C, cf[i].nr, rho, kind);
-      test_kernel(1024, 8, 4, 1, 4); }
-#endif
-    if (fails) printf("\nt_p24: VERIFY FAILED (%d of %d checks)\n", fails, checks); else printf("\nt_p24: VERIFY OK (%d checks)\n", checks);
-    return fails != 0;
+    return verify_done("t_p24");
 }

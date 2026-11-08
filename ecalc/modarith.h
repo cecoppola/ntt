@@ -1,18 +1,13 @@
-/* modarith.h - the modular arithmetic engine (ALGORITHM.md §4.2).
+/* modarith.h - the modular arithmetic engine (ALGORITHM.md §4.2), host + device.
  *
- * Four primes p < 2^52 with 2^33 | p-1 (verified by tests/t_params, results/
- * 0_params.txt), the eight-line FP64-Barrett modmul with a Dekker split and
- * two corrections each way, canon64 (Barrett with mu115 = floor(2^115/p) for
- * a 64-bit limb), and an integer Shoup modmul behind the same names as the
- * alternative engine for experiments.  Everything here is host + device.
+ * Four primes p < 2^52 with 2^33 | p-1 (verified by tests/t_params), the FP64-Barrett modmul with a Dekker split and two
+ * corrections each way, canon64 (Barrett with mu115 = floor(2^115/p) for a 64-bit limb), and an integer Shoup modmul behind
+ * the same names for experiments.
  *
- * Binding rules (ALGORITHM.md §4.2):
- *   1. ec_mm takes at most ONE lazy operand in [0,2p); the other must be
- *      canonical in [0,p).  Both lazy, or either in [0,4p), is wrong in
- *      0.4-21 % of cases (RESULTS.md 19, 30).  Fold with ec_fold first.
- *   2. Adds and subtracts of NTT values are 64-bit integer, never double:
- *      u + v with u, v < 2p ~ 2^52.8 does not round-trip through FP64.
- */
+ * Binding rules:
+ *   1. ec_mm takes at most ONE lazy operand in [0,2p); the other must be canonical in [0,p).  Both lazy, or either in [0,4p),
+ *      is wrong in 0.4-21 % of cases.  Fold with ec_fold first.
+ *   2. Adds and subtracts of NTT values are 64-bit integer, never double: u + v with u, v < 2p ~ 2^52.8 does not round-trip FP64. */
 #ifndef EC_MODARITH_H
 #define EC_MODARITH_H
 #include <stdint.h>
@@ -30,12 +25,10 @@
 #define EC_LOGN_MAX 33                      /* the order of the stored root tables ec_W33 / ec_W3X33 (2^33 | p-1 for all four primes).
                                                Not the transform limit: ec_root derives any 2^logn up to v2(p-1) */
 
-/* the number of primes a product uses, ec_np = 3 or 4 -- ECALC_NP (default 4: every
- * default unchanged).  A product uses the first ec_np primes of ec_P.  Three suffice for base-10^18 limbs: a convolution
- * coefficient is at most nterms (B-1)^2 and p0 p1 p2 = 2^155.36 against (B-1)^2 = 2^119.59, so nterms < 2^35.76
- * (tests/t_arith primes: the margin is 27x at 2^31 terms, 6.8x at 2^33, the largest 2^k length the primes allow).  {c = 240,
- * 216, 207} is the subset with the largest product (dropping 147, t_arith primes prints all four).  Four stay required for
- * (binary 2^64 limbs, which held only below 2^27 terms, are archived: archive:PLAN §28.5). */
+/* the number of primes a product uses, ec_np = 3 or 4 -- ECALC_NP (default 4).  A product uses the first ec_np primes of ec_P.
+ * Three suffice for base-10^18 limbs: a convolution coefficient is at most nterms (B-1)^2 and p0 p1 p2 = 2^155.36 against
+ * (B-1)^2 = 2^119.59, so nterms < 2^35.76 (tests/t_arith primes; the largest 2^k length the primes allow is 2^33).  {c = 240,
+ * 216, 207} is the subset with the largest product (t_arith primes prints all four). */
 #include <stddef.h>
 #ifdef __cplusplus
 extern "C" {
@@ -46,11 +39,9 @@ extern size_t ec_np3_max_terms;             /* floor((p0 p1 p2 - 1) / (10^18 - 1
 /* abort with a message when ec_np == 3 and the limbs are binary, or a product of nterms terms (min(na, nb), or any
  * upper bound of it) could exceed p0 p1 p2 */
 void ec_np_check(size_t nterms, const char *where);
-/* ECALC_NP=auto -- the prime count per product of the distributed tiers.
- * ec_np stays 3 (every one-node tier, the host CRT and ec_np_check as with ECALC_NP=3); mn_core / dist_core (and the B form)
- * take ec_np_for(nc): four primes when nc = pa + pb > ec_np_auto_terms, else three.  ec_np_auto_terms = ec_np3_max_terms
- * unless ECALC_NP_AUTO_TERMS=<n> lowers it (a test knob: both counts at small sizes; never above the bound).  Binary limbs:
- * auto = 4 everywhere (ec_np = 4, ec_np_auto = 0).  Plane pool 0 is sized for ec_np_planes(pool_log, g) planes at init. */
+/* ECALC_NP=auto -- the prime count per product of the distributed tiers.  ec_np stays 3 (every one-node tier, the host CRT and
+ * ec_np_check as with ECALC_NP=3); mn_core / dist_core (and the B form) take ec_np_for(nc): four primes when nc = pa + pb >
+ * ec_np_auto_terms (= ec_np3_max_terms), else three.  Plane pool 0 is sized for ec_np_planes(pool_log, g) planes at init. */
 extern int ec_np_auto;                      /* 1: ECALC_NP=auto (decimal limbs) */
 extern size_t ec_np_auto_terms;             /* auto: the largest nc a three-prime product of the distributed tiers takes */
 int ec_np_for(size_t nterms);               /* the product's prime count: ec_np, or under auto 3 / 4 by nterms (no check) */
@@ -60,7 +51,7 @@ int ec_np_planes(int pool_log, int g);      /* pool 0's planes: ec_np; auto: 4 a
 }
 #endif
 
-/* the WP8 prime set (3 * 2^44 | p-1: 3*2^k lengths): c * 2^44 + 1 with 3 | c, c = 240, 216, 207, 147 (RESULTS.md 57); two are the old p1, p3 */
+/* the prime set (3 * 2^44 | p-1: 3*2^k lengths): c * 2^44 + 1 with 3 | c, c = 240, 216, 207, 147; two are the old p1, p3 */
 static const uint64_t ec_P[EC_NP] = {4222124650659841ULL, 3799912185593857ULL,
                                      3641582511194113ULL, 2586051348529153ULL};
 static const uint64_t ec_G[EC_NP] = {19, 5, 5, 10};
@@ -187,16 +178,13 @@ static inline uint64_t ec_powmod(uint64_t a, uint64_t e, uint64_t p)
     return r;
 }
 static inline uint64_t ec_inv(uint64_t a, uint64_t p) { return ec_powmod(a, p - 2, p); }
-/* ---- the roots of unity (roots above 2^33) ----------------------------------------------------------
- * The table formula w33^(2^(33 - logn)) has a negative shift (undefined) for logn > 33, which the mn tier reaches
- * from 8 nodes on (mn_logn_cap = 31 + floor(log2 g): 2^40 at 576).  So ec_root(i, logn) is:
- *   logn <= EC_LOGN_MAX: the table formula;
- *   EC_LOGN_MAX < logn <= v2(p_i - 1): g^((p_i - 1) / 2^logn) from the generator ec_G.  Both are g^((p-1)/2^logn) (w33 =
- *   g^((p-1)/2^33)); tests/t_arith roots checks the two agree for logn 1..33 on every prime, and the order (w^(2^logn) = 1,
- *   w^(2^(logn-1)) = p - 1) and the chain root(k+1)^2 = root(k) up to v2(p - 1);
- *   logn > v2(p_i - 1) or < 0: ec_fatal (no such root in this prime).
- * v2(p - 1) = 48, 47, 44, 44 for the WP8 set (c 2^44 + 1: 15 2^48, 27 2^47, 207 2^44, 147 2^44): 2^44 for any subset.
- * The same for the order 3 2^logk (w3x33 = g^((p-1)/(3 2^33))). */
+/* ---- the roots of unity (roots above 2^33) ----
+ * The table formula w33^(2^(33 - logn)) has a negative shift (undefined) for logn > 33, which the mn tier reaches from 8 nodes on
+ * (mn_logn_cap = 31 + floor(log2 g)).  So ec_root(i, logn) is: the table formula for logn <= EC_LOGN_MAX; g^((p_i - 1) / 2^logn)
+ * from the generator ec_G for EC_LOGN_MAX < logn <= v2(p_i - 1); ec_fatal for logn > v2(p_i - 1) or < 0 (no such root in this
+ * prime).  Both forms are g^((p-1)/2^logn) (w33 = g^((p-1)/2^33)); tests/t_arith roots checks they agree for logn 1..33 on every
+ * prime, the order (w^(2^logn) = 1, w^(2^(logn-1)) = p - 1) and the chain root(k+1)^2 = root(k).
+ * v2(p - 1) = 48, 47, 44, 44 for the set: 2^44 for any subset.  The same for the order 3 2^logk (w3x33 = g^((p-1)/(3 2^33))). */
 static inline int ec_v2(int i) { return __builtin_ctzll(ec_P[i] - 1); }        /* v2(p_i - 1): the largest 2^k root prime i has */
 /* the largest logn every one of the first np primes supports (the transform-length limit of a product on np primes) */
 static inline int ec_logn_limit(int np)

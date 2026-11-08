@@ -1,12 +1,11 @@
-/* mapd.c -- ECALC_MAPD=1: helper processes (one per APU, NUMA-pinned) run hipMemCreate for the plane pools (phase 2) and the dbig VMM arena
- * (phase 1) chunks and export each as a POSIX fd handle (SCM_RIGHTS over a Unix socket pair); the main process imports
- * (hipMemImportFromShareableHandle), maps and sets access (dbig.c vmm_map_run, its mapper lock unchanged; mapd_pool_alloc below for the pools).
- * Experiment: tests/t_mapbench.c, results/MEMORY_IO.md.
- * The helper is this very executable started with argv[1] = --mapd-helper (posix_spawn = fork + exec: no HIP state is inherited).  It serves
- * a FIFO of requests (kind, count, size): pool chunks first (rns_init), then the arena (kind 1, `final`: the helper exits after it); a helper
- * whose device never gets an arena is closed at the end of rns_init (mapd_end_init).  The imported memory stays valid (E1).  Any failure
- * (spawn, helper init, create/export, 60 s without a chunk, import) kills that helper, logs one line, and the remaining chunks of that APU
- * are created in-process (never a wrong result, never a hang). */
+/* mapd.c -- ECALC_MAPD=1: helper processes (one per APU, NUMA-pinned) run hipMemCreate for the plane pools and the dbig VMM arena
+ * chunks and export each as a POSIX fd handle (SCM_RIGHTS over a Unix socket pair); the main process imports
+ * (hipMemImportFromShareableHandle), maps and sets access (dbig.c vmm_map_run; mapd_pool_alloc for the pools).
+ * The helper is this very executable started with argv[1] = --mapd-helper (posix_spawn: no HIP state is inherited).  It serves a
+ * FIFO of requests (kind, count, size): pool chunks first (rns_init), then the arena (kind 1, `final`: the helper exits after
+ * it); a helper whose device never gets an arena is closed at the end of rns_init (mapd_end_init).  The imported memory stays
+ * valid.  Any failure (spawn, helper init, create/export, 60 s without a chunk, import) kills that helper, logs one line, and
+ * the remaining chunks of that APU are created in-process (never a wrong result, never a hang). */
 #include <hip/hip_runtime.h>
 #include <errno.h>
 #include <poll.h>
@@ -23,6 +22,7 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include "test_inject.h"
 #include "mapd.h"
 extern char **environ;
 
@@ -75,7 +75,7 @@ int mapd_helper_main(int argc, char **argv)             /* argv: --mapd-helper <
     int dev = atoi(argv[2]), sock = MAPD_FD0 + dev; pid_t pp = argc >= 4 ? (pid_t)atoi(argv[3]) : 0;
     prctl(PR_SET_PDEATHSIG, SIGKILL); if (pp > 0 && getppid() != pp) return 1;   /* (the parent died before the prctl; with ecalc as PID 1 the original pid is 1 and the check holds) */
     signal(SIGPIPE, SIG_IGN);
-    int die_dev = -1, die_k = -1; char die_kind = 'a'; const char *td = getenv("ECALC_MAPD_TEST_DIE");   /* test knob "<dev>:<k>[:p]": that helper exits (status 7) after sending k arena chunks (":p": k pool chunks) */
+    int die_dev = -1, die_k = -1; char die_kind = 'a'; char tdb[48]; const char *td = ec_test_str("mapd_die", tdb, sizeof tdb);   /* test knob "<dev>:<k>[:p]": that helper exits (status 7) after sending k arena chunks (":p": k pool chunks) */
     if (td) { char kc = 0; int nf = sscanf(td, "%d:%d:%c", &die_dev, &die_k, &kc); if (nf == 3 && kc == 'p') die_kind = 'p'; }
     if (hipSetDevice(dev) != hipSuccess || hipFree(0) != hipSuccess) { (void)send_fd(sock, -1, 'F'); return 2; }
     pin_node(numa_of(dev));
@@ -93,7 +93,7 @@ int mapd_helper_main(int argc, char **argv)             /* argv: --mapd-helper <
             int rc = send_fd(sock, fd, 'x'); close(fd);
             if (rc) return 5;
         }
-        if (rq.final) return 0;                           /* exit: the imported chunks stay valid (results/MEMORY_IO.md E1) */
+        if (rq.final) return 0;                           /* exit: the imported chunks stay valid */
     }
 }
 

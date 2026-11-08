@@ -12,7 +12,7 @@
  *     limbs; larger groups: four products vs mpz_mul and every product by residues mod three primes, see batch_sampled)
  *  4b. the locality-aware batch tier (pairs sharing B in device pools)
  *
- * Usage: t_mul [POOL (20; 0 skips sections 0-2)] [batch | dist | split]   (split: only section 4c, the RNS_BATCH_SPLIT forced-split check)   (dist: only the distributed tier, 6e5 .. 2^27 limbs; DIST_BIG=1
+ * Usage: t_mul [POOL (20; 0 skips sections 0-2)] [batch | dist | split]   (split: only section 4c, the RNS_BATCH_SPLIT forced-split check)   (dist: only the distributed tier, 6e5 .. 2^27 limbs; ECALC_TEST big=1
  *        2^29, 2^30, time only).  The host product tier (rns_mul, Karatsuba split, mdev) and its sections were removed by TREF
  *        (results/CODE_TOOLS.md §TREF); decimal limbs only since archive:PLAN §28.5.
  */
@@ -97,7 +97,7 @@ int main(int argc, char **argv)
 
     if (only_dist) {
         rns_init(pool ? pool : 31);
-        int big = getenv("DIST_BIG") != 0;                   /* DIST_BIG=1: the 2^30 and 2^31-point products (time only) */
+        int big = ec_test_long("big", 0) != 0;                /* ECALC_TEST=big=1: the 2^30 and 2^31-point products (time only) */
         struct { size_t na, nb; } dc[] = { {600000, 500000}, {1u << 20, 1u << 20}, {(1u << 22) + 3, (1u << 22) - 5}, {1u << 25, 1u << 25}, {(1u << 27) + 11, (1u << 27) - 11}, {(size_t)1 << 29, (size_t)1 << 29}, {(size_t)1 << 30, (size_t)1 << 30} };
         size_t ndc = big ? 7 : 5;
         for (size_t i = big ? 5 : 0; i < ndc; i++) for (int kind = 0; kind < (big ? 1 : 2); kind++) {

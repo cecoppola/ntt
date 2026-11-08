@@ -53,12 +53,6 @@ int ec_np_init(void)
     const char *e = getenv("ECALC_NP");
     if (e && !strcmp(e, "auto")) {                  /* per product */
         ec_np = 3; ec_np_auto = 1;
-        const char *t = getenv("ECALC_NP_AUTO_TERMS");   /* the test knob: a lower bound, so both counts occur at small sizes */
-        if (t && ec_np_auto) {
-            size_t v = (size_t)strtoull(t, 0, 10);
-            if (v < 1 || v > ec_np3_max_terms) { ec_fatal(EC_RC_FATAL, "ECALC_NP_AUTO_TERMS=%s: must be in [1, %zu] (the three-prime bound)\n", t, ec_np3_max_terms); }
-            ec_np_auto_terms = v;
-        }
     } else if (e) {
         int v = atoi(e);
         if (v != 3 && v != 4) { ec_fatal(EC_RC_FATAL, "ECALC_NP=%s: the prime count must be 3, 4 or auto\n", e); }
@@ -77,9 +71,9 @@ int ec_np_prod(size_t nterms, const char *where)
     if (np == 3) ec_np_check(nterms, where);
     return np;
 }
-/* D18 (the user's decision of 2026-10-12, results/MODEL.md §DEF): under ECALC_NP=auto pool 0 holds four planes in every run of more than one
+/* under ECALC_NP=auto pool 0 holds four planes in every run of more than one
  * node-process, so every multi-node product runs the four-prime 24-digit form P24 (rns_dist.c mn_p24_of).  The three-prime multi-node
- * rule before D18 (ECALC_NP_MN3) was removed 2026-10-19 (D56).  At g = 1 the plane count follows the switch-over bound */
+ * rule before D18 (ECALC_NP_MN3) was .  At g = 1 the plane count follows the switch-over bound */
 int ec_np_planes(int pool_log, int g)
 {
     ec_np_init();

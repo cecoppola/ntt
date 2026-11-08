@@ -13,14 +13,13 @@ extern "C" {
 #endif
 int   mn_init(void);              /* reads the environment, opens the meshes; returns size (1 = not multi-node) */
 int   mn_rank(void);
-void  mn_wait_stats_print(void);   /* D3: MN_WAIT_STATS=1 -- per node, the barrier and comm_wait time per phase, and the max / min over the nodes (collective) */
-void  mn_comm_mark(const char *what);   /* MN_COMM_MARK=1 -- node 0 prints the all-to-all traffic since the previous mark (default off) */
+void  mn_wait_stats_print(void);   /* MN_WAIT_STATS=1 -- per node, the barrier and comm_wait time per phase, and the max / min over the nodes (collective) */
 int   mn_size(void);
 comm *mn_comm(int apu);           /* mesh apu: this node among the nodes (rank = node); 0 when size 1 */
 int   mn_transport_shmem(void);   /* 1 when the meshes are xshmem PE sets (COMM_TRANSPORT=xshmem) */
 int   mn_selftest(int logR, int logC, int verbose);   /* a distributed convolution over each mesh against the one-rank engine; 1 = ok */
 void  mn_barrier(void);
-/* M3 (archive:PLAN §17): node groups per tree level, the layered communicator's self-test, the distributed top levels */
+/* M3: node groups per tree level, the layered communicator's self-test, the distributed top levels */
 mn_group *mn_group_at(int level);                            /* this node's group of 2^level nodes (meshes created collectively on first use) */
 mn_group *mn_group_span(int l, int g0, int g);               /* the group [g0, g0+g) of schedule level l (MN_GROUPS) -- mn_group_at's when it is a binary group, its own meshes otherwise */
 void  mn_allgather(comm *c, const uint64_t *v, int k, uint64_t *out);   /* k u64 per rank -> out[rank k + i] */
@@ -31,7 +30,7 @@ void  mn_tree(mdb *P, mdb *Q, struct dbig_s *Pleaf, struct dbig_s *Qleaf);   /* 
 void  mn_dr_leaf_ref(int (*poll)(void *arg, uint64_t *p, uint64_t *q), void *arg);
 void  mn_dr_leaf_final(void);   /* ecalc.c out_stage, after the recurrence thread is joined: the leaf check if the division's start found the recurrence still running (counted as deferred), or logs/counts it skipped if the recurrence never started */
 void  mn_dr_division_check(const uint64_t *qs, const uint64_t *pres, const uint64_t *qres);
-int   mn_dr_division_seen(void);   /* ECALC_DR_TEST=leafslow (test only): 1 once the division's start check has run (the recurrence thread waits for it) */
+int   mn_dr_division_seen(void);   /* ECALC_TEST dr=leafslow (test only): 1 once the division's start check has run (the recurrence thread waits for it) */
 void  mn_finalize(void);
 /* the top tree set in the background (ECALC_CKPT_TOP) -- mode 0 = none, 1 = background and complete,
  * 2 = background and budgeted (dropped when the measured disk rate would stall the critical path more than mn_ckpt_slack s);

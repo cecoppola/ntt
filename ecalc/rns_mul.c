@@ -22,15 +22,15 @@ size_t rns_batch_tile_bytes = 15000000000ULL;
 int rns_gpucrt_min = 1;
 int rns_gpucrt_blocks = 912;      /* GPUCRT_MIN_BLOCKS: stripes so that M S >= this */
 static uint64_t *g_spill; static size_t g_spill_cap;
-/* N3 (BS_BATCH_PIPE, on since D20, the =0 fallback removed 2026-10-23, Q87): the batch tier's host side without needless gaps -- the per-product scans of
- * rns_mul_batch in parallel (one device lookup per product, reused), and in rns_mul_batch_local the tiles of a device
- * issued back to back: descriptors through two pinned slots, the spill merge on the stream (VMM pools), the lengths of
- * all the device's tiles read back once at the end, so the GPU never waits for the host between tiles.  Same kernels,
- * same arguments, same order on each stream: digits identical.  binsplit_e reads it too (its level layout in parallel). */
+/* BS_BATCH_PIPE (the =0 fallback): the batch tier's host side without needless gaps -- the per-product scans of rns_mul_batch in
+ * parallel (one device lookup per product, reused), and in rns_mul_batch_local the tiles of a device issued back to back:
+ * descriptors through two pinned slots, the spill merge on the stream (VMM pools), the lengths of all the device's tiles read back
+ * once at the end, so the GPU never waits for the host between tiles.  Same kernels, arguments and order on each stream: digits
+ * identical.  binsplit_e reads it too (its level layout in parallel). */
 static struct bdesc *g_hdp[EC_NP][2]; static size_t g_hdp_cap[EC_NP];   /* N3: the pinned descriptor slots per device */
 
 static int g_nd = 0, g_pool_log = 31;
-/* S2c (ECALC_PE_PER_GPU=1, one process per PE): this process opens, allocates for, registers and tears down ONLY its own device (vpe_device(): the local id with --gpu-bind=none,
+/* this process opens, allocates for, registers and tears down ONLY its own device (vpe_device(): the local id with --gpu-bind=none,
  * 0 with one visible device); the devices [g_d0, g_d1) are the ones rns_init set up.  Off: all g_nd devices, unchanged.  D[], g_tables[] stay indexed by the device ordinal. */
 static int g_d0 = 0, g_d1 = 0;
 static struct dev {
@@ -39,10 +39,10 @@ static struct dev {
     uint64_t *hstage;            /* 2^pool_log limbs, pinned, NUMA-local */
     dpool da, db;                /* ch_da / ch_db */
     int ncpu;
-    ntt_ctx *ctxp[EC_NP];        /* WP3 local mode: this device transforms all EC_NP primes of its own products */
-    uint64_t *spill;             /* WP3 local mode: this device's stripe spills (host registered) */
+    ntt_ctx *ctxp[EC_NP];        /* local mode: this device transforms all EC_NP primes of its own products */
+    uint64_t *spill;             /* local mode: this device's stripe spills (host registered) */
     size_t spill_cap;
-    uint32_t *len, *dlen; size_t len_cap;   /* WP3 local mode: normalised lengths (pinned host, device) */
+    uint32_t *len, *dlen; size_t len_cap;   /* local mode: normalised lengths (pinned host, device) */
 } D[EC_NP];
 int rns_batch_local_min = 16;    /* RNS_BATCH_LOCAL_MIN: below this many products the striped path is used */
 
@@ -66,12 +66,13 @@ int rns_pool0_np(void)
     const char *e = getenv("COMM_SIZE"); int g = e ? atoi(e) : 1; if (g < 1) g = 1;
     return ec_np_planes(g_pool_log ? g_pool_log : 31, g);
 }
-/* MN_NONPOW2_CAP (Q58, user 2026-10-20; unset or "auto" = on only when the run's digits per node-process >= MN_NONPOW2_MIN, default 4.5e10: results/COMPUTE.md §NPCAP,
- * the larger pools' init cost is fixed (+7 s at 3 n 6e10), the gain grows with the digits; =1 forces on, =0 restores the power-of-two plane): in a run whose COMM_SIZE is not a power of two (3, 5, 6, 7, ...) the rank plane q may be 43/32 x 2^(pool_log-2) limbs, so a group of
- * g = 3 * 2^k nodes takes the next power-of-two plane (2^33 points over 3 nodes: 716 M limbs per rank, not 2^29 = 537 M) and its products need fewer pieces.
- * Costs 11/32 more plane pool memory per APU (both pools and the cache slots); rns_plane_pool_bytes is the one formula, so the planner and the fit see it.
- * It reads COMM_SIZE each call (the plan-only runs set it around the plan: mn_plan.c plan_run) and the run's total digits (rns_np2_set_digits: ecalc.c and plan_run;
- * unset = 0: auto counts as on). */
+/* MN_NONPOW2_CAP (unset or "auto" = on only when the run's digits per node-process >= MN_NONPOW2_MIN, default 4.5e10, since the
+ * larger pools' init cost is fixed and the gain grows with the digits; =1 forces on, =0 restores the power-of-two plane): in a run
+ * whose COMM_SIZE is not a power of two the rank plane q may be 43/32 x 2^(pool_log-2) limbs, so a group of g = 3 * 2^k nodes takes
+ * the next power-of-two plane (2^33 points over 3 nodes: 716 M limbs per rank, not 2^29 = 537 M) and its products need fewer pieces.
+ * Costs 11/32 more plane pool memory per APU (both pools and the cache slots); rns_plane_pool_bytes is the one formula, so the
+ * planner and the fit see it.  It reads COMM_SIZE each call (the plan-only runs set it around the plan) and the run's total digits
+ * (rns_np2_set_digits; unset = 0: auto counts as on). */
 static double g_np2_digits = 0;
 double rns_np2_set_digits(double d) { double o = g_np2_digits; g_np2_digits = d; return o; }
 static int np2_mode(void) { static int m = -2; if (m == -2) { const char *e = getenv("MN_NONPOW2_CAP"); m = -1; if (e && *e && strcmp(e, "auto")) m = !strcmp(e, "1"); } return m; }   /* -1 auto, 0 off, 1 on */
@@ -84,24 +85,21 @@ int rns_np2cap(void)
     return m > 0 || g_np2_digits <= 0 || g_np2_digits / g >= rns_np2_min();
 }
 size_t rns_q_slot(int pool_log) { size_t q = (size_t)1 << (pool_log - 2); return rns_np2cap() ? q + q * 11 / 32 : q; }   /* the rank plane the pools are made for (limbs per prime) */
-/* the plane pools' bytes per APU as rns_init makes them, from (pool_log, the prime count) alone -- the one formula for
- * rns_init, rns_pool1_default_bytes and binsplit's BS_LAYOUT_ONLY report (and mem_model.py's port).  q = the dist tier's rank
- * plane per prime: 2^(pool_log-2) (the plane cap n = 4 q = 2^pool_log).  Pool 0 = np q limbs (the np planes xa[]), exact.  Pool 1 = xb | sbuf | rbuf, one prime at a time:
- * 3 q + 16 limbs whatever np, never below the batch tier's 2^min(pool_log, 30)-limb tile (pool_log <= 30), 2 MiB-aligned.
- * four one-node primes (not auto) make pool 1 max(that, 4 q): the batch-local tier's B planes (see below).
- * Returns p0 + p1. */
+/* the plane pools' bytes per APU as rns_init makes them, from (pool_log, the prime count) alone -- the one formula for rns_init,
+ * rns_pool1_default_bytes and binsplit's BS_LAYOUT_ONLY report (and mem_model.py's port).  q = the dist tier's rank plane per prime:
+ * 2^(pool_log-2) (the plane cap n = 4 q = 2^pool_log).  Pool 0 = np q limbs (the np planes xa[]), exact.  Pool 1 = xb | sbuf | rbuf,
+ * one prime at a time: 3 q + 16 limbs whatever np, never below the batch tier's 2^min(pool_log, 30)-limb tile (pool_log <= 30),
+ * 2 MiB-aligned; four one-node primes (not auto) make pool 1 max(that, 4 q): the batch-local tier's B planes.  Returns p0 + p1. */
 size_t rns_plane_pool_bytes(int pool_log, int np, size_t *p0, size_t *p1)
 {
     int pl = pool_log ? pool_log : 31;
     size_t q = rns_q_slot(pl), al = (size_t)2 << 20;
     size_t a = (size_t)np * q * 8, b = (3 * q + 16) * 8, full = (size_t)8 << (pl < 30 ? pl : 30);
     if (b < full) b = full;
-    /* the batch-local tier (rns_mul_batch_local) takes np Mmax L B limbs from pool 1 with np Mmax L <= its plane
-     * cap (rns_plane_limbs: np q) -- at L = q, Mmax = 1 (2^29 points at 2^31 pools, non-paired: the level of 10 pairs at
-     * 9.17e10 digits) that is np q.  Three primes: 3 q < 3 q + 16, nothing changes.  Four one-node primes (ECALC_NP=4, binary
-     * limbs): 4 q, which 3 q + 16 lacked (the pool grew inside the bs phase: rc 6, ~/fin15f/t2_B1_1.log).  Under ECALC_NP=auto
-     * the one-node tiers run three primes whatever np pool 0 is made for (rns_plane_limbs caps them at 3 q): pool 1 stays.
-     * */
+    /* the batch-local tier (rns_mul_batch_local) takes np Mmax L B limbs from pool 1 with np Mmax L <= its plane cap (rns_plane_limbs:
+         * np q) -- at L = q, Mmax = 1 that is np q.  Three primes: 3 q < 3 q + 16, nothing changes.  Four one-node primes (ECALC_NP=4,
+         * binary limbs): 4 q, which 3 q + 16 lacked (the pool grew inside the bs phase).  Under ECALC_NP=auto the one-node tiers run
+         * three primes whatever np pool 0 is made for (rns_plane_limbs caps them at 3 q): pool 1 stays. */
     if (np >= 4 && !ec_np_auto) { size_t c = (size_t)np * q * 8; if (b < c) b = c; }
     a = (a + al - 1) / al * al; b = (b + al - 1) / al * al;
     if (p0) *p0 = a; if (p1) *p1 = b;
@@ -145,7 +143,7 @@ int rns_init(int pool_log)
     db_tl_start(); db_tl("rns_init begins");   /* ECALC_INIT_TL=1 (print only) */
     HIP_CHECK(hipGetDeviceCount(&g_nd));
     if (g_nd > EC_NP) g_nd = EC_NP;
-    if (vpe_ppg()) {   /* S2c: one device, this PE's */
+    if (vpe_ppg()) {   /* one device, this PE's */
         int dv = vpe_device();
         if (dv < 0 || dv >= g_nd || dv >= EC_NP) { ec_fatal(EC_RC_FATAL, "rns_init: ECALC_PE_PER_GPU=1: this PE's device %d, %d visible\n", dv, g_nd); }
         g_d0 = dv; g_d1 = dv + 1;
@@ -155,9 +153,8 @@ int rns_init(int pool_log)
     }
     g_pool_log = pool_log ? pool_log : 31;
     omp_set_max_active_levels(2);
-    if (getenv("RNS_BATCH_TILE_GB")) rns_batch_tile_bytes = (size_t)(atof(getenv("RNS_BATCH_TILE_GB")) * 1e9);   /* the batch tiers' plane budget per device (a + b planes; 15 GB = the default), capped by the pools */
     crt_init();                                   /* (reads ECALC_NP: ec_np_init) */
-    if (ec_np == 3 && ec_np_auto) printf("rns_init: primes per product (ECALC_NP=auto): three (c 2^44 + 1, c = 240, 216, 207), four for a distributed product over %zu terms%s; plane pool 0 for %d primes\n", ec_np_auto_terms, ec_np_auto_terms < ec_np3_max_terms ? " (ECALC_NP_AUTO_TERMS, a test bound)" : "", rns_pool0_np());
+    if (ec_np == 3 && ec_np_auto) printf("rns_init: primes per product (ECALC_NP=auto): three (c 2^44 + 1, c = 240, 216, 207), four for a distributed product over %zu terms; plane pool 0 for %d primes\n", ec_np_auto_terms, rns_pool0_np());
     else if (ec_np == 3) { ec_np_check(0, "rns_init"); printf("rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most %zu terms per product\n", ec_np3_max_terms); }
     size_t bytes = (size_t)8 << g_pool_log, sbytes = rns_staging_bytes_req ? rns_staging_bytes_req : bytes; g_staging_bytes = sbytes;
     mem_par_init = 1;                             /* one thread per device */
@@ -183,7 +180,7 @@ int rns_init(int pool_log)
      * transform of the dist tier) are then the victims and the tier's gathers and transforms run 4-10 x slower.
      * Mapped first, they take 2 MiB blocks; the seeds start after them. */
     size_t b1 = rns_pool1_bytes_req ? rns_pool1_bytes_req : bytes;
-    if (!rns_pool1_bytes_req && rns_np2cap()) { size_t p1; rns_plane_pool_bytes(g_pool_log, ec_np_init(), 0, &p1); if (p1 > b1) b1 = p1; }   /* MN_NONPOW2_CAP: 3 q + 16 (4 q at four one-node primes) of the larger q exceeds 4 q of 2^(pool_log-2) */   /* C4: pool 1 sized to the dist tier's 3 q when the flow is all-device (the removed host mdev tier needed the full 2^pool_log; TREF) */
+    if (!rns_pool1_bytes_req && rns_np2cap()) { size_t p1; rns_plane_pool_bytes(g_pool_log, ec_np_init(), 0, &p1); if (p1 > b1) b1 = p1; }   /* MN_NONPOW2_CAP: 3 q + 16 (4 q at four one-node primes) of the larger q exceeds 4 q of 2^(pool_log-2) */   /* pool 1 sized to the dist tier's 3 q when the flow is all-device (the removed host mdev tier needed the full 2^pool_log; TREF) */
     if (getenv("RNS_POOL1_GB")) b1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);
     int vmm_pools = mapd_active();
     if (vmm_pools) { mem_vmm_pool_alloc = rns_vmm_pool_alloc; mem_vmm_pool_free = mapd_pool_free; }                /* ECALC_MAPD=1 (phase 2): the plane pools are VMM ranges over chunks the APU's helper process creates (mapd.c); else hipMalloc, unchanged */
@@ -204,7 +201,7 @@ int rns_init(int pool_log)
     mem_par_init = 0;
     mem_acct_register(rns_acct);
     double ti2 = mem_now();
-    for (int d = g_d0; d < g_d1; d++) {   /* (S2c: a PE process opens no peer: the other devices are other processes') */
+    for (int d = g_d0; d < g_d1; d++) {   /* (a PE process opens no peer: the other devices are other processes') */
         HIP_CHECK(hipSetDevice(d));
         for (int c = 0; c < g_nd; c++) if (c != d && !vpe_ppg()) {
             hipError_t e = hipDeviceEnablePeerAccess(c, 0);
@@ -220,12 +217,12 @@ int rns_init(int pool_log)
 }
 int rns_pool_log(void) { return g_pool_log; }
 uint64_t *rns_hstage(int dev) { return D[dev].hstage; }
-/* WP5: the pinned staging (64 GB) is idle while the dm phase runs on device: release it, re-create for dc */
+/* the pinned staging (64 GB) is idle while the dm phase runs on device: release it, re-create for dc */
 void rns_release_staging(void)
 {
     for (int d = g_d0; d < g_d1; d++) if (D[d].hstage) { mem_hstage_free(D[d].hstage); D[d].hstage = 0; }
 }
-/* WP5: device dev's plane pools (da: which 0, db: which 1), grown to bytes if needed; the tiers share them */
+/* device dev's plane pools (da: which 0, db: which 1), grown to bytes if needed; the tiers share them */
 int rns_pool_grow = -1;                                            /* RNS_POOL_GROW: 1 lets a plane pool grow inside a phase (the stress recipe); 0 (default) aborts */
 void *rns_dpool(int dev, int which, size_t bytes)
 {
@@ -271,7 +268,7 @@ void rns_shutdown(void)
 }
 
 static int ceil_log2(size_t n) { int l = 0; while (((size_t)1 << l) < n) l++; return l; }
-/* WP8: transform length for nc points: 2^logn, or 3 * 2^(logn-2) when nc fits it (0.75x the points) and the prime set has the radix-3 roots (RNS_R3=0 removed 2026-10-23, Q87) */
+/* transform length for nc points: 2^logn, or 3 * 2^(logn-2) when nc fits it (0.75x the points) and the prime set has the radix-3 roots (RNS_R3=0) */
 static int pick_len(size_t nc, int *logk)
 {
     int logn = ceil_log2(nc); if (logn < NTT_LOGN_MIN) logn = NTT_LOGN_MIN;
@@ -284,7 +281,7 @@ static void x_inv_pw_bcast(ntt_ctx *c, uint64_t *x, const uint64_t *y, int r3, i
 static void x_inv_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int r3, int logk, size_t batch, hipStream_t s) { if (r3) ntt_inv3_pw_y(c, x, y, ymode, logk, batch, s); else ntt_inv_pw_y(c, x, y, ymode, logk, batch, s); }
 
 /* ======================================================================== */
-/* batch tier                                                                */
+/* batch tier */
 /* ======================================================================== */
 #include "rns_int.h"
 
@@ -332,13 +329,10 @@ __device__ static inline void dgarner3(const struct gconst *g, const uint64_t r[
       out[0] = s0; out[1] = s1; out[2] = h1 + c1; }
 }
 
-/* S stripes per product: global stripe g = pi S + s covers coefficients
- * [nc s / S, nc (s+1) / S).  The block walks its range in chunks of 256
- * consecutive coefficients (coalesced plane reads and result stores):
- * thread j does Garner for coefficient c0 + j into LDS (4 limbs), then
- * limb k = C0[k] + C1[k-1] + C2[k-2] + C3[k-3] + carry, the carry chain run
- * by thread 0 over LDS, then a coalesced store.  Contributions past the
- * stripe's end form its 4-limb spill for the CPU merge. */
+/* S stripes per product: global stripe g = pi S + s covers coefficients [nc s / S, nc (s+1) / S).  The block walks its range in
+ * chunks of 256 consecutive coefficients (coalesced plane reads and result stores): thread j does Garner for coefficient c0 + j into
+ * LDS (4 limbs), then limb k = C0[k] + C1[k-1] + C2[k-2] + C3[k-3] + carry, the carry chain run by thread 0 over LDS, then a
+ * coalesced store.  Contributions past the stripe's end form its 4-limb spill for the CPU merge. */
 __global__ __launch_bounds__(CRT_THREADS)
 void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const uint64_t *p3,
                  const struct bdesc *P, size_t first_stripe, int S, size_t Lpts, struct gconst g, uint64_t *stripe_spill)
@@ -347,9 +341,9 @@ void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, con
     __shared__ uint64_t C0[CRT_THREADS], C1[CRT_THREADS + 3], C2[CRT_THREADS + 3], C3[CRT_THREADS + 3];
     __shared__ uint64_t CY[CRT_THREADS];
     __shared__ uint64_t carry;
-    __shared__ uint64_t GM[CRT_THREADS / 64], PM[CRT_THREADS / 64];           /* K4b: the generate / propagate masks (wave64) */
-    if (warpSize != 64) __builtin_trap();                                     /* the carry-lookahead needs wave64 masks (the serial chain was removed 2026-10-23, Q87) */
-    uint64_t cyr = 0;                                                         /* K4b: the carry, uniform over the block */
+    __shared__ uint64_t GM[CRT_THREADS / 64], PM[CRT_THREADS / 64];           /* the generate / propagate masks (wave64) */
+    if (warpSize != 64) __builtin_trap();                                     /* the carry-lookahead needs wave64 masks (the serial chain was) */
+    uint64_t cyr = 0;                                                         /* the carry, uniform over the block */
     const size_t gs = first_stripe + blockIdx.x, pi = gs / S, s = gs % S, base = pi * Lpts;
     const struct bdesc d = P[pi];
     const uint32_t nc = d.na + d.nb;
@@ -429,13 +423,10 @@ struct gconst rns_gconst(void)
 static struct bdesc *g_desc[EC_NP];      /* device-side descriptor arrays, grown as needed */
 static size_t g_desc_cap[EC_NP];
 
-/* WP3: the locality-aware batch tier.  Every product's result lives in a device
- * pool (RESULTS.md 55); the device that owns the result computes all four
- * primes of that product itself: scatter reads its own node's memory at HBM
- * rate, the CRT reads its own four planes, the result is written in place.
- * No staging, no peer traffic except the boundary pairs whose operands sit in a
- * neighbouring region.  Planes: da holds EC_NP planes of M x L (a, then the
- * products), db the B planes (one plane when every product shares B). */
+/* the locality-aware batch tier.  Every product's result lives in a device pool; the device that owns the result computes all
+ * four primes of that product itself (scatter reads its own node's memory at HBM rate, the CRT its own four planes, the result
+ * written in place): no staging, no peer traffic except boundary pairs whose operands sit in a neighbouring region.  Planes: da
+ * holds EC_NP planes of M x L (a, then the products), db the B planes (one plane when every product shares B). */
 __global__ void k_scatter4(uint64_t *da, uint64_t *db, size_t plane, size_t plane_b, int pair, const struct bdesc *P, size_t M, int logk, int r3, ec_mod m0, ec_mod m1, ec_mod m2, ec_mod m3, int np)   /* P3: np = 3 leaves plane 3 unwritten */
 {
     size_t L = (size_t)(r3 ? 3 : 1) << logk, total = M * L;
@@ -445,7 +436,7 @@ __global__ void k_scatter4(uint64_t *da, uint64_t *db, size_t plane, size_t plan
         const struct bdesc d = P[pi];
         uint64_t a = k < d.na ? d.a[k] : 0;
         da[i] = ec_canon64(a, m0.pu, m0.mu); da[i + plane] = ec_canon64(a, m1.pu, m1.mu); da[i + 2 * plane] = ec_canon64(a, m2.pu, m2.mu); if (np > 3) da[i + 3 * plane] = ec_canon64(a, m3.pu, m3.mu);
-        if (db && !(pair && (pi & 1))) {                       /* B1: pair mode, B of products 2j, 2j+1 once, at transform j */
+        if (db && !(pair && (pi & 1))) {                       /* pair mode, B of products 2j, 2j+1 once, at transform j */
             uint64_t b = k < d.nb ? d.b[k] : 0; size_t ib = pair ? (pi >> 1) * L + k : i;
             db[ib] = ec_canon64(b, m0.pu, m0.mu); db[ib + plane_b] = ec_canon64(b, m1.pu, m1.mu); db[ib + 2 * plane_b] = ec_canon64(b, m2.pu, m2.mu); if (np > 3) db[ib + 3 * plane_b] = ec_canon64(b, m3.pu, m3.mu); }
     }
@@ -534,7 +525,7 @@ static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t
     double tsc = 0, tnt = 0, tcr = 0, tmg = 0;
 #pragma omp parallel num_threads(g_d1 - g_d0)
     {
-        int d = g_d0 + omp_get_thread_num(); struct dev *v = &D[d];   /* (S2c: a PE process runs its own device's list only) */
+        int d = g_d0 + omp_get_thread_num(); struct dev *v = &D[d];   /* (a PE process runs its own device's list only) */
         HIP_CHECK(hipSetDevice(d));
         for (int p = 0; p < ec_np; p++) if (!v->ctxp[p]) v->ctxp[p] = p == d ? v->ctx : ntt_ctx_create(p);
         rns_dpool(d, 0, (size_t)ec_np * Mmax * L * 8); rns_dpool(d, 1, (grpB ? (size_t)ec_np * L : (size_t)ec_np * (pair ? Mmax / 2 : Mmax) * L) * 8);   /* A-mem C4: pool 1 is 3 q by default; grown here if a tile needs more (rare: L = 2^28, 2^29 at 2^31 pools). P: in pair mode pool 1 holds M/2 B planes per prime.  grpB holds EC_NP B planes (db + p L below), not one -- the request said L (reached only with RNS_BATCH_LOCAL_MIN <= 2) */
@@ -646,7 +637,7 @@ static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t
 }
 
 /* ======================================================================== */
-/* RNS_BATCH_SPLIT (Q75 a): own-device split of batch products larger than the one device's plane pool (ECALC_PE_PER_GPU=1)                 */
+/* RNS_BATCH_SPLIT: own-device split of batch products larger than the one device's plane pool (ECALC_PE_PER_GPU=1) */
 /* ======================================================================== */
 /* 0 = off (the default without ECALC_PE_PER_GPU=1), byte-identical; 1 = automatic under ECALC_PE_PER_GPU=1 (unset = 1) when the local tier cannot hold a product (the striped tier would be fatal there);
  * k in 20..29 = forced in any mode: products of more than 2^k limbs are split into pieces of at most 2^k (tests).  Each product A B (+ X) is cut into a grid of
@@ -655,7 +646,7 @@ static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t
 int rns_batch_split_mode(void)
 {
     const char *e = getenv("RNS_BATCH_SPLIT");
-    int v = e && *e ? atoi(e) : vpe_ppg() ? 1 : 0; if (v == 0) return 0;   /* unset: on under ECALC_PE_PER_GPU=1 (Q110), off otherwise; 0 forces off */
+    int v = e && *e ? atoi(e) : vpe_ppg() ? 1 : 0; if (v == 0) return 0;   /* unset: on under ECALC_PE_PER_GPU=1, off otherwise; 0 forces off */
     if (v != 1 && (v < 20 || v > 29)) { ec_fatal(EC_RC_FATAL, "RNS_BATCH_SPLIT=%s: 0, 1 or 20..29\n", e); }
     return v;
 }
@@ -846,7 +837,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
     }
     for (size_t i = 1; i < N && grpB && !dv; i++) if (P[i].b != P[0].b || P[i].nb != P[0].nb) grpB = 0;
     if (!staged && N >= (vpe_ppg() ? (size_t)1 : (size_t)rns_batch_local_min) && (rns_plane_limbs() / (ec_np * L)) >= 1) {
-        int local = 1;                                  /* (S2c: ECALC_PE_PER_GPU=1 has no striped tier, one device: the local tier takes every N, 9u6) few or huge products: the prime-per-device path balances the four APUs */
+        int local = 1;                                  /* (ECALC_PE_PER_GPU=1 has no striped tier, one device: the local tier takes every N, 9u6) few or huge products: the prime-per-device path balances the four APUs */
         if (dv) local = dv_local;
         for (size_t i = 0; i < N && local && !dv; i++) if (mem_dev_of(P[i].c) < 0) local = 0;
         if (local) {
@@ -860,7 +851,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
     }
     free(dv); dv = 0;
     if (vpe_ppg() && bsm == 1 && !staged && !g_bsp_depth) { rns_mul_batch_split(P, N); return; }   /* the local tier could not hold it (pool 1): split */
-    if (vpe_ppg()) { ec_fatal(EC_RC_FATAL, "rns_mul_batch: the striped tier needs all %d devices; with ECALC_PE_PER_GPU=1 this process has device %d only (N %zu, 2^%d points)\n", EC_NP, g_d0, N, logL); }   /* S2c */
+    if (vpe_ppg()) { ec_fatal(EC_RC_FATAL, "rns_mul_batch: the striped tier needs all %d devices; with ECALC_PE_PER_GPU=1 this process has device %d only (N %zu, 2^%d points)\n", EC_NP, g_d0, N, logL); }
     /* the striped path pairs products 2j, 2j+1 sharing B (the tree's P1 Q2 + P2, Q1 Q2 -- at 4e10 the
      * level of 8 products at 2^30 points, which the batch-local tier cannot hold) and takes the 3 2^k length when nc fits it:
      * per pair 5 transforms of 3 2^28 points instead of 6 of 2^30.  Both need the GPU CRT (the host CRT path reads 2^logL
@@ -1037,12 +1028,12 @@ void rns_mul_batch(rns_prod *P, size_t N)
 }
 
 /* ==== form S: the product of one PE on its own device (ECALC_PE_PER_GPU=1 only) ====
- * C = A B for dbig operands of one quarter each (dbig.h, vPE), n = a transform length (2^k or 3 2^(k-2), at least 2^20) >= na + nb points.  It is
- * form B (rns_dist.c b_core) with the four-APU region and the peer reads removed: the np primes one after the other on this PE's device and
- * stream (bload, forward of A and of B, pointwise product fused into the inverse), np planes of n points kept (plane p = the product mod prime p)
- * and one plane Y for B; then the striped CRT over all stripes on this device and the spills of the stripes added by one chunked-carry pass
- * (db_add_spills, the layout of b_core: stripe g = 4 j + r -> sp[r][j], at limb (g + 1) rows).  The planes come from the dbig block pool.
- * Form B and the one-node four-step (form C over xGMI) do not exist under vPE; the digits are those of every form (the same primes, the same CRT). */
+ * C = A B for dbig operands of one quarter each (dbig.h, vPE), n = a transform length (2^k or 3 2^(k-2), at least 2^20) >= na + nb
+ * points.  It is form B (rns_dist.c b_core) with the four-APU region and the peer reads removed: the np primes one after the other
+ * on this PE's device and stream (bload, forward of A and of B, pointwise product fused into the inverse), np planes of n points
+ * kept (plane p = the product mod prime p) and one plane Y for B; then the striped CRT over all stripes on this device and the
+ * spills added by one chunked-carry pass (db_add_spills, the layout of b_core: stripe g = 4 j + r -> sp[r][j], at limb (g + 1) rows).
+ * The planes come from the dbig block pool.  Form B and form C do not exist under vPE; the digits are those of every form. */
 struct lstate {
     int init; ntt_ctx *ctx[EC_NP]; hipStream_t s;
     uint64_t *sp[4]; size_t spcap;                       /* the sparse spill arrays (pinned host: written by the CRT kernel through spall, read by the carry kernel) */
@@ -1066,7 +1057,7 @@ static unsigned lblk(size_t total) { size_t b = (total + 255) / 256; return (uns
 void rns_local_core(dbig *Cd, const dbig *A, const dbig *B, size_t nc)
 {
     if (!vpe_on()) { ec_fatal(EC_RC_FATAL, "rns_local_core: form S exists under ECALC_PE_PER_GPU=1 only\n"); }
-    struct lstate *v = &LS; const int dev = vpe_device();   /* S2: pe_geo's ordinal (= the lane in S1) */
+    struct lstate *v = &LS; const int dev = vpe_device();   /* pe_geo's ordinal (= the lane in) */
     HIP_CHECK(hipSetDevice(dev));
     if (!v->init) {
         for (int p = 0; p < EC_NP; p++) v->ctx[p] = ntt_ctx_create(p);

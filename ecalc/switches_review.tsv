@@ -7,47 +7,19 @@
 # columns (tab separated): name, class (experiment|fallback|diagnostic|test|internal|launch-line), owner, review (YYYY-MM-DD), note
 BS_ARENA_TRIM_GB	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
 BS_CKPT_BG_MBS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-DIST_GEN	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DIST_LOGN_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DIST_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-ECALC_FATAL_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_INIT_ONLY	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_MEM_SAMPLE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-ECALC_NP_AUTO_TERMS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_OUT_PACKED	fallback	coordinator (TASKS S)	2026-11-11	=0 (ASCII) kept as an output form; the 8-byte form =1 removed 2026-10-23 (Q87); default 2
 ECALC_PLANE_CAP	experiment	coordinator (TASKS S)	2026-11-11	`run` is the default (user 2026-10-25); keep 2^30, 2^31, fit as the explicit settings
-ECALC_PLANE_CAP_IDX	internal	planner channel (binsplit.c / ecalc.c setenv)	2027-04-12	internal channel from the planner to the library; do not set by hand
-ECALC_TEST_CORR	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_WINDOWS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 MEM_DPOOL_FILL	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-MN_OUT_DKM_HI_TEST_CARRY	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-MN_TREE_LOGN_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-NEWTON_DKM_TEST_HI	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 NEWTON_MN_RECIP_TS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 RNS_POOL_GROW	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-DIST_BIG	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-DIST_BIG_K	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-DIST_BIG_PRIMES	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-DIST_H4	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-DIST_H4_MB	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-DIST_H4_REPS	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-DIST_LAYERED	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-DIST_LBENCH	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-DIST_LREPS	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-DIST_TBENCH	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-DIST_TINV	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-DIST_XGMI	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-TSTRAT_BUDGET_GB	test	ecalc/tests/t_strategy.c	2027-04-12	test harness setting
-TSTRAT_GMP	test	ecalc/tests/t_strategy.c	2027-04-12	test harness setting
-T_ALLOC_NTT	test	ecalc/tests/t_alloc.c	2027-04-12	test harness setting
-T_ALLOC_PROBE	test	ecalc/tests/t_alloc.c	2027-04-12	test harness setting
-T_ALLOC_SEED	test	ecalc/tests/t_alloc.c	2027-04-12	test harness setting
-T_PATCH_DIR	test	ecalc/tests/t_patch.c	2027-04-12	test harness setting
-T_PATCH_UNPACK	test	ecalc/tests/t_patch.c	2027-04-12	test harness setting
 DM_MN_WRAP	fallback	P1/DEF (D22, results/COMPUTE.md §P1, results/MODEL.md §DEF)	2026-11-11	kept 2026-10-23 (Q87): FIT (D26) decides 0 / 1 per run by the memory fit, so the =0 path is live; was: on by default since D22; =0 keeps the old low-product form; 6-node (P24) dm -6.25 s, total -2.86 s n.s., +5.4 GB/APU, in the memory model (DEF)
 MN_NONPOW2_MIN	experiment	T2 (D57)	2026-11-19	the auto rule's threshold (digits per node, 4.5e10)
 MN_NONPOW2_CAP	experiment	T2 (D57)	2026-11-19	auto since Q58 (user 2026-10-20): on from MN_NONPOW2_MIN digits per node; 6 n -18 s libfabric, +41 GB/node planes; 1 = on, 0 = off
-XSHMEM_CTRL	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
 XSHMEM_HEAP_MB	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
 XSHMEM_LANES	experiment	TARGET1 (B1)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
 XSHMEM_LOOPBACK_PES	experiment	TARGET1 (S3a)	2026-12-31	XSHMEM engine / backend arm, off by default; review when the xshmem transport gate (S3a) closes
@@ -58,7 +30,6 @@ XSHMEM_ROUND_ACTIVE	experiment	comm	2026-12-31	rounds sized by active pairs (N1)
 TMPDIR	test-only	TARGET1 (B3)	2026-12-31	system temp directory read by tests/t_pe_geo
 ECALC_VPE_LANES	experiment	TARGET1 (S2)	2026-12-31	PEs per node without a launch (planners, tests); review with ECALC_PE_PER_GPU
 ECALC_PE_PER_GPU	experiment	TARGET12 (S2)	2026-12-31	one process per GPU (PE); off by default; review when S2a..S2d are merged
-ECALC_TEST_DIE_PE	diagnostic	TARGET12 (S2)	2027-04-12	fault-injection setting for the process-per-GPU kill test; changes no digit
 XSHMEM_HEAP_SLACK_MB	experiment	TGTSHAPE	2026-12-31	diagnostic for XSHMEM=cray runs, off by default
 RNS_BATCH_SPLIT	experiment	TARGET12 (S2)	2026-12-31	own-device split of oversized batch products under one process per GPU (Q75 a); off by default; review when adopted
 XSHMEM_CRAY_HEAP_THP	experiment	craylane	2026-12-31	Cray stream-sync stall diagnosis (4 KiB pinned heap hypothesis)
@@ -72,8 +43,6 @@ XSHMEM_SPARSE	experiment	comm	2026-12-31	skip zero-byte peers in exchanges; adop
 XSHMEM_HANG_S	diagnostic	comm	2027-04-12	handshake HANG timeout for imbalance vs loss tests
 XSHMEM_HS_BATCH	experiment	comm	2026-12-31	paced / rotated flat handshake; adopt or drop after the target 2e13 test
 COMM_SEQ_CHECK	diagnostic	comm	2027-04-12	call-sequence divergence check
-P24_CHECK_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-P24_CHECK_TEST_K	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 P24_CRT_ANY	fallback	coordinator (Q130)	2026-11-11	=0 kept: the old CRT flag (s = 12 + spill only); default 1 (all shifts) since 2026-10-27
 DB_FREE_SYNC	experiment	coordinator (C1POOL)	2026-11-30	off by default; adopt, or remove after the large-size runs
 ECALC_MEMSAMPLE_SYSFS_ROOT	test-only	HEALTH (C5)	2027-04-12	mock sysfs root of the per-APU memory guard test
@@ -82,11 +51,6 @@ ECALC_HOST_TL	diagnostic	coordinator (I3)	2027-01-31	clock-read only diagnostic;
 ECALC_HOST_TL_PE	diagnostic	coordinator (I3)	2027-01-31	selects the PE of ECALC_HOST_TL
 ECALC_DR	experiment	coordinator (C3 DR, Q142)	2026-12-01	off by default; the user adopts on measured data (steps 5-6 of results/CORRECTNESS.md), or it is removed
 ECALC_DR_TOTAL	experiment	coordinator (C3 DR, Q142)	2026-12-01	follows ECALC_DR
-ECALC_DR_TEST	diagnostic	diagnostics (TESTING.md)	2027-05-01	diagnostic or fault-injection setting; changes no digit
-ECALC_DR_TEST_K	diagnostic	diagnostics (TESTING.md)	2027-05-01	diagnostic or fault-injection setting; changes no digit
-ECALC_DR_TEST_PE	diagnostic	diagnostics (TESTING.md)	2027-05-01	diagnostic or fault-injection setting; changes no digit
-ECALC_DR_TEST_N	diagnostic	diagnostics (TESTING.md)	2027-05-01	diagnostic or fault-injection setting; changes no digit
-ECALC_DR_TEST_M	diagnostic	diagnostics (TESTING.md)	2027-05-01	diagnostic or fault-injection setting; changes no digit
 NEWTON_MN_LAZY	experiment	lazy shift (F-in)	2026-11-30	Q_t as a view in the reciprocal; adopt or drop after the target division-line shift time
 ECALC_MAPD	experiment	coordinator (TASKS S1)	2026-11-30	off by default; adopt or remove at review (results/MEMORY_IO.md)
-ECALC_MAPD_TEST_DIE	test	coordinator (TASKS S1)	2026-11-30	helper fault injection for ECALC_MAPD; changes no digit
+ECALC_TEST	test-only	test injections (TESTING.md)	2027-05-01	fault-injection setting; changes no digit unless a correction is forced

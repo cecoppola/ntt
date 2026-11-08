@@ -2,7 +2,7 @@
  * node each APU's HBM is its own NUMA node (k = APU k), so this is the APU's own free memory; /proc/meminfo's
  * MemAvailable is the sum over the four. nodemem_read gives MemFree and the reclaimable file cache (Active(file) +
  * Inactive(file)); the usable free memory is their sum. root = a path prefix of "/sys" (test hook
- * ECALC_MEMSAMPLE_SYSFS_ROOT: a mock tree; "" = the real /sys). Header-only, host only (tests/t_nodemem.c). */
+ * ECALC_MEMSAMPLE_SYSFS_ROOT: a mock tree; "" = the real /sys). Header-only, host only (tests/t_host.c nodemem). */
 #ifndef EC_NODEMEM_H
 #define EC_NODEMEM_H
 #include <stdio.h>

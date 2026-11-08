@@ -6,7 +6,7 @@
  * uncorrected X, then patched node by node (the low limbs gathered in growing windows, as the collective does); checks:
  * every part equals its range of the corrected file, the joined digit residues + the adjustment equal the corrected
  * string's, every ECALC_WINDOWS window (random ones, ones ending in the last 60 digits, ones over the chain) checked
- * exactly once and none bad, first / last / tail follow.  Size 1 also through mn_out_tail_fix.  Directory: T_PATCH_DIR
+ * exactly once and none bad, first / last / tail follow.  Size 1 also through mn_out_tail_fix.  Directory: ECALC_TEST patch_dir
  * (default /tmp); ECALC_ODIRECT=1 (the default) patches whole 4 KiB blocks with O_DIRECT where the file system takes it. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,7 +18,7 @@
 /* the packed forms (ECALC_OUT_PACKED=2, the default; the 8-byte form =1 was removed 2026-10-23).  Without ECALC_OUT_PACKED in the
  * environment t_patch runs itself twice, =0 (ASCII: K's checks) and =2 (packed: every part's limbs == the corrected X's limbs
  * [lo, hi) in file order, its header complete with residues == those limbs mod q, tools/unpack_digits --cmp against the corrected
- * ASCII file with its residue check; T_PATCH_UNPACK = the binary, default ../tools/unpack_digits).  Both forms: a second patch of
+ * ASCII file with its residue check; patch_unpack = the binary, default ../tools/unpack_digits).  Both forms: a second patch of
  * a patched part must fail (the bytes are no longer the uncorrected ones) exactly when the first one changed bytes. */
 static int packed_part_check(const char *pn, const uint64_t *X1, size_t nl, const mn_out *o, int it, int size)
 {
@@ -52,9 +52,9 @@ int main(int argc, char **argv)
         return rc;
     }
     printf("== t_patch (ECALC_OUT_PACKED=%s) ==\n", getenv("ECALC_OUT_PACKED")); harness_meta("t_patch");
-    const char *unpack = getenv("T_PATCH_UNPACK") ? getenv("T_PATCH_UNPACK") : "../tools/unpack_digits";
+    char unb_[256], dirb_[256]; const char *unpack = ec_test_str("patch_unpack", unb_, sizeof unb_) ? unb_ : "../tools/unpack_digits";
     int npk = 0, nneg = 0;
-    const char *dir = getenv("T_PATCH_DIR") ? getenv("T_PATCH_DIR") : "/tmp";
+    const char *dir = ec_test_str("patch_dir", dirb_, sizeof dirb_) ? dirb_ : "/tmp";
     int fails = 0, checks = 0; size_t maxchain = 0; int nlong = 0;
     for (int it = 0; it < 80; it++) {
         unsigned long d_out = 60 + rnd() % 6000, d = ((d_out + 17) / 18) * 18;

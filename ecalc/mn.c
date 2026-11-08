@@ -1,6 +1,7 @@
 /* mn.c - the multi-node layer: environment, one mesh per APU thread (xshmem PE sets, COMM_TRANSPORT=xshmem);
  * the start-up self-test */
 #include <stdio.h>
+#include "test_inject.h"
 #include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
@@ -37,24 +38,7 @@ static comm *mesh_create(int pe_start, int pe_stride, int n, int id)   /* every 
 #endif
 }
 int mn_rank(void) { return vpe_on() ? vpe_pe() : g_rank; }   /* the PE rank in process mode, else this node */
-/* MN_COMM_MARK=1 (default 0: off) -- at the end of each tree level, of the reciprocal and of the division, node 0 prints
- * this PE's all-to-all traffic since the previous mark: exchanges, GB received, post-to-completion s summed over the APU threads,
- * GB/s per APU thread, and the wall since the mark -- the per-phase fabric rate (E's step-below run: the step's cost vs the
- * fabric's run-to-run variance).  Reads counters only: no collective, no change to the computation. */
-void mn_comm_mark(const char *what)
-{
-    static int on = -1; static double t0, b0, w0; static long n0;
-    if (on < 0) { const char *e = getenv("MN_COMM_MARK"); on = e && atoi(e) > 0; w0 = mem_now(); }
-    if (!on || !mn_transport_shmem()) return;   /* (one set of counters per process; process mode: every process is its own) */
-    double t = 0, b = 0, w = mem_now(); long n = 0;
-#ifdef XSHMEM_ENGINE
-    comm_xshmem_counters(&t, &n, &b);
-#endif
-    if (mn_rank() == 0) printf("comm-mark %s: %ld exchanges, %.2f GB received, %.2f s post to completion (summed over the APU threads) = %.2f GB/s per APU thread; wall %.2f s\n",
-                            what, n - n0, (b - b0) / 1e9, t - t0, t > t0 ? (b - b0) / 1e9 / (t - t0) : 0, w - w0);
-    t0 = t; b0 = b; n0 = n; w0 = w;
-}
-/* D3: MN_WAIT_STATS=1 (default off; comm.h) -- the time this node blocks in the barrier and in comm_wait, per phase: bs, dm,
+/* MN_WAIT_STATS=1 (default off; comm.h) -- the time this node blocks in the barrier and in comm_wait, per phase: bs, dm,
  * recip (the reciprocal inside dm) and other.  One line per node, summed over the APU threads; then node 0's max and min
  * over the nodes (a collective on mesh 0, run by every node when on).  Reads counters only: the computation is unchanged. */
 void mn_wait_stats_print(void)
@@ -81,15 +65,16 @@ void mn_wait_stats_print(void)
 int mn_size(void) { return vpe_on() ? vpe_npe() : g_size; }   /* the PE count in process mode, else the nodes */
 comm *mn_comm(int apu) { return vpe_on() ? (mn_size() > 1 ? flat : 0) : g_size > 1 ? g_cm[apu] : 0; }   /* PE layout: the flat PE communicator of this PE (apu ignored: one device per PE) */
 static comm *cm0(void) { return vpe_on() ? flat : g_cm[0]; }
-/* the PE communicators (vpe.h).  The flat one is made by mn_init; sub-communicators are made on first use by every member PE (local creation, no message) and
- * cached per lane.  The id is a function of (g0, g, slot) alone, so the members agree without an exchange: an aligned power-of-two run (g0 % g == 0)
- * 1 + log2 g + 16 slot (slot < 16, g < 2^15: ids < 256); any other run with g < 64 256 + 64 slot + g (slot < 4: ids 259..511); any other run with g >= 64
- * (a 3-way level of the tree at 192, 384, 768 PEs ...; a cut top group of mn_group_at) 512 + slot (slot < 31: ids 512..542; only when vpe_big_ids, which sizes the control block 544; callers pass the schedule
- * level so two sizes on one PE differ, mn_group_at level l: slot l (< 16), mn_group_span level l: 15 + l (16..30); id 543 is the t_vpe hs burst block, 511 too when the block is 512 ids).  The map is injective over that domain, so two runs share
- * an id only if they have the same (g, slot) class -- and then sharing a PE is a fatal naming both runs (vpe_sub_slot checks its own table first; the engine's
- * "id used twice" is the backstop; use another slot).  Outside the domain: fatal.  (2026-10-27, A5: the g >= 64 class was a fatal "supports g < 64" before,
- * which a 768-PE group of the 2304-PE schedule hit; tools/comm_id_audit.py enumerates every engine partition: no two runs sharing a PE got the same id.)  Creation is local, so no PE order is needed; DESTRUCTION is collective (x_destroy barriers) and
- * sub_destroy_all therefore goes by descending id, a total order the members of every communicator agree on, never by creation order. */
+/* the PE communicators (vpe.h).  The flat one is made by mn_init; sub-communicators are made on first use by every member PE
+ * (local creation, no message) and cached per lane.  The id is a function of (g0, g, slot) alone, so the members agree without an
+ * exchange: an aligned power-of-two run (g0 % g == 0) 1 + log2 g + 16 slot (slot < 16, g < 2^15: ids < 256); any other run with
+ * g < 64 256 + 64 slot + g (slot < 4: ids 259..511); any other run with g >= 64 512 + slot (slot < 31: ids 512..542; only when
+ * vpe_big_ids, which sizes the control block 544; callers pass the schedule level so two sizes on one PE differ: mn_group_at
+ * level l: slot l (< 16), mn_group_span level l: 15 + l (16..30); id 543 is the t_vpe hs burst block).  The map is injective
+ * within a class; two runs may share an id only if they have the same (g, slot) class, and then sharing a PE is a fatal naming
+ * both runs (vpe_sub_slot checks its own table first; the engine's "id used twice" is the backstop; use another slot).
+ * Outside the domain: fatal.  tools/comm_id_audit.py enumerates every engine partition.  Creation is local, so no PE order is
+ * needed; sub_destroy_all goes by descending id, a total order every member agrees on, never by creation order. */
 __attribute__((unused)) static int sub_id(int g, int g0, int slot)
 {
     int lg = 0; while ((1 << lg) < g) lg++;
@@ -157,7 +142,6 @@ static int mn_init_ppg(void)
     printf("mn: pe %d of %d (node %d of %d, local %d of %d): device %d of %d visible, numa %d, cxi%d (%d NIC%s), one flat communicator over %d PEs over xshmem (one process per PE): created in %.2f s\n",
            pe, npe, node, nn, local, ppn, v[4], ndev, v[5], v[7], v[6], v[6] == 1 ? "" : "s", npe, mem_now() - tx);
     { const char *tl = getenv("ECALC_INIT_TL"); if (tl && atoi(tl) > 0 && pe == 0) printf("tl          mn_init: transport init + identity checks + the flat communicator %.2f s (pe 0; the engine's own lines are `tl ... xshmem:`)\n", mem_now() - tx); }   /* ECALC_INIT_TL=1 (print only) */
-    mn_comm_mark("start (the meshes created)");
     return npe;
 }
 #endif
@@ -194,7 +178,6 @@ int mn_init(void)
         HIP_CHECK(hipSetDevice(0));
         printf("mn: node %d of %d, four meshes of %d PEs over xshmem: created in %.2f s\n", g_rank, g_size, g_size, mem_now() - tx);
         { const char *tl = getenv("ECALC_INIT_TL"); if (tl && atoi(tl) > 0 && g_rank == 0) printf("tl          mn_init: transport init %.2f s, four meshes created %.2f s (node 0; the engine's own lines are `tl ... xshmem:`)\n", t_eng, mem_now() - tx - t_eng); }   /* ECALC_INIT_TL=1 (print only) */
-        mn_comm_mark("start (the meshes created)");   /* the marks' origin */
         return g_size;
     }
 #endif
@@ -311,7 +294,7 @@ int mn_selftest(int logR, int logC, int verbose)
     return ok;
 }
 
-/* ---- node groups, the layered self-test, the distributed top levels of the tree (archive:PLAN §17) ---- */
+/* ---- node groups, the layered self-test, the distributed top levels of the tree ---- */
 #include "mdb.h"
 #include "dbig.h"
 #define MN_MAXL 16
@@ -403,21 +386,23 @@ int mn_selftest_layered(int logR, int logC, int verbose)
     printf("mn: layered self-test, %d x 4 ranks at 2^%d+ points: %s (%.2f s)\n", gt, logR + logC, ok ? "ok" : "FAILED", mem_now() - t0);
     return ok;
 }
-/* the top log2(size) levels of the binary-splitting tree as distributed products: level l pairs the groups A (lower
- * terms) and B (higher terms) of level l-1, P = P_A Q_B + P_B (P_B as the CRT's added operand), Q = Q_A Q_B, each
- * operand sharded over its own group's nodes and the results over the joined group.  The other side's
- * descriptors (n, N, g0, g) come from an all-gather over the group; nothing else is exchanged outside the
- * products.  In: this node's leaf P_r, Q_r (device numbers, taken over); out: shares of P, Q over all nodes. */
+/* the top log2(size) levels of the binary-splitting tree as distributed products: level l pairs the groups A (lower terms) and B
+ * (higher terms) of level l-1, P = P_A Q_B + P_B (P_B as the CRT's added operand), Q = Q_A Q_B, each operand sharded over its own
+ * group's nodes and the results over the joined group.  The other side's descriptors (n, N, g0, g) come from an all-gather over the
+ * group; nothing else is exchanged outside the products.  In: this node's leaf P_r, Q_r (device numbers, taken over); out: shares
+ * of P, Q over all nodes. */
 #include "binsplit.h"
 #include "newton.h"                                   /* newton_mn_pq_hook */
 #include "mn_plan.h"                                  /* MN_LEVEL_UNIFORM */
-#include "dr.h"                                       /* C3 (ECALC_DR >= 2): the tracked residues of the tree, the leaf check */
+#include "dr.h"                                       /* the tracked residues of the tree, the leaf check */
 #include "verify.h"                                   /* t1_q */
 #include <unistd.h>
-/* ---- C3 step 3 (ECALC_DR >= 2; results/CORRECTNESS.md): the tree's tracked residues (B) and the leaf check (C) ----------------------------------------------------------
- * tp / tq: R(P), R(Q) (mod DR_Q = t1_q[0]) of the node's current P, Q (the common value of its child group, held in an explicit variable here, never in the mdb) and this node's share parts.
- * Seeded from the leaf at the start of the tree (db_mod_qs: the only extra pass), carried through the levels by the descriptor all-gather (11 words) and the checked products.
- * C: the seeds against the node's recurrence (pq_bg_run, ecalc.c; the T1 values of this node's term range): polled after every level, finally at the division. */
+/* ---- the tree's tracked residues (ECALC_DR >= 2) (B) and the leaf check (C) ----
+ * tp / tq: R(P), R(Q) (mod DR_Q = t1_q[0]) of the node's current P, Q (the common value of its child group, held in an explicit
+ * variable here, never in the mdb) and this node's share parts.  Seeded from the leaf at the start of the tree (db_mod_qs: the only
+ * extra pass), carried through the levels by the descriptor all-gather (11 words) and the checked products.  C: the seeds against
+ * the node's recurrence (pq_bg_run, ecalc.c; the T1 values of this node's term range): polled after every level, finally at the
+ * division. */
 static struct { int on, checked, deferred; uint64_t seed_p, seed_q; int top_valid; uint64_t top_p, top_q; } g_dr;
 static int (*g_leaf_poll)(void *arg, uint64_t *p, uint64_t *q); static void *g_leaf_arg;
 void mn_dr_leaf_ref(int (*poll)(void *arg, uint64_t *p, uint64_t *q), void *arg) { g_leaf_poll = poll; g_leaf_arg = arg; }
@@ -457,11 +442,11 @@ static mdb_trk trk_from(uint64_t r, const mdb_trk *mine, int held) { mdb_trk t; 
 static int g_lv_tab[4 * 64], g_lv_on;                  /* MN_LEVEL_UNIFORM: this level's largest grid per product (mn_plan.c mn_level_grids), the same on every PE */
 static void lv_force(int pi) { if (g_lv_on) rns_dist_mn_force(g_lv_tab[2 * pi], g_lv_tab[2 * pi + 1]); }
 static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, mdb_trk *tp, mdb_trk *tq);
-/* the top tree set in the background (mn_ckpt_bg_mode, set by ecalc.c: 0 = none, 1 = complete, the division
- * waits for P's part before S = P + Q if it must; 2 = budgeted, dropped when the measured disk rate cannot finish a part within
- * mn_ckpt_slack seconds of its release).  The writer reads the shares while the reciprocal and the division run; the hook in
- * newton_mn_divmod lets go of P before S = P + Q and takes Q's share, when the writer still needs it, until mn_ckpt_top_finish
- * (after the output stage).  mn_ckpt_top_finish joins the writer. */
+/* the top tree set in the background (mn_ckpt_bg_mode, set by ecalc.c: 0 = none, 1 = complete, the division waits for P's part
+ * before S = P + Q if it must; 2 = budgeted, dropped when the measured disk rate cannot finish a part within mn_ckpt_slack seconds
+ * of its release).  The writer reads the shares while the reciprocal and the division run; the hook in newton_mn_divmod lets go of
+ * P before S = P + Q and takes Q's share, when the writer still needs it, until mn_ckpt_top_finish (after the output stage),
+ * which joins the writer. */
 int mn_ckpt_bg_mode = 0; double mn_ckpt_slack = 1.0;
 static bs_ckpt_bg *g_topbg; static int g_topbg_on; static dbig g_heldQ;
 static void mn_pq_hook(int stage, mdb *x)
@@ -497,12 +482,12 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
     memset(&g_dr, 0, sizeof g_dr);
     if (dr_level() >= 2 && mn_size() > 1) {                 /* C3 step 3: seed the tracked residues from the leaf (after the leaf injection) */
         if (t1_q[0] != DR_Q) ec_fatal(EC_RC_FATAL, "mn_tree: DR: t1_q[0] = %llu is not DR_Q\n", (unsigned long long)t1_q[0]);
-        if (P->sh.n && dr_inject(DR_LEAF, 1, mn_rank(), 0, 0)) { uint64_t v = db_limb(&P->sh, P->sh.n / 2); db_set_limb(&P->sh, P->sh.n / 2, v ? v - 1 : 1); }   /* ECALC_DR_TEST=leaf: one limb of P_r wrong */
+        if (P->sh.n && dr_inject(DR_LEAF, 1, mn_rank(), 0, 0)) { uint64_t v = db_limb(&P->sh, P->sh.n / 2); db_set_limb(&P->sh, P->sh.n / 2, v ? v - 1 : 1); }   /* ECALC_TEST dr=leaf: one limb of P_r wrong */
         mdb_trk_make(P, 0, &tp); mdb_trk_make(Q, 0, &tq);
         g_dr.on = 1; g_dr.seed_p = tp.r; g_dr.seed_q = tq.r; dr_arm();
         dr_leaf_check(0);
     }
-    int captest = getenv("MN_TREE_LOGN_TEST") ? atoi(getenv("MN_TREE_LOGN_TEST")) : 0;   /* the tree's levels at a lowered plane cap (grids at 10^10 on one node), the division at its own */
+    int captest = (int)ec_test_long("tree_logn", 0);   /* the tree's levels at a lowered plane cap (grids at 10^10 on one node), the division at its own */
     if (captest) rns_dist_cap_test(captest);
     for (int l = 1; l <= L; l++) {
         int Gl = gs[l - 1], Gp = l > 1 ? gs[l - 2] : 1;       /* this level's group size and the children's (the previous level's) */
@@ -523,10 +508,9 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
     if (captest) rns_dist_cap_test(0);
     if (g_dr.on) { g_dr.top_valid = 1; g_dr.top_p = tp.r; g_dr.top_q = tq.r; }
 }
-/* one tree level (MN_GROUPS: a binary level, the 9-way top step at 576, 3-way steps ...): the group [g0, g0+g) has nch children of gp
- * nodes each (the last one cut), child i = the members [i gp, min((i+1) gp, g)) holding P_i, Q_i sharded over them.  The
- * combine is Horner's from the top child down (a 3-way level = 4 products):
- *   (P, Q) = (P_{k-1}, Q_{k-1});  for i = k-2 .. 0:  P = P_i Q + P,  Q = Q_i Q
+/* one tree level (MN_GROUPS): the group [g0, g0+g) has nch children of gp nodes each (the last one cut), child i = the members
+ * [i gp, min((i+1) gp, g)) holding P_i, Q_i sharded over them.  The combine is Horner's from the top child down (a 3-way level =
+ * 4 products):  (P, Q) = (P_{k-1}, Q_{k-1});  for i = k-2 .. 0:  P = P_i Q + P,  Q = Q_i Q
  * -- k - 1 combines of two products each, every product balanced over all g nodes by the block-cyclic map; a child's shares are
  * freed right after its combine, so a node holds at most its child's P, Q, the running pair and the new pair: O(share). */
 static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, mdb_trk *tp, mdb_trk *tq)
@@ -559,7 +543,7 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, md
             memset(&PA.sh, 0, sizeof PA.sh);
         }
         if (mem_live_on()) { char w[64]; if (nch == 2) snprintf(w, sizeof w, "mn node %d tree level %d mul1", mn_rank(), l); else snprintf(w, sizeof w, "mn node %d tree level %d c%d mul1", mn_rank(), l, nch - 1 - i); mem_live_line(w); }   /* the first product's window */
-        if (use) mdb_dr_store_inject(nch == 2 ? Q : &Qr, mn_rank());   /* ECALC_DR_TEST=store, every node calls (the occurrence count must agree): at nch = 2 my child's Q, else the running Q, wrong at rest after the first product */
+        if (use) mdb_dr_store_inject(nch == 2 ? Q : &Qr, mn_rank());   /* ECALC_TEST dr=store, every node calls (the occurrence count must agree): at nch = 2 my child's Q, else the running Q, wrong at rest after the first product */
         lv_force(2 * (nch - 2 - i) + 1);
         if (use) rns_mul_dist_mn_chk(&Qn, &QA, &Qr, 0, G, &tQA, &tQr, 0, &tQn); else rns_mul_dist_mn(&Qn, &QA, &Qr, 0, G);
         if (mem_live_on() && i > 0) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul2", mn_rank(), l, nch - 1 - i); mem_live_line(w); }   /* (the last combine's: the level's line) */
@@ -576,7 +560,6 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch, md
     size_t lo, hi; mdb_share(P, mn_rank(), &lo, &hi);
     char kw[48] = ""; if (nch > 2) snprintf(kw, sizeof kw, " (%d children of %d)", nch, gp);
     printf("%smn: %s %d level %d [%d, %d)%s: P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", ec_log_prefix(), mn_who(), mn_rank(), l, g0, g0 + g, kw, P->n, Q->n, lo, hi, mem_now() - t0);
-    { char w[48]; snprintf(w, sizeof w, "tree level %d", l); mn_comm_mark(w); }
 }
 static void groups_finalize(void)
 {

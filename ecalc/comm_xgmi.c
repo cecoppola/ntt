@@ -1,14 +1,9 @@
-/* comm_xgmi.c - four real ranks, one per APU, on one node (WP5).  Rank r is
- * device r.  alltoall: slab s of my send buffer goes to rank s's receive slab r
- * by a peer copy on my stream; wait() synchronises my stream and then the
- * shared barrier, so every rank's receive buffer is complete.  Ranks are driven
- * by four host threads (one per device), as the batch tier does.
- * alltoallv (B7): the same pushes with per-peer lengths to the receivers' offsets, the count tables through the shared
- * table (a mismatch aborts).
- * allgather (M7): every rank pushes its one block into the three peers' receive
- * buffers (the same push kernel; a memcpy for blocks that are not 16-byte
- * multiples) and copies its own; complete after the closing barrier.  The host
- * variant is three memcpys from the peers' host blocks between two barriers. */
+/* comm_xgmi.c - four real ranks, one per APU, on one node.  Rank r is device r, driven by four host threads.  alltoall: slab s of
+ * my send buffer goes to rank s's receive slab r by a peer copy on my stream; wait() synchronizes my stream and then the shared
+ * barrier, so every rank's receive buffer is complete.  alltoallv: the same pushes with per-peer lengths to the receivers'
+ * offsets, the count tables through the shared table (a mismatch aborts).  allgather: every rank pushes its block into the
+ * three peers' receive buffers (the same push kernel; a memcpy for blocks that are not 16-byte multiples) and copies its own;
+ * complete after the closing barrier.  The host variant is three memcpys from the peers' host blocks between two barriers. */
 #include <stdio.h>
 #include "fatal.h"
 #include <stdlib.h>
@@ -22,16 +17,17 @@
 static struct { void *rb[NR]; size_t bytes; hipStream_t s[NR]; pthread_barrier_t bar; uint64_t red[NR];
                 hipStream_t ps[NR][NR]; hipEvent_t ev[NR][NR], start[NR]; int streams[NR];
                 const void *ag_sb[NR]; void *ag_rb[NR];
-                const size_t *scnt[NR], *rcnt[NR], *rdsp[NR]; const void *hsb[NR]; } G;   /* B7: the v-exchange's tables */
+                const size_t *scnt[NR], *rcnt[NR], *rdsp[NR]; const void *hsb[NR]; } G;   /* the v-exchange's tables */
 static pthread_once_t g_once = PTHREAD_ONCE_INIT;
-#define PUSH_BLOCKS 76   /* blocks per peer of the push kernel (fewer blocks leave the CUs to the row pass that runs under the exchange); 64-bit stores
-                         * (measured in archive:results_merged_2026-10-24/EXCHANGE.md §C: the 2^31 convolution -8..-10 % against 16-byte vectors at 228 blocks; RESULTS.md 11 had 909 vs 699 GB/s) */
+#define PUSH_BLOCKS 76   /* blocks per peer of the push kernel (fewer blocks leave the CUs to the row pass that runs under the exchange);
+ * 64-bit stores (measured in the 2^31 convolution -8..-10 % against 16-byte vectors at 228 blocks; had 909 vs 699
+ * GB/s) */
 static void g_init(void)
 {
     pthread_barrier_init(&G.bar, NULL, NR);
 }
 /* push: one kernel drives the three links -- block b serves peer b % 3, so the three streams of stores are
- * concurrent (a push kernel beats hipMemcpyPeerAsync by 1.67x, RESULTS.md 11); 64-bit words.  Per-peer lengths n[peer] in elements (B7: the unequal exchange; a zero is allowed). */
+ * concurrent (a push kernel beats hipMemcpyPeerAsync by 1.67x); 64-bit words.  Per-peer lengths n[peer] in elements (B7: the unequal exchange; a zero is allowed). */
 struct push3 { const void *src[3]; void *dst[3]; size_t n[3]; };
 template <typename T> __global__ void k_push3(struct push3 a)
 {
@@ -42,7 +38,7 @@ template <typename T> __global__ void k_push3(struct push3 a)
 }
 /* the same push with each block's start and end stamped (wall_clock64, 100 MHz), so the time
  * each link (= each peer's blocks) is active can be read back.  map 0: block b serves peer b % 3 (the push's own order);
- * map 1: contiguous thirds of the grid (the H4 ordering variant).  Used by the H4 bench (comm_xgmi_h4, DIST_H4=1) only. */
+ * map 1: contiguous thirds of the grid (the H4 ordering variant).  Used by the H4 bench (comm_xgmi_h4, ECALC_TEST h4=1) only. */
 template <typename T> __global__ void k_push3_ts(struct push3 a, unsigned long long *ts, int map)
 {
     size_t nb = gridDim.x / 3; int peer = map ? (int)(blockIdx.x / nb) : blockIdx.x % 3; size_t b = map ? blockIdx.x % nb : blockIdx.x / 3, n = a.n[peer];
@@ -67,7 +63,7 @@ static void push_run(struct push3 a, const size_t *bytes, hipStream_t s)
     for (int k = 0; k < 3; k++) a.n[k] = bytes[k] / w;
     k_push3<uint64_t><<<PUSH_BLOCKS * 3, 256, 0, s>>>(a);
 }
-/* ---- H4: per-link bytes and active time (the stamped push, for the H4 bench only; the COMM_XGMI_STATS switch was removed 2026-10-19, D56) ---- */
+/* ---- H4: per-link bytes and active time (the stamped push, for the H4 bench only; the COMM_XGMI_STATS switch was, D56) ---- */
 static struct { unsigned long long *d_ts[NR], *h_ts[NR]; int nts[NR], pend[NR], map[NR], peer[NR][3]; size_t pb[NR][3]; double khz;
                 double bytes[NR][NR], active[NR][NR], kbytes[NR], kspan[NR], n[NR]; } H;
 /* read back the stamps of rank me's last stamped push (its stream is synchronised) and add them to the per-link totals */
@@ -120,8 +116,8 @@ static void x_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     }
     push_run(a, nb, s);
 }
-/* B7: the unequal exchange -- the receivers' tables are published, checked against my counts, and my blocks pushed
- * to their offsets (a memcpy where a block is not 8-byte aligned) */
+/* the unequal exchange -- the receivers' tables are published, checked against my counts, and my blocks pushed to
+ * their offsets (a memcpy where a block is not 8-byte aligned) */
 static void x_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
 {
     int me = c->rank; G.rb[me] = rb; G.s[me] = s; G.scnt[me] = scnt; G.rcnt[me] = rcnt; G.rdsp[me] = rdsp;
@@ -203,16 +199,14 @@ comm *comm_xgmi_create(int rank)
     return c;
 }
 
-/* ---- H4 (archive:PLAN §29): the xGMI push's link concurrency.  comm_xgmi_h4 is called by the four APU threads at once (each
- * after comm_xgmi_create), `bytes` per (sender, peer) pair, `blocks` per peer, `reps` repetitions after one warm-up.
- * Modes: 0 all-to-all (the exchange: every APU pushes to its three peers, one kernel, block b -> peer b % 3);
- * 1 the same, contiguous thirds of the grid per peer; 2 fan-out (APU 0 alone, three links); 3 one link (APU 0 -> 1,
- * all 3 x blocks blocks on it); 4 one link with `blocks` blocks (the per-link share of the all-to-all kernel);
- * 5 one link both ways (0 <-> 1 at once, 3 x blocks each); 6 all-to-all as three kernels on three streams (blocks each);
- * 7 all-to-all by hipMemcpyAsync on three streams (the copy engines); 8 all-to-all in three rounds (round i: APU d ->
- * d + i mod 4, 3 x blocks blocks, a barrier between rounds -- one link per APU at a time).
- * out[0] = seconds per repetition (host, barrier to barrier), out[1] = bytes this APU sent per repetition, out[2..5] =
- * this APU's per-peer rates (GB/s, from the stamps, the mean over the repetitions; 0 where not stamped or no traffic). */
+/* ---- the xGMI push's link concurrency.  comm_xgmi_h4 is called by the four APU threads at once (each after comm_xgmi_create),
+ * `bytes` per (sender, peer) pair, `blocks` per peer, `reps` repetitions after one warm-up.
+ * Modes: 0 all-to-all (every APU pushes to its three peers, one kernel, block b -> peer b % 3); 1 the same, contiguous thirds of
+ * the grid per peer; 2 fan-out (APU 0 alone, three links); 3 one link (APU 0 -> 1, all 3 x blocks blocks on it); 4 one link with
+ * `blocks` blocks; 5 one link both ways (0 <-> 1, 3 x blocks each); 6 all-to-all as three kernels on three streams; 7 all-to-all
+ * by hipMemcpyAsync on three streams; 8 all-to-all in three rounds (round i: APU d -> d + i mod 4, a barrier between rounds).
+ * out[0] = seconds per repetition (host, barrier to barrier), out[1] = bytes this APU sent per repetition, out[2..5] = this
+ * APU's per-peer rates (GB/s, mean over the repetitions; 0 where not stamped or no traffic). */
 static struct { char *src[NR], *dst[NR]; size_t cap; hipStream_t st[NR][3]; } B;
 extern "C" void comm_xgmi_h4(int me, int mode, size_t bytes, int blocks, int reps, double *out)
 {

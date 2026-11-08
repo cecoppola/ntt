@@ -416,7 +416,7 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     t_x = T_XGMI_31 * scale
     if dz is None or dz.legacy or not fab.target:
         gen = GEN_HIDE if dz is None or dz.gen_hide is None else dz.gen_hide   # Phase 13b D: the depth check on aac6 sets it
-        pow2 = is_pow2(g) and not (dz is not None and dz.force_gen)             # DIST_GEN=1
+        pow2 = is_pow2(g) and not (dz is not None and dz.force_gen)             # dist_gen=1
         hide = (1.0 if fab.target else HIDDEN_XGMI) * (1.0 if pow2 else gen)
     else:                                                             # Phase 13b D: X13's measured overlap -- the equal path hides
         hide = HIDE_POW2 if is_pow2(g) else GEN_HIDE_DEPTH[min(dz.depth, 2)]   # 3/4 of its xGMI time, the general map 1.1 % (two deep: modelled 3/4)
@@ -444,7 +444,7 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     c.t_exposed = n_tr * exposed_tr + t_r + t_s + t_small
     return c
 
-NP_AUTO_TERMS = mem_model.NP3_MAX_TERMS   # Phase 15 NP: ECALC_NP=auto's switch-over (ECALC_NP_AUTO_TERMS; the three-prime bound)
+NP_AUTO_TERMS = mem_model.NP3_MAX_TERMS   # Phase 15 NP: ECALC_NP=auto's switch-over (np_auto_terms; the three-prime bound)
 NP_STATS = dict(n3=0, n4=0)                # the pieces priced at three / four primes under auto (the memo counts a product once)
 def piece_np(dz, nc, na=None, nb=None):
     """Phase 15 NP (crt.c ec_np_for): a piece's prime count -- the design's np, or under np_auto four when nc = pa + pb exceeds the
@@ -579,7 +579,7 @@ def shift_cost(fab, n, g):
     when the basis changes), then the truncation's max-reduction"""
     c = Cost()
     t1, nic1, glob1, msgs1 = fab.a2a(0.5 * 8 * n / (4 * g), g, 1)
-    if DZ is not None and DZ.shift_mb:                                # Phase 13b D: MDB_SHIFT_CHUNK_MB -- K rounds of about m MB per APU
+    if DZ is not None and DZ.shift_mb:                                # Phase 13b D: mdb_shift_chunk_mb -- K rounds of about m MB per APU
         part = -(-n // g) // 4; ch = int(DZ.shift_mb * 1048576.0 / 8)
         t1 += (max(0, -(-part // ch) - 1) if ch else 0) * round_cost(fab, g)
     c.t = t1 + fab.coll(g) + 0.002 * fab.gpu_share; c.t_exposed = t1 + fab.coll(g); c.nic = nic1; c.glob = glob1; c.msgs = msgs1; c.xfers = 1
@@ -605,9 +605,9 @@ def choose_group(fab, n_pts, g, rule, form):
     if best[1] * 2 > g and best[1] != g: return g
     return best[1]
 
-NEWTON_RECIP_GUARD = 1                 # newton_db.c: the cut keeps one guard limb (NEWTON_RECIP_GUARD, default 1)
+RECIP_GUARD = 1                 # newton_db.c: the cut keeps one guard limb (RECIP_GUARD, default 1)
 NEWTON_RECIP_MID_HI = 4                # newton_db.c MID_HI: NEWTON_RECIP_MID's high cut at take + 4 (Phase 15 R4; default since 2026-09-27)
-def newton_recip_cut(v): return v - NEWTON_RECIP_GUARD if v > NEWTON_RECIP_GUARD else 0   # newton_db.c newton_recip_cut
+def newton_recip_cut(v): return v - RECIP_GUARD if v > RECIP_GUARD else 0   # newton_db.c newton_recip_cut
 
 def recip_cost(fab, nq, k, g, rule, form, split=1 << 16):
     """the anchored chain k, ceil(k/2), ... : the single-node part to `split` on every node, then the sharded
@@ -873,7 +873,7 @@ _P15 = dict(_OLD13, tight=True, early_free=True, t_chunk_mb=1024, shift_chunk_mb
 class Design:
     """one row of the design space.  np: ECALC_NP; strategy: RNS_STRATEGY (C | B | B4 | auto); cap: the plane cap in points
     (None = the code's own rule: 3 2^30 below 5e10 digits of the run, else 2^31); chunk: 'off' | 'shift'
-    (MDB_SHIFT_CHUNK_MB) | 'both' (+ MN_T_CHUNK_MB), at chunk_mb; depth: the uneven (alltoallv) exchange's depth 1 | 2;
+    (mdb_shift_chunk_mb) | 'both' (+ MN_T_CHUNK_MB), at chunk_mb; depth: the uneven (alltoallv) exchange's depth 1 | 2;
     modmul: NTT_MODMUL (1 = the default since step 0); legacy: the pre-13b constants (four primes, Phase 10/11 phases)"""
     def __init__(self, np=3, strategy='C', cap=None, chunk='off', depth=1, modmul=1, chunk_mb=CHUNK_MB, legacy=False, p15=False, tight=True, early_free=True,
                  round_mb=128, pool='plan', vmm=True, recip_cut=True, out_overlap=None, p15b=False, np_mn=None, packed=None, early=None, np_auto=False,
@@ -882,7 +882,7 @@ class Design:
         self.gen_hide = None; self.force_gen = False                      # the aac6 loopback depth check (design_table --calibrate)
         self.shift_mb = chunk_mb if chunk in ('shift', 'both') else 0
         self.t_mb = chunk_mb if chunk == 'both' else 0
-        # Phase 15 (agent MD): p15 = the code since Phase 14 (DEFAULT15()): the memory forms (DM_TIGHT, MN_TREE_EARLY_FREE, the SHMEM pool from the
+        # Phase 15 (agent MD): p15 = the code since Phase 14 (DEFAULT15()): the memory forms (dm_tight, MN_TREE_EARLY_FREE, the SHMEM pool from the
         # plan, DB_POOL_VMM's host and bs terms, XSHMEM_ROUND_MB = round_mb: the code's default 128 (ecalc/xshmem_round.h; every target run used it) unless the launch line sets it -- 1024 was the model's assumption (the user's D2) until 2026-10-27, memory columns only), NEWTON_RECIP_CUT
         # in the fabric's reciprocal, CAL15 (the one-node compute refitted on the Phase 14 defaults, the seed wait as its own term) and the part
         # file as the code writes it (size > 1: after T1, not overlapped; out_overlap='half' = the model before: hidden under half the division).
@@ -937,10 +937,9 @@ class Design:
                                        ' np-auto' if (self.np_auto or self.np_mn == 'auto') else '', ' cache-fit' if self.cache_fit else '')
     def env(self):
         """the environment that selects this row: RNS_STRATEGY (agent B), ECALC_PLANE_CAP (agent P: sets POOL_LOG,
-        RNS_PLANES_3Q30 and DIST_LOGN_TEST), MDB_SHIFT_CHUNK_MB / MN_T_CHUNK_MB (Phase 13a M), COMM_ALLTOALLV_DEPTH (agent X)"""
+        RNS_PLANES_3Q30 and DIST_LOGN_TEST), mdb_shift_chunk_mb / MN_T_CHUNK_MB (Phase 13a M), COMM_ALLTOALLV_DEPTH (agent X)"""
         e = dict(ECALC_NP='auto' if (self.np_auto or self.np_mn == 'auto') else (self.np_mn or self.np), NTT_MODMUL=self.modmul, RNS_STRATEGY=self.strategy)   # (np_mn: the target's launch line, ECALC_NP=4)
         if self.cap is not None: e['ECALC_PLANE_CAP'] = mem_model.cap_name(self.cap)
-        if self.shift_mb: e['MDB_SHIFT_CHUNK_MB'] = int(self.shift_mb)
         if self.t_mb: e['MN_T_CHUNK_MB'] = int(self.t_mb)
         e['COMM_ALLTOALLV_DEPTH'] = self.depth
         if self.p15 and self.round_mb: e['XSHMEM_ROUND_MB'] = int(self.round_mb)   # the C's name; the target's launch line (D2); the rest are the code's defaults
@@ -1046,7 +1045,7 @@ def _split_cap(na, nb, cap, r3, logmax):
     return best[1], best[2]
 
 LEAF13 = True                          # Phase 13d D2: the leaf's mdev levels from the code's span tree (leaf_shapes), not nq/2 x nq/2 and nq/4 x nq/4
-BS_SEED_TERMS = 256
+SEED_TERMS = 256
 BS_MDEV_LOGL = 30                      # RNS_BATCH_LOGL_MAX: a level whose 2 max + 1 limbs exceed 2^30 runs on the mdev tier (binsplit.c)
 
 def _lg10_f(a, b):
@@ -1065,11 +1064,11 @@ def _pq_limbs(a, b):
 
 @functools.lru_cache(maxsize=None)
 def leaf_shapes(D, a0=1, b1=None):
-    """binsplit.c's level loop over spans of BS_SEED_TERMS terms (agent L's mn_plan.c plan_leaf): node i of level l covers the spans
+    """binsplit.c's level loop over spans of SEED_TERMS terms (agent L's mn_plan.c plan_leaf): node i of level l covers the spans
     [i 2^l, (i+1) 2^l) (the last cut), pairs (2i, 2i+1) combined as P = P_a Q_b + P_b, Q = Q_a Q_b; the levels whose largest node
     (the last two) has 2 max + 1 > 2^BS_MDEV_LOGL limbs are the mdev tier: every pair's two products, (phase 'top', ...)"""
     if b1 is None: b1 = _terms(D) + 1
-    S = BS_SEED_TERMS; nspan = (b1 - a0 + S - 1) // S; n = nspan; out = []; l = 0
+    S = SEED_TERMS; nspan = (b1 - a0 + S - 1) // S; n = nspan; out = []; l = 0
     def rng(i, m):
         s0 = i * m; s1 = min((i + 1) * m, nspan); return a0 + s0 * S, min(a0 + s1 * S, b1)
     while n > 1:
@@ -1496,7 +1495,7 @@ PIECE13 = 1.0
 def DEFAULT13(): return Design(np=3, strategy='auto', cap=1 << 31, chunk='shift', depth=2, modmul=1)   # the Phase 13c defaults
 
 # ---- Phase 15 (agent MD): the one-node compute refitted on the Phase 14 defaults, the seed wait, the part file -------------------------------
-# CAL13 (above) is the 13c calibration; on the Phase 14 defaults (RNS_PLANES_FIRST, NEWTON_RECIP_CUT, DB_POOL_VMM + DM_TIGHT, ...) it had init
+# CAL13 (above) is the 13c calibration; on the Phase 14 defaults (RNS_PLANES_FIRST, NEWTON_RECIP_CUT, DB_POOL_VMM + dm_tight, ...) it had init
 # +7 s, bs -7 s and dm +7 s at 1e11 (23.6 / 90.0 / 110.0 against the measured 16.5 / 97.2 / 102.8).  CAL15 is a ratio law per group on top of
 # it, fitted like fit13 (weighted log-linear least squares in D / 4e10, held flat outside CAL15_RANGE) on CAL15_RUNS, and applies to every p15
 # design: init and bs (without the seed wait) at the leaf of the slowest node, dm at size 1 only (at size > 1 the reciprocal and the division
@@ -2011,7 +2010,7 @@ Phase 13b (agent D): the estimate is of the code after step 0 (three primes, NTT
 --modmul.  archive:scripts_2026-10-23/design_table.py prints every design.
 
 Phase 15 (agent MD): the default is the code's defaults since Phase 14 on the target's launch line (mn_model.DEFAULT15: auto, 2^31, both chunks
-at 1024 MB, depth 2, DM_TIGHT, MN_TREE_EARLY_FREE, NEWTON_RECIP_CUT, the SHMEM pool from the plan, XSHMEM_ROUND_MB=1024 = the user's D2;
+at 1024 MB, depth 2, dm_tight, MN_TREE_EARLY_FREE, NEWTON_RECIP_CUT, the SHMEM pool from the plan, XSHMEM_ROUND_MB=1024 = the user's D2;
 --round-mb 0 without it).  Every estimate prints two walls (the user's D3): without the disk write (the digits
 computed and verified) and with it, the part file at --write-bw GB/s per node (target default 4.0: one node measured 3.4-5.0 GB/s on the
 target, the aggregate at 576 nodes is assumed; --target prints the file system ceiling, 5.0, 3.4 and 1.0).  mn_model.py estimate --target is the standing estimate.
@@ -2106,7 +2105,7 @@ def estimate_main(argv=None):
     ap.add_argument("--ascii", action="store_true", help="ECALC_OUT_PACKED=0: the ASCII part file (1 B/digit) instead of the packed default (0.444 B/digit)")
     ap.add_argument("--strategy", default="auto", choices=STRATEGIES, help="RNS_STRATEGY (agent B, Phase 13b)")
     ap.add_argument("--cap", default="2^31", choices=list(mem_model.CAPS) + ["rule"], help="the plane cap (default 2^31 since Phase 13c, the model's own; the C default is now ECALC_PLANE_CAP=run, 2^30 up to about 9.6e9 digits per node: pass --cap 2^30 there; rule = the pre-13c size rule)")
-    ap.add_argument("--chunk", default="both", choices=CHUNKS, help="off | shift (MDB_SHIFT_CHUNK_MB) | both (+ MN_T_CHUNK_MB, the default since Phase 14), at --chunk-mb")
+    ap.add_argument("--chunk", default="both", choices=CHUNKS, help="off | shift (mdb_shift_chunk_mb) | both (+ MN_T_CHUNK_MB, the default since Phase 14), at --chunk-mb")
     ap.add_argument("--chunk-mb", type=float, default=CHUNK_MB)
     ap.add_argument("--depth", type=int, default=2, choices=(1, 2), help="the uneven exchange's depth (agent X, Phase 13b)")
     ap.add_argument("--modmul", type=int, default=1, choices=(0, 1), help="NTT_MODMUL (step 0: 1)")

@@ -1,29 +1,14 @@
-/* comm_layered.c - the layered communicator: the rank space of a whole-machine
- * transform is (4 APUs) x (g nodes).  APU d of node r is global rank rho = g d + r (APU-major), so the g
- * slabs bound for the APUs d' of every node are contiguous in the sender's slab buffer.  An all-to-all is
- * two exchanges with a block transpose between them:
- *   1. intra-node (xGMI push, the four APU threads): APU d sends block d' = slabs {g d' + r'} to APU d';
- *      the receive holds [d source][r' dest] blocks
- *   2. transpose to [r'][d]; inter-node over mesh d' (xshmem: libfabric or Cray SHMEM; rank = node): node r
- *      sends block r' = the four slabs (r, 0..3) -> (r', d') to node r'; the receive holds [r][d]
- *   3. transpose to [d][r] = global source rank order.
- * The transposes are 4 g device copies of one slab each; the scratch (one slab buffer) is the caller's
- * (comm_layered_scratch) or hipMalloc'd on first use.
- * M7: two exchanges may be in flight (inflight 2): the second's intra-node stage runs while the first's
- * inter-node stage is on the wire (the inter transport takes one at a time, so posting the second completes
- * the first before its own inter stage starts); each pending exchange has its own slot of the scratch (two
- * slots of 4 g x bytes -- when only one fits, the exchanges serialise).  wait() completes the oldest exchange
- * not yet waited for (one wait per post: the k-th wait guarantees the k-th exchange, whether the transport
- * finished it early or not).
- * allgather: inter first (mesh d gathers my block over the nodes into my slot [d][0..g) of the result --
- * every mesh carries one block per node), then the xGMI all-gather of the g-block slots; no transpose, and the
- * fabric moves 4 x less than intra-first would.
- * B7 alltoallv: the same three stages with per-peer counts.  The node's send counts are all-gathered over the four
- * APU threads (4 x 4 g size_t) so that every stage's receive sizes are known: intra -- APU d sends APU d' the g
- * slabs bound for ranks (d', 0..g-1) as one block (the caller's slabs are used in place when they lie back to back in
- * rank order, else copied into that order); transpose to [r'][d]; inter over mesh d with per-node counts; wait --
- * the [r][d] slabs into the receive buffer at the caller's offsets.  Its scratch (2 x the intra total + the receive
- * total) is the communicator's own; a v-exchange never overlaps an equal-slab one (either kind completes the other). */
+/* comm_layered.c - the layered communicator: rank space (4 APUs) x (g nodes), APU d of node r = global rank rho = g d + r
+ * (APU-major), so the g slabs bound for APU d' of every node are contiguous in the sender's slab buffer.  An all-to-all:
+ *   1. intra-node xGMI push (APU d sends block d' = slabs {g d' + r'} to APU d'); 2. transpose to [r'][d], inter-node over
+ *   mesh d' (xshmem, rank = node), receive [r][d]; 3. transpose to [d][r] = global source rank order.
+ * Scratch (one slab buffer) is the caller's (comm_layered_scratch) or hipMalloc'd on first use.  Two exchanges may be in flight
+ * (inflight 2, two scratch slots of 4 g x bytes; with one slot they serialise): the inter transport takes one at a time, so
+ * posting the second completes the first's inter stage.  wait() completes the oldest exchange (one wait per post).
+ * allgather: inter first (each mesh carries one block per node), then the xGMI all-gather; no transpose, 4 x less fabric.
+ * alltoallv: the same three stages with per-peer counts, all-gathered over the four APU threads so every receive size is
+ * known; slabs are used in place when back to back in rank order, else copied; scratch (2 x intra total + receive total) is
+ * the communicator's own; a v-exchange never overlaps an equal-slab one. */
 #include <stdio.h>
 #include "fatal.h"
 #include <stdlib.h>
@@ -35,11 +20,11 @@
 #include <time.h>
 #include <unistd.h>
 #define NA 4
-/* (the stage-timeline statistics, COMM_LAYER_STATS, and the xGMI link accounting, COMM_XGMI_STATS, were removed 2026-10-19, D56) */
+/* (the stage-timeline statistics, COMM_LAYER_STATS, and the xGMI link accounting, COMM_XGMI_STATS, were, D56) */
 static inline double lay_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 struct lay_ex { void *rb; size_t bytes; hipStream_t s; char *tmp; int inter_posted; };   /* one pending exchange */
 struct lay_v { void *rb; const size_t *rcnt, *rdsp; hipStream_t s; char *x3; size_t *cnt2; int pend; int slot; comm *ic; };   /* the pending v-exchange (slot: its x2/x3 area at depth 2) */
-typedef struct { comm *intra, *inter; int d, g, na, dev; char *tmp; size_t tmp_cap; int own_tmp, tmp_sym;   /* tmp_sym: the scratch is the inter transport's symmetric memory (S12) */   /* d: my intra rank; dev: my device; na: intra size; minor: rho = na r + d (else g d + r) */
+typedef struct { comm *intra, *inter; int d, g, na, dev; char *tmp; size_t tmp_cap; int own_tmp, tmp_sym;   /* tmp_sym: the scratch is the inter transport's symmetric memory */   /* d: my intra rank; dev: my device; na: intra size; minor: rho = na r + d (else g d + r) */
                  struct lay_ex ex[2]; int head, npend, nlog;                /* npend: physically pending; nlog: posted minus waited */
                  char *vtmp; size_t vcap; struct lay_v v;
                  /* the v-slots always come from the comm pool */
@@ -62,11 +47,11 @@ static void need_tmp(comm *c, size_t bytes)
     if (!p->tmp) HIP_CHECK(hipMalloc((void **)&p->tmp, bytes));
     p->tmp_cap = bytes; p->own_tmp = 1;
 }
-/* ---- the block transposes (one kernel; the 4 x g hipMemcpyAsync copies remain only as the fallback of the size guards below) and the v-exchange's reorder copies as one kernel
- * each instead of na x nb hipMemcpyAsync calls (2304 per transpose at g = 576).  Equal slabs: grid.y = the destination block
- * (b, a), grid.x strides over its 16-byte words (coalesced on both sides).  Unequal: a table of (dst, src, len) entries in pinned
- * host memory read by the kernel (grid.y = entry); every use is followed by a stream synchronise before the table is refilled.
- * Falls back to the copies when a pointer is not device-accessible (plain host memory) or a size is not a multiple of 8/16 B. */
+/* ---- the block transposes (one kernel; the 4 x g hipMemcpyAsync copies remain only as the fallback of the size guards) and the
+ * v-exchange's reorder copies as one kernel each.  Equal slabs: grid.y = the destination block (b, a), grid.x strides over its
+ * 16-byte words (coalesced on both sides).  Unequal: a table of (dst, src, len) entries in pinned host memory read by the kernel
+ * (grid.y = entry); every use is followed by a stream synchronize before the table is refilled.  Falls back to the copies when a
+ * pointer is not device-accessible (plain host memory) or a size is not a multiple of 8/16 B. */
 struct cpy { size_t dst, src, len; };
 __global__ void k_btrans(uint4 *dst, const uint4 *src, size_t w, int na, int nb)
 {
@@ -95,7 +80,7 @@ static void block_transpose(void *dst, const void *src, size_t bytes, int na, in
         HIP_CHECK(hipGetLastError()); return;
     }
     for (int a = 0; a < na; a++) for (int b = 0; b < nb; b++)
-        HIP_CHECK(hipMemcpyAsync((char *)dst + ((size_t)b * na + a) * bytes, (const char *)src + ((size_t)a * nb + b) * bytes, bytes, hipMemcpyDefault, s));   /* (S12: Default -- the scratch may be registered host memory) */
+        HIP_CHECK(hipMemcpyAsync((char *)dst + ((size_t)b * na + a) * bytes, (const char *)src + ((size_t)a * nb + b) * bytes, bytes, hipMemcpyDefault, s));   /* (Default -- the scratch may be registered host memory) */
 }
 /* the batched form: n copies dst + e.dst <- src + e.src (e.len bytes); one kernel when allowed, else the copies */
 static struct cpy *ctab_get(lay_priv *p, int n)
@@ -116,7 +101,7 @@ static void bcopy_run(lay_priv *p, char *dst, const char *src, int n, hipStream_
 static void inter_post(comm *c, struct lay_ex *e)
 {
     lay_priv *p = PRIV(c);
-    int xk = comm_xtag_set(XK_LAYEQ);                                               /* X1: the xstats kind */
+    int xk = comm_xtag_set(XK_LAYEQ);                                               /* the xstats kind */
     comm_alltoall(p->inter, e->rb, e->tmp, e->bytes * p->na, e->s);
     comm_xtag_set(xk);
     e->inter_posted = 1;
@@ -157,8 +142,9 @@ static void y_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     inter_post(c, e);
 }
 /* ---- B7: the unequal exchange ---- */
-/* B7ACCT (results/COMPUTE.md §B7ACCT): the v-exchange scratch hipMalloc'd now per device, over every layered communicator (need_vtmp, need_vslot,
- * freed by y_destroy) -- MEM_REPORT_DEVS prints it beside the layout's term (binsplit_vslot_bytes); a counter only, nothing else reads it */
+/* the v-exchange scratch hipMalloc'd now per device, over every layered communicator (need_vtmp, need_vslot, freed by
+ * y_destroy) -- MEM_REPORT_DEVS prints it beside the layout's term (binsplit_vslot_bytes); a counter only, nothing
+ * else reads it */
 static size_t g_vlive[16];
 static void vlive_add(int dev, size_t add, size_t sub) { if (dev >= 0 && dev < 16) { __atomic_add_fetch(&g_vlive[dev], add, __ATOMIC_RELAXED); __atomic_sub_fetch(&g_vlive[dev], sub, __ATOMIC_RELAXED); } }
 extern "C" size_t comm_layered_vbytes(int dev) { return dev >= 0 && dev < 16 ? __atomic_load_n(&g_vlive[dev], __ATOMIC_RELAXED) : 0; }
@@ -230,7 +216,7 @@ static void v_stages(comm *c, const void *sb, const size_t *scnt, const size_t *
 static void v_post(comm *c, comm *ic, struct vtab *t, char *x2, char *x3, hipStream_t s, int host)
 {
     lay_priv *p = PRIV(c); int g = p->g;
-    int xk = comm_xtag_set(XK_LAYV);                      /* X1: the xstats kind */
+    int xk = comm_xtag_set(XK_LAYV);                      /* the xstats kind */
     if (host) comm_alltoallv_host(ic, x2, t->cnt2, t->dsp2, x3, t->cnt2 + g, t->dsp2 + g);
     else comm_alltoallv(ic, x2, t->cnt2, t->dsp2, x3, t->cnt2 + g, t->dsp2 + g, s);
     comm_xtag_set(xk);
@@ -254,20 +240,25 @@ static void complete_v(comm *c)
     HIP_SYNC(v->s);
     free(v->cnt2); v->pend = 0;
 }
-/* ---- the v-exchange pipelined two deep (two deep, built in)
- * like the equal-slab one: the intra stage and the transpose of exchange k run while exchange k-1's inter stage is on the
- * wire; then k-1 is completed (its inter wait and scatter: "posting k completes k-1" still holds, which gen_inv_pw relies on)
- * and k's inter stage is posted (the inter transport takes one at a time).  The x0 area (the send slabs reordered, only when
- * they are not back to back) is shared; each exchange's x2 (the inter send, A) and x3 (the inter receive, B) are a slot of
- * A + max(A, B) bytes, two slots alternating, each the communicator's own and grown only while not pending.  The intra receive
- * x1 (A) lives in the slot's x3 area: it is dead once reordered into x2, before the inter stage receives into x3.  Scratch:
- * x0 + 2 (A + max(A, B)) against depth 1's x0 + 2 A + B -- with A ~ B one exchange's A more (4 S against 3 S). */
-/* S36 (results/COMPUTE.md §S36): the v-slots are one pair per device, shared by every layered communicator of the APU thread.  The tree's levels run one
+/* ---- the v-exchange pipelined two deep ----
+ * like the equal-slab one: the intra stage and transpose of exchange k run while exchange k-1's inter stage is on the wire; then
+ * k-1 is completed (its inter wait and scatter: "posting k completes k-1" still holds, gen_inv_pw relies on it) and k's inter
+ * stage is posted.  The x0 area (send slabs reordered, only when not back to back) is shared; each exchange's x2 (inter send, A)
+ * and x3 (inter receive, B) are a slot of A + max(A, B) bytes, two slots alternating, grown only while not pending.  The intra
+ * receive x1 (A) lives in the slot's x3 area: dead once reordered into x2, before x3 is received into.  Scratch x0 + 2 (A + max(A, B))
+ * against depth 1's x0 + 2 A + B. */
+/* the v-slots are one pair per device, shared by every layered communicator of the APU thread.  The tree's levels run one
  * after the other and a node is in one group per level, so a level's slots are dead when the next level's exchange begins: instead of each communicator holding its own
  * pair to the run's end (the sum over the levels), the pair is handed on (the previous owner's pending exchange is completed first) and held at the largest level's size.
  * Only where the buffers live and when they are reused: the exchanges, their order and the data are the same.  The pair is freed with the last communicator. */
 static struct vshare { char *vx[2]; size_t cap[2]; comm *owner; int refs; } g_vsh[16];
 static void need_vslot(comm *c, int k, size_t bytes);
+static struct { int g; size_t bytes; } g_vslot_min[40]; static int g_vslot_min_n;   /* the planned per-slot size of each group size (binsplit.c vslot_prealloc_env) */
+extern "C" void comm_layered_vslot_min(int g, size_t bytes)
+{
+    for (int i = 0; i < g_vslot_min_n; i++) if (g_vslot_min[i].g == g) { g_vslot_min[i].bytes = bytes; return; }
+    if (g_vslot_min_n < 40) { g_vslot_min[g_vslot_min_n].g = g; g_vslot_min[g_vslot_min_n++].bytes = bytes; }
+}
 static void complete_v(comm *c);
 static void vslot_attach(lay_priv *p) { if (p->dev < 0 || p->dev >= 16) ec_fatal(EC_RC_FATAL, "comm_layered: device %d outside 0..15\n", p->dev); g_vsh[p->dev].refs++; }
 static void need_vslot(comm *c, int k, size_t bytes)
@@ -277,8 +268,7 @@ static void need_vslot(comm *c, int k, size_t bytes)
     S->owner = c;
     if (S->cap[k] < bytes) {
         HIP_CHECK(hipSetDevice(p->dev));
-        size_t minb = 1; { const char *e = getenv("COMM_LAYER_VSLOT_MB"); char nm[48]; snprintf(nm, sizeof nm, "COMM_LAYER_VSLOT_MB_%d", comm_size(p->inter));
-                          if (!e) e = getenv(nm); if (e) minb = (size_t)(atof(e) * 1048576.0); }   /* (the pool rule sets every group size to the overall maximum under SHARE) */
+        size_t minb = 1; for (int i = 0; i < g_vslot_min_n; i++) if (g_vslot_min[i].g == comm_size(p->inter)) minb = g_vslot_min[i].bytes;   /* (the pool rule sets every group size to the overall maximum) */
         size_t want = bytes > minb ? bytes : minb;
         if (S->vx[k]) { comm_sym_free(p->inter, S->vx[k]); S->vx[k] = 0; S->cap[k] = 0; }
         S->vx[k] = (char *)comm_sym_alloc(p->inter, want);
@@ -288,7 +278,7 @@ static void need_vslot(comm *c, int k, size_t bytes)
     p->vx[k] = S->vx[k]; p->vxcap[k] = S->cap[k];          /* (a stale view of the other slot is refreshed too: only the owner's view is used) */
     p->vx[k ^ 1] = S->vx[k ^ 1]; p->vxcap[k ^ 1] = S->cap[k ^ 1];
 }
-/* M3 (always on; results/COMPUTE.md §C06): rns_dist.c calls this when a product's last v-exchange has been waited for, before the CRT and the
+/* M3 (always on): rns_dist.c calls this when a product's last v-exchange has been waited for, before the CRT and the
  * result exchanges.  The comm pool holds the slots only while a product's v-exchanges run; the staged exchanges around them (the redistribution, the result, the shifted add) use the
  * same pool, so the pool rule sizes it for the larger of the two, not their sum.  The slots are scratch (every exchange writes its x2 / x3 before reading them): nothing carries over;
  * the next product's first v-exchange allocates them again (need_vslot*: at the pool rule's size, so the same size; the receivers publish where a slab lands, so the offset need not match).
@@ -378,7 +368,7 @@ static void y_destroy(comm *c)
     if ((p->own_tmp && p->tmp) || p->vtmp) HIP_CHECK(hipSetDevice(p->dev));
     if (p->own_tmp && p->tmp) { if (p->tmp_sym) comm_sym_free(p->inter, p->tmp); else HIP_CHECK(hipFree(p->tmp)); }
     if (p->vtmp) HIP_CHECK(hipFree(p->vtmp));
-    {   /* S36: the shared pair goes with the last communicator of the device */
+    {   /* the shared pair goes with the last communicator of the device */
         struct vshare *S = &g_vsh[p->dev];
         if (S->owner == c) S->owner = 0;
         if (--S->refs <= 0) {
@@ -391,15 +381,15 @@ static void y_destroy(comm *c)
     if (p->ctab) HIP_CHECK(hipHostFree(p->ctab));
     free(p); free(c);
 }
-/* S12: the callers' symmetric buffers come from the inter transport's pool (the inter stage sends the caller's receive
+/* the callers' symmetric buffers come from the inter transport's pool (the inter stage sends the caller's receive
  * buffer and receives into the scratch; a pool-resident buffer is not staged there) */
 static void *y_sym_alloc(comm *c, size_t bytes) { return comm_sym_alloc(PRIV(c)->inter, bytes); }
 static void y_sym_free(comm *c, void *p) { comm_sym_free(PRIV(c)->inter, p); }
 static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_barrier, y_modq, y_max, y_destroy, 0, 0, y_allgather, y_allgather_host, y_alltoallv, y_alltoallv_host, y_sym_alloc, y_sym_free };
-/* One inter stage in flight (xshmem; user 2026-10-21, results/TRANSPORT.md).  The v-slots always come from the comm pool; the shared v-slot pair (S36) and the
+/* One inter stage in flight (xshmem; user).  The v-slots always come from the comm pool; the shared v-slot pair and the
  * release after each product (M3) are always on. */
 static void lay_opts(lay_priv *p) {
-    vslot_attach(p);   /* S36: the shared pair */
+    vslot_attach(p);   /* the shared pair */
 }
 comm *comm_layered_create(comm *intra, comm *inter, int d)
 {

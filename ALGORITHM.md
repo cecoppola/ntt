@@ -385,7 +385,7 @@ everything is allocated once, up front, and sized by a model that the C layout r
 - **Window rounds.** A grid piece's temporary window is processed in rounds of `MN_T_CHUNK_MB` per APU (code default 1024,
   launch lines 2048); `mdb_shift` slabs are bounded by `MDB_SHIFT_CHUNK_MB`.
 - **Exchange memory.** Staging for xshmem and the general map's v-slots are counted in the node budget
-  (`binsplit_vslot_bytes`, `binsplit_shmem_pool_need`); the v-slots are shared and released in time (built in; `COMM_LAYER_VSLOT_MB` sizes them).
+  (`binsplit_vslot_bytes`, `binsplit_shmem_pool_need`); the v-slots are shared and released in time (built in).
 - **Memory fit (FIT, `results/MODEL.md §FIT`).** `binsplit_fit` (`binsplit.c`) puts the node's device peak -- the larger of the dm
   phase (planes + arena + transport pools + the v-slots) and the bs phase (the same + the VMM pool's bs growth, 6.0 GB m, + the
   tree top's v-slots) -- against the device edge `ECALC_DEVICE_GB` and the node (planes + arena + bs growth + host + v-slots)

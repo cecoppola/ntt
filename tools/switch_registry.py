@@ -302,7 +302,7 @@ def launcher_names(known):
 
 
 def built_prefixes():
-    """names built at run time: snprintf(buf, n, "COMM_LAYER_VSLOT_MB_%d", ...) -> the prefix up to the conversion"""
+    """names built at run time: snprintf(buf, n, "PREFIX_%d", ...) -> the prefix up to the conversion"""
     pat = re.compile(r'snprintf\s*\(\s*\w+\s*,[^,"]*,\s*"((?:%s)[A-Z0-9_]*_)%%' % "|".join(GUARD_PREFIXES))
     out = set()
     for f in src_files("."):

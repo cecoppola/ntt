@@ -1,7 +1,6 @@
-/* ecalc - e to d decimal digits on one MI300A node (decimal limbs of 10^18; the former binary-limb pipeline with the
- * radix conversion todec is archived: archive:PLAN §28.5, archive:binary_pipeline/, git tag pre-28.5-binary).
+/* ecalc - e to d decimal digits on one MI300A node (decimal limbs of 10^18).
  *
- *   bs    P, Q = binary splitting of sum 1/k!, N = min{m : lgamma(m+1)/ln10 >= d+50}
+ *   bs    P, Q = binary splitting of sum 1/k!, N = min{m: lgamma(m+1)/ln10 >= d+50}
  *   10dP  A = 10^d (P + Q): a limb shift and one small multiply
  *   dm    X, R = divmod(A, Q) by Newton reciprocal + Barrett
  *   T1    residue identities mod eight 62-bit primes
@@ -9,8 +8,7 @@
  *   T2    digit windows vs known values; digits == X mod q
  *
  * Usage: ecalc <digits> [outfile]      env: POOL_LOG (31), RNS_CRT_LAYOUT (0), ECALC_VERBOSE (1)
- * Prints META/RESULT lines (phase seconds, VmHWM) as the benchmarks do.
- */
+ * Prints META/RESULT lines (phase seconds, VmHWM) as the benchmarks do. */
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE                                    /* CPU_COUNT (the per-process background team, ECALC_PE_PER_GPU) */
 #endif
@@ -20,6 +18,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include "test_inject.h"
 #include "bigint.h"
 #include "rns_mul.h"
 #include "newton.h"
@@ -61,11 +60,11 @@ static void meta_line(const char *bench)
 static int g_bg_threads = 48;
 struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started, joined, done; double t; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
 static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); ec_team_set(g_bg_threads);
-    if (dr_level() >= 2 && dr_test_leafslow()) { for (int i = 0; i < 120000 && !mn_dr_division_seen(); i++) usleep(1000); }   /* ECALC_DR_TEST=leafslow (test only): the recurrence starts when the division does (at most 120 s): the leaf check's deferred path */
+    if (dr_level() >= 2 && dr_test_leafslow()) { for (int i = 0; i < 120000 && !mn_dr_division_seen(); i++) usleep(1000); }   /* ECALC_TEST dr=leafslow (test only): the recurrence starts when the division does (at most 120 s): the leaf check's deferred path */
     for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(b->a0, b->b1, t1_q[i], &b->p[i], &b->qq[i]); b->t = mem_now() - t0;
     __atomic_store_n(&b->done, 1, __ATOMIC_RELEASE);
     return 0; }
-static int pq_bg_poll(void *a, uint64_t *p, uint64_t *q)   /* C3 (ECALC_DR >= 2): the leaf check reads the recurrence's residues modulo t1_q[0] once it is done (mn.c) */
+static int pq_bg_poll(void *a, uint64_t *p, uint64_t *q)   /* the leaf check reads the recurrence's residues modulo t1_q[0] once it is done (mn.c) */
 { struct pq_bg *b = (struct pq_bg *)a; if (__atomic_load_n(&b->done, __ATOMIC_ACQUIRE)) { *p = b->p[0]; *q = b->qq[0]; return 1; } return __atomic_load_n(&b->started, __ATOMIC_ACQUIRE) ? 0 : -1; }
 static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->started) return; pthread_create(&b->th, 0, pq_bg_run, b); __atomic_store_n(&b->started, 1, __ATOMIC_RELEASE); }   /* after the seeds */
 
@@ -84,18 +83,18 @@ static void *x_bg_run(void *a)
 {
     struct x_bg *b = (struct x_bg *)a; ec_team_set(g_bg_threads);
     double t0 = mem_now();
-    { mn_out_src src = x_bg_src(b); mn_out_res_share(&src, b->Xres); }   /* the device kernel on the device X (B1), else the host Horner */
+    { mn_out_src src = x_bg_src(b); mn_out_res_share(&src, b->Xres); }   /* the device kernel on the device X, else the host Horner */
     b->t_res = mem_now() - t0; sem_post(&b->res_ready);
     x_bg_writer(b);
     return 0;
 }
 static void x_bg_hook(bigint *X, void *a) { struct x_bg *b = (struct x_bg *)a; b->X = X; sem_init(&b->res_ready, 0, 0); pthread_create(&b->th, 0, x_bg_run, b); b->started = 1; }
-/* ---- the writer on X_hi after DKM's step 1.  The division forms no X0: X_hi (final after step 1:
- * X's limbs >= s) comes to the X_hi hook, which starts the size-1 writer on it -- one file in two ranges (mn_out's split): the limbs >= s from
- * X_hi, then, at the gate, the limbs < s from X_lo (the division's device X, newton_db_x_dev).  The X_lo hook opens the gate before step 2's low
- * product unless X_lo0 >= B^s (or MN_OUT_DKM_HI_TEST_CARRY=1): then the division adds the corrections to X_lo in place and main opens it after
- * the division.  At size > 1 the same with two part files per rank (mn_out_early_hi_start / mn_out_early_lo_release) ---- */
-static int dkm_hi_test_carry(void) { const char *e = getenv("MN_OUT_DKM_HI_TEST_CARRY"); return e && atoi(e) != 0; }
+/* ---- the writer on X_hi after DKM's step 1.  The division forms no X0: X_hi (final after step 1: X's limbs >= s) comes to the X_hi
+ * hook, which starts the size-1 writer on it -- one file in two ranges (mn_out's split): the limbs >= s from X_hi, then, at the
+ * gate, the limbs < s from X_lo (newton_db_x_dev).  The X_lo hook opens the gate before step 2's low product unless X_lo0 >= B^s
+ * (or ECALC_TEST dkm_carry=1): then the division adds the corrections to X_lo in place and main opens it after the division.  At
+ * size > 1 the same with two part files per rank (mn_out_early_hi_start / mn_out_early_lo_release) ---- */
+static int dkm_hi_test_carry(void) { return ec_test_long("dkm_carry", 0) != 0; }
 struct x_hi { int on, released; size_t s; dbig Xh; mn_out_src src_lo, src_hi; sem_t go; uint64_t res_hi[T1_NQ]; double t_gate, t_hi; };
 static struct x_hi g_xhi;
 static void x_bg_gate(void *a, mn_out *o)             /* the writer at s: X_hi's range is formatted and handed off; X_lo's after the release */
@@ -137,16 +136,15 @@ static void x_hi_release(struct x_bg *b)
 static int x_lo_hook(dbig *Xl, size_t s, int carry, void *a)   /* newton_db_xlo_hook: X_lo0 in *b->Xd (= Xl); released unless X_lo0 >= B^s */
 {
     struct x_bg *b = (struct x_bg *)a; (void)Xl; (void)s;
-    if (carry || dkm_hi_test_carry()) { printf("      MN_OUT_DKM_HI: X_lo0 %s: the corrections go into X_lo first, its digits after the division\n", carry ? ">= B^s" : "treated as >= B^s (MN_OUT_DKM_HI_TEST_CARRY)"); return 0; }
+    if (carry || dkm_hi_test_carry()) { printf("      MN_OUT_DKM_HI: X_lo0 %s: the corrections go into X_lo first, its digits after the division\n", carry ? ">= B^s" : "treated as >= B^s (ECALC_TEST dkm_carry=1)"); return 0; }
     x_hi_release(b); return 1;
 }
 
-/* ---- the output stage (archive:PLAN §19, M5 + C1).  Every node: T1 with the P, Q recurrence over its own
- * term range joined across the nodes (P = P_A Q_B + P_B, Q = Q_A Q_B in node order) and the residues of its share of
- * X (device kernel, placed at the share's offset and summed over the nodes); its share of the digits formatted in
- * chunks, residue-checked (Horner over the chunks and the nodes), T2-windowed and written to its part file as it
- * goes; node 0 the summary.  Size 1: the same code over the device or host X (the writer ran in the background from the
- * hook).  Size > 1: this node's share of the distributed division's sharded X. */
+/* ---- the output stage.  Every node: T1 with the P, Q recurrence over its own term range joined across the nodes (P = P_A Q_B + P_B,
+ * Q = Q_A Q_B in node order) and the residues of its share of X (device kernel, placed at the share's offset and summed over the
+ * nodes); its share of the digits formatted in chunks, residue-checked (Horner over the chunks and the nodes), T2-windowed and
+ * written to its part file as it goes; node 0 the summary.  Size 1: the same code over the device or host X (the writer ran in the
+ * background from the hook).  Size > 1: this node's share of the distributed division's sharded X. */
 struct out_ctx {
     unsigned long N, d, d_out; const char *outfile; int verbose, size, rank;
     dbig *Xd;                                      /* size 1 in the device flow: X on the device (never on the host) */
@@ -156,7 +154,7 @@ struct out_ctx {
     int defer; long dx; size_t zone;                 /* X's corrections (dx) not applied -- the output patches the tail; zone: the deferred T2 windows */
     mn_out_early *early; double t_early;             /* MN_OUT_EARLY -- the part file started in the division (mn_out.h) */
     double t00, t_init, t_bs, t_10dp, t_dm;
-    int hi, hi_rel; mdb Xh; size_t s;                 /* Phase 15 EW (MN_OUT_DKM_HI) at size > 1: X_hi taken at the division's hook (Xm is then X_lo), the release done */
+    int hi, hi_rel; mdb Xh; size_t s;                 /* (MN_OUT_DKM_HI) at size > 1: X_hi taken at the division's hook (Xm is then X_lo), the release done */
 };
 static const char *who(void) { return vpe_on() ? "pe" : "node"; }   /* the log word of a rank: the PE in process mode, else the node */
 static void node_pfx(const struct out_ctx *c) { if (c->size > 1) printf("mn: %s %d: ", who(), c->rank); }
@@ -169,7 +167,7 @@ static void mn_early_hook(mdb *X, void *a)
     struct out_ctx *c = oc_of(a);
     c->early = mn_out_early_start(X, c->d, c->d_out, c->outfile, c->rank, c->size, c->verbose >= 2, mn_comm(0), newton_x_defer ? c->zone : 0);   /* (K's deferred tail windows) */
 }
-/* Phase 15 EW (MN_OUT_DKM_HI) at size > 1: the X_hi hook (every rank; collective) takes X_hi and starts its part file; the X_lo hook releases the
+/* (MN_OUT_DKM_HI) at size > 1: the X_hi hook (every rank; collective) takes X_hi and starts its part file; the X_lo hook releases the
  * writer onto X_lo0's share (collective) unless X_lo0 >= B^s (then main releases it after the division, on the corrected X_lo) */
 static int mn_early_hi_hook(mdb *Xh, size_t s, void *a)
 {
@@ -184,7 +182,7 @@ static int mn_early_hi_hook(mdb *Xh, size_t s, void *a)
 static int mn_early_lo_hook(mdb *Xl, size_t s, int carry, void *a)
 {
     struct out_ctx *c = oc_of(a); (void)s;
-    if (carry || dkm_hi_test_carry()) { if (c->rank == 0) printf("mn: MN_OUT_DKM_HI: X_lo0 %s: the corrections go into X_lo first, its part files after the division\n", carry ? ">= B^s" : "treated as >= B^s (MN_OUT_DKM_HI_TEST_CARRY)"); return 0; }
+    if (carry || dkm_hi_test_carry()) { if (c->rank == 0) printf("mn: MN_OUT_DKM_HI: X_lo0 %s: the corrections go into X_lo first, its part files after the division\n", carry ? ">= B^s" : "treated as >= B^s (ECALC_TEST dkm_carry=1)"); return 0; }
     mn_out_early_lo_release(c->early, Xl, mn_comm(0)); c->hi_rel = 1; return 1;
 }
 static int out_stage(struct out_ctx *c)
@@ -195,7 +193,7 @@ static int out_stage(struct out_ctx *c)
     uint64_t pr[T1_NQ], qr[T1_NQ], Pg[T1_NQ], Qg[T1_NQ];
     if (c->pqb->started) { if (!c->pqb->joined) pthread_join(c->pqb->th, 0); c->pqb->joined = 1; memcpy(pr, c->pqb->p, sizeof pr); memcpy(qr, c->pqb->qq, sizeof qr); }
     else for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(c->pqb->a0, c->pqb->b1, t1_q[i], &pr[i], &qr[i]);
-    if (dr_level() >= 2 && multi) mn_dr_leaf_final();   /* C3: the leaf check deferred from the division's start (the recurrence is joined above) */
+    if (dr_level() >= 2 && multi) mn_dr_leaf_final();   /* the leaf check deferred from the division's start (the recurrence is joined above) */
     mn_out_pq_combine(cm, pr, qr, Pg, Qg);
     /* the share of X this node holds: the device X (size 1, B1) or this node's share of the sharded X (size > 1: the distributed
      * division's mdb, read in place) */
@@ -308,26 +306,20 @@ static int out_stage(struct out_ctx *c)
     if (multi) { int any = mn_out_allreduce_or(cm, fail); if (c->rank == 0) printf("mn: all %d %s: %s\n", c->size, vpe_on() ? "PEs" : "nodes", any ? "VERIFY FAILED" : "VERIFY OK"); fail = any; }
     return fail;
 }
-/* the top-level P, Q of a size-1 run as a tree set (level 0) for ECALC_RECHECK (mn_out.h), written by a background
- * thread in the device flow.  The four region files carry P's quarter then Q's (binsplit.c tree_io), so P is written under the
- * reciprocal and Q under the division.  the driver releases P before S = P + Q
- * overwrites it, and Q only after the output stage when the writer still needs it (joining before Q's block goes, at
- * the end of the division, waited 113 s at 0.31 GB/s); ECALC_CKPT_TOP=2 budgets both releases by the measured disk rate
- * (1 s of slack): a set the disk cannot finish in time is dropped instead of waited for. */
+/* the top-level P, Q of a size-1 run as a tree set (level 0) for ECALC_RECHECK (mn_out.h), written by a background thread in the
+ * device flow.  The four region files carry P's quarter then Q's (binsplit.c tree_io), so P is written under the reciprocal and Q
+ * under the division.  The driver releases P before S = P + Q overwrites it, and Q only after the output stage when the writer
+ * still needs it; ECALC_CKPT_TOP=2 budgets both releases by the measured disk rate (1 s of slack): a set the disk cannot finish in
+ * time is dropped instead of waited for. */
 static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned long)(uintptr_t)a); }
-/* ECALC_BUDGET_CHECK=1 -- before the run computes (after init's allocations and
- * mem_report("init")), every rank models its peak and the ranks decide together whether any node is over its budget; if one
- * is, every rank stops here (rc EC_RC_BUDGET = 8) with the figures, instead of one node dying mid-run.
- *   rank peak = max(device bytes in use now [the layout just mapped], the model's plane pools + arena [binsplit_node_bytes at
- *               this run's cap: covers a VMM arena still mapping in the background]) + max(the model's host terms [runtime,
- *               checkpoint staging, seed buffers, + 6 GB of comm at size > 1], VmRSS now);
- *   to come   = rank peak - (device in use now + VmRSS now): what the rank still has to take from the node;
- *   node over = the sum of its ranks' peaks > ECALC_NODE_GB (default 480), or the sum of their "to come" > MemAvailable
- *               (/proc/meminfo, the smallest reading of the node's ranks); a rank is also over when its peak exceeds its
- *               share of the node budget (ECALC_NODE_GB / ranks on the node).
- * The ranks allgather their figures (the host name's hash, the node's ranks found by it) and all apply the same rule to the
- * same numbers: the collective verdict is a max-reduce of "over" over the communicator.  Default on (see budget_check
- * below); ECALC_BUDGET_CHECK=0 turns it off. */
+/* ECALC_BUDGET_CHECK=1 (default on; =0 off): before the run computes, every rank models its peak and the ranks decide together
+ * whether any node is over budget; if so every rank stops (rc EC_RC_BUDGET = 8) with the figures.
+ *   rank peak = max(device bytes in use now, the model's plane pools + arena [binsplit_node_bytes at this cap]) + max(the model's
+ *               host terms [runtime, checkpoint staging, seed buffers, + 6 GB comm at size > 1], VmRSS now);
+ *   to come   = rank peak - (device in use + VmRSS now);
+ *   node over = sum of its ranks' peaks > ECALC_NODE_GB (default 480), or sum of "to come" > MemAvailable (smallest reading
+ *               of the node's ranks), or a rank's peak > its share ECALC_NODE_GB / ranks on the node.
+ * Ranks allgather their figures (host-name hash finds the node's ranks) and apply the same rule; the verdict is a max-reduce. */
 static uint64_t host_hash(void) { char h[256] = ""; gethostname(h, sizeof h - 1); uint64_t x = 1469598103934665603ull; for (const char *p = h; *p; p++) x = (x ^ (unsigned char)*p) * 1099511628211ull; return x; }
 /* ECALC_FIT_APU_CHECK=1 (default off; MEMFIT): at start, before any GPU work, each APU this process drives must have free memory (MemFree + the reclaimable file cache of its NUMA node,
  * memsample.c) of at least the planner's busiest-APU peak (fit->dev_apu_max, rank 0's layout) plus the margin: the larger of ECALC_MEM_GUARD_APU_GB and ECALC_DEVICE_MARGIN_GB (5).
@@ -361,7 +353,7 @@ static void budget_check(unsigned long N, int verbose)
     double node_gb = getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0;
     int cap = rns_pool_log() >= 31 ? 1 : 0;
     size_t pb = 0, ab = 0, hb = 0; binsplit_node_bytes(N, gn, cap, ec_np_init(), &pb, &ab, &hb);
-    if (vpe_ppg()) { const size_t pp = (size_t)binsplit_ppn_proc(); pb /= pp; ab /= pp; hb /= pp; L = 1; }   /* (S2c's PPN_PROC: the host model already counts a runtime and a comm pool per process, so the per-process share is node / ppn_proc, the planner's own term) */   /* S2 (one process per PE): the model is per node, so each PE takes 1/ppn of it; the measured device bytes and VmRSS are this process's own (its device, its runtime): already one PE's, not divided again */
+    if (vpe_ppg()) { const size_t pp = (size_t)binsplit_ppn_proc(); pb /= pp; ab /= pp; hb /= pp; L = 1; }   /* PPN_PROC: the host model already counts a runtime and a comm pool per process, so the per-process share is node / ppn_proc, the planner's own term) */   /* the model is per node, so each PE takes 1/ppn of it; the measured device bytes and VmRSS are this process's own (its device, its runtime): already one PE's, not divided again */
     size_t dev = mem_report_dev_total(), rss = mem_vmrss();
     size_t cres = binsplit_comm_resident_bytes(N, gn); if (vpe_ppg()) cres /= (size_t)binsplit_ppn_proc();   /* the device pools exist already (the transport opened before rns_init) and are in the model's host term: not still to come (plq2: 2 n 1e10 Q2 was refused for 62 GB of them) */
     size_t dpk = (dev > pb + ab ? dev : pb + ab), hpk = rss > hb ? rss : hb, peak = dpk + hpk, now = dev + rss + cres;
@@ -399,11 +391,11 @@ static void budget_check(unsigned long N, int verbose)
 }
 /* the plane cap as one switch.  ECALC_PLANE_CAP = 2^30 | 2^31 (also 30, 31) sets the two knobs that make a cap: POOL_LOG (the
  * plane pools' base, the batch and mdev tiers' 2^pool_log) and DIST_LOGN_TEST (the single-node dist tier's 2^k cap = pool_log;
- * without it a 2^31 product would grow a 2^30 pool inside a phase and abort).  ECALC_PLANE_CAP=run takes 2^30 when the run's largest product (the division's 2 k + 8 limbs, binsplit_div_product_limbs) fits one mn plane at that cap, else 2^31 (the start-up gain of 2^30
- * without a size the 2^30 plane was not measured at; not with ECALC_PE_PER_GPU).  ECALC_PLANE_CAP=fit takes the larger cap whose
- * node total (binsplit_node_bytes: the plane pools at the prime count + the arena + the host init constants) fits ECALC_NODE_GB
- * (default 480, the safe budget).  Unset: `run` (the default; 2^31 with ECALC_PE_PER_GPU, `fit` with ECALC_PE_PER_GPU=1 and XSHMEM_PES_PER_GPU > 1), unless POOL_LOG or DIST_LOGN_TEST is given; =off: the knobs as
- * given.  A knob set in the environment that disagrees with the cap is refused.  BS_LAYOUT_ONLY is served here, before
+ * without it a 2^31 product would grow a 2^30 pool inside a phase and abort).  ECALC_PLANE_CAP=run takes 2^30 when the run's
+ * largest product (the division's 2 k + 8 limbs, binsplit_div_product_limbs) fits one; ECALC_PLANE_CAP=fit takes the larger cap
+ * whose node total (binsplit_node_bytes: plane pools at the prime count + arena + host init constants) fits ECALC_NODE_GB
+ * (default 480).  Unset: `run` (the default; 2^31 with ECALC_PE_PER_GPU), unless POOL_LOG or DIST_LOGN_TEST is given; =off: the
+ * knobs as given.  A knob set in the environment that disagrees with the cap is refused.  BS_LAYOUT_ONLY is served here, before
  * rns_init, so the layout report needs no device.  The cap index c is pool_log - 30 (bs_cap_name). */
 static int g_layout_refused;                                         /* BS_LAYOUT_ONLY's prime-set check refused a point */
 static void layout_refused_exit(void) { fflush(stdout); _exit(EC_RC_FATAL); }
@@ -441,7 +433,7 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
             if (o && *o && strcmp(o, "auto") && atoi(o) != atoi(pl)) { fprintf(stderr, "ECALC_PLANE_CAP=%s sets %s=%s; the environment has %s=%s\n", e, knob[k], pl, knob[k], o); exit(2); }
             setenv(knob[k], pl, 1);
         }
-        { char ci[4]; snprintf(ci, sizeof ci, "%d", c); setenv("ECALC_PLANE_CAP_IDX", ci, 1); }
+        bs_plane_cap_idx = c;
         pool_log = 30 + c;
         if (verbose) printf("ECALC_PLANE_CAP: %s points (POOL_LOG=%s DIST_LOGN_TEST=%s)\n", bs_cap_name[c], pl, pl);
     }
@@ -462,11 +454,12 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
     }
     return pool_log;
 }
-/* ---- ECALC_PE_PER_GPU: the flow of one PE, one process per GPU (vpe.h) ---------------------------------------------------------------------
- * Every PE process runs the same flow as a node-process does today, with mn_size() = the PE count (>= 2: the size-1 flow stays for the off path), mn_rank() = the
- * PE, bs_a0 / bs_b1 = its term range, its own recurrence thread (pq_bg_run) and writer (mn_out_early); the output parts are two per PE (D3: X_hi's part npe-1-pe,
- * X_lo's 2 npe-1-pe), the .top set per PE (binsplit.c).  Process-wide things are done once in main, before the threads (the division's hooks, newton_x_defer,
- * bs_ckpt_dir, the thread counts) or by the node leader (node-level reports); everything the flow keeps is a local of the flow function. */
+/* ---- ECALC_PE_PER_GPU: the flow of one PE, one process per GPU (vpe.h) ----
+ * Every PE process runs the same flow as a node-process, with mn_size() = the PE count (>= 2: the size-1 flow stays for the off
+ * path), mn_rank() = the PE, bs_a0 / bs_b1 = its term range, its own recurrence thread (pq_bg_run) and writer (mn_out_early); the
+ * output parts are two per PE (X_hi's part npe-1-pe, X_lo's 2 npe-1-pe), the .top set per PE (binsplit.c).  Process-wide things are
+ * done once in main, before the threads (the division's hooks, newton_x_defer, bs_ckpt_dir, the thread counts) or by the node
+ * leader (node-level reports); everything the flow keeps is a local of the flow function. */
 #define MEMREP(x) do { if (vpe_proc_leader()) mem_report(x); } while (0)   /* every PE reports its own process (device pools, host items) */
 static int g_flow_rc;
 static int flow_rc_all(void) { return g_flow_rc; }   /* this process's slot (the only one written) */
@@ -484,7 +477,7 @@ static void vpe_set_range(unsigned long N)            /* this PE's terms: [1 + N
 static int env_vpe_bg_threads(void)                    /* the background team of one PE (recurrence, writer) = CPUs / PEs per node (192 / 4 = 48 on aac7, where the off path's 48 is per node) */
 {
     int n = 0;
-    if (n < 1 && vpe_ppg()) {                           /* S2: this process's own CPUs: its affinity mask (vpe_pe_affinity restricted it to the PE's NUMA node), not the node's */
+    if (n < 1 && vpe_ppg()) {                           /* this process's own CPUs: its affinity mask (vpe_pe_affinity restricted it to the PE's NUMA node), not the node's */
         cpu_set_t m; CPU_ZERO(&m); n = sched_getaffinity(0, sizeof m, &m) == 0 ? CPU_COUNT(&m) : 0;
         if (n < 1) n = omp_get_num_procs();
     }
@@ -495,7 +488,7 @@ static int env_vpe_bg_threads(void)                    /* the background team of
 static void mn_hooks_set(struct out_ctx *oc, const char *outfile)
 {
     if (outfile && (getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) : 1)) {   /* default 1 */ newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = oc; }
-    /* the writer on X_hi after DKM's step 1 (MN_OUT_DKM_HI, always on since 2026-10-12; the =0 fallback was removed 2026-10-23, Q87): needs the early writer and the deferred corrections */
+    /* the writer on X_hi after DKM's step 1 (MN_OUT_DKM_HI, always on; the =0 fallback was): needs the early writer and the deferred corrections */
     if (newton_mn_x_hook && newton_x_defer) { newton_mn_xhi_hook = mn_early_hi_hook; newton_mn_xlo_hook = mn_early_lo_hook; }
 }
 /* the end of the flow of one rank / PE (the sequences are the off path's, byte for byte; the process form shuts down the device pools once) */
@@ -505,15 +498,15 @@ static void flow_end(int f, int rank0)
     mn_ckpt_top_finish();                             /* (size > 1, node 0: the top tree set's writer) */
     if (vpe_on()) {
         vpe_node_barrier();                           /* every lane is past its output stage */
-        if (vpe_proc_leader()) { db_release_pools(); mem_report_host_item(MEM_HOST_X, 0); mem_report("end"); mem_report_summary(); }   /* S2: each process releases its own pools */   /* B1: X's block (device / sharded) was in use until here */
+        if (vpe_proc_leader()) { db_release_pools(); mem_report_host_item(MEM_HOST_X, 0); mem_report("end"); mem_report_summary(); }   /* each process releases its own pools */   /* X's block (device / sharded) was in use until here */
         vpe_node_barrier();
         mn_barrier(); mn_finalize();                  /* (collective: every PE; rns_shutdown once, in main) */
     } else if (rank0) {
-        db_release_pools();                           /* B1: X's block (device / sharded) was in use until here */
+        db_release_pools();                           /* X's block (device / sharded) was in use until here */
         mem_report_host_item(MEM_HOST_X, 0); mem_report("end"); mem_report_summary();
         mn_barrier(); mn_finalize();
         rns_shutdown();
-    } else { db_release_pools(); rns_shutdown(); mem_report("released"); mem_report_summary(); mn_barrier(); mn_finalize(); }   /* M5 + A-mem: its device memory goes before the final barrier (after the top set's writer) */
+    } else { db_release_pools(); rns_shutdown(); mem_report("released"); mem_report_summary(); mn_barrier(); mn_finalize(); }   /* M5: its device memory goes before the final barrier (after the top set's writer) */
 }
 static void seeds_begin_thunk(void *a) { vpe_set_range((unsigned long)(uintptr_t)a); binsplit_seeds_begin((unsigned long)(uintptr_t)a); }
 static void seeds_begin_vpe(void *a) { vpe_run(seeds_begin_thunk, a); }   /* I2 in process mode: the PE's seeds and region pools, inside rns_init (binsplit's per-thread state) */
@@ -548,6 +541,7 @@ int main(int argc, char **argv)
     if (mapd_is_helper(argc, argv)) return mapd_helper_main(argc, argv);   /* ECALC_MAPD=1: this executable as an APU's chunk-creating helper (mapd.c) */
     const double tl_age = ec_proc_age_s();                   /* ECALC_INIT_TL=1: the process's age at main (read before anything else runs) */
     if (argc > 1 && !strcmp(argv[1], "--settings")) { cfg_settings(); return 0; }
+    ec_test_validate();                               /* a malformed ECALC_TEST: rc 2 naming the key */
     if (cfg_guard()) return 2;                        /* an unregistered ECALC_/XSHMEM_/... name: a typo would silently do nothing */
     cfg_snapshot();                                   /* the registered switches set in the environment, before ecalc sets any itself */
     /* MN_PLAN_ONLY=<total digits>:<g> -- the plan of a run of that size on g node-processes (mn_plan.c): every
@@ -571,7 +565,7 @@ int main(int argc, char **argv)
     int verbose = getenv("ECALC_VERBOSE") ? atoi(getenv("ECALC_VERBOSE")) : 1;
     int pool_log = getenv("POOL_LOG") ? atoi(getenv("POOL_LOG")) : 31;
     setvbuf(stdout, NULL, _IOLBF, 0);
-    if (!getenv("ECALC_NP")) { const char *cs = getenv("COMM_SIZE"); setenv("ECALC_NP", cs && atoi(cs) > 1 ? "auto" : "3", 1); }   /* three primes for decimal limbs (RESULTS 78: -17 % wall, -25.8 GB); D18 (results/MODEL.md §DEF): auto at size > 1, so every multi-node product runs P24 (crt.c ec_np_planes) */
+    if (!getenv("ECALC_NP")) { const char *cs = getenv("COMM_SIZE"); setenv("ECALC_NP", cs && atoi(cs) > 1 ? "auto" : "3", 1); }   /* three primes for decimal limbs (-17 % wall, -25.8 GB); D18: auto at size > 1, so every multi-node product runs P24 (crt.c ec_np_planes) */
     d = ((d_out + 17) / 18) * 18;
     rns_np2_set_digits((double)d);                    /* MN_NONPOW2_CAP auto: on from MN_NONPOW2_MIN digits per node-process (rns_mul.c rns_np2cap) */
     printf("== ecalc: e to %lu digits (decimal limbs, base 10^18)%s ==\n", d_out, d != d_out ? " [computed to the next multiple of 18]" : "");
@@ -584,16 +578,16 @@ int main(int argc, char **argv)
     unsigned long N = e_terms(d);
     { const char *es = getenv("COMM_SIZE"), *er = getenv("COMM_RANK"); int sz = es ? atoi(es) : 1, rk = er ? atoi(er) : 0;   /* M2: this process's term range (mn_init below checks the rest) */
       if (sz > 1 && !vpe_on()) { unsigned __int128 nn = N; bs_a0 = 1 + (unsigned long)(nn * rk / sz); bs_b1 = 1 + (unsigned long)(nn * (rk + 1) / sz); } }
-    rns_after_staging_hook = vpe_on() ? seeds_begin_vpe : (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N;   /* I2: the seeds during the pool allocations */
+    rns_after_staging_hook = vpe_on() ? seeds_begin_vpe : (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N;   /* the seeds during the pool allocations */
     pool_log = plane_cap_switch(pool_log, N, verbose);   /* ECALC_PLANE_CAP (`run` by default; exits for BS_LAYOUT_ONLY) */
     struct bs_fit fit; int fit_g = getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1; if (fit_g < 1) fit_g = 1;
-    { int pl0 = rns_pool_log(); rns_preinit_pool_log(pool_log); binsplit_fit(N, fit_g, &fit); rns_preinit_pool_log(pl0); }   /* FIT (D26): the memory fit at rank 0's layout; decides DM_MN_WRAP when unset (every rank alike) */
+    { int pl0 = rns_pool_log(); rns_preinit_pool_log(pool_log); binsplit_fit(N, fit_g, &fit); rns_preinit_pool_log(pl0); }   /* FIT: the memory fit at rank 0's layout; decides DM_MN_WRAP when unset (every rank alike) */
     if (!plan && verbose && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0)) binsplit_fit_print(&fit, (double)d_out, fit_g, "memory fit: ");
     if (!plan) fit_apu_check(&fit);
     if (!plan && !fit.fits && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0))
         fprintf(stderr, "ecalc: WARNING: this run does not fit the modelled memory (device %.2f / %.2f GB, node %.2f / %.0f GB); launchers refuse it (mnrun.sh, tools/plan_values.py --fit)\n",
                 fit.device * 1e-9, fit.limit * 1e-9, fit.node * 1e-9, fit.budget * 1e-9);
-    { char eff[360]; const char *np = getenv("ECALC_NP"), *pc = getenv("ECALC_PLANE_CAP_IDX"), *cs = getenv("COMM_SIZE");   /* L5: the resolved values (print-only) */
+    { char eff[360], pcb[2]; const char *np = getenv("ECALC_NP"), *pc = bs_plane_cap_idx >= 0 ? (pcb[0] = (char)('0' + bs_plane_cap_idx), pcb[1] = 0, pcb) : NULL, *cs = getenv("COMM_SIZE");   /* L5: the resolved values (print-only) */
       snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,plane_cap:%s,comm_size:%s,dm_mn_wrap:%d(%s)", pool_log, np ? np : "-", "10^18", verbose, pc ? pc : "-", cs ? cs : "1", newton_dm_wrap(), binsplit_dm_wrap_src());
       cfg_print(eff); }
     { /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them.
@@ -603,7 +597,7 @@ int main(int argc, char **argv)
       /* plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
       rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
     if (plan) { int f = mn_plan_run(d, N, plan_g, pool_log); binsplit_shmem_pool_rule(N, plan_g, 1);
-                binsplit_fit_print(&fit, (double)d_out, plan_g, "plan fit    ");   /* FIT (D26): the memory fit; a run that does not fit is refused (the last plan line) */
+                binsplit_fit_print(&fit, (double)d_out, plan_g, "plan fit    ");   /* FIT: the memory fit; a run that does not fit is refused (the last plan line) */
                 if (vpe_ppg()) {   /* S2fix: ECALC_PE_PER_GPU=1 has no striped tier (rns_mul_batch dies there): every batch-tier product of a PE's leaf must fit its one device's plane pool */
                     int pl0 = rns_pool_log(); rns_preinit_pool_log(pool_log); size_t nc = 0, pl_limbs = rns_plane_limbs(); rns_preinit_pool_log(pl0); int lg = binsplit_ppg_batch_logl(N, plan_g, &nc), np = ec_np_init();
                     int ok = !lg || (size_t)np * ((size_t)1 << lg) <= pl_limbs;
@@ -642,12 +636,11 @@ int main(int argc, char **argv)
         int f = mn_out_recheck(N, d, d_out, outfile, mn_comm(0), mn_rank(), sz, bs_a0, bs_b1 ? bs_b1 : N + 1, verbose);
         mn_barrier(); mn_finalize(); return f;
     }
-    /* the transport is opened (the pool rule, mn_init: shmem_init_thread, the symmetric
-     * pool, the four meshes) BEFORE rns_init -- i.e. before the VMM arenas and plane pools are mapped and before the seed thread
-     * runs its kernels and DMAs (binsplit_seeds_begin inside rns_init).  Cray OpenSHMEMX's shmem_init_thread segfaulted in task 1
-     * in 3 of 23 launches of 10^10 at 2 nodes with 45 GB of VMM arenas and the seeds already live (archive:results_merged_2026-10-24/AAC7_PORT.md §A16 step 7).  The
-     * pool rule needs only N and the size (MN_PLAN_ONLY runs it with no device); mn_init needs the pool's size from it and HIP
-     * (streams, hipHostRegister), nothing of rns_init.  The self-tests stay after rns_init. */
+    /* the transport is opened (the pool rule, mn_init: shmem_init_thread, the symmetric pool, the four meshes) BEFORE rns_init -- i.e.
+     * before the VMM arenas and plane pools are mapped and before the seed thread runs its kernels and DMAs: Cray OpenSHMEMX's
+     * shmem_init_thread segfaulted in task 1 in 3 of 23 launches at 2 nodes with the VMM arenas and the seeds already live.  The pool
+     * rule needs only N and the size (MN_PLAN_ONLY runs it with no device); mn_init needs the pool's size from it and HIP (streams,
+     * hipHostRegister), nothing of rns_init.  The self-tests stay after rns_init. */
     int mn_size_ = 1; double t_pre = 0, t_mn = 0, t_st = 0, t_lay = 0;
     {
         binsplit_shmem_pool_rule(N, getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1, 0);   /* the pool from the model */
@@ -663,14 +656,14 @@ int main(int argc, char **argv)
     int mn_dist = mn_size_ > 1;                      /* M3: the top levels as distributed products */
     t_lay = mem_now();
     if (mn_dist && !mn_selftest_layered(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
-    t_lay = mem_now() - t_lay;                       /* S3: the layered self-test's own time (it was inside `other` of the ECALC_INIT_TL line) */
+    t_lay = mem_now() - t_lay;                       /* the layered self-test's own time (it was inside `other` of the ECALC_INIT_TL line) */
     if (getenv("ECALC_BG_THREADS")) g_bg_threads = atoi(getenv("ECALC_BG_THREADS"));
     if (vpe_on()) {                                  /* the process-wide settings of the PE flow, once, before the flow */
         if (mn_size_ < 2) ec_fatal(EC_RC_FATAL, "ecalc: ECALC_PE_PER_GPU=1 needs at least 2 PEs (%d): run on 2+ nodes or more tasks per node\n", mn_size_);
         g_bg_threads = env_vpe_bg_threads();
-        if (ec_team_on()) { ec_team_share = vpe_lanes(); if (ec_team() < g_bg_threads) g_bg_threads = ec_team(); }   /* A1: with =mask a PE's teams are its share of the node (or OMP_NUM_THREADS), bg included */
+        if (ec_team_on()) { ec_team_share = vpe_lanes(); if (ec_team() < g_bg_threads) g_bg_threads = ec_team(); }   /* with =mask a PE's teams are its share of the node (or OMP_NUM_THREADS), bg included */
         mn_out_bg_threads(g_bg_threads);
-        if (vpe_ppg()) printf("ppg: %s: background team %d threads (this process's affinity mask of %d CPUs; OMP max %d), device %d\n", ec_log_prefix(), g_bg_threads, g_bg_threads, omp_get_max_threads(), vpe_device());   /* S2: one line per process (the mask is the PE's own) */
+        if (vpe_ppg()) printf("ppg: %s: background team %d threads (this process's affinity mask of %d CPUs; OMP max %d), device %d\n", ec_log_prefix(), g_bg_threads, g_bg_threads, omp_get_max_threads(), vpe_device());   /* one line per process (the mask is the PE's own) */
         if (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0)
             printf("vpe: %d PEs = %d per node x %d node%s; background team %d threads per PE (%d CPUs / %d PEs per node; OMP max %d); two part files per PE\n",
                    vpe_npe(), vpe_lanes(), vpe_nnodes(), vpe_nnodes() > 1 ? "s" : "", g_bg_threads, omp_get_num_procs(), vpe_lanes(), omp_get_max_threads());
@@ -679,7 +672,7 @@ int main(int argc, char **argv)
         newton_x_defer = 1;
         mn_hooks_set(0, outfile);
     }
-    if (ec_team_on() && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0))   /* A1: ECALC_OMP_TEAM=mask (nothing printed with it off) */
+    if (ec_team_on() && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0))   /* ECALC_OMP_TEAM=mask (nothing printed with it off) */
         printf("omp team: ECALC_OMP_TEAM=mask (rule: %s): affinity mask %d CPUs, omp_get_max_threads %d, seed threads %d, bs team %d, residue team %d, bg threads %d\n",
                ec_team_rule(), ec_team_mask_count(), omp_get_max_threads(), bs_seed_team_size(), bs_team_size(), ec_team(), g_bg_threads);
     struct flow_ctx fc; memset(&fc, 0, sizeof fc);
@@ -698,7 +691,7 @@ static void flow_run(void *a)
     double t;
     if (vpe_on()) vpe_set_range(N);                  /* this PE's term range [a0, b1) of N over the PEs */
     if (mn_size_ > 1) printf("mn: %s %d computes terms [%lu, %lu) of %lu\n", who(), mn_rank(), bs_a0, bs_b1, N);
-    double t_pg = mem_now(); binsplit_pregrow(N); t_pg = mem_now() - t_pg;   /* WP3: region pools at init, like the device pools */
+    double t_pg = mem_now(); binsplit_pregrow(N); t_pg = mem_now() - t_pg;   /* region pools at init, like the device pools */
     double t_init = mem_now() - t00;
     { const char *tl = getenv("ECALC_INIT_TL"); int tv = tl ? atoi(tl) : 0;   /* ECALC_INIT_TL=1 (print only): the init figure as its parts, which sum to it; the engine's own steps are the `tl ... xshmem:` lines.  =2: every node prints */
       if (tv > 0 && (mn_rank() == 0 || (tv >= 2 && vpe_node_leader()))) {
@@ -709,13 +702,13 @@ static void flow_run(void *a)
       if (tv > 0 && (mn_rank() == 0 || (tv >= 2 && vpe_node_leader()))) { long lim; long n = ec_map_count(&lim); printf("tl          %s %d: memory mappings at the end of init: %ld lines in /proc/self/maps (vm.max_map_count %ld)\n", who(), mn_rank(), n, lim); } }
     if (getenv("ECALC_INIT_ONLY") && atoi(getenv("ECALC_INIT_ONLY"))) { vpe_node_barrier(); MEMREP("init"); if (vpe_node_leader()) printf("ECALC_INIT_ONLY: the pools and the arena of %lu digits are mapped (%.1f s); stopping\n", d, mem_now() - t00); fflush(stdout); _exit(0); }   /* the ceiling probe (the allocation edge in seconds) */
     if (verbose >= 2 && vpe_node_leader()) printf("      init: rns_init %.2f s, region pools %.2f s, the rest %.2f s\n", t_ri, t_pg, t_init - t_ri - t_pg);   /* A-mem */
-    if (mn_size_ > 1 && mn_rank() == 0) printf("      init: layered transport self-test %.2f s (rank 0; part of the init figure; mn_selftest %.2f s)\n", fc->t_lay, fc->t_st);   /* S3: always printed, multi-node only */
+    if (mn_size_ > 1 && mn_rank() == 0) printf("      init: layered transport self-test %.2f s (rank 0; part of the init figure; mn_selftest %.2f s)\n", fc->t_lay, fc->t_st);   /* always printed, multi-node only */
     if (vpe_node_leader()) RESULT("init", "s", t_init);   /* one per node (a global figure) */
-    if (vpe_proc_leader()) {                         /* S2: each PE's own process line */
+    if (vpe_proc_leader()) {                         /* each PE's own process line */
     printf("      VmRSS %.1f GB after init (staging %.1f GB pinned + device regions %.0f GB); init %.1f s\n", mem_vmrss() / 1e9, rns_staging_bytes() * 4 / 1e9, mem_dev_pool_bytes() / 1e9, t_init); }
-    if (getenv("MEM_REPORT_DEVS") && mn_size_ > 1 && vpe_proc_leader()) {   /* B7ACCT: the layout's terms outside "in use" on the per-APU lines (a report only) */
+    if (getenv("MEM_REPORT_DEVS") && mn_size_ > 1 && vpe_proc_leader()) {   /* the layout's terms outside "in use" on the per-APU lines (a report only) */
         const char *eo = getenv("COMM_OFI_POOL_MB"); size_t ofi = eo ? (size_t)atol(eo) << 20 : 0;
-        mem_report_outside(0, ofi, comm_layered_vbytes);   /* X2: the v-slots are in the comm pool (ofi) */ }
+        mem_report_outside(0, ofi, comm_layered_vbytes);   /* the v-slots are in the comm pool (ofi) */ }
     MEMREP("init");                               /* device and host bytes by category at each phase boundary (process mode: every PE) */
     budget_check(N, verbose);                     /* ECALC_BUDGET_CHECK=1 -- every rank stops here when any node is over */
     bs_verbose = verbose >= 2;
@@ -725,7 +718,7 @@ static void flow_run(void *a)
     int ovl = mn_size_ == 1;                       /* the overlapped flow (device top levels, device dm): size 1; size > 1 runs M3's distributed flow */
     bigint P, Q, X;
     bi_init(&P); bi_init(&Q); bi_init(&X);
-    dbig Xdev; db_init(&Xdev); mdb Xm; memset(&Xm, 0, sizeof Xm);   /* B1: X on the device (size 1) / sharded (the distributed division) until the output stage has written it */
+    dbig Xdev; db_init(&Xdev); mdb Xm; memset(&Xm, 0, sizeof Xm);   /* X on the device (size 1) / sharded (the distributed division) until the output stage has written it */
     struct pq_bg pqb; memset(&pqb, 0, sizeof pqb); pqb.N = N; pqb.a0 = bs_a0; pqb.b1 = bs_b1 ? bs_b1 : N + 1;   /* M5: the T1 recurrence over this node's terms */
     struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.d_out = d_out; xb.outfile = outfile; xb.verbose = verbose >= 2;
     struct out_ctx oc; memset(&oc, 0, sizeof oc); oc.N = N; oc.d = d; oc.d_out = d_out; oc.outfile = outfile; oc.verbose = verbose; oc.size = mn_size_; oc.rank = mn_rank(); g_ocp = &oc;
@@ -737,17 +730,17 @@ static void flow_run(void *a)
     else if (mn_size_ > 1) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; }   /* M5: every node runs its range's recurrence during its leaf levels */
 
 
-    comm_wst_set_phase(WST_BS);   /* D3: MN_WAIT_STATS phase */
+    comm_wst_set_phase(WST_BS);   /* MN_WAIT_STATS phase */
     t = mem_now(); binsplit_e(&P, &Q, N); double t_bs = mem_now() - t;
-    if (getenv("ECALC_TEST_DIE_PE") && atoi(getenv("ECALC_TEST_DIE_PE")) == vpe_pe() && vpe_on())   /* test hook (S2 kill test; off unless set): this PE dies at a fixed phase, after bs, with its peers about to enter the tree's collectives */
-        ec_fatal(EC_RC_FATAL, "ecalc: ECALC_TEST_DIE_PE=%d: this PE stops here on purpose (kill test)\n", vpe_pe());
+    if (ec_test_long("die_pe", -1) == vpe_pe() && vpe_on())   /* test hook (kill test; off unless set): this PE dies at a fixed phase, after bs, with its peers about to enter the tree's collectives */
+        ec_fatal(EC_RC_FATAL, "ecalc: ECALC_TEST die_pe=%d: this PE stops here on purpose (kill test)\n", vpe_pe());
     /* the top-level P, Q on disk for ECALC_RECHECK -- default on above 10^10 digits with an outfile
      * (ECALC_CKPT_TOP=0: off; =1: on at any size), into BS_CKPT_DIR or, unset, <outfile>.top.  Size 1: the level-0 tree set,
      * written in the background by bs_ckpt_bg_* (binsplit.c); size > 1: mn_tree's top tree set.  No other checkpoint exists
-     * (no restart inside a run: the user's decision D11, 2026-10-12) */
+     * (no restart inside a run: the user's decision D11) */
     /* the default is OFF.  Agent W measured the 35.6 GB top set as hidden (0-1 s of wall) on disks
      * writing at 1.13-1.59 GB/s, but on aac6's slower path it runs at 0.31 GB/s: 113 s of background write that the
-     * division waits for (dm 28 -> 113 s, the 4e10 wall 81 -> 164 s, regression job 20964).  The set is what makes
+     * division waits for.  The set is what makes
      * ECALC_RECHECK possible for a finished run, so it stays one switch away: ECALC_CKPT_TOP=1. */
     int ckpt_top = ckpt_top_mode();                 /* off for record runs; ECALC_CHECKPOINT=1 (development and testing) = the budgeted top set (=2); ECALC_CKPT_TOP overrides both */
     double ckpt_slack = 1.0;   /* ECALC_CKPT_TOP=2's budget per release */
@@ -781,13 +774,13 @@ static void flow_run(void *a)
             if (!vpe_on()) { newton_mn_x_hook = 0; newton_mn_xhi_hook = 0; newton_mn_xlo_hook = 0; }
             if (oc.hi && !oc.hi_rel) { mn_out_early_lo_release(oc.early, &Xm, mn_comm(0)); oc.hi_rel = 1; }   /* X_lo0 >= B^s -- X_lo now corrected (every rank: collective) */
             t_dm = mem_now() - td; mn_xn = Xm.n;
-            if (vpe_proc_leader()) mn_wait_stats_print(); comm_wst_set_phase(WST_OTHER);   /* D3: one line per process (S1: per node), then the rest of the run is 'other' */
-            newton_db_free_scratch(); oc.Xm = &Xm;   /* B1 (H): X stays sharded; the output stage reads this node's share in place (the block pool is released after it) */
+            if (vpe_proc_leader()) mn_wait_stats_print(); comm_wst_set_phase(WST_OTHER);   /* one line per process (per node), then the rest of the run is 'other' */
+            newton_db_free_scratch(); oc.Xm = &Xm;   /* X stays sharded; the output stage reads this node's share in place (the block pool is released after it) */
             memcpy(oc.Pres, Pres, sizeof Pres); memcpy(oc.Qres, Qres, sizeof Qres); memcpy(oc.Rres, Rres, sizeof Rres);   /* every node's own residues (the sharded kernels) -- the non-zero ranks go to the output stage from here */
             oc.ncorr = (int)(newton_st.down_corr + newton_st.up_corr); oc.t_bs = t_bs; oc.t_dm = t_dm;
             oc.defer = newton_x_defer; oc.dx = newton_x_dx;
             printf("mn: %s %d: dm over %d %s %.2f s (reciprocal %.2f), X %zu limbs, sharded%s\n", who(), mn_rank(), mn_size_, vpe_on() ? "PEs" : "nodes", t_dm, t_recip, mn_xn, mn_rank() ? "; to the output stage" : "");
-            if (mn_rank() != 0) { int f = out_stage(&oc); flow_end(f, 0); return; }   /* M5 + A-mem: every node writes its part of X and checks its residues; its device memory goes before the final barrier (after the top set's writer) */
+            if (mn_rank() != 0) { int f = out_stage(&oc); flow_end(f, 0); return; }   /* M5: every node writes its part of X and checks its residues; its device memory goes before the final barrier (after the top set's writer) */
         }
     }
     if (!mn_dm && !bs_Pd.n) { ec_fatal(EC_RC_FATAL, "ecalc: the top level left no device P, Q\n"); }   /* size 1: binsplit hands P, Q over as device numbers whatever tier ran the top level */
@@ -821,7 +814,7 @@ static void flow_run(void *a)
     rns_release_staging();                            /* nothing between here and dm needs the staging */
     double tr = mem_now();
     db_mod_qs(&bs_Pd, t1_q, T1_NQ, Pres); db_mod_qs(&bs_Qd, t1_q, T1_NQ, Qres);
-    { size_t don = 0; for (int dv = 0; dv < 4; dv++) don += rns_dpool_donate_tail(dv, 1, rns_pool1_default_bytes(pool_log)); if (verbose >= 2) printf("      I3: plane pool tails donated: %.1f GB\n", don / 1e9); }   /* the dist tier uses 3 q (+16 limbs) of pool 1; nothing to donate when pool 1 is sized to that (C4) */
+    { size_t don = 0; for (int dv = 0; dv < 4; dv++) don += rns_dpool_donate_tail(dv, 1, rns_pool1_default_bytes(pool_log)); if (verbose >= 2) printf("      I3: plane pool tails donated: %.1f GB\n", don / 1e9); }   /* the dist tier uses 3 q (+16 limbs) of pool 1; nothing to donate when pool 1 is sized to that */
     double t_res3 = mem_now() - tr;
     size_t k_mu = bs_Pd.n + 1 + dl - bs_Qd.n + 1;    /* S has at most one limb more than P */
     newton_db_Qd = &bs_Qd; newton_db_mu_host = 0;
@@ -844,7 +837,7 @@ static void flow_run(void *a)
 
     t = mem_now();
     memset(&rns_st, 0, sizeof rns_st);
-    newton_db_x_hook = x_bg_hook; newton_db_x_arg = &xb;   /* O4: the hook starts the residues and the chunked writer (M5) on X before the low product */
+    newton_db_x_hook = x_bg_hook; newton_db_x_arg = &xb;   /* the hook starts the residues and the chunked writer (M5) on X before the low product */
     newton_db_x_dev = &Xdev; xb.Xd = &Xdev; oc.Xd = &Xdev;   /* X never leaves the device -- the writer and the residues read it there */
     if (newton_x_defer) { newton_db_xhi_hook = x_hi_hook; newton_db_xlo_hook = x_lo_hook; }   /* the writer on X_hi after DKM's step 1 (needs the deferred corrections) */
     newton_db_divmod_shifted(&X, &bs_Pd, dl, &bs_Qd, t1_q, T1_NQ, Rres); db_free(&bs_Pd);
