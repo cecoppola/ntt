@@ -554,7 +554,7 @@ int main(int argc, char **argv)
         char gb[16]; snprintf(gb, sizeof gb, "%d", plan_g); setenv("COMM_SIZE", gb, 1); setenv("COMM_RANK", "0", 1);
     } else plan = 0;
     if (argc < 2 && !plan) { fprintf(stderr, "usage: ecalc <digits> [outfile]\n"); return 2; }
-    if (!plan) mapd_early();                          /* ECALC_MAPD=1 (default 0): start the per-APU helper processes now, before any HIP / PMI call (mapd.c) */
+    if (!plan) mapd_early();                          /* ECALC_MAPD (default on at COMM_SIZE > 1): start the per-APU helper processes now, before any HIP / PMI call (mapd.c) */
     ec_segv_trace_install();                          /* s18w task 2: after COMM_RANK is known (the environment above, or the
                                                           MN_PLAN_ONLY branch's setenv); no-op unless ECALC_SEGV_TRACE=1 */
     unsigned long d_arg = 0;                          /* count_arg.h: a plain integer or exact scientific notation (1e9, 1.6e10); anything else is refused here, before any device or network setup */

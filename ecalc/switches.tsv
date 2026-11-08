@@ -5,7 +5,7 @@ BS_ARENA_ROOM	float	0.14	0.14		built-in default	-	AS15.md+DL15.md	Y	ecalc	binspl
 BS_ARENA_TRIM_GB	float	0	0		unclassified	-	-	Y	ecalc	binsplit.c	1	coordinator (TASKS S)	2026-11-11	
 BS_CKPT_BG_MBS	float	0	0		test-only	-	N13.md	Y	ecalc	binsplit.c	1	diagnostics (TESTING.md)	2027-04-12	
 BS_CKPT_DIR	str	unset	derived	path	launch-line	-	W.md+WP7.md	Y	ecalc	ecalc.c	3	-	-	ecalc.c; the top-level set's directory (ECALC_CKPT_TOP); unset or empty = <outfile>.top
-BS_LAYOUT_ONLY	str	unset	derived	D[:g],...	launch-line	-	MS15.md+B7ACCT.md	Y	ecalc	binsplit.c,ecalc.c,vpe.c	6	-	-	ecalc.c:440; layout printer, exits before rns_init
+BS_LAYOUT_ONLY	str	unset	derived	D[:g],...	launch-line	-	MS15.md+B7ACCT.md	Y	ecalc	binsplit.c,ecalc.c,mapd.c,vpe.c	7	-	-	ecalc.c:440; layout printer, exits before rns_init
 BS_MDEV_LOGL	int	derived	derived		built-in default	-	M3.md+A-ckpt.md	Y	ecalc	binsplit.c,mn_plan.c	6	-	-	
 BS_SEED_CHUNK_MB	int	derived	derived		built-in default	-	H.md+R114.md	Y	ecalc	binsplit.c	4	-	-	
 BS_SEED_FILL	bool	unset	unset	0|1	built-in default	-	T215.md+DOC15.md	Y	ecalc	binsplit.c	1	-	-	
@@ -16,7 +16,7 @@ COMM_OFI_POOL_MB	int	0	0	MiB per device	launch-line	-	STD17.md+S18KITFIX.md	Y	ec
 COMM_RANK	int	0	0	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,mn.c,segv_trace.c,vpe.c	25	-	-	set per process by the launcher (mnrun.sh); excluded from the config hash
 COMM_SEQ_CHECK	bool	0	unset	0|1	built-in default	-	-	Y	ecalc	comm_xshmem.c	1	comm	2027-04-12	comm_xshmem.c; every small collective and handshake
 COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_xshmem.c	7	-	-	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
-COMM_SIZE	int	1	conflict:0|1	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,crt.c,ecalc.c,fatal.c,mem.c,mn.c,mn_plan.c,rns_mul.c,segv_trace.c,vpe.c	25	-	-	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
+COMM_SIZE	int	1	conflict:0|1	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,crt.c,ecalc.c,fatal.c,mapd.c,mem.c,mn.c,mn_plan.c,rns_mul.c,segv_trace.c,vpe.c	26	-	-	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
 COMM_TRANSPORT	enum	unset	derived	shmem	launch-line	-	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c,rns_dist.c	4	-	-	mn.c: a transport is needed for COMM_SIZE > 1 (mnrun.sh sets it: xshmem, the S3a engine, when the launched executable has it (the default build, make XSHMEM=ofi, where libfabric is found; Q73 2026-10-21), else shmem; an explicit shmem is the fallback and the reference); tcp removed 2026-10-12
 DB_FREE_SYNC	int	0	0	0|1|2	experiment	-	POOLRACE.md	Y	ecalc	dbig.c	1	coordinator (C1POOL)	2026-11-30	dbig.c; 0 = off; 1 = hipDeviceSynchronize on the block's device before it returns to the free list and before a VMM chunk is unmapped; 2 = on every pool device
 DB_POOL_FORCE_REMAP	int	0	0	>=0	experiment	-	STRESS.md	Y	ecalc	dbig.c	1	coordinator (C2 STRESS)	2026-11-30	dbig.c; 0 = off; n = every n-th block-pool allocation first unmaps up to max(64, ceil(need/chunk)) of the highest wholly free VMM chunks and maps them again (no growth)
@@ -41,7 +41,7 @@ ECALC_HOST_TL	bool	0	unset	0|1	diagnostic	-	DIAG.md	Y	ecalc	comm_xshmem.c	1	coor
 ECALC_HOST_TL_PE	int	0	unset	-1..PEs-1	diagnostic	-	DIAG.md	Y	ecalc	comm_xshmem.c	1	coordinator (I3)	2027-01-31	comm_xshmem.c; with ECALC_HOST_TL=1
 ECALC_INIT_ONLY	int	unset	unset		test-only	-	L114.md+P13b.md	Y	ecalc	ecalc.c	2	diagnostics (TESTING.md)	2027-04-12	
 ECALC_INIT_TL	bool	0	0	0|1	launch-line	-	MAP15.md	Y	ecalc	comm_xshmem.c,dbig.c,ecalc.c,mn.c,xshmem_ofi.c	7	-	-	dbig.c
-ECALC_MAPD	bool	0	0	0|1	experiment	-	MAPBENCH.md	Y	ecalc	mapd.c	1	coordinator (TASKS S1)	2026-11-30	mapd.c; ecalc.c main start
+ECALC_MAPD	bool	auto	unset	0|1	experiment	-	MAPBENCH.md	Y	ecalc	mapd.c	1	coordinator (TASKS S1)	2026-11-30	mapd.c; ecalc.c main start
 ECALC_MEMSAMPLE_SYSFS_ROOT	str			path prefix	test-only	-	HEALTH.md	Y	ecalc	memsample.c	1	HEALTH (C5)	2027-04-12	memsample.c; prefix of the /sys path of the per-APU NUMA-node MemFree reader (a mock tree proves the per-APU guard); unset = the real /sys
 ECALC_MEM_GUARD_APU_GB	float	0	0	>=0 GB	launch-line	-	HEALTH.md	Y	ecalc	ecalc.c,memsample.c	2	-	-	memsample.c; 0 = per-APU guard off
 ECALC_MEM_GUARD_GB	float	0	derived	>=0 GB	launch-line	aac7	IO15.md+DOC15.md	Y	ecalc	memsample.c	1	-	-	memsample.c:113; 0 = guard off
@@ -71,7 +71,7 @@ MN_OUT_CHUNK_MB	int	256	256		built-in default	-	IO15.md+A-out.md	Y	ecalc	mn_out.
 MN_OUT_EARLY	int	1	1		built-in default	-	IO15.md	Y	ecalc	binsplit.c,ecalc.c	6	-	-	
 MN_OUT_STRIPE	bool	1	1	0|1	built-in default	-	IO15.md+SC15.md	Y	ecalc	mn_out.c	1	-	-	
 MN_OUT_THREADS	int	8	8		built-in default	-	IO15.md+TARGET_HW_REVIEW.md	Y	ecalc	mn_out.c	3	-	-	
-MN_PLAN_ONLY	str	unset	derived	D:g	launch-line	-	P15.md+T215.md	Y	ecalc	binsplit.c,ecalc.c,vpe.c	3	-	-	ecalc.c:451; prints the plan and exits
+MN_PLAN_ONLY	str	unset	derived	D:g	launch-line	-	P15.md+T215.md	Y	ecalc	binsplit.c,ecalc.c,mapd.c,vpe.c	4	-	-	ecalc.c:451; prints the plan and exits
 MN_T_CHUNK_MB	float	1024	1024	MiB	launch-line	aac7	P214.md+S22.md	Y	ecalc	newton_db.c,rns_dist.c	3	-	-	rns_dist.c:1608
 MN_WAIT_STATS	bool	0	unset	0|1	launch-line	-	S27.md+S22.md	Y	ecalc	comm_util.c	1	-	-	comm_util.c:22 (atoi > 0)
 NEWTON_MN_LAZY	bool	0	0	0|1	experiment	-	-	Y	ecalc	newton_db.c	2	lazy shift (F-in)	2026-11-30	newton_db.c; recip_mn_body

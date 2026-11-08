@@ -1,4 +1,4 @@
-/* mapd.c -- ECALC_MAPD=1: helper processes (one per APU, NUMA-pinned) run hipMemCreate for the plane pools and the dbig VMM arena
+/* mapd.c -- ECALC_MAPD (on): helper processes (one per APU, NUMA-pinned) run hipMemCreate for the plane pools and the dbig VMM arena
  * chunks and export each as a POSIX fd handle (SCM_RIGHTS over a Unix socket pair); the main process imports
  * (hipMemImportFromShareableHandle), maps and sets access (dbig.c vmm_map_run; mapd_pool_alloc for the pools).
  * The helper is this very executable started with argv[1] = --mapd-helper (posix_spawn: no HIP state is inherited).  It serves a
@@ -125,9 +125,15 @@ static void md_fail(int d, const char *why)
 }
 void mapd_early(void)
 {
-    const char *e = getenv("ECALC_MAPD"); if (!e || atoi(e) == 0) return;
+    /* effective state: ECALC_MAPD=0 off, =1 on (explicit always wins); unset: on when COMM_SIZE > 1, off at size 1 and in the plan-only modes (MN_PLAN_ONLY, BS_LAYOUT_ONLY) */
+    const char *e = getenv("ECALC_MAPD"); int expl = e && *e;
+    if (expl) { if (atoi(e) == 0) return; }
+    else {
+        const char *cs = getenv("COMM_SIZE"); if (!cs || atoi(cs) <= 1) return;
+        if (getenv("MN_PLAN_ONLY") || getenv("BS_LAYOUT_ONLY")) return;
+    }
     const char *vm = getenv("DB_POOL_VMM"); if (vm && atoi(vm) == 0) return;
-    const char *pp = getenv("ECALC_PE_PER_GPU"); if (pp && atoi(pp) != 0) { fprintf(stderr, "ecalc: ECALC_MAPD: not used with a process per APU (phase 1)\n"); return; }
+    const char *pp = getenv("ECALC_PE_PER_GPU"); if (pp && atoi(pp) != 0) { if (expl) fprintf(stderr, "ecalc: ECALC_MAPD: not used with a process per APU (phase 1)\n"); return; }
     const char *vis = getenv("ROCR_VISIBLE_DEVICES"); if (!vis || !*vis) vis = getenv("HIP_VISIBLE_DEVICES");
     int nd = MAPD_NQ; if (vis && *vis) { nd = 1; for (const char *c = vis; *c; c++) if (*c == ',') nd++; }
     if (nd > MAPD_NQ) nd = MAPD_NQ;

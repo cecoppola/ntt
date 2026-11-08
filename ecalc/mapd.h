@@ -1,4 +1,4 @@
-/* mapd.h -- ECALC_MAPD (default 0): per-APU helper processes create the plane-pool and dbig VMM arena chunks and hand
+/* mapd.h -- ECALC_MAPD (default: on at COMM_SIZE > 1, off at size 1 and in plan-only modes; 0/1 force): per-APU helper processes create the plane-pool and dbig VMM arena chunks and hand
  * them to the main process as POSIX file-descriptor handles. Every function is a no-op (returns 0) when the switch is
  * off or a helper failed. */
 #ifndef MAPD_H
@@ -6,8 +6,8 @@
 #include <stddef.h>
 int  mapd_helper_main(int argc, char **argv);          /* main(): argv[1] == "--mapd-helper" */
 int  mapd_is_helper(int argc, char **argv);
-void mapd_early(void);                                 /* first thing in main, before any HIP / PMI / fabric call: spawns the helpers if ECALC_MAPD=1 */
-int  mapd_active(void);                                /* 1 if ECALC_MAPD=1 took effect (helpers were started) */
+void mapd_early(void);                                 /* first thing in main, before any HIP / PMI / fabric call: spawns the helpers if ECALC_MAPD is on (rule in mapd.c) */
+int  mapd_active(void);                                /* 1 if ECALC_MAPD took effect (helpers were started) */
 void mapd_request(int dev, int kind, int nchunks, size_t chunk, int final);   /* queue (kind 0 pool / 1 arena, count, size) for the helper of `dev`; final: it exits after this one; chunks come back in request order */
 void mapd_sync(int dev);                               /* rns_init: wait until the helper's runtime is up (so device-memory measurements include it) */
 void mapd_ready(int dev);                              /* wait for the next chunk without holding a lock (the 60 s limit lives here) */

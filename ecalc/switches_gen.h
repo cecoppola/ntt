@@ -61,7 +61,7 @@ static const struct { const char *name, *def; char kind; } cfg_reg[] = {
     {"ECALC_INIT_ONLY", "unset", 'h'},
     {"ECALC_INIT_TL", "0", 'h'},
     {"ECALC_LOG_CLOCKS", "-", 'l'},
-    {"ECALC_MAPD", "0", 'h'},
+    {"ECALC_MAPD", "auto", 'h'},
     {"ECALC_MEMSAMPLE_SYSFS_ROOT", "", 'h'},
     {"ECALC_MEM_GUARD_APU_GB", "0", 'h'},
     {"ECALC_MEM_GUARD_GB", "0", 'h'},
