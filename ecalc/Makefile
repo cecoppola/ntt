@@ -99,9 +99,9 @@ clean:
 # ---- XSHMEM: the communication layer behind xshmem.h (the only multi-node transport).  On by default wherever libfabric (OFI=1) and the PMI2
 # header are found, else 0 (the build without the engine: it still builds, COMM_TRANSPORT=xshmem is then a fatal at start).
 #   make                                             XSHMEM=ofi (path 1): libfabric cxi backend (xshmem_ofi.c, xshmem_boot.c PMI2, pe_geo.c)
-#   make XSHMEM=cray                                 (path 2): Cray SHMEM backend (xshmem_cray.h, static inline); aac7: `module load cray-dsmml cray-openshmemx`
+#   make XSHMEM=cray                                 (path 2): Cray SHMEM backend (xshmem.h (XSHMEM_CRAY section), static inline); aac7: `module load cray-dsmml cray-openshmemx`
 #   make XSHMEM=ofi tests/t_xshmem tests/t_pe_geo    the engine tests (build with -B when switching XSHMEM)
-# XSHMEM_CRAY_DEFS = -D selectors of xshmem_cray.h (XSHMEM_CRAY_HEAP, _WAIT, _HOSTREG).  XTEST_OBJS = extra objects for tests/t_xshmem.
+# XSHMEM_CRAY_DEFS = -D selectors of xshmem.h (XSHMEM_CRAY section) (XSHMEM_CRAY_HEAP, _WAIT, _HOSTREG).  XTEST_OBJS = extra objects for tests/t_xshmem.
 # PMI (site discovery, each step only where the previous finds nothing, so aac7 keeps /opt/cray/pe/pmi/default and /opt/cray/pe/lib64):
 #   include dir PMI_HOME: pmi/default if it has pmi2.h, else the cray-pmi module's CRAY_PMI_PREFIX, else pmi/default.
 #   library dir PMI_LIBDIR (-L and rpath, both paths): /opt/cray/pe/lib64 if it has the unversioned libpmi2.so (aac7), else CRAY_PMI_PREFIX/lib,
@@ -159,7 +159,7 @@ tests/t_pe_geo: tests/t_pe_geo.c pe_geo.c $(HDRS) xshmem_boot.o
 endif
 # every binary that links OBJS (ecalc and the tests) also links the engine (comm_xshmem.c) and the backend; mn.o is compiled with -DXSHMEM_ENGINE
 # (without it COMM_TRANSPORT=xshmem is a fatal at start).  XSHMEM=cray builds the SAME engine, XOBJS = pe_geo_nb.o: the backend is the inline
-# xshmem_cray.h and -lsma.  Rebuild with -B when switching XSHMEM.
+# xshmem.h (XSHMEM_CRAY section) and -lsma.  Rebuild with -B when switching XSHMEM.
 comm_xshmem.o: comm_xshmem.c $(HDRS)
 	$(HIPC) $(XSHMEM_CFLAGS) -DXSHMEM_ENGINE -c $< -o $@
 OBJS += comm_xshmem.o $(XOBJS)

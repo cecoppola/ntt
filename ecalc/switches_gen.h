@@ -197,6 +197,7 @@ static const struct { const char *name, *def; char kind; } cfg_reg[] = {
     {"TMPDIR", "-", 't'},
     {"XSHMEM_CFLAGS", "-", 'l'},
     {"XSHMEM_COLL", "flat", 'h'},
+    {"XSHMEM_CRAY", "-", 'l'},
     {"XSHMEM_CRAY_DEFS", "-", 'l'},
     {"XSHMEM_CRAY_HEAP", "-", 'l'},
     {"XSHMEM_CRAY_HEAP_THP", "0", 'h'},
@@ -215,7 +216,7 @@ static const struct { const char *name, *def; char kind; } cfg_reg[] = {
     {"XSHMEM_ROUND_STATS", "0", 'h'},
     {"XSHMEM_SPARSE", "0", 'h'},
 };
-#define CFG_REG_N 211
+#define CFG_REG_N 212
 static const char *const cfg_prefixes[] = {
     "ECALC_",
     "XSHMEM_",

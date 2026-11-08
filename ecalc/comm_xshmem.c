@@ -1,6 +1,6 @@
 /* comm_xshmem.c -- the exchanges of ecalc on xshmem.h. COMM_TRANSPORT=xshmem (make XSHMEM=ofi or XSHMEM=cray;
  * compiled with -DXSHMEM_ENGINE); the only multi-node transport. It speaks ONLY xshmem.h (no fi_*, no shmem_*), so on
- * the target the same file runs on Cray SHMEM behind xshmem_cray.h. Exchange prototype: tests/t_xshmem.c (xex_post /
+ * the target the same file runs on Cray SHMEM behind xshmem.h. Exchange prototype: tests/t_xshmem.c (xex_post /
  * xex_progress / xex_rx / xex_wait), here behind struct comm_ops.
  *
  * Model. One node-process hosts K loopback PEs (xshmem_ofi_loopback_pes(); K = 1 without loopback): PE = K * node +

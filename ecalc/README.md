@@ -48,7 +48,7 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 | `newton.c/h`, `newton_db.c` | the reciprocal and the two-half division on device and sharded numbers |
 | `mn.c/h`, `mn_plan.c/h` | node-processes: meshes, groups, the tree levels; `MN_PLAN_ONLY` plan and check |
 | `comm.h`, `comm_*.c` | communicators: `xgmi` (the node's four APUs), `xshmem` (the inter-node transport over `xshmem.h`), `layered` (xGMI × fabric), `copy` (GPU copy kernel), `util`; the one-rank and four-synthetic-rank test communicators are inside `tests/t_dist.c` |
-| `xshmem.h`, `xshmem_ofi.c`, `xshmem_boot.c/h`, `xshmem_cray.h`, `xshmem_round.h`, `pe_geo.c/h`, `vpe.c/h` | the xshmem API and its two backends (libfabric `XSHMEM=ofi`, Cray SHMEM `XSHMEM=cray`), the PE geometry, the one-process-per-GPU PE identity |
+| `xshmem.h` (with the Cray backend), `xshmem_ofi.c`, `xshmem_boot.c/h`, `xshmem_round.h`, `pe_geo.c/h`, `vpe.c/h` | the xshmem API and its two backends (libfabric `XSHMEM=ofi`, Cray SHMEM `XSHMEM=cray`), the PE geometry, the one-process-per-GPU PE identity |
 | `mn_out.c/h`, `packed_fmt.h`, `verify.c/h` | output per node (packed part files, the correction patch), T1 residues and T2 windows |
 | `mem.c/h`, `memsample.c/h`, `nodemem.h`, `spill.c/h` | memory pools, VMM arenas, accounting and sampling; O_DIRECT file writes |
 | `fatal.c/h`, `segv_trace.c/h`, `config_line.c/h` | named exits, the crash-trace handler, the `config: hash=` line |

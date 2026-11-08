@@ -2,7 +2,7 @@
 """tools/xshmem_api_check.py -- every function of the xshmem API table exists in both backends (brief B1).
 
 The table is the `XAPI <name>` lines of the comment block in ecalc/xshmem.h.  Checked: the header declares each name (libfabric
-prototype section), xshmem_cray.h defines each as a static inline, xshmem_ofi.c defines each (or xshmem_ofi_stub.c while the real file
+prototype section), the XSHMEM_CRAY section of xshmem.h defines each as a static inline, xshmem_ofi.c defines each (or xshmem_ofi_stub.c while the real file
 has not landed: then reported as STUB).  Exit 1 on a missing name.  Read-only, host only.
 """
 import os, re, sys
@@ -20,7 +20,7 @@ def main():
     if not names:
         print("no XAPI lines in xshmem.h"); return 1
     proto = hdr[hdr.index("#else\n/* ---- libfabric backend"):]
-    cray = rd("xshmem_cray.h")
+    cray = hdr[:hdr.index("#else\n/* ---- libfabric backend")]
     ofi, which = rd("xshmem_ofi.c"), "xshmem_ofi.c"
     if ofi is None:
         ofi, which = rd("xshmem_ofi_stub.c"), "xshmem_ofi_stub.c (STUB)"
@@ -28,7 +28,7 @@ def main():
     for n in names:
         miss = []
         if not re.search(r"\b%s\s*\(" % n, proto): miss.append("xshmem.h prototype")
-        if not re.search(r"static inline [^;{]*\b%s\s*\(" % n, cray): miss.append("xshmem_cray.h")
+        if not re.search(r"static inline [^;{]*\b%s\s*\(" % n, cray): miss.append("xshmem.h cray section")
         if ofi is None or not re.search(r"^[A-Za-z_][\w \*]*\b%s\s*\(" % n, ofi, re.M): miss.append(which)
         if miss:
             bad += 1; print("MISSING %s: %s" % (n, ", ".join(miss)))
