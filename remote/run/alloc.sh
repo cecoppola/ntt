@@ -45,8 +45,8 @@ release)
     rl_finish PASS "$HERE/alloc.sh --nodes <N>";;
 alloc)
     ex=$(rl_exclude_list)
-    # the login shell may export SLURM_HINT=nomultithread, which Slurm refuses for 192-CPU steps: the hold job must not inherit it
-    cmd=(env -u SLURM_HINT sbatch --parsable -N "$NODES" --exclusive $(rl_gres_opts "${PART:-}") -t "$TLIM" -J remote_hold --no-requeue -o "$RUN/slurm_hold.out"
+    # the hold job does not inherit a login SLURM_HINT=nomultithread: rl_init (rl_site_load) unset it for every remote/run script
+    cmd=(sbatch --parsable -N "$NODES" --exclusive $(rl_gres_opts "${PART:-}") -t "$TLIM" -J remote_hold --no-requeue -o "$RUN/slurm_hold.out"
          ${PART:+-p "$PART"} ${ACCT:+-A "$ACCT"} ${ex:+-x "$ex"} --wrap "sleep $((secs + 30))")
     rl_kv nodes_requested "$NODES"; rl_kv time "$TLIM"; rl_kv partition "${PART:-<default>}"; [ -n "$ex" ] && rl_kv exclude "$ex"
     if [ "$DRY" = 1 ]; then rl_would "${cmd[*]}"; rl_would "poll squeue -j <id> until RUNNING (<= ${WAIT}s)"; rl_would "site.env: REMOTE_JOB=<id>"; rl_finish SKIP "$HERE/alloc.sh --nodes $NODES"; fi

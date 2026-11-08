@@ -1,7 +1,7 @@
 /* pe_geo.h -- per-PE topology: GPU, NICs, NUMA node, CPU list (built with XSHMEM=ofi). Nothing is hard-coded: PEs per
  * node, GPUs, NICs per NUMA node all come from the launch and sysfs. Chain: device -> PCI bus id -> sysfs numa_node
- * -> cxi devices on that node -> /sys/devices/system/node/N/cpulist. Env overrides: COMM_OFI_NICS ("0;1;2;3" or
- * "0,4;1,5;2,6;3,7", `;` between node-local GPUs), XSHMEM_LANES, XSHMEM_PES_PER_GPU, PE_GEO_SYSFS_ROOT (prefix of
+ * -> cxi devices on that node -> /sys/devices/system/node/N/cpulist. Env overrides: COMM_OFI_NICS (the target's form
+ * "0,1;2,3;4,5;6,7": `,` between one GPU's NICs, `;` between node-local GPUs), XSHMEM_LANES, XSHMEM_PES_PER_GPU, PE_GEO_SYSFS_ROOT (prefix of
  * every /sys path: mock trees for tests). */
 #ifndef PE_GEO_H
 #define PE_GEO_H

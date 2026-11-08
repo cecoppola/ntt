@@ -8,7 +8,7 @@ Closed rows and the 10-29 to 11-03 done-lists are in `archive:cleanup_1107/TASKS
 Classes: 1 bugs, 2 shrink, 3 simplify, 4 performance, 5 docs (definitions in the project instructions). Within a class, rows are in the order to do them. No target session of ours follows (user 2026-10-31): the code is imported to the target one way and an agent there reads and tests it, so each item is proven on aac7 / aac6 and every target-only gain gets a self-contained test in PLAN.md.
 
 Class 1
-1. Launch script fixes: alloc.sh without SLURM_HINT, one REMOTE_DEVICE_GB -> ECALC_DEVICE_GB rule in lib.sh, NIC form 0,1;2,3;4,5;6,7, PLAN hugetlb row.
+1. DONE (branch c1): launch script fixes (alloc.sh and the target scripts do not inherit SLURM_HINT, one REMOTE_DEVICE_GB rule in lib.sh, NIC form 0,1;2,3;4,5;6,7, PLAN hugetlb row).
 
 Class 4
 8. Exchange rounds sized by active pairs (zero peers skipped).

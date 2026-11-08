@@ -114,9 +114,16 @@ rl_site_load() {    # KEY=VALUE lines of site.env; the caller's environment wins
         done < "$SITE_ENV"
     fi
     rl_site_defaults
-    # the measured GPU edge (edge.sh: REMOTE_DEVICE_GB, per node) is the planner's ECALC_DEVICE_GB unless the caller set one
-    # (after the aac7 defaults, so the rehearsal keeps its 444.0 as before)
+    rl_device_gb    # after the aac7 defaults, so the rehearsal keeps its 444.0 as before
+}
+rl_device_gb() {    # the one REMOTE_DEVICE_GB -> ECALC_DEVICE_GB rule: the measured GPU edge (edge.sh, per node) is the planner's ECALC_DEVICE_GB unless the caller set one
     if [ -n "${REMOTE_DEVICE_GB:-}" ] && [ -z "${ECALC_DEVICE_GB:-}" ] && rl_isnum "$REMOTE_DEVICE_GB"; then export ECALC_DEVICE_GB=$REMOTE_DEVICE_GB; fi
+    return 0
+}
+rl_device_src() {   # -> one phrase: where ECALC_DEVICE_GB comes from (for the stair summary)
+    if [ -n "${REMOTE_DEVICE_GB:-}" ] && rl_isnum "$REMOTE_DEVICE_GB" && [ "${ECALC_DEVICE_GB:-}" = "$REMOTE_DEVICE_GB" ]; then echo "measured edge $REMOTE_DEVICE_GB GB per node (P1 edge step)"
+    elif [ -n "${ECALC_DEVICE_GB:-}" ]; then echo "ECALC_DEVICE_GB from the environment / site defaults (no P1 edge used)"
+    else echo "the 373.44 GB harness figure of 10-06 (no P1 edge measurement)"; fi
 }
 rl_site_set() {     # KEY VALUE: write/replace in site.env (atomic), and export
     local k=$1 v=$2 t

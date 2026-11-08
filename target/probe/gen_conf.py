@@ -171,7 +171,7 @@ def main():
             if bad_map:
                 if all(mp) and len(set(sum(mp, []))) == len(sum(mp, [])):
                     val["COMM_OFI_NICS"] = None
-                    extra["COMM_OFI_NICS"] = "COMM_OFI_NICS=%s     # (probe %s) the NUMA map is not 2 per APU: one list per APU, ';' between APUs; CHECK before use" % (";".join(",".join(m) for m in mp), today)
+                    extra["COMM_OFI_NICS"] = "COMM_OFI_NICS=\"%s\"     # (probe %s) the NUMA map is not 2 per APU: one list per APU, ';' between APUs; CHECK before use" % (";".join(",".join(m) for m in mp), today)
                 else:
                     adv.append("WARNING: NUMA map does not give each APU its own NICs (cxi NUMA ids are not unique per APU?); decide COMM_OFI_NICS by hand")
     else:
