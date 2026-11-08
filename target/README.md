@@ -42,6 +42,29 @@ Runs (path 1, layout D, all VERIFY OK, cold starts; weak scaling at 8e9 digits p
 
 Failures at 576 nodes (cause open; analysis in `PLAN.md` and `results/COMPUTE.md`): 2e13 `comm_xshmem: pe N: HANG (> 900 s) in the allgather handshake` (two PEs in node range 512-575) and 3e13 `P24 CRT flag 1` on nodes 283-376, both at a mixed piece layout at tree level 7; worked around by `MN_NONPOW2_CAP=0`. Switches for the next try (off by default): `COMM_HANG_DETAIL=1`, `XSHMEM_HANG_S`, `COMM_SEQ_CHECK=1`, `XSHMEM_HS_BATCH`, `P24_CHECK=1|2`, `ECALC_FIT_PER_APU=1`, `MEM_REPORT_DEVS=1` (rows in `ecalc/README.md`).
 
+Memory limits and planner results (target limits; m = measured on the target, mod = planner):
+- Device edge `hipMalloc` 373.44 GB per node = 93.36 GB per APU (m, 5 runs; the planner default `ECALC_DEVICE_GB`). Host budget `ECALC_NODE_GB=487` from MemAvailable 515.7 GB on a freshly booted idle node (m; code default 480); after a heavy job an idle node showed about 491 GB, so plan node budgets from about 490 GB; the Slurm job memory is about 497 GB per node (m).
+- Planner (mod, per node, device GB against 373.44): 8e9 digits per node at 576 nodes path 2: 328.69 (+44.75), node 406.32; layout D 155 at 1 node, 178-181 at 8-576; 1.74e10 (1e13 on 576) path 1 D 238.97 (+134.47), path 2 371.64 with the automatic `DM_MN_WRAP` off (380.23 with it; node 467.17 vs 487; fits by +1.80); 6.632e10 (3.82e13 on 576) path 1 D with `MN_NONPOW2_CAP=0` 358.96 (+14.48), node 395.04: fits; with the cap on auto 407.41: REFUSED (-33.97); path 2 / P refused from 8 nodes on. Largest on 576 nodes: about 4.19e13 digits with `MN_NONPOW2_CAP=0`, about 2.67e13 with it on. Busiest APU against 93.36 GB (cap 0): 1e13 `BS_MDEV_LOGL=29` 63.50 (+29.86); 2e13 74.71 (+18.65); 3.82e13 89.74 (+3.62), `BS_MDEV_LOGL=28` 87.59, with `DIST_CHUNKS=16` 85.98 (+7.38).
+- `DM_MN_WRAP` auto resolved to 1 at 1 node and 0 at 2-576 nodes (m, target analysis). Mesh creation 1.6-1.9 s at 64 nodes, layered self-test 3.07-3.45 s at 576, transport open 2.29 s slowest rank (m). VMM map 0.045-0.055 s per GB (arena 45.1 GB in 2.02-2.50 s; m, target analysis; the target profile says 0.010, aac7 0.070). Digits: 1e9 byte-identical for both paths, 8e9 identical, path 1 = path 2 at 2 nodes 1e10 (m).
+
+Measured runs (target, m; path 1 layout D unless noted; seconds; seed default = old default):
+
+| run | nodes | digits | total | init | bs | dm | dc |
+|---|---|---|---|---|---|---|---|
+| smoke, path 1 / 2 | 1 | 1e9 | 28.25 / 26.49 | 7.1 / 5.2 | 20.2 / 20.3 | 0.49 / 0.50 | 0.11 |
+| 2 n, path 1 / 2 | 2 | 1e10 | 115.20 / 115.77 | 103.6 / 102.5 | 3.3 / 3.6 | 7.87 / 9.63 | 0.40 / 0.04 |
+| L0, path 1 / 2 | 1 | 8e9 | 157.11 / 158.60 | 8.7 / 10.9 | 146.4 / 145.6 | 1.45 | 0.38 |
+| n8 | 8 | 6.4e10 | 188 | 150 | 10 | 14 | 14 |
+| n64 | 64 | 5.12e11 | 209.49 | 139.7 | 24.4 | 31.0 | 14.3 |
+| n576 | 576 | 4.608e12 | 282.24 | 124.1 | 61.3 | 73.3 | 14.5 |
+| seed sweep (default / 48 / 96 / 144 / 192) | 2 | 1.6e10 | 182.67 / 42.51 / 40.57 / 39.09 / 40.60 | 155.7 (default), 12.9 (144) | 4.5-5.0 | 7.6-7.8 | 14.1-14.3 |
+| n64, seed 144 | 64 | 5.12e11 | 84.62 / 84.07 | 15.8 | 23.7 | 30.8 | 14.3 |
+| n576, seed 144 | 576 | 4.608e12 | 255.30 | 111.0 | 56.5 | 73.3 | 14.5 |
+
+Host memory: VmHWM 12.0 GB (1 node), 13.0 (64), 21.7 (576, 144 seed threads), 25.5 (old default). 8e9 per node: format 0.42 s, digit residue 13.15 s = 1.79 s per 1e9 digits (m).
+
+P24 / 3e13 failure inference (mod / assumed; no env.txt of the run): `MN_NONPOW2_CAP=0` assumed; 3e13 with the cap on auto is refused (device 385.93 GB, 96.48 per APU), with cap 0 it fits (350.37, 87.59 per APU). Piece census (`MN_PLAN_ONLY`, 576 nodes, cap 0): at 4.608e12 and 2e13 levels 1-6 have 2 pieces in every group; at 3e13 levels 1-6 are MIXED (groups from node 158/160 on have 4 pieces, those below 2) and level 7 has 10 pieces in the group [192,384); at 3.82e13 every level is uniform again. The CRT-flag nodes (283, 310, 332, 356, 376) all lie in [192,384). Lead: multi-piece P24 grids at mixed piece counts (shifted piece adds, piece windows at the cap, the transform cache across pieces); the audit in `results/COMPUTE.md` §P24 audit found nothing. The shape appears at 2.9e13/576 to 3.6e13/576 digits per node on 64-576 nodes (planner, aac7); 64 nodes at 3.333e12 digits form it. Collect next time: the first non-HANG error lines with times, the full P24 lines (node, plane, prime), and `MEM_REPORT_DEVS=1` per-APU lines. 2e13 code reading (mod, `results/TRANSPORT.md` T2): a straggler past the fixed 900 s is the most likely cause, then call-order divergence, then a flat burst.
+
 Known problems and fixes (target, m unless noted):
 
 | symptom | cause and fix |
