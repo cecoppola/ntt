@@ -64,9 +64,7 @@ uint64_t *rns_hstage(int dev);
 /* the distributed product tier (rns_dist.c): C = A B over the four APUs' four-step transform (dbig operands) */
 struct dbig_s; void rns_mul_dist_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B);   /* dbig operands (dbig.h) */
 void rns_mul_low_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t w);        /* low w limbs of A B */
-/* the high product (only C >> cut used: the grid's pieces below the cut skipped) and the transform cache of the
- * grid's pieces (RNS_DIST_CACHE slots; hold(1) keeps the planes across products and returns whether it holds; hold(0)
- * empties them; release frees the planes) */
+/* the high product (only C >> cut used: the grid's pieces below the cut skipped) */
 void rns_mul_high_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t cut);
 void rns_mul_band_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t lowcut, size_t w);   /* both cuts -- A B mod B^w, the pieces at or above w and those ending at or below lowcut skipped */
 /* vPE (rns_mul.c): the one-PE product by form S (the np primes in turn on the PE's own device); the rns_mul_*_db
@@ -76,7 +74,6 @@ void rns_mul_local(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s
 void rns_local_core(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t nc);   /* form S, one plane (rns_mul.c): C = A B, nc >= na + nb limbs of room reserved, nc limbs written */
 size_t rns_local_pts(size_t nc, int *T, int *logk);   /* its transform length */
 void rns_dist_cache_release(void);                     /* the cache's planes freed (the end of the dm phase) */
-void rns_dist_cache_budget(double room_bytes, int ranks_on_node);   /* ECALC_BUDGET_CHECK's room for this rank and its node's rank count (the transform-cache fit rule) */
 void *rns_dpool(int dev, int which, size_t bytes);
 extern int rns_pool_grow;   /* RNS_POOL_GROW=1 lets a plane pool grow inside a phase (else abort) */
 size_t rns_dpool_donate_tail(int dev, int which, size_t used);  /* the pool's unused tail to the dbig block pool */
