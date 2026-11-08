@@ -11,7 +11,7 @@
 #   Any anomaly (rc != 0, no VERIFY OK, a P24 flag or CRT flag, digits DIFFERS): the full log is kept in OUT/keep/ and the arm's further repetitions are skipped.
 #   --ref auto: the sha256 of the first D digits of the 1e11 reference (up to 1e11 digits; computed once, cached in the stress folder) against the sha256 of each run's unpacked digits;
 #   none: no digit file is written (VERIFY and flags only); FILE: a file holding the expected sha256.
-#   --nic: around the first run, node snapshots before and after (remote/run/nodesnap.sh) and the kit's NIC delta (rl_nicdiff of remote/run/lib.sh) -> OUT/nic.txt.
+#   --nic: around the first run, node snapshots before and after (tools/nodesnap.sh) and their NIC delta (nicdiff of tools/stress/nicdiff.sh) -> OUT/nic.txt.
 #   Writes OUT/summary.md (`summarize` below) and the marker OUT/DONE (always, last); removes the digit files.  STOP file in OUT = stop after the current run.
 #   Environment overrides: STRESS_CACHE = folder of the cached reference hashes (default: the folder `stress` in the home directory); ECALC_REF = the reference digits
 #   file, ASCII "2." + digits, at least D + 3 bytes (default: the file `ref/e_1e11.out` in the home directory).
@@ -92,11 +92,11 @@ armwords() {   # ARM -> the arm's environment words
 snap() {   # TAG: one nodesnap.sh task per node of the hold (no -w: the hold holds exactly our nodes) -> OUT/nic/snap/<tag>/<host>.txt
   local d=$OUT/nic/snap/$1; mkdir -p "$d"
   timeout 180 srun --jobid="$HOLD" --overlap --mem=0 --nodes="$NODES" --ntasks="$NODES" --ntasks-per-node=1 --time=3 --export=ALL \
-      -o "$d/%N.txt" -e "$d/%N.err" bash "$ROOT/remote/run/nodesnap.sh" ${2:-} > /dev/null 2>&1 < /dev/null
+      -o "$d/%N.txt" -e "$d/%N.err" bash "$ROOT/tools/nodesnap.sh" ${2:-} > /dev/null 2>&1 < /dev/null
   say "snapshot $1: $(ls "$d"/*.txt 2>/dev/null | wc -l) of $NODES node file(s)"
 }
-nicreport() {  # the kit's NIC delta (remote/run/lib.sh rl_nicdiff) of the snapshots -> OUT/nic.txt
-  ( export REMOTE_OUT=$OUT/nic; RUN=$OUT/nic; set +u; . "$ROOT/remote/run/lib.sh" 2>/dev/null; RUN=$OUT/nic; rl_nicdiff
+nicreport() {  # the NIC delta (nicdiff) of the snapshots -> OUT/nic.txt
+  ( RUN=$OUT/nic; set +u; . "$ROOT/tools/stress/nicdiff.sh"; nicdiff
     echo "nic_nodes=$NIC_NODES tx_GB_per_node=$NIC_TX_GB rx_GB_per_node=$NIC_RX_GB error_like=$NIC_ERR paused=$NIC_PAUSE (measured; bytes estimated from the packet-size buckets, mean per node)"
     echo "nic_top5=${NIC_TOP:-none}"
     [ -f "$OUT/nic/snap/nic_summary.csv" ] && { head -1 "$OUT/nic/snap/nic_summary.csv"; sort -t, -k3,3nr "$OUT/nic/snap/nic_summary.csv" | grep -v '^host' | head -6; } ) > "$OUT/nic.txt" 2>&1

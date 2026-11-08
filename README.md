@@ -32,7 +32,6 @@ History (the old plan, measurement logs, older reports, moved drivers) is kept o
 | `ecalc/tests/` | one GMP-checked test program per module (`t_ntt`, `t_mul`, `t_dbig`, `t_newton`, `t_mn_grid`, …) and the test harness headers |
 | `tools/` | `gate.sh`, `unpack_digits`, the profile loader and checks, node screen |
 | `profiles/` | machine profiles: `aac7.conf` |
-| `remote/` | the target session driven by a browser agent through the user's pastes: `remote/README.md` (user), `remote/AGENT.md` (agent), stage scripts `remote/run/*.sh`; frozen copy on the `remote-v*` branch; packs `run/chain.sh --brief`, `run/stair.sh`, `run/report.sh`; route `remote/ROUTE.md` (5 pastes) |
 | `target/` | the remote session on the target system: probe, config generator and template (`target/config/target.conf.template`), conventions in `target/FORMATS.md` |
 | `tests/` | Python unit tests of the tools, the models and the launch checks (`python3 -m unittest discover -s tests`) |
 
@@ -52,7 +51,7 @@ Multi-node, one launch per allocation of `<nodes>` nodes (`SLURM_JOB_ID=<hold>` 
 **Two supported multi-node paths (user rule Q85, 2026-10-23): both stay working; a change to shared code must leave
 path 1 digit-identical and no slower.** Path 1 is libfabric (the default build, layout D); path 2 is Cray SHMEM (the
 target shape, one process per GPU). Their build and launch lines, the settings `mnrun.sh` adds and the defaults are
-owned by `PLAN.md` section 3; the status is in `PLAN.md` section 2; `remote/ROUTE.md` describes the target
+owned by `PLAN.md` section 3; the status is in `PLAN.md` section 2; the removed `remote/ROUTE.md` (git history, cfe9d3a1) described the target
 session. Cluster access is described in the private protocol.
 
 ## Test

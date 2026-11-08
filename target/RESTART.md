@@ -1,8 +1,7 @@
 # target/RESTART.md — start here on the target system
 
-> **Which workflow governs.** The target session is copy-and-paste only (the user unpacks a ZIP, no git, no agent on the target; a browser agent reads GitHub and gives command
-> blocks): `remote/AGENT.md` and `remote/ROUTE.md` govern and need nothing from this file. This file is background (the mission, the project as understood, the bench and ladder
-> descriptions) for a development-side session; its Claude-Code-on-target workflow (§0 `git clone`, §2, LOG.md) is not used, and the files it names are not in the copy.
+> **Background only.** The copy-and-paste route (`remote/`) was removed 2026-11-08 by user decision (git history, commit cfe9d3a1, and branch remote-v12). This file is background (the mission, the project as understood, the bench and ladder
+> descriptions); its Claude-Code-on-target workflow (§0 `git clone`, §2, LOG.md) is not used.
 
 Scope: everything an agent needs to start work on the target system at once: the mission, the rules and how to install
 them, the project as we understand it, and steps 1-4 with exact commands. Written 2026-10-25 (Eastern time) by the
@@ -182,7 +181,7 @@ target/bench/run.sh --jobid none --only bld01,bld02      # login-node worker: ru
 cat target/results/bench/bld0?/summary.txt               # status=PASS, e.binary=build/<sha7>-pN/ecalc/ecalc
 ```
 
-Site facts measured on the target (Slurm, NUMA/NIC map, modules, warnings, failures at 576 nodes): `remote/FACTS.md`, section "Target site, measured 2026-10-26". The three site fixes it found (PMI 6.1.17 library directory, SHMEM 12.1.0 prefix, no `--gpus-per-node` where the nodes list no GRES) and the login-environment `SLURM_HINT` are now handled in the code (Makefile, `ecalc/gres.sh`, `mnrun.sh`, `BS_SEED_THREADS=auto`): no environment file and no patched `mnrun.sh` copy are needed.
+Site facts measured on the target (Slurm, NUMA/NIC map, modules, warnings, failures at 576 nodes): `target/README.md` section "Target site facts". The three site fixes it found (PMI 6.1.17 library directory, SHMEM 12.1.0 prefix, no `--gpus-per-node` where the nodes list no GRES) and the login-environment `SLURM_HINT` are now handled in the code (Makefile, `ecalc/gres.sh`, `mnrun.sh`, `BS_SEED_THREADS=auto`): no environment file and no patched `mnrun.sh` copy are needed.
 
 Modules come from `target/config/target.conf` (`MNRUN_MODULES`, `MNRUN_UNLOAD`; path 2 needs the Cray SHMEM 12.1 and
 dsmml modules, `make -B XSHMEM=cray`). GMP: `GMP_HOME` (if the site has none: build GMP 6.x from source into `$APU/gmp`,
@@ -282,7 +281,7 @@ machine, so schedule it when the bench prio < 200 items are done or the session 
 | `fi_enable(-28)` with several PEs per node | launch Slurm-native (`srun --ntasks`), as `mnrun.sh` does (TGTBENCH2, m target) |
 | a task gets only 1-2 CPUs | `mnrun.sh` defaults to `MNRUN_CPUS_PER_TASK=auto` (CPUs / tasks per node; since 2026-10-27, A16 m aac7, m target); `MNRUN_CPUS_PER_TASK=` (empty) = no `-c` |
 | link or load errors after `module load rocm` | a versioned ROCm conflicts with the login default: `MNRUN_UNLOAD` in target.conf (the probe fills it) |
-| APUs invisible inside a job step | `--gpus-per-node=4` in the job (the ladder's default sbatch options) and `--gpu-bind=none` on the step (`mnrun.sh` adds it; probe: `PROBE_SRUN_EXTRA`); both only where `scontrol show node` lists a gpu GRES (`MNRUN_GRES=auto|on|off`; a site with `Gres=(null)` rejects them: leave them out, `../remote/FACTS.md` Known problems) |
+| APUs invisible inside a job step | `--gpus-per-node=4` in the job (the ladder's default sbatch options) and `--gpu-bind=none` on the step (`mnrun.sh` adds it; probe: `PROBE_SRUN_EXTRA`); both only where `scontrol show node` lists a gpu GRES (`MNRUN_GRES=auto|on|off`; a site with `Gres=(null)` rejects them: leave them out, `target/README.md` Known problems) |
 | `locality: no node with an xname` / ladder `no group` | `scontrol show node` carries no HPE xname: write a host → xname map (one `host xname` per line, e.g. from `/etc/cray/xname` on each node), `python3 target/ladder/locality.py nodes --map MAP --save`, then `ladder.sh ... --nodes-from target/results/probe/topology.tsv` (its node states are those of the save: re-save before each level) |
 | ladder `plan check of path N FAILED (rc 2, not a memory refusal)` | the planner could not run (module load, binary, `target.conf`); the plan file it names has the first error. A memory refusal is rc 1: that path is dropped and the level runs on the other |
 | one node slow (a replica 5-10 % behind) or a NIC missing | `tools/nodescreen.sh`; add the host to `results/ladder/exclude.txt` (`MNRUN_EXCLUDE_HOSTS`, mode drop); no spares |
@@ -301,6 +300,6 @@ machine, so schedule it when the bench prio < 200 items are done or the session 
 
 ## 11. Next session plan (superseded 2026-10-28)
 
-The session route is now the paste plan of `remote/ROUTE.md` (P1 to P5: check, build and gates; screen and 576 nodes at 4.608e12; the first record run; the staircase; report). The experiments of the
+The session route was the paste plan of the removed `remote/ROUTE.md` (git history cfe9d3a1) (P1 to P5: check, build and gates; screen and 576 nodes at 4.608e12; the first record run; the staircase; report). The experiments of the
 earlier plan (thread teams and residue, round size, collectives, layout, shift sparsity, init timeline, IO and fabric benches, the 2e13 / 3e13 failure hunt) are the optional appendix there,
 used only when the user asks.

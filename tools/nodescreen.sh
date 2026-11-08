@@ -25,7 +25,7 @@
 #   --min-avail-gb G     also flag MemAvailable < G GB (default 0 = off: a low MemAvailable alone was not a stall, archive:results_merged_2026-10-24/NODE_SLOWMODE.md §S49)
 # Runs inside an existing hold (srun --overlap, no -w, --mem=0 -c1 as the session rules say); kills only its own srun PIDs; never cancels a job.
 # No credentials or target values in this file.
-# --health: one line "NS health host=.. ue=.. ce=.. boot=.. boot_at=.. up_s=.. mc=mcN:ue/ce,.." for THIS node (EDAC totals since boot, NA without EDAC; used by remote/run/nodesnap.sh and the local stage;
+# --health: one line "NS health host=.. ue=.. ce=.. boot=.. boot_at=.. up_s=.. mc=mcN:ue/ce,.." for THIS node (EDAC totals since boot, NA without EDAC; used by tools/nodesnap.sh and the local stage;
 #   NODEHEALTH_SYSFS_ROOT=<dir> reads <dir>/sys/devices/system/edac/mc/... instead of /sys: the test hook)
 if [ "${1:-}" = --health ]; then
   ue=0 ce=0 n=0 mcs=

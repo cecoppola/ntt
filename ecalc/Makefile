@@ -79,7 +79,7 @@ tests/t_ntt: tests/t_ntt.c ntt.o bigint.o fatal.o $(HDRS) tests/harness.h
 tests/t_alloc: tests/t_alloc.c ntt.o bigint.o mem.o fatal.o $(HDRS) tests/harness.h
 	$(HIPC) $< -x none ntt.o bigint.o mem.o fatal.o -o $@ $(GMP_LIBS) -lpthread
 
-# built on demand (tools/nodescreen.sh, remote/run/s2_build.sh), not in TESTS
+# built on demand (tools/nodescreen.sh), not in TESTS
 tests/t_edge: tests/t_edge.c     # the memory-edge probe
 	$(HIPC) $< -o $@
 tests/t_nodechk: tests/t_nodechk.c     # tools/nodescreen.sh: per-node meminfo + 1 GB host->device upload per APU
