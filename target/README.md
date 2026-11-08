@@ -76,7 +76,7 @@ Known problems and fixes (target, m unless noted):
 | `srun` inherits `SLURM_HINT=nomultithread` and `SLURM_DISTRIBUTION=block:block` from the login environment | OpenMP latches 1-2 threads: init 150 s instead of 13-16 s (target), 8e9 run 156 s instead of 15.4 s (aac7). `mnrun.sh` drops the hint (`MNRUN_KEEP_HINT=1` keeps it) and passes `--distribution=block`; `BS_SEED_THREADS=auto` (3/4 of the task CPUs, default) protects hand launches; a hand `srun` adds `--hint=multithread` or `-c 48`. `alloc.sh`-style launches and the target scripts do not inherit the hint |
 | `ld.lld: unable to find library -lpmi2`; path 2 links the old 11.8 SHMEM; GMP not found | automatic in `ecalc/Makefile` (`PMI_LIBDIR`, `CRAY_SMA`, `GMP_BASE` as `GMP_HOME`) |
 | random multi-second stalls of all 4 APU threads of a node | kernel compaction of a 4 KiB pinned heap (SHMEM heap; path 1 is not affected): hugetlb/THP heap, checklist in `results/TRANSPORT.md` |
-| `ECALC_NP=3` memory remedy | three primes cut plane memory (154.6 GB planes, `mem_model`), at most `ec_np3_max_terms` terms per product; aac7 1 node 3 primes -0.19 s vs auto, 4 primes +7.5 s |
+| `ECALC_NP=3` (one node only) | three primes cut plane memory (154.6 GB planes, `mem_model`), at most `ec_np3_max_terms` terms per product; aac7 1 node 3 primes -0.19 s vs auto, 4 primes +7.5 s; at more than one node it is refused (use auto or 4) |
 | slow node or missing NIC | `tools/nodescreen.sh` (NIC count 8 per node); exclude the host |
 | first run on a fresh allocation slow (2x on aac7) | cold start: time from run 2 |
 | `ECALC_VERBOSE=2` very long at 576 nodes | use `ECALC_VERBOSE=1` |

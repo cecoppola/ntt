@@ -34,6 +34,7 @@
 extern "C" {
 #endif
 extern int ec_np;                           /* 3 or 4 (crt.c); read by ec_np_init */
+void ec_np_refuse_mn(int size);             /* fatal when an explicit ECALC_NP=3 meets size > 1 (a one-node form) */
 int ec_np_init(void);                       /* ECALC_NP once (called by crt_init and rns_init); returns ec_np */
 extern size_t ec_np3_max_terms;             /* floor((p0 p1 p2 - 1) / (10^18 - 1)^2): the largest term count three primes reconstruct */
 /* abort with a message when ec_np == 3 and the limbs are binary, or a product of nterms terms (min(na, nb), or any

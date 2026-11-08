@@ -44,6 +44,12 @@ static size_t np3_max_terms(void)
 }
 int ec_np_auto;
 size_t ec_np_auto_terms;
+/* ECALC_NP=3 is a one-node form: at more than one node-process (COMM_SIZE > 1, or a plan of such a size) it is refused */
+void ec_np_refuse_mn(int size)
+{
+    if (size > 1 && ec_np == 3 && !ec_np_auto && getenv("ECALC_NP"))
+        ec_fatal(EC_RC_FATAL, "ECALC_NP=3 is not supported at more than one node; use auto or 4\n");
+}
 int ec_np_init(void)
 {
     if (g_np_init) return ec_np;
@@ -57,6 +63,7 @@ int ec_np_init(void)
         int v = atoi(e);
         if (v != 3 && v != 4) { ec_fatal(EC_RC_FATAL, "ECALC_NP=%s: the prime count must be 3, 4 or auto\n", e); }
         ec_np = v;
+        const char *cs = getenv("COMM_SIZE"); ec_np_refuse_mn(cs ? atoi(cs) : 1);
     }
     return ec_np;
 }
