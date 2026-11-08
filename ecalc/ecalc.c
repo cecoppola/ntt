@@ -73,10 +73,11 @@ static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->s
  * gets X on the host before it */
 struct x_bg { bigint *X; dbig *Xd; unsigned long d, d_out; const char *outfile; uint64_t Xres[T1_NQ]; int verbose; pthread_t th; int started; double t_res; mn_out o; sem_t res_ready; size_t t2_defer; };   /* res_ready: X's residues are in (T1 needs only those; the writer runs on).  Xd: X on the device -- the writer and the residues read it there; no host X */
 static mn_out_src x_bg_src(const struct x_bg *b) { mn_out_src s; memset(&s, 0, sizeof s); s.dev = b->Xd; s.cnt = b->Xd->n; return s; }
+static void x_bg_o_init(struct x_bg *b) { memset(&b->o, 0, sizeof b->o); b->o.d = b->d; b->o.d_out = b->d_out; b->o.outfile = b->outfile; b->o.rank = 0; b->o.size = 1; b->o.verbose = b->verbose; b->o.t2_defer = b->t2_defer; }
 static void x_bg_writer(struct x_bg *b)                /* the chunked writer over X (host or device; also the redo after a correction) */
 {
     mn_out_src src = x_bg_src(b);
-    memset(&b->o, 0, sizeof b->o); b->o.d = b->d; b->o.d_out = b->d_out; b->o.outfile = b->outfile; b->o.rank = 0; b->o.size = 1; b->o.verbose = b->verbose; b->o.t2_defer = b->t2_defer;
+    x_bg_o_init(b);
     mn_out_run(&b->o, &src);
 }
 static void *x_bg_run(void *a)
@@ -112,7 +113,7 @@ static void *x_bg_run_hi(void *a)
     double t0 = mem_now(); g_xhi.t_hi = t0;
     mn_out_res_share(&g_xhi.src_hi, g_xhi.res_hi);
     b->t_res = mem_now() - t0;
-    memset(&b->o, 0, sizeof b->o); b->o.d = b->d; b->o.d_out = b->d_out; b->o.outfile = b->outfile; b->o.rank = 0; b->o.size = 1; b->o.verbose = b->verbose; b->o.t2_defer = b->t2_defer;
+    x_bg_o_init(b);
     b->o.split = g_xhi.s; b->o.src_hi = &g_xhi.src_hi; b->o.at_split = x_bg_gate; b->o.split_arg = b;
     mn_out_run(&b->o, &g_xhi.src_lo);
     return 0;
@@ -201,7 +202,7 @@ static int out_stage(struct out_ctx *c)
     if (!multi) { src.dev = c->Xd; src.cnt = c->Xd->n; }
     else {
         size_t lo, hi; mdb_share(c->Xm, c->rank, &lo, &hi);
-        src.dev = &c->Xm->sh; src.lo = lo; src.cnt = hi - lo; if (src.cnt > c->Xm->sh.n) src.cnt = c->Xm->sh.n;   /* (the share's dbig is never normalised; shorter = zeros above) */
+        mn_out_share_src(&src, &c->Xm->sh, c->Xm, c->rank, 0);
         node_pfx(c); printf("X%s share [%zu, %zu) of %zu limbs on the device (the distributed division's)\n", c->hi ? "_lo" : "", lo, hi, xn);
     }
     /* T1 (b): the residues of P, Q, R: at size > 1 every node has them (newton_mn_divmod: each share's db_mod_qs
@@ -216,8 +217,7 @@ static int out_stage(struct out_ctx *c)
     mn_out_res_combine(cm, xs, src.lo, Xres);
     mn_out_src shs; memset(&shs, 0, sizeof shs);     /* MN_OUT_DKM_HI, size > 1: X = X_hi B^s + X_lo -- X_hi's share at its offset added */
     if (multi && c->hi) {
-        size_t lo, hi; mdb_share(&c->Xh, c->rank, &lo, &hi);
-        shs.dev = &c->Xh.sh; shs.lo = c->s + lo; shs.cnt = hi > lo ? hi - lo : 0; if (shs.cnt > c->Xh.sh.n) shs.cnt = c->Xh.sh.n;
+        mn_out_share_src(&shs, &c->Xh.sh, &c->Xh, c->rank, c->s);
         uint64_t xh[T1_NQ], Xh[T1_NQ]; mn_out_res_share(&shs, xh); mn_out_res_combine(cm, xh, shs.lo, Xh);
         for (int i = 0; i < T1_NQ; i++) Xres[i] = vf_add_mod(Xres[i], Xh[i], t1_q[i]);
     }
