@@ -208,6 +208,36 @@ ABBA order, 95 % interval on the mean of the per-pair differences (t distributio
 
 ROUND_ACTIVE is not distinguishable from zero (+1.6 % at the 576-node chunk setting, interval -0.5 to +3.6 %). Its 20 % fewer addsh rounds (N1) are about 2,300 rounds, 0.09 s at the M2 cost of 38 us per round (modeled), far below the noise. The LANES=2 mean is pulled by the first pair (A 79.15 s, the first run of the item, no warm-up); without it the difference is +0.15 s [-1.58, +1.88] (5 pairs, from the items' per-run totals). aac7 has one NIC per PE, so lane 2 is virtual and a gain could only appear with two NICs per APU (the target): here it is "no cost, no gain". The first attempt (78_m6_ln) timed out in the queue and has no data.
 
+### R10: larger rounds for large all-to-alls, re-evaluated with the recalibrated model (branch r10, 2026-11-07, arithmetic on recorded numbers, no new run)
+
+**Question.** Is `XSHMEM_ROUND_MB` 128 still the right size at the 576-node shape, now that M2 measured the per-round floor (38 us at 3 members, 54 us at 2) and the 10-29 run measured 165,300 rounds per PE at 0.355 ms (58.7 s of the 206 s at 2e13)? Method: `ecalc/mn_model.py` constants (`V12_REF_S` polls + engine = 58.7 s, `V12_ROUNDS`, `V12_FABRIC_TB`) and `estimate --fabric target_fit --round-mb N`; the per-PE bytes are 9.33 TB / 4 APUs = 2.33 TB (measured). Worker code (`comm_xshmem.c`): a round is stage, put, quiet, signal, wait, copy out, strictly serial, so a larger round does not overlap more; it only cuts the number of rounds of exchanges that exceed the chunk (`XSHMEM_ROUND_MB` / (n - 1) bytes per pair).
+
+**What fixes the answer, and what is not known.** Only rounds of size-driven exchanges shrink with the cap; an exchange below the chunk takes one round at any cap. Let s be the share of the 165,300 rounds that is size-driven. Lower bound (modeled): if every round were full (128 MiB), 2.33 TB would need 17,378 rounds, so s is at least 0.105 (the 14.1 MB mean round says the rest are small exchanges or skew inflation). Upper bound s = 1. Between them nothing is measured: the 576-node per-tag table (`XSHMEM_ROUND_STATS=1`, exchanges in rounds against exchanges, section N1 step 1 "Open issues") has never been recorded. **That table is the missing measurement; s is not guessed here.**
+
+**576 nodes, 2e13 digits: change of the per-round time against 128 (seconds per PE; modeled = 58.7 s x ((1 - s) + s x 128 / size); 206 s measured total).**
+
+| XSHMEM_ROUND_MB | chunk per pair (MB, modeled) | s = 0.105 (lower bound) | s = 0.5 | s = 1 (N3 assumption) | floor only, 38 us, s = 1 |
+|---|---|---|---|---|---|
+| 16 | 0.028 | +43.2 | +205.5 | +410.9 | +44.0 |
+| 32 | 0.056 | +18.5 | +88.0 | +176.1 | +18.8 |
+| 64 | 0.111 | +6.2 | +29.4 | +58.7 | +6.3 |
+| 128 | 0.223 | 0 | 0 | 0 | 0 |
+| 256 | 0.445 | -3.1 | -14.7 | -29.4 | -3.1 |
+| 512 | 0.890 | -4.6 | -22.0 | -44.0 | -4.7 |
+| 1024 | 1.781 | -5.4 | -25.7 | -51.4 | -5.5 |
+
+The last column uses only the measured floor (rounds x 38 us, 6.3 s in all at 128): at most 5.5 s can come from the floor even if every round were size-driven; the rest of any gain is the 576-node excess (about 0.30 ms per round, inferred in MODEL.md §M2fit, not measured), which scales with the round count only by assumption. 512 gives 86 % of the 1024 gain at every s (44.0 of 51.4 at s = 1). The superseded `target_fit` term (`ROUND_SYNC` x peers^0.5, assumed mechanism) gives 527.5 s at 128 against the measured 206 s at 2e13, so it overstates the round time 2.5x there; its estimates at other sizes (4.608e12: 171.8 s at 128, 157.2 at 1024; 3.82e13: 1072 vs 704 s, modeled) are the s = 1 ceiling and are kept only as that.
+
+**2 and 6 nodes.** 2 nodes (modeled from the per-tag means of the 1.3264e11 table above: exchanges and bytes per PE, rounds = exchanges x max(1, 1.5 x mean MB / size); the model gives 6,375 rounds per PE at 128 against 6,782 measured, the sum of the per-tag maxima): 0.34 s at 128 (54 us per round); 0.23 s at 512 and at 1024; 0.68 s at 64; 2.71 s at 16, of a run of about 150 s. Going from 128 to 1024 is -0.11 s (modeled), invisible, as measured (MODEL.md §AAC7OPT: 512 vs 128 under P, 2 n 5e10, -0.65 s [-11.15, +9.85], 3 pairs). 6 nodes: no round counter was recorded at 6 nodes, so there is no round count to price; by the same arithmetic it is a few seconds at most, below the noise of an aac7 comparison (assumed). Neither small shape can answer for the target: the excess exists only with many peers.
+
+**Device memory of larger rounds (modeled, `estimate`, `mem_model` `round_mb`).** Each PE holds a send staging and a receive landing slot of the round size in its symmetric heap, so about 2 x size per PE: +1.75 GiB per PE at 1024 against 128 (+0.75 at 512, +0.25 at 256), +7 GiB per node with 4 PEs (+3 at 512). Planner (pool, then node total, against 502 GB budget and 480 GB safe), 128 -> 1024: 4.608e12 (8e9 per node) pool 7 -> 14 GB, node 209 -> 216; 2e13 pool 10 -> 18, node 348 -> 356; 3.82e13 pool 14 -> 21, node 439 -> 446 (512: 442). All fit; the margin under 480 GB shrinks from 132 to 124 GB at 2e13 and from 41 to 34 GB at 3.82e13, so 1024 is not free at the top sizes (the 3e13 blocks pool already ran at 373 of 373.44 GB, TASKS Proposed). `remote/ROUTE.md` quotes +3.2 GB per node at 1024 for its 4.608e12 step; the planner gives +7 GB for the same step (modeled); trust the planner until a target run prints the pool line.
+
+**Recommendation.** Keep 128 as the default (no code change; every target run used it and its memory margins are known). For the target scripts the existing A/B in `remote/ROUTE.md` (`--round-ab 1024`, adopt at 3 % lower total with bs + dm lower and the same digits) stays the decision: it measures s and the excess together, which nothing on aac7 can. If only one new value is wanted: 512 (86 % of the gain at +3 GiB per node instead of +7).
+
+**Rule for changing the default.** Change `xshmem_round.h` (the planners follow) to 512 or 1024 only when (1) a 576-node A/B at 2e13 or larger shows a total at least 3 % lower (6 s at 206 s) with identical digits, (2) the 576-node per-tag table confirms that the rounds fell (the in-rounds share gives s), and (3) the planner at the largest planned size leaves at least 20 GB per node under 480 GB with the new value. Without the table a total change cannot be attributed to the rounds; at 1024 a gain of 3 % (6.2 s) needs s of at least 0.12, barely above the lower bound 0.105 (2.6 %), so the bound alone does not justify a change.
+
+**Missing inputs.** (1) 576-node per-tag exchanges, in-rounds exchanges and rounds (`XSHMEM_ROUND_STATS=1`): gives s. (2) Put bandwidth against message size at 0.03 to 1.8 MB per pair on the target: the table prices rounds only, not a bandwidth change with the chunk. (3) Round counts at 6 nodes.
+
 ## EXCHANGE — the all-to-all exchange in every transport
 
 Scope: the all-to-all exchange in every transport: all-gather, layered exchange two-deep, slab pipelining, the rank gradient, gather kernels. Condensed 2026-10-19 from the per-item reports (originals: `archive:results_merged_2026-10-19/`; raw data and drivers: `archive:results_raw_2026-10-19/`). Old item IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`. Labels: m measured, mod modeled, a assumed.
