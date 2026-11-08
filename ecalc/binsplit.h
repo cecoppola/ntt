@@ -16,7 +16,7 @@ extern "C" {
 #endif
 /* with the switch on each PE (one process per GPU, vpe.h) runs its own binary splitting over its own term range with
  * ONE region (its device); the run's state below is one copy per process (every process drives exactly one PE). */
-typedef struct { double t_seed, t_school, t_batch, t_mdev, t_total; int levels, school_levels, batch_levels, mdev_levels; size_t peak_pool_limbs;
+typedef struct { double t_seed, t_school, t_batch, t_mdev, t_total; int levels, batch_levels, mdev_levels; size_t peak_pool_limbs;
                  int n_grow; size_t grow_bytes; } bs_stats;   /* region pool growths inside the phase (count, bytes) */
 extern bs_stats bs_st;
 extern int bs_seed_terms;                       /* 256 (BS_SEED_TERMS) */

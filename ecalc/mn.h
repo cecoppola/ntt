@@ -16,7 +16,6 @@ int   mn_rank(void);
 void  mn_wait_stats_print(void);   /* MN_WAIT_STATS=1 -- per node, the barrier and comm_wait time per phase, and the max / min over the nodes (collective) */
 int   mn_size(void);
 comm *mn_comm(int apu);           /* mesh apu: this node among the nodes (rank = node); 0 when size 1 */
-int   mn_transport_shmem(void);   /* 1 when the meshes are xshmem PE sets (COMM_TRANSPORT=xshmem) */
 int   mn_selftest(int logR, int logC, int verbose);   /* a distributed convolution over each mesh against the one-rank engine; 1 = ok */
 void  mn_barrier(void);
 /* M3: node groups per tree level, the layered communicator's self-test, the distributed top levels */

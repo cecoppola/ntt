@@ -113,7 +113,6 @@ comm *vpe_sub_slot(int g0, int g, int slot)
 comm *vpe_sub(int g0, int g) { return vpe_sub_slot(g0, g, 0); }
 /* the id slot of an engine group: 0 as always, except a run of >= 64 PEs that is not an aligned power of two (and not the whole machine = the flat communicator), which takes `base` */
 static int big_slot(int g0, int g, int base) { return g >= 64 && (((g & (g - 1)) | (g0 % g)) != 0) && !(g0 == 0 && g == vpe_npe()) ? base : 0; }
-int mn_transport_shmem(void) { return g_xshmem; }
 /* ECALC_PE_PER_GPU=1: one process per PE (srun, ppn tasks per node, block distribution); xshmem with K = 1.  COMM_RANK / COMM_SIZE stay the node index / count (mnrun.sh), g_rank / g_size
  * the same; the PE is the engine's PE.  Identity cross-check (fatal): engine PE and PE count against the launch (SLURM_LOCALID, SLURM_NTASKS_PER_NODE, COMM_RANK, COMM_SIZE), so a wrong
  * --distribution cannot silently cross the GPU and NIC maps.  The device, NUMA node and cpus are pe_geo's (engine topology); only that device is touched. */

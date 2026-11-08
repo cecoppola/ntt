@@ -44,7 +44,7 @@ typedef struct {
     hipEvent_t *te; int nte, te_cap; unsigned char *tk;  /* timing events of one transform and their kinds */
 } dist_plan;
 /* timing of the parts (DIST_STATS=1; summed over ranks and calls; the caller resets) */
-struct dist_stats { int on; double t_local1, t_local2, t_tw, t_pack, t_a2a, t0_a2a, t_xfer, t_total; };
+struct dist_stats { int on; double t_local1, t_local2, t_tw, t_pack, t_a2a, t_xfer, t_total; };
 extern struct dist_stats dist_st;
 void dist_plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC);
 void dist_plan_create_shared(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC, uint64_t *sbuf, uint64_t *rbuf);   /* caller's slab buffers (rows x C each) */

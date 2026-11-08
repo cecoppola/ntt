@@ -41,22 +41,7 @@ static size_t count_diff(const uint64_t *a, const uint64_t *b, size_t n, size_t 
     return bad;
 }
 
-/* ---- device-side compare and the benchmarks for H2 (MALL), H3 (modmul), H7 (non-temporal stores) */
-__global__ void k_cmp(const uint64_t *a, const uint64_t *b, size_t n, unsigned long long *bad)
-{
-    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x;
-    unsigned long long nb = 0;
-    for (; i < n; i += st) nb += a[i] != b[i];
-    if (nb) atomicAdd(bad, nb);
-}
-static size_t dev_diff(const uint64_t *a, const uint64_t *b, size_t n)
-{
-    unsigned long long *d, h = 0;
-    HIP_CHECK(hipMalloc(&d, 8)); HIP_CHECK(hipMemset(d, 0, 8));
-    k_cmp<<<228 * 8, 256>>>(a, b, n, d);
-    HIP_CHECK(hipMemcpy(&h, d, 8, hipMemcpyDeviceToHost)); HIP_CHECK(hipFree(d));
-    return (size_t)h;
-}
+/* ---- device-side fill for the transform hash and r3bench below */
 __global__ void k_fill(uint64_t *x, size_t n, uint64_t p, uint64_t seed)
 {
     size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x;
@@ -67,23 +52,6 @@ __global__ void k_fill(uint64_t *x, size_t n, uint64_t p, uint64_t seed)
     }
 }
 static void dev_fill(uint64_t *x, size_t n, uint64_t p, uint64_t seed) { k_fill<<<228 * 8, 256>>>(x, n, p, seed); HIP_CHECK(hipDeviceSynchronize()); }
-
-/* timing: median of 5 trials of `reps` calls, ms per call */
-#define TIME_MS(out, reps, stmt) do {                                                                  \
-        hipEvent_t e0_, e1_; HIP_CHECK(hipEventCreate(&e0_)); HIP_CHECK(hipEventCreate(&e1_));          \
-        { stmt; } HIP_CHECK(hipDeviceSynchronize());                                                   \
-        float tr_[5];                                                                                  \
-        for (int t_ = 0; t_ < 5; t_++) {                                                               \
-            HIP_CHECK(hipEventRecord(e0_, 0));                                                         \
-            for (int r_ = 0; r_ < (reps); r_++) { stmt; }                                              \
-            HIP_CHECK(hipEventRecord(e1_, 0)); HIP_CHECK(hipEventSynchronize(e1_));                    \
-            HIP_CHECK(hipEventElapsedTime(&tr_[t_], e0_, e1_)); tr_[t_] /= (reps);                     \
-        }                                                                                              \
-        for (int a_ = 0; a_ < 5; a_++) for (int b_ = a_ + 1; b_ < 5; b_++) if (tr_[b_] < tr_[a_]) { float z_ = tr_[a_]; tr_[a_] = tr_[b_]; tr_[b_] = z_; } \
-        out = tr_[2];                                                                                  \
-        HIP_CHECK(hipEventDestroy(e0_)); HIP_CHECK(hipEventDestroy(e1_));                              \
-    } while (0)
-
 
 /* ---- `t_ntt hash [KMAX2 (31)] [KMAX3 (29)]` and `t_ntt r3bench [KMIN (10)] [KMAX (29)]`.
  * hash: every transform the code uses -- 2^k (k = 10 .. KMAX2) and 3 2^k (k = 10 .. KMAX3), every prime, batch 1 and 3 (3

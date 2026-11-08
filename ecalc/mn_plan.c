@@ -171,7 +171,6 @@ static void plan_leaf(unsigned long a0, unsigned long b1)
 }
 
 /* ---- the distributed tree (mn.c mn_tree / tree_level) --------------------------------------------------------- */
-struct lvl_sum { long pieces0, pmin, pmax; int gmax0; };
 static void level_force(const int *tab, int i) { if (tab) rns_dist_mn_force(tab[2 * i], tab[2 * i + 1]); }
 static long plan_group(int l, unsigned long N, int size, int g0, int g, int gp, int print, const int *tab)
 {

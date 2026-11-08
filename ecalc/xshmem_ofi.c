@@ -78,7 +78,7 @@ typedef struct { uint64_t base, len; uint64_t key[MAXEP]; uint32_t has_ipc, pad;
 
 typedef struct pe_s {
     int lpe;                                   /* index among the PEs of this process */
-    int mype, npes, nnodes, nics, nep, vaddr, pkey, sig_mode, log_sp, log_key;
+    int mype, npes, nnodes, nics, nep, vaddr, pkey, log_sp, log_key;
     xshmem_cfg_t cfg; pe_topo topo; double quiet_s;
     size_t inject, maxmsg;
     pthread_mutex_t lock;
