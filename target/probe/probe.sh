@@ -154,6 +154,7 @@ part_common() {
     fx lim.ulimit_a ulimit 'paste -sd";" | tr -s " "'
     capsh env - 'env | sort'
     fx env.matching env "grep -E '^(FI_|SHMEM|XT_|CXI|HSA|HIP|ROCR|SLURM|CRAY|MPICH|PMI|LMOD|ROCM)' | cut -d= -f1 | paste -sd' '"
+    fact login.slurm_hint "${TGT_LOGIN_HINT:-unset}" "SLURM_HINT as the login shell exported it (tgt_init unsets it afterwards)"
     fxm env.value env "grep -E '^(FI_|SHMEM|XT_|CXI|HSA|HIP|ROCR|CRAY_|MPICH|ROCM|SLURM_JOB_(ID|PARTITION|NODELIST|NUM_NODES)|SLURM_CLUSTER)' | grep -viE 'pass|token|key=' | sed 's/=/\t/'"
     fact uffd.sysctl "$(cat /proc/sys/vm/unprivileged_userfaultfd 2>/dev/null)" /proc/sys/vm/unprivileged_userfaultfd
     capsh uffd_syscall python3 'python3 -I -c "import ctypes,os

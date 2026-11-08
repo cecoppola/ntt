@@ -7,7 +7,7 @@ tgt_init() {
     TGT_RES=$TGT_ROOT/results
     TGT_SHA=$(git -C "$REPO" rev-parse --short=7 HEAD 2>/dev/null || echo unknown)
     export TGT_ROOT REPO TGT_RES TGT_SHA
-    unset SLURM_HINT    # a login default of nomultithread pins each task to its first cores and Slurm refuses 192-CPU steps: no sbatch/srun of the target folder inherits it
+    TGT_LOGIN_HINT=${SLURM_HINT-}; export TGT_LOGIN_HINT; unset SLURM_HINT    # a login default of nomultithread pins each task to its first cores and Slurm refuses 192-CPU steps: no sbatch/srun of the target folder inherits it
 }
 
 # load config/target.conf (KEY=VALUE lines, # comments) into the environment; TGT_STRICT=1 refuses __FILL__ keys
