@@ -255,7 +255,7 @@ static void *writer_run(void *a)
     return 0;
 }
 /* ---- the packed form (packed_fmt.h) ---- */
-static int out_packed(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_OUT_PACKED"); v = e ? atoi(e) : 2; v = v > 0 ? 2 : 0; } return v; }  /* 2 = the 60-bit form (ECP_VERSION60), the default; 0 = ASCII (the readers still take version-1 files) */
+static int out_packed(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_OUT_PACKED"); v = (e ? atoi(e) : 2) > 0; } return v; }  /* 1 = the 60-bit form (ECP_VERSION60), the default (any nonzero value); 0 = ASCII (the readers still take version-1 files) */
 static uint64_t mulmod_u(uint64_t a, uint64_t b, uint64_t q) { return (uint64_t)(((unsigned __int128)a * b) % q); }
 static uint64_t powmod_u(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1 % q; b %= q; while (e) { if (e & 1) r = mulmod_u(r, b, q); b = mulmod_u(b, b, q); e >>= 1; } return r; }
 /* the value of n limbs stored most significant first (base 10^18) mod the T1 primes, from the bytes the writer is
@@ -300,15 +300,15 @@ static void packed_hdr_write(struct writer *w, const mn_out *o, size_t nl, size_
 {
     char *h = w->hdr; memset(h, 0, ECP_HDR_BYTES);
     ecp_hdr *p = (ecp_hdr *)h;
-    memcpy(p->magic, ECP_MAGIC, 8); p->version = w->packed == 2 ? ECP_VERSION60 : ECP_VERSION; p->reserved0 = w->packed == 2 ? ECP60_BITS : 0; p->hdr_bytes = ECP_HDR_BYTES; p->endian = ECP_ENDIAN;
+    memcpy(p->magic, ECP_MAGIC, 8); p->version = ECP_VERSION60; p->reserved0 = ECP60_BITS; p->hdr_bytes = ECP_HDR_BYTES; p->endian = ECP_ENDIAN;
     p->limb_bytes = 8; p->limb_digits = 18; p->order = 1; p->part = (uint32_t)(part_cnt(o) > 1 ? part_idx(o) : 0); p->nparts = (uint32_t)(part_cnt(o) > 1 ? part_cnt(o) : 1);   /* (the explicit part) */
     p->d = o->d; p->d_out = o->d_out; p->nl = nl; p->pad = pad; p->lo = lo; p->hi = hi; p->k0 = o->k0; p->k1 = o->k1; p->complete = 0;
     p->nq = T1_NQ; for (int i = 0; i < T1_NQ; i++) p->q[i] = t1_q[i];
     snprintf(h + ECP_TEXT_OFF, ECP_HDR_BYTES - ECP_TEXT_OFF,
              "ecalc packed digits of e, format v%u: after this %u-byte header, the base-10^18 limbs [%zu, %zu) of X (of %zu),\n"
-             "%s, the most significant limb first; part %u of %u; the digits [%zu, %zu) of %lu computed;\n"
+             "60 bits each, a little-endian bit stream (packed_fmt.h), the most significant limb first; part %u of %u; the digits [%zu, %zu) of %lu computed;\n"
              "the ASCII file is \"2.\" + digits 1..%lu + a newline: convert with tools/unpack_digits.\n",
-             p->version, ECP_HDR_BYTES, lo, hi, nl, w->packed == 2 ? "60 bits each, a little-endian bit stream (packed_fmt.h)" : "8 bytes each, little-endian", p->part, p->nparts, o->k0, o->k1, o->d, o->d_out);
+             p->version, ECP_HDR_BYTES, lo, hi, nl, p->part, p->nparts, o->k0, o->k1, o->d, o->d_out);
     if (w->fd >= 0) pwrite_all(w->fd, h, ECP_HDR_BYTES, 0, &w->err);
 }
 
@@ -325,7 +325,7 @@ static void out_open(struct writer *w, const mn_out *o)
     if (w->fd < 0) w->fd = open(name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (w->fd < 0) { printf("mn_out: cannot open %s: %s\n", name, strerror(errno)); return; }
     if ((o->verbose || getenv("MN_OUT_THREADS") || w->packed || sp_odirect_auto()) && (o->rank == 0 || o->verbose))
-        printf("mn_out: %s: %s, %s form, %d write threads, file system %s\n", name, out_mode_name[w->mode], w->packed == 2 ? "60-bit packed" : w->packed ? "packed" : "ASCII", w->nt, sp_fs_name(sp_fs_kind(name)));
+        printf("mn_out: %s: %s, %s form, %d write threads, file system %s\n", name, out_mode_name[w->mode], w->packed ? "60-bit packed" : "ASCII", w->nt, sp_fs_name(sp_fs_kind(name)));
 }
 static int out_run_one(mn_out *o, const mn_out_src *src)
 {
@@ -340,7 +340,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
     w->packed = out_packed(); o->packed = w->packed;
     if (o->outfile) out_open(w, o);
     sem_init(&w->job_ready, 0, 0); sem_init(&w->job_taken, 0, 0); sem_init(&w->buf_free[0], 0, 1); sem_init(&w->buf_free[1], 0, 1);
-    w->bufsz = L * 18 + 64 + (w->packed == 2 ? 16384 : 0);
+    w->bufsz = L * 18 + 64 + (w->packed ? 16384 : 0);
     if (w->direct && posix_memalign((void **)&w->abuf, (size_t)2 << 20, (w->bufsz + 3 * SP_ALIGN) & ~(size_t)(SP_ALIGN - 1))) { ec_fatal(EC_RC_OOM, "mn_out: %zu bytes\n", w->bufsz); }
     for (int b = 0; b < 2; b++) if (posix_memalign((void **)&w->buf[b], 2u << 20, w->bufsz)) { ec_fatal(EC_RC_OOM, "mn_out: %zu bytes\n", w->bufsz); }
     if (w->dev_src) HIP_CHECK(hipHostMalloc((void **)&w->lbuf, L * 8, 0)); else w->lbuf = (uint64_t *)malloc(L * 8);
@@ -378,11 +378,9 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
 #pragma omp parallel for schedule(static)
             for (size_t i = 0; i < cnt; i++) pk[i] = l[cnt - 1 - i];
             double t3 = mem_now(); o->t_fmt += t3 - t2;
-            uint8_t *ob = (uint8_t *)pk; size_t nb = cnt * 8;      /* the bytes to write: the limbs (version 1) */
-            if (w->packed == 2) {                          /* the 60-bit stream, after the reversed limbs; an odd last limb waits for the next chunk */
-                ob = (uint8_t *)w->buf[b] + ((cnt * 8 + 4095) & ~(size_t)4095); nb = 0;
-                nb = ecp60_stream_chunk(pk, cnt, a <= lo, &w->has_pend, &w->pend, ob);
-            }
+            /* the 60-bit stream, after the reversed limbs; an odd last limb waits for the next chunk */
+            uint8_t *ob = (uint8_t *)w->buf[b] + ((cnt * 8 + 4095) & ~(size_t)4095);
+            size_t nb = ecp60_stream_chunk(pk, cnt, a <= lo, &w->has_pend, &w->pend, ob);
             uint64_t v[T1_NQ]; packed_mods(pk, cnt, v);   /* the digits' value = the limbs' (the top limb's pad zeros lead) */
             for (int i = 0; i < T1_NQ; i++) o->dres[i] = vf_digits_join(o->dres[i], len, v[i], t1_q[i]);
             o->ndig += len;
@@ -403,8 +401,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
             if (ck0 <= o->d_out && o->d_out < ck1) { size_t e = o->d_out + 1 - ck0, t = e < 20 ? e : 20; packed_digits(l, a, nl, pad, o->d_out + 1 - t, o->d_out + 1, o->last); o->last[t] = 0; }
             if (o->d > o->d_out && ck0 <= o->d_out + 1 && ck1 == o->d + 1 && o->d - o->d_out < sizeof o->tail) { o->ntail = o->d - o->d_out; packed_digits(l, a, nl, pad, o->d_out + 1, o->d + 1, o->tail); }
             if (w->fd >= 0 && nb) {
-                struct wjob j; memset(&j, 0, sizeof j); j.buf = b; j.data = (const char *)ob; j.len = nb; j.off = w->packed == 2 ? w->poff : ECP_HDR_BYTES + (hi - bb) * 8;
-                if (w->packed == 2) w->poff += nb;
+                struct wjob j; memset(&j, 0, sizeof j); j.buf = b; j.data = (const char *)ob; j.len = nb; j.off = w->poff; w->poff += nb;
                 double tw = mem_now(); w->job = j; sem_post(&w->job_ready); sem_wait(&w->job_taken); o->t_wait += mem_now() - tw;
             } else sem_post(&w->buf_free[b]);
             o->nchunks++;
@@ -469,6 +466,13 @@ void mn_out_finish(mn_out *o)
     free(w); o->priv = 0;
 }
 #include "mdb.h"
+/* the source of this rank's share of the sharded X (the limbs [lo, hi) of X, placed at base + lo): the share's dbig is never
+ * normalized, so a count above its length is clipped (shorter = zeros above) */
+void mn_out_share_src(mn_out_src *s, const dbig *sh, const mdb *X, int rank, size_t base)
+{
+    size_t lo, hi; mdb_share(X, rank, &lo, &hi);
+    s->dev = sh; s->lo = base + lo; s->cnt = hi > lo ? hi - lo : 0; if (s->cnt > sh->n) s->cnt = sh->n;
+}
 static int g_bgt;                                      /* the background team of the writer threads (mn_out_bg_threads); 0 = ECALC_BG_THREADS, else 48 */
 void mn_out_bg_threads(int n) { g_bgt = n; }
 struct mn_out_early { mn_out o; mn_out_src src; dbig sh; pthread_t th; int started; double t_run;
@@ -495,8 +499,7 @@ mn_out_early *mn_out_early_hi_start(const struct mdb_s *Xh, size_t s, unsigned l
     struct mn_out_early *e = (struct mn_out_early *)calloc(1, sizeof *e);
     e->two = 1; sem_init(&e->go, 0, 0);
     e->sh_hi = Xh->sh;                                 /* the share's descriptor by value (the caller keeps the blocks until mn_out_early_free) */
-    size_t lo, hi; mdb_share(Xh, rank, &lo, &hi);
-    e->src_hi.dev = &e->sh_hi; e->src_hi.lo = s + lo; e->src_hi.cnt = hi > lo ? hi - lo : 0; if (e->src_hi.cnt > e->sh_hi.n) e->src_hi.cnt = e->sh_hi.n;
+    mn_out_share_src(&e->src_hi, &e->sh_hi, Xh, rank, s);
     mn_out *oh = &e->o_hi, *ol = &e->o;
     oh->d = ol->d = d; oh->d_out = ol->d_out = d_out; oh->outfile = ol->outfile = outfile; oh->rank = ol->rank = rank; oh->size = ol->size = size; oh->verbose = ol->verbose = verbose;
     oh->part = size - 1 - rank; ol->part = 2 * size - 1 - rank; oh->nparts = ol->nparts = 2 * size;
@@ -510,8 +513,7 @@ mn_out_early *mn_out_early_hi_start(const struct mdb_s *Xh, size_t s, unsigned l
 void mn_out_early_lo_release(mn_out_early *e, const struct mdb_s *Xl, comm *c)
 {
     e->sh = Xl->sh;
-    size_t lo, hi; mdb_share(Xl, e->o.rank, &lo, &hi);
-    e->src.dev = &e->sh; e->src.lo = lo; e->src.cnt = hi > lo ? hi - lo : 0; if (e->src.cnt > e->sh.n) e->src.cnt = e->sh.n;
+    mn_out_share_src(&e->src, &e->sh, Xl, e->o.rank, 0);
     boundaries_ex(&e->o, &e->src, c, e->above, e->nabove, 0, 0);   /* collective: the low layer's heads, the top one after X_hi's last digits */
     sp_dev_sync_all();
     sem_post(&e->go);
@@ -521,8 +523,7 @@ mn_out_early *mn_out_early_start(const struct mdb_s *X, unsigned long d, unsigne
 {
     struct mn_out_early *e = (struct mn_out_early *)calloc(1, sizeof *e);
     e->sh = X->sh;                                     /* the share's descriptor by value (the division moves its mdb; the blocks stay) */
-    size_t lo, hi; mdb_share(X, rank, &lo, &hi);
-    e->src.dev = &e->sh; e->src.lo = lo; e->src.cnt = hi > lo ? hi - lo : 0; if (e->src.cnt > e->sh.n) e->src.cnt = e->sh.n;
+    mn_out_share_src(&e->src, &e->sh, X, rank, 0);
     e->o.d = d; e->o.d_out = d_out; e->o.outfile = outfile; e->o.rank = rank; e->o.size = size; e->o.verbose = verbose;
     e->o.t2_defer = t2_defer;                           /* the deferred windows, set before the writer starts */
     mn_out_boundaries(&e->o, &e->src, c);             /* collective: every rank is at the hook */

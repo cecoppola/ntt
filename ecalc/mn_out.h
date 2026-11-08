@@ -78,6 +78,7 @@ int  mn_out_tail_core(mn_out *o, const uint64_t *low, size_t w, long dx, mn_out_
  * redo the part file (mn_out_run again), as at size 1. */
 typedef struct mn_out_early mn_out_early;
 struct mdb_s;
+void mn_out_share_src(mn_out_src *s, const dbig *sh, const struct mdb_s *X, int rank, size_t base);   /* s = the share of X (rank) held in sh, its limbs placed at base + the share's offset, the count clipped to sh->n */
 void mn_out_bg_threads(int n);  /* the writer threads' OpenMP team (the PE's CPUs); 0 = ECALC_BG_THREADS, else 48 */
 mn_out_early *mn_out_early_start(const struct mdb_s *X, unsigned long d, unsigned long d_out, const char *outfile, int rank, int size, int verbose, comm *c, size_t t2_defer);
 mn_out *mn_out_early_join(mn_out_early *e, double *t_run);            /* the thread joined; t_run: its seconds */
