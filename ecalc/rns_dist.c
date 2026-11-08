@@ -145,8 +145,7 @@ __global__ void k_scatter_runs(const uint64_t *loc, struct acc c, size_t R, size
     for (; t < total; t += stride) { size_t j = t / rows, il = t % rows, mm = R * j + row0 + il; if (mm < c.n) *acc_ptr_s(c, mm) = loc[t]; }
 }
 /* this rank's run spills into a sparse temporary S (4 limbs at limb R j + (r+1) rows for every column j);
- * C += S is then one chunked-carry addition (db_add) -- an atomic ripple was serial per run and
- * pathological on long carry chains */
+ * C += S is then one chunked-carry addition (db_add) (an atomic ripple is serial per run) */
 
 static size_t dist_cap(void) { return (size_t)1 << dist_logn_max(); }   /* plane points */
 #define VPE_LOCAL_LOGN 29                                       /* form S: one PE's plane cap (np + 1 planes of 2^29 points = 21 GB at 4 primes) unless DIST_LOGN_TEST is lower */
@@ -577,8 +576,7 @@ static void prod_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
     dist_core(A, B, Cw, nc, sa, sb);
 }
 /* the low w limbs of A B (device operands): the grid below with the pieces above w skipped, then truncated
- * (the earlier halving recursion is no cheaper than the grid: for decimal's X Q at 4e10 both need 6 planes,
- * the skip makes it 5) */
+ * (a halving recursion is no cheaper: for decimal's X Q at 4e10 both need 6 planes, the skip makes it 5) */
 static void mul_grid(dbig *Cd, const dbig *A, const dbig *B, size_t lowcut, size_t w);
 void rns_mul_low_db(dbig *Cd, const dbig *A, const dbig *B, size_t w)
 {
@@ -682,7 +680,7 @@ static void grid_loop(int ka, int kb, const int *fs, int nf, int lng, grid_piece
 static inline int grid_piece_skipped(size_t oa, size_t ob, size_t la, size_t lb, size_t lowcut, size_t w) { return oa + ob >= w || oa + ob + la + lb <= lowcut; }
 void rns_mul_dist_db(dbig *Cd, const dbig *A, const dbig *B) { mul_grid(Cd, A, B, 0, (size_t)-1); }
 /* /B3: the product of which only C >> cut is used: the grid with the pieces ending at or below the cut skipped (a
- * product that fits one plane is formed whole, as before) */
+ * product that fits one plane is formed whole) */
 void rns_mul_high_db(dbig *Cd, const dbig *A, const dbig *B, size_t cut) { mul_grid(Cd, A, B, cut, (size_t)-1); }
 /* both cuts, the result mod B^w -- the formed pieces are added whole, a
  * skipped piece at oa + ob >= w is a multiple of B^w, so the low w limbs are those of A B less the low cut's pieces; truncated to w */
@@ -868,11 +866,11 @@ static comm *lay_get(mn_group *G, int d)
 }
 /* P24_CHECK (default 0 audit): 1 = every P24 operand's limbs are checked < 10^18 (so every input point < 10^24: the
  * premise of the CRT's bound) twice per product -- as packed by this node ("sent": the stored share is bad) and as received ("received": the
- * exchange or the sender's share is bad) -- and the CRT flags c >= 10^60 at every s (p24_crt_set_check; P24_CRT_ANY, default 1, does that even with P24_CHECK=0; =0 gives the old s = 12 + spill flag unless P24_CHECK >= 1);
+ * exchange or the sender's share is bad) -- and the CRT flags c >= 10^60 at every s (p24_crt_set_check; P24_CRT_ANY, default 1, does that even with P24_CHECK=0);
  * any hit is fatal with the product's kind, piece, node, PE, sizes and the first bad position.  2 = also no transform cache on P24 products
  * (a flag that goes away then is a cache defect).  Off: no kernel, no copy, no allocation. */
 static int p24_check(void) { static int v = -1; if (v < 0) { const char *e = getenv("P24_CHECK"); v = e ? atoi(e) : 0; if (v < 0) v = 0; } return v; }
-/* P24_CRT_ANY (default 1): the CRT flag (c >= 10^60) covers every shift class s = 0, 6, 12 and the spill, not only s = 12 and the spill.  0 = the old flag (fallback). */
+/* P24_CRT_ANY (default 1): the CRT flag (c >= 10^60) covers every shift class s = 0, 6, 12 and the spill, not only s = 12 and the spill.  0 = only s = 12 and the spill. */
 static int p24_crt_any(void) { static int v = -1; if (v < 0) { const char *e = getenv("P24_CRT_ANY"); v = e ? atoi(e) != 0 : 1; } return v; }
 static char g_p24_what[160]; static size_t g_p24_seq; static int g_p24_ka = 1, g_p24_kb = 1, g_p24_pi = -1, g_p24_pj = -1; static size_t g_p24_pa, g_p24_pb;   /* the running product (mn_grid / mn_piece_form, main thread) */
 /* P24_CHECK coverage line and fault injection (audit): counters per PE process; the summary prints at exit under P24_CHECK >= 1 */
@@ -1212,7 +1210,7 @@ static int mn_logn_cap(int g)
     int c = dist_logn_max(); if (rns_pool_log() < c) c = rns_pool_log();
     int logn = c + lgt - (vpe_on() ? 2 : 0);              /* one rank plane q = 2^(c - 2) per PE, nr = g ranks: n = g q */
     if (!is_pow2(g)) {
-        int ln, lr, lc; size_t qm, qcap = rns_q_slot(c);                       /* MN_NONPOW2_CAP: the pools' q (43/32 larger), else 2^(c - 2) as before */
+        int ln, lr, lc; size_t qm, qcap = rns_q_slot(c);                       /* MN_NONPOW2_CAP: the pools' q (43/32 larger), else 2^(c - 2) */
         mn_shape((size_t)1 << logn, g, &ln, &lr, &lc, &qm);
         if (qm > qcap) logn--;
         else if (rns_np2cap()) { mn_shape((size_t)1 << (logn + 1), g, &ln, &lr, &lc, &qm); if (qm <= qcap) logn++; }   /* the next power of two fits: 2^33 over 3 nodes */
@@ -1650,8 +1648,7 @@ int mdb_dr_store_inject(mdb *X, int node)    /* ECALC_TEST dr=store: one limb of
 static size_t mn_logmin(int g) { int nr = NL() * g, lg = 0; while ((1 << lg) < nr) lg++; int logmin = 2 * (5 + lg); return logmin < 20 ? 20 : logmin; }
 /* ---- P24: four primes at 24 digits per transform point in the mn tier ------------------------
  * Every mn product runs P24 when pool 0 holds four planes (ECALC_NP=4, or auto where the run's largest group can form a four-prime
- * piece); else the 18-digit form.  (P24 as the 2-mode, the user's decision of; its forms 0 = off and 1 = only the
- * products whose 18-digit grid's largest piece would run four primes were removed.) */
+ * piece); else the 18-digit form.  */
 static int mn_p24_of(size_t na, size_t nb, int g)
 {
     (void)na; (void)nb; (void)g;
@@ -2173,7 +2170,7 @@ int mn_groups_parse(int size, int *out, int max)
     } else {
         /* the powers of two that divide the size, then the
          * odd part's prime factors in increasing order -- 576 = 2^6 . 3 . 3 -> 2, 4, ..., 64, 192, 576; 9 -> 3, 9; 6 -> 2, 6; a power
-         * of two -> the binary tree as before.  Every group is then exact (no cut top group) and every level is a k-way step by
+         * of two -> the binary tree.  Every group is then exact (no cut top group) and every level is a k-way step by
          * one prime factor */
         int v = 1; while (v * 2 <= size && size % (v * 2) == 0 && n < max) { v *= 2; out[n++] = v; }
         int rest = size / v;
@@ -2220,7 +2217,7 @@ void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
     if (nX && k + nX > C->N) { ec_fatal(EC_RC_FATAL, "mdb_add_shifted: %zu limbs at %zu exceed the basis %zu\n", nX, k, C->N); }
     size_t W = mn_t_chunk_limbs(), mx = 0;
     for (int r = 0; r < g; r++) { size_t lo, hi; add_window(C, G->g0 + r, k, nX, &lo, &hi); if (hi - lo > mx) mx = hi - lo; }
-    if (!W || mx <= W) { W = (size_t)NL() * MDB_ADD_CHUNK; if (mx < W) W = mx ? mx : 1; }   /* the window fits one chunk of MN_T_CHUNK_MB: rounds of at most 2^26 limbs per APU, as before */
+    if (!W || mx <= W) { W = (size_t)NL() * MDB_ADD_CHUNK; if (mx < W) W = mx ? mx : 1; }   /* the window fits one chunk of MN_T_CHUNK_MB: rounds of at most 2^26 limbs per APU */
     int K = (int)((mx + W - 1) / W);
     size_t clo, chi; mdb_share(C, node, &clo, &chi); size_t cn = chi - clo;
     size_t tlo, thi; add_window(C, node, k, nX, &tlo, &thi); size_t tn = thi - tlo, tcap = tn < W ? tn : W;

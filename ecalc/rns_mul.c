@@ -118,7 +118,7 @@ size_t rns_dpool_cap(int dev, int which) { return which ? D[dev].db.cap : D[dev]
 size_t rns_pool1_default_bytes(int pool_log)                       /* what the dist tier uses of pool 1 at 2^pool_log points: xb (q + 16) | sbuf (q) | rbuf (q), 2 MiB-aligned;
                                                                     * never below the full pool for pool_log <= 30, where the batch tier's 2^30 tile needs it (so the pool never grows inside a phase there) */
 {
-    size_t b; rns_plane_pool_bytes(pool_log, ec_np_init(), 0, &b); return b;   /* the one formula.  at the one-node tiers' prime count (four: 4 q, the batch-local tier's B planes; three / auto: 3 q + 16 as before) */
+    size_t b; rns_plane_pool_bytes(pool_log, ec_np_init(), 0, &b); return b;   /* the one formula.  at the one-node tiers' prime count (four: 4 q, the batch-local tier's B planes; three / auto: 3 q + 16) */
 }
 static size_t g_tables[EC_NP];                                     /* M9: device bytes of the transform contexts (twiddle tables), by hipMemGetInfo around their creation */
 void (*rns_shutdown_hook)(void) = 0;                               /* binsplit releases its region arenas here (they outlive the block pool's use of them) */

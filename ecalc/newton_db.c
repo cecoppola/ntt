@@ -471,7 +471,7 @@ static void shift_lane(struct shift_ctx *C, int d)
  * limbs (mod B^N2) and re-normalised.  Y is a fresh number (its share zero-filled, fixed length) */
 /* the same with Y sharded over the group Gt (a subgroup of the mesh's group G, or a group containing X's:
  * the pieces of nodes outside Gt or outside X's group are empty; every node of G takes part in the exchange) */
-/* P1 (DM_MN_WRAP): T -- the result truncated to T <= N2 limbs (mod B^T) in basis N2 (mdb_shift_g: T = N2, as before) */
+/* P1 (DM_MN_WRAP): T -- the result truncated to T <= N2 limbs (mod B^T) in basis N2 (mdb_shift_g: T = N2) */
 static void mdb_shift_gt(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, int tg0, int tg, size_t T)
 {
     double t0 = mem_now(); mn_st.n_shift++;

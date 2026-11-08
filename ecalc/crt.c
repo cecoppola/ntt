@@ -72,8 +72,7 @@ int ec_np_prod(size_t nterms, const char *where)
     return np;
 }
 /* under ECALC_NP=auto pool 0 holds four planes in every run of more than one
- * node-process, so every multi-node product runs the four-prime 24-digit form P24 (rns_dist.c mn_p24_of).  The three-prime multi-node
- * rule before D18 (ECALC_NP_MN3) was .  At g = 1 the plane count follows the switch-over bound */
+ * node-process, so every multi-node product runs the four-prime 24-digit form P24 (rns_dist.c mn_p24_of).  At g = 1 the plane count follows the switch-over bound */
 int ec_np_planes(int pool_log, int g)
 {
     ec_np_init();

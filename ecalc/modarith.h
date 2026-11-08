@@ -51,7 +51,7 @@ int ec_np_planes(int pool_log, int g);      /* pool 0's planes: ec_np; auto: 4 a
 }
 #endif
 
-/* the prime set (3 * 2^44 | p-1: 3*2^k lengths): c * 2^44 + 1 with 3 | c, c = 240, 216, 207, 147; two are the old p1, p3 */
+/* the prime set (3 * 2^44 | p-1: 3*2^k lengths): c * 2^44 + 1 with 3 | c, c = 240, 216, 207, 147 */
 static const uint64_t ec_P[EC_NP] = {4222124650659841ULL, 3799912185593857ULL,
                                      3641582511194113ULL, 2586051348529153ULL};
 static const uint64_t ec_G[EC_NP] = {19, 5, 5, 10};

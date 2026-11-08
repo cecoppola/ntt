@@ -634,9 +634,8 @@ static void bounce_init(int d)
     HIP_CHECK(hipHostMalloc((void **)&g_bounce[d][0], BOUNCE * 8, 0)); HIP_CHECK(hipHostMalloc((void **)&g_bounce[d][1], BOUNCE * 8, 0));
     bs_init(d);
 }
-/* Small bounce (always on; the fallback DBIG_SMALL_BOUNCE=0 was) -- a quarter of at most SBOUNCE limbs (8 MiB) goes through one small pinned buffer
- * per device instead of the two 1 GiB ones.  The first host copy of a run allocated 4 x 2 GiB of pinned host memory (≈2.2 s on
- * every aac7 node, longer on one, in the reciprocal's gather of 0.2 MB); the small buffer costs milliseconds.
+/* Small bounce (always on) -- a quarter of at most SBOUNCE limbs (8 MiB) goes through one small pinned buffer
+ * per device instead of the two 1 GiB ones.  A large buffer is 4 x 2 GiB of pinned host memory (≈2.2 s to allocate); the small buffer costs milliseconds.
  * The bytes copied are the same, so digits are identical; the big buffers are still allocated on the first large copy. */
 #define SBOUNCE ((size_t)1 << 20)
 static uint64_t *g_sbounce[DB_NQ];

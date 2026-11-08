@@ -362,7 +362,7 @@ mn_group *mn_group_span(int l, int g0, int g)
     g_sched[l] = G;
     return G;
 }
-/* all-gather of k u64 per node over a mesh: the transport's host all-gather (M7, A-comm; was a point-to-point loop) */
+/* all-gather of k u64 per node over a mesh: the transport's host all-gather (M7, A-comm) */
 void mn_allgather(comm *c, const uint64_t *v, int k, uint64_t *out) { comm_allgather_host(c, v, out, (size_t)k * 8); }
 /* the layered communicator over 4 x gt ranks (gt = the largest power of two <= size, rank rho = gt d + node): one plane of one prime
  * spread over all 4 gt ranks, as in the product tier */
@@ -452,7 +452,7 @@ static void mn_pq_hook(int stage, mdb *x)
 {
     if (!g_topbg) return;
     if (stage == 0) { bs_ckpt_bg_release(g_topbg, 0); return; }
-    if (bs_ckpt_bg_done(g_topbg, 1)) return;               /* Q written (or the set dropped): freed as before */
+    if (bs_ckpt_bg_done(g_topbg, 1)) return;               /* Q written (or the set dropped): freed */
     g_heldQ = x->sh; memset(&x->sh, 0, sizeof x->sh);         /* held until after the output stage (mfree(Q) frees nothing now) */
 }
 void mn_ckpt_top_finish(void)
@@ -474,7 +474,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
     P->sh = *Pleaf; P->n = P->N = Pleaf->n; P->g0 = mn_rank(); P->g = 1; memset(Pleaf, 0, sizeof *Pleaf);
     Q->sh = *Qleaf; Q->n = Q->N = Qleaf->n; Q->g0 = mn_rank(); Q->g = 1; memset(Qleaf, 0, sizeof *Qleaf);
     dm_switches(); if (mn_rank() == 0) printf("mn: MN_TREE_EARLY_FREE: the tree levels free P_i, P_run between their two products\n");   
-    int gs[MN_MAXL]; int L = mn_groups_parse(mn_size(), gs, MN_MAXL - 1);   /* the level -> group-size schedule (MN_GROUPS; default 2, 4, ..., size: the binary tree as before) */
+    int gs[MN_MAXL]; int L = mn_groups_parse(mn_size(), gs, MN_MAXL - 1);   /* the level -> group-size schedule (MN_GROUPS; default 2, 4, ..., size: the binary tree) */
     int ck = bs_ckpt_dir && mn_ckpt_bg_mode > 0;            /* the top-level set (ECALC_CKPT_TOP) after the top level */
     if (ck) bs_ckpt_tree_clear(0);                           /* this node's tree sets of an earlier run in the directory go (a set at another level would outlive this run's) */
     mdb_trk tp, tq; memset(&tp, 0, sizeof tp); memset(&tq, 0, sizeof tq);

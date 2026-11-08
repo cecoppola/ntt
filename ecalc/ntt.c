@@ -252,7 +252,7 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
  * bits 4.. into bits 0..3 (b1r_swz), found by search to be conflict-free (16 distinct 8-byte banks per 16 lanes) for
  * every group at LGV 3 and 4, LGL 10..12. Twiddles: tw[H + r] = w_2H^r per stage (one global table per direction,
  * 4096 entries). The reduced-correction Barrett (mm_lazy); the final canonicalization and scale as the plain b1 pass
- * (outputs canonical, hence unique). LGV = 3 (4 was slower). */
+ * (outputs canonical, hence unique). LGV = 3. */
 __device__ static inline unsigned b1r_swz(unsigned x)
 {
     const unsigned h = x >> 4;

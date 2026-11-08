@@ -20,7 +20,6 @@
 #include <time.h>
 #include <unistd.h>
 #define NA 4
-/* (the stage-timeline statistics, COMM_LAYER_STATS, and the xGMI link accounting, COMM_XGMI_STATS, were, D56) */
 static inline double lay_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 struct lay_ex { void *rb; size_t bytes; hipStream_t s; char *tmp; int inter_posted; };   /* one pending exchange */
 struct lay_v { void *rb; const size_t *rcnt, *rdsp; hipStream_t s; char *x3; size_t *cnt2; int pend; int slot; comm *ic; };   /* the pending v-exchange (slot: its x2/x3 area at depth 2) */
@@ -202,7 +201,7 @@ static void v_stages(comm *c, const void *sb, const size_t *scnt, const size_t *
     free(sdI);
     /* x1: block dd = slabs (dd -> (d, r')) for r' = 0..g-1 back to back; x2: node r' = its na slabs dd = 0..na-1 */
     size_t o2 = 0; struct cpy *ct = tk ? ctab_get(p, n) : 0; int m = 0;
-    size_t *offd = (size_t *)malloc((size_t)na * sizeof(size_t)); for (int dd = 0; dd < na; dd++) offd[dd] = t->rIoff[dd];   /* (running offsets: O(n), was O(n g)) */
+    size_t *offd = (size_t *)malloc((size_t)na * sizeof(size_t)); for (int dd = 0; dd < na; dd++) offd[dd] = t->rIoff[dd];
     for (int r = 0; r < g; r++) for (int dd = 0; dd < na; dd++) {
         size_t off = offd[dd], len = t->T[(size_t)dd * n + rho_of(p, d, r)]; offd[dd] += len;
         if (tk) { ct[m].dst = o2; ct[m].src = off; ct[m++].len = len; } else vcopy(x2 + o2, x1 + off, len, s, host);

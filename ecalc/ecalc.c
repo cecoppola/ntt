@@ -209,7 +209,7 @@ static int out_stage(struct out_ctx *c)
      * scaled by B^lo and summed over the group) */
     /* T1 (c): X's residues: the share's, placed at its offset, summed over the nodes (size 1: the background thread's) */
     uint64_t xs[T1_NQ], Xres[T1_NQ]; int xres_bg = !multi && c->xb->started && (!c->ncorr || c->defer), joined = 0;   /* (deferred corrections -- T1 never waits for the writer) */
-    if (xres_bg) { sem_wait(&c->xb->res_ready); memcpy(xs, c->xb->Xres, sizeof xs); }   /* the writer runs on: the file write is not on the timed path (as before, when the write came after `total`) */
+    if (xres_bg) { sem_wait(&c->xb->res_ready); memcpy(xs, c->xb->Xres, sizeof xs); }   /* the writer runs on: the file write is not on the timed path */
     else if (!multi && c->xb->started) { pthread_join(c->xb->th, 0); joined = 1; mn_out_res_share(&src, xs); }
     else mn_out_res_share(&src, xs);
     if (c->defer && c->dx && src.lo == 0)             /* the uncorrected X's residues + dx (the node holding limb 0) */
@@ -229,8 +229,8 @@ static int out_stage(struct out_ctx *c)
     if (!multi) RESULT("T1", "s", t_t1);
     node_pfx(c); printf("      VmRSS %.1f GB before dc\n", mem_vmrss() / 1e9);
 
-    /* size 1: the timed run ends here, as before (the digits' formatting is overlapped with the low product, the file write came
-     * after `total`; now the writer streams both and is joined below -- on a slow file system the join, not the compute, is the wait) */
+    /* size 1: the timed run ends here (the digits' formatting is overlapped with the low product; the writer streams both and is joined
+     * below: on a slow file system the join, not the compute, is the wait) */
     double total = 0, phases = 0;
     if (!multi) {
         total = mem_now() - c->t00; phases = c->t_bs + c->t_10dp + c->t_dm + t_t1;
@@ -655,7 +655,7 @@ int main(int argc, char **argv)
     int mn_dist = mn_size_ > 1;                      /* M3: the top levels as distributed products */
     t_lay = mem_now();
     if (mn_dist && !mn_selftest_layered(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
-    t_lay = mem_now() - t_lay;                       /* the layered self-test's own time (it was inside `other` of the ECALC_INIT_TL line) */
+    t_lay = mem_now() - t_lay;                       /* the layered self-test's own time (excluded from `other` of the ECALC_INIT_TL line) */
     if (getenv("ECALC_BG_THREADS")) g_bg_threads = atoi(getenv("ECALC_BG_THREADS"));
     if (vpe_on()) {                                  /* the process-wide settings of the PE flow, once, before the flow */
         if (mn_size_ < 2) ec_fatal(EC_RC_FATAL, "ecalc: ECALC_PE_PER_GPU=1 needs at least 2 PEs (%d): run on 2+ nodes or more tasks per node\n", mn_size_);
@@ -676,7 +676,7 @@ int main(int argc, char **argv)
                ec_team_rule(), ec_team_mask_count(), omp_get_max_threads(), bs_seed_team_size(), bs_team_size(), ec_team(), g_bg_threads);
     struct flow_ctx fc; memset(&fc, 0, sizeof fc);
     fc.N = N; fc.d = d; fc.d_out = d_out; fc.outfile = outfile; fc.verbose = verbose; fc.pool_log = pool_log; fc.mn_size = mn_size_; fc.t00 = t00; fc.t_ri = t_ri; fc.t_pre = t_pre; fc.t_mn = t_mn; fc.t_st = t_st; fc.t_lay = t_lay; fc.t_age = tl_age;
-    vpe_run(flow_run, &fc);                          /* off: once on this thread (the off path's flow, as before); process mode: this process's PE */
+    vpe_run(flow_run, &fc);                          /* off: once on this thread; process mode: this process's PE */
     int rc = flow_rc_all();
     if (vpe_on()) rns_shutdown();                    /* (off: the flow's end did it) */
     return rc;

@@ -63,7 +63,7 @@ static void push_run(struct push3 a, const size_t *bytes, hipStream_t s)
     for (int k = 0; k < 3; k++) a.n[k] = bytes[k] / w;
     k_push3<uint64_t><<<PUSH_BLOCKS * 3, 256, 0, s>>>(a);
 }
-/* ---- H4: per-link bytes and active time (the stamped push, for the H4 bench only; the COMM_XGMI_STATS switch was, D56) ---- */
+/* ---- H4: per-link bytes and active time (the stamped push, for the H4 bench only) ---- */
 static struct { unsigned long long *d_ts[NR], *h_ts[NR]; int nts[NR], pend[NR], map[NR], peer[NR][3]; size_t pb[NR][3]; double khz;
                 double bytes[NR][NR], active[NR][NR], kbytes[NR], kspan[NR], n[NR]; } H;
 /* read back the stamps of rank me's last stamped push (its stream is synchronised) and add them to the per-link totals */
