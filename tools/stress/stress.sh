@@ -12,6 +12,7 @@
 #   --ref auto: the sha256 of the first D digits of the 1e11 reference (up to 1e11 digits; computed once, cached in the stress folder) against the sha256 of each run's unpacked digits;
 #   none: no digit file is written (VERIFY and flags only); FILE: a file holding the expected sha256.
 #   --nic: around the first run, node snapshots before and after (remote/run/nodesnap.sh) and the kit's NIC delta (rl_nicdiff of remote/run/lib.sh) -> OUT/nic.txt.
+#   Per run the `DR:` lines of the log (ECALC_DR exit line, DR failure messages) are appended to OUT/dr_lines.txt under a header "== arm rep rc".
 #   Writes OUT/summary.md (`summarize` below) and the marker OUT/DONE (always, last); removes the digit files.  STOP file in OUT = stop after the current run.
 #   Environment overrides: STRESS_CACHE = folder of the cached reference hashes (default: the folder `stress` in the home directory); ECALC_REF = the reference digits
 #   file, ASCII "2." + digits, at least D + 3 bytes (default: the file `ref/e_1e11.out` in the home directory).
@@ -131,6 +132,7 @@ for rep in $(seq 1 "$REPS"); do
       [ "$h" = "$REFSHA" ] && dg=identical || dg=DIFFERS
     elif [ $rc = 0 ]; then dg=nofile; fi
     rm -f "$OF" "$OF".part*
+    { echo "== $arm rep $rep rc $rc"; grep -a 'DR:' "$PL" || echo "(no DR: line)"; } >> "$OUT/dr_lines.txt"   # the DR exit/check lines survive the log's deletion (false-positive count of a soak)
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$arm" "$rep" "$rc" "$ver" "$crt" "$p24" "$rem" "$frc" "$dg" "$wall" "$tot" >> "$OUT/runs.tsv"
     say "$arm rep $rep: rc $rc verify $ver crtflag $crt p24flags $p24 remaps $rem (forced $frc) digits $dg wall ${wall}s total $tot"
     if [ "$rc" != 0 ] || [ "$ver" != OK ] || [ "$crt" != 0 ] || [ "$p24" != 0 ] || { [ "$dg" != identical ] && [ "$dg" != nofile ]; }; then
