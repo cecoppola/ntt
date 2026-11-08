@@ -28,7 +28,7 @@ size_t newton_dkm_h(size_t k);   /* newton.h (newton_db.c), dm_layout's DKM set 
 int mn_rank(void); int mn_size(void);
 /* the PE identity from vpe.h (vpe.h includes comm.h, which needs HIP's headers; this file is plain C).  With ECALC_PE_PER_GPU=1 a PE is one process per GPU;
  * its binary splitting has ONE region (its device), its own term range and its own state (one copy per process); switch off: vpe_on() = 0,
- * vpe_idx = 0 and every line below behaves as before. */
+ * vpe_idx = 0 and every line below is unchanged. */
 void vpe_adopt(void); int vpe_on(void); int vpe_lanes(void); int vpe_pe(void); int vpe_npe(void);
 int mn_groups_parse(int size, int *out, int max); size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces);
 size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t share_b, size_t share_c, size_t *qmax);
@@ -41,14 +41,13 @@ static int bs_unsetenv(const char *n) { pthread_mutex_lock(&g_env_mx); int r = u
 /* the per-process state of binsplit.h (bs_N, bs_st, bs_seed_terms, bs_a0, bs_b1, the hook, the device P and Q) */
 unsigned long bs_N;                       /* M6: the run's N, for the tree sets written by mn.c */
 bs_stats bs_st;
-int bs_seed_terms = 256;   /* seed span; 256 measured best in both bases, 512 was the earlier value */
+int bs_seed_terms = 256;   /* seed span; 256 measured best in both bases */
 int bs_verbose = 0;
 const char *bs_ckpt_dir = 0;                         /* BS_CKPT_DIR: the directory of the top-level set (ECALC_CKPT_TOP); 0 = none */
 
 unsigned long e_terms(unsigned long d)
 {
-    /* min N with lgamma(N+1)/ln 10 >= d + 50, by bisection (the function is increasing; the
-     * linear scan this replaces cost ~45 s at 4e10 -- it was inside the run's wall time) */
+    /* min N with lgamma(N+1)/ln 10 >= d + 50, by bisection (the function is increasing) */
     double target = (double)d + 50.0, l10 = log(10.0);
     unsigned long lo = 1, hi = 2;
     while (lgamma((double)hi + 1.0) / l10 < target) hi *= 2;
@@ -735,7 +734,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
  * (0: not a multi-node run).  mnrun.sh sizes the heap (XSHMEM_HEAP_MB, and for the Cray backend the libsma heap) from MN_PLAN_ONLY's `plan pool` line. */
 size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
 {
-    if (size < 2 && vpe_ppg()) size = vpe_lanes();   /* S2fix: one node under ECALC_PE_PER_GPU=1 still exchanges among its PEs (the lanes): the model of that group, so the plan prints `plan pool` and mnrun sizes the heap (the default path: size < 2 = 0, as before); memfix: under any transport (before, only xshmem: plain shmem got no `plan pool` line and kept the 8192 MiB default) */
+    if (size < 2 && vpe_ppg()) size = vpe_lanes();   /* S2fix: one node under ECALC_PE_PER_GPU=1 still exchanges among its PEs (the lanes): the model of that group, so the plan prints `plan pool` and mnrun sizes the heap (the default path: size < 2 = 0); memfix: under any transport (before, only xshmem: plain shmem got no `plan pool` line and kept the 8192 MiB default) */
     if (size < 2 || (!plan && !xsh_on())) return 0;
     vslot_prealloc_env(N, size);
     char by[256]; unsigned long ra0 = bs_a0, rb1 = bs_b1; int rset = vpe_on() && !rb1 && size > 1;
@@ -908,7 +907,7 @@ int binsplit_fit(unsigned long N, int g, struct bs_fit *F)
     F->fits_dev = (double)F->device <= limit;
     if (getenv("ECALC_FIT_PER_APU") && atoi(getenv("ECALC_FIT_PER_APU"))) F->fits_dev = F->fits_dev && (double)F->dev_apu_max <= limit / (double)bs_nrn();   /* the busiest APU against its share of the edge (default off) */ F->fits_node = (double)F->node <= budget; F->fits = F->fits_dev && F->fits_node;
     bs_a0 = a0; bs_b1 = b1;
-    g_room_cfit = -1;                                  /* the runtime decides its room again on its own range (as before FIT) */
+    g_room_cfit = -1;                                  /* the runtime decides its room again on its own range */
     if (!env) g_wrap_run = F->wrap;
     cF = *F; cN = N; cg = g; have = 1;
     return F->fits;
@@ -1029,7 +1028,7 @@ void binsplit_pregrow(unsigned long N)
             want = (want + per_dev - 1) / per_dev; hole[r] = dml.hole / per_dev;
             extra[r] = want > base ? want - base : 0;             /* the hole is a policy over the arena's last bytes, not bytes added: at the dm phase the
                                                                   * level pools are dead and the pool's blocks keep out of the tail, so it is free whenever
-                                                                  * the arena holds the dm need at all (v2; v1 added the hole to the arena: +3.7 GB at 4e10, +32 at 9e10) */
+                                                                  * the arena holds the dm need at all (v2) */
             if (bs_arena_room() > 0 && db_pool_vmm_on()) {         /* whole chunks under BS_ARENA_ROOM (the tail ends at the last chunk's end) -- from the
                                                                   * base arena_get lays out (cap and extra in 2 MiB steps), or the arena ends a few MiB into one more
                                                                   * chunk and its remainder lies after the tail again */
