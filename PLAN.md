@@ -32,9 +32,9 @@ Labels: **m** measured, **mod** modeled, **a** assumed.
   | SHMEM, compiler, libfabric | cray-shmem 12.1.0, CCE 21.0.0, libfabric 2.3.1 | OpenSHMEMX 11.8.0, CCE 21.0.0, libfabric 2.3.1 |
   | file system | ≈ 1 TB/s cumulative write into one file at 32 processes per node | — |
 
-  Still unknown: the measured injection rate per APU (bench A3), the per-message cost, the bandwidth at the group boundaries (the dragonfly group is 64 consecutive nodes, `remote/FACTS.md` Target site), the
+  Still unknown: the measured injection rate per APU (bench A3), the per-message cost, the bandwidth at the group boundaries (the dragonfly group is 64 consecutive nodes, `target/README.md` (Target site facts) Target site), the
   write rate of ecalc's own writer with all 576 nodes writing at once (one node measured 3.4-5.0 GB/s with O_DIRECT and 8 threads; two part files per node, not the file system's 32-writer mode;
-  OPPORTUNITIES N8). The host memory per node is about 490 GB available (`remote/FACTS.md` Machine).
+  OPPORTUNITIES N8). The host memory per node is about 490 GB available (`target/README.md` (Target site facts)).
 - The digits must be right without a reference: every run checks itself (`ALGORITHM.md` §10).
 - Where the project stands against this goal, with the standing estimate and the memory margin: section 2.
 
@@ -55,7 +55,7 @@ backends), so every A/B comparison is paired (`results/TRANSPORT.md §BM`).
 
 Run times by scale (3 n 1e11 on both paths, 1 n 3.3e10 to 6.6e10, 2 n 1e10 to 1e11, 2 n 5e10 per layout) are measured and owned by `results/TRANSPORT.md` (§craylane, §XWLAT), `results/COMPUTE.md` §PEER and `results/MODEL.md` §AAC7OPT; older figures are in `results/MODEL.md` §M2a and §SCALE35.
 
-**On the target (2026-10-26, m; `remote/FACTS.md` "Measured runs on the target").** Path 1, layout D, ran 2 to 576 nodes at
+**On the target (2026-10-26, m; `target/README.md` (Target site facts)).** Path 1, layout D, ran 2 to 576 nodes at
 8 × 10⁹ digits per node, every run VERIFY OK; the best 576-node run, 4.608 × 10¹² digits, took 255.3 s, of which 111.0 s was
 init. Two larger runs failed: 2 × 10¹³ in a communicator handshake hang and 3 × 10¹³ with the P24 CRT flag on nodes 283-376; both
 had a mixed piece layout at tree level 7. The frozen copy for the next session, branch remote-v12 (= cand3 0c2da14, in main
@@ -106,10 +106,7 @@ default has an owner and a review date (`tools/switch_registry.py --check`).
 
 Open work in this repository is in `TASKS.md`.
 
-**Next target session** (copy and paste only, no agent on the target, user Q133): a browser agent reads branch remote-v12 and
-writes command blocks; the user pastes them on the target and pastes each summary back. Entry `remote/README.md`; `remote/ROUTE.md`
-owns the steps, sizes and go / no-go rules: P1 check, build and gates; P2 node screen, 64-node A/B arms and 4.608 × 10¹² on 576 nodes;
-P3 and P4 the record staircase 1.8 × 10¹³, 3.6 × 10¹³, 5.4 × 10¹³ on 576 nodes, stopping at the first failure; P5 the report.
+**Next target session:** the copy-and-paste route (`remote/`, user Q133) was removed 2026-11-08 by user decision; its plan (P1 check, build and gates; P2 node screen, A/B arms and 4.608 × 10¹² on 576 nodes; P3 and P4 the record staircase 1.8 × 10¹³, 3.6 × 10¹³, 5.4 × 10¹³, stopping at the first failure; P5 the report) is in git history (`git show cfe9d3a1:remote/ROUTE.md`) and on branch remote-v12.
 
 
 **Risks.**

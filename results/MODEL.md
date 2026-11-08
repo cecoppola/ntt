@@ -268,7 +268,7 @@ Reading: the 8e9-per-node campaign shape fits path 2 with 11 GB per APU to spare
 
 ### RECORD1 — the first record size and the staircase of the copy-and-paste route (2026-10-28)
 
-Question (user, 2026-10-28): "The first record run should be a number of digits you are 99% sure will finish without crashing. We can close the memory gap with a small number of slightly larger runs." Decided on the evidence below; the route is `remote/ROUTE.md` (P3 = step 1, P4 = steps 2-4; the env words per step are in its table only).
+Question (user, 2026-10-28): "The first record run should be a number of digits you are 99% sure will finish without crashing. We can close the memory gap with a small number of slightly larger runs." Decided on the evidence below; the route was `remote/ROUTE.md` (removed, git history cfe9d3a1) (P3 = step 1, P4 = steps 2-4; the env words per step are in its table only).
 
 **Planner sweep** (modeled; cand3 path 1 build on aac7, `plan_values.py --fit`, target limits device 373.44 / node 487, `ECALC_FIT_PER_APU=1`, `MN_NONPOW2_CAP=0`, 576 nodes; one run per cell, item rvp_packs3). Busiest APU in GB (margin to the 93.36 edge), by `BS_MDEV_LOGL` / `DIST_CHUNKS`:
 

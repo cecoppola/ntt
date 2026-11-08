@@ -20,7 +20,7 @@ Measured figures live in the topic files, not here: run times by scale and path 
 and `results/MODEL.md` (§AAC7OPT, §M2a, §SCALE35); the target model, memory fit and piece boundaries in `results/MODEL.md` (§TGT, §FIT,
 §PIECES, §P2JUMP, §L4); the aac7 campaigns M1-M6 (stress, soak, planner against memory, round cost, init growth, paired timings) in
 `results/MEMORY_IO.md`, `results/TRANSPORT.md` and `results/CORRECTNESS.md`; the block-pool audit in `results/MEMORY_IO.md` §POOLRACE; the
-recheck at scale in `results/CORRECTNESS.md` §CKPT. The target's own runs are in `remote/FACTS.md`.
+recheck at scale in `results/CORRECTNESS.md` §CKPT. The target's own runs are in `target/README.md` (Target site facts).
 
 ## 2026-11 cleanup: size before and after (measured 2026-11-07, Eastern; counts by `git ls-files` and `wc -l`)
 
@@ -34,6 +34,8 @@ recheck at scale in `results/CORRECTNESS.md` §CKPT. The target's own runs are i
 | Python lines | 8,092 | 7,695 | m |
 | shell lines | 7,437 | 5,418 | m |
 | Markdown | 7,570 lines, 80 files | 4,714 lines, 24 files | m |
+
+`remote/` (copy-and-paste target route) removed 2026-11-08 by user decision; still reachable in git history (commit cfe9d3a1) and the frozen remote-v12 branch.
 
 Removed: the unknown-name guard, `ECALC_TEST` folding (the former `DIST_*`
 and other test variables are keys of `ECALC_TEST`), one removed settings class, the archived `target/` material (now outside the repository) and
@@ -82,7 +84,7 @@ names identify the change only.
 | `BS_ARENA_ROOM` 0.14 (was 0.16; Q99) | 2026-10-25 | -8.6 GB device memory per node at the 2 n bs-phase peak, 0 remaps, time neutral (4 ABBA pairs); `BS_ARENA_ROOM=0.16` restores | m | results/MEMORY_IO.md §AS15 |
 | `ECALC_BUDGET_CHECK=1`, `ECALC_MEM_GUARD_GB` | Phase 14 | named stop (rc 8 / rc 9) instead of the OOM killer | m | results/MEMORY_IO.md §L114 |
 | P24 CRT flag on every shift class (`P24_CRT_ANY=1`; `=0` is the old s = 12 flag) (Q130) | 2026-10-31 (merge of cand3) | closes the silent wrong-coefficient hole at s = 0 / 6; digits identical; fault injection at `P24_CHECK=0` fatal at 1 and 2 nodes | m | results/COMPUTE.md §P24 audit, results/TRANSPORT.md §G2N |
-| `mnrun.sh` passes `srun -c <CPUs / tasks per node>` (`MNRUN_CPUS_PER_TASK` unset = auto; empty = no `-c`) | 2026-10-31 (merge of cand3) | without it srun confines a task to 1-2 CPUs; `-c 192` for one task per node, `-c 48` for four | m | results/CORRECTNESS.md, remote/FACTS.md |
+| `mnrun.sh` passes `srun -c <CPUs / tasks per node>` (`MNRUN_CPUS_PER_TASK` unset = auto; empty = no `-c`) | 2026-10-31 (merge of cand3) | without it srun confines a task to 1-2 CPUs; `-c 192` for one task per node, `-c 48` for four | m | results/CORRECTNESS.md, target/README.md (Target site facts) |
 | T1 moduli: the first eight primes above 2⁶² | Phase 11 | earlier moduli were composite | m | results/CORRECTNESS.md §V |
 | two-deep v-exchange (built in) | Phase 13 | xGMI stage hidden under the fabric (1.4 -> 74 %) | m | results/TRANSPORT.md §X13 |
 

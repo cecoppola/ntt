@@ -288,7 +288,7 @@ def launcher_names(known):
     environment (scripts read them, or pass them on).  -> sorted list, not in `known`"""
     pat = re.compile(r"\b((?:%s)[A-Z0-9_]*[A-Z0-9])" % "|".join(p for p in GUARD_PREFIXES))
     out = set()
-    for sub in ("ecalc", "profiles", "tools", "remote", "target", "tests"):
+    for sub in ("ecalc", "profiles", "tools", "target", "tests"):
         for dp, dn, fn in os.walk(os.path.join(ROOT, sub)):
             dn[:] = [d for d in dn if d not in ("ref", "__pycache__")]
             for f in fn:
