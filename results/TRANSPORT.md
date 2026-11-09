@@ -164,6 +164,25 @@ Status 2026-10-31: built and gated at 1 node (2026-10-27) and 2 nodes (§G2N); m
 **Verdict.** Gate PASS: digits identical, 0 P24 flags, every injection caught; cand3 merged into main 2026-10-31. **Open issues.** The
 series arm is not analyzed; the off / on single runs are not timing evidence (path 2 on 28.20 vs 26.29 s needs a paired run if it matters).
 
+### N5 and lazy-shift F-out: what the 2-node series arm shows (2026-11-09, log read only; aac7 2 n, 1.3264e11 digits, layout D, 128.21 s, VERIFY OK; measured, one run)
+
+Source: the e8b series arm of G2N above (`XSHMEM_ROUND_STATS=2`); PE 0, 4182 exchanges.
+
+| Quantity | Seconds | Share of 128.21 s |
+|---|---|---|
+| GPU stream time in exchanges, by tag: other / redist / result / spill / addsh / layeq / layv | 2.95 / 3.04 / 2.86 / 0.38 / 0.91 / 4.63 / 0 (sum 14.76) | 2.3 / 2.4 / 2.2 / 0.3 / 0.7 / 3.6 / 0 (11.5 %) |
+| Host gap between exchanges | 47.42 | 37.0 % |
+| Offset-word (ROFF) poll | 4.84 | 3.8 % |
+| Caller wait | 0.66 | 0.5 % |
+| `divmod` (90 calls, rank 0; contains the right shifts) | 3.49 | 2.7 % |
+
+Answers to the three questions:
+1. Does time per round grow within a run? No, in the part that is logged: the largest tag (layeq, 861 lines) has a span of 0.04-0.11 ms per exchange at k 24-28, 530-534 and 1019-1023, apart from the start gaps at k 24-25 (331 and 15.5 ms). The series stops at k 1023 of about 4499 exchanges, so the later three quarters of the run are not covered.
+2. Handshake against transfer: not separable here; the log has no per-tag round counts, bytes or poll seconds (the 576-node proxy needs the per-tag counters of N1 step 1, below).
+3. Shift seconds: no tag is named for shifts. The addsh tag is 0.91 s and `divmod` as a whole is 3.49 s, so shifts are at most 3.49 s at 1.3e11 digits on 2 nodes.
+
+Reading for the two parked items (rules unchanged: Q150 N5 only if a target N3 A/B leaves at least 5 s of realistic gain at 2e13; Q151 F-out only if a target run still shows 8 s or more of shifts at 2e13): on this evidence neither threshold is reached or reachable from 2 nodes. The exchanges' GPU time is 11.5 % of the run, so N5 (two exchanges in flight) can hide only part of that and none of the 37 % host gap, which the exchanges' own overlap does not cover (see I3 below for that gap). Shifts are at most 2.7 % of the run. The open questions need a larger node count: per-tag round counts and poll seconds at the target chunk size, and the shift seconds at 2e13 with N1 and the chosen round size. Nothing built.
+
 ### N1: rounds sized by the active pairs, `XSHMEM_ROUND_ACTIVE=1` (branch roundsize, 2026-11-01; aac7 1-3 nodes, measured)
 
 **Results, 2 nodes (aac7, item roundsize_a, 2026-11-01, measured, single runs; code at 852eaab, before the merge of main).**
