@@ -138,7 +138,8 @@ static const char *const cfg_exempt[] = {
     "DIST_LOGN_MAX=",
     "DIST_LOGR_",
     "DIST_MN_",
-    "DIST_TWREC",
+    "DIST_TWREC=",
+    "DIST_TWREC_",
     "DM_MN_LEAN=",
     "DM_REST=",
     "ECALC_DIR=",
@@ -146,13 +147,15 @@ static const char *const cfg_exempt[] = {
     "ECALC_NP_",
     "ECALC_OUT_DIR=",
     "ECALC_PROFILE_",
-    "ECALC_REF",
+    "ECALC_REF=",
+    "ECALC_REF_",
     "ECALC_REPLAY=",
     "ECALC_SRUN_",
     "ECALC_STD_",
     "ECALC_VSLOT_",
     "MNRUN_",
-    "MN_MODEL",
+    "MN_MODEL=",
+    "MN_MODEL_",
     "MN_OUT_DKM_",
     "MN_P24=",
     "MN_TOPO_",
@@ -174,4 +177,4 @@ static const char *const cfg_exempt[] = {
     "XSHMEM_CRAY_HEAP=",
     "XSHMEM_LIBS=",
 };
-#define CFG_EXEMPT_N 47
+#define CFG_EXEMPT_N 50
