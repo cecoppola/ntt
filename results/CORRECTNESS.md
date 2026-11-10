@@ -35,6 +35,9 @@ Late node (m): `NEWTON_MN_CHAIN_BCAST` (only node 0 runs the one-node chain) was
 
 (Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/CRASHES_HANGS.md`.)
 
+### Intermittent 2-node failures: paired hunt (aac7, 2026-11-09, main 425f1fda; m)
+28 runs on the two NIC nodes, alternating default (MAPD helper on) and `ECALC_MAPD=0`, 22 small and 6 big (6.441e10 digits): 0 failures, all VERIFY OK, no co-tenants. Default arm 53.9 s big and 7.1 s small, `ECALC_MAPD=0` arm 65.6 s and 10.0 s. The MAPD helper is not the cause of the earlier failures. Not reproduced: CXI fi_getinfo errors, the 900 s hang at the first exchange, the hipMalloc out-of-memory at the planner edge. SIGTERM (rc 143) deaths seen the same day: one gate, one clock-logging run and two base runs at the tighter planner limit; all were start-up memory or environment.
+
 ### §S16 — the intermittent startup segfault of ecalc under Cray OpenSHMEMX on aac7 (Phase 16 S)
 
 **Symptom (m).** 2 nodes, `COMM_TRANSPORT=shmem`, 1e10 digits: task 1 segfaults inside Cray's `shmem_init_thread` in 3 of 23 launches (after `bs: arenas 45.1 GB allocated`); 0 of 24 at 1e9 / `t_comm`; PE 0 then hangs in PMI. At 1e10 the init runs in a process with about 45 GB of VMM address ranges mapped and a busy seed thread; at 1e9 the seeds are done.
@@ -129,3 +132,6 @@ Cost model (modeled, 3.8e13 digits, 576 nodes): A 0.05-0.2 s, B about 60 ms, C a
 ### Measured, step 6 repeat: paired timing in the aac7 campaign (M6, 2026-11-02 00:33-00:48 ET, main d7c7f28, item 64_m6_dr; 2 nodes, 6.441e10 digits, measured)
 
 ABBA, 6 pairs, A = `ECALC_DR` unset, B = `ECALC_DR=3`, all runs rc 0 and VERIFY OK. Mean A 65.18 s, mean B 64.62 s: **B - A = -0.56 s, 95 % interval [-3.52, +2.40] s** (-0.9 %, interval -5.4 % to +3.7 %). Together with the step-6 table above (+0.48 s, 4 round differences, 128.82e9 digits), the overhead of `ECALC_DR=3` is not distinguishable from zero at 2 nodes at either size; the interval is about 3 s wide, so a cost of 0.1-0.2 % (modeled) is far below what aac7 can resolve, and the 576-node figure stays modeled.
+
+### D' (cyclic wrap) retry peak memory at the edge (aac7, 2026-11-09, 2 nodes, 6.441e10 digits, `ECALC_DR=3 DM_MN_WRAP=31`; m)
+n_Q is about 2^31.74 limbs, so 31 is the largest wrap plane. The planner fit prints a wrap term of 0.00 GB per APU (device 287.94 GB with and without the wrap): the wrap sits under the bs peak and does not raise it. Planner limit 290.85 GB per node: both base runs and both runs with `dr=cyc` injection pass (VERIFY OK, 4 failures injected and recovered each); pool peak-live rows are equal to the base within 0.2 GB in the first injected run, and the second shows 0.20 GB on a start-up row that precedes any retry (tolerance 0.20 GB, so the rule reports FAIL at its boundary; read as noise). Planner limit 296.85 GB per node: both base runs died at start-up (hipMalloc of 38.65 GB failed on APU 2, rc 143), the two injected runs passed, so no comparison exists. Conclusion: the retry adds no measurable pool memory at the first setting; the true edge stays unmeasured because the node cannot hold a second setting reliably.
