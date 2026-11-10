@@ -37,7 +37,7 @@ recheck at scale in `results/CORRECTNESS.md` §CKPT. The target's own runs are i
 
 `remote/` (copy-and-paste target route) removed 2026-11-08 by user decision; still reachable in git history (commit cfe9d3a1) and the frozen remote-v12 branch.
 
-Removed: the unknown-name guard, `ECALC_TEST` folding (the former `DIST_*`
+Removed: the per-name launcher list of the unknown-name guard (the guard stays; launcher-only names are exempt by prefix, `ecalc/README.md` Switches), the review-date table, `ECALC_TEST` folding (the former `DIST_*`
 and other test variables are keys of `ECALC_TEST`), one removed settings class, the archived `target/` material (now outside the repository) and
 consolidated `results/` (topic files). Digits unchanged.
 

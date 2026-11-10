@@ -95,7 +95,6 @@ fi
 if [ $BUILD = 1 ]; then
   command -v python3 >/dev/null 2>&1 || fail "python3 missing (needed for the registry check)"
   python3 "$ROOT/tools/switch_registry.py" --check > "$OUT/registry.log" 2>&1 || fail "switch registry stale (see registry.log; run tools/switch_registry.py)"
-  nrw=$(grep -c '^WARN' "$OUT/registry.log" || true); [ "${nrw:-0}" = 0 ] || say "registry: $nrw review-date warning(s), not a failure (registry.log; tools/switch_registry.py --review)"   # T27
   python3 "$ROOT/tools/profile_load.py" --validate-all > "$OUT/profiles.log" 2>&1 || fail "profile validation failed (see profiles.log)"
   python3 "$ROOT/tools/xshmem_api_check.py" > "$OUT/xshmem_api.log" 2>&1 || fail "xshmem API parity check failed (see xshmem_api.log)"
   ( cd "$ROOT" && python3 -m unittest discover -s tests ) > "$OUT/unittest.log" 2>&1 || fail "python unit tests failed (see unittest.log; python3 -m unittest discover -s tests)"

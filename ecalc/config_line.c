@@ -16,6 +16,9 @@ int cfg_guard(void)
         int pre = 0, known = 0;
         for (int i = 0; i < CFG_PREFIXES_N; i++) if (!strncmp(*e, cfg_prefixes[i], strlen(cfg_prefixes[i]))) pre = 1;
         if (!pre) continue;
+        /* launcher-only names: a prefix, or an exact name when the entry ends in '=' (*e is "NAME=value") */
+        for (int i = 0; i < CFG_EXEMPT_N && !known; i++) known = !strncmp(cfg_exempt[i], *e, strlen(cfg_exempt[i]));
+        if (known) continue;
         for (int i = 0; i < CFG_REG_N && !known; i++) known = cfg_reg[i].kind == 'x' ? !strncmp(cfg_reg[i].name, *e, strlen(cfg_reg[i].name)) : strlen(cfg_reg[i].name) == n && !strncmp(cfg_reg[i].name, *e, n);
         if (!known) { fprintf(stderr, "ecalc: unknown setting %.*s in the environment (not in ecalc/switches.tsv; a typo? `ecalc --settings` lists the names)\n", (int)n, *e); bad = 1; }
     }

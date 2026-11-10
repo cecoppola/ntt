@@ -55,6 +55,8 @@ class SettingsGuard(unittest.TestCase):
             for ok in ({"MN_MODEL_PROFILE": "x"}, {"MN_MODEL_ROUND_SYNC": "1"}, {"COMM_ALLTOALLV_DEPTH": "2"}):
                 self.assertEqual(subprocess.call([exe], env=dict(env, **ok)), 0, ok)      # tool names
             self.assertEqual(subprocess.call([exe], env=dict(env, COMM_LAYER_VSLOT_MB_3="1")), 2)   # removed (the slot size is internal)
+            self.assertEqual(subprocess.call([exe], env=dict(env, ECALC_MAPDD="1")), 2)   # a typo of a core name is refused
+            self.assertEqual(subprocess.call([exe], env=dict(env, MNRUN_ANYTHING="1", ECALC_REF_X="1")), 0)   # launcher-only prefixes are exempt
             self.assertEqual(subprocess.call([exe], env=dict(env, COMM_OFI="1")), 2)      # a row with no reader is refused
             r = subprocess.run([exe, "s"], env=dict(env, ECALC_NP="3"), stdout=subprocess.PIPE, universal_newlines=True)
             self.assertRegex(r.stdout, r"ECALC_NP\s+\S+\s+3\n")

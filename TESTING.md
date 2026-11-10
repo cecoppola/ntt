@@ -33,8 +33,7 @@ slower after any shared-code change. A timing claim between the paths needs inte
 - Compile check before a merge: no local HIP syntax check is possible (the sources need the HIP headers and kernel-launch syntax), so run `make -C ecalc check-hip` on aac7 (rebuilds every object without linking); a broken struct initializer or signature shows up there, not locally.
 - `--build` runs `make -B` in `ecalc/` (path 1; `GATE_XSHMEM=cray` builds path 2; for a multi-node run the gate checks the
   build log for `-DXSHMEM_OFI` or `-DXSHMEM_CRAY` and refuses the run without it). It also runs `tools/switch_registry.py --check` and
-  `tools/profile_load.py --validate-all`; either failing is a FAIL. The registry check's review-date `WARN` lines (a
-  setting past its review date in `ecalc/switches_review.tsv`, or an experiment without one) are printed, never a FAIL.
+  `tools/profile_load.py --validate-all`; either failing is a FAIL.
 - `--line` selects the launch line (the test system's is the `LAUNCH_LINE_KEYS` of `profiles/aac7.conf`, printed by
   `tools/profile_load.py aac7 --line`; the target's is supplied as a file); `--profile NAME` loads `profiles/NAME.conf`; `--env "K=V …"` adds settings; `--digits` and
   `--ref` change size and reference (only 10⁹ has a default reference).
@@ -156,7 +155,6 @@ A branch merges to `main` when:
 `tools/doccheck.py` (read-only, about 1 s) checks that the docs match the tree: the switch registry is current, the central
 docs have a `Scope:` line, every cited `results/`, `tools/`, `ecalc/`, `tests/`, `profiles/` path and markdown link exists,
 `PLAN §N` references name an existing section, no citation of the old paper outside `results/`, and archive paths are
-written `archive:<path>` (not as a repository folder). The registry's review-date warnings print as `[review]` lines and
-are not failures. Failures print as `file:line: [check] reason`; exit 1, or exit 0 with `--warn`. `tools/gate.sh` runs it
+written `archive:<path>` (not as a repository folder). Failures print as `file:line: [check] reason`; exit 1, or exit 0 with `--warn`. `tools/gate.sh` runs it
 first: `GATE_DOCCHECK=strict` (default) fails the gate, `warn` prints the problems and goes on, `off` skips it.
 
