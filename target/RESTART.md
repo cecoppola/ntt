@@ -19,6 +19,7 @@ Status (2026-11-10): the package is in the tree and its self-checks pass (`bench
 
 - Rules of the development cluster (queue tools, session holds, 6-node packing, NIC-loss workarounds) do not apply; their intent does: no allocated node idles, long allocations, done-markers for long waits, never touch other users' jobs, kill only by single PID.
 - Correctness first: a result counts only with `VERIFY OK`. Labels m / mod / a on every number; times with the time zone; gates per `TESTING.md` before code changes.
+- Code changes made on the target go to a branch and are pushed. A wrong digit or a crash stops that line of work until the cause is understood.
 - The coordinator keeps `target/results/LOG.md` (dated lines), `DECISIONS.md` and, at the end, `HANDOFF.md`; only it runs git (commit and push `results/` every 30-60 min and at each milestone).
 
 ## 2. Step 1 — system facts (minutes)
@@ -111,7 +112,7 @@ Priority order (Q115): step 1 -> step 2 -> in parallel bench items with prio < 1
 | symptom | cause and fix |
 |---|---|
 | hang in memory registration (ROCr <-> libfabric) | keep `FI_MR_CACHE_MONITOR=userfaultfd` (the `mnrun.sh` default; 0/104 hangs vs 22/105 with memhooks, m aac7); `disabled` gives wrong exchanges and is refused. If the kernel refuses userfaultfd (probe `uffd.*`), stop and tell the user before any multi-node run |
-| rc 4 from `mnrun.sh` / `ladder.sh` | the memory plan does not fit (`ECALC_DEVICE_GB` / `ECALC_NODE_GB`): lower the digits (the refusal prints the largest that fits). rc 8 = `ECALC_BUDGET_CHECK` stop, rc 6 = allocation failed |
+| rc 4 from `mnrun.sh` / `ladder.sh` | the memory plan does not fit (`ECALC_DEVICE_GB` / `ECALC_NODE_GB`): lower the digits (the refusal prints the largest that fits). rc 8 = `ECALC_BUDGET_CHECK` stop, rc 6 = a memory allocation or pool growth failed in a phase |
 | rc 9 during a run | the memory guard (`ECALC_MEM_GUARD_GB=6`) stopped the run before the OOM killer: lower `ECALC_NODE_GB` by the printed overshoot |
 | rc 134 | `abort()`; with `ECALC_SEGV_TRACE=1` the trace is in the log; keep it in `results/` |
 | `fi_enable(-28)` with several PEs per node | launch Slurm-native (`srun --ntasks`), as `mnrun.sh` does |
