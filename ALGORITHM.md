@@ -70,7 +70,7 @@ the first product as an "added operand".
 
 **Seeds.** The term range is cut into *spans* of S terms; each span's (P, Q) is computed on the CPU by schoolbook
 recurrence (`span`, `bi_span_step`). S is the largest span whose Q fits about 128 limbs (`bs_seed_terms_for`:
-S ≈ 128·18/log₁₀ b, a few hundred terms). The spans are computed during device initialisation
+S ≈ 128·18/log₁₀ b, a few hundred terms). The spans are computed during device initialization
 (`binsplit_seeds_begin`) and streamed into the region arenas in chunks through pinned buffers, hidden behind the memory
 mapping.
 
@@ -84,7 +84,7 @@ is chosen per level from the largest node length `max_nl`:
 | 2·max_nl + 1 ≤ 2³⁰ points (`BS_MDEV_LOGL`) | **batch** | one `rns_mul_batch` of all 2·npairs products of the level (`rns_mul.c`) |
 | otherwise | **device top levels** | each pair as `dbig` numbers through `rns_mul_dist_db` (`rns_dist.c`); inputs freed as consumed |
 
-(The CPU schoolbook tier below `bs_school_nl` is set to 0: the batch tier is faster at every size. The batch tier's host side (D20) runs without needless gaps: a level's layout and the products' scans in parallel and each device's tiles issued back to back through pinned descriptor slots, one length read-back per level, `results/COMPUTE.md §N3`.)
+(There is no CPU schoolbook tier: the batch tier is used at every size. The batch tier's host side (D20) runs without needless gaps: a level's layout and the products' scans in parallel and each device's tiles issued back to back through pinned descriptor slots, one length read-back per level, `results/COMPUTE.md §N3`.)
 
 **Across nodes.** With size > 1, node r takes the term range [1 + N·r/size, 1 + N·(r+1)/size) and runs the whole leaf tree
 on it, leaving (P_r, Q_r) on its devices. `mn_tree` then combines nodes in groups (§6.5), so after the last level P and Q
@@ -137,7 +137,7 @@ stage over the thirds and then three 2^k transforms (batch 3); the inverse mirro
 ### 4.3 Reconstruction back to decimal limbs
 
 After the inverse transform the product's coefficient k is known modulo each prime. **Garner's algorithm** (`crt.c`;
-`dgarner3/4` in `rns_mul.c`) builds the exact coefficient c_k < p₀p₁p₂(p₃) (below 2²⁰⁶) and converts it to base-10¹⁸
+`dgarner3/4` in `rns_mul.c`, `rns_int.h`) builds the exact coefficient c_k < p₀p₁p₂(p₃) (below 2²⁰⁶) and converts it to base-10¹⁸
 digits (`ec_words_to_dec`, at most four). Limb k of the product is
 
     limb_k = C0[k] + C1[k-1] + C2[k-2] + C3[k-3] + x_k + carry,
@@ -182,7 +182,7 @@ piece products:
 
 - the pieces are views of the operands; the first writes straight into C, the others into a temporary window and a shifted
   add with carry (`mn_round_add`, rounds of `MN_T_CHUNK_MB`);
-- the shape minimises the total transform points under a cost model that prices form B pieces at 0.70 (3·2^k
+- the shape minimizes the total transform points under a cost model that prices form B pieces at 0.70 (3·2^k
   form B lengths at 1.05 per point) and adds a per-piece pipeline cost (one search, `grid_search` in `rns_dist.c`, over a form per tier; one piece loop, `grid_loop`);
 - the shape jumps at some sizes (a "grid step", e.g. about +20 s of modeled wall above 3.82 × 10¹³, mod;
   `results/COMPUTE.md §S52`); the target size is chosen just below a step;
@@ -291,8 +291,7 @@ boundaries are resolved by a scan over (carry, propagate) flags (`mn_core`, `db_
 Fabric bytes equal a flat all-to-all's; messages per APU fall from 4g − 1 to g − 1; the on-node quarter never touches a NIC.
 Two exchanges are in flight (depth 2), so one exchange's xGMI stage hides under the previous one's fabric stage.
 `alltoallv` has the same stages with per-peer counts (the node's send counts are all-gathered over the four APU threads).
-All-gather runs the inter stage first and the xGMI stage second, so the fabric moves 4× less. One inter stage is in flight at a time (two in flight was slower on both transports, `results/TRANSPORT.md`), and the v-exchange slots come from the communicator pool, are shared and released between products (the former `COMM_LAYER_VSLOT_*` settings were removed; they are counted in the node
-budget).
+All-gather runs the inter stage first and the xGMI stage second, so the fabric moves 4× less. One inter stage is in flight at a time (two in flight was slower on both transports, `results/TRANSPORT.md`), and the v-exchange slots come from the communicator pool, are shared and released between products; they are counted in the node budget).
 
 ### 6.4 Transports
 
@@ -302,14 +301,14 @@ budget).
 |---|---|
 | `tests/t_dist.c` | test-only communicators inside the test: one rank (size 1, no-ops and copies) and a synthetic four-rank layout in one APU's memory |
 | `comm_xgmi.c` | the node's four APUs: peer copies over the xGMI mesh, driven by four host threads |
-| `comm_xshmem.c` | `COMM_TRANSPORT=xshmem` (the only multi-node transport; built by default where libfabric is found, `XSHMEM=0` omits it): the inter-node meshes over `xshmem.h`, the 1:1 mapping of the Cray SHMEM 12.1 calls (libfabric backend `xshmem_ofi.c` on aac7, `xshmem_cray.h` on the target); one node-process hosts one loopback PE per APU thread; the receiver publishes offsets, a worker thread (every layout, Q96) puts and signals, rounds (`XSHMEM_ROUND_MB`, default 128); `results/TRANSPORT.md` |
+| `comm_xshmem.c` | `COMM_TRANSPORT=xshmem` (the only multi-node transport; built by default where libfabric is found, `XSHMEM=0` omits it): the inter-node meshes over `xshmem.h`, the 1:1 mapping of the Cray SHMEM 12.1 calls (libfabric backend `xshmem_ofi.c` on aac7, the `XSHMEM_CRAY` section of `xshmem.h` on the target); one node-process hosts one loopback PE per APU thread; the receiver publishes offsets, a worker thread (every layout, Q96) puts and signals, rounds (`XSHMEM_ROUND_MB`, default 128); `results/TRANSPORT.md` |
 | `xshmem.h` (with the Cray backend), `xshmem_ofi.c`, `xshmem_boot.c`, `pe_geo.c` | the API (the 1:1 mapping of the Cray SHMEM 12.1 calls) and its two backends: libfabric cxi with PMI2 bootstrap (`XSHMEM=ofi`, path 1) and Cray SHMEM (`XSHMEM=cray`, static inline, path 2); `pe_geo.c` reports each PE's GPU, NUMA node and NICs. `vpe.c` holds the PE identity of the one-process-per-GPU layout |
 | `comm_layered.c` | the layered composition of an intra (xGMI) and an inter (xshmem) communicator, §6.3 |
 | `comm_util.c` | shared helpers, and the GPU copy kernel for copies that touch a host-registered pool (called from `comm_xshmem.c`'s `COPY`) |
 
 Builds: the default build (`XSHMEM=ofi`, where libfabric and the PMI2 header are found) runs `COMM_TRANSPORT=xshmem` multi-node; `XSHMEM=cray` builds path 2 (`PLAN.md` section 3). The transport is xshmem on both paths. The transport, the meshes and the
 communicators are opened before any HIP thread exists, because opening them after the arenas crashed in a vendor
-initialisation (8 of 78 runs, m).
+initialization (8 of 78 runs, m).
 
 ### 6.5 The tree
 
@@ -377,12 +376,12 @@ everything is allocated once, up front, and sized by a model that the C layout r
   becomes the `dbig` **block pool** of the reciprocal and division (`db_pool_*`, `dbig.c`). A request with no contiguous
   free extent is met by remapping free chunks, not by copying. The arena's tail is reserved for the division's largest
   block (the "hole", `dm_layout`) plus a room of `BS_ARENA_ROOM` (0.14) × the hole. The reciprocal's scratch is reserved once at the last
-  doubling's sizes and inputs are freed as consumed (`DM_TIGHT`), which keeps the free space contiguous.
+  doubling's sizes and inputs are freed as consumed (`dm_tight`, on with the VMM pool), which keeps the free space contiguous.
   With `ECALC_MAPD` on (experiment; default on when `COMM_SIZE` > 1, off at size 1; `0`/`1` force; `mapd.c`) the chunks of the plane pools (`rns_init`, one VA range per pool over 2 GiB chunks) and then of the arena
   are created by one helper process per APU and imported by the main process (POSIX fd handles); the main process still maps and sets access (the arena
   under its mapper lock; `results/MEMORY_IO.md`).
 - **Window rounds.** A grid piece's temporary window is processed in rounds of `MN_T_CHUNK_MB` per APU (code default 1024,
-  launch lines 2048); `mdb_shift` slabs are bounded by `MDB_SHIFT_CHUNK_MB`.
+  launch lines 2048); `mdb_shift` slabs are bounded by the constant `MDB_SHIFT_CHUNK_MB` (1024 MB, `binsplit.h`).
 - **Exchange memory.** Staging for xshmem and the general map's v-slots are counted in the node budget
   (`binsplit_vslot_bytes`, `binsplit_shmem_pool_need`); the v-slots are shared and released in time (built in).
 - **Memory fit (FIT, `results/MODEL.md §FIT`).** `binsplit_fit` (`binsplit.c`) puts the node's device peak -- the larger of the dm
@@ -468,11 +467,11 @@ A run is good only with `VERIFY OK` on every node (`verify.c/h`, `out_stage` in 
 | `mn_model.py estimate` | wall time by phase for a size, node count and fabric profile (was `estimate.py`); `--target` prints the standing estimate |
 | `mn_model.py v12` | the 576-node time model recalibrated on the 2e13 decomposition, with residuals and the failure rate by size (results/MODEL.md §v12) |
 | `mn_model.py` | the cost model behind it (all-to-all rate per APU thread, hiding fractions, round costs) |
-| `mem_model.py` | the memory layout per node; `--check-c` compares with the C layout |
+| `mem_model.py` | the memory layout per node; `--check-c FILE` compares a `BS_LAYOUT_ONLY` print with the C layout |
 | `MN_PLAN_ONLY`, `BS_LAYOUT_ONLY` | the code's own decisions (grids, pieces, prime counts, layout, the memory fit) without a device |
 | `tools/plan_values.py` | the launch values of a size; `--fit`: the memory-fit report, exit 1 when a run does not fit |
 
-Fabric profiles: `target_l4` (default; the target fabric with the L4 refit, `results/MODEL.md §L4`) and `aac7` (the S48 refit,
+Fabric profiles (`--fabric`): `target_l4` (default; the target fabric with the L4 refit, `results/MODEL.md §L4`), `target_fit` (fitted to the target's 2/64/576-node runs, `results/MODEL.md §target_fit`) and `aac7` (the S48 refit,
 `results/MODEL.md §S48`). The model is calibrated on the test system up to 6 nodes; the target's per-NIC rate and its fall-off are
 assumed (a).
 
