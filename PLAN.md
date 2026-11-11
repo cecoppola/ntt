@@ -61,8 +61,8 @@ had a mixed piece layout at tree level 7. The workaround, `MN_LEVEL_UNIFORM=1` o
 
 **Beyond 4.608 × 10¹².** Later target runs (2026-10-29 series) used the remote-v12 engine (main code plus `MN_LEVEL_UNIFORM=1`) and completed on 576 nodes: 2 × 10¹³ digits in 206.27 s, and 3.6 × 10¹³ in 392.8 s (mean of three runs, m; `results/MODEL.md` §v12, `V12_RUNS` in `ecalc/mn_model.py`). Failures of that engine: 3 of 7 runs at 3.6 × 10¹³ (0 of 4 without the diagnostic words), 6 of 6 at 3.7 × 10¹³-4 × 10¹³. The completed runs were VERIFY OK (`V12_RUNS` comment in `ecalc/mn_model.py`). Main code without that setting is not proven above 4.608 × 10¹² (it failed at mixed layouts on 2026-10-26).
 
-**Not yet done.** No 3.82 × 10¹³ run has completed on the target. The 576-node layout is refused by the planner with the defaults (margin -33.97 GB; with `MN_NONPOW2_CAP=0` +14.48 GB; m, planner, 2026-10-25, `results/MODEL.md §FIT`); the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
-`results/MODEL.md §TGT`; at the user-supplied 100 GB/s injection peak per APU, assumed for the achieved rate); the write adds
+**Not yet done.** No 3.82 × 10¹³ run has completed on the target. The 576-node layout is refused by the planner with the defaults (margin -33.97 GB; with `MN_NONPOW2_CAP=0` +14.48 GB; m, planner, 2026-10-25, `results/MODEL.md §FIT`); the headline estimate for 3.82 × 10¹³ digits is about 414-416 s without the write (413.6 s at 3.8 × 10¹³, 415.7 s at 3.82 × 10¹³; mod, `mn_model.py v12`, the v12 model refit to the measured 2 × 10¹³ run of 206.27 s on 576 nodes and checked against the 3.6 × 10¹³ mean of 392.8 s). The earlier model, 182-185.5 s (mod, profile `target_l4`,
+`results/MODEL.md §TGT`; it assumed the user-supplied 100 GB/s injection peak per APU for the achieved rate), is superseded by the measured 2 × 10¹³ data; the write adds
 2.4 s of file write at ecalc's modeled 4.0 GB/s per node (1.9-2.8 s over the 5.0-3.4 GB/s one node measured; the rate with 576 nodes writing at once is assumed) and 1.0 s at the file system's 1 TB/s (mod).
 
 ## 3. Defaults and launch lines

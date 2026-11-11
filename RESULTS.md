@@ -21,6 +21,8 @@ and `results/MODEL.md` (§AAC7OPT, §M2a, §SCALE35); the target model, memory f
 `results/MEMORY_IO.md`, `results/TRANSPORT.md` and `results/CORRECTNESS.md`; the block-pool audit in `results/MEMORY_IO.md` §POOLRACE; the
 recheck at scale in `results/CORRECTNESS.md` §CKPT. The target's own runs are in `target/README.md` (Target site facts).
 
+**Headline estimate for the 3.82 × 10¹³ run (576 nodes, no write; mod):** about 414-416 s (413.6 s at 3.8 × 10¹³, 415.7 s at 3.82 × 10¹³), from the v12 model refit to the measured 2 × 10¹³ run (206.27 s) and checked on the 3.6 × 10¹³ mean (392.8 s) (`results/MODEL.md` §v12, `mn_model.py v12`). The earlier 182-185.5 s (`target_l4`, fabric performance assumed) is superseded by the measured 2 × 10¹³ data.
+
 ## Multi-node transport in force (Q73, Q85, Q96, Q100, Q103)
 
 | change | since | effect | label | evidence |
