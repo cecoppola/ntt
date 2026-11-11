@@ -14,11 +14,9 @@ Labels: **m** measured, **mod** modeled, **a** assumed.
 
 - Compute ⌊10^d · e⌋ in decimal, for d = **3.82 × 10¹³** digits, on **576 nodes** of four AMD MI300A APUs each (user
   decision 2026-10-12). The target machine is never accessed from this project; the user runs the bench there.
-- First target campaign (user decision Q120, 2026-10-25): "reduce the number of digits until all the code paths work, and then
-  plan to run those. We can always increase the number of digits later if the smaller runs succeed." It runs 8 × 10⁹ digits
-  per node (4.608 × 10¹² on 576 nodes), where layout D, P and path 2 all fit at 1, 8, 64 and 576 nodes (mod, planner); the
-  3.82 × 10¹³ run follows once the small runs succeed. The campaign's 576-node run succeeded on 2026-10-26 (section 2); the next
-  target session runs the user's staircase 1.8 × 10¹³, 3.6 × 10¹³, 5.4 × 10¹³ digits on 576 nodes (user 2026-10-29; section 4).
+- The first target campaign (user decision Q120, 2026-10-25) ran 8 × 10⁹ digits per node (4.608 × 10¹² on 576 nodes), where
+  layout D, P and path 2 all fit at 1, 8, 64 and 576 nodes (mod, planner). Its 576-node run succeeded on 2026-10-26 (section 2).
+  No further target run of ours follows (user 2026-10-31): the code goes to the target one way and an agent there tests it (section 4).
 - Constraints per node: device memory ≤ **373.44 GB** (the measured `hipMalloc` edge on the target, 93.36 GB per APU, m),
   host total ≤ **480 GB** (the budget check's default). Each node has 8 NICs (two per APU) on the target and one per APU on aac7.
 - What is known about the target (user-supplied 2026-10-12, a; re-assessed in `results/MODEL.md §TGT`):
@@ -58,9 +56,8 @@ Run times by scale (3 n 1e11 on both paths, 1 n 3.3e10 to 6.6e10, 2 n 1e10 to 1e
 **On the target (2026-10-26, m; `target/README.md` (Target site facts)).** Path 1, layout D, ran 2 to 576 nodes at
 8 × 10⁹ digits per node, every run VERIFY OK; the best 576-node run, 4.608 × 10¹² digits, took 255.3 s, of which 111.0 s was
 init. Two larger runs failed: 2 × 10¹³ in a communicator handshake hang and 3 × 10¹³ with the P24 CRT flag on nodes 283-376; both
-had a mixed piece layout at tree level 7. The frozen copy for the next session, branch remote-v12 (= cand3 0c2da14, in main
-since the 2026-10-31 merge; 2-node gate `results/TRANSPORT.md` §G2N), sets `MN_LEVEL_UNIFORM=1` on every record step; the root cause is open (`TASKS.md`
-Proposed).
+had a mixed piece layout at tree level 7. The workaround, `MN_LEVEL_UNIFORM=1` on every record step (in main since the 2026-10-31 merge, cand3 0c2da14; 2-node gate
+`results/TRANSPORT.md` §G2N), is a launch-line setting; the root cause is open (`TASKS.md` Proposed).
 
 **Not yet done.** No run above 4.608 × 10¹² digits has completed on the target. The 576-node layout is refused by the planner with the defaults (margin -33.97 GB; with `MN_NONPOW2_CAP=0` +14.48 GB; m, planner, 2026-10-25, `results/MODEL.md §FIT`); the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`,
 `results/MODEL.md §TGT`; at the user-supplied 100 GB/s injection peak per APU, assumed for the achieved rate); the write adds
@@ -79,8 +76,8 @@ evidence, are in the switch table of `ecalc/README.md` and `RESULTS.md`; `ECALC_
 | launch | `./mnrun.sh <nodes> env ./ecalc <digits>`: layout D, one process per node, four APU threads, `COMM_TRANSPORT=xshmem` | `./mnrun.sh <nodes> env ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 ./ecalc <digits>`: one process per GPU, two lanes |
 | added by `mnrun.sh` | the communicator and libfabric variables | the same, and under `ECALC_PE_PER_GPU=1` the NUMA placement (`MNRUN_PPG_CPUBIND=ldom`, `XSHMEM_CRAY_NUMA=1`), the automatic libsma heap and the plan |
 
-The exchange worker thread runs in every layout; `RNS_BATCH_SPLIT` is automatic under `ECALC_PE_PER_GPU=1`; the transport
-is xshmem on both paths (the plain SHMEM transport is gone, Q103). Both lines add `ECALC_NP=auto`, `MN_T_CHUNK_MB=2048`, the memory guard and the crash-trace handler. The full lines
+The exchange worker thread runs in every layout; the per-device allocator helpers (`ECALC_MAPD`) are on above one process (user 2026-11-08); `RNS_BATCH_SPLIT` is automatic under `ECALC_PE_PER_GPU=1`; the transport
+is xshmem on both paths (the plain SHMEM transport is gone, Q103). Both lines add `MN_T_CHUNK_MB=2048`, the memory guard and the crash-trace handler (`ECALC_NP` is auto above one process by default). The full lines
 (`mnrun.sh` is called with them) are kept in:
 
 | system | line | source |
@@ -99,15 +96,14 @@ asks for a pool of 2304 MiB and a heap of 2816 MiB (m, planner).
 nodes, profile) the device peak per node and per APU against `ECALC_DEVICE_GB` (target 373.44 GB per node, m; aac7 444.0
 in `profiles/aac7.conf`), the node against `ECALC_NODE_GB`, the margins and the largest consumers;
 `tools/plan_values.py --fit`, `mnrun.sh`, `tools/gate.sh` and the bench's plan stage print it and refuse a run that does not
-fit (`results/MODEL.md §FIT`, which owns the figures for the target and aac7 sizes; the 576-node result today is in section 2). Every setting that is not a plain
-default has an owner and a review date (`tools/switch_registry.py --check`).
+fit (`results/MODEL.md §FIT`, which owns the figures for the target and aac7 sizes; the 576-node result today is in section 2). Every setting read by the code has a row in
+`ecalc/switches.tsv` (`tools/switch_registry.py --check`).
 
 ## 4. Plan to the target run
 
-Open work in this repository is in `TASKS.md`.
-
-**Next target session:** the copy-and-paste route (`remote/`, user Q133) was removed 2026-11-08 by user decision; its plan (P1 check, build and gates; P2 node screen, A/B arms and 4.608 × 10¹² on 576 nodes; P3 and P4 the record staircase 1.8 × 10¹³, 3.6 × 10¹³, 5.4 × 10¹³, stopping at the first failure; P5 the report) is in git history (`git show cfe9d3a1:remote/ROUTE.md`) and on branch remote-v12.
-
+**Delivery.** No further target session of ours follows (user 2026-10-31); the code goes to the target one way and an agent there
+reads and tests it (`target/README.md`, `target/RESTART.md`, `target/bench/QUESTIONS.md`). The removed copy-and-paste route (`remote/`, user
+2026-11-08) is in git history (`git show cfe9d3a1:remote/ROUTE.md`). Open work: `TASKS.md`.
 
 **Risks.**
 
@@ -117,8 +113,8 @@ Open work in this repository is in `TASKS.md`.
 | a slow or faulty node | node screen and `initchk.py` before the run; exclusion only (`MNRUN_EXCLUDE_HOSTS`), no spares; any 572-576 nodes pass the plan check |
 | device memory near the edge | budget check (rc 8) before compute; guard (rc 9) during; margins per `MN_NONPOW2_CAP` setting in `results/MODEL.md §FIT` |
 | hangs in the ROCr / libfabric memory registration | `FI_MR_CACHE_MONITOR=userfaultfd` (0/104 hangs against 22/105, m) |
-| no usable hugetlb pages on the target (8 pages total, 0 free; THP `always`, `max_map_count` 65530, m target 2026-10-26; the aac7 libsma heap also sits on 4 KiB pages, no hugetlb, m `results/TRANSPORT.md`): the path 2 heap (`XSHMEM_CRAY_HEAP_THP=1`) and any pinned 4 KiB heap cannot be put on reserved huge pages, so the init gap and rare multi-second compaction stalls of a node stay possible | path 1 (libfabric) is not affected and stays the fallback; the stall checklist is in `results/TRANSPORT.md`; the heap-THP test is TQ37 and the init timeline `ECALC_INIT_TL=1` (day-one list item 13); the user alone decides any request for reserved pages |
+| no usable hugetlb pages on the target (8 pages total, 0 free; THP `always`, `max_map_count` 65530, m target 2026-10-26; the aac7 libsma heap also sits on 4 KiB pages, no hugetlb, m `results/TRANSPORT.md`): the path 2 heap (`XSHMEM_CRAY_HEAP_THP=1`) and any pinned 4 KiB heap cannot be put on reserved huge pages, so the init gap and rare multi-second compaction stalls of a node stay possible | path 1 (libfabric) is not affected and stays the fallback; the stall checklist is in `results/TRANSPORT.md`; the heap-THP test is TQ37 and the init timeline `ECALC_INIT_TL=1` (day-one list); the user alone decides any request for reserved pages |
 | crash without a trace | `ECALC_SEGV_TRACE=1` on the launch line |
 | wrong digits | T1/T2 in the run, RECHECK and `unpack_digits` after it |
 | the write short of the file system's 1 TB/s (one file, 32 writers per node; ecalc: 2 files per node, 8 threads) | `tools/wbench` at scale in the bench, `MN_OUT_THREADS=32`; a shared-file writer if needed (OPPORTUNITIES N8): 2.4 s file write at 4.0 GB/s per node, hidden under the division in the model (mod; the old 1.0 GB/s prior gave 12.8 s) |
-| Cray SHMEM 12.1 (`XSHMEM=cray`, path 2) untested on the target; the init gap (+8 s on aac7) may differ and is expected to persist (no hugetlb pages, next row) | path 2 runs on aac7 against Cray SHMEM 11.8 (`results/TRANSPORT.md`, +7.5 % against path 1, digits identical); the kit's build, plan and t_xshmem checks and the day-one list T1-T8 (`results/TRANSPORT.md`, `TASKS.md`) on the target; path 1 stays as the fallback (Q85) |
+| Cray SHMEM 12.1 (`XSHMEM=cray`, path 2) untested on the target; the init gap (+8 s on aac7) may differ and is expected to persist (no hugetlb pages, next row) | path 2 runs on aac7 against Cray SHMEM 11.8 (`results/TRANSPORT.md`, +7.5 % against path 1, digits identical); the package's build, plan and t_xshmem checks and the day-one list T1-T8 (`results/TRANSPORT.md` §XDIAG) on the target; path 1 stays as the fallback (Q85) |

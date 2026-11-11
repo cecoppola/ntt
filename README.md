@@ -30,9 +30,9 @@ History (the old plan, measurement logs, older reports, moved drivers) is kept o
 |---|---|
 | `ecalc/` | the program (C/HIP), its `Makefile`, launch and test scripts, the time and memory models, the switch registry |
 | `ecalc/tests/` | one GMP-checked test program per module (`t_ntt`, `t_mul`, `t_dbig`, `t_newton`, `t_mn_grid`, …) and the test harness headers |
-| `tools/` | `gate.sh`, `unpack_digits`, the profile loader and checks, node screen |
+| `tools/` | `gate.sh`, `unpack_digits.c`, the profile loader, planner values and checks (`doccheck.py`, `switch_registry.py`), node screen, `wbench.c`, the aac7 queue scripts |
 | `profiles/` | machine profiles: `aac7.conf` |
-| `target/` | the remote session on the target system: probe, config generator and template (`target/config/target.conf.template`), conventions in `target/FORMATS.md` |
+| `target/` | the target package: probe, config generator and template (`target/config/target.conf.template`), ladder, bench, conventions in `target/FORMATS.md`, restart guide `target/RESTART.md` |
 | `tests/` | Python unit tests of the tools, the models and the launch checks (`python3 -m unittest discover -s tests`) |
 
 ## Build and run
@@ -51,8 +51,7 @@ Multi-node, one launch per allocation of `<nodes>` nodes (`SLURM_JOB_ID=<hold>` 
 **Two supported multi-node paths (user rule Q85, 2026-10-23): both stay working; a change to shared code must leave
 path 1 digit-identical and no slower.** Path 1 is libfabric (the default build, layout D); path 2 is Cray SHMEM (the
 target shape, one process per GPU). Their build and launch lines, the settings `mnrun.sh` adds and the defaults are
-owned by `PLAN.md` section 3; the status is in `PLAN.md` section 2; the removed `remote/ROUTE.md` (git history, cfe9d3a1) described the target
-session. Cluster access is described in the private protocol.
+owned by `PLAN.md` section 3; the status is in `PLAN.md` section 2.
 
 ## Test
 
