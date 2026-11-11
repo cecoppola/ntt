@@ -1866,6 +1866,36 @@ def v12_estimate(digits, nodes=V12_NODES, phi=None):
                shifts=V12_SHIFTS, shift_s=V12_SHIFT_S * k, chunk_bytes=xshmem_chunk_bytes(nodes))
     return out
 
+_V12_DIV = {}
+def _v12_division_share():
+    """the division's share of the OLD model's no-write wall at 576 nodes and 3.82e13 digits (profile target_l4, standing estimate: 35.4 s of 180.0 s), with the
+    old model's division pieces (DKM_LAST) that early_exposed() scales.  Cached.  MODELED: v12 has no division term of its own; this borrows the old model's
+    share and assumes the division slows with the rest of the wall."""
+    if not _V12_DIV:
+        global DKM_LAST
+        fab = apply_profile('target_l4'); e = estimate(V12_NODES, 3.82e13 / V12_NODES, fabric=fab)
+        _V12_DIV.update(share=e["div"] / e["nowrite_s"], last=dict(DKM_LAST))
+    return _V12_DIV["share"], _V12_DIV["last"]
+
+class _V12Div(object):
+    def __init__(self, t): self.t = t
+
+def v12_write(digits, write_bw=None, nodes=V12_NODES, phi=None):
+    """OPTIONAL write/overlap term for v12 (default off: v12_estimate is the no-write wall).  MODELED, NOT MEASURED: no target run has written 3.82e13 digits;
+    the write rate is one node's measured range (TARGET_WRITE_BW) or an assumption, and the division time is borrowed (see _v12_division_share).
+    raw = the node's packed part file / write_bw; division = share x the v12 no-write wall; exposed = early_exposed(max(raw, formatting), division),
+    the old model's hidden-time logic (MN_OUT_EARLY, MN_OUT_DKM_HI); wall_write_s = v12 wall + exposed.  The digit formatting (DC_FMT_MN, 4.0 s) enters only as
+    the floor of the written quantity max(raw, fmt); whether the measured v12 wall already holds it is not known (a), and the exit (EXIT_S) is not added."""
+    global DKM_LAST
+    write_bw = TARGET_WRITE_BW if write_bw is None else write_bw
+    e = v12_estimate(digits, nodes=nodes, phi=phi); D = digits / float(nodes)
+    raw = D * PACKED_BPD / 1e9 / write_bw; fmt = DC_FMT_MN * D / 1e9
+    share, last = _v12_division_share(); div = share * e["wall_s"]
+    saved = DKM_LAST; DKM_LAST = last
+    try: exposed = early_exposed(max(raw, fmt), _V12Div(div), nodes)
+    finally: DKM_LAST = saved
+    return dict(write_bw=write_bw, raw_s=raw, fmt_s=fmt, division_s=div, hidden_s=max(raw, fmt) - exposed, exposed_s=exposed, nowrite_s=e["wall_s"], wall_write_s=e["wall_s"] + exposed)
+
 def v12_wilson(n, f, z=1.96):
     """the Wilson 95 % interval of f failures in n runs"""
     p = f / float(n); d = 1 + z * z / n
@@ -1893,6 +1923,8 @@ def v12_table(extra=()):
 def v12_main(argv=None):
     ap = argparse.ArgumentParser(prog="mn_model.py v12", description="the model recalibrated on the 2e13 decomposition (576 nodes; remote-v12; seconds per PE); prints the terms, then the residuals against the measured 10-29 runs")
     ap.add_argument("--digits", type=float, nargs="*", default=[2e13, 2.4e13, 3.6e13, 4e13])
+    ap.add_argument("--write", action="store_true", help="also print the modeled (not measured) digit-write term per digit count: raw write, hidden under the division, exposed, wall with write (v12_write)")
+    ap.add_argument("--write-bw", type=float, nargs="*", default=None, help="GB/s per node for --write (default: the file system ceiling, then TARGET_WRITE_BWS' other rates and TARGET_WRITE_BW)")
     a = ap.parse_args(argv)
     print("v12 (576 nodes, XSHMEM_ROUND_MB=128): phi %.3f (fitted on 3.6e13); mean exchange-engine time per round %.3f ms (m ratio; polls include partner skew and wire wait, a), wire %.0f GB/s per node (9.33 TB / 50.6 s, m ratio; assumes the copy-quiet time is all wire time, a)" % (V12_PHI, 1e3 * v12_estimate(2e13)["round_s"], v12_estimate(2e13)["wire_gbs"]))
     print("%-9s %7s | %6s %6s %6s %6s %6s %6s | %7s %8s %6s | risk (measured, few runs)" % ("digits", "wall s", "init", "wire", "polls", "engine", "gpu", "host", "rounds", "fabric TB", "pieces"))
@@ -1900,6 +1932,12 @@ def v12_main(argv=None):
         e = v12_estimate(d); t = e["terms"]; rk = v12_risk(d)
         print("%-9.3e %7.1f | %6.1f %6.1f %6.1f %6.1f %6.1f %6.1f | %7d %8.2f %6.2f | %s" % (d, e["wall_s"], t["init"], t["wire"], t["polls"], t["engine"], t["gpu"], t["host"], e["rounds"], e["fabric_tb"], e["piece_index"],
               "; ".join("%s: %d of %d failed, 95%% interval %.2f-%.2f, attempts %.1f" % (r[0], r[2], r[1], r[4], r[5], r[6]) for r in rk) or "no runs at this size"))
+    if a.write:
+        print("write term (MODELED, not measured: no target run has written 3.82e13; division time borrowed from the old model's share):")
+        for d in a.digits:
+            for bw in (a.write_bw or sorted(set(TARGET_WRITE_BWS + (TARGET_WRITE_BW, 0.6, 0.434)), reverse=True)):
+                w = v12_write(d, bw)
+                print("  %.3e  %5.3f GB/s  raw %5.1f s  division %5.1f s  hidden %5.1f s  exposed %5.1f s  no-write %6.1f s  wall with write %6.1f s" % (d, bw, w["raw_s"], w["division_s"], w["hidden_s"], w["exposed_s"], w["nowrite_s"], w["wall_write_s"]))
     print("residuals (model / measured - 1):")
     for d, meas, w, res in v12_table(): print("  %.3e  measured %.1f  model %.1f  %+.1f %%" % (d, meas, w, 100 * res))
 

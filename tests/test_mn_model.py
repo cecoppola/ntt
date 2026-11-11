@@ -126,6 +126,25 @@ class V12(unittest.TestCase):
         for d, meas, w, res in rows:
             self.assertLess(abs(res), 0.12, (d, meas, w))
 
+    def test_write_term_off_is_unchanged_and_on_is_wall_plus_exposed(self):
+        # default OFF: v12_estimate has no write key and keeps the 2e13 / 3.6e13 numbers; v12_write (MODELED, not measured) = wall + exposed
+        e = self.M.v12_estimate(3.82e13)
+        self.assertNotIn("wall_write_s", e)
+        self.assertAlmostEqual(e["wall_s"], 415.7, delta=0.1)
+        self.assertAlmostEqual(self.M.v12_estimate(2e13)["wall_s"], 206.1, delta=0.1)
+        for bw in (1.736, 1.0, 0.6, 0.434):
+            w = self.M.v12_write(3.82e13, bw)
+            self.assertAlmostEqual(w["nowrite_s"], e["wall_s"], places=9)
+            self.assertAlmostEqual(w["wall_write_s"], e["wall_s"] + w["exposed_s"], places=9)
+            self.assertAlmostEqual(w["exposed_s"], max(w["raw_s"], w["fmt_s"]) - w["hidden_s"], places=9)
+        raw = {bw: self.M.v12_write(3.82e13, bw) for bw in (1.736, 1.0, 0.6, 0.434)}
+        self.assertAlmostEqual(raw[1.0]["raw_s"], 27.6, delta=0.05)          # 3.82e13 / 576 x 0.4167 B / 1 GB/s
+        self.assertEqual(raw[1.0]["exposed_s"], 0.0)                         # hidden under the division (81.7 s x ~0.5)
+        self.assertAlmostEqual(raw[0.6]["exposed_s"], 5.2, delta=0.1)
+        self.assertAlmostEqual(raw[0.434]["exposed_s"], 22.8, delta=0.1)
+        self.assertAlmostEqual(raw[0.434]["wall_write_s"], 438.6, delta=0.1)
+        self.assertLessEqual(raw[1.736]["wall_write_s"], raw[0.434]["wall_write_s"])
+
     def test_phi_is_the_only_fit(self):
         # phi is solved on the 3.6e13 passes (mean of three plain runs); the pin keeps the fit visible: 0.34
         self.assertAlmostEqual(self.M.V12_PHI, 0.341, places=3)
