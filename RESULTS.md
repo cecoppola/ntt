@@ -6,13 +6,12 @@ setting or an adopted result.
 Reports in `results/` are dated records, frozen when written; where one differs from the code or the central docs, the
 code and the central docs win. Reports are grouped by topic (`results/<TOPIC>.md §<ID>`); a new report starts as
 `results/<ID>.md` and is merged into its topic file later. Ideas measured and not adopted are in `OPPORTUNITIES.md`.
-History is outside the repository: the old measurement logs (`archive:RESULTS_ARCHIVE_1-114.md`,
+History is outside the repository: the 2026-11 cleanup size table (`archive:RESULTS_HISTORY_2026-11-10.md`), the old measurement logs (`archive:RESULTS_ARCHIVE_1-114.md`,
 `archive:RESULTS_HISTORY_2026-10-12.md`, "RESULTS §NN" citations), the old-ID lookup, merged and superseded report sections
 (`archive:results_merged_2026-10-19/`, `archive:results_merged_2026-10-23/`, `archive:results_merged_2026-10-24/`),
 raw data and drivers (`archive:results_raw_2026-10-19/`); per-item sections of SESSIONS, CACHE, AAC7_PORT, OFI_FABRIC, SHMEM (`archive:repo_cl6_2026-10-25/results/`).
 
-Labels: **m** measured, **mod** modeled, **a** assumed. Times are wall-clock seconds. Test machine: aac7 (MI300A nodes,
-Slingshot; the only cluster in use).
+Labels: **m** measured, **mod** modeled, **a** assumed. Times are wall-clock seconds. Test machines: aac7 (MI300A nodes, Slingshot; multi-node) and aac6 (single-node work only).
 
 ## Current figures
 
@@ -21,28 +20,6 @@ and `results/MODEL.md` (§AAC7OPT, §M2a, §SCALE35); the target model, memory f
 §PIECES, §P2JUMP, §L4); the aac7 campaigns M1-M6 (stress, soak, planner against memory, round cost, init growth, paired timings) in
 `results/MEMORY_IO.md`, `results/TRANSPORT.md` and `results/CORRECTNESS.md`; the block-pool audit in `results/MEMORY_IO.md` §POOLRACE; the
 recheck at scale in `results/CORRECTNESS.md` §CKPT. The target's own runs are in `target/README.md` (Target site facts).
-
-## 2026-11 cleanup: size before and after (measured 2026-11-07, Eastern; counts by `git ls-files` and `wc -l`)
-
-| item | before | after | label |
-|---|---|---|---|
-| tracked files | 348 | 204 | m |
-| folders with tracked files | 29 | 20 | m |
-| settings registry rows (`ecalc/switches.tsv`) | 209 | 101 | m |
-| C sources, headers and tests (`ecalc/`, lines) | 29,112 | 27,942 | m |
-| test files (`.c`/`.h` under `tests/` and `ecalc/tests/`) | 33 | 27 | m |
-| Python lines | 8,092 | 7,695 | m |
-| shell lines | 7,437 | 5,418 | m |
-| Markdown | 7,570 lines, 80 files | 4,714 lines, 24 files | m |
-
-`remote/` (copy-and-paste target route) removed 2026-11-08 by user decision; still reachable in git history (commit cfe9d3a1) and the frozen remote-v12 branch.
-
-Removed: the per-name launcher list of the unknown-name guard (the guard stays; launcher-only names are exempt by prefix, `ecalc/README.md` Switches), the review-date table, `ECALC_TEST` folding (the former `DIST_*`
-and other test variables are keys of `ECALC_TEST`), one removed settings class, the archived `target/` material (now outside the repository) and
-consolidated `results/` (topic files). Digits unchanged.
-
-Speed check, pre-cleanup tag against the new main, 2 nodes, 6.441e10 digits, 8 alternating pairs: new minus old -1.55 s, 95% interval [-5.13, +2.02] s,
-which includes 0, so no change is detectable (m). 2 nodes, 1e11 digits: identical to the stored reference, 262.75 s total (m).
 
 ## Multi-node transport in force (Q73, Q85, Q96, Q100, Q103)
 
@@ -80,6 +57,7 @@ names identify the change only.
 | `DIST_CHUNKS=8` (was 4) | 2026-10-07 | device -13.4 GB at 576 nodes for +2.4 s | mod | results/COMPUTE.md §S45 |
 | exchange slots in the node budget; `COMM_LAYER_VSLOT_SHARE` and `_RELEASE` always on; transform cache sized and counted | 2026-10-07..19 | -8.4 GB per node (share) and -8.60 GB device peak (release) at 4 n; cache required at the target | m/mod | results/COMPUTE.md §S36, §C06, §B7ACCT, results/TRANSPORT.md |
 | `BS_SEED_FILL=128`, `DB_POOL_VMM=1`, `MN_T_CHUNK_MB=1024` code default | Phase 14/15 | seeds fill their lengths; no in-phase allocation; pool 81.6 -> 45.0 GB per node | m/mod | results/COMPUTE.md §T215, results/COMPUTE.md §R114, results/TRANSPORT.md |
+| `ECALC_MAPD`: per-device allocator helper processes for the arenas and plane pools, default on above one process (`=0` off; user 2026-11-08) | 2026-11-08 | 2 n 6.441e10 ABBA (off/on/on/off): total 84.26 / 52.22 / 52.82 / 67.25 s, all VERIFY OK; the two `ECALC_MAPD=1` runs average 52.5 s, the two default runs 75.8 s (-23.2 s); the whole difference is `init` (default 46.6 and 31.4 s, on 16.2 and 16.9 s), bs and dm equal; only the sign and the init term are firm (the default runs differ by 15 s). Pair after the gates, order A B B A (A on, B off): 77.6 against 84.9 s on the second runs (first runs 165.6 and 101.6 s, cold nodes), no regression | m | `archive:TASKS_HISTORY_2026-11-10.md` row 12, `results/MEMORY_IO.md` §MAPBENCH |
 | `MN_NONPOW2_CAP` auto from 4.5e10 digits per node-process (Q58) | 2026-10-20 | 6 n 3.70e11 -18.3 s (libfabric), +41.3 GB plane memory per node; 3 n 6e10 +8.9 s with it on | m | results/COMPUTE.md §NPCAP |
 | `BS_ARENA_ROOM` 0.14 (was 0.16; Q99) | 2026-10-25 | -8.6 GB device memory per node at the 2 n bs-phase peak, 0 remaps, time neutral (4 ABBA pairs); `BS_ARENA_ROOM=0.16` restores | m | results/MEMORY_IO.md §AS15 |
 | `ECALC_BUDGET_CHECK=1`, `ECALC_MEM_GUARD_GB` | Phase 14 | named stop (rc 8 / rc 9) instead of the OOM killer | m | results/MEMORY_IO.md §L114 |
