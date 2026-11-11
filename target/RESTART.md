@@ -1,247 +1,81 @@
-# target/RESTART.md — start here on the target system
+# target/RESTART.md — run procedure for the target system
 
-> **Background only.** The copy-and-paste route (`remote/`) was removed 2026-11-08 by user decision (git history, commit cfe9d3a1, and branch remote-v12). This file is background (the mission, the project as understood, the bench and ladder
-> descriptions); its Claude-Code-on-target workflow (§0 `git clone`, §2, LOG.md) is not used.
+Scope: how the target package (`probe/`, `bench/`, `ladder/`, `config/`) is run on the 576-node target: rules, decisions, settings, the steps with exact commands, known problems. Conventions and result formats: `FORMATS.md`; site facts and measured runs: `README.md`. Written 2026-10-25, revised 2026-11-10.
 
-Scope: everything an agent needs to start work on the target system at once: the mission, the rules and how to install
-them, the project as we understand it, and steps 1-4 with exact commands. Written 2026-10-25 (Eastern time) by the
-coordinator on the development side, which has no access to the target. Conventions: `target/FORMATS.md`.
+Status (2026-11-10): the package is in the tree and its self-checks pass (`bench/run.sh --validate`: 11 items, 0 problems; the shell scripts parse), but it has not been run on the target. The target data so far (README "Target site facts") come from hand-run sessions of 2026-10-26 and 10-29. The copy-and-paste route (`remote/`) was removed 2026-11-08 (git history, commit cfe9d3a1). A package run starts only on the user's word. The mission text, the first-five-minutes workflow, the aac7 rehearsal table and the old session route are in `archive:target_RESTART_2026-11-10.md`.
 
-## 0. First five minutes
+## 1. Decisions and rules
 
-1. `git clone` this repository (or `git pull` the existing clone) on the target login node; `cd` into it.
-   `APU=$(dirname "$PWD")` — the work root (the parent of the clone; it plays the role of the development side's work root).
-   The rules call the clone `ntt/`; if yours has another name, nothing breaks (only prose).
-2. Read the rules (§2).
-3. Read this file to the end, then `target/FORMATS.md`; `target/README.md` is the one-page run order.
-4. Start a log: `mkdir -p target/results; echo "$(date '+%F %T %Z') session start" >> target/results/LOG.md` (dated lines, time zone).
-5. Run step 1 (§5) now; it takes minutes and everything else depends on it. Nothing else needs a decision from the user first.
-
-## 1. Mission (the user's request of 2026-10-25, verbatim)
-
-> (1) A new folder in the repository specifically built for all our target remote testing and evaulation. This will
-> contain information we put into it now, and it will also store information we collect during the tests that we will
-> use later. The remaining work items all go into this folder.
-> (2) A set of quick system tests to collect all of the critical information about the target system. This includes all
-> filepaths, libraries, version numbers, hardware information, network architecture, queue system and rules, and
-> everything else you will need to work. You will use this data to produce the target-specific machine configuration.
-> These must all be fast callsw, and you can write a script and/or instructions for them.
-> (3) A set of short and medium-length benchmarks, parameter sweeps, and tests, which you will use to answer every
-> outstanding question we have about how to optimize the algorithm for the target system. This must be designed to run
-> on a team of many agents working in parallel to collect the information without bottlenecking any tests. These must
-> be designed to be fast, not exhaustive, so do not run them multiple times and write them to be efficient. These must
-> also measure every piece of information you could possibly need in order to continue doing testing and development on
-> this system, after the target access is over, and we are doing development without direct access to the system.
-> (4) A nearly-complete version of ecalc that you will have ready to run on the system after (2) & (3). You will design
-> this to run on 1 node, 1 chassis, 1 rack, and then the entire system. For the HPE cabinets we are dealing with, I
-> believe that is 4 APUs, 32 APUs, 256 APUs, and 2304 APUs. I want you to figure out how to index the nodes based on
-> their physical location and run the groups according to their physical locality. Be prepared to run these in order,
-> where you run it a few times at the smallest level, measure the results, make adjustments, and then move to the next
-> size level. These must be ready to run quickly, in order. For the lower 3 levels, you can run multiple identical jobs
-> in different queues since there will be many nodes available.
-> (5) You will also need to write a detailed, fully complete RESTART.md file that contains every piece of information
-> that an agent will need to immediately spring into action on the target system, including these instructions (1),
-> (2), (3), and (4). This file should contain your understanding of the project and your context for continuing this
-> work there. You also need to copy this system's claude.md and other governing settings files into this folder and
-> instruct the agent, in the RESTART.md file, to copy all of those to the correct locations on the target system.
-
-The user's decisions on this project (2026-10-25):
-
-| id | decision |
+| id | decision (user, 2026-10-25 unless noted) |
 |---|---|
-| Q112 | raw target data is committed to `target/results/` as measured (the no-identifying-data rule is relaxed for this folder) |
-| Q113 | the governing files are copied verbatim (now archived, no longer in the repository) |
+| Q112 | raw target data is committed to `target/results/` as measured |
 | Q114 | ladder sizes fixed: 1, 8, 64, 576 nodes (4 / 32 / 256 / 2304 APUs), each group on physically adjacent nodes |
-| Q115 | session length unknown: order everything by priority, so any stopping point leaves the most important answers |
-| Q116 | ignore the leak guard for target work; never post passwords, keys or tokens under any circumstances |
-| Q117 | `docs/` is untracked and stays so; this file carries what the target agent needs from it |
-| Q118 | the governance copies are exact (archived since 2026-11-03) |
-| Q119 | `MN_NONPOW2_CAP=0` on the target launch line (the 3.82e13 headline fits on 576 nodes only with it off) + a bench A/B of the setting (`prm08`) |
-| Q120 | first make every code path work on 576 nodes at a small size (8e9 digits per node); raise the digits only after those runs succeed |
-| Q121 | L3 is a staircase on 576 nodes: 4.608e12 on both paths → 1e13 (path 1; path 2 does not fit) → 3.82e13 on path 1, each step after the previous passed |
-| Q122 | plane pools: no launch setting (2026-10-25 (c)); the code default `ECALC_PLANE_CAP=run` picks 2^30 at the 8e9 share and 2^31 above about 9.6e9 per node (s2/s3); bench `prm09`/`prm10` measure 2^30 against 2^31 on the target (ADJUST rule 12) |
+| Q115 | session length unknown: order everything by priority |
+| Q116 | never commit passwords, keys or tokens |
+| Q119 | `MN_NONPOW2_CAP=0` on the target launch line (3.82e13 fits on 576 nodes only with it off); its time cost at non-power-of-two node counts is unmeasured (TQ81 answered the memory side only) |
+| Q120 | first make every code path work on 576 nodes at 8e9 digits per node; raise the digits only after those runs succeed |
+| Q121 | L3 is a staircase on 576 nodes: 4.608e12 (both paths) -> 1e13 (path 1) -> 3.82e13 (path 1), each step after the previous passed |
+| Q122 | plane pools: no launch setting; the code default `ECALC_PLANE_CAP=run` picks 2^30 at the 8e9 share and 2^31 above about 9.6e9 per node (ADJUST rule 12) |
 
-## 2. Rules on the target
+- Rules of the development cluster (queue tools, session holds, 6-node packing, NIC-loss workarounds) do not apply; their intent does: no allocated node idles, long allocations, done-markers for long waits, never touch other users' jobs, kill only by single PID.
+- Correctness first: a result counts only with `VERIFY OK`. Labels m / mod / a on every number; times with the time zone; gates per `TESTING.md` before code changes.
+- The coordinator keeps `target/results/LOG.md` (dated lines), `DECISIONS.md` and, at the end, `HANDOFF.md`; only it runs git (commit and push `results/` every 30-60 min and at each milestone).
 
-The development side's rule files are not part of this repository. On the target:
-- Target rules win: this file and the Q112-Q118 decisions above.
-- Rules about the development cluster (queue tools, session holds, the 6-node packing limit, NIC-loss workarounds) do not apply; their intent does:
-  pack work so no allocated node idles, use long allocations, drivers with done-markers for long waits, never touch other users' jobs, kill only by single PID.
-- The coordinator keeps its live state in `target/results/LOG.md` and decisions in `target/results/DECISIONS.md` (create both).
-- Nothing blocks a commit on the target, so the coordinator itself makes sure no password, key or token is ever committed (Q116).
-- Correctness first, labels m / mod / a, gates before merging code changes (`TESTING.md`), priorities, parallel work: all apply unchanged.
+## 2. Step 1 — system facts (minutes)
 
-## 3. The project as we understand it
-
-**What ecalc is.** `ecalc` computes ⌊10^d · e⌋ in decimal: binary splitting of Σ 1/k!, a Newton reciprocal and a
-two-half division, on numbers held in device memory as base-10¹⁸ limbs (no radix conversion). Products are
-number-theoretic transforms modulo three or four primes (`ECALC_NP=auto`), distributed over the four APUs of a node and
-over node groups (a tree of group sizes, `MN_GROUPS`, computed by the planner). Every run verifies itself (T1 residues,
-T2 windows: `VERIFY OK` on every node); `ECALC_RECHECK=1` re-checks a finished file; `tools/unpack_digits` turns the
-packed output (0.417 B per digit) into ASCII. Design: `ALGORITHM.md`; switches: `ecalc/README.md`; plan: `PLAN.md`;
-how to test: `TESTING.md`; open work: `TASKS.md`; ideas: `OPPORTUNITIES.md`; evidence: `results/`.
-
-**The goal.** First (user decision Q120): ecalc running efficiently on all 576 nodes on every code path, at a small size
-(8 × 10⁹ digits per node, 4.608 × 10¹² digits on 576 nodes); then larger sizes up to the long-standing headline
-d = 3.82 × 10¹³ digits on all 576 nodes (6.63 × 10¹⁰ digits per node), digits right without a
-reference, as fast as possible. Standing estimate 182-185.5 s without the write (mod, fabric assumed at the 100 GB/s
-injection peak per APU); the write adds 1.0 s at the file system's 1 TB/s or a 2.4 s file write at 4.0 GB/s per node (mod; the 1.0 GB/s prior gave 12.8 s, before the 10-26 measurement of 3.4-5.0 GB/s on one node).
-The fabric numbers are the biggest unknown: the bench measures them first.
-
-**Two multi-node paths (user rule Q85, both stay working; digits identical between them).**
-1. Path 1, libfabric (default build `make -C ecalc GMP_HOME=<gmp>`, transport xshmem over `xshmem_ofi.c`): layout D =
-   one process per node with four APU threads. Run: `SLURM_JOB_ID=<J> ecalc/mnrun.sh <nodes> env ./ecalc <digits>`.
-2. Path 2, Cray SHMEM (the target's shape; `make -B -C ecalc XSHMEM=cray GMP_HOME=<gmp>` with the Cray SHMEM and dsmml
-   modules): one process per GPU, two lanes: `mnrun.sh <nodes> env ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 ./ecalc <digits>`.
-   Never run on Cray SHMEM 12.1 before this session (aac7 has 11.8).
-   `ECALC_PE_PER_GPU=1` on the default build (path 1 with one process per GPU, "P") is a third shape: fastest on aac7 at
-   2 nodes where it fits, slower at 1 node.
-
-**What aac7 measured (the development cluster: same node type, 1 NIC per APU, 6 nodes per user; all m, 2026-10-25,
-`results/MODEL.md §AAC7OPT`):**
-
-| size | result |
-|---|---|
-| 1 node, 6.6e10 (the target's per-node share) | layout D 74.2 s (fastest); P 83.8 s; `ECALC_NP=3` = auto; `ECALC_NP=4` +7.5 s; seed chunk, thread counts: noise |
-| 2 nodes, 5e10 | P (path 1) 39.7 s, D 54.4 s, path 2 53.5 s; `MN_T_CHUNK_MB` 1024 vs 2048: noise |
-| 3 nodes, 1e11 | path 1 81-83 s; path 2 85-93 s (+7.5 %, the whole gap is start-up, aac7-specific) |
-
-aac7 times are bimodal (about one run in three is 5-8 % slower on both paths), so every A/B there is paired; on the
-target, with many nodes, run the arms at the same time on different node groups instead (the bench does).
-
-**Memory (the hard limit).** Device memory per node ≤ 373.44 GB (the `hipMalloc` edge measured on the target, 93.36 GB
-per APU, m); host ≤ `ECALC_NODE_GB` (487, from MemAvailable 515.7 GB on an idle node, m 2026-10-26; code default 480). The planner (`MN_PLAN_ONLY=<digits>:<nodes>`,
-`tools/plan_values.py --fit`) is the authority; `mnrun.sh` refuses a run that does not fit (rc 8), the guard stops a run
-before the OOM killer (rc 9). At 3.82e13 on 576: device 358.96 GB (+14.48 GB) only with `MN_NONPOW2_CAP=0` (user decision
-Q119; with the code default 407.41 GB, refused; mod, planner). The largest size that fits: about 4.19e13 with
-`MN_NONPOW2_CAP=0`, about 2.67e13 with it on (mod). Its time cost at non-power-of-two node counts is measured by the bench.
-
-**The launch settings for the target** (`target/config/target.conf.template` → `target.conf`): `ECALC_NP=auto`,
-`MN_T_CHUNK_MB=2048`, `MN_NONPOW2_CAP=0`, `FI_MR_CACHE_MONITOR=userfaultfd`, `FI_LOG_LEVEL=warn`, `ECALC_DEVICE_GB=373.44`,
-`ECALC_MEM_GUARD_GB=6`, `ECALC_SEGV_TRACE=1`, `ECALC_VERBOSE=2`, `MEM_REPORT_DEVS=1`; pools, heaps and
-`FI_UNIVERSE_SIZE` are computed by the planner and `mnrun.sh` (never typed). Bad nodes are excluded
-(`MNRUN_EXCLUDE_HOSTS`, mode `drop`), never replaced by spares (user decision 2026-10-11).
-
-**What the development side cannot know and the session must bring back:** the fabric (injection per APU with 1 and 2
-NICs, all-to-all scaling with node count, latency, the dragonfly group size), Cray SHMEM 12.1 behavior and start-up
-cost, ROCm 7.14 speed against 7.2.4, the file-system write rate of ecalc's own writer, node-to-node variation, the queue
-rules, and every model constant listed in `bench/QUESTIONS.md`. Post-access development uses only what is committed in
-`target/results/`, so record raw output, not just conclusions.
-
-## 4. How to work on the target: the team
-
-- **Coordinator** (the Claude Code main session in the clone): plans, starts workers, collects, commits and pushes
-  `target/results/` every 30-60 min and at each milestone (Q115: the session can end at any time), keeps
-  `target/results/LOG.md` and `target/results/DECISIONS.md`, and talks to the user. Only the coordinator runs git.
-- **Workers** (subagents, or background shells the coordinator starts): each holds one Slurm allocation and runs
-  `target/bench/run.sh --jobid J` (claims items one after another) or one ladder level. Workers never ask the user and
-  return once (CLAUDE.md protocol). Size the team from the queue rules in the probe and from `bench/run.sh --plan N`.
-- **Long allocations, many items inside** (the aac7 lesson: fewer job starts and reboots): ask for an allocation sized for
-  a block of items, keep it while it has work.
-- **Order of work** (priority, Q115): step 1 (probe, conf) → step 2 (builds) → in parallel: bench items with prio < 100
-  (the ladder needs them) and ladder L0 as soon as both builds pass → bench prio 100-199 (optimization questions) with
-  L1 and L2 replicas on other nodes → L3 → bench prio 200+ (calibration for offline work) in whatever nodes are free.
-- **Correctness first:** a result counts only with `VERIFY OK`; any wrong digit or crash stops that line of work until
-  understood. Code changes on the target follow `TESTING.md` (gate before use) and go to a branch; push it.
-- **Labels and times:** every number m / mod / a; times with the time zone; raw output kept under `target/results/`.
-
-## 5. Step 1 — system facts (minutes)
-
-Fast, read-only, every call capped at 10 s (login part ≤ 2 min, node part ≤ 5 min). Facts go to `facts.tsv` (key, value,
-source; the keys are listed at the top of `probe.sh`), full command output to `raw/`, and the scontrol dump of all nodes
-to `raw/scontrol_nodes.txt` (input of `ladder/locality.py`).
+Read-only, every call capped at 10 s (login part <= 2 min, node part <= 5 min). Facts go to `facts.tsv` (key, value, source; keys listed at the top of `probe.sh`), full output to `raw/`, the scontrol dump of all nodes to `raw/scontrol_nodes.txt`.
 
 ```bash
-cd <clone>
-L=target/results/probe/login-$(date +%Y%m%d-%H%M); N=target/results/probe/node-$(date +%Y%m%d-%H%M)   # set once, used below
-target/probe/probe.sh --only login --out "$L"          # login node, ~5 s on aac7 (m)
-salloc -N1 --no-shell -p <partition> -t 30          # or sbatch a hold; note the job id J
-target/probe/probe.sh --only node --jobid J --out "$N"  # inside J; srun on the node
-#   (if the APUs are hidden from the step: PROBE_SRUN_EXTRA="--gpus-per-node=4" target/probe/probe.sh ...; dropped automatically where the nodes list no GRES)
-target/probe/gen_conf.py "$L" "$N" -o target/config/target.conf          # exactly two positional dirs: the login and the node probe
+L=target/results/probe/login-$(date +%Y%m%d-%H%M); N=target/results/probe/node-$(date +%Y%m%d-%H%M)
+target/probe/probe.sh --only login --out "$L"
+salloc -N1 --no-shell -p <partition> -t 30                 # or an sbatch hold; note the job id J
+target/probe/probe.sh --only node --jobid J --out "$N"     # PROBE_SRUN_EXTRA="--gpus-per-node=4" if the APUs are hidden (dropped where the nodes list no GRES)
+target/probe/gen_conf.py "$L" "$N" -o target/config/target.conf     # the login and the node probe dirs
 python3 target/ladder/locality.py nodes --from "$L/raw/scontrol_nodes.txt" --save
 ```
 
-Check at once (they decide the first runs): `gpu.count` = 4, `net.cxi_count` = 8 and `net.nics_per_apu` = 2,
-`shmem.rc.*` = 0 (the Cray SHMEM 12.1 test ran with 1, 2 and 4 PEs and with 2/4/8 NICs), `uffd.*` (the libfabric memory
-monitor `FI_MR_CACHE_MONITOR=userfaultfd` needs it: 0/104 hangs against 22/105 with memhooks, m on aac7), `lib.gmp_h`
-(GMP is needed only by the unit tests and `ref/gen_e`; the gmp module sets `GMP_BASE`, which s2 accepts; if missing, build it into `$APU/gmp` and set `GMP_HOME`), the partition limits in
-`slurm.part.*` / `slurm.qos` / `slurm.assoc` (largest job, time limit, jobs per user: they size the worker team, §4).
-`gen_conf.py` prints the keys it could not fill; fill them by hand with a `# how determined` comment. Commit the probe
-results and `target/config/target.conf` right away (Q112).
+Check at once: `gpu.count` = 4, `net.cxi_count` = 8, `net.nics_per_apu` = 2, `shmem.rc.*` = 0, `uffd.*` (`FI_MR_CACHE_MONITOR=userfaultfd` needs it), `lib.gmp_h` (GMP is needed only by unit tests and `ref/gen_e`; else build it into a folder and set `GMP_HOME`), and the partition limits `slurm.part.*` / `slurm.qos` / `slurm.assoc` (they size the worker team). `gen_conf.py` prints the keys it could not fill: fill them by hand with a `# how determined` comment. Commit the probe results and `target.conf` at once (Q112).
 
-## 6. Step 2 — build
+## 3. Step 2 — build
 
-Both paths build on the login node in under a minute each (aac7: 24 s and 20 s, m), as bench items `bld01` (path 1)
-and `bld02` (path 2) into `target/build/<sha7>-p1|p2/` (copies of `ecalc/` and `tools/`, so both build at once and
-`mnrun.sh` sits next to its binary):
+Both paths build on the login node in under a minute each (aac7: 24 s and 20 s, m) as bench items `bld01` (path 1) and `bld02` (path 2) into `target/build/<sha7>-p1|p2/` (git-ignored copies of `ecalc/` and `tools/`):
 
 ```bash
 target/bench/run.sh --jobid none --only bld01,bld02      # login-node worker: runs only nodes=0 items
 cat target/results/bench/bld0?/summary.txt               # status=PASS, e.binary=build/<sha7>-pN/ecalc/ecalc
 ```
 
-Site facts measured on the target (Slurm, NUMA/NIC map, modules, warnings, failures at 576 nodes): `target/README.md` section "Target site facts". The three site fixes it found (PMI 6.1.17 library directory, SHMEM 12.1.0 prefix, no `--gpus-per-node` where the nodes list no GRES) and the login-environment `SLURM_HINT` are now handled in the code (Makefile, `ecalc/gres.sh`, `mnrun.sh`, `BS_SEED_THREADS=auto`): no environment file and no patched `mnrun.sh` copy are needed.
+Modules come from `target.conf` (`MNRUN_MODULES`, `MNRUN_UNLOAD`; path 2 needs the Cray SHMEM 12.1 and dsmml modules, built with `XSHMEM=cray`). The three site fixes found by the 10-26 runs (PMI library directory, SHMEM 12.1 prefix, no `--gpus-per-node` where the nodes list no GRES) and the login `SLURM_HINT` are handled in the code (`ecalc/Makefile`, `ecalc/gres.sh`, `mnrun.sh`, `BS_SEED_THREADS=auto`). If path 2 fails to build, carry on with path 1 (items and ladder accept a missing path) and fix path 2 in parallel.
 
-Modules come from `target/config/target.conf` (`MNRUN_MODULES`, `MNRUN_UNLOAD`; path 2 needs the Cray SHMEM 12.1 and
-dsmml modules, `make -B XSHMEM=cray`). GMP: `GMP_HOME` (if the site has none: build GMP 6.x from source into `$APU/gmp`,
-about 5 min). If path 2 fails to build, carry on with path 1 (every item and the ladder accept a missing path) and fix
-path 2 in parallel. Once both pass, the runner hands `ECALC1` / `ECALC2` to every item, and the ladder finds the newest
-binaries itself.
+## 4. Step 3 — the bench (parallel workers)
 
-## 7. Step 3 — the bench (parallel workers)
-
-The bench answers the questions in `target/bench/QUESTIONS.md` (68 rows, TQ01-TQ84: band 0-99 ladder-critical, 100-199
-optimization, 200+ calibration for offline work; each row names the decision it drives and the model constant it
-feeds). Items are listed in `target/bench/manifest.d/*.tsv` (id, tier, prio, nodes, est_min, deps, questions, cmd) and
-run once each; arms of an A/B run at the same time on disjoint hosts of the item's allocation instead of repeats.
+`bench/QUESTIONS.md` is the question register. The manifest holds 11 items (`bench/manifest.d/*.tsv`; contract `FORMATS.md` §4-§5): builds `bld01`, `bld02`; critical `mem01`, `cor01`, `net02`, `net04` (8 nodes), `net05` (64 nodes); write benchmarks `io01`-`io04`. Each runs once; arms of an A/B run at the same time on disjoint hosts of the allocation.
 
 ```bash
-target/bench/run.sh --validate                    # manifest check (ids, deps, scripts)
-target/bench/run.sh --plan 8                      # how many workers of which sizes drain the list fastest
-# one worker = one allocation (the runner gives each item the FIRST hosts of its allocation: never two workers in one job) (drop --gpus-per-node=4 below where the nodes list no GRES)
-mkdir -p target/results/bench/_slurm      # sbatch logs: kept and committed (Q112), never at the clone root
-sbatch -N <n> -p <partition> -t <min> --exclusive --gpus-per-node=4 -o target/results/bench/_slurm/%j.out --wrap "cd $PWD && target/bench/run.sh --jobid \$SLURM_JOB_ID --worker w<k>"
-target/bench/run.sh --status                      # who runs what, what is done
+target/bench/run.sh --validate                    # manifest check
+target/bench/run.sh --plan 8                      # worker sizes that drain the list fastest
+mkdir -p target/results/bench/_slurm              # sbatch logs, committed (Q112)
+sbatch -N <n> -p <partition> -t <min> --exclusive --gpus-per-node=4 -o target/results/bench/_slurm/%j.out \
+  --wrap "cd $PWD && target/bench/run.sh --jobid \$SLURM_JOB_ID --worker w<k>"     # drop --gpus-per-node where the nodes list no GRES
+target/bench/run.sh --status
 ```
 
-Worker sizes: a few 1-node and 2-node workers take the many small items; one 8-node and one 64-node worker take the
-scaling items (`net04`, `net05`, `scl02`, `scl04`, the `cal0*` multi-node points); start the large ones as soon as their
-dependencies pass (the runner waits up to `--wait-min M` minutes, default 30, for dependencies, then exits saying what is left: restart it later).
-Stale claim (a worker died): `run.sh --reclaim <id>`; redo a FAIL after a fix: `--reclaim <id> --force` (old results move
-to `results/bench/_old/`). A failed path-2 build does not block anything: path-2 arms SKIP with a note. After every few
-items: commit `target/results/` (coordinator). Read the `q.*` lines of the item summaries: answers in band 0-99 can
-change the ladder's settings (ADJUST.md) before L1.
+One worker = one allocation (never two workers in one job); the runner gives each item the first hosts of the allocation and waits up to `--wait-min` (default 30) for dependencies. Stale claim: `run.sh --reclaim <id>`; redo a FAIL after a fix: `--reclaim <id> --force` (old results move to `results/bench/_old/`). A failed path-2 build only makes path-2 arms SKIP. Read the `q.*` lines of the summaries: band 0-99 answers can change the ladder settings (`ladder/ADJUST.md`).
 
-Two questions have no bench script and are run by hand after the ladder's L0 passes (the rows say how): TQ83 (the archived bring-up script's stages
-`s2chk` and `nodechk`; no longer in the repository) and TQ84 (path 2 with `DIST_CHUNKS=2|4`, the digits of K=1,2,4 at 3 nodes (12 PEs: `SLURM_JOB_ID=J mnrun.sh 3 env ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 DIST_CHUNKS=K ./ecalc 1e10`, `VERIFY OK`, equal digit hash with a path 1 run of the same digits; `tools/gate.sh` is the aac7 form of that gate). Record both in `results/LOG.md`.
+Register rows whose item script is not in the tree (archived 2026-11-03) need a new item or a hand run. TQ84, after L0: the path 2 digits with `DIST_CHUNKS=1,2,4` at 3 nodes (`SLURM_JOB_ID=J mnrun.sh 3 env ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 DIST_CHUNKS=K ./ecalc 1e10`, `VERIFY OK`, equal digit hash with a path 1 run; `tools/gate.sh` is the aac7 form).
 
-## 8. Step 4 — the ladder (1, 8, 64, 576 nodes)
+## 5. Step 4 — the ladder (1, 8, 64, 576 nodes)
 
-Sizes are fixed (Q114). The digits are the first campaign's share of **8 × 10⁹ digits per node** (user decision Q120,
-2026-10-25: "reduce the number of digits until all the code paths work, and then plan to run those. We can always
-increase the number of digits later if the smaller runs succeed"): at 8e9 per node every shape fits at every level —
-layout D (path 1), P (path 1, one process per GPU) and path 2 (Cray SHMEM) — while at the 3.82e13 headline's share
-(6.632e10 per node) P and path 2 are refused from 8 nodes on (mod, planner 2026-10-25):
+Digits are 8e9 per node (Q120): at that share every shape fits at every level (layout D and P on path 1, path 2); at the 3.82e13 share (6.632e10 per node) P and path 2 are refused from 8 nodes on (mod, planner 2026-10-25). Settings: `ladder/levels/L<n>.conf`; model walls and the gate: `ladder/ADJUST.md`.
 
-| level | nodes (APUs) | digits | replicas in parallel | paths | write | worst plan (path 2, mod) |
+| level | nodes (APUs) | digits | replicas, runs | paths | write | worst plan (path 2, mod) |
 |---|---|---|---|---|---|---|
-| L0 | 1 (4) | 8e9 | 8, 2 runs each | both, order alternating | no | device 144 GB, node 191 GB |
-| L1 | 8 (32) | 6.4e10 | 4, 2 runs | both | no | device 216 GB, node 293 GB |
-| L2 | 64 (256) | 5.12e11 | 2, 2 runs | both | first replica | device 216 GB, node 293 GB |
-| L3 | 576 (2304) | 4.608e12 | 1, 2 runs | both | yes | device 328.69 GB (+44.75), node 406.32 GB (+7.68 vs the old 414 assumption; the measured budget is 487) |
-
-The model walls (mod) per level and step are in `ladder/ADJUST.md` §1; the settings are `ladder/levels/L<n>.conf`.
-
-L3 is a staircase on 576 nodes (user decision Q121): each step only after the previous one passed the ADJUST.md gate.
-Path 2 (and P) fits at 576 nodes up to about 1.3e10 digits per node with a 480-487 GB node budget (device +10.39 GB) and
-about 9.1e9 with the old 414 GB assumption (5.23e12 on 576 nodes); layout D fits up to the headline with `MN_NONPOW2_CAP=0` (mod, planner 2026-10-25):
-
-| step | digits (per node) | paths | write | plan at 576 nodes (mod) |
-|---|---|---|---|---|
-| s1 | 4.608e12 (8e9) | both | yes | path 2 device 328.69 GB (+44.75) |
-| s2 | 1e13 (1.74e10) | 1 (path 2 refused, dropped by `ladder.sh`) | no | D device 238.97 GB (+134.47); path 2 device 380.23 (−6.79) |
-| s3 | 3.82e13 (6.632e10) | 1 | no | D device 358.96 GB (+14.48), node 395.04 GB |
+| L0 | 1 (4) | 8e9 | 8, 2 | both | no | device 144 GB, node 191 GB |
+| L1 | 8 (32) | 6.4e10 | 4, 2 | both | no | device 216 GB, node 293 GB |
+| L2 | 64 (256) | 5.12e11 | 2, 2 | both | first replica | device 216 GB, node 293 GB |
+| L3 s1 | 576 (2304) | 4.608e12 | 1, 2 | both | yes | device 328.69 GB (+44.75), node 406.32 GB |
+| L3 s2 | 576 | 1e13 (1.74e10 per node) | 1 | path 1 (path 2 refused) | no | D device 238.97 GB (+134.47) |
+| L3 s3 | 576 | 3.82e13 (6.632e10 per node) | 1 | path 1 | no | D device 358.96 GB (+14.48), node 395.04 GB |
 
 ```bash
 target/ladder/ladder.sh --level L3 --run-tag s1
@@ -249,57 +83,53 @@ target/ladder/ladder.sh --level L3 --run-tag s2 --set DIGITS=10000000000000 --se
 target/ladder/ladder.sh --level L3 --run-tag s3 --set DIGITS=38200000000000 --set PATH=1 --set WRITE=0 --set MODEL_NOWRITE_S=187.1 --set MODEL_WRITE_S=191.2
 ```
 
-A step that fails stops the staircase: record it, try the ADJUST.md rules, and do not move up. The write was tested at
-s1 (2.0 TB packed); add `--set WRITE=1` to s3 only if the file system has room for 17 TB. Short runs make start-up a
-large share of the wall: that is what the campaign measures first (init, launch, fabric), so record every phase.
-Run 1 of a fresh allocation is a cold start (ADJUST rule 11): every level does 2 runs and is timed from run 2.
-`ladder.sh` drops a path whose plan is refused and runs the level on the other one.
+A failing step stops the staircase: record it, apply ADJUST.md, do not move up. Add `--set WRITE=1` to s3 only if the file system has room for 17 TB. Run 1 of a fresh allocation is a cold start: every level does 2 runs and is timed from run 2. `ladder.sh` drops a path whose plan is refused.
 
 ```bash
-python3 target/ladder/locality.py nodes --save                  # refresh the physical table with the current node states (step 1 made it first)
-target/ladder/ladder.sh --level L0 --dry-run                    # plan check, the groups it would use, the job lines
-target/ladder/ladder.sh --level L0                              # submits 8 replicas (one sbatch each, adjacent groups)
-target/ladder/ladder.sh --collect L0                            # after the DONE markers: mean/min/max, spread, VERIFY, hash agreement
-#   then L1, L2, L3 the same way; inside an allocation you hold: --jobid J; overrides: --set KEY=VALUE (e.g. --set ECALC_NP=4)
+python3 target/ladder/locality.py nodes --save          # refresh the physical table with the current node states
+target/ladder/ladder.sh --level L0 --dry-run            # plan check, groups, job lines
+target/ladder/ladder.sh --level L0                      # 8 replicas, one sbatch each, adjacent groups
+target/ladder/ladder.sh --collect L0                    # after the DONE markers: mean/min/max, spread, VERIFY, hash agreement
+#   then L1, L2, L3; inside an allocation you hold: --jobid J; overrides: --set KEY=VALUE (e.g. --set ECALC_NP=4)
 ```
 
-Each replica is a fire-and-forget driver writing `results/ladder/<L>/<tag>-r<k>/{summary.txt,raw/,DONE}`; nothing waits.
-Between runs follow `target/ladder/ADJUST.md`: the gate to move up (every replica VERIFY OK, hashes agree, spread and
-time against the model), and the rules (slow node → exclude it in `results/ladder/exclude.txt`; path 1 vs path 2 → keep
-the faster for the next level; memory near the edge; init share; the `MN_NONPOW2_CAP` cost from bench `prm08`, with
-the fallback of about 2.67e13 digits with it on). L0-L2 can run while bench workers use other nodes; L3 needs the whole
-machine, so schedule it when the bench prio < 200 items are done or the session is ending.
+Each replica writes `results/ladder/<L>/<tag>-r<k>/{summary.txt,raw/,DONE}`; nothing waits. L0-L2 can run while bench workers use other nodes; L3 needs the whole machine.
 
-## 9. Known problems and their fixes
+## 6. Order of work and the team
 
-| symptom | cause and fix (evidence) |
+Priority order (Q115): step 1 -> step 2 -> in parallel bench items with prio < 100 and L0 (once both builds pass) -> bench prio 100-199 with L1/L2 replicas on other nodes -> L3 -> bench prio 200+ in whatever nodes are free. Workers (subagents or background shells) each hold one allocation and run `bench/run.sh` or one ladder level; they never ask the user. Ask for long allocations and run many items inside them (fewer job starts and reboots).
+
+## 7. Settings, limits, paths
+
+- Launch settings (`config/target.conf.template` -> `target.conf`): `ECALC_NP=auto`, `MN_T_CHUNK_MB=2048`, `MN_NONPOW2_CAP=0`, `FI_MR_CACHE_MONITOR=userfaultfd`, `FI_LOG_LEVEL=warn`, `ECALC_DEVICE_GB=373.44`, `ECALC_MEM_GUARD_GB=6`, `ECALC_SEGV_TRACE=1`, `ECALC_VERBOSE=2`, `MEM_REPORT_DEVS=1`. Pools, heaps and `FI_UNIVERSE_SIZE` are computed by the planner and `mnrun.sh`, never typed. Bad nodes are dropped (`MNRUN_EXCLUDE_HOSTS`, mode `drop`), never replaced by spares.
+- Memory: device <= 373.44 GB per node (the `hipMalloc` edge, 93.36 GB per APU, m); host <= `ECALC_NODE_GB` (487 from MemAvailable 515.7 GB idle, m; code default 480). The planner (`MN_PLAN_ONLY=<digits>:<nodes>`, `tools/plan_values.py --fit`) is the authority; at 3.82e13 on 576 nodes the device need is 358.96 GB only with `MN_NONPOW2_CAP=0` (407.41 GB with the default: refused; mod). Largest size: about 4.19e13 with `MN_NONPOW2_CAP=0`, about 2.67e13 with it on (mod).
+- Two multi-node paths (Q85, digits identical): path 1 libfabric (default build `make -C ecalc GMP_HOME=<gmp>`; layout D: `SLURM_JOB_ID=<J> ecalc/mnrun.sh <nodes> env ./ecalc <digits>`); path 2 Cray SHMEM (`make -B -C ecalc XSHMEM=cray GMP_HOME=<gmp>` with the Cray SHMEM and dsmml modules; one process per GPU: `mnrun.sh <nodes> env ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 ./ecalc <digits>`). `ECALC_PE_PER_GPU=1` on the default build is a third shape (P).
+- Still to bring back from the target: fabric injection per APU (1 and 2 NICs), all-to-all scaling with node count, latency, Cray SHMEM 12.1 start-up cost, ROCm 7.14 speed, the writer's file-system rate, node-to-node variation, queue rules. Record raw output; post-access development uses only `target/results/`.
+
+## 8. Known problems and fixes
+
+| symptom | cause and fix |
 |---|---|
-| run hangs in memory registration (ROCr ↔ libfabric) | keep `FI_MR_CACHE_MONITOR=userfaultfd` (the `mnrun.sh` default; 0/104 hangs vs 22/105 with memhooks, m aac7); `disabled` gives WRONG exchanges and is refused. If the site's kernel refuses userfaultfd (probe `uffd.*`), stop and tell the user before any multi-node run |
-| rc 8 at start | the memory plan does not fit (`ECALC_DEVICE_GB` / `ECALC_NODE_GB`): lower the digits (the refusal prints the largest that fits) or change the settings the plan names |
-| rc 9 during a run | the memory guard (`ECALC_MEM_GUARD_GB=6`) stopped the run before the OOM killer: lower `ECALC_NODE_GB` by the overshoot it prints |
-| rc 134 | `abort()` (core file) — with `ECALC_SEGV_TRACE=1` the trace is in the log; keep the log in `results/` |
-| `fi_enable(-28)` with several PEs per node | launch Slurm-native (`srun --ntasks`), as `mnrun.sh` does (TGTBENCH2, m target) |
-| a task gets only 1-2 CPUs | `mnrun.sh` defaults to `MNRUN_CPUS_PER_TASK=auto` (CPUs / tasks per node; since 2026-10-27, A16 m aac7, m target); `MNRUN_CPUS_PER_TASK=` (empty) = no `-c` |
-| link or load errors after `module load rocm` | a versioned ROCm conflicts with the login default: `MNRUN_UNLOAD` in target.conf (the probe fills it) |
-| APUs invisible inside a job step | `--gpus-per-node=4` in the job (the ladder's default sbatch options) and `--gpu-bind=none` on the step (`mnrun.sh` adds it; probe: `PROBE_SRUN_EXTRA`); both only where `scontrol show node` lists a gpu GRES (`MNRUN_GRES=auto|on|off`; a site with `Gres=(null)` rejects them: leave them out, `target/README.md` Known problems) |
-| `locality: no node with an xname` / ladder `no group` | `scontrol show node` carries no HPE xname: write a host → xname map (one `host xname` per line, e.g. from `/etc/cray/xname` on each node), `python3 target/ladder/locality.py nodes --map MAP --save`, then `ladder.sh ... --nodes-from target/results/probe/topology.tsv` (its node states are those of the save: re-save before each level) |
-| ladder `plan check of path N FAILED (rc 2, not a memory refusal)` | the planner could not run (module load, binary, `target.conf`); the plan file it names has the first error. A memory refusal is rc 1: that path is dropped and the level runs on the other |
-| one node slow (a replica 5-10 % behind) or a NIC missing | `tools/nodescreen.sh`; add the host to `results/ladder/exclude.txt` (`MNRUN_EXCLUDE_HOSTS`, mode drop); no spares |
-| NICs lost after jobs end (aac7: needs_reboot after our jobs) | use long allocations and run many items inside them; check `fi_info -p cxi` counts at the start of each allocation |
-| the first run on a fresh allocation is slow | cold start: on aac7 the first run took 154.9 s, later runs on the same node 76.9-85.5 s (m, 2026-10-25); time from run 2 on (ADJUST rule 11). `ECALC_VERBOSE=2` costs at most a few seconds (+2.0 s mean over 4 pairs, not resolved, m) |
-| run-to-run spread | aac7 is bimodal (one run in three 5-8 % slower); measure arms at the same time on different nodes instead of repeating |
-| start-up hang (E1: 1 sighting in 31 at 7.7e10, 0 in 301 since) | kill only that job by its id, rerun once, record it in `results/LOG.md` |
-| an item or driver outlives its allocation | `scancel` only your own job ids, `kill` only single PIDs of your own processes; never touch other users' jobs |
-| Cray SHMEM 12.1 (path 2) start-up slow or failing | path 1 is complete on its own; the ladder and every item run with one path; record the failure (probe `shmem.*`, bench `net01`) |
+| hang in memory registration (ROCr <-> libfabric) | keep `FI_MR_CACHE_MONITOR=userfaultfd` (the `mnrun.sh` default; 0/104 hangs vs 22/105 with memhooks, m aac7); `disabled` gives wrong exchanges and is refused. If the kernel refuses userfaultfd (probe `uffd.*`), stop and tell the user before any multi-node run |
+| rc 4 from `mnrun.sh` / `ladder.sh` | the memory plan does not fit (`ECALC_DEVICE_GB` / `ECALC_NODE_GB`): lower the digits (the refusal prints the largest that fits). rc 8 = `ECALC_BUDGET_CHECK` stop, rc 6 = allocation failed |
+| rc 9 during a run | the memory guard (`ECALC_MEM_GUARD_GB=6`) stopped the run before the OOM killer: lower `ECALC_NODE_GB` by the printed overshoot |
+| rc 134 | `abort()`; with `ECALC_SEGV_TRACE=1` the trace is in the log; keep it in `results/` |
+| `fi_enable(-28)` with several PEs per node | launch Slurm-native (`srun --ntasks`), as `mnrun.sh` does |
+| a task gets 1-2 CPUs; init 150 s instead of 13-16 s | `srun` inherits `SLURM_HINT=nomultithread` and `SLURM_DISTRIBUTION=block:block` from the login environment and OpenMP latches 1-2 threads. `mnrun.sh` drops the hint (`MNRUN_KEEP_HINT=1` keeps it), passes `--distribution=block` and defaults `MNRUN_CPUS_PER_TASK=auto`; `BS_SEED_THREADS=auto` protects hand launches, which need `--hint=multithread` or `-c <CPUs per task>` |
+| link or load errors after `module load rocm` | a versioned ROCm conflicts with the login default: `MNRUN_UNLOAD` in `target.conf` (the probe fills it) |
+| APUs invisible inside a job step | `--gpus-per-node=4` in the job and `--gpu-bind=none` on the step, only where `scontrol show node` lists a gpu GRES (`MNRUN_GRES=auto|on|off`; a site with `Gres=(null)` rejects them) |
+| `locality: no node with an xname` / ladder `no group` | no HPE xname in `scontrol show node`: write a host-to-xname map (`host xname` per line), `locality.py nodes --map MAP --save`, then `ladder.sh ... --nodes-from target/results/probe/topology.tsv` (re-save before each level) |
+| ladder `plan check of path N FAILED (rc 2, not a memory refusal)` | the planner could not run (module, binary, `target.conf`); the named plan file has the first error. A memory refusal is rc 1: that path is dropped |
+| one node slow (replica 5-10 % behind) or a NIC missing | `tools/nodescreen.sh` (8 NICs per node); add the host to `results/ladder/exclude.txt`; no spares |
+| NICs lost after jobs end (aac7) | long allocations; check `fi_info -p cxi` counts at the start of each allocation |
+| first run on a fresh allocation slow | cold start (aac7 154.9 s vs 76.9-85.5 s, m): time from run 2 (ADJUST rule 11). aac7 is also bimodal (one run in three 5-8 % slower): measure arms at the same time on different nodes |
+| `ECALC_VERBOSE=2` very long at 576 nodes | use `ECALC_VERBOSE=1` (the L3 conf does) |
+| `ECALC_NP=3` | one node only; at more than one node an explicit 3 is refused (use auto or 4) |
+| random multi-second stalls of all APU threads of a node | kernel compaction of a 4 KiB pinned SHMEM heap (path 2): `profiles/README.md` and `results/TRANSPORT.md` |
+| a run seems hung but is a slow file system | no digit output in timing runs; wait for `total` |
+| start-up hang (1 in 31 at 7.7e10 on aac7, 0 in 301 since) | kill only that job by its id, rerun once, record it in `LOG.md` |
+| Cray SHMEM 12.1 (path 2) start-up slow or failing | path 1 is complete on its own; record the failure (probe `shmem.*`, register row TQ11) |
 
-## 10. Before access ends
+## 9. Before access ends
 
-- Commit and push `target/results/` (the coordinator, every 30-60 min and now).
-- Check the item summaries under `results/bench/` are committed.
-- Write `target/results/HANDOFF.md`: what ran, what is left (by priority), surprises, the next questions.
-
-## 11. Next session plan (superseded 2026-10-28)
-
-The session route was the paste plan of the removed `remote/ROUTE.md` (git history cfe9d3a1) (P1 to P5: check, build and gates; screen and 576 nodes at 4.608e12; the first record run; the staircase; report). The experiments of the
-earlier plan (thread teams and residue, round size, collectives, layout, shift sparsity, init timeline, IO and fabric benches, the 2e13 / 3e13 failure hunt) are the optional appendix there,
-used only when the user asks.
+Commit and push `target/results/` (summaries under `results/bench/` included); write `target/results/HANDOFF.md`: what ran, what is left by priority, surprises, next questions.

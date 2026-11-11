@@ -14,7 +14,7 @@ Commit `results/` after every collect (the coordinator does the git work).
 The first campaign runs 8e9 digits per node (user decision Q120: every code path fits at every level; raise the size
 only after all levels pass on both paths).
 
-| level | nodes (APUs) | digits | wall without write (mod) | wall with write (mod) | exposed fabric (mod) | device per node (mod, D / path 2 planner) |
+| level | nodes (APUs) | digits | wall without write (mod) | wall with write (mod, `--write-bw 1`) | exposed fabric (mod) | device per node (mod, D / path 2 planner) |
 |---|---|---|---|---|---|---|
 | L0 | 1 (4) | 8e9 | 16.8 s | 19.9 s | 0 | 155 / 144 GB |
 | L1 | 8 (32) | 6.4e10 | 22.6 s | 24.6 s | 1.5 s | 178 / 216 GB |
@@ -23,11 +23,11 @@ only after all levels pass on both paths).
 | L3 s2 | 576 (2304) | 1e13 | 52.3 s | 55.3 s | 12.5 s | 229 / refused (380.23) |
 | L3 s3 | 576 (2304) | 3.82e13 | 187.1 s | 191.2 s | 51.6 s | 390 (planner 358.96 with cap 0) / refused |
 
-Assumptions inside the model (a): 100 GB/s per APU, 2 us per message, dragonfly group 64, part files 1 GB/s per node (the prior before the 10-26 measurement of 3.4-5.0 GB/s; the model now uses 4.0). The
+Assumptions inside the model (a): 100 GB/s per APU, 2 us per message, dragonfly group 64, part files 1 GB/s per node: the "with write" column and `MODEL_WRITE_S` of the level confs use this prior (`--write-bw 1`); the model default is now 4.0 (the 10-26 measurement was 3.4-5.0 GB/s), which gives 17.4 / 22.1 / 25.3 / 31.6 s for L0-L3 s1, 51.3 s for s2 and 183.0 s for s3. The
 model was calibrated on aac7/aac6 compute at larger sizes; at 8e9 per node start-up is a large share of the wall, so a
 measured/model ratio away from 1 at L0 is expected; what matters is the growth from level to level: model L0 -> L1 +35 %,
 L1 -> L2 +14 %, L2 -> L3 +24 % of wall. A level that grows much more than that has a fabric, launch or placement problem.
-L3 runs as a staircase (user decision Q121; commands in RESTART.md §8): s1 4.608e12 on both paths, s2 1e13 and s3 the
+L3 runs as a staircase (user decision Q121; commands in RESTART.md §5): s1 4.608e12 on both paths, s2 1e13 and s3 the
 3.82e13 headline on path 1 (layout D, `MN_NONPOW2_CAP=0`, Q119), each step only after the previous one passed the gate.
 Model s1 -> s2 +63 %, s2 -> s3 3.6x of wall. For the headline at the other levels (later): L0-L2 at 6.632e10 per node model
 102.7 / 118.2 / 149.6 s without write.
