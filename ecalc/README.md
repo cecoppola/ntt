@@ -20,7 +20,7 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 - `mnrun.sh` (the multi-node launcher; usage in `../README.md`) sets `COMM_RANK`, `COMM_SIZE` and the transport from
   Slurm, exports `FI_UNIVERSE_SIZE`, `FI_LOG_LEVEL=warn` and `FI_MR_CACHE_MONITOR=userfaultfd` when unset (it refuses
   `disabled`), and `MNRUN_EXCLUDE_HOSTS` drops flagged nodes. Before the launch of a multi-node run it prints a report-only switch-group check (`topo_check.py`: the rank -> switch-group map and a WARN for every tree set of up to 64 ranks that spans two groups; the group is (node number - 1) div `TOPO_GROUP_SIZE` (default 64), or the leaf switches of a `scontrol show topology` text in `TOPO_TOPOLOGY_FILE`; `MNRUN_TOPO_CHECK=0` skips it; it never changes the launch). `MNRUN_GRES=auto|on|off` (default auto; `gres.sh`, shared by
-  `mnrun.sh`, `mnaccept.sh`, `tools/gate.sh`, the kit, ladder, and bench items): the `--gpus*` and `--gpu-bind` options are passed
+  `mnrun.sh`, `mnaccept.sh`, `tools/gate.sh`, the ladder and bench items): the `--gpus*` and `--gpu-bind` options are passed
   only if the nodes list a gpu GRES (`scontrol show node`, else `sinfo %G`; cached in `MNRUN_GRES_RESOLVED`), because a site with `Gres=(null)`
   rejects them; aac7 lists gpu:4 and is unchanged; `off` / `on` force. A login `SLURM_HINT=nomultithread` is not passed to srun (it pins each
   task to its first cores and OpenMP then runs 1-2 threads; `MNRUN_KEEP_HINT=1` keeps it). The Makefile finds the PMI library directory (`PMI_LIBDIR`, `CRAY_PMI_PREFIX`)
@@ -47,14 +47,15 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 | `binsplit.c/h` | binary splitting: seeds, regions, levels, the top levels as device numbers, checkpoints, the layout |
 | `newton.c/h`, `newton_db.c` | the reciprocal and the two-half division on device and sharded numbers |
 | `mn.c/h`, `mn_plan.c/h` | node-processes: meshes, groups, the tree levels; `MN_PLAN_ONLY` plan and check |
-| `comm.h`, `comm_*.c` | communicators: `xgmi` (the node's four APUs), `xshmem` (the inter-node transport over `xshmem.h`), `layered` (xGMI × fabric), `copy` (GPU copy kernel), `util`; the one-rank and four-synthetic-rank test communicators are inside `tests/t_dist.c` |
+| `comm.h`, `comm_*.c` | communicators: `xgmi` (the node's four APUs), `xshmem` (the inter-node transport over `xshmem.h`), `layered` (xGMI × fabric), `util` (shared helpers and the GPU copy kernel for copies that touch host-registered pools); the one-rank and four-synthetic-rank test communicators are inside `tests/t_dist.c` |
 | `xshmem.h` (with the Cray backend), `xshmem_ofi.c`, `xshmem_boot.c/h`, `xshmem_round.h`, `pe_geo.c/h`, `vpe.c/h` | the xshmem API and its two backends (libfabric `XSHMEM=ofi`, Cray SHMEM `XSHMEM=cray`), the PE geometry, the one-process-per-GPU PE identity |
 | `mn_out.c/h`, `packed_fmt.h`, `verify.c/h` | output per node (packed part files, the correction patch), T1 residues and T2 windows |
-| `mem.c/h`, `memsample.c/h`, `nodemem.h`, `spill.c/h` | memory pools, VMM arenas, accounting and sampling; O_DIRECT file writes |
+| `mem.c/h`, `memsample.c/h`, `nodemem.h`, `spill.c/h`, `mapd.c/h` | memory pools, VMM arenas, accounting and sampling; O_DIRECT file writes; the per-APU helper processes that create arena chunks (`ECALC_MAPD`) |
+| `env_int.h`, `hosttl.h`, `omp_team.h`, `residue_shoup.h`, `test_inject.h` | small headers: integer environment reads, the host timeline (`ECALC_HOST_TL`), the OpenMP team size (`ECALC_OMP_TEAM`), the Shoup residue step, the `ECALC_TEST` injection keys |
 | `fatal.c/h`, `segv_trace.c/h`, `config_line.c/h` | named exits, the crash-trace handler, the `config: hash=` line |
 | `dr.c/h` | C3 detect and retry (`ECALC_DR`, `results/CORRECTNESS.md`): switches, fault-injection parser, counters, context, the residue helpers (the checked tree products are in `rns_dist.c`, the tracked residues and leaf check in `mn.c`, the division checks D in `newton_db.c` and D' in `rns_mul_dist_mn_cyc_v`); `tests/t_host.c dr` (host only) |
 | `switches.tsv`, `switches_manual.tsv`, `switches_gen.h` | the switch registry (`tools/switch_registry.py`; never hand-merge the generated files) |
-| `mnrun.sh`, `aac7env.sh` | the multi-process launcher (both xshmem paths); the aac7 environment (the aac7 launch line is in `profiles/aac7.conf`) |
+| `mnrun.sh`, `gres.sh`, `topo_check.py`, `aac7env.sh` | the multi-process launcher (both xshmem paths); the GRES detection it shares with the other launchers; the report-only switch-group check; the aac7 environment (the aac7 launch line is in `profiles/aac7.conf`) |
 | `mnaccept.sh`, `digcmp.sh` | the standing regression; digit compare |
 | `mn_model.py` (with its `estimate` subcommand), `mem_model.py`, `aac7_fit.json` (the refit and design-table generators are archived: `archive:scripts_2026-10-23/`) | time and memory models and their fits (`mn_model.py estimate --fabric target_fit`: the profile fitted to the target's 2/64/576-node runs, results/MODEL.md §target_fit; the model's `XSHMEM_ROUND_MB` is the code's 128) |
 | `ref/`, `tests/` | reference generator; unit tests (`tests/harness.h`) |
