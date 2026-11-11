@@ -1,13 +1,13 @@
 # TRANSPORT — Transport: SHMEM, exchange, fabric, diagnostics
 
-Scope: the XSHMEM/SHMEM transport, the exchange and its settings, the OFI fabric, init wait and cache effects, slow-node modes, the aac7 port. Current conclusions and live numbers (labeled m measured / mod modeled / a assumed) condensed from the former per-topic files; the removed text of each is unchanged in `archive:cleanup_1103/results/<OLD>.md`. Every former section keeps its `§ID` heading.
+Scope: the xshmem transport (paths 1 and 2), the exchange and its settings, the fabric, init wait and cache effects, slow-node modes, the aac7 port. Labels: m measured, mod modeled, a assumed. Status words: current / superseded / removed. Switch names and defaults: `ecalc/switches.tsv` and `ecalc/README.md` (authoritative). Text moved out on 2026-11-10 is in `archive:TRANSPORT_ARCHIVE_2026-11-10.md` (section names are kept as headings where other documents cite them); earlier condensations are in `archive:cleanup_1103/results/` and `archive:repo_cl6_2026-10-25/results/`.
 
 ## XSHMEM: target-shaped communication (Cray SHMEM 12.1 style) over libfabric on aac7, plan TARGET1, 2026-10-21
 
-Scope: the xshmem layer (API, backends, boot and topology, tests), what Cray SHMEM 11.8 and the cxi provider were measured to do, the engine
+Scope: the xshmem layer (API, backends, boot and topology, tests), what Cray SHMEM 11.8 and the cxi provider were measured to do, the engine `comm_xshmem.c` behind `COMM_TRANSPORT=xshmem`, its gates and first timing, and the open items for the target port. Merged from the former reports B1-B4 and S3A_A1/A2. Labels: m measured, mod modeled, I inferred, a assumed. All numbers are single aac7 runs unless a count is given.
 `comm_xshmem.c` behind `COMM_TRANSPORT=xshmem`, its gates and first timing, and the open items for the target port. Merged from the former reports
 B1-B4 and S3A_A1/A2 (the six `XSHMEM_*.md` files). Labels: m measured, mod modeled, I inferred, a assumed. All numbers are single aac7 runs unless a count is given.
-The sections PPG (one process per GPU, S2d timing) and BSPLIT (`RNS_BATCH_SPLIT`) follow the craylane section. Settings: `ecalc/README.md` (rows `XSHMEM*`, `COMM_TRANSPORT`; `ECALC_XEX_THREAD` was removed 2026-10-25, the exchange worker always runs). Design source and trace data are kept outside the repository.
+Sections that follow: Target shape, craylane, PPG (one process per GPU, S2d timing), BSPLIT (`RNS_BATCH_SPLIT`). Settings: `ecalc/README.md` (rows `XSHMEM*`, `COMM_TRANSPORT`). The exchange worker always runs (`ECALC_XEX_THREAD` removed 2026-10-25). Design source and trace data are kept outside the repository.
 
 ### 5. Unit tests (t_xshmem, m, single runs, dc + SPLIT, N = 1)
 
@@ -20,36 +20,30 @@ communicators), `deadlock` (poll-only regression, a hang is a FAIL), `layer` (la
 
 1. `make XSHMEM=cray`: compiles `xshmem.h` with the 12.1 header and `-lsma`; no libfabric, no `xshmem_boot.c`. Edit only the four selector blocks of `xshmem.h`; the engine is unchanged.
 2. Launch: the SHMEM environment per `pe_geo` (symmetric size, NIC policy); the planner's heap rule must read the variable 12.1 actually uses (unknown).
-3. Proof on aac7 before the target (P5, branch p5): `make SHMEM_CRAY=1 XSHMEM=cray` builds `t_xshmem` and the whole ecalc (engine `comm_xshmem.c` unchanged, no `xshmem_ofi.c` / `xshmem_boot.c` / `pe_geo.c`) against 11.8 with the host heap (`shmem_malloc`, registered with `hipHostRegister` by `xshmem.h`; `XSHMEM_CRAY_HOSTREG=0` switches it off): measured, both build and link on the login node. One PE per process: the engine runs with K=1 (the 4 APU meshes share the PE's heap; no loopback PEs), so give `XSHMEM_HEAP_MB` the node's whole heap (4 times the per-PE value of the ofi runs). Run (aac7, 3 nodes, item `9r0_p5cray3`, 2026-10-21, measured): `t_xshmem` built `XSHMEM=cray` against libsma 11.8 (host heap, `hipHostRegister`) correctness PASS at 1/2/3 n x 4 PEs (sections basic, exch, deadlock, layer, limit); ecalc `XSHMEM=cray COMM_TRANSPORT=xshmem` at 1e9 digits on 2 and 3 n VERIFY OK, digits identical; default gates 1 and 3 n PASS; zero engine changes (K=1 fallback). Gate record (aac7, 2026-10-21, measured): 9s1_xgate3p5b (6872b50, `XSHMEM=ofi`): g1, g2x, g3x, g3 PASS at 1e9 with identical digits, smoke 1/2/3 n 0 FAIL, mnaccept `--only mn` with xshmem 5/5 PASS, 3 n 1.9323e11 VERIFY OK 159.8 s. 9s2_p5cray3c (6872b50, `XSHMEM=cray`): g2x FAILED with a GPU memory access fault at the heap tail on both nodes. Cause: the registration covered only the whole pages inside the non-page-aligned DATA heap, so the tail page stayed pageable. Fix 0dd3627: register the enclosing page range. 9s3_p5cray3d (0dd3627, `XSHMEM=cray`) SUCCESS: `t_xshmem` PASS at 1/2/3 n (4/8/12 PEs, all sections); g1, g2x, g3x, g3 PASS at 1e9, VERIFY OK, digits identical (ecalc total 10.4 / 20.3 / 20.7 / 17.9 s); 3 n 1e9 VERIFY OK 20.55 s. Lesson for the target port: the DATA heap is not page-aligned, so register (or pin) the page range that encloses it, never only the whole pages inside; a missed tail page faults only when a GPU touches it, so the small tests can pass.
+3. Proof on aac7 before the target (P5, items 9r0/9s1/9s2/9s3, 2026-10-21, measured; status: done, current): `make XSHMEM=cray` builds `t_xshmem` and the whole ecalc (engine `comm_xshmem.c` unchanged, no `xshmem_ofi.c` / `xshmem_boot.c` / `pe_geo.c`) against libsma 11.8 with the host heap (`shmem_malloc`, registered with `hipHostRegister` by `xshmem.h`; the compile-time selector `-DXSHMEM_CRAY_HOSTREG=0` switches it off). One PE per process: the engine runs with K=1 (the 4 APU meshes share the PE's heap, no loopback PEs), so give `XSHMEM_HEAP_MB` the node's whole heap (4 times the per-PE value of the ofi runs). Results: `t_xshmem` PASS at 1/2/3 n (4/8/12 PEs, all sections); ecalc at 1e9 digits on 1, 2, 3 n VERIFY OK, digits identical (ecalc total 10.4 / 20.3 / 20.7 / 17.9 s for gates g1, g2x, g3x, g3; 3 n 20.55 s); zero engine changes. The libfabric build on the same commit family: g1, g2x, g3x, g3 PASS, `mnaccept --only mn` 5/5 PASS, 3 n 1.9323e11 VERIFY OK 159.8 s (6872b50). Lesson for the target port: the DATA heap is not page-aligned, so register (or pin) the page range that encloses it (fix 0dd3627), never only the whole pages inside; a missed tail page faults (GPU memory access fault) only when a GPU touches it, so the small tests can pass.
 4. Day-one checks on the target with the same `t_xshmem` source: T1 can context l use NIC l (per-context NIC policy, counters per NIC; decides lanes against 2 PEs per GPU); T2 host `signal_wait_until` on a
    device-heap word and on a host word; T3 device-heap allocator names and `SHMEM_ENV_DISPLAY`; T4 put_signal against put + quiet + signal (16 MiB, ordered and flush counters); T5 put from a non-heap device source,
    `shmem_ptr` on a node-local PE; T6 NIC count, NIC-APU map, bandwidth with 1 and 2 lanes; T7 thread levels, progress, `shmem_ctx_quiet` cost with 4 PEs per node; T8 translation-miss counters of the device heap
    (expect below 10^3 per group; 10^5 or more means a registration problem).
 
-### 10. Adopted as the default multi-node transport (Q73, user decision 2026-10-21)
+### 10. Adopted as the default multi-node transport (Q73, user decision 2026-10-21; status: current)
 
-`COMM_TRANSPORT=xshmem` with `XSHMEM_ROUND_MB=128` and `XSHMEM_ORDER=rot` is the default for more than one process (branch `xdef`).
-Basis (m, §7): 3 n, 1.9323e11 digits, XRD 149.3 s vs L 157.3 s; 2 n, X 111.6 s vs L 114.1 s; plain xshmem without rounds fails the memory
-guard at full size, hence the 128. Mechanics: `mnrun.sh` picks xshmem when `COMM_TRANSPORT` is unset and the launched executable has the
-engine (else shmem); `XSHMEM_ROUND_MB` unset means 128 in the engine and both planners (`xshmem_round.h`; explicit 0 = off); the Makefile
-defaults to `XSHMEM=ofi` where libfabric and the PMI2 header are found (`XSHMEM=0` builds without the engine). Fallback and reference:
-explicit `COMM_TRANSPORT=shmem` (with `COMM_OFI=1` for arm L), unchanged. Gate: item 9t9_xdef3 (gate at 1, 2, 3 n default; 2 and 3 n explicit shmem;
-mnaccept; units; 2 pairs D/L at full size).
+`COMM_TRANSPORT=xshmem` with rounds of 128 MiB (`XSHMEM_ROUND_MB`, default 128; explicit 0 = off) and the rotated peer order is the default for more than one process (branch `xdef`; the `XSHMEM_ORDER` switch was removed with the `seq` order, Q105).
+Basis (m, §7): 3 n, 1.9323e11 digits, XRD 149.3 s vs L 157.3 s; 2 n, X 111.6 s vs L 114.1 s; plain xshmem without rounds fails the memory guard at full size, hence the 128. Mechanics: `mnrun.sh` sets `COMM_TRANSPORT=xshmem` when it is unset; `XSHMEM_ROUND_MB` unset means 128 in the engine and both planners (`xshmem_round.h`); the Makefile defaults to `XSHMEM=ofi` where libfabric and the PMI2 header are found (`XSHMEM=0` builds without the engine). Arm L (explicit `COMM_TRANSPORT=shmem COMM_OFI=1`) no longer exists: the plain SHMEM transport was removed 2026-10-25 (Q103).
 Gate record (aac7, 3 healthy nodes, item 9t9_xdef3 on 501bcda, SUCCESS 20:19 EDT 2026-10-21, all measured): `gate.sh` default env at 1, 2, 3 n PASS (1e9, VERIFY OK,
 digits identical; ecalc total 10.7 / 16.3 / 14.6 s); explicit `COMM_TRANSPORT=shmem COMM_OFI=1` at 2 and 3 n PASS, digits identical; `mnaccept --only mn` default
 env 5/5 PASS (all logs over xshmem); `--only unit` 9/9 PASS. Full size 1.9323e11 at 3 n, order D L L D, all VERIFY OK: D (default) 155.38 and 151.06 s (mean 153.2);
-L (explicit shmem) 157.87 and 164.77 s (mean 161.3); paired D-L -2.5 and -13.7 s, mean -8.1 s (n = 2). Engine check: D ran over xshmem with the rounds-128 line, L over SHMEM.
+L (explicit shmem, since removed) 157.87 and 164.77 s (mean 161.3); paired D-L -2.5 and -13.7 s, mean -8.1 s (n = 2). 
+### Target shape (tgtshape, 2026-10-22; measured on aac7, one run per cell; status: current)
+One process per GPU (P), 2 lanes (L2), Cray backend and the 2-PEs-per-GPU fallback (Q2) all give the digits of the default layout D (1e9 bf9f4b08758b40d9, 1e10 3fc025473586ed22; 1 n 1e9/1e10, 2 n and 3 n 1e10; 3 n 1e11 VERIFY OK on both backends). XSHMEM_LANES was ignored by the engine before: now N > 1 stripes each payload put over N lane contexts (the `XSHMEM_LANE_MIN_KB` threshold was removed later, Q105), quieting all used lanes before the signals on lane 0; both lanes carry equal bytes; digits identical with 2 lanes (D, P) at 1/2/3 n on ofi and cray; lanes are not slower (aac7 has one NIC per PE, so no gain is expected): 3 n 1e10 total s ofi D 31.7 / DL2 33.4, P 25.2 / PL2 25.3, cray D 51.2 / DL2 52.9, P 31.6 / PL2 31.1. Cray D needs XSHMEM_HEAP_MB = 4 x the plan figure (the 4 APU threads share one heap). Cray Q2 needed the topo fix (XSHMEM_PES_PER_GPU). 
 
-### Target shape (tgtshape, 2026-10-22; measured on aac7, one run per cell)
-One process per GPU (P), 2 lanes (L2), Cray backend and the 2-PEs-per-GPU fallback (Q2) all give the digits of the default layout D (1e9 bf9f4b08758b40d9, 1e10 3fc025473586ed22; 1 n 1e9/1e10, 2 n and 3 n 1e10; 3 n 1e11 VERIFY OK on both backends). XSHMEM_LANES was ignored by the engine before: now N > 1 stripes each payload put over N lane contexts (XSHMEM_LANE_MIN_KB), quieting all used lanes before the signals on lane 0; both lanes carry equal bytes; digits identical with 2 lanes (D, P) at 1/2/3 n on ofi and cray; lanes are not slower (aac7 has one NIC per PE, so no gain is expected): 3 n 1e10 total s ofi D 31.7 / DL2 33.4, P 25.2 / PL2 25.3, cray D 51.2 / DL2 52.9, P 31.6 / PL2 31.1. Cray D needs XSHMEM_HEAP_MB = 4 x the plan figure (the 4 APU threads share one heap). Cray Q2 needed the topo fix (XSHMEM_PES_PER_GPU). Details: REPORT_tgtshape (private).
-
-### craylane (Cray stalls, NUMA placement, Cray vs libfabric; 2026-10-23, aac7, measured)
+### craylane (Cray stalls, NUMA placement, Cray vs libfabric; 2026-10-23, aac7, measured; status: current, the final Cray-vs-libfabric figure is below)
 **Stall cause.** The multi-second stalls of the Cray backend (PL2 at 3 n, intermittent 2 n 1e9 stalls, first-exchange waits of 75 to 160 s at 3 n 1e11) were not SHMEM traffic: per-lane quiet, signals and payload times were 0.000 s; the waiting PEs
 all waited for one or three peers that were still in the stream sync of their post (GPU work before the first exchange). Two facts explain them: (1) the Cray topology had no cpu list (`xshmem_topo()` never filled `cpus`; `mn.c` printed "launch mask and the NUMA node's cpus '' do not
 intersect"): every process had 192 threads on all cpus and first-touched its heap anywhere; (2) the libsma heap is a shared `/dev/zero` mapping on 4 KiB pages (THP `shmem_enabled=never`; `MADV_HUGEPAGE` has no effect, `MADV_COLLAPSE` gives EAGAIN; no hugetlb pages), so a node
 with fragmented memory shows direct compaction (`compact_stall` +85 and +1083 in the two slowest 9zs10 runs, +0 in the clean ones). `XSHMEM_THP_DISABLE=1` did not cure the stalls (9zs12: 78 s run). Pinning each process to its NUMA node did:
 `XSHMEM_CRAY_NUMA=1` (pe_geo cpu list, pinned before libsma init) and `MNRUN_PPG_CPUBIND=ldom` (srun map_ldom, mem-bind local), together "LN": 3 n 1e10 NU 38.4/36.6 s, LD 36.2/35.1 s against 40 to 107 s without (9zs12, 24 runs, digits identical); 3 n 1e11 P control 115.5 s mean, NUMA 104.9, ldom 103.9, both 96.7 (9zs14).
-`mnrun.sh` now sets both by default for a Cray build under `ECALC_PE_PER_GPU=1` (explicit values win; ofi and layout D unchanged). Not helpful (9zs12, 9zs17): thread level 2, `SHMEM_MAX_CTX`, signal set 2, signal test 1, split put+fence+signal, first-touch off, startup connect, no memset, GPU pretouch of the heap (`XSHMEM_CRAY_GPU_PRETOUCH`, 0.1 s, no change to the 4.5 s first-exchange post).
+`mnrun.sh` now sets both by default for a Cray build under `ECALC_PE_PER_GPU=1` (explicit values win; ofi and layout D unchanged). Not helpful (9zs12, 9zs17; the experiment settings were removed from the code, only `XSHMEM_CRAY_NUMA` and `XSHMEM_CRAY_HEAP_THP` remain): thread level 2, `SHMEM_MAX_CTX`, signal set 2, signal test 1, split put+fence+signal, first-touch off, startup connect, no memset, GPU pretouch of the heap (0.1 s, no change to the 4.5 s first-exchange post), `XSHMEM_THP_DISABLE=1`.
 **Gates (measured).** Digits identical to D: 1e9 `bf9f4b08758b40d9`, 1e10 `3fc025473586ed22` at 1, 2, 3 n for D, P, PL2 on Cray (9zs19); 3 n 1e11 P 92.74/94.61 s, PL2 91.95/92.61 s, D 194.59 s, VERIFY OK on every PE; Q2 on Cray (2 PEs per GPU, NUMA pin): 2 n 1e9 11.82 s, 3 n 1e9 14.36 s, 3 n 1e10 39.36 s, digits identical (9zs20). Path 1 (ofi, Q85): main 25dcd49 vs this branch, ofi D at 3 n 1e11 interleaved, 5 pairs (9zs18): 81.22/81.74/81.24/82.85/81.25 vs 82.07/82.44/81.70/80.81/79.92 s, paired branch minus main mean -0.27 s, no regression; ofi 1 n and 2 n 1e9 digits identical.
 
 **Re-gate on the merged tip (measured, 9zs24-9zs28, 2026-10-23).** ofi D 1 n and 2 n 1e9 digits `bf9f4b08758b40d9`; ofi P at 3 n 1e11, main 25dcd49 vs the merged tip, 5 interleaved pairs: 83.51 vs 81.94 s, paired -1.61 s (sd 3.50, 95% CI [-5.96, +2.74]), no regression. Cray D/P/PL2 at 1 n and 2 n 1e9 identical digits; Cray PL2 3 n 1e11 86.24 s, 13 VERIFY OK; t_xshmem LANES=2 on Cray passes at 1 and 3 n.
@@ -59,9 +53,9 @@ Cray runs are bimodal at equal settings (fast mode 85.1 to 86.9 s, slow mode 90.
 **Init (9zs17, 12 runs, trace on).** `shmem_init_thread` 6.2 s on every PE (libsma registers the 9.9 GB heap with the NIC), our zeroing 0.22 s, `hipHostRegister` 1.5 s (3.1 s on some PEs), first barrier 1.4 s: 18 s init against 9.6 s with libfabric. `SHMEM_OFI_DISABLE_FIRST_TOUCH`, `SHMEM_OFI_STARTUP_CONNECT` and skipping our memset change none of it.
 **aac7-specific blockers (documented, not fixed).** The libsma heap is a 4 KiB shared mapping (no huge pages, NIC registration of 9.9 GB at init: 6.2 s); one NIC per PE (lanes give no bandwidth, only the 12.1 two-NIC target can use them); 11.8 has a blocking put_signal and no `shmem_ctx_signal_set`; dynamic endpoints are opened at init; `SHMEM_OFI_PROGRESS=AUTO` aborts libsma init (no matching cxi provider), the library progress thread stays; the intermittent slow mode above. Cray layout D is 2.4 times slower than P at 3 n 1e11 (194.6 s: four threads share one heap and one process).
 **Q2.** Works on Cray with the NUMA pin (needed the topo fix for `XSHMEM_PES_PER_GPU`); the planner per-process host term (about 5 GB per PE) is in TASKS Proposed.
-**Switches (all off by default except as noted).** `XSHMEM_LANE_TRACE` (any layout), `XSHMEM_LANE_POLL`, `XSHMEM_SIG_LANES`, `XSHMEM_LANE_CTX`, `XSHMEM_CRAY_HEAP_THP`, `XSHMEM_THP_DISABLE`, `XSHMEM_CRAY_NUMA` (mnrun default on for Cray builds under P), `XSHMEM_THREAD_LEVEL`, `XSHMEM_CRAY_SIGSET`, `XSHMEM_CRAY_TEST`, `XSHMEM_CRAY_PUTSIG_SPLIT`, `XSHMEM_CRAY_NOMEMSET`, `XSHMEM_CRAY_GPU_PRETOUCH`; rows in ecalc/README.md. Build and run lines of both paths: README.md.
+**Switches.** `XSHMEM_CRAY_NUMA` (default 0 in the engine; `mnrun.sh` sets it to 1 together with `MNRUN_PPG_CPUBIND=ldom` for a Cray build under `ECALC_PE_PER_GPU=1`) and `XSHMEM_CRAY_HEAP_THP` (diagnosis, default 0) are the only Cray settings left; the other twelve experiment settings of this campaign (lane trace/poll/ctx, signal lanes, thread level, signal set, test, put-signal split, no-memset, GPU pretouch, THP disable) were removed after it. Rows in `ecalc/README.md`; build and run lines of both paths: `README.md`.
 
-### PPG — one process per GPU, `ECALC_PE_PER_GPU` (TARGET1 stage S2; condensed 2026-10-24, full text `archive:results_merged_2026-10-24/XSHMEM.md`; "PPG.md S2d" citations mean the S2d timing subsection)
+### PPG — one process per GPU, `ECALC_PE_PER_GPU` (TARGET1 stage S2; condensed 2026-10-24, full text `archive:results_merged_2026-10-24/XSHMEM.md`; "PPG.md S2d" citations mean the S2d timing subsection; status: current, layout D stays the default)
 **Launcher.** `mnrun.sh` plans P runs with the per-node PE count (FIT refuses a run that does not fit before launch; pool and `XSHMEM_HEAP_MB` come from the plan at 1 / 2 / 3 n); on one node P picks `COMM_TRANSPORT=xshmem`. A division counter written by PE 0 only (`newton_x_dx`) failed PEs 1-3 on a late carry; every PE now writes its own (`NST`, `newton_db.c`; P 1 n 3e10 VERIFY OK on 4 of 4 PEs, sha equal to D e050c5ae142ae995).
 **S2d timing (aac7, ABBA, m).**
 
@@ -72,62 +66,39 @@ Cray runs are bimodal at equal settings (fast mode 85.1 to 86.9 s, slow mode 90.
 | 1e10, 3 n | 21.97 (sd 0.43, n 10) | 14.99 (sd 0.52, n 8) | -6.92 [-7.57, -6.28] | 8 pairs; init 13.23 vs 4.53, bs and dm each about 1 s slower |
 | 1e11, 3 n (PG settings: DIST_CHUNKS=8, MN_T_CHUNK_MB=512, BS_SEED_CHUNK_MB=1024, COMM_SHMEM_POOL_MB=512, `ECALC_NODE_GB=420`) | 83.36 (sd 1.18) | 84.32 (sd 4.43) | +0.96 [-5.54, +7.47] | 4 pairs; init 30.40 vs 10.03, bs 24.80 vs 36.95, dm 25.53 vs 35.05, recip 9.85 vs 13.11 |
 
-Reading: P saves start-up (-8.7 s at 3 n 1e10, -20 s at 3 n 1e11) and loses most of it in bs and dm at 1e11; equal within noise at 3 n 1e11. At 1.9323e11 P needs `RNS_BATCH_SPLIT` (a PE's leaf top product exceeds one device's plane pool and the striped tier needs all 4 devices; `MN_PLAN_ONLY` now prints the batch-tier check). Default stays D.
+Reading: P saves start-up (-8.7 s at 3 n 1e10, -20 s at 3 n 1e11) and loses most of it in bs and dm at 1e11; equal within noise at 3 n 1e11. At 1.9323e11 P needs `RNS_BATCH_SPLIT` (a PE's leaf top product exceeds one device's plane pool and the striped tier needs all 4 devices; `MN_PLAN_ONLY` now prints the batch-tier check). Default stays D (`ECALC_PE_PER_GPU` default 0).
 
-### BSPLIT — own-device split of oversized batch products under one process per GPU, `RNS_BATCH_SPLIT` (condensed 2026-10-24; full text in the archive file above)
+### BSPLIT — own-device split of oversized batch products under one process per GPU, `RNS_BATCH_SPLIT` (condensed 2026-10-24; full text in the archive file above; status: current; the switch is derived automatically under `ECALC_PE_PER_GPU=1`, Q110)
 **Gates (m).** `t_mul 0 split` VERIFY OK; planner with the switch off: 12 outputs identical to main, with 42-case comparisons only P + split plans move; PG 3 n 1.9323e11 at cap 2^30 plans FITS with the switch (device 327.23 / 373.44 GB, node 392.65 / 420 GB), REFUSED without. Digits identical to D: 1 n 1e9, 1e10 and 3e10 (sha e050c5ae142ae995), 2 n 1e11 (sha 578f5efb0ff2b9af, 307.85 s against D 264.73 s, single runs), 3 n 1.9323e11 (sha e38f16dac94299b8: PGS 437.72 s, D 378.07 s, single runs; the P and split cost at 3 n full size is large, not a speed claim).
 **Planner heap model.** The first two gate runs died on the xshmem DATA heap: under P without rounds a tree level stages the PE's whole share of the operand and the receive side at once (`xex_post`), which `binsplit_shmem_pool_need` did not model. The model now uses the largest node's share (lgamma tail of the term ranges), a margin of max(256 MiB, staged / 16) and the allgather scratch; planned heaps: 2 n 1e11 8960 MiB, 3 n 1.9323e11 10240 (modeled); measured need 6206-6416 MiB at 2 n (conservative) and 9216 at 3 n. Open: a 1.3 % excess and the 2 n receive ratio are unexplained.
-**Follow-ups.** Single-plane arm, writing pieces directly into C, ABBA timing pairs (none yet).
+**Open.** Single-plane arm, writing pieces directly into C, ABBA timing pairs (none yet).
 
 ### XWLAT: exchange-worker latency and the heap-tail test (branch xwlat, 2026-10-24, measured, aac7 2 n)
 
-**Heap-tail test.** `t_xshmem tail` (xshmem tests, part of `correct`): the DATA heap is rounded to 2 MiB so the request end is the heap end; a HIP kernel reads and writes the first and the last 8 B (and the last byte), the host copy-out agrees, 8 B puts go to the next PE's first and last words and a span ends 32 B before the heap end; a kernel then reads the received tail. Items 9zw7_xwxt1: path 1 (ofi) and path 2 (cray, lanes 2), 8 PEs: `SEC tail: PASS`, XT_RESULT PASS (basic also PASS). (A get does not exist in xshmem.h: the peer's put is the test.)
+Status: current; the worker adoption (Q96, 2026-10-24) is in force: the exchange worker is the only mode (`ECALC_XEX_THREAD` removed 2026-10-25).
 
-**Where the 30 ms went.** The worker (`comm_xshmem.c` worker(), xex_send) never sleeps while an exchange is pending (it polls with `sched_yield`); the condvar is used only when it is idle. The evidence (9q6g/9q6h) was the removed thread mode (4 PE threads, one process); with one process per GPU the numbers are the reverse.
+**Heap-tail test.** `t_xshmem tail` (part of `correct`): the DATA heap is rounded to 2 MiB so the request end is the heap end; a HIP kernel reads and writes the first and the last 8 B (and the last byte), the host copy-out agrees, 8 B puts go to the next PE's first and last words and a span ends 32 B before the heap end; a kernel then reads the received tail. Items 9zw7_xwxt1: path 1 (ofi) and path 2 (cray, lanes 2), 8 PEs: `SEC tail: PASS`, XT_RESULT PASS (basic also PASS).
 
-**Measured (2 n 1e10, `ecalc total`, ABBA, 4 pairs each; 9zw6_xwab1, b47edce):**
+**Where the 30 ms went.** The worker (`comm_xshmem.c` worker(), xex_send) never sleeps while an exchange is pending (it polls with `sched_yield`); the condvar is used only when it is idle. The earlier evidence (9q6g/9q6h) was the removed thread mode (4 PE threads, one process); with one process per GPU the numbers are the reverse. The poll split at P shows 26.9 ms in "peers posted" (the receiver waits for the slowest peer: skew, not worker cost).
+
+**Measured (2 n 1e10, `ecalc total`, ABBA, 4 pairs each; 9zw6_xwab1, b47edce).**
 
 | arm A vs B | A s | B s | B - A s | 95 % CI |
 |---|---|---|---|---|
-| P poll-only (default then) vs `ECALC_XEX_THREAD=1` | 40.17 | 31.96 | -8.21 | [-9.43, -6.99] |
-| D default vs `XSHMEM_WORKER_SPIN=1` | 39.23 | 38.50 | -0.73 | [-1.53, 0.08] |
+| P poll-only (default then) vs the worker (`ECALC_XEX_THREAD=1`, now the only mode) | 40.17 | 31.96 | -8.21 | [-9.43, -6.99] |
+| D default vs `XSHMEM_WORKER_SPIN=1` (idle worker polls; tried, no gain, removed) | 39.23 | 38.50 | -0.73 | [-1.53, 0.08] |
 
-P = `ECALC_PE_PER_GPU=1 XSHMEM_LANES=2` (path 2). Single screening runs (9zw4_xwprobe3): `XSHMEM_YIELD=0` D 38.62 s, P+worker 30.67 s; spin+yield0 D 40.53, P 30.63: all within the noise of the arms above. The poll split at P shows 26.9 ms in "peers posted" (the receiver waits for the slowest peer: skew, not worker cost). Digits: gate 1e9 identical for P + worker (9zw6 g9_thr) and D + spin (g9_spin). Gate 9zw5_xwlat1 (wave3 gate on the branch): gd1, gd2, unit 9 PASS, gc1, gc2 PASS. Note: 1e10 arms print "digits DIFFERS": gate.sh compares with the 1e9 reference only; VERIFY OK on all.
+P = `ECALC_PE_PER_GPU=1 XSHMEM_LANES=2` (path 2). Screening runs (9zw4_xwprobe3): `XSHMEM_YIELD=0` D 38.62 s, P+worker 30.67 s; spin+yield0 D 40.53, P 30.63 (all within the arms' noise). Digits: gate 1e9 identical for P + worker and D + spin; gate 9zw5_xwlat1 PASS. (1e10 arms print "digits DIFFERS": `gate.sh` compares with the 1e9 reference only; VERIFY OK on all.)
 
-**Switch.** `XSHMEM_WORKER_SPIN` (an idle worker polls the queue instead of sleeping on the condvar): tried, no gain, removed again (commit after b47edce). Default `ECALC_XEX_THREAD=1` under P: adopted (Q96), see the recommendation below.
+**1e11 confirmation (2 n, PG settings of the BSPLIT section plus `RNS_BATCH_SPLIT=1`; items 9zwa_xwconf3, 9zwb_xwconf4, 75d4ea4; measured).** With the digit file, path 2, ABBA poll 316.09 / worker 291.92 / worker 303.53 / poll 320.83 s, all sha 578f5efb0ff2b9af; paired worker - poll -24.17 and -17.30 s (mean -20.7 s, n = 2, CI about +-44 s: not significant; writing and hashing the digit file took about 400 of 710 s per run). Without a digit file: path 2 worker 154.49 s, poll 145.06 s (one pair, +9.4 s); path 1 under P (default lanes) 2 pairs poll 156.32 s, worker 159.66 s, +3.34 s, CI [-85, +92]. Phase split of the five path-2 runs: init worker 12.4-12.9 s against poll 19.1-19.9 s (6.5-7.5 s shorter in all runs, no overlap), DATA heap per PE 960 MiB (rounds path) against 9408 MiB (whole-exchange path), VmHWM 8.0 against 16.6 GB; bs and dm differ by less than their run-to-run spread (about +-7 s). So the worker's gain is start-up (heap allocation, registration, first touch) and half the host memory, not a per-exchange gain; the 1e10 gain of 8.2 s is the same init effect. Plain P with the default plan was refused before launch until `RNS_BATCH_SPLIT=1` was added.
 
-**1e11 confirmation (2 n, PG settings of the BSPLIT section: `ECALC_NODE_GB=420 ECALC_PE_PER_GPU=1 DIST_CHUNKS=8 ECALC_PLANE_CAP=2^30 MN_T_CHUNK_MB=512 BS_SEED_CHUNK_MB=1024 COMM_SHMEM_POOL_MB=512 RNS_BATCH_SPLIT=1`, path 2 adds `XSHMEM_LANES=2`; `ecalc total`, measured; items 9zwa_xwconf3, 9zwb_xwconf4, commit 75d4ea4).** Plain P with the default plan was refused before launch (node fit; with `ECALC_PLANE_CAP=2^30` also the largest batch product) until `RNS_BATCH_SPLIT=1` was added.
+**Recommendation, adopted (Q96).** The worker is the default in every layout: a robust 6.5-7.5 s start-up saving, digits identical (sha 578f5efb0ff2b9af at 1e11, 1e9 gates), bs / dm neutral within noise.
 
-| run (path 2, digit file written) | total s | sha |
-|---|---|---|
-| poll 1 / worker 1 / worker 2 / poll 2 (ABBA) | 316.09 / 291.92 / 303.53 / 320.83 | all 578f5efb0ff2b9af (identical) |
+**Check on main (item 9zz5_main11, main bef6a16, 2 n 1e11, measured 2026-10-24).** Digit identity at production size: path 1 (layout D, default launch) and path 2 (cray, P, lanes 2, BSPLIT settings) both sha 578f5efb0ff2b9af. Q96 at 1e11 on path 2 (no digit file, 3 ABBA pairs): worker 137.16 / 136.68 / 158.40 s, `ECALC_XEX_THREAD=0` 145.92 / 144.91 / 153.79 s; poll - worker +4.13 s, 95 % CI [-14.68, 22.94]: same direction as the start-up gain, not resolved at n = 3.
 
-Paired worker - poll with the digit file: -24.17 s, -17.30 s (mean -20.7 s, n = 2 pairs, 95 % CI about +-44 s: not significant by itself; both pairs agree in sign and with the 1e10 result -8.21 s [-9.43, -6.99]). The run was stopped after 4 runs because writing and hashing the digit file took about 400 s of 710 s per run.
+**Best SHMEM against best libfabric after Q96, 2 n (item 9zz7_gap2n, main b47d557, same hold, measured 2026-10-24).** Both in layout P, same BSPLIT settings, no digit file, ABBA. 2 n 1e10, 4 pairs: ofi P 14.79 s, Cray P lanes 2 15.11 s, Cray - ofi +0.32 s, CI [-0.51, 1.15]. 2 n 1e11, 4 pairs: ofi P 156.13 s, Cray 146.44 s, -9.69 s, CI [-27.90, 8.52] (Cray bimodal: 135.8 / 136.2 against 154.8 / 159.1 s). At 2 n the two paths are at parity after Q96; the 3 n +7.5 % (craylane) predates Q96 and is not re-measured (only 2 NIC nodes on aac7).
 
-Without a digit file (VERIFY only, 9zwb): path 2 worker 154.49 s, poll 145.06 s (one pair, worker +9.4 s: the opposite sign; the totals are not comparable with the runs that write digits). Path 1 (ofi) under P (default lanes), 2 pairs: poll 156.32 s, worker 159.66 s, +3.34 s, 95 % CI [-85, +92] (n = 2): no effect shown. So the worker gain under P at 1e11 appears only in the runs that write the digit file, and is not confirmed without it. 
-
-**Where the worker wins (phase split of the five path-2 1e11 runs, measured, log lines `total ... (bs + dm + dc ...; init)`):**
-
-| run | init s | bs s | dm s | dc s | DATA heap per PE | VmHWM |
-|---|---|---|---|---|---|---|
-| poll 1 / 2 / 3 | 19.9 / 19.1 / 19.3 | 74.0 / 78.6 / 68.9 | 70.3 / 71.8 / 54.7 | 151.8 / 151.3 / 2.1 | 9408 MiB | 16.6 GB |
-| worker 1 / 2 / 3 | 12.4 / 12.5 / 12.9 | 67.1 / 71.5 / 72.1 | 55.5 / 67.0 / 67.3 | 156.9 / 152.5 / 2.1 | 960 MiB | 8.0 GB |
-
-The worker's gain is the start-up: init is 6.5-7.5 s shorter in all five pairs' runs (no overlap between the groups), because the rounds path (128 MiB) needs a 960 MiB DATA heap per PE where the poll-only whole-exchange path needs 9408 MiB (heap allocation, registration and first touch) and half the host memory. bs and dm differ by less than their run-to-run spread (about +-7 s; worker dm 55.5 / 67.0 / 67.3 against poll 70.3 / 71.8 / 54.7), so no per-exchange gain is shown at 1e11; the 1e10 gain of 8.2 s is the same init effect. Pair 3 (worker +9.4 s) is dm 12.6 s slower in that run plus bs +3.2 s, against init -6.4 s: dm noise, not a warm-up effect (it was the first run after the build, but init and bs behave like the others). The same worker runs on ofi P did not gain (default lanes, 2 pairs, CI [-85, +92]).
-
-**Recommendation.** Adopt `ECALC_XEX_THREAD=1` as the default under P on path 2: a robust 6.5-7.5 s start-up saving and half the host memory, digits identical (sha 578f5efb0ff2b9af at 1e11, 1e9 gates), bs / dm neutral within noise. Adopted by the user (Q96, 2026-10-24): the worker is now the default in every layout (branch xexdef).
-
-**Check on main after the merge (item 9zz5_main11, main bef6a16, 2 n 1e11, measured 2026-10-24 21:18-21:57 ET).** Digit identity at production
-size: path 1 (layout D, default launch) and path 2 (cray, P, lanes 2, BSPLIT settings) both give sha 578f5efb0ff2b9af, the reference of
-xwconf3. Q96 at 1e11 on path 2 (no digit file, 3 ABBA pairs): worker (default) 137.16 / 136.68 / 158.40 s, `ECALC_XEX_THREAD=0` 145.92 /
-144.91 / 153.79 s; poll - worker +4.13 s, 95 % CI [-14.68, 22.94] (two pairs +8.2 to +8.8 s, one -4.6 s): same direction as the start-up
-gain, not resolved at n = 3.
-
-**Best SHMEM against best libfabric after Q96, 2 n (item 9zz7_gap2n, main b47d557, same hold, measured 2026-10-24 22:05-22:29 ET).**
-Both in layout P (one process per GPU; the fastest libfabric layout at 2 n), the same BSPLIT settings, no digit file, ABBA. 2 n 1e10, 4 pairs:
-ofi P 14.79 s, Cray P lanes 2 15.11 s, Cray - ofi +0.32 s, 95 % CI [-0.51, 1.15]. 2 n 1e11, 4 pairs: ofi P 156.13 s, Cray 146.44 s,
--9.69 s, CI [-27.90, 8.52] (Cray bimodal: 135.8 / 136.2 against 154.8 / 159.1 s). At 2 n the two paths are at parity after Q96; the 3 n
-+7.5 % above predates Q96 (poll-only under P) and is not re-measured (only 2 NIC nodes on aac7).
+(The phase-split table and the per-run detail of the 1e11 confirmation: `archive:TRANSPORT_ARCHIVE_2026-11-10.md §XWLAT`.)
 
 ### XDIAG: day-one checks T1-T8 triage and diagnostic arms (branch xdiag, 2026-10-24, aac7 2 n, measured)
 
@@ -136,33 +107,47 @@ Items 9zz2_xdiagt (`t_xshmem`, `t_comm`; REF fba18db), 9zz3_xdiage (ecalc, 2 n 1
 
 (Condensed 2026-10-25: the detail, tables and per-run data are in `archive:repo_cl6_2026-10-25/results/XSHMEM.md`.)
 
-### COMM: start-up timeline lines (A4) and tree collectives (B1) -- branch comm, 2026-10-27, not yet measured
+### COMM: start-up timeline lines (A4) and tree collectives (B1) -- branch comm, 2026-10-27 (merged)
 
-**A4, `ECALC_INIT_TL=1` (print only, no new switch).** `comm_xshmem.c` prints on rank 0 (`tl <s since the engine init began>  xshmem: ...`, stdout): the init split (boot + library init = PMI and fabric open, lane contexts, CTRL heap, DATA heap, workers, total), one line per communicator created (id, members, pe, seconds; the first 12 only), one line per first-call allgather handshake (SOFF; the first 12; partners; seconds), and at finalize a summary (communicators, summed and maximum creation seconds, handshakes, summed and maximum seconds). `mn.c` adds one `tl ... mn_init:` line (transport init and mesh creation seconds; layout P: the whole mn_init). Bounded: a 576-node run prints about 30 lines in total. Question it answers: where the 111 s (576 n) against 15.8 s (64 n) start-up goes: the DATA heap's registration and the fabric open are collective and scale with the PE count; communicator creation is local (O(n) calloc) and should show as milliseconds.
+Status: built and merged (branch comm, 2026-10-27); A4 is print-only, B1 is an experiment switch, default `flat`; neither measured at scale (aac7 has at most 3 nodes with working NICs).
 
-**B1, `XSHMEM_COLL=tree` (default `flat`, experiment).** Dissemination for `x_barrier`, `x_max` and `x_allgather_host`: round k (d = 2^k < n) sends to member (me + d) % n and waits for member (me - d) % n; ceil(log2 n) rounds (576 members: 10; 124 distributed shifts x 575 messages become x 10). Barrier and max: after the last round every member's entry is in the causal past of every member's exit (any n); max is idempotent so the overlapping windows are harmless. allgather_host: Bruck: G[j] = block of member (me - j) % n, round k puts G[0, m) to the partner's G[d, d + m), m = min(d, n - d); the receive region is the flat scratch's parity region (at most n x GBLK), blocks <= 4 KiB. Chosen over recursive doubling because it needs no non-power-of-two fix-up step and every round has exactly one send and one receive partner. Offsets (first call, lazy as before): a member publishes its scratch offset only to its ceil(log2 n) senders and reads it only from the members it puts to (flat: n - 1 each way; this was the 2e13 HANG site). Words: the flat words VAL/VSEQ[parity][sender] are reused; a pair meets in at most one round, the parity slot is rewritten two collectives later by a member that has exited the collective in between, which implies every member entered it and so finished this one (no signal word is reused before its consumer read it; back-to-back collectives on one communicator and communicators of different ids use disjoint words as before). The 900 s HANG names comm, round, the awaited member and its PE; `COMM_HANG_DETAIL=1` lists only the missing partners in tree mode. `x_destroy` works in both modes (it calls `x_barrier`). Flat code paths are unchanged (log text, words and digits identical with the switch off).
+**A4, `ECALC_INIT_TL=1` (print only).** `comm_xshmem.c` prints on rank 0 (`tl <s since the engine init began>  xshmem: ...`): the init split (boot + library init = PMI and fabric open, lane contexts, CTRL heap, DATA heap, workers, total), one line per communicator created (first 12), one line per first-call allgather handshake (first 12), and a finalize summary; `mn.c` adds one `mn_init:` line. Bounded: a 576-node run prints about 30 lines. Question it answers: where the 111 s (576 n) against 15.8 s (64 n) start-up goes (the DATA heap registration and the fabric open are collective and scale with the PE count; communicator creation is local and should show as milliseconds).
 
-**Test.** `tests/t_vpe coll` (one process per PE, the engine in process): flat communicator and runs of 2, 3, 5, 6, 7 PEs, `XT_COLL_ITERS` (200) random back-to-back barrier / allreduce_max / allgather_host with random block sizes, all results checked, then `T_VPE_COLL_TIME` (us per call, PE 0, flat communicator). Run with `XSHMEM_COLL=flat` and `=tree`. (`tests/t_xshmem` is written only against xshmem.h and does not link the engine, so the collectives are tested here.)
+**B1, `XSHMEM_COLL=tree` (default `flat`).** Dissemination for `x_barrier`, `x_max` and `x_allgather_host` (allgather: Bruck): ceil(log2 n) rounds (576 members: 10; 124 distributed shifts x 575 messages become x 10); offsets are published only to the ceil(log2 n) senders (flat: n - 1 each way; this was the 2e13 HANG site). Flat code paths unchanged (log text, words and digits identical with the switch off). The 900 s HANG message names comm, round, the awaited member and its PE. Protocol details: `archive:TRANSPORT_ARCHIVE_2026-11-10.md §COMM`.
 
-### COMM2: handshake audit (T2), stress test, init audit and timeline (T3), sparse exchanges (T4a) -- branch comm2, 2026-10-27, code only, not yet built or measured
+**Test.** `tests/t_vpe coll` (one process per PE, engine in process): runs of 2, 3, 5, 6, 7 PEs, `XT_COLL_ITERS` (200) random back-to-back barrier / allreduce_max / allgather_host with random block sizes, all results checked, then `T_VPE_COLL_TIME`; run with `XSHMEM_COLL=flat` and `=tree` (`tests/t_xshmem` does not link the engine).
 
-Status 2026-10-31: built and gated at 1 node (2026-10-27) and 2 nodes (§G2N); merged into main. Written without a build (no local builds); every item below is **code reading or modeled** until the aac7 commands at the end have run. Base: `cand` = remote-v4 b952f73.
+### COMM2: handshake audit (T2), stress test, init audit and timeline (T3), sparse exchanges (T4a) -- branch comm2, 2026-10-27 (merged)
 
-**T2a, audit of the 2e13 hang (576 nodes, layout D: one process per node, 4 loopback PEs).**
-- Mesh communicators are node sets: a flat handshake is n - 1 = 575 signals per process and communicator (not 2303), 575 x 576 = 331 k signals job-wide per first-call communicator. The tx queue (4096) exceeds 575 and EAGAIN is retried, so a queue overflow is not the cause by code (modeled).
-- Every collective traced (`tree_level`, `tree_level_k`, `node_scan`, `mdb_cmp`, `mdb_limb`, `mdb_mod_qs`, `mn_modm1`, `mn_fold`, `mn_wrap_*`, `x1_regroup`, `grp_max`) is called on all members of its communicator under conditions that depend on global state (`Xh.n`, `Y->n`, allreduced values): no per-node branch that could make members diverge was found (not a proof). Communicator ids do not collide (base 0..3; `NA + NA*slot + d`; `NA + NA*(2*MN_MAXL+l) + d`).
-- The census (planner, measured) first shows at 2e13 the DM_MN_WRAP path, division grid products with the mn transform cache, a leaf dist_db at level 1, and a level 7 with 3 groups of 192 (largest group 6 pieces vs 4). The wrap path adds many `mdb_limb` / allgather calls on communicators already used; the new first calls are the level-7 / level-8 group communicators of non-power-of-two size (192, 576), created lazily and locally.
-- The two reported PEs (nodes 530 and 562, loopback PE 0) are both in node range [512, 576): the last level-6 group and the last level-7 child. Most likely cause (hypothesis): not a lost signal but a straggler: the first collective of a group communicator waits for children still working, and the fixed 900 s limit reports it as HANG. Second: a call-order divergence across overlapping communicators. Third: a flat burst (against: quiet deadline message differs, queue size, EAGAIN handled).
-- Discriminating switches (all default off): `XSHMEM_HANG_S=3600` (the run completes if it was imbalance), `COMM_SEQ_CHECK=1` (every collective writes call number, kind and size; a mismatch is fatal naming both calls; PE waiting in the handshake for a member that is inside another collective is fatal too), `COMM_HANG_DETAIL=1` (names the missing members), `XSHMEM_HS_BATCH=k` (rotated order and a quiet every k signals: no common first target), `XSHMEM_COLL=tree` (12 signals per member). `ECALC_INIT_TL` handshake lines now split signal + quiet time from wait time.
+Status: built and gated at 1 node (2026-10-27) and 2 nodes (§G2N); merged into main. The T2a audit below is code reading and modeling, not measurement.
 
-**T2b, `tests/t_vpe hs`** (one process per PE; at most 8 PEs per node: `MNRUN_PPG_PPN=8 XSHMEM_PES_PER_GPU=2`): first allgather of NEW communicators for sizes 2, 4, 8 on `XT_HS_SLOTS` (12) slots and 3, 5, 6, 7 on 4 slots (at most 52 per PE), every result checked, 20 steady calls each (`XT_HS_REPS`); then `comm_xshmem_burst`: N = 64 .. 4608 signals per PE (beyond the 2303 of a 2304-PE flat handshake) unpaced and paced (`XT_HS_BATCH`, 64). Prints `T_VPE_HS_FIRST` per size and `T_VPE_HS_BURST` per N. `tests/t_vpe seqdiv` / `seqdiv2` with `COMM_SEQ_CHECK=1`: PEs 0 and 1 call different collectives; the step must end nonzero with the `COMM_SEQ_CHECK` fatal and no `passed the diverging collective` line.
+**T2a, audit of the 2e13 hang (576 nodes, layout D) (code reading; modeled).** A flat handshake is n - 1 = 575 signals per process and communicator (331 k job-wide per first-call communicator); the tx queue (4096) exceeds 575 and EAGAIN is retried, so queue overflow is not the cause by code. Every traced collective is called on all members of its communicator under conditions that depend on global state: no per-node branch that could make members diverge was found (not a proof). The two reported PEs (nodes 530 and 562) are both in node range [512, 576): the last level-6 group and the last level-7 child. Most likely cause (hypothesis): not a lost signal but a straggler, the first collective of a group communicator waiting for children still working, reported as HANG by the fixed 900 s limit; second, a call-order divergence across overlapping communicators; third, a flat burst. Discriminating switches (all default off or diagnostic): `XSHMEM_HANG_S=3600`, `COMM_SEQ_CHECK=1` (a mismatch is fatal naming both calls), `COMM_HANG_DETAIL=1`, `XSHMEM_HS_BATCH=k`, `XSHMEM_COLL=tree`; the `ECALC_INIT_TL` handshake lines split signal + quiet time from wait time.
+
+**T2b, `tests/t_vpe hs`** (one process per PE; at most 8 PEs per node: `MNRUN_PPG_PPN=8 XSHMEM_PES_PER_GPU=2`): first allgather of new communicators of sizes 2-8, every result checked, 20 steady calls each; then `comm_xshmem_burst`: N = 64 .. 4608 signals per PE unpaced and paced. `tests/t_vpe seqdiv` / `seqdiv2` with `COMM_SEQ_CHECK=1`: PEs 0 and 1 call different collectives; the step must end nonzero with the `COMM_SEQ_CHECK` fatal. Detail: `archive:TRANSPORT_ARCHIVE_2026-11-10.md §COMM2`.
 
 ### G2N — 2-node merge gate of cand3 = remote-v12 (item e8b inside e31n, 2026-10-31 04:35-05:26 ET, aac7 2 n, measured)
 
+Status: done; cand3 (= remote-v12) merged into main 2026-10-31. Question: do the cand3 changes (COMM, COMM2, `P24_CHECK` / `P24_CRT_ANY`, `MN_LEVEL_UNIFORM`) hold across two nodes? Every new behavior was off by default except `P24_CRT_ANY=1` and the launcher `-c` auto. One 2-node hold, both nodes with 4 cxi NICs checked first; single runs unless a count is given.
+
 **Results** (m; every full run VERIFY OK; the 1.6e10 and 1e11 runs also with the expected last digits `...29680671395813714711` and `...37703810896884928977`; the 1.3264e11 series arm has no stored tail):
 
-**Verdict.** Gate PASS: digits identical, 0 P24 flags, every injection caught; cand3 merged into main 2026-10-31. **Open issues.** The
-series arm is not analyzed; the off / on single runs are not timing evidence (path 2 on 28.20 vs 26.29 s needs a paired run if it matters).
+| case | total s | checks |
+|---|---|---|
+| build and gate, 1 + 2 nodes, both paths | - | PASS (manifest 278 / 0 changed / 0 missing) |
+| 1.6e10 path 1 D: off / new switches on / `XSHMEM_SPARSE=1` | 23.80 / 23.64 / 23.87 | on: 32 P24 products, 512 operands checked, 0 flags |
+| 1.6e10 path 1 P (`ECALC_PE_PER_GPU=1`): off / `XSHMEM_SPARSE=1` | 20.21 / 17.33 | first sparse run with off-node peers (single runs, not a timing claim) |
+| 1.6e10 path 2: off / on | 26.29 / 28.20 | on: 36 P24 products, 144 operands checked, 0 flags |
+| 1e11 natural 1 x 2 pieces, `P24_CHECK` 0 / 1 / 2 | 102.07 / 94.62 / 95.09 | 38 P24 products, 608 operands, 0 flags |
+| 1.6e10 `MN_TREE_LOGN_TEST=26`, `P24_CHECK` 0 / 1 / 2 | 26.23 / 26.22 / 27.75 | 32 P24 products (320 pieces), 0 flags |
+| 1.6e10, 4 node-processes, `P24_CHECK` 1 / 2 | 49.32 / 57.89 | 34 P24 products, 0 flags |
+| 1.3264e11 layout D, `XSHMEM_ROUND_STATS=2` (series arm) | 128.21 | analyzed in the next section |
+| `t_vpe all` flat / tree / sparse + small rounds + `COMM_SEQ_CHECK`; `t_vpe hs` | - | PASS 8/8 each |
+| `t_mn_grid 2 28` default / `P24_CRT_ANY=0` / `P24_CHECK=1` | - | 176 P24 products per PE; 3320 operands, 0 flags |
+| fault injections (`P24_CHECK_TEST=1`, `=2`; `t_vpe seqdiv`; `t_vpe idcoll`) | - | each ends in its designed fatal |
+| ABBA 2 n D 1.6e10, off vs new switches on (2 rounds) | 23.75 vs 23.16 | B - A -0.59 s [-2.58, +1.41], not resolved; digits identical in 9 runs |
+| 1e11 `BS_MDEV_LOGL=28 DIST_CHUNKS=16` vs default (1 round) | 93.72 base | -0.60 s, no interval; per-APU peak 83.8 GB (planner 85.94); `DIST_CHUNKS=16` alone -0.48 s |
+
+**Verdict.** Gate PASS: digits identical, 0 P24 flags, every injection caught. The off / on single runs are not timing evidence (path 2 on 28.20 vs 26.29 s would need a paired run).
 
 ### N5 and lazy-shift F-out: what the 2-node series arm shows (2026-11-09, log read only; aac7 2 n, 1.3264e11 digits, layout D, 128.21 s, VERIFY OK; measured, one run)
 
@@ -185,17 +170,36 @@ Reading for the two parked items (rules unchanged: Q150 N5 only if a target N3 A
 
 ### N1: rounds sized by the active pairs, `XSHMEM_ROUND_ACTIVE=1` (branch roundsize, 2026-11-01; aac7 1-3 nodes, measured)
 
-**Results, 2 nodes (aac7, item roundsize_a, 2026-11-01, measured, single runs; code at 852eaab, before the merge of main).**
-- Correctness, all PASS: `t_vpe all` (with the new sparse cases) at `XSHMEM_ROUND_MB=0.01`: path 1 at 1 node (4 PEs, switch unset and set) and 2 nodes (8 PEs, unset and set); path 2 with `XSHMEM_LANES=2` at 2 nodes unset, 1 and 2 nodes set, and path 2 without lanes at 2 nodes set. `t_xshmem` (does not run the round code of `comm_xshmem.c`): PASS in the same arms.
-- Gates, all PASS with digits identical: path 1 at 1 and 2 nodes, unset and set, and 2 nodes set with `XSHMEM_ROUND_MB=0.222609`; path 2 (`ECALC_PE_PER_GPU=1 XSHMEM_LANES=2`) at 2 nodes unset and set, 1 node set.
-- Digits, 2 nodes: 1e10 sha bb6e0f867a5f5d91 in all three arms; 1.6e10 (written 16000000000, `MN_TREE_LOGN_TEST=26`) sha 5bc4211dbd24efd1 for default (61 s), switch set (59 s) and set with `XSHMEM_ROUND_MB=0.222609` (76 s).
-- Rounds per tag (maximum over the 8 PEs, 1e10, `XSHMEM_ROUND_STATS=1`):
+Status: built, off by default (`XSHMEM_ROUND_ACTIVE`; user 2026-11-08, Q167); adoption only if a target A/B shows a gain (TASKS 8). Digits and gates below are measured on aac7 (single runs).
 
-**Results, 3 nodes (aac7, item roundsize_c, merged code 6f0febee, 2026-11-01, measured, single runs).**
-- Correctness, all PASS: `t_vpe all` at 3 nodes (12 PEs) path 1 unset and set, path 2 with `XSHMEM_LANES=2` unset and set; path 1 set at 2 nodes. Gates (digits identical): path 1 at 1, 2, 3 nodes unset and set, 3 nodes set with `XSHMEM_ROUND_MB=0.222609`; path 2 at 2 nodes unset and set, 3 nodes set. 1e10 at 3 nodes: sha e7aac3a3fe898061 in all nine runs (unset, `XSHMEM_SPARSE=1` alone, switch set; with and without `XSHMEM_ROUND_MB=0.222609`); 1e10 at 2 nodes sha bb6e0f867a5f5d91 unset and set.
-- Rounds per tag (maximum over the 12 PEs, 1e10, `XSHMEM_ROUND_MB=0.222609`):
+**2 nodes (item roundsize_a, 2026-11-01, code 852eaab).** Correctness PASS: `t_vpe all` (with the sparse cases) at `XSHMEM_ROUND_MB=0.01`, path 1 at 1 node (4 PEs) and 2 nodes (8 PEs), switch unset and set; path 2 with `XSHMEM_LANES=2` at 2 nodes; `t_xshmem` PASS in the same arms. Gates PASS with digits identical (path 1 at 1 and 2 nodes unset/set, and set with `XSHMEM_ROUND_MB=0.222609`; path 2 at 2 nodes unset/set, 1 node set). Digits, 2 nodes: 1e10 sha bb6e0f867a5f5d91 in all three arms; 1.6e10 (`MN_TREE_LOGN_TEST=26`) sha 5bc4211dbd24efd1 for default (61 s), switch set (59 s) and set with `XSHMEM_ROUND_MB=0.222609` (76 s). Rounds per tag (maximum over the 8 PEs, 1e10, `XSHMEM_ROUND_STATS=1`):
 
-**Verdict.** Correctness and digits PASS at 1, 2, 3 nodes on both paths; the round drop appears where the model says (only the shifts, only with a group of 3 or more members) and is small at 3 nodes. Adoption needs the 576-node (or 6-node D = 1 vs 5) measurement of the rounds and the partner-poll time; default stays 0.
+| tag | exchanges | rounds, `XSHMEM_ROUND_MB=0.222609`, switch unset | same, switch set | switch set, default 128 MiB |
+|---|---|---|---|---|
+| other | 36 | 133 | 133 | 36 |
+| redist | 86 | 18,643 | 18,643 | 99 |
+| result | 54 | 21,468 | 21,468 | 76 |
+| spill | 54 | 92 | 92 | 54 |
+| addsh | 74 | 16,724 | 16,724 | 97 |
+| layeq | 3,977 | 182,889 | 182,889 | 3,977 |
+
+The round counts are identical unset and set: at 2 nodes every exchange is between two members (D = n - 1 = 1) or all members carry data, so nothing changes by construction.
+
+**3 nodes (item roundsize_c, merged code 6f0febee, 2026-11-01).** Correctness PASS: `t_vpe all` at 3 nodes (12 PEs) path 1 and path 2 (`XSHMEM_LANES=2`), unset and set. Gates PASS, digits identical, at 1, 2, 3 nodes unset and set (3 nodes also with `XSHMEM_ROUND_MB=0.222609`; path 2 at 2 and 3 nodes). 1e10 at 3 nodes: sha e7aac3a3fe898061 in all nine runs; 1e10 at 2 nodes sha bb6e0f867a5f5d91. Rounds per tag (maximum over the 12 PEs, 1e10, `XSHMEM_ROUND_MB=0.222609`):
+
+| tag | exchanges | unset | `XSHMEM_SPARSE=1` alone | `XSHMEM_ROUND_ACTIVE=1` |
+|---|---|---|---|---|
+| other | 12 | 13 | 13 | 13 |
+| redist | 96 | 23,611 | 23,611 | 23,611 |
+| result | 62 | 29,097 | 29,097 | 29,097 |
+| spill | 62 | 159 | 159 | 159 |
+| addsh (the shifts) | 75 | 19,724 | 19,724 | 15,750 (-20.1 %) |
+| layeq | 409 | 441 | 441 | 441 |
+| layv | 3,928 | 182,500 | 182,500 | 182,500 |
+
+`XSHMEM_SPARSE=1` alone changes no round count, as designed. The switch removes 20 % of the shift rounds at 3 nodes and nothing elsewhere: with 3 members a shift has at most 2 peers with bytes (D = 2 = n - 1), so the chunk grows only for exchanges in which every member has a single peer (D = 1: chunk doubled). Wall (single runs, 1e10): 3 nodes with `XSHMEM_ROUND_MB=0.222609` unset 42 / 41 / 42 s, set 43 / 42 / 42 s; default size 34 vs 33 s; 2 nodes 50 vs 50 s. No difference beyond 1 s, so the cost of the max per exchange is bounded by about 200 us (assumed bound from the wall resolution).
+
+**Verdict.** Correctness and digits PASS at 1, 2, 3 nodes on both paths; the round drop appears where the model says and is small at 3 nodes. Adoption needs the 576-node (or 6-node D = 1 vs 5) measurement of the rounds and the partner-poll time; default stays 0.
 
 ### M2: time per round fitted from a chunk-size sweep (aac7 campaign M2, 2026-11-01 to 11-02 ET, main d7c7f28, path 1, measured)
 
@@ -227,7 +231,7 @@ ABBA order, 95 % interval on the mean of the per-pair differences (t distributio
 
 ROUND_ACTIVE is not distinguishable from zero (+1.6 % at the 576-node chunk setting, interval -0.5 to +3.6 %). Its 20 % fewer addsh rounds (N1) are about 2,300 rounds, 0.09 s at the M2 cost of 38 us per round (modeled), far below the noise. The LANES=2 mean is pulled by the first pair (A 79.15 s, the first run of the item, no warm-up); without it the difference is +0.15 s [-1.58, +1.88] (5 pairs, from the items' per-run totals). aac7 has one NIC per PE, so lane 2 is virtual and a gain could only appear with two NICs per APU (the target): here it is "no cost, no gain". The first attempt (78_m6_ln) timed out in the queue and has no data.
 
-### R10: larger rounds for large all-to-alls, re-evaluated with the recalibrated model (branch r10, 2026-11-07, arithmetic on recorded numbers, no new run)
+### R10: larger rounds for large all-to-alls, re-evaluated with the recalibrated model (branch r10, 2026-11-07, arithmetic on recorded numbers, no new run; status: current, default stays 128)
 
 **Question.** Is `XSHMEM_ROUND_MB` 128 still the right size at the 576-node shape, now that M2 measured the per-round floor (38 us at 3 members, 54 us at 2) and the 10-29 run measured 165,300 rounds per PE at 0.355 ms (58.7 s of the 206 s at 2e13)? Method: `ecalc/mn_model.py` constants (`V12_REF_S` polls + engine = 58.7 s, `V12_ROUNDS`, `V12_FABRIC_TB`) and `estimate --fabric target_fit --round-mb N`; the per-PE bytes are 9.33 TB / 4 APUs = 2.33 TB (measured). Worker code (`comm_xshmem.c`): a round is stage, put, quiet, signal, wait, copy out, strictly serial, so a larger round does not overlap more; it only cuts the number of rounds of exchanges that exceed the chunk (`XSHMEM_ROUND_MB` / (n - 1) bytes per pair).
 
@@ -259,7 +263,7 @@ The last column uses only the measured floor (rounds x 38 us, 6.3 s in all at 12
 
 ## EXCHANGE — the all-to-all exchange in every transport
 
-Scope: the all-to-all exchange in every transport: all-gather, layered exchange two-deep, slab pipelining, the rank gradient, gather kernels. Condensed 2026-10-19 from the per-item reports (originals: `archive:results_merged_2026-10-19/`; raw data and drivers: `archive:results_raw_2026-10-19/`). Old item IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`. Labels: m measured, mod modeled, a assumed.
+Scope: the all-to-all exchange in every transport: all-gather, layered exchange two-deep, slab pipelining, the rank gradient, gather kernels. Condensed 2026-10-19 (originals: `archive:results_merged_2026-10-19/`; raw data and drivers: `archive:results_raw_2026-10-19/`; old item IDs: `archive:results_merged_2026-10-24/INDEX.md`). Labels: m measured, mod modeled, a assumed.
 
 ### Topic summary
 
@@ -267,23 +271,34 @@ What this is: how data moves between ranks (APUs over xGMI, nodes over the fabri
 
 Current state (cross-checked with `ecalc/README.md` and `RESULTS.md`):
 - Built in, no switch: all-gather and `alltoallv` in every transport (§A-comm, §C); the K-chunk slab pipeline (`DIST_CHUNKS`, now default **8**, was 4 when §A-comm was written; README row owns it); the push kernel with 64-bit remote stores and 76 blocks per peer (§C: 2^31 conv 0.1737 -> 0.1577 s, -9 %, m); the layered v-exchange two deep, `COMM_ALLTOALLV_DEPTH=2` (§X13b; RESULTS lists it as built in; xGMI link time hidden on the general map 1.4 -> 74 %, m, two real nodes included).
-- Adopted by the user: `DIST_GATHER_RAW=2` (default since 2026-10-12): -3.8 s of ~73 s at 1 node (m), ~-1.0 s of leaf mdev at 2 nodes (m, below the noise of the whole run) (§K1b).
+- Adopted by the user: `DIST_GATHER_RAW=2` (built-in default since 2026-10-12): -3.8 s of ~73 s at 1 node (m), ~-1.0 s of leaf mdev at 2 nodes (m, below the noise of the whole run) (§K1b).
 - Measured, not adopted, switch or code removed: two-plane pipeline `dist_fwd2/inv2` (3-6 % slower, §C C4); `DIST_GATHER_TILE` (-0.08 +- 0.88 s, §S50); `RNS_DIST_OVERLAP` (-0.11 +- 0.15 s of 73 s, §K6); rebalancing the result-exchange gradient (NO-GO, ~2 % mod, §A07). §P2 closes the k_gather line: the floor is the remote read (~24 ms of a 35 ms call), <= 0.6 s per run headroom.
-- `DIST_TWREC` (twiddle-pack by row recurrence, §X13b): bit-identical, kernels x1.4-1.65, no end-to-end effect at size 1; later adopted (KERNELS.md owns it, see its `DIST_TWREC_G` item). `COMM_LAYER_TKERNEL` (one-kernel transposes): 662x at g = 576 for small blocks (m, kernel alone), needed at scale.
+- `DIST_TWREC` (twiddle-pack by row recurrence, §X13b): bit-identical, kernels x1.4-1.65, no end-to-end effect at size 1; later adopted (`DIST_TWREC_G`, see results/COMPUTE.md KERNELS). `COMM_LAYER_TKERNEL` (one-kernel transposes): 662x at g = 576 for small blocks (m, kernel alone), needed at scale.
 - Live conclusions: (1) one push kernel drives all three xGMI links at once, 244 GB/s per APU (m) vs 273 assumed in E9; (2) the host-visible xGMI stage is 40-100x the link time, so overlap must be counted at link level; (3) the pow2 path hides 3/4 of the xGMI link time (structural ceiling with K = 4), depth 2 gives the general map the same; (4) one inter exchange in flight does not bind while the fabric is the bottleneck (fabric idle while held <= 2 %); (5) XGMI-pipeline gains at 2^31 are small (2.5-5 %) because the exchange is HBM/CU bound against the row pass; (6) kernel-level tweaks of the gather are below what ABBA can resolve; the real lever is layout (avoid the 3/4 remote pull).
-- Superseded: A-comm's "default 4 chunks" (now 8); C's push defaults of 228 blocks / 16 B (now 76 / 64-bit); X13 §5 part 2 ("pipeline the v-exchange") is done in X13b.
+- Superseded: A-comm's "default 4 chunks" (now 8); C's push defaults of 228 blocks / 16 B (now 76 / 64-bit); X13 §5 part 2 ("pipeline the v-exchange") is done in X13b. Removed diagnostics: `COMM_LAYER_STATS`, `COMM_XGMI_STATS` (2026-10-19, D56).
 
 ### X13 — xGMI and the fabric at the same time (PLAN.md §29 E9 part 1, H4), Phase 13a
 
-##### 1. What was built
-- `COMM_LAYER_STATS=1|2` (`comm_layered.c`; removed 2026-10-19, D56): per exchange host stamps for the xGMI stage, ready-for-fabric, fabric stage, complete. Mode 1 passive (upper bound of fabric completion), mode 2 exact (watcher thread; perturbs slightly: use 1 for timings). Report at exit: span, xGMI-busy, fabric-busy, both-busy, held (ready exchange waiting for the previous inter stage), fabric idle while held, NIC balance, node view. With `COMM_XGMI_STATS=1` also the link-active interval of each push kernel, giving **both-busy at link level**.
-- `COMM_XGMI_STATS=1` (`comm_xgmi.c`; removed 2026-10-19, D56, the `comm_xgmi_h4()` bench stays): `k_push3_ts` stamps each block; per sender-peer bytes and link-active time. `comm_xgmi_h4()` benchmark with nine modes.
-- Drivers: `ECALC_TEST=h4=1[,h4_mb=256] ./tests/t_dist`; `ECALC_TEST=layered=1,lbench=24+26+28[,lreps=N] mnrun.sh <g> ./tests/t_dist` (the former `DIST_*` variables were folded into `ECALC_TEST`).
+Status: historical measurement, conclusions current (Topic summary (1)-(5)). The two stats switches it built, `COMM_LAYER_STATS` (host stamps of the xGMI stage, fabric stage, held time) and `COMM_XGMI_STATS` (link-active time of each push kernel), were removed 2026-10-19 (D56); the `comm_xgmi_h4()` bench stays (`ECALC_TEST=h4=1[,h4_mb=256] ./tests/t_dist`; `ECALC_TEST=layered=1,lbench=24+26+28[,lreps=N] mnrun.sh <g> ./tests/t_dist`). Build description: `archive:TRANSPORT_ARCHIVE_2026-11-10.md §X13`.
 
-##### 2. H4 — does the push saturate all three K4 links? (m, one node)
-256 MiB per (sender, peer), 10 reps:
+**H4 — does the push saturate all three K4 links? (m, one node).** 256 MiB per (sender, peer), 10 reps:
 
-### A07 (N7 / opportunity C6): the result-exchange rank gradient in the dm / bs products
+| form | per APU (wall) GB/s | per link (stamped) GB/s |
+|---|---|---|
+| one link 0->1 | 86.8 | 89.4 |
+| one link both directions | 84.6 each (169.2 node) | 87.5 / 87.8 |
+| fan-out APU 0 -> 3 peers | 253.5 | 86-91 |
+| all-to-all push (default 76 blocks/peer) | 244.0 (node 976.2) | 82.7-89.3 |
+| contiguous thirds of the grid per peer | 249.9 (+2.4 %) | 85.0-85.7 |
+| 3 kernels on 3 streams | 237.9 (-2.5 %) | |
+| `hipMemcpyAsync` on 3 streams (copy engines) | 134.8 (-45 %) | |
+| 3 rounds, one link at a time | 86.7 (= 1 link) | |
+
+Blocks per peer 19 / 38 / 76 / 152 / 304: 230.8 / 242.2 / 244.0 / 243.7 / 242.0 GB/s (flat from 38). At 32 MiB per pair 212 GB/s per APU. **Verdict H4: yes.** One kernel drives all three links concurrently at 93-97 % of the single-link rate; nothing beats it by more than 2.4 %. Each APU pair has two xGMI ports (128 GB/s raw per direction per pair); the push reaches 70 % of raw. E9's assumed 273 GB/s per APU is 244 measured (-11 %). In the 4 x 10^10 pipeline (m, one node): 962 GB per APU in 3252 pushes, 4.2-4.3 s of push kernel = 221-230 GB/s per APU, 74-80 GB/s on each link at once; the stamps cost nothing measurable (81.64 s with, 81.57 s without). In small-exchange multi-process runs the links run below bandwidth (pushes of 0.6-7.9 MB: 15-58 GB/s per link); at the target's top levels pushes are hundreds of MB.
+
+**3.1 The stage is not the link (m, loopback).** The host-seen xGMI stage (intra post to intra wait return) is 40-100x the link time (2^24-2^26 lbench: 0.037-0.17 s per APU vs 0.0006-0.0017 s of push kernel, 1-2.4 %): it includes the wait for the producer pack, the four-thread barrier, launch and sync. Overlap must therefore be counted at link level.
+
+### A07 (N7 / opportunity C6): the result-exchange rank gradient in the dm / bs products (status: closed, NO-GO)
 
 CPU only, existing logs, no cluster job, no engine change; 2026-10-11.
 
@@ -310,18 +325,18 @@ Example 4 nodes dm: GB received per node 43 / 200 / 272 / 186, wait 7.1 / 5.7 / 
 Modeled payoff (upper bound; the heaviest rank is the critical one, cost per GB = (wait - roff)/GB there): 4 n 2.1 s of 182 s (1.2 %), 6 n 5.0 s of ~293 s (1.7 %), each 21 % of the result-exchange wait; **10 n: ~-7 s (range -5..-10), ~2 % of wall** (mod), consistent with S27's -5..-12 (a); 576 n: 2-3 % of wall if the exchange share reaches 10-15 % and the ratio stays 1.3-1.5 (a). Caveat from S27: time saved by reducing transfer time elsewhere was absorbed as straggler waiting (0 on wall).
 
 **Recommendation: NO-GO now** (gain ~2 % mod, below single-run noise sd 8-10 s and below what an ABBA resolves in < 8 rounds at 10 nodes; any fix touches the layout of C used by carries, node scans and digit conversion). Revisit if a 20+ node XSTATS run shows max/mean recv above 1.6 or the result exchange above 15 % of wall.
-If wanted later: (1) weighted shares in `mdb_share` (needs a re-layout exchange between products, probably cancels the gain; not recommended); (2) better, shrink the volume: where pa = pb, sum the transform-domain products of one anti-diagonal before the inverse transform and CRT (needs a CRT bound check, `P24` limit 10^60; larger project, unevaluated idea); (3) cheap probe first: a per-round arrival timestamp in `COMM_XSTATS` for `XK_RESULT` plus one 10-node run.
+If wanted later: shrink the volume (where pa = pb, sum the transform-domain products of one anti-diagonal before the inverse transform and CRT; needs a CRT bound check against the `P24` limit 10^60; unevaluated idea). Weighted shares in `mdb_share` are not recommended (the re-layout between products probably cancels the gain).
 
 ### K1b: raw-once gather (S39 candidate A, O7b lever 3) -- `DIST_GATHER_RAW`
 
-Branch k1b from main a448d73. Status now: **adopted, default 2** since 2026-10-12 (README row owns the semantics; `results/COMPUTE.md §CAND`).
+Status: **adopted, built-in default 2** since 2026-10-12 (branch k1b from main a448d73; `results/COMPUTE.md §CAND`).
 
 ##### 1. Question
 O7b (`archive:results/O7b.md`): `k_gather` is the largest kernel at 6.441e10 on one node (6.34 s APU0, 174 calls x 36.5 ms per APU, 15 % of GPU time, m) plus `k_bload` 1.2 s. S39 candidate A: gather each operand once without the canon, then canonicalise per prime with a local elementwise pass; O7b modeled 2.5-3.6 s. S40 (aac7) found the gather is not bound by the remote pull (remote 36.1 ms vs local 35.9 ms with the select kernel, m), which only removes S39's reason; raw-once saves whenever the gather costs much more than a coalesced canon pass, whatever bounds it. S50's tile kernel bought only 5 ms of 35 ms, so the store alone is not the bound either.
 
 ##### 2-3. Probe and implementation
-Micro-test `tests/t_gather_raw_probe.c`: V0 gather + canon (product), V1 raw gather, V2/V3 canon pass plane->plane / in place, V4 pow2 index, V5 local source; shapes rows 8192 x C 65536 and 1024 x C 524288; all variants bit-identical. Stop rule: continue only if modeled saving = 174 x 36.5 ms x (1 - RATIO4) >= 1.5 s.
-Implementation (`rns_dist.c`, `dist_core` only: the single-node C-form product; the multi-node tier's `k_gather_mn24_np` already reads once for all planes): `k_gather_raw<QS>`, `k_canon_pass`, `gather_raw_all()`. `=1`: A through its own plane xa[np-1], B through its cache plane when it has one (no extra memory). `=2`: additionally B without a cache plane through one extra q-limb plane (4.29 GB per APU at 2^29 points, mod) taken only from the block pool's free extents (no growth, no hipMalloc) and only if `DIST_GATHER_RAW_MARGIN_GB` (default 2) stays free; else B per prime. Digits identical by construction. `k_bload` unchanged.
+
+Micro-test `tests/t_gather_raw_probe.c` (all variants bit-identical); stop rule: continue only if the modeled saving 174 x 36.5 ms x (1 - RATIO4) is at least 1.5 s. Implementation in `rns_dist.c` (`dist_core` only, the single-node C-form product): `=1` gathers A through its own plane and B through its cache plane when it has one (no extra memory); `=2` additionally gathers B without a cache plane through one extra q-limb plane (4.29 GB per APU at 2^29 points, mod) taken only from the block pool's free extents and only if `DIST_GATHER_RAW_MARGIN_GB` (default 2) stays free; else B per prime. Digits identical by construction. Detail: `archive:TRANSPORT_ARCHIVE_2026-11-10.md §K1b`.
 
 ### P2: speed up k_gather -- stopped after a micro-probe; no switch added
 
@@ -335,59 +350,35 @@ Implementation (`rns_dist.c`, `dist_core` only: the single-node C-form product; 
 
 (Details moved to `archive:repo_cl6_2026-10-25/results/EXCHANGE.md`, 2026-10-25.)
 
-## OFI_FABRIC — comm_ofi (libfabric multi-NIC path), NIC use, the fabric limit and the exchange rate versus the NIC rate
+## OFI_FABRIC — comm_ofi (libfabric multi-NIC path, removed 2026-10-25), NIC use, the fabric limit and the exchange rate versus the NIC rate
 
-Condensed 2026-10-19 (task 8b) from the merged per-item reports; originals in `archive:results_merged_2026-10-19/`, raw data and
-drivers in `archive:results_raw_2026-10-19/`. Old IDs resolve through `archive:results_merged_2026-10-24/INDEX.md`. Labels: **m** measured, **d** derived
-from measured numbers, **mod** modeled, **a** assumed. Times Eastern.
+Status 2026-11-10: historical for the transport (`comm_ofi.c`, `COMM_OFI` and `COMM_XSTATS` were removed 2026-10-25, Q103; the libfabric data plane is `xshmem_ofi.c`, path 1, `README.md`); the fabric measurements stay valid. Labels: m measured, d derived, mod modeled, a assumed. Per-item sections: `archive:repo_cl6_2026-10-25/results/OFI_FABRIC.md`; the replaced bullets: `archive:TRANSPORT_ARCHIVE_2026-11-10.md §OFI_FABRIC`.
 
 ### Topic summary
 
-- **Superseded in part (2026-10-25, Q103).** `comm_ofi.c` (`COMM_OFI`, `COMM_OFI_POOL`, `COMM_XSTATS`) was removed; the libfabric data plane is now `xshmem_ofi.c` (path 1, `README.md`). The fabric measurements below stay valid; the switch names in them refer to the removed transport, and the bullets "Why comm_ofi exists", "Adopted and current" and "Memory" describe it as it was (`COMM_OFI` no longer exists; `COMM_OFI_POOL_MB` and `COMM_OFI_NICS` remain, README).
-- **Why comm_ofi exists.** Cray OpenSHMEMX binds one NIC per PE, and ecalc runs one process per node with four APU threads, so
-  all of a node's exchange data went through one 200 Gb/s NIC (23.3 GB/s raw, m). One process can drive all four cxi NICs through
-  libfabric (93.3 GB/s per node, m, §NIC16_experiments). `comm_ofi` does that for the data of every device exchange of
-  `comm_shmem.c`; SHMEM keeps init, control words, signals and barriers.
-- **Adopted and current.** `COMM_OFI` defaults to 1 wherever a cxi NIC is present (user decision 2026-10-06; `COMM_OFI=0` restores
-  the SHMEM-only path exactly). Chunk 4 MiB and window 64 per NIC stay (tuning is flat, §TUNE17). Digits identical everywhere tested.
-  Bench: all-to-all aggregate per node 44-48 GB/s at 4-10 nodes vs SHMEM 12-15 (m, §OFI17); full 10-node run 3532 s -> 1670 s
-  (-52.7 %, m, §STD17), after which the part-file write to NFS (897.6 s) is the largest phase.
-- **Memory.** Under comm_ofi staging lives in a per-device comm pool (`COMM_OFI_POOL_MB`); the planner, `mem_model.py` and `mnrun.sh`
-  count it since OFIMEM (§STD17). B7 (the general map's v-slots, about 13 GB per node outside the layout) was confirmed there; since
-  2026-10-12 the v-slots come from the comm pool by default (`COMM_LAYER_VSLOT_POOL`, §XEFF item 2), see ecalc/README.md.
-- **Where the rate is still lost.** Layered (inter-stage) exchanges run at 78-82 % of the NIC at 4 nodes but 10-11 GB/s per APU thread
-  at 10 nodes against 23.3 raw; direct exchanges (redistribution, results, spills) run near 1.9 GB/s and absorb skew (§XEFF, §C02).
-  Of the items proposed in §XEFF: peer order (`rot`, now spelled `shift` in `COMM_SHMEM_PEER_ORDER`; wall-neutral, SHMEM_ITEMS),
-  `COMM_XSTATS` (built), VSLOT_POOL + INTER2 (built; INTER2 default on until 2026-10-21, now 0, results/TRANSPORT.md); item 4 (OFI-native signalling) was shown NOT worth building (X3).
-  §C02's `rr`/`winK` schedules were designed and a probe queued; the engine switch was not built.
-- **Four PEs per node** (§P16) wins at 4 nodes / 10^10 (26 s vs 35-45 s, m) but loses 3.7x at 8 nodes, 2.4x at 4 x 10^10, does not
-  fit memory at the target and needs per-PE plumbing; superseded by the proxy-PE work (`COMM_SHMEM_PE_PER_APU`, `archive:results_merged_2026-10-23/SHMEM_ITEMS_full.md`,
-  results/TRANSPORT.md). The one-PE-per-APU rewrite was not built.
-- **uffd.** `FI_MR_CACHE_MONITOR=userfaultfd` is the `mnrun.sh` default (S46, results/CORRECTNESS.md §S46); the 46-run soak (§T12)
-  found 0 crashes, which is consistent with but does not prove removal.
-- **Superseded/dated:** NIC16's own 2-node confirmation (its probes failed on a gres option; the `t_comm --bw` drivers of §OFI17
-  replace it); §TUNE17 two-NICs-per-device has no gain on aac7 (one NIC per APU) and is correctness-only there; §P16's open items 1-9
-  are history except the `MN_SELFTEST_GROW` finding (a launch of 32 or more node-processes stops at the layered self-test unless the
-  switch is set; see ecalc/README.md for its current default).
+- **Why a multi-NIC path.** Cray OpenSHMEMX binds one NIC per PE, and the node-process layout (one process, four APU threads) sent all exchange data through one 200 Gb/s NIC (23.3 GB/s raw, m); one process driving all four cxi NICs through libfabric reached 93.3 GB/s per node (m).
+- **Measured (m).** All-to-all aggregate per node 44-48 GB/s at 4-10 nodes against SHMEM 12-15; a full 10-node run 3532 -> 1670 s (-52.7 %), after which the part-file write to NFS (897.6 s) was the largest phase. Chunk 4 MiB and window 64 per NIC (tuning flat). Digits identical everywhere tested.
+- **Where the rate was lost.** Layered (inter-stage) exchanges ran at 78-82 % of the NIC at 4 nodes but 10-11 GB/s per APU thread at 10 nodes against 23.3 raw; direct exchanges (redistribution, results, spills) ran near 1.9 GB/s and absorb skew. OFI-native signaling was shown not worth building (X3); the second exchange in flight (`COMM_LAYER_INTER2`) was built and removed (see SHMEM below).
+- **Four PEs per node (P16)** won at 4 nodes / 1e10 (26 s vs 35-45 s, m) but lost 3.7x at 8 nodes and 2.4x at 4e10 and did not fit memory at the target; the one-process-per-GPU layout (PPG above) supersedes it.
+- **uffd.** `FI_MR_CACHE_MONITOR=userfaultfd` is the `mnrun.sh` default (S46, `results/CORRECTNESS.md §S46`); a 46-run soak (§T12) found 0 crashes, consistent with but not proof of safety.
+- **TUNE17.** Two NICs per device have no gain on aac7 (one NIC per APU); correctness-only there. `COMM_OFI_NICS` and `COMM_OFI_POOL_MB` remain (README). `MN_SELFTEST_GROW` (a launch of 32 or more node-processes stopped at the layered self-test) is no longer read by the code.
+- **Superseded.** NIC16's own 2-node confirmation (its probes failed on a gres option; the `t_comm --bw` drivers of §OFI17 replace it); the comm_ofi memory accounting (per-device comm pool, OFIMEM) is gone with the transport.
 
-The per-item sections (tables, drivers, run lists) were moved to `archive:repo_cl6_2026-10-25/results/OFI_FABRIC.md` (2026-10-25); section anchors that cited them now point to this summary.
+## SHMEM — the plain OpenSHMEM transport (removed 2026-10-25): pool sizing law, stall cause, gap to libfabric
 
-## SHMEM — the plain OpenSHMEM transport: pool sizing, the closing record, the stall checklist
-
-Scope: what is established about the plain OpenSHMEM transport (`COMM_TRANSPORT=shmem`, `comm_shmem.c`, with `comm_ofi.c` as its data plane), which was removed 2026-10-25 (Q103;
-the transport is xshmem on both paths, `results/TRANSPORT.md`; `README.md` describes the two paths): the symmetric pool and its sizing law (§P214, §V114), the Cray SHMEM phase on aac7
-(closing record), and the checklist for node-wide stalls. The proxy-mode records and the stall investigation (items 37-99, 97a-97t) are in `archive:results_merged_2026-10-23/`
-(`SHMEM_full.md`, `SHMEM_ITEMS_full.md`, `SHMEM_STALLS.md`); §S, §S12 and §SHM of the former SHMEM_ITEMS are in `archive:results_merged_2026-10-24/SHMEM_ITEMS.md`. Old IDs resolve
-through `archive:results_merged_2026-10-24/INDEX.md`. Labels: (m) measured, (mod) modeled, (a) assumed.
+Status 2026-11-10: removed. The plain OpenSHMEM transport (`comm_shmem.c`, `COMM_TRANSPORT=shmem`, `COMM_SHMEM_*`, with `comm_ofi.c` as data plane) was deleted 2026-10-25 (Q103); xshmem is the transport on both paths (`README.md`). Records of proxy mode and the stall investigation (items 37-99, 97a-97t): `archive:results_merged_2026-10-23/` (`SHMEM_full.md`, `SHMEM_ITEMS_full.md`, `SHMEM_STALLS.md`; §S, §S12, §SHM in `archive:results_merged_2026-10-24/SHMEM_ITEMS.md`). Labels: (m) measured, (mod) modeled, (a) assumed.
 
 ### Summary (what the records establish)
 
 - **Pool law.** Pool = 4 APU threads x (send + receive) of the largest staged exchange; exact (§P214); rounds cut the second copy (§V114: 1e10 on 2 nodes pool 8194 -> 2050 MiB, total not slower, m).
-- **Stalls.** The random multi-second stalls of the node-process layout were kernel proactive compaction of its pinned 4 KiB symmetric heap, which evicts the GPU queues; a 2 MiB-page heap (`COMM_SHMEM_NP_HEAP_THP=1`, D48) gave 0 stalls in 16 runs at 3 nodes against 9 in 24 (m). The checklist for a recurrence follows.
-- **Gap to libfabric.** 3 n 1.9323e11: SHMEM 157.0 against libfabric 143.0 s, all of it waiting in the layered variable-count exchange (closing record section 1); proxy mode (one helper PE per APU) never closed it and was removed (Q78); SHMEM 3.0 times comm_ofi at 6 nodes with the earlier best settings (m).
-- **One exchange in flight** (`COMM_LAYER_INTER2` removed, 2026-10-21): 3 n 1.9323e11 SHMEM 149.9 -> 143.2 s, libfabric 140.2 -> 137.2 s (m, 14 runs, digits unchanged).
+- **Stalls.** The random multi-second stalls of the node-process layout were kernel proactive compaction of its pinned 4 KiB symmetric heap, which evicts the GPU queues; a 2 MiB-page heap (`COMM_SHMEM_NP_HEAP_THP=1`, D48) gave 0 stalls in 16 runs at 3 nodes against 9 in 24 (m). The Cray backend of xshmem shows the same heap property (craylane above).
+- **Gap to libfabric.** 3 n 1.9323e11: SHMEM 157.0 against libfabric 143.0 s, all of it waiting in the layered variable-count exchange; proxy mode (one helper PE per APU) never closed it and was removed (Q78); SHMEM was 3.0 times comm_ofi at 6 nodes with the earlier best settings (m).
+- **One exchange in flight** (`COMM_LAYER_INTER2`, removed 2026-10-21): 3 n 1.9323e11 SHMEM 149.9 -> 143.2 s, libfabric 140.2 -> 137.2 s (m, 14 runs, digits unchanged).
 
 ## DIAG — diagnostics for the exchange engine and the init timeline
+
+Status: built, merged, current (`XSHMEM_ROUND_STATS`, `ECALC_INIT_TL`; branch diag, gates on path 1 and 2).
+
 **Results (all measured, aac7, 2026-11-01).**
 
 | check | result |
@@ -418,7 +409,7 @@ Per-tag table, node-process 0 (4 PEs summed), 2 nodes, 1.3264e11 digits, `XSHMEM
 
 Maximum over the 8 PEs (rounds): layeq 5,033, addsh 747, redist 507, result 384, spill 80, other 31.
 **Verdict.** Diagnostics only; digits identical in every gate; stderr is a few lines per run. `layeq` (the layered inter-node equal-size exchange) is 89 % of the exchanges, 74 % of the rounds and 75 % of the bytes; `addsh` is 4.6 % of the exchanges and 11 % of the rounds. At 2 nodes the mean round is 79 MB: the round size follows the pair size (layeq pairs are 268 MB), not the 128 MB cap. The 576-node table (`XSHMEM_ROUND_STATS=1`) will show whether the 14 MB mean there is the same effect (hypothesis, not yet measured). This table is the input for the task "rounds sized by active pairs".
-**Open issues.** The old negative-sample rate was not re-measured on the old binary. Teardown at 576 nodes not remeasured. The per-tag maximum over PEs uses offset 0 of the DATA heap at finalize (all exchanges complete, barriers around it). `gate.sh --build` was not used for the gates (see Method). Not run: 3-node checks.
+**Open issues.** The old negative-sample rate was not re-measured on the old binary. Teardown at 576 nodes not remeasured. The per-tag maximum over PEs uses offset 0 of the DATA heap at finalize (all exchanges complete, barriers around it). Not run: 3-node checks.
 
 ### N1 step 1: per-tag round counters at the 576-node chunk size, 2 nodes (branch netmeas, 2026-11-01 19:44-20:33 ET, aac7, measured)
 
@@ -460,13 +451,11 @@ At 1e10 the shares are the same within 1 point (S: layeq 78.7 %, addsh 8.6 %, re
 
 ## INITWAIT — the seed thread's wait for the region pools, and the layered self-test line (2026-11-01)
 
-**S3 (print only, always on, multi-node).** Rank 0 prints `init: layered transport self-test <s> s (rank 0; part of the init figure; mn_selftest <s> s)`. The `ECALC_INIT_TL=1` line `init = ...` now has a `layered self-test` term (before, that time was hidden in `other`). Digits and behavior unchanged. Measured at 2 nodes on aac7: 0.16-0.30 s (the 4-13 s was a 576-node figure; the user's rule, keep it while under 15 s, is not touched).
+Status: measured, switch not kept (removed 2026-11-01). **S3 (print only, always on, multi-node).** Rank 0 prints `init: layered transport self-test <s> s (rank 0; part of the init figure; mn_selftest <s> s)`; the `ECALC_INIT_TL=1` line `init = ...` has a `layered self-test` term. Measured at 2 nodes on aac7: 0.16-0.30 s (the 4-13 s was a 576-node figure; the user's rule, keep it while under 15 s, is not touched).
 
-**S2, why the seed thread waits (code reading).** `rns_init` maps staging, then the plane pools, then calls the hook `binsplit_seeds_begin`. The hook starts the seed thread and then the main thread builds the region pools (`binsplit_pregrow`, first half of each VMM arena synchronously, the rest in the background). The seed thread has two pinned buffers of one chunk each (8 GiB with VMM arenas); it fills both in about 2.7 s and then must wait for the pools, because a VMM range takes no CPU stores and the DMAs need the pool addresses. So the wait is the mapping time of the first arena halves, done by the main thread through the HIP runtime. The pools are created by the main thread, after the plane pools, in `rns_init`.
+**Why the seed thread waits (code reading).** `rns_init` maps staging, then the plane pools, then calls `binsplit_seeds_begin`; the seed thread fills its two pinned buffers (8 GiB with VMM arenas) in about 2.7 s and then waits for the region pools (a VMM range takes no CPU stores, the DMAs need the pool addresses). The wait is the mapping time of the first arena halves, done by the main thread through the HIP runtime.
 
-**Measured switch `ECALC_INIT_EARLY_POOLS=1` (default 0; measured at commit 2b4462f and not kept, removed by the coordinator's decision of 2026-11-01).** The hook ran before the plane pools (same bytes, same order inside the hook). Risk: plane pools mapped last may get small pieces near the node memory edge (N414 effect; the earlier `RNS_REGIONS_FIRST` at 1 node 1e11 digits made the run 2 x slower, archive:results_merged_2026-10-24/TESTING_VERIF.md). Not tested near the edge here. Earlier experiments with the other two ways (plane pools in a helper thread, a seed prebuffer) gave nothing (results/COMPUTE.md, section INIT).
-
-**Results (measured; init in s, rank 0, median of 3 with the range).**
+**Measured switch `ECALC_INIT_EARLY_POOLS=1` (default 0, commit 2b4462f; not kept).** The hook ran before the plane pools (same bytes, same order). Risk: plane pools mapped last may get small pieces near the node memory edge (the earlier `RNS_REGIONS_FIRST` made a 1-node 1e11 run 2 x slower); not tested near the edge. Init in s, rank 0, median of 3 with the range:
 
 | nodes | digits | switch unset | switch set | seed thread ends (tl s) unset / set |
 |---|---|---|---|---|
@@ -475,9 +464,7 @@ At 1e10 the shares are the same within 1 point (S: layeq 78.7 %, addsh 8.6 %, re
 | 1 | 1000000000 | 5.14 (4.85-5.30) | 6.17 (5.91-6.23) | 5.2 / 2.2 |
 | 1 | 16000000000 | 15.02 (12.45-20.95) | 16.61 (15.80-16.68) | 16.5 / 13.6 |
 
-Reading. At 2 nodes the switch lowers init by 0.5-0.7 s (4-5 %) and the seed thread ends 3-4 s earlier, but the seed does not bind init there. At 1 node init gets 1 s worse at 1000000000 digits (ranges do not overlap) and about 1.6 s worse at 16000000000 (ranges overlap; the unset arm is bimodal, 12.5-21 s). At 576 nodes the seed work is far larger, so the earlier seed end could matter, but it was not run at that scale; the node memory there (416 of 480 GB) is near the edge where the fragmentation risk applies.
-
-**Conclusion.** The switch is not kept (no gain at 1 node, under 1 s at 2 nodes; fewer switches). The wait is the VMM mapping of the region pools through the HIP runtime in one process driving four GPUs; it overlaps only partly, and the real fix is per-device allocator processes (plan item S1).
+At 2 nodes the switch lowers init by 0.5-0.7 s (4-5 %) and the seed thread ends 3-4 s earlier, but the seed does not bind init there; at 1 node init gets 1 s worse at 1e9 (ranges do not overlap) and about 1.6 s worse at 1.6e10 (ranges overlap; the unset arm is bimodal, 12.5-21 s). At 576 nodes the seed work is far larger, but it was not run at that scale and the node memory there (416 of 480 GB) is near the edge where the fragmentation risk applies. **Conclusion.** Not kept (no gain at 1 node, under 1 s at 2 nodes; fewer switches). The wait is the VMM mapping of the region pools through the HIP runtime in one process driving four GPUs; the real fix is per-device allocator processes (`ECALC_MAPD`, TASKS 12).
 
 ## CACHE — the multi-node transform cache
 
@@ -520,41 +507,11 @@ of runs slow): independent of arm, node, rank, ABBA position, preceding run, tim
 
 ### §T09 - the bimodal 4-node totals (2026-10-11, aac7, session task t09)
 
-Question: why do 4-node runs at 6.441e10 digits per node (2.5764e11 digits) come out at 180-186 s in one run and 207-213 s in the next, on the same hosts? Code origin/main ceb94c1 (`make -B SHMEM_CRAY=1`),
-no code change; hold 12507 (4 nodes, 11:30-12:18 EDT), aac7 launch line + `COMM_XSTATS=1 MN_WAIT_STATS=1 ECALC_INIT_TL=1`, no digit output, reference files evicted before each run. 10 runs VERIFY OK, 2 aborted by
-the memory guard. Logs of runs 1-2 lost (label bug, fixed in the driver); totals kept.
-
-| runs (m) | total s | dm rate GB/s per PE | note |
-|---|---|---|---|
-| 1-2 | 247.6, 257.7 | - | base, first runs of the hold |
-| 3, 4 | 233.8, 224.2 | 8.8-10.5, 9.3-11.2 | slow; run 4 plain `srun` block order |
-| 5-9, 11 | 181.1-185.1 | 13.0-15.9 | fast (stable to +-2 s); incl. run 8 rank order rotated by 2, run 9 after 60 s pause |
-| 10 | 209.0 | 9.9-12.0 | slow, after an aborted fill run |
-
-**Findings (m).** Bytes moved are identical in both modes; the exchange rate of every PE drops by the same factor (dm 0.70-0.72, bs 0.81-0.84); PE ordering unchanged: a uniform slowdown, not one node, rank or link.
-Run 4 vs 5: dm +22.8 s, bs +13.5, recip +3.7, init +4; waits rise on all four nodes together (dm wait 172-184 vs 146-160 s); barrier time 0. Not tied to node set, rank order, launch form, 60 s pause or eviction. Pre-run
-meminfo/buddyinfo do not separate the modes (run 10 vs 11 identical); Cached fell 160 -> 88-97 -> 81-83 GB over the first runs, so slow runs 1-3 coincide with cached memory still being reclaimed. The page-cache fill test
-(80 GB to /tmp) could not be done: MemAvailable fell to the 6 GB guard (rc 9/8).
-**Explanation.** Established: a ~25-30 % lower node-to-node exchange rate on all four nodes at once for the same bytes, lasting several consecutive runs (runs 1-4 = 17 min after the hold began; run 10 alone). Not established:
-the cause (candidates: concurrent fabric traffic from other jobs of the same session, unread and unproven; host-memory state after allocation start, not shown). Practical rule: the first runs of a fresh 4-node hold
-(~15-17 min, 4 runs here) are slow; timing A/B pairs should discard or randomise over them (ABBA does) and record each run's mode (dm >= 13 GB/s on PE 0 = fast, <= 10 = slow).
-**Open then.** A second hold while the session is quiet (done in §A13); a controlled reclaimable memory fill.
+Status: historical (main ceb94c1, aac7, hold 12507, 4 nodes, 6.441e10 per node, 2026-10-11); conclusions are in the Topic summary. Of 12 runs, 10 VERIFY OK and 2 stopped by the memory guard. Totals (m): runs 1-2 (first of the hold) 247.6 and 257.7 s; runs 3, 4 slow 233.8, 224.2 s (dm rate 8.8-11.2 GB/s per PE); runs 5-9 and 11 fast 181.1-185.1 s (13.0-15.9 GB/s, stable to +-2 s, including a rotated rank order and a 60 s pause); run 10 slow 209.0 s (9.9-12.0). Bytes moved are identical in both modes; the exchange rate of every PE drops by the same factor (dm 0.70-0.72, bs 0.81-0.84): a uniform slowdown, not one node, rank or link. Not tied to node set, rank order, launch form, pause or eviction; pre-run meminfo does not separate the modes. Practical rule: the first runs of a fresh 4-node hold (about 15-17 min, 4 runs here) are slow; timing A/B pairs should discard or randomize over them (ABBA does) and record each run's mode (dm >= 13 GB/s on PE 0 = fast, <= 10 = slow). Detail: `archive:TRANSPORT_ARCHIVE_2026-11-10.md §T09`.
 
 ### §A13 - 4-node slow mode on a quiet aac7 (part A) and the DIST_LOGN_TEST 4-node "65 corrections" (part B)
 
-2026-10-11, aac7, main 6d80ef1, production defaults, no code change; gate `--nodes 1` PASS. One 4-node hold (job 12531, 55 min). Drivers `archive:drivers/a13/`; raw NIC snapshots stayed on aac7.
-
-**Part A: is the slow mode fabric state or set at process start? (m)** 6 back-to-back real runs (4 x 6.441e10), `FI_MR_CACHE_MONITOR=userfaultfd COMM_XSTATS=1 MN_WAIT_STATS=1`, a stand-alone
-`t_comm --bw 4 250 256` probe launched like a real run between runs, NIC telemetry counters (`oxe_*`, ~1900 per NIC) and `ethtool -S` read before and after everything. Nothing else of anyone's ran.
-
-| run | total s | init | bs | dm | all-to-all GB/s per thread | mode | OXE MCU group |
-|---|---|---|---|---|---|---|---|
-| r001 | 220.6 | 47.6 | 78.2 | 91.6 | 12.00 | mid | B |
-| r002 | 197.6 | 35.7 | 71.0 | 86.1 | 13.10 | fast | B |
-| r003 | 196.8 | 37.7 | 70.7 | 84.6 | 13.07 | fast | B |
-| r004 | 220.0 | 34.9 | 76.0 | 104.0 | 10.99 | slow | A |
-| r005 | 200.2 | 33.9 | 75.5 | 87.5 | 11.60 | slow | A |
-| r006 | 182.0 | 32.1 | 69.4 | 77.0 | 13.68 | fast | B |
+Status: historical (aac7, main 6d80ef1, hold 12531, 2026-10-11; drivers `archive:drivers/a13/`). **Part A (m).** Six back-to-back real runs (4 x 6.441e10) on a quiet cluster with NIC telemetry before and after: totals 220.6 / 197.6 / 196.8 / 220.0 / 200.2 / 182.0 s; all-to-all 12.00 / 13.10 / 13.07 / 10.99 / 11.60 / 13.68 GB/s per thread; modes mid / fast / fast / slow / slow / fast; the OXE MCU group was B, B, B, A, A, B (A slow, B fast), so the mode is set at process start (see §A14). **Part B** (the DIST_LOGN_TEST 4-node "65 corrections"): not reproducible on main. Detail: `archive:TRANSPORT_ARCHIVE_2026-11-10.md §A13`.
 
 ### §A14 - what picks the "slow mode" NIC group at launch? (aac7, 2026-10-11)
 
@@ -590,13 +547,13 @@ Scope: the aac7 port (Phase 16): bring-up at 2 to 10 nodes, the A/Bs, the scaled
 ### Topic summary
 
 - **Superseded in part (2026-10-25, Q103).** `comm_shmem.c` and its `COMM_SHMEM_*` switches were removed (archived in `archive:code_2026-10-25/`); the Cray SHMEM path is now `XSHMEM=cray` behind `xshmem.h` (`README.md`, path 2). The port facts below about libsma itself (host heap, THREAD_MULTIPLE, init segfaults) still hold.
-- **What it is.** ecalc runs on aac7 (MI300A nodes, 4 APUs per node, 4 Cassini NICs, Slingshot-11, Cray OpenSHMEMX 11.8.0 over cxi) through `make XSHMEM=cray GMP_HOME=<gmp>` (path 2; at port time `make SHMEM_CRAY=1`, which no longer exists; the default build is path 1, libfabric); the launch wrappers are `ecalc/mnrun.sh` and `ecalc/aac7env.sh`; switch and variable rows are in `ecalc/README.md` (authoritative for defaults).
-- **Port facts.** Cray SHMEM is OpenSHMEM 1.5 with THREAD_MULTIPLE, contexts and put-with-signal: the generic SHMEM branch of the removed comm_shmem.c applied unchanged (at port time). Its symmetric heap is **host memory** (no HIP in libsma), so `COMM_SHMEM_DEVHEAP=1` falls back to the HIP-registered host pool (same HBM on the APU). One NIC per PE by default; `SHMEM_OFI_NUM_NICS=4` vs 1 made no measurable difference (2 and 4 nodes). Allocations are `--exclusive -c 192`.
+- **What it is.** ecalc runs on aac7 (MI300A nodes, 4 APUs per node, 4 Cassini NICs, Slingshot-11, Cray OpenSHMEMX 11.8.0 over cxi) through `make XSHMEM=cray GMP_HOME=<gmp>` (path 2; at port time `make SHMEM_CRAY=1`, which no longer exists; the default build is path 1, libfabric; status: port done, current); the launch wrappers are `ecalc/mnrun.sh` and `ecalc/aac7env.sh`; switch and variable rows are in `ecalc/README.md` (authoritative for defaults).
+- **Port facts.** Cray SHMEM is OpenSHMEM 1.5 with THREAD_MULTIPLE, contexts and put-with-signal: the generic SHMEM branch of the removed comm_shmem.c applied unchanged (at port time). Its symmetric heap is **host memory** (no HIP in libsma), so xshmem registers it with `hipHostRegister` (same HBM on the APU). One NIC per PE by default; `SHMEM_OFI_NUM_NICS=4` vs 1 made no measurable difference (2 and 4 nodes). Allocations are `--exclusive -c 192`.
 - **Digits.** Identical to the references at every size tried: 10^9 and 10^11 on 1 node (sha1 of the 10^11 file equals aac6's), 10^9 .. 10^11 on 2 / 4 / 8 / 10 nodes, and 8.4 x 10^11 on 10 nodes (in-run VERIFY + packed RECHECK + leading 10^11 prefix).
 - **Default stack now: ROCm 7.2.4** (`AAC7_ROCM`, §V16); newest version that builds (7.12+ fail the HIP device link with a -fPIC error); 7.14.0 builds only in a later test and shows no detectable speed difference (§ROCM). Cray OpenSHMEMX 11.8.0, libfabric 2.3.1, cray-mpich 9.1.0 are already the newest on aac7. Every `rocm/*` module carries `conflict rocm`: unload `rocm/7.0.3` by exact name before loading another (silent failure otherwise).
 - **Fabric rate is the wall.** Post-to-completion all-to-all per APU thread: 3.7 GB/s at 2 nodes, 2.8 at 4, 1.3-2.0 at 8, 1.3-1.6 at 10 (10^10 per node), 1.31 at 10 nodes x 8.4 x 10^10; the model (`estimate.py`) with the measured rate matches the 10-node record within -6 % / -5 %; with an assumed 25 GB/s it is 6-9x too optimistic. The compute side of the model holds.
 - **Walls and noise.** Same configuration spans +-25 % job to job at 4 nodes; 8 nodes showed within-allocation drift (ranks 0-3, 2-10x slower), 10 nodes did not; a later 10-node run saw level 2 5-7x slower than 80 min earlier (shared fabric / NFS, cause unmeasured). NFS (about 0.1 GB/s per writer) puts the part-file write inside `total` on aac7 unless parts go to RAM `/tmp` or `ECALC_CHECKPOINT=0`.
-- **Open / dropped.** Open: intermittent `shmem_init_thread` segfault of task 1 at 2 nodes x 10^10 (3 in 23 launches, §A16; 0 in 12 / 12 launches at 4-10 nodes); wrap launches in `timeout` and retry. Dropped: RCCL all-to-all (0.24x the push kernel), `COMM_SHMEM_SERIAL=1` (unstable), `RNS_DIST_CACHE_PARTIAL=0` (does not fit memory at 4 x 10^10 per node), FI_CXI / NIC-policy tuning (no gain >5 %), 4 PEs per node at 2 nodes (memory guard without `ECALC_PLANE_CAP`).
+- **Open / dropped.** Open: intermittent `shmem_init_thread` segfault of task 1 at 2 nodes x 10^10 (3 in 23 launches, §A16; 0 in 12 / 12 launches at 4-10 nodes); wrap launches in `timeout` and retry. Dropped: RCCL all-to-all (0.24x the push kernel), `COMM_SHMEM_SERIAL=1` (unstable, removed with the transport), `RNS_DIST_CACHE_PARTIAL=0` (does not fit memory at 4 x 10^10 per node), FI_CXI / NIC-policy tuning (no gain >5 %), 4 PEs per node at 2 nodes (memory guard without `ECALC_PLANE_CAP`).
 - **Headline limit.** The target share 9.16 x 10^10 digits per node does not fit aac7 now: each rebooted node copies a 77 GB model cache into RAM (MemAvailable about 435-445 GB against a 454 GB layout); 12 nodes are never free (10 usable). E ran at 8.4 x 10^10 per node (§D16).
 - **Superseded numbers.** The 12-node modeled column and §5 "memory delta 0" for the full cache are superseded by §D16 s2; A16's 1-node 10^11 (206.7 s at ROCm 7.0.3) is superseded by the 7.2.4 figure 168.5 s quoted from C16 in §V16.
 
