@@ -76,6 +76,23 @@ Nothing built or run. Starting point (m, archive:results/A09.md, 6.441e10 per no
 - **Cached against available.** 83 GB of "Cached" coexisted with 5.5 GB of MemAvailable, so that cache was evidently not reclaimable (inferred). Evidence: the sampler counts Active(file) and Inactive(file) as free and still saw a NUMA-node minimum of 0.04 GB (APU 1) and 0.67 GB (APU 0); at 6.6e10, 1 node, Cached was 13 GB with 233 GB available, and at 2 nodes 1.5e11 62.6 GB against 59.5 GB available. Modeled reading (not verified, no Shmem breakdown in the log): the large Cached figure is shared or mapped memory attributed to the process (arena mappings), growing with the pool, so Cached is not a safe margin and the guard rightly follows MemAvailable.
 - **For the 6.04 GB per-APU margin (phase 1 C5).** Measured 6.6e10 (record per-node load) leaves 71.0 of 137.4 GB driver memory per APU; the busiest-phase pool peak keeps 3.5 GB per APU of pool unused. The margin is not tested at the edge: no passing point lies between 1e11 and the guard stop.
 
+#### M4 rerun, 1 node (aac7, 2026-11-10; harness-gap fix, one memory file per size)
+
+15 runs with VERIFY, 15 PASS, 0 failures, 0 infrastructure faults. Device high-water is the largest per-APU value of the run (measured); planner need is the pre-run estimate for the whole node (modeled). Wall is the harness time of the run, 1 node.
+
+| Digits | Rep | Wall s | Planner need GB | Measured device_hwm GB (max APU) |
+|---|---|---|---|---|
+| 1e10 | 1 / 2 | 23 / 23 | 191.4 | 54.1 / 51.6 |
+| 2e10 | 1 / 2 | 34 / 32 | 238.6 | 75.6 / 75.1 |
+| 3.5e10 | 1 / 2 | 44 / 45 | 268.7 | 77.1 / 77.1 |
+| 5e10 | 1 / 2 | 63 / 61 | 294.7 | 81.7 / 79.9 |
+| 6.6e10 | 1 / 2 | 80 / 78 | 316.5 | 82.6 / 82.0 |
+| 8e10 | 1 / 2 | 100 / 102 | 351.1 | 91.4 / 91.9 |
+| 1e11 | 1 / 2 | 134 / 135 | 413.8 | 118.1 / 118.2 |
+| 1.15e11 | 1 / 2 | 154 / not run | 450.6 | 119.7 / not run |
+
+The need is the whole-node total; the measured value is the single most loaded APU of four. The planner is therefore conservative against the per-APU peak. Rep 2 at 1.15e11 was skipped by the memory pre-check (439.7 GB available, 450.6 GB needed plus 10 GB margin, after 120 s wait). Rep 1 at 1.15e11 passed, so the expected 1-node guard stop there did not occur: the external file that held about 230 GB of host memory in the earlier campaign is gone. The `DR:` exit lines are not expected on 1 node (one process, DR inactive).
+
 ### §MAP15 — Phase 15 Batch 2, row 5 (N2): the arena's mapping, the seeds and level 1
 
 Agent MAP, branch `p15-MAP` from `int15d` 3e0a0db (= main B1 f184d51 + NP + AS + N3x, all off by default). **STOPPED after a second node failure; nothing here is adopted except the print-only timeline.**
