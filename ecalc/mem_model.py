@@ -22,7 +22,7 @@ TARGET_NP = 'auto' (the launch line's ECALC_NP=auto).  The mn transform cache: c
 (rns_dist.c rns_dist_cache_plan: ECALC_NODE_GB less the layout's node less the 32 GB reserve, over one slot per node): 0 at the target.
 --check-c defaults to BS_ARENA_ROOM 0.14 and reads ECALC_NP=auto from the file's `plan` lines.
 
-mn_model.py (and its estimate subcommand) import mem_per_node for their memory rows.  Every number is "modelled"
+mn_model.py (and its estimate subcommand) import mem_per_node for their memory rows.  Every number is "modeled"
 unless the calibration table says "measured"; the tables' sources are named in archive:results_merged_2026-10-24/MEMORY.md §M11.  Phase 12 (agent Q):
 the tree's g-terms in both forms -- 'flat' (the code at 7aded87) and 'grid' (agent G's gridded top product, archive:PLAN §27) --
 and L's level schedule (mn_groups, MN_GROUPS); see archive:results_merged_2026-10-24/TIME_MODEL.md §Q.
@@ -39,7 +39,7 @@ def set_pe(L, ppn_proc=1):
     """S1d (TARGET1): the PE planner, in lockstep with binsplit.c.  ECALC_PE_PER_GPU=1 with L lanes: a node is L identical PEs of one device each; every PE runs
     its own binary splitting over its term range with ONE region, so the per-node figures are the one PE's times L (arena, seed buffers, writer);
     the devices per node are L (planes, v-slots, comm pools, the quarter of the dm numbers); the checkpoint staging is L GiB.  The tree's group
-    schedule stays over the nodes (the groups below a node are not modelled until the PE-level products exist).  L = 0: off (the code before S1d)."""
+    schedule stays over the nodes (the groups below a node are not modeled until the PE-level products exist).  L = 0: off (the code before S1d)."""
     global NR, NRN, PE_LANES, PPN_PROC, HOST_STAGING, HOST_WRITER, HOST_EARLY
     PE_LANES = int(L); PPN_PROC = int(ppn_proc) if L else 1; NR = 1 if L else 4; NRN = int(L) if L else 4
     HOST_STAGING = (int(L) if L else 4) * (1 << 30) * (2 if L and PPN_PROC > 1 and os.environ.get('RNS_BATCH_SPLIT', '') == '1' else 1); HOST_WRITER = int(0.65 * GB) * lanes(); HOST_EARLY = int(0.9 * GB) * lanes()
@@ -540,7 +540,7 @@ def vslot_resident(nq, g, groups=None, pool_log=31, p24=None, depth=None):
 # ---------------------------------------------------------------- the other pools (measured constants where the code has them)
 def planes_3q30(pool_log=31, digits=0):
     """the 3 2^k plane pools (RNS_PLANES_3Q30 and its size rule) were removed from the code (SIMP, results/CODE_TOOLS.md §SIMP): never on.
-    The p3q30 / cap arguments below keep modelling the old runs measured with them"""
+    The p3q30 / cap arguments below keep modeling the old runs measured with them"""
     return False
 
 EC_NP = 3                                # Phase 13b step 0: three primes are the default for decimal limbs (ECALC_NP; binary limbs need 4)
@@ -643,7 +643,7 @@ K_CHUNKS_MEM = 8                                         # DIST_CHUNKS: the slab
 def host_size1(D):
     """the host HWM of a size-1 run (bytes), fitted on the measured runs (mem summary / VmHWM of the `total` line):
     4e10 12.1 (six runs, NP 3 and 4), 8e10 12.8-13.0, 1e11 13.9-14.0 GB -- 12.1 + 0.031 GB per 10^9 digits above 4e10; below
-    4e10 the init value 12.1 (the dm phase's host flows at <= 1e10 -- X and R on the host, 26-40 GB at 1e10 -- are NOT modelled:
+    4e10 the init value 12.1 (the dm phase's host flows at <= 1e10 -- X and R on the host, 26-40 GB at 1e10 -- are NOT modeled:
     the calibration lists 1e10 as the exception; no ceiling is decided there)"""
     return int((12.1 + 0.031 * max(0.0, D / 1e9 - 40.0)) * GB)
 
@@ -671,7 +671,7 @@ TARGET_DIGITS = 3.82e13                                 # CURRENT: the user deci
                                                         # at 576 (verified here 2026-10-06, b7-vslot aa86cac): device_with 363.526 GB vs the 373.44 GB measured
                                                         # edge (9.91 GB under), node 378.785 / 405.612 GB with the general-map v-slots (480 budget: +74.4 GB),
                                                         # pieces (node 0 / critical path) 103 / 107 (1236 products), `plan check` OK; mn_model.py estimate --fabric target-m
-                                                        # at this D/g: 221.9 s modelled without the output write / 225.1 s with it at --bw 47 (ROCm 7.2.4, MAP_RATE
+                                                        # at this D/g: 221.9 s modeled without the output write / 225.1 s with it at --bw 47 (ROCm 7.2.4, MAP_RATE
                                                         # 0.010 measured on the target).
                                                         # history: 4.08e13 (TGT17, 2026-10-06, superseded by this decision -- device 372.12 GB, 1.32 GB under the
                                                         # edge, 282.4 s mod at --bw 47), 5.276e13 (the target from the user's decision of 2026-09-29, Batch 3, to
@@ -692,7 +692,7 @@ VMM_DM_GROW_FILL = 16.3 * GB                            # MEASURED (RESULTS 86's
                                                         # (277.0 -> 289.9) where the fixed span grew 2.1; applied at size 1 with the fill (the arena is the bs
                                                         # regions' there); at size > 1 the arena is the dm need's and the fill leaves it unchanged (ASSUMED: no growth)
 HOST_EARLY = int(0.9 * GB)                              # MN_OUT_EARLY (results/MEMORY_IO.md §IO15 6): 2 chunks + the pinned limbs + the O_DIRECT staging at 256 MB, held
-                                                        # during the division's low product at size > 1 (modelled from the code's buffers)
+                                                        # during the division's low product at size > 1 (modeled from the code's buffers)
 HOST_SEEDBUF_VMM = 8 << 30                               # DB_POOL_VMM: seeds_stream's two pinned buffers of min(BS_SEED_CHUNK_MB 8192, the largest region's spans) each
                                                         # (binsplit.c; measured 21.5 GB pinned at init = 4 GiB staging + 2 x 8 GiB at 4e10-1.3e11 on one node)
 VMM_BS_GROW = 6.0 * GB                                   # MEASURED (size 1, the defaults): the device at the bs phase above the arena + planes mapped at init --
@@ -816,7 +816,7 @@ def shmem_products(nq_total, g, groups=None):
     return out
 
 def ofi_planned(env=None):
-    """Phase 17 OFIMEM: whether the device pools are modelled -- the C planner always counts them under xshmem (pass ofi=1 / COMM_TRANSPORT=xshmem
+    """Phase 17 OFIMEM: whether the device pools are modeled -- the C planner always counts them under xshmem (pass ofi=1 / COMM_TRANSPORT=xshmem
     in the env); this host test (a cxi NIC on this host, or COMM_OFI_PLAN_CXI=1) is the default when the caller does not say."""
     env = os.environ if env is None else env
     return os.path.exists('/sys/class/cxi/cxi0') or env.get('COMM_OFI_PLAN_CXI', '0') not in ('', '0')
@@ -883,7 +883,7 @@ def cache_mn_bytes(g, pool_log=31, np=4, slots=CACHE_MN_SLOTS_CODE, fit=False):
 def cache_report():
     """the cache at the target and one step below (TARGET_LAUNCH), and at the single-node test points of results/TRANSPORT.md"""
     groups = '2,4,8,16,32,64,192,576'
-    print('== Phase 15 TC: the mn transform cache (%d slots; GB per node, modelled)' % CACHE_MN_SLOTS_CODE)
+    print('== Phase 15 TC: the mn transform cache (%d slots; GB per node, modeled)' % CACHE_MN_SLOTS_CODE)
     for T in (TARGET_DIGITS, TARGET_BELOW):
         oo = dict(TARGET_LAUNCH, transport='xshmem', staging='code', depth=2, groups=groups, np=TARGET_NP); r = mem_per_node(int(T / TARGET_NODES), TARGET_NODES, oo)
         one = r['cache_slot']                                           # (Phase 15 DOC2: the slot at pool 0's planes -- four at the target under auto)
@@ -1012,7 +1012,7 @@ def _mem_per_node(D, g=1, opts=None):
     # Phase 15 DOC2: RNS_DIST_CACHE_FIT's bound as the code computes it (rns_dist.c rns_dist_cache_plan / cache_avail): ECALC_NODE_GB less the layout's
     # node (binsplit_node_bytes: the plane pools + the arena + the tables + the host term -- BS_HOST_INIT_BYTES at size 1, room_host's size > 1
     # formula since the B5 fix: runtime + staging + transport + the SHMEM pool + max(the VMM seed buffers, the writer + MN_OUT_EARLY)) less
-    # the reserve (32 GB per node), over one slot per node; the run's own check takes its measured init peak where larger (not modelled).
+    # the reserve (32 GB per node), over one slot per node; the run's own check takes its measured init peak where larger (not modeled).
     # cache_fit_room_model: against this model's peak
     layout_node = planes + sum(arena) + (room_host(N, g, pool, seedbuf, o['out_early']) if g > 1 else as_host()) + vb   # B7ACCT: vb = the v-slots under ECALC_VSLOT_BUDGET=1
     fit_room = o.get('node_gb', 480) * GB - layout_node - CACHE_FIT_RESERVE

@@ -1,7 +1,7 @@
 # target/config/target.conf.template -- the keys of the target machine's configuration. probe/gen_conf.py fills every key the probe
 # determines and writes config/target.conf (committed, Q112: site specifics are allowed there); a key still at __FILL__ is filled by
 # hand with a '# how determined' comment. lib/common.sh (tgt_conf) loads it into the environment; ecalc/mnrun.sh reads the same keys from the environment.
-# Evidence tags: (m) measured, (mod) modelled, (a) assumed, (u) user-supplied. Format: target/FORMATS.md §8.
+# Evidence tags: (m) measured, (mod) modeled, (a) assumed, (u) user-supplied. Format: target/FORMATS.md §8.
 #
 # Target facts (user-supplied 2026-10-12; tagged (u)):
 #   576 nodes x 4 MI300A APUs = 2304 APUs, one process per node; 8 Slingshot NICs per node at 400 Gb/s = 2 per APU

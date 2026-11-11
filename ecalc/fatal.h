@@ -18,7 +18,7 @@ extern "C" {
 
 #define EC_RC_FATAL  3   /* a check failed inside the run (not exit(1) or abort()): an internal error, a HIP call, a transport */
 #define EC_RC_OOM    6   /* an allocation failed, or a pool would grow inside a phase (the in-phase guards) */
-#define EC_RC_BUDGET 8   /* ECALC_BUDGET_CHECK=1: a node's modelled peak exceeds its budget; every rank stops before compute */
+#define EC_RC_BUDGET 8   /* ECALC_BUDGET_CHECK=1: a node's modeled peak exceeds its budget; every rank stops before compute */
 
 void ec_fatal(int code, const char *fmt, ...) __attribute__((noreturn, format(printf, 2, 3)));
 /* two-part form: ec_fatal_begin prints the header and the message (and blocks a later caller); the caller then prints

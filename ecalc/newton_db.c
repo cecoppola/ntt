@@ -647,7 +647,7 @@ static void mdb_from_bi(mdb *Y, const bigint *h, size_t N2, mn_group *G) { dbig 
 static void mn_prod_cut(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t lowcut, size_t highcut) { double t0 = mem_now(); rns_mul_dist_mn_cut(C, A, B, G, lowcut, highcut); mn_st.t_prod += mem_now() - t0; }
 
 /* The group a product runs on: a product of a few million limbs over hundreds of nodes is latency-bound, so the reciprocal's early doublings
- * run on the smallest subgroup [0, 2^L) (mn_group_at(L)) whose modelled cost (mn_model.py: local work per piece at the group's plane cap plus
+ * run on the smallest subgroup [0, 2^L) (mn_group_at(L)) whose modeled cost (mn_model.py: local work per piece at the group's plane cap plus
  * 15 exchanges of 8 q (g' - 1) / g' bytes at X1_BW per APU, K (g' - 1) messages of X1_LAT each) is least; the operands are re-sharded by
  * mdb_shift_g.  NEWTON_MN_GROUPS=0 keeps every product on the full group.  The digits do not depend on the choice; size 1 never comes here. */
 static const double X1_BW = 100.0, X1_LAT = 2e-6;

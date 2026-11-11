@@ -42,7 +42,7 @@ generic values only; the filled copy stays out of git.
 * `__FILL__` is the value of an unknown. The validator must refuse a profile that still has one (the checker lists them as UNFILLED).
 * A profile cannot unset a key (an `unset` section does not exist): leave the key out and unset it on the launch line.
 * Each key carries its evidence in the trailing comment: the `ecalc/README.md` switch row, `results/<ID>.md`, or the user's decision with its
-  date. Numbers are labelled (m) measured, (mod) modelled, (a) assumed. A line without evidence is a bug in the profile.
+  date. Numbers are labelled (m) measured, (mod) modeled, (a) assumed. A line without evidence is a bug in the profile.
 
 ## What belongs where
 

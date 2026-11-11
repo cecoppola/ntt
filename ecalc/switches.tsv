@@ -12,10 +12,10 @@ BS_SEED_FILL	bool	unset	unset	0|1	built-in default	-	T215.md+DOC15.md	Y	ecalc	bi
 BS_SEED_THREADS	bool	derived	derived	0|1	built-in default	-	I.md+S22.md	Y	ecalc	binsplit.c	3	
 COMM_HANG_DETAIL	int	unset	unset		built-in default	-	-	Y	ecalc	comm_xshmem.c	2	
 COMM_OFI_NICS	str	unset	derived	NIC list, ; between devices	launch-line	-	TUNE17.md+TGTBENCH2.md	Y	ecalc	pe_geo.c	1	comm_ofi.c:123; unset = automatic
-COMM_OFI_POOL_MB	int	0	0	MiB per device	launch-line	-	STD17.md+S18KITFIX.md	Y	ecalc	binsplit.c,comm_xshmem.c,ecalc.c	7	binsplit.c:694 sets it from the modelled need when unset
+COMM_OFI_POOL_MB	int	0	0	MiB per device	launch-line	-	STD17.md+S18KITFIX.md	Y	ecalc	binsplit.c,comm_xshmem.c,ecalc.c	7	binsplit.c:694 sets it from the modeled need when unset
 COMM_RANK	int	0	0	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,mn.c,segv_trace.c,vpe.c	25	set per process by the launcher (mnrun.sh); excluded from the config hash
 COMM_SEQ_CHECK	bool	0	unset	0|1	built-in default	-	-	Y	ecalc	comm_xshmem.c	1	comm_xshmem.c; every small collective and handshake
-COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_xshmem.c	7	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
+COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_xshmem.c	7	binsplit.c:684: 8192 unless COMM_OFI (then the modeled need)
 COMM_SIZE	int	1	conflict:0|1	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,crt.c,ecalc.c,fatal.c,mapd.c,mem.c,mn.c,mn_plan.c,rns_mul.c,segv_trace.c,vpe.c	26	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
 COMM_TRANSPORT	enum	unset	derived	shmem	launch-line	-	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c,rns_dist.c	4	mn.c: a transport is needed for COMM_SIZE > 1 (mnrun.sh sets it: xshmem, the S3a engine, when the launched executable has it (the default build, make XSHMEM=ofi, where libfabric is found; Q73 2026-10-21), else shmem; an explicit shmem is the fallback and the reference); tcp removed 2026-10-12
 DB_FREE_SYNC	int	0	0	0|1|2	experiment	-	POOLRACE.md	Y	ecalc	dbig.c	1	dbig.c; 0 = off; 1 = hipDeviceSynchronize on the block's device before it returns to the free list and before a VMM chunk is unmapped; 2 = on every pool device

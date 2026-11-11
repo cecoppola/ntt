@@ -2,7 +2,7 @@
 # mnrun.sh <procs> <command...> - run <procs> node-processes of ecalc (or any command) joined by the inter-node communicator (COMM_TRANSPORT=xshmem; `make XSHMEM=ofi` or `XSHMEM=cray`).
 #   e.g.  SLURM_JOB_ID=<id> ./mnrun.sh 2 ./ecalc 1000000000 /tmp/e.txt
 # Plain srun (Cray PMI), rank = PE; processes spread over the allocation's nodes (several per node when there are fewer), on the largest node count that divides <procs>.
-# COMM_SHMEM_POOL_MB = the planner's pool figure (unset: the modelled need from MN_PLAN_ONLY for ecalc, else 8192; a VAR=value word of the command wins); it sizes XSHMEM_HEAP_MB
+# COMM_SHMEM_POOL_MB = the planner's pool figure (unset: the modeled need from MN_PLAN_ONLY for ecalc, else 8192; a VAR=value word of the command wins); it sizes XSHMEM_HEAP_MB
 #   and, for the Cray backend, SHMEM_SYMMETRIC_SIZE = XT_SYMMETRIC_HEAP_SIZE.
 # MNRUN_MODULES: module line of every wrapper (default `rocm`; `cray-dsmml cray-openshmemx rocm` where /opt/cray/pe/sma exists); MNRUN_UNLOAD: unloaded first (rocm/7.0.3 on aac7).
 # MNRUN_CPUS_PER_TASK: srun -c (unset = auto: the node's CPUs / tasks per node; empty = no -c; a number is passed as is).

@@ -15,10 +15,10 @@
  *    rns_dist.c:476 -- keep in step), the pieces formed, the plane points, the total transform points (3 transforms
  *    per prime per piece, the single-node tier's cache off, its default), the all-to-alls under C (3 P per piece)
  *    and which strategies fit every piece in the budget.
- * 3. With E0's measured STRAT lines (P = 4, and P = 3 where the log has them) (t_strategy output, argument 1), the modelled time of each shape under each
+ * 3. With E0's measured STRAT lines (P = 4, and P = 3 where the log has them) (t_strategy output, argument 1), the modeled time of each shape under each
  *    strategy: pieces x the measured median of one product of that plane size (3 2^k planes: 1.5 x 1.05 x the 2^k
- *    time -- modelled; P = 3 from P = 4's measured parts: A and C transform/load parts x 3/4, B unchanged; the grid's
- *    shifted adds are not counted).  Labelled measured / modelled in the output.
+ *    time -- modeled; P = 3 from P = 4's measured parts: A and C transform/load parts x 3/4, B unchanged; the grid's
+ *    shifted adds are not counted).  Labelled measured / modeled in the output.
  *
  * usage: t_cap [e0_log] [budget_GiB=28] [P=4] [D1 D2 ...]      (default D = 4e10 1e11) */
 #include <stdio.h>
@@ -45,19 +45,19 @@ static void read_e0(const char *fn)
     }
     fclose(f);
 }
-/* one product on a plane of pts points under strategy k at NP primes: measured (2^k, P = 4) or modelled; <0: unknown */
-static double t_one(int k, double pts, int *modelled)
+/* one product on a plane of pts points under strategy k at NP primes: measured (2^k, P = 4) or modeled; <0: unknown */
+static double t_one(int k, double pts, int *modeled)
 {
     int logn = 0; while ((double)(1ULL << logn) < pts) logn++;
     int r3 = (double)(1ULL << logn) != pts;                         /* 3 2^j = 1.5 2^(j+1): logn = j + 2, the 2^k below is 2^(logn-1) */
     int lb = r3 ? logn - 1 : logn;
     if (lb < 0 || lb >= 40 || !have[k][lb]) return -1;
     double t = T[k][lb], f = r3 ? 1.5 * 1.05 : 1.0;
-    *modelled = r3;
-    if (NP == 3 && have3[k][lb]) { *modelled = r3; return T3[k][lb] * f; }   /* measured at P = 3 */
+    *modeled = r3;
+    if (NP == 3 && have3[k][lb]) { *modeled = r3; return T3[k][lb] * f; }   /* measured at P = 3 */
     if (NP == 3) {                                                  /* from the measured P = 4 parts */
         if (k == 0 || k == 2) t = TL[k][lb] * 0.75 + TN[k][lb] * 0.75 + TC[k][lb] + TM[k][lb] + (T[k][lb] - TL[k][lb] - TN[k][lb] - TC[k][lb] - TM[k][lb]);
-        *modelled = 1;
+        *modeled = 1;
     }
     return t * f;
 }
@@ -136,7 +136,7 @@ int main(int argc, char **argv)
         }
         sh[ns++] = (struct shape){ "div A_h mu (low cut)", 2 * nq + 1, nq + 2, nq + 2, (size_t)-1, 1 };
         sh[ns++] = (struct shape){ "div X Q (mod B^w)", nq + 1, nq, 0, nq + 2, 1 };
-        printf("2/3. D = %.3g digits (nq = %zu limbs = D/18): per shape and cap -- grid ka x kb, pieces formed x plane, transform points (3 P per piece), all-to-alls under C, strategies fitting every piece in %.1f GiB, modelled time per strategy (s)\n", D, nq, budget / GiB);
+        printf("2/3. D = %.3g digits (nq = %zu limbs = D/18): per shape and cap -- grid ka x kb, pieces formed x plane, transform points (3 P per piece), all-to-alls under C, strategies fitting every piece in %.1f GiB, modeled time per strategy (s)\n", D, nq, budget / GiB);
         double tot_pts[8] = {0}, tot_a2a[8] = {0}, tot_t[8][3] = {{0}}; int tot_unk[8][3] = {{0}}, tot_fit[8][3];
         for (int c = 0; c < ncap; c++) for (int s = 0; s < 3; s++) tot_fit[c][s] = 1;
         for (int i = 0; i < ns; i++) {
@@ -182,7 +182,7 @@ int main(int argc, char **argv)
         }
         printf("\n");
     }
-    printf("labels: bytes and grids exact (the code's formulas); times: E0 medians at P = 4 on 2^k planes = measured, 'm' = modelled (3 2^k planes, or P = 3);\n"
+    printf("labels: bytes and grids exact (the code's formulas); times: E0 medians at P = 4 on 2^k planes = measured, 'm' = modeled (3 2^k planes, or P = 3);\n"
            "        the grid's shifted adds, the cache (off by default in the single-node tier) and the tree's pairing are not counted\n");
     for (int k = 0; k < 3; k++) (void)SN[k];
     return 0;

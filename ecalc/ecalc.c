@@ -421,8 +421,8 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
             int ppg = vpe_on();
             size_t need = binsplit_div_product_limbs(N); int pl0 = rns_pool_log(), lc;
             rns_preinit_pool_log(30); lc = ppg ? 0 : rns_mul_dist_mn_logcap_g(sz); rns_preinit_pool_log(pl0);   /* the mn tier's plane cap at pool_log 30 for this group size (before rns_init, as `fit`) */
-            c = !ppg && need <= ((size_t)1 << lc) ? 0 : 1;   /* ECALC_PE_PER_GPU: not modelled here, 2^31 */
-            if (verbose) printf("ECALC_PLANE_CAP=run%s: plane cap %s (largest product %zu limbs %s 2^%d, the 2^30 cap's plane over %d node%s%s)\n", dflt ? " (default)" : "", bs_cap_name[c], need, c ? ">" : "<=", ppg ? 0 : lc, sz, sz > 1 ? "s" : "", ppg ? "; ECALC_PE_PER_GPU set: not modelled, 2^31" : "");
+            c = !ppg && need <= ((size_t)1 << lc) ? 0 : 1;   /* ECALC_PE_PER_GPU: not modeled here, 2^31 */
+            if (verbose) printf("ECALC_PLANE_CAP=run%s: plane cap %s (largest product %zu limbs %s 2^%d, the 2^30 cap's plane over %d node%s%s)\n", dflt ? " (default)" : "", bs_cap_name[c], need, c ? ">" : "<=", ppg ? 0 : lc, sz, sz > 1 ? "s" : "", ppg ? "; ECALC_PE_PER_GPU set: not modeled, 2^31" : "");
         }
         if (c < 0) { fprintf(stderr, "ECALC_PLANE_CAP=%s: one of 2^30, 2^31 (or 30, 31), fit or run\n", e); exit(2); }
         char pl[8]; snprintf(pl, sizeof pl, "%d", 30 + c);
@@ -584,7 +584,7 @@ int main(int argc, char **argv)
     if (!plan && verbose && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0)) binsplit_fit_print(&fit, (double)d_out, fit_g, "memory fit: ");
     if (!plan) fit_apu_check(&fit);
     if (!plan && !fit.fits && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0))
-        fprintf(stderr, "ecalc: WARNING: this run does not fit the modelled memory (device %.2f / %.2f GB, node %.2f / %.0f GB); launchers refuse it (mnrun.sh, tools/plan_values.py --fit)\n",
+        fprintf(stderr, "ecalc: WARNING: this run does not fit the modeled memory (device %.2f / %.2f GB, node %.2f / %.0f GB); launchers refuse it (mnrun.sh, tools/plan_values.py --fit)\n",
                 fit.device * 1e-9, fit.limit * 1e-9, fit.node * 1e-9, fit.budget * 1e-9);
     { char eff[360], pcb[2]; const char *np = getenv("ECALC_NP"), *pc = bs_plane_cap_idx >= 0 ? (pcb[0] = (char)('0' + bs_plane_cap_idx), pcb[1] = 0, pcb) : NULL, *cs = getenv("COMM_SIZE");   /* L5: the resolved values (print-only) */
       snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,plane_cap:%s,comm_size:%s,dm_mn_wrap:%d(%s)", pool_log, np ? np : "-", "10^18", verbose, pc ? pc : "-", cs ? cs : "1", newton_dm_wrap(), binsplit_dm_wrap_src());

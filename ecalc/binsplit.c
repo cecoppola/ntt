@@ -83,7 +83,7 @@ static int bs_nreg(void) { return vpe_on() ? 1 : 4; }   /* regions of one binary
 /* the planner's per-node counts.  PE layout off: 4 devices per node and the node range is split into 4 regions.  ECALC_PE_PER_GPU=1: L = vpe_lanes() PEs per node (one device each), each
  * holding ONE region over its own range; a node is L identical PEs, so the per-node figures (planes, arena, v-slots, the shares of the dm numbers) are the one PE's times L.
  * bs_nrn() = devices (PEs) per node, bs_lanes() = PEs per node (1 off).  The tree's group schedule stays node-based (MN_GROUPS over the nodes; the groups below a node
- * are not modelled until the *_pe functions exist) -- with L = 4 the PE model equals the node model up to rounding. */
+ * are not modeled until the *_pe functions exist) -- with L = 4 the PE model equals the node model up to rounding. */
 static int bs_nrn(void) { return vpe_on() ? vpe_lanes() : 4; }
 static int bs_lanes(void) { return vpe_on() ? vpe_lanes() : 1; }
 /* every PE is its own process, so each of the node's PEs has its own ROCm runtime and its own comm host memory: the
@@ -751,14 +751,14 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
     if (g_ofi_dev_mb) {   /* the device pools sized by the rule */
         if (!getenv("COMM_SHMEM_POOL_MB")) { char v[32]; snprintf(v, sizeof v, "%zu", mb); bs_setenv("COMM_SHMEM_POOL_MB", v, 1); have = mb; }
         if (!getenv("COMM_OFI_POOL_MB")) { char v[32]; snprintf(v, sizeof v, "%zu", g_ofi_dev_mb); bs_setenv("COMM_OFI_POOL_MB", v, 1); }
-        else if ((size_t)atol(getenv("COMM_OFI_POOL_MB")) < g_ofi_dev_mb && rank0) fprintf(stderr, "device pool: WARNING: COMM_OFI_POOL_MB=%s is below the modelled need of this run, %zu MiB per device\n", getenv("COMM_OFI_POOL_MB"), g_ofi_dev_mb);
+        else if ((size_t)atol(getenv("COMM_OFI_POOL_MB")) < g_ofi_dev_mb && rank0) fprintf(stderr, "device pool: WARNING: COMM_OFI_POOL_MB=%s is below the modeled need of this run, %zu MiB per device\n", getenv("COMM_OFI_POOL_MB"), g_ofi_dev_mb);
         if (xsh_on() && !getenv("XSHMEM_HEAP_MB")) { char v[32]; snprintf(v, sizeof v, "%zu", ofi_pool_mb()); bs_setenv("XSHMEM_HEAP_MB", v, 1); }   /* the xshmem DATA heap per loopback PE = the device pool law */
         if (rank0) printf("pool: the SHMEM pool %zu MiB (need %zu MiB) + 4 device pools of COMM_OFI_POOL_MB=%zu (%s)\n", mb > have ? mb : have, mb, ofi_pool_mb(), by);
     }
     if (mb > have) {
         char v[32]; snprintf(v, sizeof v, "%zu", mb); bs_setenv("COMM_SHMEM_POOL_MB", v, 1);
         if (rank0) printf("pool: COMM_SHMEM_POOL_AUTO=1 -- COMM_SHMEM_POOL_MB %zu -> %zu (%s)\n", have, mb, by);
-    } else if (rank0 && getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2) printf("pool: COMM_SHMEM_POOL_MB=%zu holds the modelled need %zu MiB (%s)\n", have, mb, by);
+    } else if (rank0 && getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2) printf("pool: COMM_SHMEM_POOL_MB=%zu holds the modeled need %zu MiB (%s)\n", have, mb, by);
     return mb;
 }
 /* BS_LAYOUT_ONLY="D:g[,D:g...]" -- print the arena request binsplit_pregrow would make for D digits

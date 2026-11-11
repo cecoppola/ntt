@@ -2134,7 +2134,7 @@ size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t
     { size_t Wt = mn_t_chunk_limbs(); if (Wt && win > Wt) { win = Wt; size_t sc = Wt / NL() + 2 * (size_t)g * rows; if (send > sc) send = sc; } }   /* MN_T_CHUNK_MB: the rounds */
     /* XSHMEM_ROUND_MB = m -- comm_xshmem.c carries an all-to-all whose pair exceeds m / (n - 1) in rounds that
      * stage at most m each way, and leaves the self slab out of the staging: each side of each exchange is its peers' part
-     * (modelled as (g - 1) / g of it) bounded by m (RMIN) */
+     * (modeled as (g - 1) / g of it) bounded by m (RMIN) */
     const char *er = round_env(); size_t Rl = er && atof(er) > 0 ? (size_t)(atof(er) * 1048576.0) / 8 : 0;
 #define RMIN(x) (Rl ? ((x) / (size_t)g * (size_t)(g - 1) > Rl ? Rl : (x) / (size_t)g * (size_t)(g - 1)) : (x))
     size_t result = RMIN(send) + RMIN(win / NL());
