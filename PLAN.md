@@ -76,7 +76,7 @@ evidence, are in the switch table of `ecalc/README.md` and `RESULTS.md`; `ECALC_
 | launch | `./mnrun.sh <nodes> env ./ecalc <digits>`: layout D, one process per node, four APU threads, `COMM_TRANSPORT=xshmem` | `./mnrun.sh <nodes> env ECALC_PE_PER_GPU=1 XSHMEM_LANES=2 ./ecalc <digits>`: one process per GPU, two lanes |
 | added by `mnrun.sh` | the communicator and libfabric variables | the same, and under `ECALC_PE_PER_GPU=1` the NUMA placement (`MNRUN_PPG_CPUBIND=ldom`, `XSHMEM_CRAY_NUMA=1`), the automatic libsma heap and the plan |
 
-The exchange worker thread runs in every layout; the per-device allocator helpers (`ECALC_MAPD`) are on above one process (user 2026-11-08); `RNS_BATCH_SPLIT` is automatic under `ECALC_PE_PER_GPU=1`; the transport
+The exchange worker thread runs in every layout; the per-device allocator helpers (`ECALC_MAPD`) are on above one process but not under `ECALC_PE_PER_GPU=1` (`mapd.c` returns early there; user 2026-11-08); `RNS_BATCH_SPLIT` is automatic under `ECALC_PE_PER_GPU=1`; the transport
 is xshmem on both paths (the plain SHMEM transport is gone, Q103). Both lines add `MN_T_CHUNK_MB=2048`, the memory guard and the crash-trace handler (`ECALC_NP` is auto above one process by default). The full lines
 (`mnrun.sh` is called with them) are kept in:
 
