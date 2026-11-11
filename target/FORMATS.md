@@ -8,14 +8,14 @@ here. Entry point for a new session: `target/RESTART.md`.
 
 | path | what | written by |
 |---|---|---|
-| `RESTART.md` | full context for the agent on the target: mission, steps 1-4, rules, install steps | here (before access) |
+| `RESTART.md` | run procedure on the target: decisions, rules, steps 1-4 with commands, known problems | here (before access) |
 | `README.md` | one-page map and the run order | here |
 | `FORMATS.md` | this file | here |
 | `lib/common.sh` | shared shell functions (§3); every script sources it | here |
 | `probe/` | step 1: `probe.sh` (fast system facts), `probe_shmem.c`, `gen_conf.py` (facts → `config/target.conf`) | here |
 | `config/` | `target.conf.template`; `target.conf` (generated on the target, committed) | template here, conf on target |
-| `bench/` | step 3: `manifest.d/*.tsv`, `QUESTIONS.md` (question register), `run.sh` (claiming runner), `items/items.sh <id>` | here |
-| `ladder/` | step 4: `ladder.sh`, `locality.py`, `parse_run.py` (log parser, replica collect), `levels/L0..L3.conf`, `ADJUST.md` (rules for changes between runs); tests `tests/test_locality.py`, `tests/test_ladder_parse.py` | here |
+| `bench/` | step 3: `manifest.d/*.tsv`, `QUESTIONS.md` (question register), `manifest.py` (manifest reader), `run.sh` (claiming runner), `items/items.sh <id>` with helpers `_build.sh`, `_ecalc.sh`, `_opt.sh`, `_opt_stats.py` | here |
+| `ladder/` | step 4: `ladder.sh`, `locality.py`, `parse_run.py` (log parser, replica collect), `levels/L0..L3.conf`, `ADJUST.md` (rules for changes between runs); tests `tests/test_locality.py`, `tests/test_ladder_parse.py` in the repository's top-level `tests/` | here |
 | `build/` | binaries built on the target by `bld01`/`bld02` (`build/<sha7>-p1|p2/`); git-ignored | target |
 | `results/` | everything measured on the target, committed raw (decision Q112) | target |
 
@@ -28,7 +28,7 @@ results/bench/<id>/                     one dir per bench item: claim, summary.t
 results/bench/_slurm/  _old/            worker sbatch logs; results moved aside by `run.sh --reclaim --force`
 results/ladder/<level>/<tag>-r<k>/      one dir per ladder replica (a job): summary.txt (keys p<path>r<run>.<key>), raw/, DONE
 results/ladder/<level>/<tag>.submit.txt  job ids, hosts, done markers of one submit; results/ladder/LADDER.md = collect output; results/ladder/exclude.txt = hosts to leave out
-results/LOG.md  DECISIONS.md  HANDOFF.md the coordinator's dated log (times with time zone), its decisions with options, the closing hand-off (RESTART §10)
+results/LOG.md  DECISIONS.md  HANDOFF.md the coordinator's dated log (times with time zone), its decisions with options, the closing hand-off (RESTART §9)
 ```
 
 ## 2. Roles on the target
@@ -66,7 +66,7 @@ id	tier	prio	nodes	est_min	deps	questions	cmd
 
 | column | meaning |
 |---|---|
-| `id` | `<area><nn>` lowercase, unique, also the results dir name (areas: `sys`, `bld`, `mem`, `gpu`, `ntt`, `net`, `io`, `ini`, `scl`, `prm`, `cal`, `cor`) |
+| `id` | `<area><nn>` lowercase, unique, also the results dir name (areas in use: `bld`, `mem`, `cor`, `net`, `io`; the register also reserves `sys`, `gpu`, `ntt`, `ini`, `scl`, `prm`, `cal`) |
 | `tier` | 1 = short (≤ 10 min wall), 2 = medium (≤ 45 min) |
 | `prio` | integer, lower runs first; 0-99 = needed by the ladder's first run, 100-199 = answers an open optimization question, 200+ = calibration for later offline work |
 | `nodes` | nodes the item needs (1, 2, 4, 8, 16, 64 …); the runner gives an item exactly this many hosts, adjacent ones first |
@@ -115,18 +115,18 @@ e.<NAME>=<value>               environment / settings used (e.g. e.MN_T_CHUNK_MB
 note=<free text>
 ```
 
-The `m.*` and `q.*` lines are read from each item's `summary.txt` (the aggregator that collected them is archived).
+The `m.*` and `q.*` lines are read from each item's `summary.txt` (the aggregator that collected them was archived).
 
 ## 7. Question register — `bench/QUESTIONS.md`
 
 One table, one row per open question about the target: `TQ<nn> | question | decision it drives | planned measurement |
-feeds (offline model / constant) | items | prio` (columns are found by header name; no `|` inside cells; a second table lists the planned items). Every manifest item names at least one `TQ`; every `TQ` has at least one item. Add questions, never
+feeds (offline model / constant) | items | prio` (columns are found by header name; no `|` inside cells; a second table lists the planned items). Every manifest item names at least one `TQ`; a `TQ` may have no item script (marked in the register). Add questions, never
 renumber.
 
 ## 8. config/target.conf
 
 The keys of `config/target.conf.template` (KEY=VALUE, `#` comments, evidence tags (m)/(mod)/(a)/(u)). `probe/gen_conf.py
-results/probe/<dir>` fills every key the probe determines and leaves the rest at `__FILL__` with a reason comment.
+<login dir> [<node dir>] -o config/target.conf` fills every key the probe determines and leaves the rest at `__FILL__` with a reason comment.
 Scripts load it through `tgt_conf`; `ecalc/mnrun.sh` reads the same keys from the environment.
 
 ## 9. Locality interface — `ladder/locality.py`

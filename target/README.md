@@ -1,26 +1,19 @@
 # target/ — remote testing and evaluation on the target system
 
-> **Workflow.** The copy-and-paste route (`remote/`, browser agent, no agent on the target) was removed 2026-11-08 by user decision; it is in git
-> history (commit cfe9d3a1 and earlier, `git show cfe9d3a1:remote/FACTS.md`) and on the frozen branch remote-v12. The Claude Code workflow below (run order
-> step 0 and `RESTART.md` §0, §2) is background only.
+> The copy-and-paste route (`remote/`) was removed 2026-11-08 by user decision (git history, commit cfe9d3a1; `git show cfe9d3a1:remote/FACTS.md`). The package below is the Claude Code route; it has not yet been run on the target. Earlier text of this file: `archive:target_README_2026-11-10.md`.
 
 Scope: everything for the target session (576 nodes × 4 MI300A, 8 Slingshot NICs per node, Cray SHMEM 12.1.0): what we
 bring (scripts, the ecalc build, rules) and what we collect (raw results, committed as measured). An agent on the target
-starts with `RESTART.md`; conventions are in `FORMATS.md`.
+starts with `RESTART.md`; conventions are in `FORMATS.md` (folder map: §1).
 
 ## Run order (each step is ordered by priority, so the session can end at any point)
 
 | step | what | where | time |
 |---|---|---|---|
-| 0 | (Claude-Code workflow only, not used in the paste session) install the rules and memory | login node | 5 min |
 | 1 | system facts: `probe/probe.sh` on a login node, then inside a one-node job; `probe/gen_conf.py` → `config/target.conf` | login + 1 node | ≤ 10 min |
 | 2 | build path 1 and path 2 (bench items `bld01`, `bld02`) | login node | ~5 min |
 | 3 | bench: workers loop `bench/run.sh` in parallel allocations; answers in each item's `summary.txt` | 1-64 nodes each | minutes per item |
 | 4 | ladder: `ladder/ladder.sh --level L0` (a few runs, adjust per `ladder/ADJUST.md`), then L1, L2, L3 | 1 / 8 / 64 / 576 nodes | per level |
-
-## Folder map
-
-See `FORMATS.md` §1.
 
 ## Target site facts (measured 2026-10-26, target, m; condensed from the removed `remote/FACTS.md`)
 
@@ -40,7 +33,7 @@ Hand-run by the user, one default partition of 576 nodes; every node started eca
 
 Runs (path 1, layout D, all VERIFY OK, cold starts; weak scaling at 8e9 digits per node, `BS_SEED_THREADS=144`): 2 nodes total 39.1 s (init 12.9, bs 4.6, dm 7.6, dc 14.1); 64 nodes 84.6 s (15.8 / 23.7 / 30.8 / 14.3); 576 nodes 255.3 s (4.608e12 digits; 111.0 / 56.5 / 73.3 / 14.5; engine older than v12, see `results/MODEL.md` §v12). With the old seed default init took 103-150 s and the 576-node total was 282 s. Exchange rate 3.6 GB/s per APU thread at 2 nodes, 4.5 at 64 (NIC peak 100). Device memory per node 120.3 GB at 64 nodes (APU peaks 2.7-6.5 GB above the planner's per-APU figure, node total 6-9 GB below plan).
 
-Failures at 576 nodes (cause open; analysis in `PLAN.md` and `results/COMPUTE.md`): 2e13 `comm_xshmem: pe N: HANG (> 900 s) in the allgather handshake` (two PEs in node range 512-575) and 3e13 `P24 CRT flag 1` on nodes 283-376, both at a mixed piece layout at tree level 7; worked around by `MN_NONPOW2_CAP=0`. Switches for the next try (off by default): `COMM_HANG_DETAIL=1`, `XSHMEM_HANG_S`, `COMM_SEQ_CHECK=1`, `XSHMEM_HS_BATCH`, `P24_CHECK=1|2`, `ECALC_FIT_PER_APU=1`, `MEM_REPORT_DEVS=1` (rows in `ecalc/README.md`).
+Failures at 576 nodes (cause open; analysis in `PLAN.md` and `results/COMPUTE.md`): 2e13 `comm_xshmem: pe N: HANG (> 900 s) in the allgather handshake` (two PEs in node range 512-575) and 3e13 `P24 CRT flag 1` on nodes 283-376, both at a mixed piece layout at tree level 7; worked around by `MN_NONPOW2_CAP=0` (and `MN_LEVEL_UNIFORM=1` in the frozen remote-v12 record steps; open item in `TASKS.md`). Switches for the next try (off by default): `COMM_HANG_DETAIL=1`, `XSHMEM_HANG_S`, `COMM_SEQ_CHECK=1`, `XSHMEM_HS_BATCH`, `P24_CHECK=1|2`, `ECALC_FIT_PER_APU=1`, `MEM_REPORT_DEVS=1` (rows in `ecalc/README.md`).
 
 Memory limits and planner results (target limits; m = measured on the target, mod = planner):
 - Device edge `hipMalloc` 373.44 GB per node = 93.36 GB per APU (m, 5 runs; the planner default `ECALC_DEVICE_GB`). Host budget `ECALC_NODE_GB=487` from MemAvailable 515.7 GB on a freshly booted idle node (m; code default 480); after a heavy job an idle node showed about 491 GB, so plan node budgets from about 490 GB; the Slurm job memory is about 497 GB per node (m).
@@ -65,19 +58,4 @@ Host memory: VmHWM 12.0 GB (1 node), 13.0 (64), 21.7 (576, 144 seed threads), 25
 
 P24 / 3e13 failure inference (mod / assumed; no env.txt of the run): `MN_NONPOW2_CAP=0` assumed; 3e13 with the cap on auto is refused (device 385.93 GB, 96.48 per APU), with cap 0 it fits (350.37, 87.59 per APU). Piece census (`MN_PLAN_ONLY`, 576 nodes, cap 0): at 4.608e12 and 2e13 levels 1-6 have 2 pieces in every group; at 3e13 levels 1-6 are MIXED (groups from node 158/160 on have 4 pieces, those below 2) and level 7 has 10 pieces in the group [192,384); at 3.82e13 every level is uniform again. The CRT-flag nodes (283, 310, 332, 356, 376) all lie in [192,384). Lead: multi-piece P24 grids at mixed piece counts (shifted piece adds, piece windows at the cap, the transform cache across pieces); the audit in `results/COMPUTE.md` §P24 audit found nothing. The shape appears at 2.9e13/576 to 3.6e13/576 digits per node on 64-576 nodes (planner, aac7); 64 nodes at 3.333e12 digits form it. Collect next time: the first non-HANG error lines with times, the full P24 lines (node, plane, prime), and `MEM_REPORT_DEVS=1` per-APU lines. 2e13 code reading (mod, `results/TRANSPORT.md` T2): a straggler past the fixed 900 s is the most likely cause, then call-order divergence, then a flat burst.
 
-Known problems and fixes (target, m unless noted):
-
-| symptom | cause and fix |
-|---|---|
-| hang in memory registration (ROCr <-> libfabric) | keep `FI_MR_CACHE_MONITOR=userfaultfd` |
-| rc 4 / rc 8 at start; rc 9 | plan does not fit: lower digits to the printed maximum; rc 9 memory guard: lower `ECALC_NODE_GB` by the printed overshoot |
-| `fi_enable(-28)` with several PEs per node | launch Slurm-native (`srun --ntasks`), as `mnrun.sh` does |
-| a task gets 1-2 CPUs | `MNRUN_CPUS_PER_TASK=auto` (default); a hand `srun` needs `-c <CPUs per task>` |
-| `srun` inherits `SLURM_HINT=nomultithread` and `SLURM_DISTRIBUTION=block:block` from the login environment | OpenMP latches 1-2 threads: init 150 s instead of 13-16 s (target), 8e9 run 156 s instead of 15.4 s (aac7). `mnrun.sh` drops the hint (`MNRUN_KEEP_HINT=1` keeps it) and passes `--distribution=block`; `BS_SEED_THREADS=auto` (3/4 of the task CPUs, default) protects hand launches; a hand `srun` adds `--hint=multithread` or `-c 48`. `alloc.sh`-style launches and the target scripts do not inherit the hint |
-| `ld.lld: unable to find library -lpmi2`; path 2 links the old 11.8 SHMEM; GMP not found | automatic in `ecalc/Makefile` (`PMI_LIBDIR`, `CRAY_SMA`, `GMP_BASE` as `GMP_HOME`) |
-| random multi-second stalls of all 4 APU threads of a node | kernel compaction of a 4 KiB pinned heap (SHMEM heap; path 1 is not affected): hugetlb/THP heap, checklist in `results/TRANSPORT.md` |
-| `ECALC_NP=3` (one node only) | three primes cut plane memory (154.6 GB planes, `mem_model`), at most `ec_np3_max_terms` terms per product; aac7 1 node 3 primes -0.19 s vs auto, 4 primes +7.5 s; at more than one node it is refused (use auto or 4) |
-| slow node or missing NIC | `tools/nodescreen.sh` (NIC count 8 per node); exclude the host |
-| first run on a fresh allocation slow (2x on aac7) | cold start: time from run 2 |
-| `ECALC_VERBOSE=2` very long at 576 nodes | use `ECALC_VERBOSE=1` |
-| a run seems hung but is a slow file system | no digit output in timing runs; wait for `total` |
+Known problems and fixes: `RESTART.md` §8.
