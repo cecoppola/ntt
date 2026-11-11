@@ -48,7 +48,7 @@ if [ "${1:-}" = --log ]; then aac7_log; exit 0; fi
 
 # ---- sourced: modules and variables ---------------------------------------------------------------------------------------
 # Phase 16 V (results/TRANSPORT.md): the fastest stack measured on aac7 becomes the default — rocm/7.2.4 (identical digits to
-# 7.0.3, 168.5 vs 205.9 s at 1e11, C16 §2.7) instead of the system default rocm/7.0.3.  AAC7_ROCM overrides it
+# 7.0.3, 168.5 vs 205.9 s at 1e11, archive:results_merged_2026-10-19/C16.md §2.7) instead of the system default rocm/7.0.3.  AAC7_ROCM overrides it
 # (AAC7_ROCM=rocm/7.0.3 reverts to the old stack, e.g. to match the target's TARGET_HW_REVIEW ROCm version).
 case "${AAC7_ROCM:-}" in ""|*/*) ;; *) AAC7_ROCM=rocm/$AAC7_ROCM;; esac   # merge V+D: a bare version (D: 7.2.4) means rocm/<version>
 export AAC7_ROCM=${AAC7_ROCM:-rocm/7.2.4}

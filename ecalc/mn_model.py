@@ -75,7 +75,7 @@ class Fabric:
     staging_bw: GB/s HBM copy rate for a D2H + H2D staging copy of every inter-node byte, None = off (06 EVALUATION item 13 /
     04 open item: ASSUMED -- no transport on the target stages through host memory today; CLI --staging, default off so the
     standing estimate does not move). fall_off: exponent a on a per-group-size fabric fall-off, rate x (g/2)^(-a), None/0 = off
-    (CLI --fall-off <a>; WISHLIST / B2's open item 9 -- no aac7 t_comm (removed, Q103) fall-off measurement is fed in by default)."""
+    (CLI --fall-off <a>; archive:docs-2026-11-10/TARGET_WISHLIST.md §1.4 / B2's open item 9 -- no aac7 t_comm (removed, Q103) fall-off measurement is fed in by default)."""
     def __init__(self, name, bw_apu, lat, group=64, layers=2, taper=1.0, gpu_share=1, fixed=0.0, write_bw=2.0, tcp_exp=0.0, coll_fixed=None, target=True,
                  staging_bw=None, fall_off=0.0, v_factor=1.0, k_other=1.0):
         self.k_other = k_other   # L4: the operand-redistribution / result / spill all-to-alls' rate as a fraction of the bulk (transform) exchange's; 1.0 = off (all profiles but aac7_l4)
@@ -163,7 +163,7 @@ TARGET = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=TARGET_BW_APU, lat=2e-
 TARGET_DIGITS = mem_model.TARGET_DIGITS   # Phase 15 TGT (the user's decision of 2026-09-27 23:50 EDT): 5.1e13 on 576 nodes (was 4.25e13); mem_model.py holds it
 TARGET_BELOW = mem_model.TARGET_BELOW     # the runtime one step below: 3.99e13 (B7ACCT; was 4.74e13, below the 2026-09-29 target)
 TARGET_NODES = mem_model.TARGET_NODES
-# Phase 16 C (results/MODEL.md §C16): aac7 -- HPE Cray EX, 4 x MI300A, 4 x Slingshot-11 (one 200 Gb/s Cassini per socket), Cray OpenSHMEMX 11.8.0, ROCm
+# Phase 16 C (current inputs: results/MODEL.md §C16; detail: archive:results_merged_2026-10-19/C16.md): aac7 -- HPE Cray EX, 4 x MI300A, 4 x Slingshot-11 (one 200 Gb/s Cassini per socket), Cray OpenSHMEMX 11.8.0, ROCm
 # 7.0.3, one process per node (one NIC per PE: C16 2.1).  MEASURED on 2 nodes: 3.6 GB/s per APU thread through the put path at the exchange
 # sizes ecalc sends (13.5-14.8 GB/s per node aggregate), 8.5 us per put + signal + wait, the part file on NFS at 0.116 GB/s (A16 4).
 # `mn_model.py estimate --fabric aac7_c16` (or MN_MODEL_PROFILE=aac7_c16; plain `aac7` is the S48 refit since 2026-10-11) selects it and applies AAC7_CONSTS to the constants above; the TARGET profile and
@@ -195,7 +195,7 @@ AAC7_L4 = Fabric("aac7 L4 refit, NIC group B (placeholder until aac7_fit.json (l
 AAC7_L4A = Fabric("aac7 L4 refit, NIC group A (placeholder)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
 TARGET_L4 = Fabric("Slingshot-2 dragonfly (PLAN 25), L4 layv factor (placeholder)", bw_apu=TARGET_BW_APU, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
 # target_fit (A3, 2026-10-27): the target's own measurements.  FITTED (log-space least squares over the six bs / dm values of the 2 / 64 / 576-node weak-scaling runs at 8e9 digits per node,
-# BS_SEED_THREADS=144; results/MODEL.md §target_fit has the table) with the explicit per-round synchronisation term (ROUND_SYNC x peers^ROUND_SYNC_EXP per round, XSHMEM_ROUND_MB=128 =
+# BS_SEED_THREADS=144; archive:cleanup_1103/results/TIME_MODEL.md §target_fit has the table) with the explicit per-round synchronisation term (ROUND_SYNC x peers^ROUND_SYNC_EXP per round, XSHMEM_ROUND_MB=128 =
 # the code's default, what every target run used); a flat bandwidth + latency fit (Fit A: 10.4 GB/s per APU, 97 us) misses dm at 64 nodes by 28 %.  The other constants are the analysis's:
 # DC_FMT_MN 1.79 s per 1e9 digits (the digit residue as the code stands: ECALC_RESIDUE / the early hook change it), init 1.2 x + 0.6 s per doubling of the nodes beyond 2, NODE_SCALE 1.15.
 # bw and lat are NOT the physical injection rate: with the sync term they trade off (a 10.4 GB/s / 97 us pair + any sync term fits worse).  Every other profile is unchanged.
@@ -817,7 +817,7 @@ INIT_SCALE = float(os.environ.get('MN_MODEL_INIT_SCALE', '1.0'))   # Phase 16 C:
 if 'MN_MODEL_LOCAL_F' in os.environ:   # Phase 16 F: one factor on the local (non-fabric) terms = NODE_SCALE and INIT_SCALE together (each env above still wins); default 1.0
     if 'MN_MODEL_NODE_SCALE' not in os.environ: NODE_SCALE = float(os.environ['MN_MODEL_LOCAL_F'])
     if 'MN_MODEL_INIT_SCALE' not in os.environ: INIT_SCALE = float(os.environ['MN_MODEL_LOCAL_F'])
-# Phase 16 C (results/MODEL.md §C16 2.3-2.5, 2.7): the aac7 values of the constants above, applied by apply_profile('aac7_c16') (and the base of aac7_s48) -- MEASURED on 2 nodes
+# Phase 16 C (archive:results_merged_2026-10-19/C16.md §2.3-2.5, §2.7): the aac7 values of the constants above, applied by apply_profile('aac7_c16') (and the base of aac7_s48) -- MEASURED on 2 nodes
 # (HIDE_POW2, GEN_HIDE at depth 1 / 2 from COMM_LAYER_STATS, removed 2026-10-19 (D56); T_ROUND from the MN_T_CHUNK_MB 512 / 1024 / 2048 series) and on one node
 # (MAP_RATE from t_alloc at ROCm 7.0.3; NODE_SCALE / INIT_SCALE FITTED on the one-node 1e10 / 1e11 runs against this model's aac6 calibration)
 AAC7_CONSTS = dict(HIDE_POW2=0.72, GEN_HIDE1=0.011, GEN_HIDE2=0.74, T_ROUND=0.015, MAP_RATE=0.070, NODE_SCALE=1.12, INIT_SCALE=1.20)

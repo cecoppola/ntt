@@ -222,7 +222,7 @@ ecalc_run() {         # TAG SHAPE NODES DIGITS [VAR=VALUE ...]
     fi
     for w in "$@"; do case $w in MNRUN_*=*) lw+=("$w");; *=*) words+=("$w");; esac; done
     # reporting settings unless the caller or target.conf set them
-    for w in ECALC_VERBOSE=2 MEM_REPORT_DEVS=1 ECALC_SEGV_TRACE=1 ECALC_MEM_GUARD_GB=6 ECALC_FIT_APU_CHECK=1; do   # FIT_APU_CHECK: user 2026-11-01 (per-APU start-up memory check on in the kit)
+    for w in ECALC_VERBOSE=2 MEM_REPORT_DEVS=1 ECALC_SEGV_TRACE=1 ECALC_MEM_GUARD_GB=6 ECALC_FIT_APU_CHECK=1; do   # FIT_APU_CHECK: user 2026-11-01 (per-APU start-up memory check on in the launch package)
         local k=${w%%=*}; [ -n "${!k+x}" ] || words=("$w" "${words[@]}"); done
     h=$(_ec_hosts_of "$n") || true
     if [ -z "$h" ] && [ -z "${ECALC_REPLAY:-}" ]; then echo "ecalc_run $tag: fewer than $n hosts in HOSTS_SUB/HOSTS" > "$lg"; E_RC=98; _ec_save "$tag"; return 98; fi
